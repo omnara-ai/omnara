@@ -45,6 +45,7 @@ include = ["omnara*", "servers.mcp_server*", "servers.shared*"]
 # Test discovery
 testpaths = ["backend/tests", "servers/tests", "tests"]
 python_files = ["test_*.py"]
+pythonpath = ["."]
 
 # Markers
 markers = [
