@@ -84,7 +84,10 @@ class PushNotificationService:
 
                     # Check for errors in the response
                     for push_ticket in response:
-                        if hasattr(push_ticket, 'status') and push_ticket.status == "error":
+                        if (
+                            hasattr(push_ticket, "status")
+                            and push_ticket.status == "error"
+                        ):
                             logger.error(
                                 f"Push notification error: {getattr(push_ticket, 'message', 'Unknown error')}"
                             )
