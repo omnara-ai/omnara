@@ -8,7 +8,6 @@ install:
 # Install development dependencies
 dev-install: install
 	pip install -r requirements-dev.txt
-	pip install -r sdk/python/requirements.txt
 
 # Install pre-commit hooks
 pre-commit-install: dev-install
