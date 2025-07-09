@@ -108,16 +108,17 @@ def create_question(
         from servers.shared.notifications import push_service
 
         # Get agent name from instance
-        agent_name = instance.user_agent.name if instance.user_agent else "Agent"
+        if instance:
+            agent_name = instance.user_agent.name if instance.user_agent else "Agent"
 
-        push_service.send_question_notification(
-            db=db,
-            user_id=instance.user_id,
-            instance_id=str(instance.id),
-            question_id=str(question.id),
-            agent_name=agent_name,
-            question_text=question_text,
-        )
+            push_service.send_question_notification(
+                db=db,
+                user_id=instance.user_id,
+                instance_id=str(instance.id),
+                question_id=str(question.id),
+                agent_name=agent_name,
+                question_text=question_text,
+            )
     except Exception as e:
         # Don't fail the question creation if push notification fails
         logger.error(
