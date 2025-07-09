@@ -15,7 +15,12 @@ from .sdk.exceptions import (
     APIError,
 )
 
-__version__ = "1.2.0"
+try:
+    from importlib.metadata import version
+
+    __version__ = version("omnara")
+except Exception:
+    __version__ = "unknown"
 __all__ = [
     "OmnaraClient",
     "AsyncOmnaraClient",
