@@ -15,7 +15,7 @@ from .sdk.exceptions import (
     APIError,
 )
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __all__ = [
     "OmnaraClient",
     "AsyncOmnaraClient",
