@@ -8,23 +8,17 @@ It provides the same functionality as the hosted server but uses stdio transport
 import argparse
 import asyncio
 import logging
-from collections.abc import Callable, Coroutine
-from functools import wraps
-from typing import Any, ParamSpec, TypeVar
+from typing import Optional
 
 from fastmcp import FastMCP
-from shared.config import settings
-from shared.database import Base
-from shared.database.session import engine
+from omnara.sdk import AsyncOmnaraClient
+from omnara.sdk.exceptions import TimeoutError as OmnaraTimeoutError
 
 from .models import AskQuestionResponse, EndSessionResponse, LogStepResponse
-from .tools import (
+from .descriptions import (
     LOG_STEP_DESCRIPTION,
     ASK_QUESTION_DESCRIPTION,
     END_SESSION_DESCRIPTION,
-    log_step_impl,
-    ask_question_impl,
-    end_session_impl,
 )
 from .utils import detect_agent_type_from_environment
 
@@ -32,31 +26,15 @@ from .utils import detect_agent_type_from_environment
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Type variables for decorator
-P = ParamSpec("P")
-T = TypeVar("T")
+# Global client instance
+client: Optional[AsyncOmnaraClient] = None
 
 
-def require_api_key(func: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
-    """Decorator to ensure API key is provided for stdio server."""
-
-    @wraps(func)
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        # For stdio, we get the API key from command line args
-        # and use it as the user_id for simplicity
-        api_key = getattr(require_api_key, "_api_key", None)
-        if not api_key:
-            raise ValueError("API key is required. Use --api-key argument.")
-
-        # Add user_id to kwargs for use in the function
-        kwargs["_user_id"] = api_key
-        result = func(*args, **kwargs)
-        # Handle both sync and async functions
-        if asyncio.iscoroutine(result):
-            return await result
-        return result
-
-    return wrapper
+def get_client() -> AsyncOmnaraClient:
+    """Get the initialized AsyncOmnaraClient instance."""
+    if client is None:
+        raise RuntimeError("Client not initialized. Run main() first.")
+    return client
 
 
 # Create FastMCP server
@@ -64,18 +42,24 @@ mcp = FastMCP("Omnara Agent Dashboard MCP Server")
 
 
 @mcp.tool(name="log_step", description=LOG_STEP_DESCRIPTION)
-@require_api_key
-def log_step_tool(
+async def log_step_tool(
     agent_instance_id: str | None = None,
     step_description: str = "",
-    _user_id: str = "",  # Injected by decorator
 ) -> LogStepResponse:
     agent_type = detect_agent_type_from_environment()
-    return log_step_impl(
-        agent_instance_id=agent_instance_id,
+    client = get_client()
+
+    response = await client.log_step(
         agent_type=agent_type,
         step_description=step_description,
-        user_id=_user_id,
+        agent_instance_id=agent_instance_id,
+    )
+
+    return LogStepResponse(
+        success=response.success,
+        agent_instance_id=response.agent_instance_id,
+        step_number=response.step_number,
+        user_feedback=response.user_feedback,
     )
 
 
@@ -83,31 +67,50 @@ def log_step_tool(
     name="ask_question",
     description=ASK_QUESTION_DESCRIPTION,
 )
-@require_api_key
 async def ask_question_tool(
     agent_instance_id: str | None = None,
     question_text: str | None = None,
-    _user_id: str = "",  # Injected by decorator
 ) -> AskQuestionResponse:
-    return await ask_question_impl(
-        agent_instance_id=agent_instance_id,
-        question_text=question_text,
-        user_id=_user_id,
-    )
+    if not agent_instance_id:
+        raise ValueError("agent_instance_id is required")
+    if not question_text:
+        raise ValueError("question_text is required")
+
+    client = get_client()
+
+    try:
+        response = await client.ask_question(
+            agent_instance_id=agent_instance_id,
+            question_text=question_text,
+            timeout_minutes=1440,  # 24 hours default
+            poll_interval=1.0,
+        )
+
+        return AskQuestionResponse(
+            answer=response.answer,
+            question_id=response.question_id,
+        )
+    except OmnaraTimeoutError:
+        raise TimeoutError("Question timed out waiting for user response")
 
 
 @mcp.tool(
     name="end_session",
     description=END_SESSION_DESCRIPTION,
 )
-@require_api_key
-def end_session_tool(
+async def end_session_tool(
     agent_instance_id: str,
-    _user_id: str = "",  # Injected by decorator
 ) -> EndSessionResponse:
-    return end_session_impl(
+    client = get_client()
+
+    response = await client.end_session(
         agent_instance_id=agent_instance_id,
-        user_id=_user_id,
+    )
+
+    return EndSessionResponse(
+        success=response.success,
+        agent_instance_id=response.agent_instance_id,
+        final_status=response.final_status,
     )
 
 
@@ -115,18 +118,23 @@ def main():
     """Main entry point for the stdio server"""
     parser = argparse.ArgumentParser(description="Omnara MCP Server (Stdio)")
     parser.add_argument("--api-key", required=True, help="API key for authentication")
+    parser.add_argument(
+        "--base-url",
+        default="https://agent-dashboard-mcp.onrender.com",
+        help="Base URL of the Omnara API server",
+    )
 
     args = parser.parse_args()
 
-    # Store API key for auth decorator
-    require_api_key._api_key = args.api_key
-
-    # Ensure database tables exist
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created/verified")
+    # Initialize the global client
+    global client
+    client = AsyncOmnaraClient(
+        api_key=args.api_key,
+        base_url=args.base_url,
+    )
 
     logger.info("Starting Omnara MCP server (stdio)")
-    logger.info(f"Database URL configured: {settings.database_url[:50]}...")
+    logger.info(f"Using API server: {args.base_url}")
 
     try:
         # Run with stdio transport (default)
@@ -134,6 +142,10 @@ def main():
     except Exception as e:
         logger.error(f"Failed to start MCP server: {e}")
         raise
+    finally:
+        # Clean up client
+        if client:
+            asyncio.run(client.close())
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import os
-import json
+from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,26 +26,6 @@ def get_port_from_env() -> int:
     return 8080
 
 
-def get_database_url() -> str:
-    """Get database URL based on environment"""
-    # Note: This will be called during Settings initialization,
-    # so we need to read directly from environment variables
-    environment = os.getenv("ENVIRONMENT", "development").lower()
-
-    if environment == "production":
-        production_url = os.getenv("PRODUCTION_DB_URL")
-        if production_url:
-            return production_url
-
-    # Default to development URL or fallback
-    development_url = os.getenv("DEVELOPMENT_DB_URL")
-    if development_url:
-        return development_url
-
-    # Final fallback to local PostgreSQL
-    return "postgresql://user:password@localhost:5432/agent_dashboard"
-
-
 class Settings(BaseSettings):
     # Environment Configuration
     environment: str = "development"
@@ -53,8 +34,8 @@ class Settings(BaseSettings):
     )
     production_db_url: str = ""
 
-    # Database - automatically chooses based on ENVIRONMENT variable
-    database_url: str = get_database_url()
+    # Database URL - can be set directly or will use development/production URLs
+    database_url: str = ""
 
     # MCP Server - use PORT env var if available (for Render), otherwise default
     mcp_server_port: int = get_port_from_env()
@@ -62,17 +43,29 @@ class Settings(BaseSettings):
     # Backend API - use PORT env var if available (for Render), otherwise default
     api_port: int = int(os.getenv("PORT") or os.getenv("API_PORT") or "8000")
 
-    # Frontend URLs - can be set as JSON array string in env var
-    @property
-    def frontend_urls(self) -> list[str]:
-        frontend_urls_env = os.getenv("FRONTEND_URLS")
-        if frontend_urls_env:
-            try:
-                return json.loads(frontend_urls_env)
-            except json.JSONDecodeError:
-                # If it's a single URL string, wrap it in a list
-                return [frontend_urls_env]
-        return ["http://localhost:3000"]
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def set_database_url(cls, v, info):
+        """Set database URL based on environment if not explicitly provided."""
+        if v:  # If explicitly set, use it
+            return v
+
+        # Use info.data to access other fields
+        environment = info.data.get("environment", "development").lower()
+
+        if environment == "production":
+            production_url = info.data.get("production_db_url")
+            if production_url:
+                return production_url
+
+        development_url = info.data.get("development_db_url")
+        if development_url:
+            return development_url
+
+        return "postgresql://user:password@localhost:5432/agent_dashboard"
+
+    # Frontend URLs - expects JSON array in env var
+    frontend_urls: List[str] = ["http://localhost:3000"]
 
     # API Versioning
     api_v1_prefix: str = "/api/v1"
