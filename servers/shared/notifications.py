@@ -83,10 +83,10 @@ class PushNotificationService:
                     response = self.client.publish_multiple(chunk)
 
                     # Check for errors in the response
-                    for push_response in response:
-                        if push_response.get("status") == "error":
+                    for push_ticket in response:
+                        if hasattr(push_ticket, 'status') and push_ticket.status == "error":
                             logger.error(
-                                f"Push notification error: {push_response.get('message')}"
+                                f"Push notification error: {getattr(push_ticket, 'message', 'Unknown error')}"
                             )
 
                 logger.info(f"Successfully sent push notifications to user {user_id}")
