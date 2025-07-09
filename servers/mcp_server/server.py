@@ -12,10 +12,12 @@ from fastmcp.server.dependencies import get_access_token
 from shared.config import settings
 
 from .models import AskQuestionResponse, EndSessionResponse, LogStepResponse
-from .tools import (
+from .descriptions import (
     LOG_STEP_DESCRIPTION,
     ASK_QUESTION_DESCRIPTION,
     END_SESSION_DESCRIPTION,
+)
+from .tools import (
     log_step_impl,
     ask_question_impl,
     end_session_impl,

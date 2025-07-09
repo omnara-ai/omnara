@@ -42,7 +42,7 @@ Issues = "https://github.com/omnara-ai/omnara/issues"
 omnara = "servers.mcp_server.stdio_server:main"
 
 [tool.setuptools.packages.find]
-include = ["omnara*", "servers*", "shared*", "backend*"]
+include = ["omnara*", "servers", "servers.mcp_server"]
 
 [tool.pytest.ini_options]
 markers = [
