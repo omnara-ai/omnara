@@ -1,0 +1,9 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+supabase==2.15.3
+httpx==0.28.1
+python-jose[cryptography]==3.5.0
+cryptography==42.0.5
+email-validator==2.1.0
+exponent-server-sdk>=2.1.0
+-r ../shared/requirements.txt

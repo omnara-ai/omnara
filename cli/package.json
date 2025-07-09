@@ -1,0 +1,57 @@
+{
+    "name": "@omnara/cli",
+    "version": "1.0.6",
+    "type": "module",
+    "description": "MCP configuration installer by Omnara",
+    "main": "dist/index.js",
+    "homepage": "https://github.com/omnara-ai/omnara",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/omnara-ai/omnara.git"
+    },
+    "files": [
+        "dist"
+    ],
+    "bin": {
+        "omnara-cli": "dist/cli.js"
+    },
+    "scripts": {
+        "build": "tsc && shx chmod +x dist/cli.js",
+        "start": "node dist/cli.js",
+        "dev": "nodemon --watch src --ext ts,json --exec \"npm run build\"",
+        "prepare": "npm run build",
+        "build:prod": "npm run build",
+        "publish-patch": "npm version patch && npm run build:prod && npm publish --access public",
+        "publish-private": "npm version patch && npm run build:prod && npm publish"
+    },
+    "keywords": [
+        "mcp",
+        "model-context-protocol",
+        "ai",
+        "omnara",
+        "cli",
+        "installer"
+    ],
+    "author": "ishaan.sehgal99@gmail.com",
+    "license": "MIT",
+    "dependencies": {
+        "chalk": "^5.3.0",
+        "commander": "^12.0.0",
+        "inquirer": "^12.5.0",
+        "jsonc-parser": "^3.3.1",
+        "ora": "^8.0.1",
+        "zod": "^3.22.4"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.28",
+        "nodemon": "^3.1.0",
+        "shx": "^0.3.4",
+        "typescript": "^5.4.2"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "publishConfig": {
+        "access": "public"
+    }
+}

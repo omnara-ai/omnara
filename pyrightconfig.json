@@ -1,0 +1,26 @@
+{
+  "include": [
+    "backend",
+    "servers",
+    "shared",
+    "omnara"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/node_modules",
+    "**/.venv",
+    "test-venv/**",
+    "**/dist",
+    "**/build",
+    "**/*.egg-info"
+  ],
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Linux",
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "basic",
+  "reportPrivateUsage": false,
+  "reportUnnecessaryTypeIgnoreComment": false
+}

@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-dashboard-db
+    environment:
+      POSTGRES_USER: agent_user
+      POSTGRES_PASSWORD: agent_password
+      POSTGRES_DB: agent_dashboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_user -d agent_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db-init:
+    build:
+      context: .
+      dockerfile: ./docker/db-init.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: development
+      DEVELOPMENT_DB_URL: postgresql://agent_user:agent_password@postgres:5432/agent_dashboard
+      PRODUCTION_DB_URL: ${PRODUCTION_DB_URL:-}
+    command: python -m shared.database.init_db
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: ./docker/servers.Dockerfile
+    container_name: agent-dashboard-mcp
+    ports:
+      - "8080:8080"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: development
+      DEVELOPMENT_DB_URL: postgresql://agent_user:agent_password@postgres:5432/agent_dashboard
+      PRODUCTION_DB_URL: ${PRODUCTION_DB_URL:-}
+      MCP_SERVER_PORT: 8080
+      # JWT public key for API authentication (required)
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./docker/backend.Dockerfile
+    container_name: agent-dashboard-backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: development
+      DEVELOPMENT_DB_URL: postgresql://agent_user:agent_password@postgres:5432/agent_dashboard
+      PRODUCTION_DB_URL: ${PRODUCTION_DB_URL:-}
+      API_PORT: 8000
+      FRONTEND_URLS: '["http://localhost:3000"]'
+      # Automatically loads from .env file
+      # Supabase credentials (required for auth)
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      # JWT keys for API authentication (required)
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

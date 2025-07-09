@@ -1,0 +1,43 @@
+repos:
+  # Ruff for fast Python linting and formatting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.13
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix]
+        files: ^(backend|mcp_server|shared)/.*\.py$
+      # Run the formatter
+      - id: ruff-format
+        files: ^(backend|mcp_server|shared)/.*\.py$
+
+  # Pyright for type checking (using npm package)
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.390
+    hooks:
+      - id: pyright
+        files: ^(backend|mcp_server|shared)/.*\.py$
+        additional_dependencies: []
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        files: ^(backend|mcp_server|shared)/.*\.py$
+      - id: end-of-file-fixer
+        files: ^(backend|mcp_server|shared)/.*\.py$
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+
+  # Custom hooks for database migrations
+  - repo: local
+    hooks:
+      - id: check-migration-needed
+        name: Check if migration needed for schema changes
+        entry: python scripts/check-migration-needed.py
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [commit]

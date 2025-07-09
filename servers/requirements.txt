@@ -1,0 +1,15 @@
+# Servers requirements - includes both MCP and FastAPI dependencies
+
+# MCP Server
+fastmcp==2.9.2
+
+# FastAPI Server
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+python-jose[cryptography]>=3.3.0
+
+# Push notifications
+exponent-server-sdk>=2.1.0
+
+# Shared dependencies
+-r ../shared/requirements.txt

@@ -1,0 +1,52 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.Python
+**/pip-log.txt
+**/pip-delete-this-directory.txt
+**/.tox/
+**/.coverage
+**/.coverage.*
+**/.cache
+**/nosetests.xml
+**/coverage.xml
+**/*.cover
+**/*.log
+**/.git
+**/.gitignore
+**/.mypy_cache
+**/.pytest_cache
+**/.hypothesis
+**/.ruff_cache
+
+# Virtual environments
+**/venv/
+**/env/
+**/ENV/
+**/.venv/
+
+# Node
+**/node_modules/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+
+# IDE
+**/.vscode/
+**/.idea/
+**/*.swp
+**/*.swo
+
+# OS
+**/.DS_Store
+**/Thumbs.db
+
+# Environment files
+**/.env
+**/.env.*
+
+# Build artifacts
+**/dist/
+**/build/
+**/*.egg-info/

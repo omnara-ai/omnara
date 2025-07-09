@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnara"
+version = "1.1.0"
+description = "Omnara Agent Dashboard - MCP Server and Python SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    {name = "Omnara", email = "ishaan@omnara.com"}
+]
+keywords = ["mcp", "ai", "agents", "dashboard"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "fastmcp==2.9.2",
+    "sqlalchemy==2.0.23",
+    "psycopg2-binary==2.9.9",
+    "pydantic>=2.5.2",
+    "pydantic-settings>=2.6.1",
+    "python-dotenv>=1.1.0",
+    # SDK dependencies
+    "requests>=2.25.0",
+    "urllib3>=1.26.0",
+    "aiohttp>=3.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/omnara-ai/omnara"
+Repository = "https://github.com/omnara-ai/omnara"
+Issues = "https://github.com/omnara-ai/omnara/issues"
+
+[project.scripts]
+omnara = "servers.mcp_server.stdio_server:main"
+
+[tool.setuptools.packages.find]
+include = ["omnara*", "servers*", "shared*", "backend*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function" 
