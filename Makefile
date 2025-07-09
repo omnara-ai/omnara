@@ -37,26 +37,23 @@ ruff-check:
 ruff-format-check:
 	ruff format --check .
 
-# Run tests
+# Run all tests
 test:
-	./scripts/run_all_tests.sh
+	pytest
 
-# Run SDK tests
-test-sdk:
-	cd sdk/python && pytest tests -v
+# Run unit tests only (skip integration)
+test-unit:
+	pytest -m "not integration"
 
-# Run backend tests
-test-backend:
-	cd backend && pytest tests -v || echo "No backend tests yet"
-
-# Run server tests  
-test-servers:
-	cd servers && pytest tests -v || echo "No server tests yet"
-
-# Run all tests with coverage
-test-coverage:
-	cd sdk/python && pytest tests --cov=omnara --cov-report=term-missing
-
-# Run integration tests with PostgreSQL (requires Docker)
+# Run integration tests only
 test-integration:
-	pytest servers/tests/test_integration.py -v -m integration
+	pytest -m integration
+
+# Run tests with coverage
+test-coverage:
+	pytest --cov=backend --cov=servers --cov=omnara --cov=shared --cov-report=term-missing
+
+# Run specific test file or pattern
+# Usage: make test-k ARGS="test_auth"
+test-k:
+	pytest -k "$(ARGS)"

@@ -21,16 +21,12 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "fastmcp==2.9.2",
-    "sqlalchemy==2.0.23",
-    "psycopg2-binary==2.9.9",
-    "pydantic>=2.5.2",
-    "pydantic-settings>=2.6.1",
-    "python-dotenv>=1.1.0",
-    # SDK dependencies
+    # Core SDK dependencies
     "requests>=2.25.0",
     "urllib3>=1.26.0",
     "aiohttp>=3.8.0",
+    # MCP server dependency
+    "fastmcp==2.9.2",
 ]
 
 [project.urls]
@@ -42,11 +38,38 @@ Issues = "https://github.com/omnara-ai/omnara/issues"
 omnara = "servers.mcp_server.stdio_server:main"
 
 [tool.setuptools.packages.find]
-include = ["omnara*", "servers", "servers.mcp_server"]
+include = ["omnara*", "servers.mcp_server*", "servers.shared*"]
+
 
 [tool.pytest.ini_options]
+# Test discovery
+testpaths = ["backend/tests", "servers/tests", "tests"]
+python_files = ["test_*.py"]
+
+# Markers
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
 ]
+
+# Asyncio support
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function" 
+
+# Basic options
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+
+[tool.coverage.run]
+source = ["backend", "servers", "omnara", "shared"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+    "*/alembic/*",
+]
+
+[tool.coverage.report]
+skip_covered = true
+show_missing = true 
