@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
+from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
@@ -11,6 +12,12 @@ from sqlalchemy.orm import (
 )
 
 from .enums import AgentStatus
+
+if TYPE_CHECKING:
+    from .subscription_models import (
+        Subscription,
+        BillingEvent,
+    )
 
 
 class Base(DeclarativeBase):
@@ -46,6 +53,14 @@ class User(Base):
     )
     push_tokens: Mapped[list["PushToken"]] = relationship(
         "PushToken", back_populates="user"
+    )
+
+    # Billing relationships
+    subscription: Mapped["Subscription"] = relationship(
+        "Subscription", back_populates="user", uselist=False
+    )
+    billing_events: Mapped[list["BillingEvent"]] = relationship(
+        "BillingEvent", back_populates="user"
     )
 
 

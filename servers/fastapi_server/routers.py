@@ -26,7 +26,7 @@ agent_router = APIRouter(tags=["agents"])
 
 
 @agent_router.post("/steps", response_model=LogStepResponse)
-async def log_step(
+def log_step(
     request: LogStepRequest, user_id: Annotated[str, Depends(get_current_user_id)]
 ) -> LogStepResponse:
     """Log a high-level step the agent is performing.
