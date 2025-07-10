@@ -16,7 +16,6 @@ from servers.shared.db import (
     create_or_get_user_agent,
     end_session,
 )
-from servers.shared.notifications import push_service
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,7 @@
 """Push notification service using Expo Push API"""
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from uuid import UUID
@@ -53,7 +54,6 @@ class PushNotificationService:
                     logger.warning(f"Invalid Expo push token: {token.token}")
                     continue
 
-                # TODO: Fill in the missing fields
                 message = PushMessage(
                     to=token.token,
                     title=title,
@@ -62,9 +62,9 @@ class PushNotificationService:
                     sound="default",
                     priority="high",
                     channel_id="agent-questions",
-                    ttl=None,
+                    ttl=None,  # Use platform defaults (1 month) - agent questions should remain accessible
                     expiration=None,
-                    badge=None,
+                    badge=None,  # Don't modify app badge count
                     category=None,
                     display_in_foreground=True,
                     subtitle=None,
@@ -76,40 +76,57 @@ class PushNotificationService:
                 logger.warning("No valid push tokens to send to")
                 return False
 
-            # Send to Expo Push API in chunks
-            try:
-                # Send messages in batches (Expo recommends max 100 per batch)
-                for chunk in self._chunks(messages, 100):
-                    response = self.client.publish_multiple(chunk)
+            # Send to Expo Push API in chunks with retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # Send messages in batches (Expo recommends max 100 per batch)
+                    for chunk in self._chunks(messages, 100):
+                        response = self.client.publish_multiple(chunk)
 
-                    # Check for errors in the response
-                    for push_ticket in response:
-                        if (
-                            hasattr(push_ticket, "status")
-                            and push_ticket.status == "error"
-                        ):
-                            logger.error(
-                                f"Push notification error: {getattr(push_ticket, 'message', 'Unknown error')}"
-                            )
+                        # Check for errors in the response
+                        for push_ticket in response:
+                            if (
+                                hasattr(push_ticket, "status")
+                                and push_ticket.status == "error"
+                            ):
+                                logger.error(
+                                    f"Push notification error: {getattr(push_ticket, 'message', 'Unknown error')}"
+                                )
 
-                logger.info(f"Successfully sent push notifications to user {user_id}")
-                return True
+                    logger.info(
+                        f"Successfully sent push notifications to user {user_id}"
+                    )
+                    return True
 
-            except PushServerError as e:
-                logger.error(f"Push server error: {str(e)}")
-                return False
-            except DeviceNotRegisteredError as e:
-                logger.error(f"Device not registered, deactivating token: {str(e)}")
-                # Mark token as inactive
-                for token in tokens:
-                    if token.token in str(e):
-                        token.is_active = False
-                        token.updated_at = datetime.now(timezone.utc)
-                        db.commit()
-                return False
-            except PushTicketError as e:
-                logger.error(f"Push ticket error: {str(e)}")
-                return False
+                except (PushServerError, ConnectionError) as e:
+                    if attempt < max_retries - 1:
+                        wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
+                        logger.warning(
+                            f"Push notification attempt {attempt + 1} failed, retrying in {wait_time}s: {str(e)}"
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(
+                            f"Push server error after {max_retries} attempts: {str(e)}"
+                        )
+                        return False
+                except DeviceNotRegisteredError as e:
+                    logger.error(f"Device not registered, deactivating token: {str(e)}")
+                    # Mark token as inactive
+                    for token in tokens:
+                        if token.token in str(e):
+                            token.is_active = False
+                            token.updated_at = datetime.now(timezone.utc)
+                            db.commit()
+                    return False
+                except PushTicketError as e:
+                    logger.error(f"Push ticket error: {str(e)}")
+                    return False
+
+            # If we get here, all retry attempts were exhausted
+            return False
 
         except Exception as e:
             logger.error(f"Error sending push notification: {str(e)}")

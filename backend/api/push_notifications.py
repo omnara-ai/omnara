@@ -120,8 +120,8 @@ def send_test_push_notification(
         success = push_service.send_notification(
             db=db,
             user_id=user_id,
-            title="🎯 Real Test Notification",
-            body="This is a REAL push notification via Expo Push API. If you received this, notifications will work for agent questions too!",
+            title="Test Notification",
+            body="Push notifications are working correctly. You'll receive alerts when your agents need input.",
             data={"type": "test_notification", "source": "backend_api"},
         )
 
