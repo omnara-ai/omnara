@@ -103,25 +103,8 @@ def create_agent_question(
     instance = validate_agent_access(db, agent_instance_id, user_id)
 
     # Create question
+    # Note: Push notification sent by create_question() function
     question = create_question(db, instance.id, question_text)
-
-    # Send push notification
-    try:
-        # Get agent name from instance
-        agent_name = instance.user_agent.name if instance.user_agent else "Agent"
-
-        # Send notification
-        push_service.send_question_notification(
-            db=db,
-            user_id=instance.user_id,
-            instance_id=str(instance.id),
-            question_id=str(question.id),
-            agent_name=agent_name,
-            question_text=question_text,
-        )
-    except Exception as e:
-        # Log error but don't fail the question creation
-        logger.error(f"Failed to send push notification: {e}")
 
     return question
 
