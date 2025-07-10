@@ -58,8 +58,9 @@ logs/
 test-venv/
 .claude/
 
-# Directories
+# Coming soon :)
 frontend/
 mobile/
 omnara-mobile/
+omnara-frontend/
 .expo/
