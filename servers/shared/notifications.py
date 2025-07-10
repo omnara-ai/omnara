@@ -50,8 +50,10 @@ class PushNotificationService:
             unique_tokens = {}
             for token in tokens:
                 unique_tokens[token.token] = token
-            
-            logger.info(f"Found {len(tokens)} total tokens, {len(unique_tokens)} unique tokens for user {user_id}")
+
+            logger.info(
+                f"Found {len(tokens)} total tokens, {len(unique_tokens)} unique tokens for user {user_id}"
+            )
 
             # Prepare messages for Expo
             messages = []
