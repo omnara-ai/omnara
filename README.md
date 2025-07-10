@@ -58,6 +58,16 @@ omnara/
 AI Agents → MCP/REST Server (Write) → PostgreSQL ← Backend API (Read) ← Web Dashboard
 ```
 
+### Billing & Monetization (Optional)
+
+Omnara includes optional Stripe integration for SaaS deployments:
+
+- **Free Tier**: 20 agents per month
+- **Pro Tier ($9/mo)**: Unlimited agents
+- **Enterprise Tier ($500/mo)**: Unlimited agents + Teams, dedicated support, SLA (coming soon)
+
+Billing is only enforced when explicitly configured with Stripe keys.
+
 ## Development Setup
 
 ### Prerequisites

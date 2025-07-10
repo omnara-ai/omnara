@@ -2,10 +2,12 @@
 Backend API models for Agent Dashboard.
 
 This module contains all Pydantic models used for API request/response serialization.
-Models are organized by functional area: questions, agents, and detailed views.
+Models are organized by functional area: questions, agents, billing, and detailed views.
 """
 
 from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from shared.database.enums import AgentStatus
@@ -196,3 +198,73 @@ class WebhookTriggerResponse(BaseModel):
     agent_instance_id: str | None = None
     message: str
     error: str | None = None
+
+
+# ============================================================================
+# Billing Models
+# ============================================================================
+
+
+class SubscriptionResponse(BaseModel):
+    """User's subscription details."""
+
+    id: UUID
+    plan_type: str
+    agent_limit: int
+    current_period_end: Optional[datetime] = None
+    cancel_at_period_end: bool = False
+
+    @field_serializer("current_period_end")
+    def serialize_datetime(self, dt: datetime | None, _info):
+        if dt is None:
+            return None
+        return dt.isoformat() + "Z"
+
+
+class CreateCheckoutSessionRequest(BaseModel):
+    """Request to create a Stripe checkout session."""
+
+    plan_type: str = Field(..., description="Plan type: 'free', 'pro', or 'enterprise'")
+    success_url: str = Field(
+        ..., description="URL to redirect after successful payment"
+    )
+    cancel_url: str = Field(..., description="URL to redirect if payment is cancelled")
+    promo_code: Optional[str] = Field(None, description="Promotional code to apply")
+
+
+class CheckoutSessionResponse(BaseModel):
+    """Response containing Stripe checkout session details."""
+
+    checkout_url: str
+    session_id: str
+
+
+class UsageResponse(BaseModel):
+    """Current usage statistics for the billing period."""
+
+    total_agents: int  # Total agents created this month
+    agent_limit: int
+    period_start: datetime
+    period_end: datetime
+
+    @field_serializer("period_start", "period_end")
+    def serialize_datetime(self, dt: datetime, _info):
+        return dt.isoformat() + "Z"
+
+
+class ValidatePromoCodeRequest(BaseModel):
+    """Request to validate a promotional code."""
+
+    code: str = Field(..., description="The promotional code to validate")
+    plan_type: str = Field(..., description="Plan type the code will be applied to")
+
+
+class PromoCodeValidationResponse(BaseModel):
+    """Response with promo code validation details."""
+
+    valid: bool
+    code: Optional[str] = None
+    discount_type: Optional[str] = None  # 'percentage' or 'amount'
+    discount_value: Optional[float] = None
+    description: Optional[str] = None
+    error: Optional[str] = None

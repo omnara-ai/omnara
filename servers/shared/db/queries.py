@@ -12,6 +12,7 @@ from shared.database import (
     AgentUserFeedback,
     UserAgent,
 )
+from shared.database.billing_operations import check_agent_limit
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from fastmcp import Context
@@ -45,6 +46,9 @@ def create_agent_instance(
     db: Session, user_agent_id: UUID | None, user_id: str
 ) -> AgentInstance:
     """Create a new agent instance"""
+    # Check usage limits if billing is enabled
+    check_agent_limit(UUID(user_id), db)
+
     instance = AgentInstance(
         user_agent_id=user_agent_id, user_id=UUID(user_id), status=AgentStatus.ACTIVE
     )

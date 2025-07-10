@@ -6,4 +6,5 @@ python-jose[cryptography]==3.5.0
 cryptography==42.0.5
 email-validator==2.1.0
 exponent-server-sdk>=2.1.0
+stripe==10.8.0
 -r ../shared/requirements.txt

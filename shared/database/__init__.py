@@ -10,6 +10,10 @@ from .models import (
     User,
     UserAgent,
 )
+from .subscription_models import (
+    Subscription,
+    BillingEvent,
+)
 
 __all__ = [
     "Base",
@@ -22,4 +26,6 @@ __all__ = [
     "AgentUserFeedback",
     "APIKey",
     "PushToken",
+    "Subscription",
+    "BillingEvent",
 ]

@@ -82,6 +82,22 @@ class Settings(BaseSettings):
     # Sentry Configuration
     sentry_dsn: str = ""
 
+    # Billing Configuration
+    enforce_limits: bool = False  # Default to unlimited access
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+
+    # Stripe Price IDs (from your Stripe dashboard)
+    stripe_pro_price_id: str = ""
+    stripe_enterprise_price_id: str = ""
+
+    # Plan Configuration - used when enforce_limits is True
+    free_plan_agent_limit: int = 20  # 20 total agents per month
+    pro_plan_agent_limit: int = -1  # Unlimited
+    pro_plan_price: float = 9
+    enterprise_plan_agent_limit: int = -1  # Unlimited
+    enterprise_plan_price: float = 500
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
