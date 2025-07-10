@@ -46,9 +46,16 @@ class PushNotificationService:
                 logger.info(f"No push tokens found for user {user_id}")
                 return False
 
+            # Deduplicate tokens to prevent sending same notification multiple times
+            unique_tokens = {}
+            for token in tokens:
+                unique_tokens[token.token] = token
+            
+            logger.info(f"Found {len(tokens)} total tokens, {len(unique_tokens)} unique tokens for user {user_id}")
+
             # Prepare messages for Expo
             messages = []
-            for token in tokens:
+            for token in unique_tokens.values():
                 # Validate token format
                 if not PushClient.is_exponent_push_token(token.token):
                     logger.warning(f"Invalid Expo push token: {token.token}")
