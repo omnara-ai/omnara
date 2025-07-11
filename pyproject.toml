@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnara"
-version = "1.2.0"
+version = "1.3.0"
 description = "Omnara Agent Dashboard - MCP Server and Python SDK"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,12 +21,13 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    # Core SDK dependencies
     "requests>=2.25.0",
     "urllib3>=1.26.0",
     "aiohttp>=3.8.0",
-    # MCP server dependency
     "fastmcp==2.9.2",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.urls]
@@ -35,10 +36,10 @@ Repository = "https://github.com/omnara-ai/omnara"
 Issues = "https://github.com/omnara-ai/omnara/issues"
 
 [project.scripts]
-omnara = "servers.mcp_server.stdio_server:main"
+omnara = "omnara.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["omnara*", "servers.mcp_server*", "servers.shared*"]
+include = ["omnara*", "servers.mcp_server*", "servers.shared*", "webhooks*"]
 
 
 [tool.pytest.ini_options]
