@@ -6,6 +6,7 @@ import secrets
 import os
 import re
 import uuid
+import uvicorn
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
 
@@ -137,12 +138,9 @@ async def start_claude(
                 status_code=500, detail=f"Failed to create worktree: {result.stderr}"
             )
 
-        # Start Claude process in a screen session
-        # This allows the process to continue even if the webhook disconnects
         screen_prefix = name if name else "omnara-claude"
         screen_name = f"{screen_prefix}-{safe_timestamp}"
 
-        # Create the claude command with proper escaping
         escaped_prompt = shlex.quote(safe_prompt)
         claude_cmd = f"claude --dangerously-skip-permissions {escaped_prompt}"
 
@@ -183,7 +181,4 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    # Using port 6662 (omna)
     uvicorn.run(app, host="0.0.0.0", port=6662)

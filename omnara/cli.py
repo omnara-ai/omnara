@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Omnara Main Entry Point
 
 This is the main entry point for the omnara command that dispatches to either:
@@ -9,15 +8,11 @@ This is the main entry point for the omnara command that dispatches to either:
 import argparse
 import sys
 import subprocess
+import time
 
 
 def run_stdio_server(args):
     """Run the MCP stdio server with the provided arguments"""
-    # Since we're running from an installed package, we need to recreate
-    # the stdio server's argument parsing
-    import sys
-
-    # Build the command to run the stdio server module directly
     cmd = [
         sys.executable,
         "-m",
@@ -28,7 +23,6 @@ def run_stdio_server(args):
     if args.base_url:
         cmd.extend(["--base-url", args.base_url])
 
-    # Run the stdio server in the same process
     subprocess.run(cmd)
 
 
@@ -37,13 +31,10 @@ def run_webhook_server(cloudflare_tunnel=False):
     cloudflared_process = None
 
     if cloudflare_tunnel:
-        # Check if cloudflared is available and start tunnel
         try:
-            # Test if cloudflared is installed
             test_cmd = ["cloudflared", "--version"]
             subprocess.run(test_cmd, capture_output=True, check=True)
 
-            # Start cloudflare tunnel
             print("[INFO] Starting Cloudflare tunnel...")
             cloudflared_cmd = [
                 "cloudflared",
@@ -54,11 +45,8 @@ def run_webhook_server(cloudflare_tunnel=False):
             cloudflared_process = subprocess.Popen(cloudflared_cmd)
 
             # Give cloudflared a moment to start
-            import time
-
             time.sleep(3)
 
-            # Check if process is still running
             if cloudflared_process.poll() is not None:
                 print("\n[ERROR] Cloudflare tunnel failed to start")
                 sys.exit(1)
@@ -72,7 +60,6 @@ def run_webhook_server(cloudflare_tunnel=False):
             print("for installation instructions.")
             sys.exit(1)
 
-    # Use uvicorn to run the webhook app module
     cmd = [
         sys.executable,
         "-m",
@@ -87,10 +74,8 @@ def run_webhook_server(cloudflare_tunnel=False):
     print("[INFO] Starting Claude Code webhook server on port 6662")
 
     try:
-        # If uvicorn is not installed, subprocess will fail with a clear error
         subprocess.run(cmd)
     finally:
-        # Clean up cloudflared process if it exists
         if cloudflared_process:
             cloudflared_process.terminate()
             cloudflared_process.wait()
@@ -152,16 +137,12 @@ Examples:
 
     args = parser.parse_args()
 
-    # Validate cloudflare-tunnel is only used with webhook mode
     if args.cloudflare_tunnel and not args.claude_code_webhook:
         parser.error("--cloudflare-tunnel can only be used with --claude-code-webhook")
 
-    # Determine which mode to run
     if args.claude_code_webhook:
-        # Run webhook server
         run_webhook_server(cloudflare_tunnel=args.cloudflare_tunnel)
     else:
-        # Default to stdio server
         if not args.api_key:
             parser.error("--api-key is required for stdio mode")
         run_stdio_server(args)
