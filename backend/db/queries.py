@@ -50,6 +50,9 @@ def _format_instance(instance: AgentInstance) -> dict:
         "pending_question_age": pending_age,
         "pending_questions_count": pending_questions_count,
         "step_count": step_count,
+        "last_signal_at": instance.steps[-1].created_at
+        if instance.steps
+        else instance.started_at,
     }
 
 

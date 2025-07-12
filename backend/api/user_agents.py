@@ -17,6 +17,7 @@ from ..models import (
     UserAgentResponse,
     CreateAgentInstanceRequest,
     WebhookTriggerResponse,
+    AgentInstanceResponse,
 )
 from ..db import (
     create_user_agent,
@@ -64,7 +65,9 @@ async def update_existing_user_agent(
     return agent
 
 
-@router.get("/user-agents/{agent_id}/instances")
+@router.get(
+    "/user-agents/{agent_id}/instances", response_model=list[AgentInstanceResponse]
+)
 async def get_user_agent_instances_list(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),

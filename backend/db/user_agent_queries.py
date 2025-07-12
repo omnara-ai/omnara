@@ -11,6 +11,7 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import UserAgentRequest, WebhookTriggerResponse
+from .queries import _format_instance
 
 
 def create_user_agent(db: Session, user_id: UUID, request: UserAgentRequest) -> dict:
@@ -173,32 +174,15 @@ def get_user_agent_instances(db: Session, agent_id: UUID, user_id: UUID) -> list
             joinedload(AgentInstance.questions),
             joinedload(AgentInstance.steps),
             joinedload(AgentInstance.user_feedback),
+            joinedload(AgentInstance.user_agent),
         )
         .filter(AgentInstance.user_agent_id == agent_id)
         .order_by(AgentInstance.started_at.desc())
         .all()
     )
 
-    # Format instances similar to how agent-type instances are formatted
-    return [
-        {
-            "id": str(instance.id),
-            "user_agent_id": str(instance.user_agent_id),
-            "user_id": str(instance.user_id),
-            "status": instance.status.value,
-            "started_at": instance.started_at,
-            "ended_at": instance.ended_at,
-            "pending_questions_count": len(
-                [q for q in instance.questions if q.is_active and not q.answer_text]
-            ),
-            "steps_count": len(instance.steps),
-            "user_feedback_count": len(instance.user_feedback),
-            "last_signal_at": instance.steps[-1].created_at
-            if instance.steps
-            else instance.started_at,
-        }
-        for instance in instances
-    ]
+    # Format instances using the same helper function used by other endpoints
+    return [_format_instance(instance) for instance in instances]
 
 
 def _format_user_agent(user_agent: UserAgent, db: Session) -> dict:
