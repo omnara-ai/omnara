@@ -35,17 +35,25 @@ def register_push_token(
 ):
     """Register a push notification token for the current user"""
     try:
-        # Check if token already exists
-        existing = db.query(PushToken).filter(PushToken.token == request.token).first()
+        # Check if this user already has this token
+        existing = (
+            db.query(PushToken)
+            .filter(PushToken.user_id == user_id, PushToken.token == request.token)
+            .first()
+        )
 
         if existing:
-            # Update existing token
-            existing.user_id = user_id
+            # Reactivate existing token for this user
             existing.platform = request.platform
             existing.is_active = True
             existing.updated_at = datetime.now(timezone.utc)
         else:
-            # Create new token
+            # Deactivate this token for any other users
+            db.query(PushToken).filter(
+                PushToken.token == request.token, PushToken.user_id != user_id
+            ).update({"is_active": False, "updated_at": datetime.now(timezone.utc)})
+
+            # Create new token entry for this user
             push_token = PushToken(
                 user_id=user_id,
                 token=request.token,
