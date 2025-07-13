@@ -69,7 +69,7 @@ def log_step(
 
 
 @agent_router.post("/questions", response_model=AskQuestionResponse)
-def ask_question(
+async def ask_question(
     request: AskQuestionRequest, user_id: Annotated[str, Depends(get_current_user_id)]
 ) -> AskQuestionResponse:
     """Create a question for the user to answer.
@@ -85,7 +85,7 @@ def ask_question(
 
     try:
         # Use shared business logic to create question
-        question = create_agent_question(
+        question = await create_agent_question(
             db=db,
             agent_instance_id=request.agent_instance_id,
             question_text=request.question_text,

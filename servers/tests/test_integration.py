@@ -63,7 +63,10 @@ class TestIntegrationFlow:
     """Test the complete integration flow with PostgreSQL."""
 
     @pytest.mark.integration
-    def test_complete_agent_session_flow(self, test_db, test_user, test_user_agent):
+    @pytest.mark.asyncio
+    async def test_complete_agent_session_flow(
+        self, test_db, test_user, test_user_agent
+    ):
         """Test a complete agent session from start to finish."""
         # Step 1: Create new agent instance
         instance_id, step_number, user_feedback = process_log_step(
@@ -96,7 +99,7 @@ class TestIntegrationFlow:
         assert step_number2 == 2
 
         # Step 3: Create a question
-        question = create_agent_question(
+        question = await create_agent_question(
             db=test_db,
             agent_instance_id=instance_id,
             question_text="Should I refactor this module?",
