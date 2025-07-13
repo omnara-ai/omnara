@@ -11,5 +11,9 @@ python-jose[cryptography]>=3.3.0
 # Push notifications
 exponent-server-sdk>=2.1.0
 
+# Twilio notifications
+twilio>=8.0.0
+sendgrid>=6.10.0
+
 # Shared dependencies
 -r ../shared/requirements.txt

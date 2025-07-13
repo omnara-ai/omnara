@@ -50,6 +50,9 @@ def process_log_step(
     step_description: str,
     user_id: str,
     agent_instance_id: str | None = None,
+    send_email: bool | None = None,
+    send_sms: bool | None = None,
+    send_push: bool | None = None,
 ) -> tuple[str, int, list[str]]:
     """Process a log step operation with all common logic.
 
@@ -72,8 +75,8 @@ def process_log_step(
     else:
         instance = create_agent_instance(db, agent_type_obj.id, user_id)
 
-    # Create step
-    step = log_step(db, instance.id, step_description)
+    # Create step with notification preferences
+    step = log_step(db, instance.id, step_description, send_email, send_sms, send_push)
 
     # Get unretrieved feedback
     feedback = get_and_mark_unretrieved_feedback(db, instance.id)
@@ -86,6 +89,9 @@ def create_agent_question(
     agent_instance_id: str,
     question_text: str,
     user_id: str,
+    send_email: bool | None = None,
+    send_sms: bool | None = None,
+    send_push: bool | None = None,
 ):
     """Create a question with validation and send push notification.
 
@@ -102,8 +108,10 @@ def create_agent_question(
     instance = validate_agent_access(db, agent_instance_id, user_id)
 
     # Create question
-    # Note: Push notification sent by create_question() function
-    question = create_question(db, instance.id, question_text)
+    # Note: Notifications sent by create_question() function based on parameters
+    question = create_question(
+        db, instance.id, question_text, send_email, send_sms, send_push
+    )
 
     return question
 

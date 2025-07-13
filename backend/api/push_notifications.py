@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from backend.auth.dependencies import get_current_user_id
 from shared.database.session import get_db
 from shared.database import PushToken
-from servers.shared.notifications import push_service
 
 router = APIRouter(prefix="/push", tags=["push_notifications"])
 
@@ -107,36 +106,3 @@ def get_my_push_tokens(
         )
         for token in tokens
     ]
-
-
-@router.post("/send-test-push", response_model=dict)
-def send_test_push_notification(
-    user_id: UUID = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
-):
-    """Send a real test push notification using Expo Push API (tests complete flow including when app is closed)"""
-    try:
-        # Send test notification using the same system that question notifications use
-        success = push_service.send_notification(
-            db=db,
-            user_id=user_id,
-            title="Test Notification",
-            body="Push notifications are working correctly. You'll receive alerts when your agents need input.",
-            data={"type": "test_notification", "source": "backend_api"},
-        )
-
-        if success:
-            return {
-                "success": True,
-                "message": "Real test notification sent via Expo Push API! Check your device.",
-            }
-        else:
-            return {
-                "success": False,
-                "message": "Failed to send notification. Check if you have active push tokens registered.",
-            }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error sending test notification: {str(e)}"
-        )

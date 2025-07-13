@@ -48,6 +48,9 @@ def log_step(
             step_description=request.step_description,
             user_id=user_id,
             agent_instance_id=request.agent_instance_id,
+            send_email=request.send_email,
+            send_sms=request.send_sms,
+            send_push=request.send_push,
         )
 
         return LogStepResponse(
@@ -90,6 +93,9 @@ def ask_question(
             agent_instance_id=request.agent_instance_id,
             question_text=request.question_text,
             user_id=user_id,
+            send_email=request.send_email,
+            send_sms=request.send_sms,
+            send_push=request.send_push,
         )
         db.commit()
 

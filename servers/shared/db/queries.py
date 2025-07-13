@@ -63,7 +63,14 @@ def get_agent_instance(db: Session, instance_id: str) -> AgentInstance | None:
     return db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
 
 
-def log_step(db: Session, instance_id: UUID, description: str) -> AgentStep:
+def log_step(
+    db: Session,
+    instance_id: UUID,
+    description: str,
+    send_email: bool | None = None,
+    send_sms: bool | None = None,
+    send_push: bool | None = None,
+) -> AgentStep:
     """Log a new step for an agent instance"""
     # Get the next step number
     max_step = (
@@ -82,11 +89,76 @@ def log_step(db: Session, instance_id: UUID, description: str) -> AgentStep:
     db.add(step)
     db.commit()
     db.refresh(step)
+
+    # Send notifications if requested (all default to False for log steps)
+    if send_email or send_sms or send_push:
+        # Get instance details for notifications
+        instance = (
+            db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
+        )
+        if instance:
+            from shared.database import User
+
+            user = db.query(User).filter(User.id == instance.user_id).first()
+
+            if user:
+                agent_name = (
+                    instance.user_agent.name if instance.user_agent else "Agent"
+                )
+
+                # Override defaults - for log steps, all notifications default to False
+                should_send_push = send_push if send_push is not None else False
+                should_send_email = send_email if send_email is not None else False
+                should_send_sms = send_sms if send_sms is not None else False
+
+                # Send push notification if explicitly enabled
+                if should_send_push:
+                    try:
+                        from servers.shared.notifications import push_service
+
+                        push_service.send_step_notification(
+                            db=db,
+                            user_id=instance.user_id,
+                            instance_id=str(instance.id),
+                            step_number=step.step_number,
+                            agent_name=agent_name,
+                            step_description=description,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to send push notification for step {step.id}: {e}"
+                        )
+
+                # Send Twilio notifications if explicitly enabled
+                if should_send_email or should_send_sms:
+                    try:
+                        from servers.shared.twilio_service import twilio_service
+
+                        twilio_service.send_step_notification(
+                            db=db,
+                            user_id=instance.user_id,
+                            instance_id=str(instance.id),
+                            step_number=step.step_number,
+                            agent_name=agent_name,
+                            step_description=description,
+                            send_email=should_send_email,
+                            send_sms=should_send_sms,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to send Twilio notification for step {step.id}: {e}"
+                        )
+
     return step
 
 
 def create_question(
-    db: Session, instance_id: UUID, question_text: str
+    db: Session,
+    instance_id: UUID,
+    question_text: str,
+    send_email: bool | None = None,
+    send_sms: bool | None = None,
+    send_push: bool | None = None,
 ) -> AgentQuestion:
     """Create a new question for an agent instance"""
     # Mark any existing active questions as inactive
@@ -107,27 +179,61 @@ def create_question(
     db.commit()
     db.refresh(question)
 
-    # Send push notification
-    try:
-        from servers.shared.notifications import push_service
+    # Send notifications based on user preferences
+    if instance:
+        # Get user for checking preferences
+        from shared.database import User
 
-        # Get agent name from instance
-        if instance:
+        user = db.query(User).filter(User.id == instance.user_id).first()
+
+        if user:
             agent_name = instance.user_agent.name if instance.user_agent else "Agent"
 
-            push_service.send_question_notification(
-                db=db,
-                user_id=instance.user_id,
-                instance_id=str(instance.id),
-                question_id=str(question.id),
-                agent_name=agent_name,
-                question_text=question_text,
+            # Determine notification preferences
+            # For questions: push defaults to True (or user preference), email/SMS default to False
+            should_send_push = (
+                send_push if send_push is not None else user.push_notifications_enabled
             )
-    except Exception as e:
-        # Don't fail the question creation if push notification fails
-        logger.error(
-            f"Failed to send push notification for question {question.id}: {e}"
-        )
+            should_send_email = send_email if send_email is not None else False
+            should_send_sms = send_sms if send_sms is not None else False
+
+            # Send push notification if enabled
+            if should_send_push:
+                try:
+                    from servers.shared.notifications import push_service
+
+                    push_service.send_question_notification(
+                        db=db,
+                        user_id=instance.user_id,
+                        instance_id=str(instance.id),
+                        question_id=str(question.id),
+                        agent_name=agent_name,
+                        question_text=question_text,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to send push notification for question {question.id}: {e}"
+                    )
+
+            # Send Twilio notification if enabled (email and/or SMS)
+            if should_send_email or should_send_sms:
+                try:
+                    from servers.shared.twilio_service import twilio_service
+
+                    twilio_service.send_question_notification(
+                        db=db,
+                        user_id=instance.user_id,
+                        instance_id=str(instance.id),
+                        question_id=str(question.id),
+                        agent_name=agent_name,
+                        question_text=question_text,
+                        send_email=should_send_email,
+                        send_sms=should_send_sms,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to send Twilio notification for question {question.id}: {e}"
+                    )
 
     return question
 

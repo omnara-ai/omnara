@@ -15,11 +15,12 @@ from exponent_server_sdk import (
 )
 
 from shared.database import PushToken
+from .notification_base import NotificationServiceBase
 
 logger = logging.getLogger(__name__)
 
 
-class PushNotificationService:
+class PushNotificationService(NotificationServiceBase):
     """Service for sending push notifications via Expo"""
 
     def __init__(self):
@@ -164,6 +165,39 @@ class PushNotificationService:
             "type": "new_question",
             "instanceId": instance_id,
             "questionId": question_id,
+        }
+
+        return self.send_notification(
+            db=db,
+            user_id=user_id,
+            title=title,
+            body=body,
+            data=data,
+        )
+
+    def send_step_notification(
+        self,
+        db: Session,
+        user_id: UUID,
+        instance_id: str,
+        step_number: int,
+        agent_name: str,
+        step_description: str,
+    ) -> bool:
+        """Send notification for new agent step"""
+        # Format agent name for display
+        display_name = agent_name.replace("_", " ").title()
+        title = f"{display_name} - Step {step_number}"
+
+        # Truncate step description for notification
+        body = step_description
+        if len(body) > 100:
+            body = body[:97] + "..."
+
+        data = {
+            "type": "new_step",
+            "instanceId": instance_id,
+            "stepNumber": step_number,
         }
 
         return self.send_notification(

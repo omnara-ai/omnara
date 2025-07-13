@@ -37,6 +37,17 @@ class User(Base):
         default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
+    # Notification preferences
+    push_notifications_enabled: Mapped[bool] = mapped_column(default=True)
+    email_notifications_enabled: Mapped[bool] = mapped_column(default=True)
+    sms_notifications_enabled: Mapped[bool] = mapped_column(default=False)
+    phone_number: Mapped[str | None] = mapped_column(
+        String(20), default=None
+    )  # E.164 format
+    notification_email: Mapped[str | None] = mapped_column(
+        String(255), default=None
+    )  # Defaults to email if not set
+
     # Relationships
     agent_instances: Mapped[list["AgentInstance"]] = relationship(
         "AgentInstance", back_populates="user"
