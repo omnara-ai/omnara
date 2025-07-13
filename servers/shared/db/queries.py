@@ -85,7 +85,7 @@ def log_step(db: Session, instance_id: UUID, description: str) -> AgentStep:
     return step
 
 
-def create_question(
+async def create_question(
     db: Session, instance_id: UUID, question_text: str
 ) -> AgentQuestion:
     """Create a new question for an agent instance"""
@@ -115,7 +115,7 @@ def create_question(
         if instance:
             agent_name = instance.user_agent.name if instance.user_agent else "Agent"
 
-            push_service.send_question_notification(
+            await push_service.send_question_notification(
                 db=db,
                 user_id=instance.user_id,
                 instance_id=str(instance.id),

@@ -99,7 +99,7 @@ async def ask_question_impl(
 
     try:
         # Use shared business logic to create question
-        question = create_agent_question(
+        question = await create_agent_question(
             db=db,
             agent_instance_id=agent_instance_id,
             question_text=question_text,
