@@ -59,11 +59,11 @@ class AsyncOmnaraClient:
             # Create SSL context using certifi's certificate bundle
             # This fixes SSL verification issues with aiohttp on some systems
             ssl_context = ssl.create_default_context(cafile=certifi.where())
-            
+
             self.session = aiohttp.ClientSession(
-                headers=self.headers, 
+                headers=self.headers,
                 timeout=self.timeout,
-                connector=aiohttp.TCPConnector(ssl=ssl_context)
+                connector=aiohttp.TCPConnector(ssl=ssl_context),
             )
 
     async def close(self):
