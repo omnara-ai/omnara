@@ -1,10 +1,12 @@
 """Async client for interacting with the Omnara Agent Dashboard API."""
 
 import asyncio
+import ssl
 from typing import Optional, Dict, Any
 from urllib.parse import urljoin
 
 import aiohttp
+import certifi
 from aiohttp import ClientTimeout
 
 from .exceptions import AuthenticationError, TimeoutError, APIError
@@ -54,8 +56,14 @@ class AsyncOmnaraClient:
     async def _ensure_session(self):
         """Ensure aiohttp session exists."""
         if self.session is None or self.session.closed:
+            # Create SSL context using certifi's certificate bundle
+            # This fixes SSL verification issues with aiohttp on some systems
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            
             self.session = aiohttp.ClientSession(
-                headers=self.headers, timeout=self.timeout
+                headers=self.headers, 
+                timeout=self.timeout,
+                connector=aiohttp.TCPConnector(ssl=ssl_context)
             )
 
     async def close(self):

@@ -37,8 +37,10 @@ def get_client() -> AsyncOmnaraClient:
     return client
 
 
-# Create FastMCP server
-mcp = FastMCP("Omnara Agent Dashboard MCP Server")
+# Create FastMCP server and metadata
+mcp = FastMCP(
+    "Omnara Agent Dashboard MCP Server",
+)
 
 
 @mcp.tool(name="log_step", description=LOG_STEP_DESCRIPTION)
