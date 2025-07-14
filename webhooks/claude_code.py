@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.responses import JSONResponse
 import subprocess
 import shlex
 from datetime import datetime
@@ -7,6 +8,8 @@ import os
 import re
 import uuid
 import uvicorn
+import time
+import json
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
 
@@ -51,8 +54,14 @@ async def lifespan(app: FastAPI):
 
     app.state.webhook_secret = secret
 
+    # Initialize the flag if not already set (when run via uvicorn directly)
+    if not hasattr(app.state, "dangerously_skip_permissions"):
+        app.state.dangerously_skip_permissions = False
+
     print(f"[IMPORTANT] Webhook secret: {secret}")
     print("[IMPORTANT] Use this secret in the Authorization header as: Bearer <secret>")
+    if app.state.dangerously_skip_permissions:
+        print("[WARNING] Running with --dangerously-skip-permissions flag enabled!")
     yield
 
     if hasattr(app.state, "webhook_secret"):
@@ -60,6 +69,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    print(f"[ERROR] Unhandled exception: {str(exc)}")
+    print(f"[ERROR] Exception type: {type(exc).__name__}")
+    import traceback
+
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500, content={"detail": f"Internal server error: {str(exc)}"}
+    )
+
 
 SYSTEM_PROMPT = """
 You are now in Omnara-only communication mode.
@@ -128,31 +150,36 @@ def verify_auth(request: Request, authorization: str = Header(None)) -> bool:
 async def start_claude(
     request: Request, webhook_data: WebhookRequest, authorization: str = Header(None)
 ):
-    if not verify_auth(request, authorization):
-        raise HTTPException(status_code=401, detail="Invalid or missing authorization")
-
-    agent_instance_id = webhook_data.agent_instance_id
-    prompt = webhook_data.prompt
-    name = webhook_data.name
-
-    safe_prompt = SYSTEM_PROMPT.replace("{{agent_instance_id}}", agent_instance_id)
-    safe_prompt += f"\n\n\n{prompt}"
-
-    now = datetime.now()
-    timestamp_str = now.strftime("%Y%m%d%H%M%S")
-
-    safe_timestamp = re.sub(r"[^a-zA-Z0-9-]", "", timestamp_str)
-
-    prefix = name if name else "omnara-claude"
-    feature_branch_name = f"{prefix}-{safe_timestamp}"
-
-    work_dir = os.path.abspath(f"./{feature_branch_name}")
-    base_dir = os.path.abspath(".")
-
-    if not work_dir.startswith(base_dir):
-        raise HTTPException(status_code=400, detail="Invalid working directory")
-
     try:
+        if not verify_auth(request, authorization):
+            raise HTTPException(
+                status_code=401, detail="Invalid or missing authorization"
+            )
+
+        agent_instance_id = webhook_data.agent_instance_id
+        prompt = webhook_data.prompt
+        name = webhook_data.name
+
+        print(
+            f"[INFO] Received webhook request for agent instance: {agent_instance_id}"
+        )
+
+        safe_prompt = SYSTEM_PROMPT.replace("{{agent_instance_id}}", agent_instance_id)
+        safe_prompt += f"\n\n\n{prompt}"
+
+        now = datetime.now()
+        timestamp_str = now.strftime("%Y%m%d%H%M%S")
+
+        safe_timestamp = re.sub(r"[^a-zA-Z0-9-]", "", timestamp_str)
+
+        prefix = name if name else "omnara-claude"
+        feature_branch_name = f"{prefix}-{safe_timestamp}"
+
+        work_dir = os.path.abspath(f"./{feature_branch_name}")
+        base_dir = os.path.abspath(".")
+
+        if not work_dir.startswith(base_dir):
+            raise HTTPException(status_code=400, detail="Invalid working directory")
         result = subprocess.run(
             [
                 "git",
@@ -177,10 +204,97 @@ async def start_claude(
         screen_name = f"{screen_prefix}-{safe_timestamp}"
 
         escaped_prompt = shlex.quote(safe_prompt)
-        claude_cmd = f"claude --dangerously-skip-permissions {escaped_prompt}"
 
+        # First, check if required commands are available
+        screen_check = subprocess.run(
+            ["which", "screen"],
+            capture_output=True,
+            text=True,
+        )
+        if screen_check.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail="screen command not found. Please install screen.",
+            )
+
+        # Check if claude command is available
+        claude_check = subprocess.run(
+            ["which", "claude"],
+            capture_output=True,
+            text=True,
+        )
+        if claude_check.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail="claude command not found. Please install Claude Code CLI.",
+            )
+        claude_path = claude_check.stdout.strip()
+
+        # Create MCP configuration
+        mcp_config = {
+            "mcpServers": {
+                "omnara": {
+                    "command": "omnara",
+                    "args": [
+                        "--api-key",
+                        os.environ.get("OMNARA_API_KEY", ""),
+                        "--claude-code-permission-tool",
+                    ],
+                }
+            }
+        }
+
+        # Write MCP config to file
+        mcp_config_path = os.path.join(work_dir, "mcp_config.json")
+        with open(mcp_config_path, "w") as f:
+            json.dump(mcp_config, f)
+
+        # Build claude command with appropriate flags
+        claude_args = [
+            claude_path,  # Use full path to claude
+            "--mcp-config",
+            mcp_config_path,
+            "--allowedTools",
+            "mcp__omnara__approve,mcp__omnara__log_step,mcp__omnara__ask_question,mcp__omnara__end_session",
+        ]
+
+        # Add permissions flag based on configuration
+        if request.app.state.dangerously_skip_permissions:
+            claude_args.append("--dangerously-skip-permissions")
+        else:
+            claude_args.extend(
+                ["-p", "--permission-prompt-tool", "mcp__omnara__approve"]
+            )
+
+        claude_args.append(escaped_prompt)
+        claude_cmd = " ".join(claude_args)
+
+        print(f"[INFO] Claude command: {claude_cmd}")
+        print(f"[INFO] Working directory: {work_dir}")
+
+        # Create a wrapper script to help debug
+        wrapper_script = f"""#!/bin/bash
+echo "[DEBUG] Starting Claude at $(date)" >> {work_dir}/claude.log
+echo "[DEBUG] Working directory: $(pwd)" >> {work_dir}/claude.log
+echo "[DEBUG] Claude command: {claude_cmd}" >> {work_dir}/claude.log
+{claude_cmd} >> {work_dir}/claude.log 2>&1
+echo "[DEBUG] Claude exited with code $? at $(date)" >> {work_dir}/claude.log
+"""
+
+        wrapper_path = os.path.join(work_dir, "run_claude.sh")
+        with open(wrapper_path, "w") as f:
+            f.write(wrapper_script)
+        os.chmod(wrapper_path, 0o755)
+
+        # Debug: Check who we're running as
+        whoami = subprocess.run(
+            ["whoami"], capture_output=True, text=True
+        ).stdout.strip()
+        print(f"[DEBUG] Running as user: {whoami}")
+
+        # Start screen with the wrapper script
         screen_result = subprocess.run(
-            ["screen", "-dmS", screen_name, "bash", "-c", claude_cmd],
+            ["screen", "-dmS", screen_name, "bash", wrapper_path],
             cwd=work_dir,
             capture_output=True,
             text=True,
@@ -188,24 +302,67 @@ async def start_claude(
             env={**os.environ, "CLAUDE_INSTANCE_ID": agent_instance_id},
         )
 
+        print(f"[DEBUG] Screen command exit code: {screen_result.returncode}")
+        print(f"[DEBUG] Screen stdout: {screen_result.stdout}")
+        print(f"[DEBUG] Screen stderr: {screen_result.stderr}")
+
         if screen_result.returncode != 0:
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to start screen session: {screen_result.stderr}",
             )
 
+        # Wait a moment and check if screen is still running
+        time.sleep(1)
+
+        # Check if the screen session exists
+        list_result = subprocess.run(
+            ["screen", "-ls"],
+            capture_output=True,
+            text=True,
+        )
+
+        if (
+            "No Sockets found" in list_result.stdout
+            or screen_name not in list_result.stdout
+        ):
+            # Try to read the log file for debugging
+            log_content = "No log file found"
+            log_path = os.path.join(work_dir, "claude.log")
+            if os.path.exists(log_path):
+                with open(log_path, "r") as f:
+                    log_content = f.read()
+
+            raise HTTPException(
+                status_code=500,
+                detail=f"Screen session started but exited immediately. Log: {log_content}",
+            )
+
         print(f"[INFO] Started screen session: {screen_name}")
         print(f"[INFO] To attach: screen -r {screen_name}")
+        print(f"[INFO] Log file: {work_dir}/claude.log")
+        print(f"[INFO] Wrapper script: {wrapper_path}")
 
         return {
             "message": "Successfully started claude",
             "branch": feature_branch_name,
             "screen_session": screen_name,
+            "work_dir": work_dir,
+            "log_file": f"{work_dir}/claude.log",
         }
 
     except subprocess.TimeoutExpired:
+        print("[ERROR] Git operation timed out")
         raise HTTPException(status_code=500, detail="Git operation timed out")
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
+        print(f"[ERROR] Failed to start claude: {str(e)}")
+        print(f"[ERROR] Exception type: {type(e).__name__}")
+        import traceback
+
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to start claude: {str(e)}")
 
 
@@ -216,4 +373,18 @@ async def health_check():
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Claude Code Webhook Server")
+    parser.add_argument(
+        "--dangerously-skip-permissions",
+        action="store_true",
+        help="Skip permission prompts in Claude Code - USE WITH CAUTION",
+    )
+
+    args = parser.parse_args()
+
+    # Store the flag in a global variable for the app to use
+    app.state.dangerously_skip_permissions = args.dangerously_skip_permissions
+
     uvicorn.run(app, host="0.0.0.0", port=6662)
