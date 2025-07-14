@@ -64,7 +64,7 @@ Omnara includes optional Stripe integration for SaaS deployments:
 
 - **Free Tier**: 20 agents per month
 - **Pro Tier ($9/mo)**: Unlimited agents
-- **Enterprise Tier ($500/mo)**: Unlimited agents + Teams, dedicated support, SLA (coming soon)
+- **Enterprise Tier ([Schedule a Call](https://cal.com/ishaan-sehgal-8kc22w/omnara-demo))**: Unlimited agents + Teams, dedicated support, custom integrations+notifications and more
 
 Billing is only enforced when explicitly configured with Stripe keys.
 

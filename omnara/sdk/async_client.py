@@ -162,7 +162,7 @@ class AsyncOmnaraClient:
         agent_instance_id: str,
         question_text: str,
         timeout_minutes: int = 1440,
-        poll_interval: float = 1.0,
+        poll_interval: float = 10.0,
     ) -> QuestionResponse:
         """Ask the user a question and wait for their response.
 
@@ -172,7 +172,7 @@ class AsyncOmnaraClient:
             agent_instance_id: Agent instance ID
             question_text: Question to ask the user
             timeout_minutes: Maximum time to wait for answer in minutes (default: 1440 = 24 hours)
-            poll_interval: Time between polls in seconds (default: 1.0)
+            poll_interval: Time between polls in seconds (default: 10.0)
 
         Returns:
             QuestionResponse with the user's answer
