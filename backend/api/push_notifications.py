@@ -112,14 +112,14 @@ def get_my_push_tokens(
 
 
 @router.post("/send-test-push", response_model=dict)
-def send_test_push_notification(
+async def send_test_push_notification(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
     """Send a real test push notification using Expo Push API (tests complete flow including when app is closed)"""
     try:
         # Send test notification using the same system that question notifications use
-        success = push_service.send_notification(
+        success = await push_service.send_notification(
             db=db,
             user_id=user_id,
             title="Test Notification",
