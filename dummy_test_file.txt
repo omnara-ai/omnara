@@ -1,0 +1,11 @@
+This is a dummy file created for testing purposes.
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+This file was created to test file creation functionality.
+
+Test data:
+- Line 1
+- Line 2
+- Line 3
+
+End of dummy file.

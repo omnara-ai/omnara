@@ -1,0 +1,19 @@
+Second dummy file for testing.
+
+This is another test file with different content.
+Created at the user's request.
+
+Sample data:
+==============
+Name: Test Item
+ID: 12345
+Status: Active
+Description: This is a sample entry in the second dummy file.
+
+Additional test content:
+- Alpha
+- Beta
+- Gamma
+- Delta
+
+[END OF FILE]
