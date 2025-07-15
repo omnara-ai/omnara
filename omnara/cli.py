@@ -22,11 +22,16 @@ def run_stdio_server(args):
     ]
     if args.base_url:
         cmd.extend(["--base-url", args.base_url])
+    if (
+        hasattr(args, "claude_code_permission_tool")
+        and args.claude_code_permission_tool
+    ):
+        cmd.append("--claude-code-permission-tool")
 
     subprocess.run(cmd)
 
 
-def run_webhook_server(cloudflare_tunnel=False):
+def run_webhook_server(cloudflare_tunnel=False, dangerously_skip_permissions=False):
     """Run the Claude Code webhook FastAPI server"""
     cloudflared_process = None
 
@@ -63,13 +68,11 @@ def run_webhook_server(cloudflare_tunnel=False):
     cmd = [
         sys.executable,
         "-m",
-        "uvicorn",
-        "webhooks.claude_code:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "6662",
+        "webhooks.claude_code",
     ]
+
+    if dangerously_skip_permissions:
+        cmd.append("--dangerously-skip-permissions")
 
     print("[INFO] Starting Claude Code webhook server on port 6662")
 
@@ -124,6 +127,11 @@ Examples:
         action="store_true",
         help="Run Cloudflare tunnel for the webhook server (webhook mode only)",
     )
+    parser.add_argument(
+        "--dangerously-skip-permissions",
+        action="store_true",
+        help="Skip permission prompts in Claude Code (webhook mode only) - USE WITH CAUTION",
+    )
 
     # Arguments for stdio mode
     parser.add_argument(
@@ -134,6 +142,11 @@ Examples:
         default="https://agent-dashboard-mcp.onrender.com",
         help="Base URL of the Omnara API server (stdio mode only)",
     )
+    parser.add_argument(
+        "--claude-code-permission-tool",
+        action="store_true",
+        help="Enable Claude Code permission prompt tool for handling tool execution approvals (stdio mode only)",
+    )
 
     args = parser.parse_args()
 
@@ -141,7 +154,10 @@ Examples:
         parser.error("--cloudflare-tunnel can only be used with --claude-code-webhook")
 
     if args.claude_code_webhook:
-        run_webhook_server(cloudflare_tunnel=args.cloudflare_tunnel)
+        run_webhook_server(
+            cloudflare_tunnel=args.cloudflare_tunnel,
+            dangerously_skip_permissions=args.dangerously_skip_permissions,
+        )
     else:
         if not args.api_key:
             parser.error("--api-key is required for stdio mode")
