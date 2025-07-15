@@ -87,9 +87,9 @@ async function installPipx(): Promise<boolean> {
   }
 }
 
-async function ensurePipxInstalled(): Promise<boolean> {
+async function ensurePipxInstalled(): Promise<{ success: boolean; fallbackTransport?: TransportType }> {
   if (await isPipxInstalled()) {
-    return true;
+    return { success: true };
   }
   
   console.log(chalk.yellow("\n⚠️  Pipx is required for stdio transport"));
@@ -104,11 +104,29 @@ async function ensurePipxInstalled(): Promise<boolean> {
   ]);
   
   if (shouldInstall) {
-    return await installPipx();
+    const installed = await installPipx();
+    if (installed) {
+      return { success: true };
+    }
+  }
+  
+  // Offer streamable-http as fallback when pipx installation fails
+  console.log(chalk.yellow("\n💡 Pipx installation failed or was declined"));
+  const { useFallback } = await inquirer.prompt<{ useFallback: boolean }>([
+    {
+      type: "confirm",
+      name: "useFallback",
+      message: "Use streamable-http transport instead? (connects to remote server)",
+      default: true,
+    },
+  ]);
+  
+  if (useFallback) {
+    return { success: true, fallbackTransport: "streamable-http" };
   }
   
   console.log(chalk.yellow("Install manually: pip install pipx"));
-  return false;
+  return { success: false };
 }
 
 export async function install(
@@ -156,9 +174,17 @@ export async function install(
           chalk.blue(`${capitalizedClient} will run Omnara locally using pipx`)
         );
         
-        const pipxInstalled = await ensurePipxInstalled();
-        if (pipxInstalled) {
-          console.log(chalk.green("✓ Pipx ready"));
+        const pipxResult = await ensurePipxInstalled();
+        if (pipxResult.success) {
+          if (pipxResult.fallbackTransport) {
+            // User chose fallback transport, regenerate config with new transport
+            console.log(chalk.yellow(`📡 Switching to ${pipxResult.fallbackTransport} transport`));
+            const fallbackConfig = getDefaultConfig(client, options?.apiKey, options?.endpoint, pipxResult.fallbackTransport);
+            writeConfig(client, fallbackConfig);
+            console.log(chalk.blue(`${capitalizedClient} will connect to Omnara via ${getTransportName(pipxResult.fallbackTransport)} endpoint`));
+          } else {
+            console.log(chalk.green("✓ Pipx ready"));
+          }
         } else {
           console.log(chalk.red("⚠️  Stdio transport requires pipx"));
         }

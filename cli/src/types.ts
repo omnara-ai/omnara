@@ -24,20 +24,21 @@ export const VALID_CLIENTS: ValidClient[] = [
 export type TransportType = "stdio" | "sse" | "streamable-http";
 
 // Clients that support SSE instead of stdio
+// Currently commented out - all clients default to stdio for reliability
+// Uncomment to re-enable SSE transport for specific clients
 export const SSE_SUPPORTED_CLIENTS: ValidClient[] = [
-  "claude-code",
-  "cline",
-  "roo-cline",
-  "windsurf",
-  "enconvo",
+  // "cline",
+  // "roo-cline", 
+  // "windsurf",
+  // "enconvo",
 ];
 
 // Clients that support HTTP streamable
+// Currently commented out - all clients default to stdio for reliability
+// Uncomment to re-enable HTTP transport for specific clients
 export const HTTP_SUPPORTED_CLIENTS: ValidClient[] = [
-  "claude-code",
-  "cursor",
-  "witsy",
-  "github-copilot",
+  // "witsy",
+  // "github-copilot",
 ];
 
 export interface ServerConfig {
