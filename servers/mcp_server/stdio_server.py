@@ -22,6 +22,7 @@ from .descriptions import (
 )
 from .utils import detect_agent_type_from_environment
 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +32,10 @@ client: Optional[AsyncOmnaraClient] = None
 
 # Global state for current agent instance (primarily used for claude code approval tool)
 current_agent_instance_id: Optional[str] = None
+
+# Global state for permission tracking (agent_instance_id -> permissions)
+# Structure: {agent_instance_id: {"Edit": True, "Write": True, "Bash": {"ls": True, "git": True}}}
+permission_state: dict[str, dict] = {}
 
 
 def get_client() -> AsyncOmnaraClient:
@@ -140,30 +145,72 @@ async def approve_tool(
     tool_use_id: Optional[str] = None,
 ) -> dict:
     """Claude Code permission prompt handler."""
-    global current_agent_instance_id
+    global current_agent_instance_id, permission_state
 
     if not tool_name:
         raise ValueError("tool_name is required")
 
     client = get_client()
 
-    # Format the permission request as a question
-    question_text = f"Allow execution of {tool_name}? Input: {input}"
+    # Use existing instance ID or create a new one
+    if current_agent_instance_id:
+        instance_id = current_agent_instance_id
+    else:
+        # Only create a new instance if we don't have one
+        response = await client.log_step(
+            agent_type="Claude Code",
+            step_description="Permission request",
+            agent_instance_id=None,
+        )
+        instance_id = response.agent_instance_id
+        current_agent_instance_id = instance_id
+
+    # Check if we have cached permissions for this instance
+    instance_permissions = permission_state.get(instance_id, {})
+
+    # Check if this tool/command is already approved
+    if tool_name in ["Edit", "Write"]:
+        # Simple tools - just check if approved
+        if instance_permissions.get(tool_name):
+            return {
+                "behavior": "allow",
+                "updatedInput": input,
+            }
+    elif tool_name == "Bash":
+        # For Bash, check command prefix
+        command = input.get("command", "")
+        if command:
+            # Extract the first word (command name)
+            command_parts = command.split()
+            if command_parts:
+                command_prefix = command_parts[0]
+                bash_permissions = instance_permissions.get("Bash", {})
+                if bash_permissions.get(command_prefix):
+                    return {
+                        "behavior": "allow",
+                        "updatedInput": input,
+                    }
+
+    # Format the permission request based on tool type
+    if tool_name == "Bash":
+        command = input.get("command", "")
+        command_parts = command.split()
+        command_prefix = command_parts[0] if command_parts else "command"
+        question_text = f"Allow execution of Bash {command_prefix}?\n\nFull command is: {command}\n\n"
+        question_text += "[OPTIONS]\n"
+        question_text += "1. Yes\n"
+        question_text += f"2. Yes and approve {command_prefix} for rest of session\n"
+        question_text += "3. No\n"
+        question_text += "[/OPTIONS]"
+    else:
+        question_text = f"Allow execution of {tool_name}?\n\nInput is: {input}\n\n"
+        question_text += "[OPTIONS]\n"
+        question_text += "1. Yes\n"
+        question_text += f"2. Yes and approve {tool_name} for rest of session\n"
+        question_text += "3. No\n"
+        question_text += "[/OPTIONS]"
 
     try:
-        # Use existing instance ID or create a new one
-        if current_agent_instance_id:
-            instance_id = current_agent_instance_id
-        else:
-            # Only create a new instance if we don't have one
-            response = await client.log_step(
-                agent_type="Claude Code",
-                step_description="Permission request",
-                agent_instance_id=None,
-            )
-            instance_id = response.agent_instance_id
-            current_agent_instance_id = instance_id
-
         # Ask the permission question
         answer_response = await client.ask_question(
             agent_instance_id=instance_id,
@@ -173,13 +220,44 @@ async def approve_tool(
         )
 
         # Parse the answer to determine approval
-        answer = answer_response.answer.lower().strip()
-        if answer in ["yes", "y", "allow", "approve", "ok"]:
+        answer = answer_response.answer.strip()
+
+        # Handle option selections (1, 2, 3) or custom text
+        if answer == "1":
+            # Yes - allow once
             return {
                 "behavior": "allow",
                 "updatedInput": input,
             }
+        elif answer == "2":
+            # Yes and approve for rest of session
+            # Save permission state
+            if instance_id not in permission_state:
+                permission_state[instance_id] = {}
+
+            if tool_name in ["Edit", "Write"]:
+                permission_state[instance_id][tool_name] = True
+            elif tool_name == "Bash":
+                command = input.get("command", "")
+                command_parts = command.split()
+                if command_parts:
+                    command_prefix = command_parts[0]
+                    if "Bash" not in permission_state[instance_id]:
+                        permission_state[instance_id]["Bash"] = {}
+                    permission_state[instance_id]["Bash"][command_prefix] = True
+
+            return {
+                "behavior": "allow",
+                "updatedInput": input,
+            }
+        elif answer == "3":
+            # No - deny
+            return {
+                "behavior": "deny",
+                "message": "Permission denied by user",
+            }
         else:
+            # Custom text response - treat as denial with message
             return {
                 "behavior": "deny",
                 "message": f"Permission denied by user: {answer_response.answer}",
@@ -221,7 +299,7 @@ def main():
         approve_tool.enable()
         logger.info("Claude Code permission tool enabled")
 
-    logger.info("Starting Omnara MCP server (stdio)")
+    logger.info("Starting Omnara MCP server (stdio) test")
     logger.info(f"Using API server: {args.base_url}")
     logger.info(
         f"Claude Code permission tool: {'enabled' if args.claude_code_permission_tool else 'disabled'}"

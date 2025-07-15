@@ -307,14 +307,19 @@ async def start_claude(
         omnara_api_key = x_omnara_api_key
 
         # Create MCP config as a JSON string
+        # Use Python to run the local omnara module directly
         mcp_config = {
             "mcpServers": {
                 "omnara": {
-                    "command": "omnara",
+                    "command": "python",
                     "args": [
+                        "-m",
+                        "omnara.cli",
                         "--api-key",
                         omnara_api_key,
                         "--claude-code-permission-tool",
+                        "--base-url",
+                        "http://localhost:8080",
                     ],
                 }
             }
