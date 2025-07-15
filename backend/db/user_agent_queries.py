@@ -14,8 +14,20 @@ from ..models import UserAgentRequest, WebhookTriggerResponse
 from .queries import _format_instance
 
 
-def create_user_agent(db: Session, user_id: UUID, request: UserAgentRequest) -> dict:
+def create_user_agent(
+    db: Session, user_id: UUID, request: UserAgentRequest
+) -> dict | None:
     """Create a new user agent configuration"""
+
+    # Check if agent with same name already exists for this user
+    existing = (
+        db.query(UserAgent)
+        .filter(and_(UserAgent.user_id == user_id, UserAgent.name == request.name))
+        .first()
+    )
+
+    if existing:
+        return None
 
     user_agent = UserAgent(
         user_id=user_id,

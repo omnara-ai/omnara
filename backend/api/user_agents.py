@@ -48,6 +48,10 @@ async def create_new_user_agent(
 ):
     """Create a new user agent configuration"""
     agent = create_user_agent(db, current_user.id, request)
+    if not agent:
+        raise HTTPException(
+            status_code=400, detail=f"An agent named '{request.name}' already exists"
+        )
     return agent
 
 
