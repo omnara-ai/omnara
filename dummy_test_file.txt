@@ -1,0 +1,13 @@
+This is a dummy file created for testing purposes.
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Some test data here.
+Line 4 of the test file.
+Another line with some content.
+
+Test section:
+- Item 1
+- Item 2
+- Item 3
+
+End of dummy file.
