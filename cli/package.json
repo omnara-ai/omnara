@@ -1,6 +1,6 @@
 {
     "name": "@omnara/cli",
-    "version": "1.0.7",
+    "version": "1.0.9",
     "type": "module",
     "description": "MCP configuration installer by Omnara",
     "main": "dist/index.js",
