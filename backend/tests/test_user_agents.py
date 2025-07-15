@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from uuid import uuid4
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from shared.database.models import UserAgent, AgentInstance, User
 from shared.database.enums import AgentStatus
@@ -230,9 +230,10 @@ class TestUserAgentEndpoints:
 
         # Mock the async webhook function
         with patch(
-            "backend.db.user_agent_queries.trigger_webhook_agent"
+            "backend.db.user_agent_queries.trigger_webhook_agent",
+            new_callable=AsyncMock,
         ) as mock_trigger:
-            # Use AsyncMock to properly mock the async function
+            # Set the return value for the async mock
             mock_trigger.return_value = WebhookTriggerResponse(
                 success=True,
                 agent_instance_id=str(uuid4()),
