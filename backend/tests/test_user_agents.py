@@ -230,7 +230,7 @@ class TestUserAgentEndpoints:
 
         # Mock the async webhook function
         with patch(
-            "backend.db.user_agent_queries.trigger_webhook_agent",
+            "backend.api.user_agents.trigger_webhook_agent",
             new_callable=AsyncMock,
         ) as mock_trigger:
             # Set the return value for the async mock
