@@ -311,15 +311,14 @@ async def start_claude(
         mcp_config = {
             "mcpServers": {
                 "omnara": {
-                    "command": "python",
+                    "command": "pipx",
                     "args": [
-                        "-m",
-                        "omnara.cli",
+                        "run",
+                        "--no-cache",
+                        "omnara",
                         "--api-key",
                         omnara_api_key,
                         "--claude-code-permission-tool",
-                        "--base-url",
-                        "http://localhost:8080",
                     ],
                 }
             }

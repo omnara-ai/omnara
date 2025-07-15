@@ -307,7 +307,7 @@ def main():
         approve_tool.enable()
         logger.info("Claude Code permission tool enabled")
 
-    logger.info("Starting Omnara MCP server (stdio) test")
+    logger.info("Starting Omnara MCP server (stdio)")
     logger.info(f"Using API server: {args.base_url}")
     logger.info(
         f"Claude Code permission tool: {'enabled' if args.claude_code_permission_tool else 'disabled'}"
