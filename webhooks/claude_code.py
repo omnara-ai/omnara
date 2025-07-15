@@ -148,7 +148,10 @@ def verify_auth(request: Request, authorization: str = Header(None)) -> bool:
 
 @app.post("/")
 async def start_claude(
-    request: Request, webhook_data: WebhookRequest, authorization: str = Header(None)
+    request: Request,
+    webhook_data: WebhookRequest,
+    authorization: str = Header(None),
+    x_omnara_api_key: str = Header(None, alias="X-Omnara-Api-Key"),
 ):
     try:
         if not verify_auth(request, authorization):
@@ -230,30 +233,34 @@ async def start_claude(
             )
         claude_path = claude_check.stdout.strip()
 
-        # Create MCP configuration
+        # Get Omnara API key from header
+        if not x_omnara_api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Omnara API key required. Provide via X-Omnara-Api-Key header.",
+            )
+        omnara_api_key = x_omnara_api_key
+
+        # Create MCP config as a JSON string
         mcp_config = {
             "mcpServers": {
                 "omnara": {
                     "command": "omnara",
                     "args": [
                         "--api-key",
-                        os.environ.get("OMNARA_API_KEY", ""),
+                        omnara_api_key,
                         "--claude-code-permission-tool",
                     ],
                 }
             }
         }
+        mcp_config_str = json.dumps(mcp_config)
 
-        # Write MCP config to file
-        mcp_config_path = os.path.join(work_dir, "mcp_config.json")
-        with open(mcp_config_path, "w") as f:
-            json.dump(mcp_config, f)
-
-        # Build claude command with appropriate flags
+        # Build claude command with MCP config as string
         claude_args = [
             claude_path,  # Use full path to claude
             "--mcp-config",
-            mcp_config_path,
+            mcp_config_str,
             "--allowedTools",
             "mcp__omnara__approve,mcp__omnara__log_step,mcp__omnara__ask_question,mcp__omnara__end_session",
         ]
@@ -266,45 +273,23 @@ async def start_claude(
                 ["-p", "--permission-prompt-tool", "mcp__omnara__approve"]
             )
 
+        # Add the prompt to claude args
         claude_args.append(escaped_prompt)
-        claude_cmd = " ".join(claude_args)
 
-        print(f"[INFO] Claude command: {claude_cmd}")
+        print(f"[INFO] Claude command: {' '.join(claude_args)}")
         print(f"[INFO] Working directory: {work_dir}")
 
-        # Create a wrapper script to help debug
-        wrapper_script = f"""#!/bin/bash
-echo "[DEBUG] Starting Claude at $(date)" >> {work_dir}/claude.log
-echo "[DEBUG] Working directory: $(pwd)" >> {work_dir}/claude.log
-echo "[DEBUG] Claude command: {claude_cmd}" >> {work_dir}/claude.log
-{claude_cmd} >> {work_dir}/claude.log 2>&1
-echo "[DEBUG] Claude exited with code $? at $(date)" >> {work_dir}/claude.log
-"""
+        # Start screen directly with the claude command
+        screen_cmd = ["screen", "-dmS", screen_name] + claude_args
 
-        wrapper_path = os.path.join(work_dir, "run_claude.sh")
-        with open(wrapper_path, "w") as f:
-            f.write(wrapper_script)
-        os.chmod(wrapper_path, 0o755)
-
-        # Debug: Check who we're running as
-        whoami = subprocess.run(
-            ["whoami"], capture_output=True, text=True
-        ).stdout.strip()
-        print(f"[DEBUG] Running as user: {whoami}")
-
-        # Start screen with the wrapper script
         screen_result = subprocess.run(
-            ["screen", "-dmS", screen_name, "bash", wrapper_path],
+            screen_cmd,
             cwd=work_dir,
             capture_output=True,
             text=True,
             timeout=10,
             env={**os.environ, "CLAUDE_INSTANCE_ID": agent_instance_id},
         )
-
-        print(f"[DEBUG] Screen command exit code: {screen_result.returncode}")
-        print(f"[DEBUG] Screen stdout: {screen_result.stdout}")
-        print(f"[DEBUG] Screen stderr: {screen_result.stderr}")
 
         if screen_result.returncode != 0:
             raise HTTPException(
@@ -326,29 +311,19 @@ echo "[DEBUG] Claude exited with code $? at $(date)" >> {work_dir}/claude.log
             "No Sockets found" in list_result.stdout
             or screen_name not in list_result.stdout
         ):
-            # Try to read the log file for debugging
-            log_content = "No log file found"
-            log_path = os.path.join(work_dir, "claude.log")
-            if os.path.exists(log_path):
-                with open(log_path, "r") as f:
-                    log_content = f.read()
-
             raise HTTPException(
                 status_code=500,
-                detail=f"Screen session started but exited immediately. Log: {log_content}",
+                detail=f"Screen session started but exited immediately. Session name: {screen_name}",
             )
 
         print(f"[INFO] Started screen session: {screen_name}")
         print(f"[INFO] To attach: screen -r {screen_name}")
-        print(f"[INFO] Log file: {work_dir}/claude.log")
-        print(f"[INFO] Wrapper script: {wrapper_path}")
 
         return {
             "message": "Successfully started claude",
             "branch": feature_branch_name,
             "screen_session": screen_name,
             "work_dir": work_dir,
-            "log_file": f"{work_dir}/claude.log",
         }
 
     except subprocess.TimeoutExpired:

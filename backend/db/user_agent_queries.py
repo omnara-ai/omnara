@@ -5,13 +5,15 @@ Database queries for UserAgent operations.
 import httpx
 from datetime import datetime, timezone
 from uuid import UUID
+import hashlib
 
-from shared.database import UserAgent, AgentInstance, AgentStatus
+from shared.database import UserAgent, AgentInstance, AgentStatus, APIKey
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import UserAgentRequest, WebhookTriggerResponse
 from .queries import _format_instance
+from ..auth.jwt_utils import create_api_key_jwt
 
 
 def create_user_agent(db: Session, user_id: UUID, request: UserAgentRequest) -> dict:
@@ -86,25 +88,48 @@ async def trigger_webhook_agent(
     db.commit()
     db.refresh(instance)
 
+    # Get or create an Omnara API key for this agent
+    api_key_name = f"{user_agent.name} Key"
+
+    # Check if an API key already exists for this agent
+    existing_key = (
+        db.query(APIKey)
+        .filter(
+            and_(
+                APIKey.user_id == user_id,
+                APIKey.name == api_key_name,
+                APIKey.is_active,
+            )
+        )
+        .first()
+    )
+
+    if existing_key:
+        omnara_api_key = existing_key.api_key
+    else:
+        # Create a new API key
+        jwt_token = create_api_key_jwt(
+            user_id=str(user_id),
+            expires_in_days=None,  # No expiration
+        )
+
+        # Store API key in database
+        api_key = APIKey(
+            user_id=user_id,
+            name=api_key_name,
+            api_key_hash=hashlib.sha256(jwt_token.encode()).hexdigest(),
+            api_key=jwt_token,
+            expires_at=None,  # No expiration
+        )
+        db.add(api_key)
+        db.commit()
+
+        omnara_api_key = jwt_token
+
     # Prepare webhook payload
     payload = {
         "agent_instance_id": str(instance.id),
         "prompt": prompt,
-        "omnara_api_key": user_agent.webhook_api_key,
-        "omnara_tools": {
-            "log_step": {
-                "description": "Log a step in the agent's execution",
-                "endpoint": "/api/v1/mcp/tools/log_step",
-            },
-            "ask_question": {
-                "description": "Ask a question to the user",
-                "endpoint": "/api/v1/mcp/tools/ask_question",
-            },
-            "end_session": {
-                "description": "End the agent session",
-                "endpoint": "/api/v1/mcp/tools/end_session",
-            },
-        },
     }
 
     # Call the webhook
@@ -118,6 +143,7 @@ async def trigger_webhook_agent(
                     if user_agent.webhook_api_key
                     else "",
                     "Content-Type": "application/json",
+                    "X-Omnara-Api-Key": omnara_api_key,  # Add the Omnara API key header
                 },
             )
             response.raise_for_status()
