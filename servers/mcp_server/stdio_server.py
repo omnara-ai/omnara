@@ -192,22 +192,30 @@ async def approve_tool(
                     }
 
     # Format the permission request based on tool type
+    # Define option texts that will be used for comparison
+    option_yes = "Yes"
+    option_no = "No"
+
     if tool_name == "Bash":
         command = input.get("command", "")
         command_parts = command.split()
         command_prefix = command_parts[0] if command_parts else "command"
+        option_yes_session = f"Yes and approve {command_prefix} for rest of session"
+
         question_text = f"Allow execution of Bash {command_prefix}?\n\nFull command is: {command}\n\n"
         question_text += "[OPTIONS]\n"
-        question_text += "1. Yes\n"
-        question_text += f"2. Yes and approve {command_prefix} for rest of session\n"
-        question_text += "3. No\n"
+        question_text += f"1. {option_yes}\n"
+        question_text += f"2. {option_yes_session}\n"
+        question_text += f"3. {option_no}\n"
         question_text += "[/OPTIONS]"
     else:
+        option_yes_session = f"Yes and approve {tool_name} for rest of session"
+
         question_text = f"Allow execution of {tool_name}?\n\nInput is: {input}\n\n"
         question_text += "[OPTIONS]\n"
-        question_text += "1. Yes\n"
-        question_text += f"2. Yes and approve {tool_name} for rest of session\n"
-        question_text += "3. No\n"
+        question_text += f"1. {option_yes}\n"
+        question_text += f"2. {option_yes_session}\n"
+        question_text += f"3. {option_no}\n"
         question_text += "[/OPTIONS]"
 
     try:
@@ -222,14 +230,14 @@ async def approve_tool(
         # Parse the answer to determine approval
         answer = answer_response.answer.strip()
 
-        # Handle option selections (1, 2, 3) or custom text
-        if answer == "1":
+        # Handle option selections by comparing with actual option text
+        if answer == option_yes:
             # Yes - allow once
             return {
                 "behavior": "allow",
                 "updatedInput": input,
             }
-        elif answer == "2":
+        elif answer == option_yes_session:
             # Yes and approve for rest of session
             # Save permission state
             if instance_id not in permission_state:
@@ -250,7 +258,7 @@ async def approve_tool(
                 "behavior": "allow",
                 "updatedInput": input,
             }
-        elif answer == "3":
+        elif answer == option_no:
             # No - deny
             return {
                 "behavior": "deny",
