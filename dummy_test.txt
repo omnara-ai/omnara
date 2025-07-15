@@ -1,0 +1,16 @@
+This is a dummy text file for testing purposes.
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+
+Some test data:
+- Item 1
+- Item 2
+- Item 3
+
+Test paragraph with various content types:
+Numbers: 123, 456, 789
+Special characters: !@#$%^&*()
+Mixed case: AbCdEfGhIjKlMnOpQrStUvWxYz
+
+End of test file.

@@ -1,0 +1,39 @@
+{
+  "test_info": {
+    "name": "Dummy Test Data",
+    "version": "1.0.0",
+    "created": "2025-01-15",
+    "purpose": "Testing file creation"
+  },
+  "users": [
+    {
+      "id": 1,
+      "name": "Alice Johnson",
+      "email": "alice@example.com",
+      "active": true
+    },
+    {
+      "id": 2,
+      "name": "Bob Smith",
+      "email": "bob@example.com",
+      "active": false
+    },
+    {
+      "id": 3,
+      "name": "Charlie Brown",
+      "email": "charlie@example.com",
+      "active": true
+    }
+  ],
+  "settings": {
+    "debug": false,
+    "timeout": 3000,
+    "retries": 3,
+    "features": ["feature_a", "feature_b", "feature_c"]
+  },
+  "metadata": {
+    "tags": ["test", "dummy", "sample"],
+    "priority": "low",
+    "environment": "development"
+  }
+}
