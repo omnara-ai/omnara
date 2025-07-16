@@ -12,6 +12,7 @@ import time
 import json
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
+from typing import Any
 
 
 MAX_PROMPT_LENGTH = 10000
@@ -48,24 +49,37 @@ class WebhookRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    secret = os.environ.get("CLAUDE_WEBHOOK_SECRET")
-    if not secret:
-        secret = secrets.token_urlsafe(12)
+    try:
+        secret = os.environ.get("CLAUDE_WEBHOOK_SECRET")
+        if not secret:
+            secret = secrets.token_urlsafe(12)
 
-    app.state.webhook_secret = secret
+        app.state.webhook_secret = secret
 
-    # Initialize the flag if not already set (when run via uvicorn directly)
-    if not hasattr(app.state, "dangerously_skip_permissions"):
-        app.state.dangerously_skip_permissions = False
+        # Initialize the flag if not already set (when run via uvicorn directly)
+        if not hasattr(app.state, "dangerously_skip_permissions"):
+            app.state.dangerously_skip_permissions = False
 
-    print(f"[IMPORTANT] Webhook secret: {secret}")
-    print("[IMPORTANT] Use this secret in the Authorization header as: Bearer <secret>")
-    if app.state.dangerously_skip_permissions:
-        print("[WARNING] Running with --dangerously-skip-permissions flag enabled!")
+        print(f"[IMPORTANT] Webhook secret: {secret}")
+        print(
+            "[IMPORTANT] Use this secret in the Authorization header as: Bearer <secret>"
+        )
+        if app.state.dangerously_skip_permissions:
+            print("[WARNING] Running with --dangerously-skip-permissions flag enabled!")
+    except Exception as e:
+        print(f"[ERROR] Failed to initialize application: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        raise
+
     yield
 
-    if hasattr(app.state, "webhook_secret"):
-        delattr(app.state, "webhook_secret")
+    try:
+        if hasattr(app.state, "webhook_secret"):
+            delattr(app.state, "webhook_secret")
+    except Exception as e:
+        print(f"[ERROR] Failed to cleanup application state: {str(e)}")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -195,20 +209,27 @@ When using `ask_question`, you MUST use structured formats for certain question 
 
 def verify_auth(request: Request, authorization: str = Header(None)) -> bool:
     """Verify the authorization header contains the correct secret"""
-    if not authorization:
+    try:
+        if not authorization:
+            print("[AUTH] No authorization header provided")
+            return False
+
+        parts = authorization.split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            print(f"[AUTH] Invalid authorization format: {authorization[:20]}...")
+            return False
+
+        provided_secret = parts[1]
+        expected_secret = getattr(request.app.state, "webhook_secret", None)
+
+        if not expected_secret:
+            print("[AUTH] No webhook secret configured in app state")
+            return False
+
+        return secrets.compare_digest(provided_secret, expected_secret)
+    except Exception as e:
+        print(f"[AUTH] Error during authentication verification: {str(e)}")
         return False
-
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        return False
-
-    provided_secret = parts[1]
-    expected_secret = getattr(request.app.state, "webhook_secret", None)
-
-    if not expected_secret:
-        return False
-
-    return secrets.compare_digest(provided_secret, expected_secret)
 
 
 @app.post("/")
@@ -219,53 +240,109 @@ async def start_claude(
     x_omnara_api_key: str = Header(None, alias="X-Omnara-Api-Key"),
 ):
     try:
+        # Authentication check
         if not verify_auth(request, authorization):
             raise HTTPException(
-                status_code=401, detail="Invalid or missing authorization"
+                status_code=401,
+                detail="Invalid or missing authorization. Provide 'Authorization: Bearer <secret>' header.",
             )
 
-        agent_instance_id = webhook_data.agent_instance_id
-        prompt = webhook_data.prompt
-        name = webhook_data.name
+        # Extract and validate request data
+        try:
+            agent_instance_id = webhook_data.agent_instance_id
+            prompt = webhook_data.prompt
+            name = webhook_data.name
+        except AttributeError as e:
+            print(f"[ERROR] Invalid webhook data structure: {str(e)}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid request data: {str(e)}"
+            )
 
         print(
             f"[INFO] Received webhook request for agent instance: {agent_instance_id}"
         )
 
-        safe_prompt = SYSTEM_PROMPT.replace("{{agent_instance_id}}", agent_instance_id)
-        safe_prompt += f"\n\n\n{prompt}"
-
-        now = datetime.now()
-        timestamp_str = now.strftime("%Y%m%d%H%M%S")
-
-        safe_timestamp = re.sub(r"[^a-zA-Z0-9-]", "", timestamp_str)
-
-        prefix = name if name else "omnara-claude"
-        feature_branch_name = f"{prefix}-{safe_timestamp}"
-
-        work_dir = os.path.abspath(f"./{feature_branch_name}")
-        base_dir = os.path.abspath(".")
-
-        if not work_dir.startswith(base_dir):
-            raise HTTPException(status_code=400, detail="Invalid working directory")
-        result = subprocess.run(
-            [
-                "git",
-                "worktree",
-                "add",
-                work_dir,
-                "-b",
-                feature_branch_name,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=base_dir,
-        )
-
-        if result.returncode != 0:
+        # Prepare prompt
+        try:
+            safe_prompt = SYSTEM_PROMPT.replace(
+                "{{agent_instance_id}}", agent_instance_id
+            )
+            safe_prompt += f"\n\n\n{prompt}"
+        except Exception as e:
+            print(f"[ERROR] Failed to prepare prompt: {str(e)}")
             raise HTTPException(
-                status_code=500, detail=f"Failed to create worktree: {result.stderr}"
+                status_code=500, detail=f"Failed to prepare prompt: {str(e)}"
+            )
+
+        # Generate timestamps and directory names
+        try:
+            now = datetime.now()
+            timestamp_str = now.strftime("%Y%m%d%H%M%S")
+            safe_timestamp = re.sub(r"[^a-zA-Z0-9-]", "", timestamp_str)
+            prefix = name if name else "omnara-claude"
+            feature_branch_name = f"{prefix}-{safe_timestamp}"
+            work_dir = os.path.abspath(f"./{feature_branch_name}")
+            base_dir = os.path.abspath(".")
+
+            if not work_dir.startswith(base_dir):
+                raise HTTPException(status_code=400, detail="Invalid working directory")
+        except Exception as e:
+            print(f"[ERROR] Failed to generate working directory: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to generate working directory: {str(e)}",
+            )
+        # Create git worktree
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "worktree",
+                    "add",
+                    work_dir,
+                    "-b",
+                    feature_branch_name,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=base_dir,
+            )
+
+            if result.returncode != 0:
+                error_msg = result.stderr or "Unknown git error"
+                print(f"[ERROR] Git worktree creation failed: {error_msg}")
+                # Check for common git errors
+                if "not a git repository" in error_msg.lower():
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Not a git repository. Ensure the webhook is running in a git repository.",
+                    )
+                elif "already exists" in error_msg.lower():
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Branch or worktree already exists: {feature_branch_name}",
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to create git worktree: {error_msg}",
+                    )
+        except subprocess.TimeoutExpired:
+            print("[ERROR] Git worktree creation timed out")
+            raise HTTPException(
+                status_code=500,
+                detail="Git worktree creation timed out after 30 seconds",
+            )
+        except FileNotFoundError:
+            print("[ERROR] Git command not found")
+            raise HTTPException(
+                status_code=500, detail="Git command not found. Please install git."
+            )
+        except Exception as e:
+            print(f"[ERROR] Unexpected error creating git worktree: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to create git worktree: {str(e)}"
             )
 
         screen_prefix = name if name else "omnara-claude"
@@ -273,57 +350,80 @@ async def start_claude(
 
         escaped_prompt = shlex.quote(safe_prompt)
 
-        # First, check if required commands are available
-        screen_check = subprocess.run(
-            ["which", "screen"],
-            capture_output=True,
-            text=True,
-        )
-        if screen_check.returncode != 0:
+        # Check for required commands
+        try:
+            # Check if screen is available
+            screen_check = subprocess.run(
+                ["which", "screen"],
+                capture_output=True,
+                text=True,
+            )
+            if screen_check.returncode != 0:
+                print("[ERROR] screen command not found")
+                raise HTTPException(
+                    status_code=500,
+                    detail="screen command not found. Please install screen using your package manager (e.g., apt-get install screen, brew install screen).",
+                )
+
+            # Check if claude command is available
+            claude_check = subprocess.run(
+                ["which", "claude"],
+                capture_output=True,
+                text=True,
+            )
+            if claude_check.returncode != 0:
+                print("[ERROR] claude command not found")
+                raise HTTPException(
+                    status_code=500,
+                    detail="claude command not found. Please install Claude Code CLI (https://github.com/anthropics/claude-code).",
+                )
+            claude_path = claude_check.stdout.strip()
+            print(f"[INFO] Found claude at: {claude_path}")
+        except FileNotFoundError:
+            print("[ERROR] 'which' command not found")
             raise HTTPException(
                 status_code=500,
-                detail="screen command not found. Please install screen.",
+                detail="System 'which' command not found. Running on non-Unix system?",
             )
-
-        # Check if claude command is available
-        claude_check = subprocess.run(
-            ["which", "claude"],
-            capture_output=True,
-            text=True,
-        )
-        if claude_check.returncode != 0:
+        except Exception as e:
+            print(f"[ERROR] Failed to check for required commands: {str(e)}")
             raise HTTPException(
-                status_code=500,
-                detail="claude command not found. Please install Claude Code CLI.",
+                status_code=500, detail=f"Failed to verify required commands: {str(e)}"
             )
-        claude_path = claude_check.stdout.strip()
 
-        # Get Omnara API key from header
+        # Get and validate Omnara API key from header
         if not x_omnara_api_key:
+            print("[ERROR] Missing Omnara API key in request")
             raise HTTPException(
                 status_code=400,
                 detail="Omnara API key required. Provide via X-Omnara-Api-Key header.",
             )
         omnara_api_key = x_omnara_api_key
+        print(f"[INFO] Omnara API key provided: {omnara_api_key[:8]}...")
 
-        # Create MCP config as a JSON string
-        # Use Python to run the local omnara module directly
-        mcp_config = {
-            "mcpServers": {
-                "omnara": {
-                    "command": "pipx",
-                    "args": [
-                        "run",
-                        "--no-cache",
-                        "omnara",
-                        "--api-key",
-                        omnara_api_key,
-                        "--claude-code-permission-tool",
-                    ],
+        # Create MCP config
+        try:
+            mcp_config = {
+                "mcpServers": {
+                    "omnara": {
+                        "command": "pipx",
+                        "args": [
+                            "run",
+                            "--no-cache",
+                            "omnara",
+                            "--api-key",
+                            omnara_api_key,
+                            "--claude-code-permission-tool",
+                        ],
+                    }
                 }
             }
-        }
-        mcp_config_str = json.dumps(mcp_config)
+            mcp_config_str = json.dumps(mcp_config)
+        except Exception as e:
+            print(f"[ERROR] Failed to create MCP config: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to create MCP configuration: {str(e)}"
+            )
 
         # Build claude command with MCP config as string
         claude_args = [
@@ -348,41 +448,99 @@ async def start_claude(
         print(f"[INFO] Claude command: {' '.join(claude_args)}")
         print(f"[INFO] Working directory: {work_dir}")
 
-        # Start screen directly with the claude command
-        screen_cmd = ["screen", "-dmS", screen_name] + claude_args
+        # Start screen session with claude
+        try:
+            screen_cmd = ["screen", "-dmS", screen_name] + claude_args
 
-        screen_result = subprocess.run(
-            screen_cmd,
-            cwd=work_dir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env={**os.environ, "CLAUDE_INSTANCE_ID": agent_instance_id},
-        )
+            # Prepare environment
+            env = os.environ.copy()
+            env["CLAUDE_INSTANCE_ID"] = agent_instance_id
 
-        if screen_result.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to start screen session: {screen_result.stderr}",
+            print(f"[INFO] Starting screen session: {screen_name}")
+            screen_result = subprocess.run(
+                screen_cmd,
+                cwd=work_dir,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env,
             )
 
-        # Wait a moment and check if screen is still running
-        time.sleep(1)
-
-        # Check if the screen session exists
-        list_result = subprocess.run(
-            ["screen", "-ls"],
-            capture_output=True,
-            text=True,
-        )
-
-        if (
-            "No Sockets found" in list_result.stdout
-            or screen_name not in list_result.stdout
-        ):
+            if screen_result.returncode != 0:
+                error_msg = (
+                    screen_result.stderr or screen_result.stdout or "Unknown error"
+                )
+                print(f"[ERROR] Screen command failed: {error_msg}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to start screen session: {error_msg}",
+                )
+        except subprocess.TimeoutExpired:
+            print("[ERROR] Screen command timed out")
             raise HTTPException(
                 status_code=500,
-                detail=f"Screen session started but exited immediately. Session name: {screen_name}",
+                detail="Starting screen session timed out after 10 seconds",
+            )
+        except Exception as e:
+            print(f"[ERROR] Unexpected error starting screen: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to start screen session: {str(e)}"
+            )
+
+        # Verify screen session is running
+        try:
+            time.sleep(1)
+
+            list_result = subprocess.run(
+                ["screen", "-ls"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            if list_result.returncode not in [
+                0,
+                1,
+            ]:  # screen -ls returns 1 when sessions exist
+                print(f"[ERROR] Failed to list screen sessions: {list_result.stderr}")
+                raise HTTPException(
+                    status_code=500, detail="Failed to verify screen session status"
+                )
+
+            if (
+                "No Sockets found" in list_result.stdout
+                or screen_name not in list_result.stdout
+            ):
+                print(f"[ERROR] Screen session not found: {screen_name}")
+                print(f"[ERROR] Screen output: {list_result.stdout}")
+
+                # Try to provide more helpful error message
+                error_detail = (
+                    f"Screen session '{screen_name}' started but exited immediately. "
+                )
+                error_detail += "This may indicate: 1) Claude CLI crashed on startup, "
+                error_detail += (
+                    "2) Invalid MCP configuration, 3) Missing dependencies, "
+                )
+                error_detail += (
+                    "or 4) Permissions issue. Check server logs for details."
+                )
+
+                raise HTTPException(
+                    status_code=500,
+                    detail=error_detail,
+                )
+        except subprocess.TimeoutExpired:
+            print("[ERROR] Timeout checking screen session status")
+            raise HTTPException(
+                status_code=500, detail="Timeout verifying screen session status"
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"[ERROR] Failed to verify screen session: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to verify screen session: {str(e)}"
             )
 
         print(f"[INFO] Started screen session: {screen_name}")
@@ -395,25 +553,94 @@ async def start_claude(
             "work_dir": work_dir,
         }
 
-    except subprocess.TimeoutExpired:
-        print("[ERROR] Git operation timed out")
-        raise HTTPException(status_code=500, detail="Git operation timed out")
+    except subprocess.TimeoutExpired as e:
+        print(f"[ERROR] Operation timed out: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Operation timed out. This may indicate a system performance issue.",
+        )
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
+        # Re-raise HTTP exceptions as-is to preserve status codes and messages
         raise
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Command failed: {e.cmd}")
+        print(f"[ERROR] Return code: {e.returncode}")
+        print(f"[ERROR] Output: {e.output if hasattr(e, 'output') else 'N/A'}")
+        raise HTTPException(
+            status_code=500, detail=f"Command execution failed: {str(e)}"
+        )
+    except OSError as e:
+        print(f"[ERROR] OS error: {str(e)}")
+        if e.errno == 13:  # Permission denied
+            raise HTTPException(
+                status_code=500,
+                detail="Permission denied. Check file permissions and user privileges.",
+            )
+        elif e.errno == 2:  # No such file or directory
+            raise HTTPException(
+                status_code=500,
+                detail="Required file or directory not found. Check installation and paths.",
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"System error: {str(e)}")
     except Exception as e:
-        print(f"[ERROR] Failed to start claude: {str(e)}")
+        print(f"[ERROR] Unexpected error in webhook handler: {str(e)}")
         print(f"[ERROR] Exception type: {type(e).__name__}")
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to start claude: {str(e)}")
+
+        # Provide a generic but informative error message
+        error_msg = f"An unexpected error occurred: {type(e).__name__}"
+        if str(e):
+            error_msg += f" - {str(e)}"
+
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint - no auth required"""
-    return {"status": "healthy"}
+    try:
+        # Basic health check - use dict[str, Any] to allow mixed types
+        status: dict[str, Any] = {"status": "healthy"}
+
+        # Check if webhook secret is configured
+        if hasattr(app.state, "webhook_secret") and app.state.webhook_secret:
+            status["auth_configured"] = True
+        else:
+            status["auth_configured"] = False
+            status["warning"] = "Webhook secret not configured"
+
+        # Check for required commands
+        checks = {
+            "git": ["which", "git"],
+            "screen": ["which", "screen"],
+            "claude": ["which", "claude"],
+            "pipx": ["which", "pipx"],
+        }
+
+        status["dependencies"] = {}
+        for name, cmd in checks.items():
+            try:
+                result = subprocess.run(cmd, capture_output=True, timeout=2)
+                status["dependencies"][name] = result.returncode == 0
+            except Exception:
+                status["dependencies"][name] = False
+
+        # Overall health status
+        if all(status["dependencies"].values()) and status.get(
+            "auth_configured", False
+        ):
+            status["ready"] = True
+        else:
+            status["ready"] = False
+            status["status"] = "degraded"
+
+        return status
+    except Exception as e:
+        print(f"[ERROR] Health check failed: {str(e)}")
+        return {"status": "unhealthy", "error": str(e)}
 
 
 if __name__ == "__main__":
