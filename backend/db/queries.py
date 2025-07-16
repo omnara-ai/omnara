@@ -1,13 +1,21 @@
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
+from shared.config import settings
 from shared.database import (
     AgentInstance,
     AgentQuestion,
     AgentStatus,
+    AgentStep,
     AgentUserFeedback,
+    APIKey,
+    PushToken,
+    User,
     UserAgent,
 )
+from shared.database.billing_operations import get_or_create_subscription
+from shared.database.subscription_models import BillingEvent, Subscription
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session, joinedload
 
@@ -442,3 +450,111 @@ def mark_instance_completed(
         return None
 
     return _format_instance(instance)
+
+
+def delete_user_account(db: Session, user_id: UUID) -> None:
+    """Delete a user account and all associated data in the correct order"""
+    logger = logging.getLogger(__name__)
+
+    # Start a transaction
+    try:
+        # First, cancel any active Stripe subscription
+        if settings.stripe_secret_key:
+            try:
+                import stripe
+
+                stripe.api_key = settings.stripe_secret_key
+
+                subscription = get_or_create_subscription(user_id, db)
+                if subscription.provider_subscription_id:
+                    logger.info(
+                        f"Cancelling Stripe subscription {subscription.provider_subscription_id} for user {user_id}"
+                    )
+                    # Cancel the subscription immediately
+                    stripe_sub = stripe.Subscription.retrieve(
+                        subscription.provider_subscription_id
+                    )
+                    stripe_sub.delete()
+            except Exception as e:
+                # Log but don't fail - we still want to delete the user
+                logger.error(
+                    f"Failed to cancel Stripe subscription for user {user_id}: {str(e)}"
+                )
+
+        # Delete in order of foreign key dependencies
+        # 1. Delete AgentUserFeedback (depends on AgentInstance and User)
+        db.query(AgentUserFeedback).filter(
+            AgentUserFeedback.created_by_user_id == user_id
+        ).delete(synchronize_session=False)
+
+        # 2. Delete AgentQuestions (depends on AgentInstance and User)
+        db.query(AgentQuestion).filter(
+            AgentQuestion.answered_by_user_id == user_id
+        ).delete(synchronize_session=False)
+
+        # Get all agent instances for this user to delete their related data
+        instance_ids = [
+            instance.id
+            for instance in db.query(AgentInstance)
+            .filter(AgentInstance.user_id == user_id)
+            .all()
+        ]
+
+        if instance_ids:
+            # Delete questions for user's instances
+            db.query(AgentQuestion).filter(
+                AgentQuestion.agent_instance_id.in_(instance_ids)
+            ).delete(synchronize_session=False)
+
+            # Delete steps for user's instances
+            db.query(AgentStep).filter(
+                AgentStep.agent_instance_id.in_(instance_ids)
+            ).delete(synchronize_session=False)
+
+            # Delete feedback for user's instances
+            db.query(AgentUserFeedback).filter(
+                AgentUserFeedback.agent_instance_id.in_(instance_ids)
+            ).delete(synchronize_session=False)
+
+        # 3. Delete AgentInstances (depends on UserAgent and User)
+        db.query(AgentInstance).filter(AgentInstance.user_id == user_id).delete(
+            synchronize_session=False
+        )
+
+        # 4. Delete UserAgents (depends on User)
+        db.query(UserAgent).filter(UserAgent.user_id == user_id).delete(
+            synchronize_session=False
+        )
+
+        # 5. Delete APIKeys (depends on User)
+        db.query(APIKey).filter(APIKey.user_id == user_id).delete(
+            synchronize_session=False
+        )
+
+        # 6. Delete PushTokens (depends on User)
+        db.query(PushToken).filter(PushToken.user_id == user_id).delete(
+            synchronize_session=False
+        )
+
+        # 7. Delete BillingEvents (depends on User and Subscription)
+        db.query(BillingEvent).filter(BillingEvent.user_id == user_id).delete(
+            synchronize_session=False
+        )
+
+        # 8. Delete Subscription (depends on User)
+        db.query(Subscription).filter(Subscription.user_id == user_id).delete(
+            synchronize_session=False
+        )
+
+        # 9. Finally, delete the User
+        db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
+
+        # Commit the transaction
+        db.commit()
+        logger.info(f"Successfully deleted user {user_id} and all associated data")
+
+    except Exception as e:
+        # Rollback on any error
+        db.rollback()
+        logger.error(f"Failed to delete user {user_id}: {str(e)}")
+        raise
