@@ -713,8 +713,6 @@ async def start_claude(
                         "--api-key",
                         omnara_api_key,
                         "--claude-code-permission-tool",
-                        "base_url",
-                        "http://localhost:8080",
                     ],
                 }
             }
