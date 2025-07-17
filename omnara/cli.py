@@ -8,7 +8,6 @@ This is the main entry point for the omnara command that dispatches to either:
 import argparse
 import sys
 import subprocess
-import time
 
 
 def run_stdio_server(args):
@@ -33,38 +32,6 @@ def run_stdio_server(args):
 
 def run_webhook_server(cloudflare_tunnel=False, dangerously_skip_permissions=False):
     """Run the Claude Code webhook FastAPI server"""
-    cloudflared_process = None
-
-    if cloudflare_tunnel:
-        try:
-            test_cmd = ["cloudflared", "--version"]
-            subprocess.run(test_cmd, capture_output=True, check=True)
-
-            print("[INFO] Starting Cloudflare tunnel...")
-            cloudflared_cmd = [
-                "cloudflared",
-                "tunnel",
-                "--url",
-                "http://localhost:6662",
-            ]
-            cloudflared_process = subprocess.Popen(cloudflared_cmd)
-
-            # Give cloudflared a moment to start
-            time.sleep(3)
-
-            if cloudflared_process.poll() is not None:
-                print("\n[ERROR] Cloudflare tunnel failed to start")
-                sys.exit(1)
-
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            print("\n[ERROR] cloudflared is not installed!")
-            print("Please install cloudflared to use the --cloudflare-tunnel option.")
-            print(
-                "Visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-            )
-            print("for installation instructions.")
-            sys.exit(1)
-
     cmd = [
         sys.executable,
         "-m",
@@ -74,14 +41,11 @@ def run_webhook_server(cloudflare_tunnel=False, dangerously_skip_permissions=Fal
     if dangerously_skip_permissions:
         cmd.append("--dangerously-skip-permissions")
 
-    print("[INFO] Starting Claude Code webhook server on port 6662")
+    if cloudflare_tunnel:
+        cmd.append("--cloudflare-tunnel")
 
-    try:
-        subprocess.run(cmd)
-    finally:
-        if cloudflared_process:
-            cloudflared_process.terminate()
-            cloudflared_process.wait()
+    print("[INFO] Starting Claude Code webhook server...")
+    subprocess.run(cmd)
 
 
 def main():

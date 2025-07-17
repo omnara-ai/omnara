@@ -107,7 +107,12 @@ async def create_agent_instance(
     if user_agent.webhook_url:
         # Trigger the webhook
         result = await trigger_webhook_agent(
-            db, user_agent, current_user.id, request.prompt
+            db,
+            user_agent,
+            current_user.id,
+            request.prompt,
+            request.name,
+            request.worktree_name,
         )
         return result
     else:

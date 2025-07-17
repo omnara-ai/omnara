@@ -81,7 +81,12 @@ def update_user_agent(
 
 
 async def trigger_webhook_agent(
-    db: Session, user_agent: UserAgent, user_id: UUID, prompt: str
+    db: Session,
+    user_agent: UserAgent,
+    user_id: UUID,
+    prompt: str,
+    name: str | None = None,
+    worktree_name: str | None = None,
 ) -> WebhookTriggerResponse:
     """Trigger a webhook agent by calling the webhook URL"""
 
@@ -143,6 +148,12 @@ async def trigger_webhook_agent(
         "agent_instance_id": str(instance.id),
         "prompt": prompt,
     }
+
+    # Add optional fields if provided
+    if name is not None:
+        payload["name"] = name
+    if worktree_name is not None:
+        payload["worktree_name"] = worktree_name
 
     # Call the webhook
     try:
