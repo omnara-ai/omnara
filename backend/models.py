@@ -191,6 +191,10 @@ class UserAgentResponse(BaseModel):
 
 class CreateAgentInstanceRequest(BaseModel):
     prompt: str = Field(..., description="Initial prompt for the agent")
+    name: str | None = Field(None, description="Display name for the agent instance")
+    worktree_name: str | None = Field(
+        None, description="Git worktree name for the agent"
+    )
 
 
 class WebhookTriggerResponse(BaseModel):

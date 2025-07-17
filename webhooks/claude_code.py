@@ -11,6 +11,7 @@ import uvicorn
 import time
 import json
 import sys
+import platform
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
 from typing import Optional, Tuple, List, Dict
@@ -32,6 +33,11 @@ REQUIRED_COMMANDS = {
 OPTIONAL_COMMANDS = {"cloudflared": "Cloudflared is optional for tunnel support"}
 
 
+def is_macos() -> bool:
+    """Check if running on macOS"""
+    return platform.system() == "Darwin"
+
+
 def check_command(command: str) -> Tuple[bool, Optional[str]]:
     """Check if a command exists and return its path"""
     try:
@@ -43,13 +49,67 @@ def check_command(command: str) -> Tuple[bool, Optional[str]]:
         return False, None
 
 
+def try_install_with_brew(command: str) -> bool:
+    """Try to install a command with brew on macOS"""
+    if not is_macos():
+        return False
+
+    # Check if brew is available
+    brew_exists, _ = check_command("brew")
+    if not brew_exists:
+        return False
+
+    print(f"[INFO] Attempting to install {command} with Homebrew...")
+    try:
+        result = subprocess.run(
+            ["brew", "install", command],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout for brew install
+        )
+        if result.returncode == 0:
+            print(f"[SUCCESS] {command} installed successfully with Homebrew")
+            return True
+        else:
+            print(f"[ERROR] Failed to install {command} with Homebrew: {result.stderr}")
+            return False
+    except subprocess.TimeoutExpired:
+        print(f"[ERROR] Homebrew installation of {command} timed out")
+        return False
+    except Exception as e:
+        print(f"[ERROR] Failed to install {command} with Homebrew: {e}")
+        return False
+
+
 def check_dependencies() -> List[str]:
     """Check all required dependencies and return list of errors"""
     errors = []
     for cmd, description in REQUIRED_COMMANDS.items():
         exists, _ = check_command(cmd)
         if not exists:
-            errors.append(f"{description}. Please install {cmd}.")
+            # Try to install with brew on macOS
+            if is_macos() and cmd == "pipx":
+                if try_install_with_brew("pipx"):
+                    # Check again after installation
+                    exists, _ = check_command(cmd)
+                    if exists:
+                        continue
+
+            # Add error message with platform-specific hints
+            if is_macos():
+                brew_exists, _ = check_command("brew")
+                if brew_exists and cmd == "pipx":
+                    errors.append(
+                        f"{description}. Failed to install with Homebrew. Try running: brew install {cmd}"
+                    )
+                elif brew_exists:
+                    errors.append(
+                        f"{description}. You can install it with: brew install {cmd}"
+                    )
+                else:
+                    errors.append(f"{description}. Please install {cmd}.")
+            else:
+                errors.append(f"{description}. Please install {cmd}.")
     return errors
 
 
@@ -71,6 +131,30 @@ def is_git_repository(path: str = ".") -> bool:
     return result.returncode == 0
 
 
+def check_worktree_exists(worktree_name: str) -> Tuple[bool, Optional[str]]:
+    """Check if a worktree with the given name exists and return its path"""
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "list"], capture_output=True, text=True, check=True
+        )
+
+        # Parse worktree list output
+        # Format: /path/to/worktree branch-name [branch-ref]
+        for line in result.stdout.strip().split("\n"):
+            if line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    path = parts[0]
+                    # Extract worktree name from path
+                    dirname = os.path.basename(path)
+                    if dirname == worktree_name:
+                        return True, path
+
+        return False, None
+    except subprocess.CalledProcessError:
+        return False, None
+
+
 def validate_environment() -> List[str]:
     """Validate the environment is suitable for running the webhook"""
     errors = []
@@ -80,16 +164,17 @@ def validate_environment() -> List[str]:
             "Not running in a git repository. The webhook must be started from within a git repository."
         )
 
-    # Check if we can create worktrees
+    # Check if git worktree command exists
     if is_git_repository():
-        test_name = f"test-worktree-{uuid.uuid4().hex[:8]}"
         result = subprocess.run(
-            ["git", "worktree", "add", "--dry-run", test_name],
+            ["git", "worktree", "list"],
             capture_output=True,
             text=True,
         )
-        if result.returncode != 0 and "not a git repository" not in result.stderr:
-            errors.append(f"Cannot create git worktrees: {result.stderr.strip()}")
+        if result.returncode != 0:
+            errors.append(
+                f"Git worktree command not available: {result.stderr.strip()}"
+            )
 
     return errors
 
@@ -107,13 +192,34 @@ def check_cloudflared_installed() -> bool:
 def start_cloudflare_tunnel(port: int = DEFAULT_PORT) -> Optional[subprocess.Popen]:
     """Start Cloudflare tunnel and return the process"""
     if not check_cloudflared_installed():
-        print("\n[ERROR] cloudflared is not installed!")
-        print("Please install cloudflared to use the --cloudflare-tunnel option.")
-        print(
-            "Visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-        )
-        print("for installation instructions.")
-        return None
+        # Try to install with brew on macOS
+        if is_macos() and try_install_with_brew("cloudflared"):
+            # Check again after installation
+            if not check_cloudflared_installed():
+                print("\n[ERROR] cloudflared installation failed!")
+                print(
+                    "Please install cloudflared manually to use the --cloudflare-tunnel option."
+                )
+                return None
+        else:
+            print("\n[ERROR] cloudflared is not installed!")
+            if is_macos():
+                brew_exists, _ = check_command("brew")
+                if brew_exists:
+                    print("You can install it with: brew install cloudflared")
+                else:
+                    print(
+                        "Please install cloudflared to use the --cloudflare-tunnel option."
+                    )
+            else:
+                print(
+                    "Please install cloudflared to use the --cloudflare-tunnel option."
+                )
+            print(
+                "Visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+            )
+            print("for installation instructions.")
+            return None
 
     print("[INFO] Starting Cloudflare tunnel...")
     try:
@@ -129,7 +235,11 @@ def start_cloudflare_tunnel(port: int = DEFAULT_PORT) -> Optional[subprocess.Pop
             return None
 
         print("[INFO] Cloudflare tunnel started successfully")
-        print("[INFO] Check the cloudflared output above for your tunnel URL")
+        print("[INFO] Check the cloudflared output for your tunnel URL")
+
+        # Wait a bit longer to ensure cloudflared output completes
+        time.sleep(2)
+
         return process
     except Exception as e:
         print(f"\n[ERROR] Failed to start Cloudflare tunnel: {e}")
@@ -139,7 +249,8 @@ def start_cloudflare_tunnel(port: int = DEFAULT_PORT) -> Optional[subprocess.Pop
 class WebhookRequest(BaseModel):
     agent_instance_id: str
     prompt: str
-    name: str | None = None
+    name: str | None = None  # Branch name
+    worktree_name: str | None = None
 
     @field_validator("agent_instance_id")
     def validate_instance_id(cls, v):
@@ -159,9 +270,22 @@ class WebhookRequest(BaseModel):
     def validate_name(cls, v):
         if v is not None:
             if not re.match(r"^[a-zA-Z0-9-]+$", v):
-                raise ValueError("Name must contain only letters, numbers, and hyphens")
+                raise ValueError(
+                    "Branch name must contain only letters, numbers, and hyphens"
+                )
             if len(v) > 50:
-                raise ValueError("Name must be 50 characters or less")
+                raise ValueError("Branch name must be 50 characters or less")
+        return v
+
+    @field_validator("worktree_name")
+    def validate_worktree_name(cls, v):
+        if v is not None:
+            if not re.match(r"^[a-zA-Z0-9-]+$", v):
+                raise ValueError(
+                    "Worktree name must contain only letters, numbers, and hyphens"
+                )
+            if len(v) > 100:
+                raise ValueError("Worktree name must be 100 characters or less")
         return v
 
 
@@ -209,10 +333,26 @@ async def lifespan(app: FastAPI):
     if not hasattr(app.state, "dangerously_skip_permissions"):
         app.state.dangerously_skip_permissions = False
 
-    print(f"\n[IMPORTANT] Webhook secret: {secret}")
-    print("[IMPORTANT] Use this secret in the Authorization header as: Bearer <secret>")
+    # Display webhook secret in a prominent box
+    box_width = 65
+    print("\n" + "╔" + "═" * box_width + "╗")
+    print("║" + " " * box_width + "║")
+
+    # Format the secret line with proper padding
+    secret_line = f"  WEBHOOK SECRET: {secret}"
+    print("║" + secret_line + " " * (box_width - len(secret_line)) + "║")
+
+    print("║" + " " * box_width + "║")
+
+    if hasattr(app.state, "cloudflare_tunnel") and app.state.cloudflare_tunnel:
+        cf_line = "  Cloudflare Tunnel URL will appear in the output above."
+        print("║" + cf_line + " " * (box_width - len(cf_line)) + "║")
+        print("║" + " " * box_width + "║")
+
+    print("╚" + "═" * box_width + "╝")
+
     if app.state.dangerously_skip_permissions:
-        print("[WARNING] Running with --dangerously-skip-permissions flag enabled!")
+        print("\n[WARNING] Running with --dangerously-skip-permissions flag enabled!")
 
     yield
 
@@ -384,25 +524,50 @@ async def start_claude(
 
         agent_instance_id = webhook_data.agent_instance_id
         prompt = webhook_data.prompt
-        name = webhook_data.name
+        worktree_name = webhook_data.worktree_name
+        branch_name = webhook_data.name
 
         print("\n[INFO] Received webhook request:")
         print(f"  - Instance ID: {agent_instance_id}")
-        print(f"  - Name: {name or 'default'}")
+        print(f"  - Worktree name: {worktree_name or 'auto-generated'}")
+        print(f"  - Branch name: {branch_name or 'current branch'}")
         print(f"  - Prompt length: {len(prompt)} characters")
 
         safe_prompt = SYSTEM_PROMPT.replace("{{agent_instance_id}}", agent_instance_id)
         safe_prompt += f"\n\n\n{prompt}"
 
-        now = datetime.now()
-        timestamp_str = now.strftime("%Y%m%d%H%M%S")
-
-        safe_timestamp = re.sub(r"[^a-zA-Z0-9-]", "", timestamp_str)
-
-        prefix = name if name else "omnara-claude"
-        feature_branch_name = f"{prefix}-{safe_timestamp}"
-
-        work_dir = os.path.abspath(f"./{feature_branch_name}")
+        # Determine worktree/branch name
+        if worktree_name:
+            # Check if worktree already exists
+            exists, existing_path = check_worktree_exists(worktree_name)
+            if exists and existing_path:
+                # Use existing worktree
+                work_dir = os.path.abspath(existing_path)
+                feature_branch_name = branch_name if branch_name else worktree_name
+                create_new_worktree = False
+                print(f"\n[INFO] Using existing worktree: {worktree_name}")
+                print(f"  - Directory: {work_dir}")
+                if branch_name:
+                    print(f"  - Will checkout branch: {branch_name}")
+            else:
+                # Create new worktree with specified name
+                feature_branch_name = branch_name if branch_name else worktree_name
+                work_dir = os.path.abspath(f"./{worktree_name}")
+                create_new_worktree = True
+                print(f"\n[INFO] Creating new worktree: {worktree_name}")
+                if branch_name:
+                    print(f"  - With branch: {branch_name}")
+        else:
+            # Auto-generate name with timestamp
+            now = datetime.now()
+            timestamp_str = now.strftime("%Y%m%d%H%M%S")
+            safe_timestamp = re.sub(r"[^a-zA-Z0-9-]", "", timestamp_str)
+            feature_branch_name = f"omnara-claude-{safe_timestamp}"
+            work_dir = os.path.abspath(f"./{feature_branch_name}")
+            create_new_worktree = True
+            print(
+                f"\n[INFO] Creating new worktree with auto-generated name: {feature_branch_name}"
+            )
         base_dir = os.path.abspath(".")
 
         if not work_dir.startswith(base_dir):
@@ -416,47 +581,106 @@ async def start_claude(
                 detail="Server is not running in a git repository. Please start the webhook from within a git repository.",
             )
 
-        print("\n[INFO] Creating git worktree:")
-        print(f"  - Branch: {feature_branch_name}")
-        print(f"  - Directory: {work_dir}")
+        if create_new_worktree:
+            print("\n[INFO] Creating git worktree:")
+            print(f"  - Branch: {feature_branch_name}")
+            print(f"  - Directory: {work_dir}")
 
-        result = subprocess.run(
-            [
-                "git",
-                "worktree",
-                "add",
-                work_dir,
-                "-b",
-                feature_branch_name,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=base_dir,
-        )
-
-        if result.returncode != 0:
-            print("\n[ERROR] Git worktree creation failed:")
-            print(f"  - Command: git worktree add {work_dir} -b {feature_branch_name}")
-            print(f"  - Exit code: {result.returncode}")
-            print(f"  - stdout: {result.stdout}")
-            print(f"  - stderr: {result.stderr}")
-
-            # Provide more helpful error messages
-            error_detail = result.stderr
-            if "not a git repository" in result.stderr:
-                error_detail = "Not in a git repository. The webhook must be started from within a git repository."
-            elif "already exists" in result.stderr:
-                error_detail = f"Branch or worktree '{feature_branch_name}' already exists. Try again with a different name."
-            elif "Permission denied" in result.stderr:
-                error_detail = "Permission denied. Check directory permissions."
-
-            raise HTTPException(
-                status_code=500, detail=f"Failed to create worktree: {error_detail}"
+            # First check if the branch already exists
+            branch_check = subprocess.run(
+                ["git", "rev-parse", "--verify", f"refs/heads/{feature_branch_name}"],
+                capture_output=True,
+                text=True,
+                cwd=base_dir,
             )
 
-        screen_prefix = name if name else "omnara-claude"
-        screen_name = f"{screen_prefix}-{safe_timestamp}"
+            if branch_check.returncode == 0:
+                # Branch exists, add worktree without -b flag
+                cmd = ["git", "worktree", "add", work_dir, feature_branch_name]
+            else:
+                # Branch doesn't exist, create it with -b flag
+                cmd = ["git", "worktree", "add", work_dir, "-b", feature_branch_name]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=base_dir,
+            )
+
+            if result.returncode != 0:
+                print("\n[ERROR] Git worktree creation failed:")
+                print(f"  - Command: {' '.join(cmd)}")
+                print(f"  - Exit code: {result.returncode}")
+                print(f"  - stdout: {result.stdout}")
+                print(f"  - stderr: {result.stderr}")
+
+                # Provide more helpful error messages
+                error_detail = result.stderr
+                if "not a git repository" in result.stderr:
+                    error_detail = "Not in a git repository. The webhook must be started from within a git repository."
+                elif "already exists" in result.stderr:
+                    error_detail = f"Branch or worktree '{feature_branch_name}' already exists. Try again with a different name."
+                elif "Permission denied" in result.stderr:
+                    error_detail = "Permission denied. Check directory permissions."
+
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to create worktree: {error_detail}"
+                )
+        else:
+            # Not creating a new worktree, but may need to checkout a branch
+            if branch_name and branch_name != feature_branch_name:
+                print(f"\n[INFO] Checking out branch: {branch_name}")
+
+                # First check if the branch exists
+                branch_check = subprocess.run(
+                    ["git", "rev-parse", "--verify", f"refs/heads/{branch_name}"],
+                    capture_output=True,
+                    text=True,
+                    cwd=work_dir,
+                )
+
+                if branch_check.returncode == 0:
+                    # Branch exists, checkout
+                    checkout_result = subprocess.run(
+                        ["git", "checkout", branch_name],
+                        capture_output=True,
+                        text=True,
+                        cwd=work_dir,
+                    )
+                    if checkout_result.returncode != 0:
+                        print(
+                            f"[ERROR] Failed to checkout branch: {checkout_result.stderr}"
+                        )
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Failed to checkout branch '{branch_name}': {checkout_result.stderr}",
+                        )
+                else:
+                    # Branch doesn't exist, create and checkout
+                    print(f"[INFO] Creating new branch: {branch_name}")
+                    checkout_result = subprocess.run(
+                        ["git", "checkout", "-b", branch_name],
+                        capture_output=True,
+                        text=True,
+                        cwd=work_dir,
+                    )
+                    if checkout_result.returncode != 0:
+                        print(
+                            f"[ERROR] Failed to create branch: {checkout_result.stderr}"
+                        )
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Failed to create branch '{branch_name}': {checkout_result.stderr}",
+                        )
+
+        # Generate screen name
+        if worktree_name:
+            screen_name = f"{worktree_name}-{agent_instance_id[:8]}"
+        else:
+            # safe_timestamp was defined when auto-generating name
+            screen_name = f"omnara-claude-{agent_instance_id[:8]}"
 
         escaped_prompt = shlex.quote(safe_prompt)
 
@@ -489,6 +713,8 @@ async def start_claude(
                         "--api-key",
                         omnara_api_key,
                         "--claude-code-permission-tool",
+                        "base_url",
+                        "http://localhost:8080",
                     ],
                 }
             }
