@@ -41,9 +41,32 @@ def is_macos() -> bool:
 def check_command(command: str) -> Tuple[bool, Optional[str]]:
     """Check if a command exists and return its path"""
     try:
+        # First try without shell (more secure, finds actual executables)
         result = subprocess.run(["which", command], capture_output=True, text=True)
         if result.returncode == 0:
             return True, result.stdout.strip()
+
+        # If that fails, try with shell to catch aliases (less secure but necessary for aliases)
+        shell_result = subprocess.run(
+            f"which {command}",
+            shell=True,
+            capture_output=True,
+            text=True,
+            executable="/bin/bash",  # Use bash to ensure consistent behavior
+        )
+        if shell_result.returncode == 0:
+            path = shell_result.stdout.strip()
+            # For aliases, extract the actual path if possible
+            if "aliased to" in path:
+                # Extract path from "claude: aliased to /path/to/claude"
+                parts = path.split("aliased to")
+                if len(parts) > 1:
+                    actual_path = parts[1].strip()
+                    # Verify the extracted path exists
+                    if os.path.exists(actual_path):
+                        return True, actual_path
+            return True, path
+
         return False, None
     except Exception:
         return False, None
