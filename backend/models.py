@@ -44,6 +44,33 @@ class UserFeedbackResponse(BaseModel):
 
 
 # ============================================================================
+# User Settings Models
+# ============================================================================
+
+
+class UserNotificationSettingsRequest(BaseModel):
+    push_notifications_enabled: Optional[bool] = None
+    email_notifications_enabled: Optional[bool] = None
+    sms_notifications_enabled: Optional[bool] = None
+    phone_number: Optional[str] = Field(
+        None, description="Phone number in E.164 format (e.g., +1234567890)"
+    )
+    notification_email: Optional[str] = Field(
+        None, description="Email for notifications (defaults to account email)"
+    )
+
+
+class UserNotificationSettingsResponse(BaseModel):
+    push_notifications_enabled: bool
+    email_notifications_enabled: bool
+    sms_notifications_enabled: bool
+    phone_number: Optional[str]
+    notification_email: str  # Always returns an email (account email as fallback)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
 # Agent Models
 # ============================================================================
 

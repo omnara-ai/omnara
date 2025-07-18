@@ -25,6 +25,17 @@ class BaseLogStepRequest(BaseModel):
     step_description: str = Field(
         ..., description="Clear description of what the agent is doing"
     )
+    send_email: bool | None = Field(
+        None,
+        description="Whether to send email notification (overrides user preference)",
+    )
+    send_sms: bool | None = Field(
+        None, description="Whether to send SMS notification (overrides user preference)"
+    )
+    send_push: bool | None = Field(
+        None,
+        description="Whether to send push notification (overrides user preference)",
+    )
 
 
 class BaseAskQuestionRequest(BaseModel):
@@ -32,6 +43,17 @@ class BaseAskQuestionRequest(BaseModel):
 
     agent_instance_id: str = Field(..., description="Agent instance ID")
     question_text: str = Field(..., description="Question to ask the user")
+    send_email: bool | None = Field(
+        None,
+        description="Whether to send email notification (overrides user preference)",
+    )
+    send_sms: bool | None = Field(
+        None, description="Whether to send SMS notification (overrides user preference)"
+    )
+    send_push: bool | None = Field(
+        None,
+        description="Whether to send push notification (overrides user preference)",
+    )
 
 
 class BaseEndSessionRequest(BaseModel):

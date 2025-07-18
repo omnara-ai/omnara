@@ -15,12 +15,13 @@ from exponent_server_sdk import (
 )
 import requests.exceptions
 
-from shared.database import PushToken
+from shared.database import PushToken, User
+from .notification_base import NotificationServiceBase
 
 logger = logging.getLogger(__name__)
 
 
-class PushNotificationService:
+class PushNotificationService(NotificationServiceBase):
     """Service for sending push notifications via Expo"""
 
     def __init__(self):
@@ -36,6 +37,12 @@ class PushNotificationService:
     ) -> bool:
         """Send push notification to all user's devices"""
         try:
+            # First check if user has push notifications enabled
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user or not user.push_notifications_enabled:
+                logger.info(f"Push notifications disabled for user {user_id}")
+                return False
+
             # Get user's active push tokens
             tokens = (
                 db.query(PushToken)
@@ -200,6 +207,39 @@ class PushNotificationService:
             "type": "new_question",
             "instanceId": instance_id,
             "questionId": question_id,
+        }
+
+        return await self.send_notification(
+            db=db,
+            user_id=user_id,
+            title=title,
+            body=body,
+            data=data,
+        )
+
+    async def send_step_notification(
+        self,
+        db: Session,
+        user_id: UUID,
+        instance_id: str,
+        step_number: int,
+        agent_name: str,
+        step_description: str,
+    ) -> bool:
+        """Send notification for new agent step"""
+        # Format agent name for display
+        display_name = agent_name.replace("_", " ").title()
+        title = f"{display_name} - Step {step_number}"
+
+        # Truncate step description for notification
+        body = step_description
+        if len(body) > 100:
+            body = body[:97] + "..."
+
+        data = {
+            "type": "new_step",
+            "instanceId": instance_id,
+            "stepNumber": step_number,
         }
 
         return await self.send_notification(

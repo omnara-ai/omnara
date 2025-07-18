@@ -98,6 +98,13 @@ class Settings(BaseSettings):
     enterprise_plan_agent_limit: int = -1  # Unlimited
     enterprise_plan_price: float = 500
 
+    # Twilio Configuration
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_phone_number: str = ""  # Format: +1234567890
+    twilio_sendgrid_api_key: str = ""  # For email notifications via SendGrid
+    twilio_from_email: str = ""  # Sender email address
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

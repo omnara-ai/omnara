@@ -7,7 +7,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import sentry_sdk
 from shared.config import settings
-from .api import agents, questions, user_agents, push_notifications, billing
+from .api import (
+    agents,
+    questions,
+    user_agents,
+    push_notifications,
+    billing,
+    user_settings,
+)
 from .auth import routes as auth_routes
 
 # Configure logging
@@ -68,6 +75,7 @@ app.include_router(agents.router, prefix=settings.api_v1_prefix)
 app.include_router(questions.router, prefix=settings.api_v1_prefix)
 app.include_router(user_agents.router, prefix=settings.api_v1_prefix)
 app.include_router(push_notifications.router, prefix=settings.api_v1_prefix)
+app.include_router(user_settings.router, prefix=settings.api_v1_prefix)
 
 # Conditionally include billing router if Stripe is configured
 if settings.stripe_secret_key:
