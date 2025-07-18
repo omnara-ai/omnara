@@ -2,6 +2,7 @@
 User Settings API endpoints for managing notification preferences and other user settings.
 """
 
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from shared.database.models import User
 from shared.database.session import get_db
@@ -14,6 +15,22 @@ from ..models import (
 )
 
 router = APIRouter(tags=["user-settings"])
+
+
+def validate_e164_phone_number(phone: str) -> bool:
+    """
+    Validate if a phone number is in E.164 format.
+    E.164 format: +[country code][subscriber number]
+    - Must start with +
+    - Country code: 1-3 digits
+    - Total length: 8-15 digits (excluding the +)
+    """
+    if not phone:
+        return True  # Empty is valid (user clearing their number)
+
+    # E.164 regex pattern
+    pattern = r"^\+[1-9]\d{1,14}$"
+    return bool(re.match(pattern, phone))
 
 
 @router.get(
@@ -49,17 +66,24 @@ async def update_notification_settings(
         current_user.sms_notifications_enabled = request.sms_notifications_enabled
 
     if request.phone_number is not None:
-        # Basic validation for phone number format (E.164)
-        if request.phone_number and not request.phone_number.startswith("+"):
+        # Validate E.164 format
+        if not validate_e164_phone_number(request.phone_number):
             raise HTTPException(
                 status_code=400,
-                detail="Phone number must be in E.164 format (e.g., +1234567890)",
+                detail="Phone number must be in E.164 format (e.g., +12125551234). Must start with + followed by country code and number (8-15 digits total).",
             )
         current_user.phone_number = request.phone_number
 
     if request.notification_email is not None:
         # If empty string, set to None to use default email
         current_user.notification_email = request.notification_email or None
+
+    # Additional validation: If SMS is enabled, phone number must be provided
+    if current_user.sms_notifications_enabled and not current_user.phone_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number is required when SMS notifications are enabled.",
+        )
 
     db.commit()
     db.refresh(current_user)
