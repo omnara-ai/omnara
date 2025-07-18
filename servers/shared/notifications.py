@@ -15,7 +15,7 @@ from exponent_server_sdk import (
 )
 import requests.exceptions
 
-from shared.database import PushToken
+from shared.database import PushToken, User
 from .notification_base import NotificationServiceBase
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,12 @@ class PushNotificationService(NotificationServiceBase):
     ) -> bool:
         """Send push notification to all user's devices"""
         try:
+            # First check if user has push notifications enabled
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user or not user.push_notifications_enabled:
+                logger.info(f"Push notifications disabled for user {user_id}")
+                return False
+
             # Get user's active push tokens
             tokens = (
                 db.query(PushToken)

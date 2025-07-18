@@ -193,8 +193,14 @@ async def create_question(
             should_send_push = (
                 send_push if send_push is not None else user.push_notifications_enabled
             )
-            should_send_email = send_email if send_email is not None else False
-            should_send_sms = send_sms if send_sms is not None else False
+            should_send_email = (
+                send_email
+                if send_email is not None
+                else user.email_notifications_enabled
+            )
+            should_send_sms = (
+                send_sms if send_sms is not None else user.sms_notifications_enabled
+            )
 
             # Send push notification if enabled
             if should_send_push:

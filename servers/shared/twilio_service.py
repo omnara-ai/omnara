@@ -132,15 +132,24 @@ class TwilioNotificationService(NotificationServiceBase):
                 logger.error(f"User {user_id} not found")
                 return results
 
-            # Determine what to send
-            should_send_email = (
-                send_email
-                if send_email is not None
-                else user.email_notifications_enabled
+            # User preferences are the ultimate authority
+            # Only send if BOTH the user has it enabled AND the API call requests it (or doesn't specify)
+            should_send_email = user.email_notifications_enabled and (
+                send_email if send_email is not None else True
             )
-            should_send_sms = (
-                send_sms if send_sms is not None else user.sms_notifications_enabled
+            should_send_sms = user.sms_notifications_enabled and (
+                send_sms if send_sms is not None else True
             )
+
+            # Log when notifications are blocked by user preferences
+            if send_email and not user.email_notifications_enabled:
+                logger.info(
+                    f"Email notification blocked by user preferences for user {user_id}"
+                )
+            if send_sms and not user.sms_notifications_enabled:
+                logger.info(
+                    f"SMS notification blocked by user preferences for user {user_id}"
+                )
 
             # Send SMS if enabled and phone number is available
             if should_send_sms and user.phone_number and self.twilio_client:
