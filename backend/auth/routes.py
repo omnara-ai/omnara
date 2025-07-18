@@ -12,8 +12,10 @@ from shared.database.models import APIKey, User
 from shared.database.session import get_db
 from sqlalchemy.orm import Session
 
+from ..db.queries import delete_user_account as delete_user_db
 from .dependencies import get_current_user, get_optional_current_user
 from .jwt_utils import create_api_key_jwt, get_token_hash
+from .supabase_client import get_supabase_client
 from .utils import update_user_profile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -239,3 +241,35 @@ async def revoke_api_key(
     db.commit()
 
     return {"message": "API key revoked successfully"}
+
+
+@router.delete("/me")
+async def delete_user_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete the current user's account and all associated data"""
+    user_id = current_user.id
+
+    # Delete from database (including Stripe cancellation)
+    try:
+        delete_user_db(db, user_id)
+    except Exception as e:
+        logger.error(f"Failed to delete user {user_id} from database: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete user account")
+
+    # Delete from Supabase auth
+    try:
+        supabase = get_supabase_client()
+        supabase.auth.admin.delete_user(str(user_id))
+        logger.info(f"Successfully deleted user {user_id} from Supabase auth")
+    except Exception as e:
+        # Log the error but don't fail - DB deletion already succeeded
+        logger.error(f"Failed to delete user {user_id} from Supabase auth: {str(e)}")
+        # Return 207 Multi-Status to indicate partial success
+        return {
+            "message": "User account deleted from database but failed to delete from authentication provider",
+            "status_code": 207,
+        }
+
+    return {"message": "User account successfully deleted"}

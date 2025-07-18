@@ -103,7 +103,7 @@ function createServerConfig(
     default:
       return {
         command: "pipx",
-        args: ["run", "omnara", "--api-key", apiKey],
+        args: ["run", "--no-cache", "omnara", "--api-key", apiKey],
         env: {
           OMNARA_CLIENT_TYPE: client
         },

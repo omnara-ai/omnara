@@ -1,7 +1,7 @@
 """Push notification service using Expo Push API"""
 
+import asyncio
 import logging
-import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from uuid import UUID
@@ -13,6 +13,7 @@ from exponent_server_sdk import (
     PushTicketError,
     DeviceNotRegisteredError,
 )
+import requests.exceptions
 
 from shared.database import PushToken
 from .notification_base import NotificationServiceBase
@@ -26,7 +27,7 @@ class PushNotificationService(NotificationServiceBase):
     def __init__(self):
         self.client = PushClient()
 
-    def send_notification(
+    async def send_notification(
         self,
         db: Session,
         user_id: UUID,
@@ -90,6 +91,11 @@ class PushNotificationService(NotificationServiceBase):
             max_retries = 3
             for attempt in range(max_retries):
                 try:
+                    if attempt > 0:
+                        logger.info(
+                            f"Push notification retry attempt {attempt + 1} of {max_retries}"
+                        )
+
                     # Send messages in batches (Expo recommends max 100 per batch)
                     for chunk in self._chunks(messages, 100):
                         response = self.client.publish_multiple(chunk)
@@ -109,19 +115,6 @@ class PushNotificationService(NotificationServiceBase):
                     )
                     return True
 
-                except (PushServerError, ConnectionError) as e:
-                    if attempt < max_retries - 1:
-                        wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
-                        logger.warning(
-                            f"Push notification attempt {attempt + 1} failed, retrying in {wait_time}s: {str(e)}"
-                        )
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logger.error(
-                            f"Push server error after {max_retries} attempts: {str(e)}"
-                        )
-                        return False
                 except DeviceNotRegisteredError as e:
                     logger.error(f"Device not registered, deactivating token: {str(e)}")
                     # Mark token as inactive
@@ -134,15 +127,58 @@ class PushNotificationService(NotificationServiceBase):
                 except PushTicketError as e:
                     logger.error(f"Push ticket error: {str(e)}")
                     return False
+                except Exception as e:
+                    # Check if this is a connection-related error that should be retried
+                    # This includes ConnectionError, OSError, requests.exceptions.RequestException, etc.
+                    # We check the exception type and its base classes
+                    error_type = type(e)
+                    is_connection_error = (
+                        isinstance(
+                            e,
+                            (
+                                ConnectionError,
+                                OSError,
+                                requests.exceptions.RequestException,
+                                PushServerError,
+                            ),
+                        )
+                        or any(
+                            issubclass(error_type, exc_type)
+                            for exc_type in [ConnectionError, OSError]
+                        )
+                        or "connection" in str(e).lower()
+                        or "reset" in str(e).lower()
+                    )
+
+                    if is_connection_error and attempt < max_retries - 1:
+                        wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
+                        logger.warning(
+                            f"Push notification attempt {attempt + 1} failed, retrying in {wait_time}s: {type(e).__name__}: {e}"
+                        )
+                        await asyncio.sleep(wait_time)
+                        continue
+                    elif is_connection_error:
+                        logger.error(
+                            f"Push server error after {max_retries} attempts: {type(e).__name__}: {e}"
+                        )
+                        return False
+                    else:
+                        # Non-connection error, don't retry
+                        logger.error(
+                            f"Unexpected error sending push notification: {type(e).__name__}: {e}"
+                        )
+                        return False
 
             # If we get here, all retry attempts were exhausted
             return False
 
         except Exception as e:
-            logger.error(f"Error sending push notification: {str(e)}")
+            logger.error(
+                f"Unexpected error in send_notification: {type(e).__name__}: {e}"
+            )
             return False
 
-    def send_question_notification(
+    async def send_question_notification(
         self,
         db: Session,
         user_id: UUID,
@@ -167,7 +203,7 @@ class PushNotificationService(NotificationServiceBase):
             "questionId": question_id,
         }
 
-        return self.send_notification(
+        return await self.send_notification(
             db=db,
             user_id=user_id,
             title=title,
@@ -175,7 +211,7 @@ class PushNotificationService(NotificationServiceBase):
             data=data,
         )
 
-    def send_step_notification(
+    async def send_step_notification(
         self,
         db: Session,
         user_id: UUID,
@@ -200,7 +236,7 @@ class PushNotificationService(NotificationServiceBase):
             "stepNumber": step_number,
         }
 
-        return self.send_notification(
+        return await self.send_notification(
             db=db,
             user_id=user_id,
             title=title,

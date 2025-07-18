@@ -36,7 +36,7 @@ class NotificationServiceBase(ABC):
         pass
 
     @abstractmethod
-    def send_step_notification(
+    async def send_step_notification(
         self,
         db: Session,
         user_id: UUID,

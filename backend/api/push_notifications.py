@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime, timezone
+import logging
 
 from backend.auth.dependencies import get_current_user_id
 from shared.database.session import get_db
@@ -34,11 +35,11 @@ def register_push_token(
 ):
     """Register a push notification token for the current user"""
     try:
-        # Check if token already exists
+        # Check if token already exists (for any user)
         existing = db.query(PushToken).filter(PushToken.token == request.token).first()
 
         if existing:
-            # Update existing token
+            # Update existing token to new user
             existing.user_id = user_id
             existing.platform = request.platform
             existing.is_active = True
@@ -57,6 +58,7 @@ def register_push_token(
         return {"success": True, "message": "Push token registered successfully"}
     except Exception as e:
         db.rollback()
+        logging.error(f"Push token registration failed for user {user_id}: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 

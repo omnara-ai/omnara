@@ -87,7 +87,7 @@ async def test_notification(
         try:
             from servers.shared.notifications import push_service
 
-            results["push"] = push_service.send_notification(
+            results["push"] = await push_service.send_notification(
                 db=db,
                 user_id=current_user.id,
                 title="Test Notification",

@@ -8,7 +8,6 @@ This is the main entry point for the omnara command that dispatches to either:
 import argparse
 import sys
 import subprocess
-import time
 
 
 def run_stdio_server(args):
@@ -22,63 +21,31 @@ def run_stdio_server(args):
     ]
     if args.base_url:
         cmd.extend(["--base-url", args.base_url])
+    if (
+        hasattr(args, "claude_code_permission_tool")
+        and args.claude_code_permission_tool
+    ):
+        cmd.append("--claude-code-permission-tool")
 
     subprocess.run(cmd)
 
 
-def run_webhook_server(cloudflare_tunnel=False):
+def run_webhook_server(cloudflare_tunnel=False, dangerously_skip_permissions=False):
     """Run the Claude Code webhook FastAPI server"""
-    cloudflared_process = None
-
-    if cloudflare_tunnel:
-        try:
-            test_cmd = ["cloudflared", "--version"]
-            subprocess.run(test_cmd, capture_output=True, check=True)
-
-            print("[INFO] Starting Cloudflare tunnel...")
-            cloudflared_cmd = [
-                "cloudflared",
-                "tunnel",
-                "--url",
-                "http://localhost:6662",
-            ]
-            cloudflared_process = subprocess.Popen(cloudflared_cmd)
-
-            # Give cloudflared a moment to start
-            time.sleep(3)
-
-            if cloudflared_process.poll() is not None:
-                print("\n[ERROR] Cloudflare tunnel failed to start")
-                sys.exit(1)
-
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            print("\n[ERROR] cloudflared is not installed!")
-            print("Please install cloudflared to use the --cloudflare-tunnel option.")
-            print(
-                "Visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-            )
-            print("for installation instructions.")
-            sys.exit(1)
-
     cmd = [
         sys.executable,
         "-m",
-        "uvicorn",
-        "webhooks.claude_code:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "6662",
+        "webhooks.claude_code",
     ]
 
-    print("[INFO] Starting Claude Code webhook server on port 6662")
+    if dangerously_skip_permissions:
+        cmd.append("--dangerously-skip-permissions")
 
-    try:
-        subprocess.run(cmd)
-    finally:
-        if cloudflared_process:
-            cloudflared_process.terminate()
-            cloudflared_process.wait()
+    if cloudflare_tunnel:
+        cmd.append("--cloudflare-tunnel")
+
+    print("[INFO] Starting Claude Code webhook server...")
+    subprocess.run(cmd)
 
 
 def main():
@@ -124,6 +91,11 @@ Examples:
         action="store_true",
         help="Run Cloudflare tunnel for the webhook server (webhook mode only)",
     )
+    parser.add_argument(
+        "--dangerously-skip-permissions",
+        action="store_true",
+        help="Skip permission prompts in Claude Code (webhook mode only) - USE WITH CAUTION",
+    )
 
     # Arguments for stdio mode
     parser.add_argument(
@@ -134,6 +106,11 @@ Examples:
         default="https://agent-dashboard-mcp.onrender.com",
         help="Base URL of the Omnara API server (stdio mode only)",
     )
+    parser.add_argument(
+        "--claude-code-permission-tool",
+        action="store_true",
+        help="Enable Claude Code permission prompt tool for handling tool execution approvals (stdio mode only)",
+    )
 
     args = parser.parse_args()
 
@@ -141,7 +118,10 @@ Examples:
         parser.error("--cloudflare-tunnel can only be used with --claude-code-webhook")
 
     if args.claude_code_webhook:
-        run_webhook_server(cloudflare_tunnel=args.cloudflare_tunnel)
+        run_webhook_server(
+            cloudflare_tunnel=args.cloudflare_tunnel,
+            dangerously_skip_permissions=args.dangerously_skip_permissions,
+        )
     else:
         if not args.api_key:
             parser.error("--api-key is required for stdio mode")

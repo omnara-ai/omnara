@@ -48,6 +48,10 @@ async def create_new_user_agent(
 ):
     """Create a new user agent configuration"""
     agent = create_user_agent(db, current_user.id, request)
+    if not agent:
+        raise HTTPException(
+            status_code=400, detail=f"An agent named '{request.name}' already exists"
+        )
     return agent
 
 
@@ -103,7 +107,12 @@ async def create_agent_instance(
     if user_agent.webhook_url:
         # Trigger the webhook
         result = await trigger_webhook_agent(
-            db, user_agent, current_user.id, request.prompt
+            db,
+            user_agent,
+            current_user.id,
+            request.prompt,
+            request.name,
+            request.worktree_name,
         )
         return result
     else:

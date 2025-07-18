@@ -84,7 +84,7 @@ def process_log_step(
     return str(instance.id), step.step_number, feedback
 
 
-def create_agent_question(
+async def create_agent_question(
     db: Session,
     agent_instance_id: str,
     question_text: str,
@@ -109,7 +109,7 @@ def create_agent_question(
 
     # Create question
     # Note: Notifications sent by create_question() function based on parameters
-    question = create_question(
+    question = await create_question(
         db, instance.id, question_text, send_email, send_sms, send_push
     )
 

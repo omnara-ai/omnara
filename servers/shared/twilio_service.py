@@ -204,7 +204,7 @@ The Omnara Team
             send_sms=send_sms,
         )
 
-    def send_step_notification(
+    async def send_step_notification(
         self,
         db: Session,
         user_id: UUID,

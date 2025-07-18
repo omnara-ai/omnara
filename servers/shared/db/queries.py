@@ -11,11 +11,14 @@ from shared.database import (
     AgentStep,
     AgentUserFeedback,
     UserAgent,
+    User,
 )
 from shared.database.billing_operations import check_agent_limit
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from fastmcp import Context
+from servers.shared.notifications import push_service
+from servers.shared.twilio_service import twilio_service
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +100,6 @@ def log_step(
             db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
         )
         if instance:
-            from shared.database import User
-
             user = db.query(User).filter(User.id == instance.user_id).first()
 
             if user:
@@ -114,15 +115,15 @@ def log_step(
                 # Send push notification if explicitly enabled
                 if should_send_push:
                     try:
-                        from servers.shared.notifications import push_service
-
-                        push_service.send_step_notification(
-                            db=db,
-                            user_id=instance.user_id,
-                            instance_id=str(instance.id),
-                            step_number=step.step_number,
-                            agent_name=agent_name,
-                            step_description=description,
+                        asyncio.create_task(
+                            push_service.send_step_notification(
+                                db=db,
+                                user_id=instance.user_id,
+                                instance_id=str(instance.id),
+                                step_number=step.step_number,
+                                agent_name=agent_name,
+                                step_description=description,
+                            )
                         )
                     except Exception as e:
                         logger.error(
@@ -132,17 +133,17 @@ def log_step(
                 # Send Twilio notifications if explicitly enabled
                 if should_send_email or should_send_sms:
                     try:
-                        from servers.shared.twilio_service import twilio_service
-
-                        twilio_service.send_step_notification(
-                            db=db,
-                            user_id=instance.user_id,
-                            instance_id=str(instance.id),
-                            step_number=step.step_number,
-                            agent_name=agent_name,
-                            step_description=description,
-                            send_email=should_send_email,
-                            send_sms=should_send_sms,
+                        asyncio.create_task(
+                            twilio_service.send_step_notification(
+                                db=db,
+                                user_id=instance.user_id,
+                                instance_id=str(instance.id),
+                                step_number=step.step_number,
+                                agent_name=agent_name,
+                                step_description=description,
+                                send_email=should_send_email,
+                                send_sms=should_send_sms,
+                            )
                         )
                     except Exception as e:
                         logger.error(
@@ -152,7 +153,7 @@ def log_step(
     return step
 
 
-def create_question(
+async def create_question(
     db: Session,
     instance_id: UUID,
     question_text: str,
@@ -182,8 +183,6 @@ def create_question(
     # Send notifications based on user preferences
     if instance:
         # Get user for checking preferences
-        from shared.database import User
-
         user = db.query(User).filter(User.id == instance.user_id).first()
 
         if user:
@@ -200,9 +199,7 @@ def create_question(
             # Send push notification if enabled
             if should_send_push:
                 try:
-                    from servers.shared.notifications import push_service
-
-                    push_service.send_question_notification(
+                    await push_service.send_question_notification(
                         db=db,
                         user_id=instance.user_id,
                         instance_id=str(instance.id),
@@ -218,8 +215,6 @@ def create_question(
             # Send Twilio notification if enabled (email and/or SMS)
             if should_send_email or should_send_sms:
                 try:
-                    from servers.shared.twilio_service import twilio_service
-
                     twilio_service.send_question_notification(
                         db=db,
                         user_id=instance.user_id,
