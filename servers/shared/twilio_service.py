@@ -194,7 +194,7 @@ Your agent {display_name} has a question:
 
 {question_text}
 
-You can respond at: {settings.frontend_urls[0]}/agents/{instance_id}/questions/{question_id}
+You can respond at: {settings.frontend_urls[0]}/dashboard/instances/{instance_id}
 
 Best regards,
 The Omnara Team
