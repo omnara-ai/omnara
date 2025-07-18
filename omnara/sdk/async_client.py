@@ -133,6 +133,9 @@ class AsyncOmnaraClient:
         agent_type: str,
         step_description: str,
         agent_instance_id: Optional[str] = None,
+        send_push: Optional[bool] = None,
+        send_email: Optional[bool] = None,
+        send_sms: Optional[bool] = None,
     ) -> LogStepResponse:
         """Log a high-level step the agent is performing.
 
@@ -140,13 +143,25 @@ class AsyncOmnaraClient:
             agent_type: Type of agent (e.g., 'Claude Code', 'Cursor')
             step_description: Clear description of what the agent is doing
             agent_instance_id: Existing agent instance ID (optional)
+            send_push: Send push notification for this step (default: False)
+            send_email: Send email notification for this step (default: False)
+            send_sms: Send SMS notification for this step (default: False)
 
         Returns:
             LogStepResponse with success status, instance ID, and user feedback
         """
-        data = {"agent_type": agent_type, "step_description": step_description}
+        data: Dict[str, Any] = {
+            "agent_type": agent_type,
+            "step_description": step_description,
+        }
         if agent_instance_id:
             data["agent_instance_id"] = agent_instance_id
+        if send_push is not None:
+            data["send_push"] = send_push
+        if send_email is not None:
+            data["send_email"] = send_email
+        if send_sms is not None:
+            data["send_sms"] = send_sms
 
         response = await self._make_request("POST", "/api/v1/steps", json=data)
 
@@ -163,6 +178,9 @@ class AsyncOmnaraClient:
         question_text: str,
         timeout_minutes: int = 1440,
         poll_interval: float = 10.0,
+        send_push: Optional[bool] = None,
+        send_email: Optional[bool] = None,
+        send_sms: Optional[bool] = None,
     ) -> QuestionResponse:
         """Ask the user a question and wait for their response.
 
@@ -173,6 +191,9 @@ class AsyncOmnaraClient:
             question_text: Question to ask the user
             timeout_minutes: Maximum time to wait for answer in minutes (default: 1440 = 24 hours)
             poll_interval: Time between polls in seconds (default: 10.0)
+            send_push: Send push notification for this question (default: user preference)
+            send_email: Send email notification for this question (default: user preference)
+            send_sms: Send SMS notification for this question (default: user preference)
 
         Returns:
             QuestionResponse with the user's answer
@@ -181,7 +202,16 @@ class AsyncOmnaraClient:
             TimeoutError: If no answer is received within timeout
         """
         # Submit the question
-        data = {"agent_instance_id": agent_instance_id, "question_text": question_text}
+        data: Dict[str, Any] = {
+            "agent_instance_id": agent_instance_id,
+            "question_text": question_text,
+        }
+        if send_push is not None:
+            data["send_push"] = send_push
+        if send_email is not None:
+            data["send_email"] = send_email
+        if send_sms is not None:
+            data["send_sms"] = send_sms
 
         # First, try the non-blocking endpoint to create the question
         response = await self._make_request(
@@ -232,7 +262,7 @@ class AsyncOmnaraClient:
         Returns:
             EndSessionResponse with success status and final details
         """
-        data = {"agent_instance_id": agent_instance_id}
+        data: Dict[str, Any] = {"agent_instance_id": agent_instance_id}
         response = await self._make_request("POST", "/api/v1/sessions/end", json=data)
 
         return EndSessionResponse(
