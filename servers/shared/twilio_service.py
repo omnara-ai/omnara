@@ -235,7 +235,7 @@ Your agent {display_name} has logged a new step:
 
 Step {step_number}: {step_description}
 
-You can view the full session at: {settings.frontend_urls[0]}/agents/{instance_id}
+You can view the full session at: {settings.frontend_urls[0]}/dashboard/instances/{instance_id}
 
 Best regards,
 The Omnara Team
