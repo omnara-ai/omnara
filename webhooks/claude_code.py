@@ -22,6 +22,9 @@ MAX_PROMPT_LENGTH = 10000
 DEFAULT_PORT = 6662
 DEFAULT_HOST = "0.0.0.0"
 
+# Cache for command paths to avoid repeated lookups
+COMMAND_PATHS = {}
+
 # === DEPENDENCY CHECKING ===
 REQUIRED_COMMANDS = {
     "git": "Git is required for creating worktrees",
@@ -36,6 +39,18 @@ OPTIONAL_COMMANDS = {"cloudflared": "Cloudflared is optional for tunnel support"
 def is_macos() -> bool:
     """Check if running on macOS"""
     return platform.system() == "Darwin"
+
+
+def get_command_path(command: str) -> Optional[str]:
+    """Get the full path to a command, using cache if available"""
+    if command in COMMAND_PATHS:
+        return COMMAND_PATHS[command]
+
+    exists, path = check_command(command)
+    if exists and path:
+        COMMAND_PATHS[command] = path
+        return path
+    return None
 
 
 def check_command(command: str) -> Tuple[bool, Optional[str]]:
@@ -78,14 +93,14 @@ def try_install_with_brew(command: str) -> bool:
         return False
 
     # Check if brew is available
-    brew_exists, _ = check_command("brew")
-    if not brew_exists:
+    brew_path = get_command_path("brew")
+    if not brew_path:
         return False
 
     print(f"[INFO] Attempting to install {command} with Homebrew...")
     try:
         result = subprocess.run(
-            ["brew", "install", command],
+            [brew_path, "install", command],
             capture_output=True,
             text=True,
             timeout=300,  # 5 minute timeout for brew install
@@ -148,8 +163,12 @@ def get_command_status() -> Dict[str, bool]:
 # === ENVIRONMENT VALIDATION ===
 def is_git_repository(path: str = ".") -> bool:
     """Check if the given path is within a git repository"""
+    git_path = get_command_path("git")
+    if not git_path:
+        return False
+
     result = subprocess.run(
-        ["git", "rev-parse", "--git-dir"], capture_output=True, text=True, cwd=path
+        [git_path, "rev-parse", "--git-dir"], capture_output=True, text=True, cwd=path
     )
     return result.returncode == 0
 
@@ -157,8 +176,12 @@ def is_git_repository(path: str = ".") -> bool:
 def check_worktree_exists(worktree_name: str) -> Tuple[bool, Optional[str]]:
     """Check if a worktree with the given name exists and return its path"""
     try:
+        git_path = get_command_path("git")
+        if not git_path:
+            return False, None
+
         result = subprocess.run(
-            ["git", "worktree", "list"], capture_output=True, text=True, check=True
+            [git_path, "worktree", "list"], capture_output=True, text=True, check=True
         )
 
         # Parse worktree list output
@@ -189,15 +212,19 @@ def validate_environment() -> List[str]:
 
     # Check if git worktree command exists
     if is_git_repository():
-        result = subprocess.run(
-            ["git", "worktree", "list"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            errors.append(
-                f"Git worktree command not available: {result.stderr.strip()}"
+        git_path = get_command_path("git")
+        if git_path:
+            result = subprocess.run(
+                [git_path, "worktree", "list"],
+                capture_output=True,
+                text=True,
             )
+            if result.returncode != 0:
+                errors.append(
+                    f"Git worktree command not available: {result.stderr.strip()}"
+                )
+        else:
+            errors.append("Git command not found")
 
     return errors
 
@@ -205,8 +232,12 @@ def validate_environment() -> List[str]:
 # === CLOUDFLARE TUNNEL MANAGEMENT ===
 def check_cloudflared_installed() -> bool:
     """Check if cloudflared is available"""
+    cloudflared_path = get_command_path("cloudflared")
+    if not cloudflared_path:
+        return False
+
     try:
-        subprocess.run(["cloudflared", "--version"], capture_output=True, check=True)
+        subprocess.run([cloudflared_path, "--version"], capture_output=True, check=True)
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
@@ -246,8 +277,13 @@ def start_cloudflare_tunnel(port: int = DEFAULT_PORT) -> Optional[subprocess.Pop
 
     print("[INFO] Starting Cloudflare tunnel...")
     try:
+        cloudflared_path = get_command_path("cloudflared")
+        if not cloudflared_path:
+            print("\n[ERROR] cloudflared path not found")
+            return None
+
         process = subprocess.Popen(
-            ["cloudflared", "tunnel", "--url", f"http://localhost:{port}"]
+            [cloudflared_path, "tunnel", "--url", f"http://localhost:{port}"]
         )
 
         # Give cloudflared a moment to start
@@ -541,6 +577,7 @@ async def start_claude(
 ):
     try:
         if not verify_auth(request, authorization):
+            print("[ERROR] Invalid or missing authorization")
             raise HTTPException(
                 status_code=401, detail="Invalid or missing authorization"
             )
@@ -594,6 +631,7 @@ async def start_claude(
         base_dir = os.path.abspath(".")
 
         if not work_dir.startswith(base_dir):
+            print(f"[ERROR] Invalid working directory: {work_dir} not under {base_dir}")
             raise HTTPException(status_code=400, detail="Invalid working directory")
 
         # Additional runtime check for git repository
@@ -609,9 +647,23 @@ async def start_claude(
             print(f"  - Branch: {feature_branch_name}")
             print(f"  - Directory: {work_dir}")
 
+            # Get git path
+            git_path = get_command_path("git")
+            if not git_path:
+                print("[ERROR] Git command not found in PATH or as alias")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Git command not found. Please ensure git is installed and in PATH.",
+                )
+
             # First check if the branch already exists
             branch_check = subprocess.run(
-                ["git", "rev-parse", "--verify", f"refs/heads/{feature_branch_name}"],
+                [
+                    git_path,
+                    "rev-parse",
+                    "--verify",
+                    f"refs/heads/{feature_branch_name}",
+                ],
                 capture_output=True,
                 text=True,
                 cwd=base_dir,
@@ -619,10 +671,10 @@ async def start_claude(
 
             if branch_check.returncode == 0:
                 # Branch exists, add worktree without -b flag
-                cmd = ["git", "worktree", "add", work_dir, feature_branch_name]
+                cmd = [git_path, "worktree", "add", work_dir, feature_branch_name]
             else:
                 # Branch doesn't exist, create it with -b flag
-                cmd = ["git", "worktree", "add", work_dir, "-b", feature_branch_name]
+                cmd = [git_path, "worktree", "add", work_dir, "-b", feature_branch_name]
 
             result = subprocess.run(
                 cmd,
@@ -656,9 +708,18 @@ async def start_claude(
             if branch_name and branch_name != feature_branch_name:
                 print(f"\n[INFO] Checking out branch: {branch_name}")
 
+                # Get git path
+                git_path = get_command_path("git")
+                if not git_path:
+                    print("[ERROR] Git command not found in PATH or as alias")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Git command not found. Please ensure git is installed and in PATH.",
+                    )
+
                 # First check if the branch exists
                 branch_check = subprocess.run(
-                    ["git", "rev-parse", "--verify", f"refs/heads/{branch_name}"],
+                    [git_path, "rev-parse", "--verify", f"refs/heads/{branch_name}"],
                     capture_output=True,
                     text=True,
                     cwd=work_dir,
@@ -667,7 +728,7 @@ async def start_claude(
                 if branch_check.returncode == 0:
                     # Branch exists, checkout
                     checkout_result = subprocess.run(
-                        ["git", "checkout", branch_name],
+                        [git_path, "checkout", branch_name],
                         capture_output=True,
                         text=True,
                         cwd=work_dir,
@@ -684,7 +745,7 @@ async def start_claude(
                     # Branch doesn't exist, create and checkout
                     print(f"[INFO] Creating new branch: {branch_name}")
                     checkout_result = subprocess.run(
-                        ["git", "checkout", "-b", branch_name],
+                        [git_path, "checkout", "-b", branch_name],
                         capture_output=True,
                         text=True,
                         cwd=work_dir,
@@ -710,6 +771,7 @@ async def start_claude(
         # Get claude path (we already checked it exists at startup)
         _, claude_path = check_command("claude")
         if not claude_path:
+            print("[ERROR] Claude command not found in PATH or as alias")
             raise HTTPException(
                 status_code=500,
                 detail="claude command not found. Please install Claude Code CLI.",
@@ -717,6 +779,7 @@ async def start_claude(
 
         # Get Omnara API key from header
         if not x_omnara_api_key:
+            print("[ERROR] Omnara API key missing from X-Omnara-Api-Key header")
             raise HTTPException(
                 status_code=400,
                 detail="Omnara API key required. Provide via X-Omnara-Api-Key header.",
@@ -767,8 +830,17 @@ async def start_claude(
         print(f"  - Screen session: {screen_name}")
         print("  - MCP server: Omnara with API key")
 
+        # Get screen path
+        screen_path = get_command_path("screen")
+        if not screen_path:
+            print("[ERROR] GNU Screen not found in PATH or as alias")
+            raise HTTPException(
+                status_code=500,
+                detail="GNU Screen not found. Please install screen to run Claude sessions.",
+            )
+
         # Start screen directly with the claude command
-        screen_cmd = ["screen", "-dmS", screen_name] + claude_args
+        screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
 
         screen_result = subprocess.run(
             screen_cmd,
@@ -794,7 +866,7 @@ async def start_claude(
 
         # Check if the screen session exists
         list_result = subprocess.run(
-            ["screen", "-ls"],
+            [screen_path, "-ls"],
             capture_output=True,
             text=True,
         )
