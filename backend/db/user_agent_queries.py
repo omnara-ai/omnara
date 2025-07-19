@@ -7,7 +7,15 @@ from datetime import datetime, timezone
 from uuid import UUID
 import hashlib
 
-from shared.database import UserAgent, AgentInstance, AgentStatus, APIKey
+from shared.database import (
+    UserAgent,
+    AgentInstance,
+    AgentStatus,
+    APIKey,
+    AgentStep,
+    AgentQuestion,
+    AgentUserFeedback,
+)
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, joinedload
 
@@ -232,6 +240,49 @@ def get_user_agent_instances(db: Session, agent_id: UUID, user_id: UUID) -> list
 
     # Format instances using the same helper function used by other endpoints
     return [_format_instance(instance) for instance in instances]
+
+
+def delete_user_agent(db: Session, agent_id: UUID, user_id: UUID) -> bool:
+    """Delete a user agent and all its associated instances and related data"""
+
+    # First verify the user agent exists and belongs to the user
+    user_agent = (
+        db.query(UserAgent)
+        .filter(and_(UserAgent.id == agent_id, UserAgent.user_id == user_id))
+        .first()
+    )
+
+    if not user_agent:
+        return False
+
+    # Get all agent instances for this user agent
+    agent_instances = (
+        db.query(AgentInstance).filter(AgentInstance.user_agent_id == agent_id).all()
+    )
+
+    # For each agent instance, delete all related data
+    for instance in agent_instances:
+        # Delete agent steps
+        db.query(AgentStep).filter(AgentStep.agent_instance_id == instance.id).delete()
+
+        # Delete agent questions
+        db.query(AgentQuestion).filter(
+            AgentQuestion.agent_instance_id == instance.id
+        ).delete()
+
+        # Delete user feedback
+        db.query(AgentUserFeedback).filter(
+            AgentUserFeedback.agent_instance_id == instance.id
+        ).delete()
+
+    # Delete all agent instances
+    db.query(AgentInstance).filter(AgentInstance.user_agent_id == agent_id).delete()
+
+    # Delete the user agent
+    db.delete(user_agent)
+    db.commit()
+
+    return True
 
 
 def _format_user_agent(user_agent: UserAgent, db: Session) -> dict:
