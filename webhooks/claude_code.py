@@ -598,25 +598,38 @@ async def start_claude(
 
         # Determine worktree/branch name
         if worktree_name:
-            # Check if worktree already exists
-            exists, existing_path = check_worktree_exists(worktree_name)
-            if exists and existing_path:
-                # Use existing worktree
-                work_dir = os.path.abspath(existing_path)
-                feature_branch_name = branch_name if branch_name else worktree_name
+            # Special case: if worktree_name is 'main', use current directory
+            if worktree_name == "main":
+                work_dir = os.path.abspath(".")
+                feature_branch_name = branch_name if branch_name else "main"
                 create_new_worktree = False
-                print(f"\n[INFO] Using existing worktree: {worktree_name}")
+                print("\n[INFO] Using current directory (no worktree)")
                 print(f"  - Directory: {work_dir}")
-                if branch_name:
+                if branch_name and branch_name != "main":
                     print(f"  - Will checkout branch: {branch_name}")
+                print(
+                    "\n[WARNING] Using main worktree - parallel sessions may cause file conflicts"
+                )
             else:
-                # Create new worktree with specified name
-                feature_branch_name = branch_name if branch_name else worktree_name
-                work_dir = os.path.abspath(f"./{worktree_name}")
-                create_new_worktree = True
-                print(f"\n[INFO] Creating new worktree: {worktree_name}")
-                if branch_name:
-                    print(f"  - With branch: {branch_name}")
+                # Check if worktree already exists
+                exists, existing_path = check_worktree_exists(worktree_name)
+                if exists and existing_path:
+                    # Use existing worktree
+                    work_dir = os.path.abspath(existing_path)
+                    feature_branch_name = branch_name if branch_name else worktree_name
+                    create_new_worktree = False
+                    print(f"\n[INFO] Using existing worktree: {worktree_name}")
+                    print(f"  - Directory: {work_dir}")
+                    if branch_name:
+                        print(f"  - Will checkout branch: {branch_name}")
+                else:
+                    # Create new worktree with specified name
+                    feature_branch_name = branch_name if branch_name else worktree_name
+                    work_dir = os.path.abspath(f"./{worktree_name}")
+                    create_new_worktree = True
+                    print(f"\n[INFO] Creating new worktree: {worktree_name}")
+                    if branch_name:
+                        print(f"  - With branch: {branch_name}")
         else:
             # Auto-generate name with timestamp
             now = datetime.now()
