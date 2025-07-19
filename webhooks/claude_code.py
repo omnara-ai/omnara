@@ -377,7 +377,8 @@ async def lifespan(app: FastAPI):
 
     # Handle Cloudflare tunnel if requested
     if hasattr(app.state, "cloudflare_tunnel") and app.state.cloudflare_tunnel:
-        app.state.tunnel_process = start_cloudflare_tunnel()
+        port = getattr(app.state, "port", DEFAULT_PORT)
+        app.state.tunnel_process = start_cloudflare_tunnel(port=port)
         if not app.state.tunnel_process:
             print("[WARNING] Continuing without Cloudflare tunnel")
 
@@ -951,6 +952,9 @@ Examples:
 
   # Run with permission skipping (dangerous!)
   python -m webhooks.claude_code --dangerously-skip-permissions
+
+  # Run on a custom port
+  python -m webhooks.claude_code --port 8080
         """,
     )
     parser.add_argument(
@@ -963,20 +967,27 @@ Examples:
         action="store_true",
         help="Start Cloudflare tunnel for external access",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port to run the webhook server on (default: {DEFAULT_PORT})",
+    )
 
     args = parser.parse_args()
 
     # Store the flags in app state for the lifespan to use
     app.state.dangerously_skip_permissions = args.dangerously_skip_permissions
     app.state.cloudflare_tunnel = args.cloudflare_tunnel
+    app.state.port = args.port
 
     print("[INFO] Starting Claude Code Webhook Server")
     print(f"  - Host: {DEFAULT_HOST}")
-    print(f"  - Port: {DEFAULT_PORT}")
+    print(f"  - Port: {args.port}")
     if args.cloudflare_tunnel:
         print("  - Cloudflare tunnel: Enabled")
     if args.dangerously_skip_permissions:
         print("  - Permission prompts: DISABLED (dangerous!)")
     print()
 
-    uvicorn.run(app, host=DEFAULT_HOST, port=DEFAULT_PORT)
+    uvicorn.run(app, host=DEFAULT_HOST, port=args.port)
