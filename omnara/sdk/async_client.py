@@ -136,6 +136,7 @@ class AsyncOmnaraClient:
         send_push: Optional[bool] = None,
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
+        git_diff: Optional[str] = None,
     ) -> LogStepResponse:
         """Log a high-level step the agent is performing.
 
@@ -162,6 +163,8 @@ class AsyncOmnaraClient:
             data["send_email"] = send_email
         if send_sms is not None:
             data["send_sms"] = send_sms
+        if git_diff is not None:
+            data["git_diff"] = git_diff
 
         response = await self._make_request("POST", "/api/v1/steps", json=data)
 
@@ -181,6 +184,7 @@ class AsyncOmnaraClient:
         send_push: Optional[bool] = None,
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
+        git_diff: Optional[str] = None,
     ) -> QuestionResponse:
         """Ask the user a question and wait for their response.
 
@@ -212,6 +216,8 @@ class AsyncOmnaraClient:
             data["send_email"] = send_email
         if send_sms is not None:
             data["send_sms"] = send_sms
+        if git_diff is not None:
+            data["git_diff"] = git_diff
 
         # First, try the non-blocking endpoint to create the question
         response = await self._make_request(

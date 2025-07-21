@@ -53,6 +53,7 @@ def process_log_step(
     send_email: bool | None = None,
     send_sms: bool | None = None,
     send_push: bool | None = None,
+    git_diff: str | None = None,
 ) -> tuple[str, int, list[str]]:
     """Process a log step operation with all common logic.
 
@@ -78,6 +79,11 @@ def process_log_step(
     # Create step with notification preferences
     step = log_step(db, instance.id, step_description, send_email, send_sms, send_push)
 
+    # Update git diff if provided
+    if git_diff is not None:
+        instance.git_diff = git_diff
+        db.commit()
+
     # Get unretrieved feedback
     feedback = get_and_mark_unretrieved_feedback(db, instance.id)
 
@@ -92,6 +98,7 @@ async def create_agent_question(
     send_email: bool | None = None,
     send_sms: bool | None = None,
     send_push: bool | None = None,
+    git_diff: str | None = None,
 ):
     """Create a question with validation and send push notification.
 
@@ -106,6 +113,11 @@ async def create_agent_question(
     """
     # Validate access
     instance = validate_agent_access(db, agent_instance_id, user_id)
+
+    # Update git diff if provided
+    if git_diff is not None:
+        instance.git_diff = git_diff
+        db.commit()
 
     # Create question
     # Note: Notifications sent by create_question() function based on parameters

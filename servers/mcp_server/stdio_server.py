@@ -8,6 +8,8 @@ It provides the same functionality as the hosted server but uses stdio transport
 import argparse
 import asyncio
 import logging
+import os
+import subprocess
 from typing import Optional
 
 from fastmcp import FastMCP
@@ -45,6 +47,45 @@ def get_client() -> AsyncOmnaraClient:
     return client
 
 
+def get_git_diff() -> Optional[str]:
+    """Get the current git diff if enabled via environment variable.
+
+    Returns:
+        The git diff output if enabled and there are changes, None otherwise.
+    """
+    # Check if git diff is enabled
+    if os.environ.get("OMNARA_GIT_DIFF", "").lower() not in ("true", "1", "yes"):
+        return None
+
+    try:
+        # Run git diff to get unstaged changes
+        result = subprocess.run(
+            ["git", "diff"], capture_output=True, text=True, timeout=5
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout
+
+        # Also check staged changes
+        result_staged = subprocess.run(
+            ["git", "diff", "--cached"], capture_output=True, text=True, timeout=5
+        )
+
+        if result_staged.returncode == 0 and result_staged.stdout.strip():
+            # Combine unstaged and staged changes
+            combined = result.stdout.strip()
+            if combined and result_staged.stdout.strip():
+                combined += "\n\n--- STAGED CHANGES ---\n\n" + result_staged.stdout
+            elif result_staged.stdout.strip():
+                combined = result_staged.stdout
+            return combined if combined else None
+
+    except Exception as e:
+        logger.warning(f"Failed to get git diff: {e}")
+
+    return None
+
+
 # Create FastMCP server and metadata
 mcp = FastMCP(
     "Omnara Agent Dashboard MCP Server",
@@ -61,10 +102,14 @@ async def log_step_tool(
     agent_type = detect_agent_type_from_environment()
     client = get_client()
 
+    # Get git diff if enabled
+    git_diff = get_git_diff()
+
     response = await client.log_step(
         agent_type=agent_type,
         step_description=step_description,
         agent_instance_id=agent_instance_id,
+        git_diff=git_diff,
     )
 
     # Store the instance ID for use by other tools
@@ -95,6 +140,9 @@ async def ask_question_tool(
 
     client = get_client()
 
+    # Get git diff if enabled
+    git_diff = get_git_diff()
+
     # Store the instance ID for use by other tools
     current_agent_instance_id = agent_instance_id
 
@@ -104,6 +152,7 @@ async def ask_question_tool(
             question_text=question_text,
             timeout_minutes=1440,  # 24 hours default
             poll_interval=10.0,
+            git_diff=git_diff,
         )
 
         return AskQuestionResponse(

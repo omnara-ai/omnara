@@ -36,6 +36,10 @@ class BaseLogStepRequest(BaseModel):
         None,
         description="Whether to send push notification (overrides user preference)",
     )
+    git_diff: str | None = Field(
+        None,
+        description="Git diff content to store with the instance",
+    )
 
 
 class BaseAskQuestionRequest(BaseModel):
@@ -53,6 +57,10 @@ class BaseAskQuestionRequest(BaseModel):
     send_push: bool | None = Field(
         None,
         description="Whether to send push notification (overrides user preference)",
+    )
+    git_diff: str | None = Field(
+        None,
+        description="Git diff content to store with the instance",
     )
 
 

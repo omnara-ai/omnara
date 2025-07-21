@@ -119,6 +119,7 @@ class AgentInstance(Base):
     status: Mapped[AgentStatus] = mapped_column(default=AgentStatus.ACTIVE)
     started_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     ended_at: Mapped[datetime | None] = mapped_column(default=None)
+    git_diff: Mapped[str | None] = mapped_column(Text, default=None)
 
     # Relationships
     user_agent: Mapped["UserAgent"] = relationship(

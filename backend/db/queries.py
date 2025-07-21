@@ -290,6 +290,7 @@ def get_agent_instance_detail(
         "status": instance.status,
         "started_at": instance.started_at,
         "ended_at": instance.ended_at,
+        "git_diff": instance.git_diff,
         "steps": [
             {
                 "id": str(step.id),
