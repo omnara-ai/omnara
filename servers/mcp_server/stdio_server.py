@@ -8,7 +8,6 @@ It provides the same functionality as the hosted server but uses stdio transport
 import argparse
 import asyncio
 import logging
-import os
 import subprocess
 from typing import Optional
 
@@ -39,6 +38,9 @@ current_agent_instance_id: Optional[str] = None
 # Structure: {agent_instance_id: {"Edit": True, "Write": True, "Bash": {"ls": True, "git": True}}}
 permission_state: dict[str, dict] = {}
 
+# Global flag for git diff feature
+git_diff_enabled: bool = False
+
 
 def get_client() -> AsyncOmnaraClient:
     """Get the initialized AsyncOmnaraClient instance."""
@@ -48,13 +50,13 @@ def get_client() -> AsyncOmnaraClient:
 
 
 def get_git_diff() -> Optional[str]:
-    """Get the current git diff if enabled via environment variable.
+    """Get the current git diff if enabled via command-line argument.
 
     Returns:
         The git diff output if enabled and there are changes, None otherwise.
     """
     # Check if git diff is enabled
-    if os.environ.get("OMNARA_GIT_DIFF", "").lower() not in ("true", "1", "yes"):
+    if not git_diff_enabled:
         return None
 
     try:
@@ -341,15 +343,23 @@ def main():
         action="store_true",
         help="Enable Claude Code permission prompt tool for handling tool execution approvals",
     )
+    parser.add_argument(
+        "--git-diff",
+        action="store_true",
+        help="Enable git diff capture for log_step and ask_question (stdio mode only)",
+    )
 
     args = parser.parse_args()
 
     # Initialize the global client
-    global client
+    global client, git_diff_enabled
     client = AsyncOmnaraClient(
         api_key=args.api_key,
         base_url=args.base_url,
     )
+
+    # Set git diff flag
+    git_diff_enabled = args.git_diff
 
     # Enable/disable tools based on feature flags
     if args.claude_code_permission_tool:
@@ -361,6 +371,7 @@ def main():
     logger.info(
         f"Claude Code permission tool: {'enabled' if args.claude_code_permission_tool else 'disabled'}"
     )
+    logger.info(f"Git diff capture: {'enabled' if args.git_diff else 'disabled'}")
 
     try:
         # Run with stdio transport (default)

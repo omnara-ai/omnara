@@ -26,6 +26,8 @@ def run_stdio_server(args):
         and args.claude_code_permission_tool
     ):
         cmd.append("--claude-code-permission-tool")
+    if hasattr(args, "git_diff") and args.git_diff:
+        cmd.append("--git-diff")
 
     subprocess.run(cmd)
 
@@ -77,6 +79,9 @@ Examples:
 
   # Run with custom API base URL
   omnara --stdio --api-key YOUR_API_KEY --base-url http://localhost:8000
+
+  # Run with git diff capture enabled
+  omnara --api-key YOUR_API_KEY --git-diff
         """,
     )
 
@@ -123,6 +128,11 @@ Examples:
         "--claude-code-permission-tool",
         action="store_true",
         help="Enable Claude Code permission prompt tool for handling tool execution approvals (stdio mode only)",
+    )
+    parser.add_argument(
+        "--git-diff",
+        action="store_true",
+        help="Enable git diff capture for log_step and ask_question (stdio mode only)",
     )
 
     args = parser.parse_args()
