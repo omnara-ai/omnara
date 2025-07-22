@@ -84,7 +84,7 @@ def process_log_step(
     if git_diff is not None:
         # Validate and sanitize git diff
         sanitized_diff = sanitize_git_diff(git_diff)
-        if sanitized_diff:
+        if sanitized_diff is not None:  # Allow empty string (cleared diff)
             instance.git_diff = sanitized_diff
             db.commit()
         else:
@@ -126,7 +126,7 @@ async def create_agent_question(
     if git_diff is not None:
         # Validate and sanitize git diff
         sanitized_diff = sanitize_git_diff(git_diff)
-        if sanitized_diff:
+        if sanitized_diff is not None:  # Allow empty string (cleared diff)
             instance.git_diff = sanitized_diff
             db.commit()
         else:

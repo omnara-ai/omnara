@@ -58,16 +58,22 @@ def sanitize_git_diff(diff: Optional[str]) -> Optional[str]:
     """Sanitize and validate a git diff for storage.
 
     Args:
-        diff: The git diff string to sanitize
+        diff: The git diff string to sanitize (None means no update needed)
 
     Returns:
-        The original diff if valid, None if invalid
+        - Original diff string if valid
+        - Empty string if diff is empty (clears the git diff)
+        - None if diff is invalid or not provided
     """
-    if not diff:
+    if diff is None:
         return None
 
     # Strip excessive whitespace
     diff = diff.strip()
+
+    # If empty after stripping, return empty string (valid case)
+    if not diff:
+        return ""
 
     # Check if it's a valid git diff
     if not is_valid_git_diff(diff):
