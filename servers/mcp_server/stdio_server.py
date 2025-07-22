@@ -8,6 +8,7 @@ It provides the same functionality as the hosted server but uses stdio transport
 import argparse
 import asyncio
 import logging
+import os
 import subprocess
 from typing import Optional
 
@@ -41,6 +42,9 @@ permission_state: dict[str, dict] = {}
 # Global flag for git diff feature
 git_diff_enabled: bool = False
 
+# Global to store initial git commit hash
+initial_git_hash: Optional[str] = None
+
 
 def get_client() -> AsyncOmnaraClient:
     """Get the initialized AsyncOmnaraClient instance."""
@@ -60,27 +64,92 @@ def get_git_diff() -> Optional[str]:
         return None
 
     try:
-        # Run git diff to get unstaged changes
-        result = subprocess.run(
-            ["git", "diff"], capture_output=True, text=True, timeout=5
-        )
+        combined_output = ""
 
+        # Get list of worktrees to exclude
+        worktree_result = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        exclude_patterns = []
+        if worktree_result.returncode == 0:
+            # Parse worktree list to get paths to exclude
+            cwd = os.getcwd()
+            for line in worktree_result.stdout.strip().split("\n"):
+                if line.startswith("worktree "):
+                    worktree_path = line[9:]  # Remove "worktree " prefix
+                    # Only exclude if it's a subdirectory of current directory
+                    if worktree_path != cwd and worktree_path.startswith(
+                        os.path.dirname(cwd)
+                    ):
+                        # Get relative path from current directory
+                        try:
+                            rel_path = os.path.relpath(worktree_path, cwd)
+                            if not rel_path.startswith(".."):
+                                exclude_patterns.append(f":(exclude){rel_path}")
+                        except ValueError:
+                            # Can't compute relative path, skip
+                            pass
+
+        # Build git diff command
+        if initial_git_hash:
+            # Use git diff from initial hash to current working tree
+            # This shows ALL changes (committed + uncommitted) as one unified diff
+            diff_cmd = ["git", "diff", initial_git_hash]
+        else:
+            # No initial hash - just show uncommitted changes
+            diff_cmd = ["git", "diff", "HEAD"]
+
+        if exclude_patterns:
+            diff_cmd.extend(["--"] + exclude_patterns)
+
+        # Run git diff
+        result = subprocess.run(diff_cmd, capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout
+            combined_output = result.stdout.strip()
 
-        # Also check staged changes
-        result_staged = subprocess.run(
-            ["git", "diff", "--cached"], capture_output=True, text=True, timeout=5
+        # Get untracked files (with exclusions)
+        untracked_cmd = ["git", "ls-files", "--others", "--exclude-standard"]
+        if exclude_patterns:
+            untracked_cmd.extend(["--"] + exclude_patterns)
+
+        result_untracked = subprocess.run(
+            untracked_cmd, capture_output=True, text=True, timeout=5
         )
+        if result_untracked.returncode == 0 and result_untracked.stdout.strip():
+            untracked_files = result_untracked.stdout.strip().split("\n")
+            if untracked_files:
+                if combined_output:
+                    combined_output += "\n"
 
-        if result_staged.returncode == 0 and result_staged.stdout.strip():
-            # Combine unstaged and staged changes
-            combined = result.stdout.strip()
-            if combined and result_staged.stdout.strip():
-                combined += "\n\n--- STAGED CHANGES ---\n\n" + result_staged.stdout
-            elif result_staged.stdout.strip():
-                combined = result_staged.stdout
-            return combined if combined else None
+                # For each untracked file, show its contents with diff-like format
+                for file_path in untracked_files:
+                    combined_output += f"diff --git a/{file_path} b/{file_path}\n"
+                    combined_output += "new file mode 100644\n"
+                    combined_output += "index 0000000..0000000\n"
+                    combined_output += "--- /dev/null\n"
+                    combined_output += f"+++ b/{file_path}\n"
+
+                    # Read file contents and add with + prefix
+                    try:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            lines = f.readlines()
+                            combined_output += f"@@ -0,0 +1,{len(lines)} @@\n"
+                            for line in lines:
+                                combined_output += f"+{line}"
+                            if lines and not lines[-1].endswith("\n"):
+                                combined_output += "\n\\ No newline at end of file\n"
+                    except Exception:
+                        combined_output += "@@ -0,0 +1,1 @@\n"
+                        combined_output += "+[Binary or unreadable file]\n"
+
+                    combined_output += "\n"
+
+        return combined_output if combined_output else None
 
     except Exception as e:
         logger.warning(f"Failed to get git diff: {e}")
@@ -352,7 +421,7 @@ def main():
     args = parser.parse_args()
 
     # Initialize the global client
-    global client, git_diff_enabled
+    global client, git_diff_enabled, initial_git_hash
     client = AsyncOmnaraClient(
         api_key=args.api_key,
         base_url=args.base_url,
@@ -360,6 +429,20 @@ def main():
 
     # Set git diff flag
     git_diff_enabled = args.git_diff
+
+    # Capture initial git hash if git diff is enabled
+    if git_diff_enabled:
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                initial_git_hash = result.stdout.strip()
+                logger.info(f"Initial git commit: {initial_git_hash[:8]}")
+            else:
+                logger.warning("Could not determine initial git commit hash")
+        except Exception as e:
+            logger.warning(f"Failed to get initial git hash: {e}")
 
     # Enable/disable tools based on feature flags
     if args.claude_code_permission_tool:

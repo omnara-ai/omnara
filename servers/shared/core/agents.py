@@ -16,6 +16,7 @@ from servers.shared.db import (
     create_or_get_user_agent,
     end_session,
 )
+from shared.utils import sanitize_git_diff
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +82,15 @@ def process_log_step(
 
     # Update git diff if provided
     if git_diff is not None:
-        instance.git_diff = git_diff
-        db.commit()
+        # Validate and sanitize git diff
+        sanitized_diff = sanitize_git_diff(git_diff)
+        if sanitized_diff:
+            instance.git_diff = sanitized_diff
+            db.commit()
+        else:
+            logger.warning(
+                f"Invalid git diff format for instance {instance.id}, skipping git diff update"
+            )
 
     # Get unretrieved feedback
     feedback = get_and_mark_unretrieved_feedback(db, instance.id)
@@ -116,8 +124,15 @@ async def create_agent_question(
 
     # Update git diff if provided
     if git_diff is not None:
-        instance.git_diff = git_diff
-        db.commit()
+        # Validate and sanitize git diff
+        sanitized_diff = sanitize_git_diff(git_diff)
+        if sanitized_diff:
+            instance.git_diff = sanitized_diff
+            db.commit()
+        else:
+            logger.warning(
+                f"Invalid git diff format for instance {instance.id}, skipping git diff update"
+            )
 
     # Create question
     # Note: Notifications sent by create_question() function based on parameters
