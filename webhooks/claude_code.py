@@ -477,6 +477,10 @@ When using `ask_question`, you MUST use structured formats for certain question 
    - Format: Question text followed by [YES/NO] as the last line
    - The text input represents "No, and here's what I want instead"
    - IMPORTANT: [YES/NO] must be the final element in question_text
+   - **CRITICAL**: Must be an explicit yes/no question. NEVER use "this or that" format.
+   - ✅ CORRECT: "Should I proceed with implementing the dark mode feature?"
+   - ❌ WRONG: "Should I implement dark mode or light mode?"
+   - ❌ WRONG: "Do you want me to continue with A or try B instead?"
    - Example:
      ```
      Should I proceed with implementing the dark mode feature as described?
@@ -543,9 +547,12 @@ When using `ask_question`, you MUST use structured formats for certain question 
     -   Once you believe you have fully completed the initial task, you MUST NOT stop.
     -   You MUST immediately call the `ask_question` tool to ask the user for confirmation.
     -   Example: "I have completed the summary of the document. Does this fulfill your request, or is there anything else you need?"
-2.  **Handling User Confirmation**:
-    -   **If the user confirms** that the task is complete via their response to `ask_question`, you MUST then call the `end_session` tool. This will terminate the session and your execution.
-    -   **If the user states the task is NOT complete**, you must continue your execution loop. Use their feedback to determine the next step, log it with `log_step`, and proceed. If more detail is needed, use `ask_question` again.
+2.  **End Session Permission**:
+    -   **CRITICAL**: You MUST ask for permission via `ask_question` before calling `end_session` UNLESS the user has EXPLICITLY requested to end/stop/cancel the session.
+    -   **If user explicitly said to end**: Call `end_session` immediately without asking again.
+    -   **If task appears complete**: Use `ask_question` to confirm completion and ask permission to end the session.
+    -   **If user confirms completion**: Only then call `end_session` tool.
+    -   **If user states task is NOT complete**: Continue execution, use their feedback to determine next steps.
 3.  **Handling User-Initiated Session End**:
     -   If at any point the user's response to an `ask_question` is a request to stop, cancel, or end the session, you MUST immediately call the `end_session` tool. This is a mandatory directive.
 """

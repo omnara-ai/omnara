@@ -114,6 +114,7 @@ class OmnaraClient:
         send_push: Optional[bool] = None,
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
+        git_diff: Optional[str] = None,
     ) -> LogStepResponse:
         """Log a high-level step the agent is performing.
 
@@ -124,6 +125,7 @@ class OmnaraClient:
             send_push: Send push notification for this step (default: False)
             send_email: Send email notification for this step (default: False)
             send_sms: Send SMS notification for this step (default: False)
+            git_diff: Git diff content to include with this step (optional)
 
         Returns:
             LogStepResponse with success status, instance ID, and user feedback
@@ -140,6 +142,8 @@ class OmnaraClient:
             data["send_email"] = send_email
         if send_sms is not None:
             data["send_sms"] = send_sms
+        if git_diff is not None:
+            data["git_diff"] = git_diff
 
         response = self._make_request("POST", "/api/v1/steps", json=data)
 
@@ -159,6 +163,7 @@ class OmnaraClient:
         send_push: Optional[bool] = None,
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
+        git_diff: Optional[str] = None,
     ) -> QuestionResponse:
         """Ask the user a question and wait for their response.
 
@@ -172,6 +177,7 @@ class OmnaraClient:
             send_push: Send push notification for this question (default: user preference)
             send_email: Send email notification for this question (default: user preference)
             send_sms: Send SMS notification for this question (default: user preference)
+            git_diff: Git diff content to include with this question (optional)
 
         Returns:
             QuestionResponse with the user's answer
@@ -190,6 +196,8 @@ class OmnaraClient:
             data["send_email"] = send_email
         if send_sms is not None:
             data["send_sms"] = send_sms
+        if git_diff is not None:
+            data["git_diff"] = git_diff
 
         # First, try the non-blocking endpoint to create the question
         response = self._make_request("POST", "/api/v1/questions", json=data, timeout=5)
