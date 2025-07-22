@@ -53,6 +53,41 @@ def get_client() -> AsyncOmnaraClient:
     return client
 
 
+def format_dict_as_markdown(data: dict) -> str:
+    """Format a dictionary as readable markdown.
+
+    Args:
+        data: Dictionary to format
+
+    Returns:
+        Formatted markdown string
+    """
+    lines = []
+    for key, value in data.items():
+        # Bold the key
+        lines.append(f"**{key}:**")
+        # Format the value based on its type
+        if isinstance(value, dict):
+            # Recursively format nested dicts with indentation
+            nested = format_dict_as_markdown(value)
+            indented = "\n".join(f"  {line}" for line in nested.split("\n"))
+            lines.append(indented)
+        elif isinstance(value, list):
+            # Format lists as bullet points
+            for item in value:
+                lines.append(f"  - {item}")
+        elif isinstance(value, str) and "\n" in value:
+            # Multi-line strings in code blocks
+            lines.append("```")
+            lines.append(value)
+            lines.append("```")
+        else:
+            # Simple values inline
+            lines.append(f"  {value}")
+        lines.append("")  # Empty line between entries
+    return "\n".join(lines).rstrip()
+
+
 def get_git_diff() -> Optional[str]:
     """Get the current git diff if enabled via command-line argument.
 
@@ -322,7 +357,7 @@ async def approve_tool(
         command_prefix = command_parts[0] if command_parts else "command"
         option_yes_session = f"Yes and approve {command_prefix} for rest of session"
 
-        question_text = f"Allow execution of Bash {command_prefix}?\n\nFull command is: {command}\n\n"
+        question_text = f"Allow execution of Bash {command_prefix}?\n\n**Full command:**\n```bash\n{command}\n```\n\n"
         question_text += "[OPTIONS]\n"
         question_text += f"1. {option_yes}\n"
         question_text += f"2. {option_yes_session}\n"
@@ -331,7 +366,12 @@ async def approve_tool(
     else:
         option_yes_session = f"Yes and approve {tool_name} for rest of session"
 
-        question_text = f"Allow execution of {tool_name}?\n\nInput is: {input}\n\n"
+        # Format the input dict as markdown
+        formatted_input = format_dict_as_markdown(input)
+
+        question_text = (
+            f"Allow execution of {tool_name}?\n\n**Input:**\n{formatted_input}\n\n"
+        )
         question_text += "[OPTIONS]\n"
         question_text += f"1. {option_yes}\n"
         question_text += f"2. {option_yes_session}\n"
