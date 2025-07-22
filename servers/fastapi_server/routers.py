@@ -51,6 +51,7 @@ def log_step(
             send_email=request.send_email,
             send_sms=request.send_sms,
             send_push=request.send_push,
+            git_diff=request.git_diff,
         )
 
         return LogStepResponse(
@@ -96,6 +97,7 @@ async def ask_question(
             send_email=request.send_email,
             send_sms=request.send_sms,
             send_push=request.send_push,
+            git_diff=request.git_diff,
         )
         db.commit()
 

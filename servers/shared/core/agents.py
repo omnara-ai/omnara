@@ -16,6 +16,7 @@ from servers.shared.db import (
     create_or_get_user_agent,
     end_session,
 )
+from shared.database.utils import sanitize_git_diff
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ def process_log_step(
     send_email: bool | None = None,
     send_sms: bool | None = None,
     send_push: bool | None = None,
+    git_diff: str | None = None,
 ) -> tuple[str, int, list[str]]:
     """Process a log step operation with all common logic.
 
@@ -78,6 +80,18 @@ def process_log_step(
     # Create step with notification preferences
     step = log_step(db, instance.id, step_description, send_email, send_sms, send_push)
 
+    # Update git diff if provided
+    if git_diff is not None:
+        # Validate and sanitize git diff
+        sanitized_diff = sanitize_git_diff(git_diff)
+        if sanitized_diff is not None:  # Allow empty string (cleared diff)
+            instance.git_diff = sanitized_diff
+            db.commit()
+        else:
+            logger.warning(
+                f"Invalid git diff format for instance {instance.id}, skipping git diff update"
+            )
+
     # Get unretrieved feedback
     feedback = get_and_mark_unretrieved_feedback(db, instance.id)
 
@@ -92,6 +106,7 @@ async def create_agent_question(
     send_email: bool | None = None,
     send_sms: bool | None = None,
     send_push: bool | None = None,
+    git_diff: str | None = None,
 ):
     """Create a question with validation and send push notification.
 
@@ -106,6 +121,18 @@ async def create_agent_question(
     """
     # Validate access
     instance = validate_agent_access(db, agent_instance_id, user_id)
+
+    # Update git diff if provided
+    if git_diff is not None:
+        # Validate and sanitize git diff
+        sanitized_diff = sanitize_git_diff(git_diff)
+        if sanitized_diff is not None:  # Allow empty string (cleared diff)
+            instance.git_diff = sanitized_diff
+            db.commit()
+        else:
+            logger.warning(
+                f"Invalid git diff format for instance {instance.id}, skipping git diff update"
+            )
 
     # Create question
     # Note: Notifications sent by create_question() function based on parameters

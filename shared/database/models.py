@@ -9,9 +9,11 @@ from sqlalchemy.orm import (
     Mapped,  # type: ignore[attr-defined]
     mapped_column,  # type: ignore[attr-defined]
     relationship,
+    validates,
 )
 
 from .enums import AgentStatus
+from .utils import is_valid_git_diff
 
 if TYPE_CHECKING:
     from .subscription_models import (
@@ -119,6 +121,7 @@ class AgentInstance(Base):
     status: Mapped[AgentStatus] = mapped_column(default=AgentStatus.ACTIVE)
     started_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     ended_at: Mapped[datetime | None] = mapped_column(default=None)
+    git_diff: Mapped[str | None] = mapped_column(Text, default=None)
 
     # Relationships
     user_agent: Mapped["UserAgent"] = relationship(
@@ -136,6 +139,20 @@ class AgentInstance(Base):
         back_populates="instance",
         order_by="AgentUserFeedback.created_at",
     )
+
+    @validates("git_diff")
+    def validate_git_diff(self, key, value):
+        """Validate git diff at the database level.
+
+        Raises ValueError if the git diff is invalid.
+        """
+        if value is None:
+            return value
+
+        if not is_valid_git_diff(value):
+            raise ValueError("Invalid git diff format. Must be a valid unified diff.")
+
+        return value
 
 
 class AgentStep(Base):

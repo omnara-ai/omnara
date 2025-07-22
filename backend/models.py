@@ -161,6 +161,7 @@ class AgentInstanceDetail(BaseModel):
     status: AgentStatus
     started_at: datetime
     ended_at: datetime | None
+    git_diff: str | None = None
     steps: list[AgentStepResponse] = []
     questions: list[QuestionDetail] = []
     user_feedback: list[UserFeedbackResponse] = []
