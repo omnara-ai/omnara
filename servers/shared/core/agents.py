@@ -16,7 +16,7 @@ from servers.shared.db import (
     create_or_get_user_agent,
     end_session,
 )
-from shared.utils import sanitize_git_diff
+from shared.database.utils import sanitize_git_diff
 
 logger = logging.getLogger(__name__)
 

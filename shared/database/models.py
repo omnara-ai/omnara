@@ -13,7 +13,7 @@ from sqlalchemy.orm import (
 )
 
 from .enums import AgentStatus
-from shared.utils import is_valid_git_diff
+from .utils import is_valid_git_diff
 
 if TYPE_CHECKING:
     from .subscription_models import (

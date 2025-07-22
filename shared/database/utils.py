@@ -1,4 +1,4 @@
-"""Git diff validation utilities."""
+"""Database utility functions."""
 
 import re
 from typing import Optional
