@@ -5,8 +5,7 @@ User Agent API endpoints for managing user-specific agent configurations.
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from shared.database.models import User, UserAgent, AgentInstance
-from shared.database.enums import AgentStatus
+from shared.database.models import User, UserAgent
 from shared.database.session import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -118,28 +117,31 @@ async def create_agent_instance(
         raise HTTPException(status_code=404, detail="User agent not found")
 
     # Check if this agent has a webhook configured
-    if user_agent.webhook_url:
-        # Trigger the webhook
-        result = await trigger_webhook_agent(
-            db,
-            user_agent,
-            current_user.id,
-            request.prompt,
-            request.name,
-            request.worktree_name,
+    if not user_agent.webhook_url:
+        raise HTTPException(
+            status_code=400, detail="Webhook URL is required to create agent instances"
         )
-        return result
-    else:
-        # For agents without webhooks, just create the instance
-        instance = AgentInstance(
-            user_agent_id=agent_id, user_id=current_user.id, status=AgentStatus.ACTIVE
-        )
-        db.add(instance)
-        db.commit()
-        db.refresh(instance)
 
-        return WebhookTriggerResponse(
-            success=True,
-            agent_instance_id=str(instance.id),
-            message="Agent instance created successfully",
-        )
+    # Trigger the webhook
+    result = await trigger_webhook_agent(
+        db,
+        user_agent,
+        current_user.id,
+        request.prompt,
+        request.name,
+        request.worktree_name,
+    )
+
+    # Handle different failure cases with appropriate HTTP status codes
+    if not result.success:
+        if "Agent limit exceeded" in result.message:
+            # 402 Payment Required for quota exceeded
+            raise HTTPException(status_code=402, detail=result.error or result.message)
+        elif "Failed to trigger webhook" in result.message:
+            # 502 Bad Gateway for webhook communication failure
+            raise HTTPException(status_code=502, detail=result.error or result.message)
+        else:
+            # 500 for other unexpected errors
+            raise HTTPException(status_code=500, detail=result.error or result.message)
+
+    return result

@@ -16,6 +16,7 @@ from shared.database import (
     AgentQuestion,
     AgentUserFeedback,
 )
+from shared.database.billing_operations import check_agent_limit
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, joinedload
 
@@ -103,6 +104,17 @@ async def trigger_webhook_agent(
             success=False,
             message="Webhook URL not configured",
             error="No webhook URL found for this agent",
+        )
+
+    # Check if user has capacity to create a new instance
+    try:
+        check_agent_limit(user_id, db, increment=1)
+    except Exception as e:
+        # Return error response if limit exceeded
+        return WebhookTriggerResponse(
+            success=False,
+            message="Agent limit exceeded",
+            error=str(e),
         )
 
     # Create the agent instance first
