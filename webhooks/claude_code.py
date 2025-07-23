@@ -15,6 +15,7 @@ import platform
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
 from typing import Optional, Tuple, List, Dict
+import select
 
 
 # === CONSTANTS AND CONFIGURATION ===
@@ -243,8 +244,10 @@ def check_cloudflared_installed() -> bool:
         return False
 
 
-def start_cloudflare_tunnel(port: int = DEFAULT_PORT) -> Optional[subprocess.Popen]:
-    """Start Cloudflare tunnel and return the process"""
+def start_cloudflare_tunnel(
+    port: int = DEFAULT_PORT,
+) -> Tuple[Optional[subprocess.Popen], Optional[str]]:
+    """Start Cloudflare tunnel and return the process and tunnel URL"""
     if not check_cloudflared_installed():
         # Try to install with brew on macOS
         if is_macos() and try_install_with_brew("cloudflared"):
@@ -254,7 +257,7 @@ def start_cloudflare_tunnel(port: int = DEFAULT_PORT) -> Optional[subprocess.Pop
                 print(
                     "Please install cloudflared manually to use the --cloudflare-tunnel option."
                 )
-                return None
+                return None, None
         else:
             print("\n[ERROR] cloudflared is not installed!")
             if is_macos():
@@ -273,36 +276,62 @@ def start_cloudflare_tunnel(port: int = DEFAULT_PORT) -> Optional[subprocess.Pop
                 "Visit: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
             )
             print("for installation instructions.")
-            return None
+            return None, None
 
     print("[INFO] Starting Cloudflare tunnel...")
     try:
         cloudflared_path = get_command_path("cloudflared")
         if not cloudflared_path:
             print("\n[ERROR] cloudflared path not found")
-            return None
+            return None, None
 
+        # Start cloudflared with output capture
         process = subprocess.Popen(
-            [cloudflared_path, "tunnel", "--url", f"http://localhost:{port}"]
+            [cloudflared_path, "tunnel", "--url", f"http://localhost:{port}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
         )
 
-        # Give cloudflared a moment to start
-        time.sleep(3)
+        # Wait for tunnel URL to appear in output
+        tunnel_url = None
+        start_time = time.time()
+        timeout = 10  # seconds
 
-        if process.poll() is not None:
-            print("\n[ERROR] Cloudflare tunnel failed to start")
-            return None
+        while time.time() - start_time < timeout:
+            if process.poll() is not None:
+                print("\n[ERROR] Cloudflare tunnel process exited unexpectedly")
+                return None, None
 
-        print("[INFO] Cloudflare tunnel started successfully")
-        print("[INFO] Check the cloudflared output for your tunnel URL")
+            # Check stderr (cloudflared outputs to stderr)
+            try:
+                # Read available lines from stderr
+                if process.stderr:
+                    readable, _, _ = select.select([process.stderr], [], [], 0.1)
+                    if readable:
+                        line = process.stderr.readline()
+                        if line:
+                            # Look for the tunnel URL pattern
+                            url_match = re.search(
+                                r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line
+                            )
+                            if url_match:
+                                tunnel_url = url_match.group()
+                                break
+            except Exception:
+                pass
 
-        # Wait a bit longer to ensure cloudflared output completes
-        time.sleep(2)
+        if not tunnel_url:
+            print("\n[WARNING] Could not parse tunnel URL from cloudflared output")
+            print("[INFO] Cloudflare tunnel started but URL not captured")
+        else:
+            print("[INFO] Cloudflare tunnel started successfully")
 
-        return process
+        return process, tunnel_url
     except Exception as e:
         print(f"\n[ERROR] Failed to start Cloudflare tunnel: {e}")
-        return None
+        return None, None
 
 
 class WebhookRequest(BaseModel):
@@ -376,10 +405,12 @@ async def lifespan(app: FastAPI):
     print("\n[INFO] All required checks passed")
 
     # Handle Cloudflare tunnel if requested
+    tunnel_url = None
     if hasattr(app.state, "cloudflare_tunnel") and app.state.cloudflare_tunnel:
         port = getattr(app.state, "port", DEFAULT_PORT)
-        app.state.tunnel_process = start_cloudflare_tunnel(port=port)
-        if not app.state.tunnel_process:
+        tunnel_process, tunnel_url = start_cloudflare_tunnel(port=port)
+        app.state.tunnel_process = tunnel_process
+        if not tunnel_process:
             print("[WARNING] Continuing without Cloudflare tunnel")
 
     # Set up webhook secret
@@ -393,22 +424,49 @@ async def lifespan(app: FastAPI):
     if not hasattr(app.state, "dangerously_skip_permissions"):
         app.state.dangerously_skip_permissions = False
 
-    # Display webhook secret in a prominent box
-    box_width = 65
+    # Display webhook info in a prominent box
+    box_width = 90
     print("\n" + "╔" + "═" * box_width + "╗")
     print("║" + " " * box_width + "║")
 
-    # Format the secret line with proper padding
-    secret_line = f"  WEBHOOK SECRET: {secret}"
-    print("║" + secret_line + " " * (box_width - len(secret_line)) + "║")
+    # Format the header
+    header = "AGENT CONFIGURATION"
+    header_padding = (box_width - len(header)) // 2
+    print(
+        "║"
+        + " " * header_padding
+        + header
+        + " " * (box_width - header_padding - len(header))
+        + "║"
+    )
 
+    # Add instruction text
+    instruction = "(paste this information into Omnara)"
+    instruction_padding = (box_width - len(instruction)) // 2
+    print(
+        "║"
+        + " " * instruction_padding
+        + instruction
+        + " " * (box_width - instruction_padding - len(instruction))
+        + "║"
+    )
     print("║" + " " * box_width + "║")
 
-    if hasattr(app.state, "cloudflare_tunnel") and app.state.cloudflare_tunnel:
-        cf_line = "  Cloudflare Tunnel URL will appear in the output above."
+    # Display tunnel URL first if available
+    if tunnel_url:
+        url_line = f"  Webhook URL: {tunnel_url}"
+        print("║" + url_line + " " * (box_width - len(url_line)) + "║")
+        print("║" + " " * box_width + "║")
+    elif hasattr(app.state, "cloudflare_tunnel") and app.state.cloudflare_tunnel:
+        cf_line = "  Webhook URL: (waiting for cloudflared to provide URL...)"
         print("║" + cf_line + " " * (box_width - len(cf_line)) + "║")
         print("║" + " " * box_width + "║")
 
+    # Format the API key line with proper padding
+    api_key_line = f"  API Key: {secret}"
+    print("║" + api_key_line + " " * (box_width - len(api_key_line)) + "║")
+
+    print("║" + " " * box_width + "║")
     print("╚" + "═" * box_width + "╝")
 
     if app.state.dangerously_skip_permissions:
