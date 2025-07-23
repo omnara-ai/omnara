@@ -199,26 +199,23 @@ class TestUserAgentEndpoints:
     def test_create_agent_instance_no_webhook(
         self, authenticated_client, test_db, test_user_agent
     ):
-        """Test creating an instance for agent without webhook."""
+        """Test creating an instance for agent without webhook returns error."""
         response = authenticated_client.post(
             f"/api/v1/user-agents/{test_user_agent.id}/instances",
             json={"prompt": "Test prompt"},
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
         data = response.json()
-        assert data["success"] is True
-        assert "agent_instance_id" in data
-        assert data["message"] == "Agent instance created successfully"
+        assert data["detail"] == "Webhook URL is required to create agent instances"
 
-        # Verify instance created
+        # Verify no instance was created
         instance = (
             test_db.query(AgentInstance)
             .filter_by(user_agent_id=test_user_agent.id)
             .first()
         )
-        assert instance is not None
-        assert instance.status == AgentStatus.ACTIVE
+        assert instance is None
 
     def test_create_agent_instance_with_webhook(
         self, authenticated_client, test_db, test_user_agent
