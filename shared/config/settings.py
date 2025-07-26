@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     stripe_pro_price_id: str = ""
     stripe_enterprise_price_id: str = ""
 
+    # RevenueCat Configuration
+    revenuecat_secret_key: str = ""  # Your RevenueCat secret API key
+    revenuecat_webhook_auth_header: str = (
+        ""  # Optional: Authorization header for webhook security
+    )
+
     # Plan Configuration - used when enforce_limits is True
     free_plan_agent_limit: int = 20  # 20 total agents per month
     pro_plan_agent_limit: int = -1  # Unlimited
