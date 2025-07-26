@@ -3,20 +3,20 @@
 import json
 import logging
 from typing import Optional
+from uuid import UUID
 import httpx
 
 from fastapi import APIRouter, Request, HTTPException, Depends
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_current_user
 from backend.models import SubscriptionResponse
 from shared.config import settings
-from shared.database.models import User, BillingEvent
+from shared.database.models import User
+from shared.database.subscription_models import BillingEvent
 from shared.database.session import get_db
 from shared.database.billing_operations import (
     get_or_create_subscription,
-    find_subscription_by_customer_id,
     create_billing_event,
 )
 
@@ -51,37 +51,6 @@ async def get_mobile_subscription_status(
     )
 
 
-class LinkCustomerRequest(BaseModel):
-    customer_id: str
-
-
-@router.post("/link-customer")
-async def link_revenuecat_customer(
-    request: LinkCustomerRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Link RevenueCat customer ID to current user.
-
-    This should be called when the app initializes RevenueCat
-    to ensure we can match webhook events to users.
-    """
-    subscription = get_or_create_subscription(current_user.id, db)
-
-    # Store the RevenueCat customer ID for webhook matching
-    # Note: We're storing this temporarily in provider_customer_id
-    # The actual subscription status will be set by webhooks
-    if not subscription.provider_customer_id:
-        subscription.provider_customer_id = request.customer_id
-        db.commit()
-        logger.info(
-            f"Linked RevenueCat customer {request.customer_id} to user {current_user.id}"
-        )
-
-    return {"success": True, "message": "Customer ID linked"}
-
-
 # Note: Cancellation is now handled entirely through webhooks.
 # Users cancel in App Store/Play Store, and RevenueCat notifies us.
 
@@ -114,7 +83,12 @@ async def fetch_subscriber_from_revenuecat(app_user_id: str) -> Optional[dict]:
 
 
 def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
-    """Sync RevenueCat subscriber data to our database."""
+    """
+    Sync RevenueCat subscriber data to our database.
+
+    Since we're using Purchases.logIn() with user IDs, the app_user_id
+    should match our user IDs directly.
+    """
     if not subscriber_data:
         return False
 
@@ -125,15 +99,19 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
         if not app_user_id:
             return False
 
-        # Find subscription by RevenueCat customer ID
-        subscription = find_subscription_by_customer_id(app_user_id, db)
-
-        if not subscription:
-            # This can happen if webhook arrives before user links their account
-            logger.info(
-                f"No subscription found for RevenueCat user {app_user_id}, will retry later"
-            )
+        # Since we use logIn with user ID, app_user_id should be a valid UUID
+        try:
+            user_uuid = UUID(app_user_id)
+        except ValueError:
+            logger.error(f"Invalid user ID format from RevenueCat: {app_user_id}")
             return False
+
+        # Get subscription directly by user ID
+        subscription = get_or_create_subscription(user_uuid, db)
+
+        # Update the customer ID to match (should already match due to logIn)
+        if not subscription.provider_customer_id:
+            subscription.provider_customer_id = app_user_id
 
         # Check if user has active Pro entitlement
         entitlements = subscriber.get("entitlements", {})
@@ -263,17 +241,15 @@ async def handle_revenuecat_webhook(
         # Sync to our database
         success = sync_subscription_status(subscriber_data, db)
 
-        # If initial purchase and no user found, webhook arrived before linking
-        if not success and event_type == "INITIAL_PURCHASE":
-            logger.info(
-                f"Initial purchase for unlinked user {app_user_id}, will be processed when user links account"
-            )
-            return {"status": "pending", "reason": "awaiting user link"}
+        if not success:
+            logger.error(f"Failed to sync subscription for user {app_user_id}")
+            return {"status": "error", "reason": "sync failed"}
 
         # Log billing event for audit trail
-        if success:
-            # Find the subscription to get user_id
-            subscription = find_subscription_by_customer_id(app_user_id, db)
+        # Since we use user IDs directly, we can get the subscription by user ID
+        try:
+            user_uuid = UUID(app_user_id)
+            subscription = get_or_create_subscription(user_uuid, db)
             if subscription:
                 create_billing_event(
                     user_id=subscription.user_id,
@@ -283,9 +259,12 @@ async def handle_revenuecat_webhook(
                     provider_event_id=event_id,
                     db=db,
                 )
+        except ValueError:
+            logger.error(f"Invalid user ID format in webhook: {app_user_id}")
+            return {"status": "error", "reason": "invalid user id"}
 
         return {
-            "status": "processed" if success else "error",
+            "status": "processed",
             "event_type": event_type,
         }
 
