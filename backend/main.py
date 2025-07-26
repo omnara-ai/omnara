@@ -13,6 +13,7 @@ from .api import (
     user_agents,
     push_notifications,
     billing,
+    mobile_billing,
     user_settings,
 )
 from .auth import routes as auth_routes
@@ -83,6 +84,10 @@ if settings.stripe_secret_key:
     logger.info("Billing endpoints enabled")
 else:
     logger.info("Billing endpoints disabled - STRIPE_SECRET_KEY not configured")
+
+# Always include mobile billing router (includes RevenueCat webhooks)
+app.include_router(mobile_billing.router, prefix=settings.api_v1_prefix)
+logger.info("Mobile billing and RevenueCat webhook endpoints enabled")
 
 
 @app.get("/")

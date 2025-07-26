@@ -40,6 +40,9 @@ class Subscription(Base):
     )  # Free plan: 20 agents/month
 
     # Payment provider information - minimal needed for operations
+    provider: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=None
+    )  # 'stripe', 'apple', 'google', or None for free users
     provider_customer_id: Mapped[str | None] = mapped_column(String(255), default=None)
     provider_subscription_id: Mapped[str | None] = mapped_column(
         String(255), default=None
