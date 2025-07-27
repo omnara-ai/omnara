@@ -41,7 +41,7 @@ class User(Base):
 
     # Notification preferences
     push_notifications_enabled: Mapped[bool] = mapped_column(default=True)
-    email_notifications_enabled: Mapped[bool] = mapped_column(default=True)
+    email_notifications_enabled: Mapped[bool] = mapped_column(default=False)
     sms_notifications_enabled: Mapped[bool] = mapped_column(default=False)
     phone_number: Mapped[str | None] = mapped_column(
         String(20), default=None
