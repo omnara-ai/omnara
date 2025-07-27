@@ -8,6 +8,7 @@ This is the main entry point for the omnara command that dispatches to either:
 import argparse
 import sys
 import subprocess
+from .auth import login as auth_login, logout as auth_logout
 
 
 def run_stdio_server(args):
@@ -33,7 +34,10 @@ def run_stdio_server(args):
 
 
 def run_webhook_server(
-    cloudflare_tunnel=False, dangerously_skip_permissions=False, port=None
+    cloudflare_tunnel=False,
+    dangerously_skip_permissions=False,
+    port=None,
+    session_name=None,
 ):
     """Run the Claude Code webhook FastAPI server"""
     cmd = [
@@ -51,6 +55,9 @@ def run_webhook_server(
     if port is not None:
         cmd.extend(["--port", str(port)])
 
+    if session_name is not None:
+        cmd.extend(["--session-name", session_name])
+
     print("[INFO] Starting Claude Code webhook server...")
     subprocess.run(cmd)
 
@@ -62,27 +69,62 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run MCP stdio server (default)
+  # One-time authentication
+  omnara login
+
+  # Connect Claude Code to Omnara (recommended)
+  omnara connect
+  omnara connect --session-name "my-project"
+
+  # Run MCP stdio server (manual API key)
   omnara --api-key YOUR_API_KEY
 
-  # Run MCP stdio server explicitly
-  omnara --stdio --api-key YOUR_API_KEY
-
-  # Run Claude Code webhook server
-  omnara --claude-code-webhook
-
-  # Run webhook server with Cloudflare tunnel
+  # Run Claude Code webhook (manual setup)
   omnara --claude-code-webhook --cloudflare-tunnel
 
-  # Run webhook server on custom port
-  omnara --claude-code-webhook --port 8080
-
-  # Run with custom API base URL
-  omnara --stdio --api-key YOUR_API_KEY --base-url http://localhost:8000
-
-  # Run with git diff capture enabled
-  omnara --api-key YOUR_API_KEY --git-diff
+  # Logout
+  omnara logout
         """,
+    )
+
+    # Add subcommands
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Login command
+    login_parser = subparsers.add_parser("login", help="Login to Omnara")
+    login_parser.add_argument(
+        "--base-url",
+        default="https://agent-dashboard-mcp.onrender.com",
+        help="Base URL of the Omnara API server",
+    )
+
+    # Logout command
+    subparsers.add_parser("logout", help="Logout from Omnara")
+
+    # Connect command (alias for webhook with cloudflare tunnel)
+    connect_parser = subparsers.add_parser(
+        "connect",
+        help="Connect to Omnara with Claude Code webhook (auto-registers with dashboard)",
+    )
+    connect_parser.add_argument(
+        "--session-name",
+        help="Name for this session in Omnara dashboard",
+    )
+    connect_parser.add_argument(
+        "--port",
+        type=int,
+        default=6662,
+        help="Port to run the webhook server on (default: 6662)",
+    )
+    connect_parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Run without Cloudflare tunnel (local only)",
+    )
+    connect_parser.add_argument(
+        "--dangerously-skip-permissions",
+        action="store_true",
+        help="Skip permission prompts in Claude Code - USE WITH CAUTION",
     )
 
     # Add mutually exclusive group for server modes
@@ -114,6 +156,10 @@ Examples:
         type=int,
         help="Port to run the webhook server on (webhook mode only, default: 6662)",
     )
+    parser.add_argument(
+        "--session-name",
+        help="Name for this webhook session in Omnara dashboard (webhook mode only)",
+    )
 
     # Arguments for stdio mode
     parser.add_argument(
@@ -137,6 +183,23 @@ Examples:
 
     args = parser.parse_args()
 
+    # Handle subcommands first
+    if args.command == "login":
+        success = auth_login(args.base_url)
+        sys.exit(0 if success else 1)
+    elif args.command == "logout":
+        auth_logout()
+        sys.exit(0)
+    elif args.command == "connect":
+        # Connect is an alias for webhook with cloudflare tunnel
+        run_webhook_server(
+            cloudflare_tunnel=not args.local,
+            dangerously_skip_permissions=args.dangerously_skip_permissions,
+            port=args.port,
+            session_name=args.session_name,
+        )
+        sys.exit(0)
+
     if args.cloudflare_tunnel and not args.claude_code_webhook:
         parser.error("--cloudflare-tunnel can only be used with --claude-code-webhook")
 
@@ -148,6 +211,7 @@ Examples:
             cloudflare_tunnel=args.cloudflare_tunnel,
             dangerously_skip_permissions=args.dangerously_skip_permissions,
             port=args.port,
+            session_name=args.session_name,
         )
     else:
         if not args.api_key:

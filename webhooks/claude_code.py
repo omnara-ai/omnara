@@ -16,6 +16,8 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
 from typing import Optional, Tuple, List, Dict
 import select
+import requests
+from omnara.auth import get_stored_credentials, is_logged_in
 
 
 # === CONSTANTS AND CONFIGURATION ===
@@ -244,6 +246,84 @@ def check_cloudflared_installed() -> bool:
         return False
 
 
+def register_webhook_with_dashboard(
+    webhook_url: str, webhook_secret: str, session_name: str | None = None
+):
+    """Register webhook URL and secret with Omnara dashboard"""
+    api_key, base_url = get_stored_credentials()
+    if not api_key:
+        print("[INFO] Not logged in to Omnara. Webhook registration skipped.")
+        print("[INFO] Run 'omnara login' to enable automatic webhook registration.")
+        return None
+
+    if not base_url:
+        base_url = "https://agent-dashboard-mcp.onrender.com"
+
+    try:
+        # Generate a unique session name if not provided
+        if not session_name:
+            session_name = f"claude-session-{int(time.time())}"
+
+        # Create or update UserAgent with webhook details
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # First, try to find existing agent with this name
+        response = requests.get(
+            f"{base_url}/api/v1/user-agents", headers=headers, timeout=10
+        )
+
+        existing_agent = None
+        if response.status_code == 200:
+            agents = response.json()
+            for agent in agents:
+                if agent["name"] == session_name:
+                    existing_agent = agent
+                    break
+
+        if existing_agent:
+            # Update existing agent
+            response = requests.patch(
+                f"{base_url}/api/v1/user-agents/{existing_agent['id']}",
+                headers=headers,
+                json={
+                    "name": session_name,
+                    "webhook_url": webhook_url,
+                    "webhook_api_key": webhook_secret,
+                    "is_active": True,
+                },
+                timeout=10,
+            )
+        else:
+            # Create new agent
+            response = requests.post(
+                f"{base_url}/api/v1/user-agents",
+                headers=headers,
+                json={
+                    "name": session_name,
+                    "webhook_url": webhook_url,
+                    "webhook_api_key": webhook_secret,
+                    "is_active": True,
+                },
+                timeout=10,
+            )
+
+        if response.status_code in [200, 201]:
+            print(f"[SUCCESS] Webhook registered with Omnara as '{session_name}'")
+            print(f"[INFO] View your agent at: {base_url}/agents")
+            return session_name
+        else:
+            print(f"[WARNING] Failed to register webhook: {response.status_code}")
+            print(f"[WARNING] Response: {response.text}")
+
+    except Exception as e:
+        print(f"[WARNING] Failed to register webhook with dashboard: {e}")
+
+    return None
+
+
 def start_cloudflare_tunnel(
     port: int = DEFAULT_PORT,
 ) -> Tuple[Optional[subprocess.Popen], Optional[str]]:
@@ -468,6 +548,31 @@ async def lifespan(app: FastAPI):
 
     print("║" + " " * box_width + "║")
     print("╚" + "═" * box_width + "╝")
+
+    # Auto-register with Omnara if logged in
+    if tunnel_url and is_logged_in():
+        print("\n[INFO] Auto-registering webhook with Omnara dashboard...")
+        # Use provided session name or auto-generate
+        session_name = getattr(app.state, "session_name", None)
+        registered_name = register_webhook_with_dashboard(
+            tunnel_url, secret, session_name
+        )
+        if registered_name:
+            app.state.session_name = registered_name
+    elif tunnel_url and not is_logged_in():
+        print("\n[TIP] Run 'omnara login' to enable automatic webhook registration")
+    elif not tunnel_url and is_logged_in():
+        # Local webhook without tunnel
+        port = getattr(app.state, "port", DEFAULT_PORT)
+        local_url = f"http://localhost:{port}/webhook"
+        print("\n[INFO] Auto-registering local webhook with Omnara dashboard...")
+        print("[WARNING] This webhook will only work from your local machine")
+        session_name = getattr(app.state, "session_name", None)
+        registered_name = register_webhook_with_dashboard(
+            local_url, secret, session_name
+        )
+        if registered_name:
+            app.state.session_name = registered_name
 
     if app.state.dangerously_skip_permissions:
         print("\n[WARNING] Running with --dangerously-skip-permissions flag enabled!")
@@ -1039,6 +1144,10 @@ Examples:
         default=DEFAULT_PORT,
         help=f"Port to run the webhook server on (default: {DEFAULT_PORT})",
     )
+    parser.add_argument(
+        "--session-name",
+        help="Name for this webhook session in Omnara dashboard",
+    )
 
     args = parser.parse_args()
 
@@ -1046,6 +1155,7 @@ Examples:
     app.state.dangerously_skip_permissions = args.dangerously_skip_permissions
     app.state.cloudflare_tunnel = args.cloudflare_tunnel
     app.state.port = args.port
+    app.state.session_name = args.session_name
 
     print("[INFO] Starting Claude Code Webhook Server")
     print(f"  - Host: {DEFAULT_HOST}")
