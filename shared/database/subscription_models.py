@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 from typing import TYPE_CHECKING
 
@@ -49,9 +49,9 @@ class Subscription(Base):
     )
 
     # Timestamps
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+        default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     # Relationships
@@ -87,7 +87,7 @@ class BillingEvent(Base):
     provider_event_id: Mapped[str | None] = mapped_column(String(255), default=None)
 
     # Timestamps
-    occurred_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    occurred_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="billing_events")

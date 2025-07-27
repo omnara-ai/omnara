@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 from typing import TYPE_CHECKING
 
@@ -34,9 +34,9 @@ class User(Base):
     )  # Matches Supabase auth.users.id
     email: Mapped[str] = mapped_column(String(255), unique=True)
     display_name: Mapped[str | None] = mapped_column(String(255), default=None)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+        default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     # Notification preferences
@@ -94,9 +94,9 @@ class UserAgent(Base):
     webhook_url: Mapped[str | None] = mapped_column(Text, default=None)
     webhook_api_key: Mapped[str | None] = mapped_column(Text, default=None)  # Encrypted
     is_active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+        default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     # Relationships
@@ -119,7 +119,7 @@ class AgentInstance(Base):
         ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
     )
     status: Mapped[AgentStatus] = mapped_column(default=AgentStatus.ACTIVE)
-    started_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    started_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     ended_at: Mapped[datetime | None] = mapped_column(default=None)
     git_diff: Mapped[str | None] = mapped_column(Text, default=None)
 
@@ -166,7 +166,7 @@ class AgentStep(Base):
     )
     step_number: Mapped[int] = mapped_column()
     description: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     instance: Mapped["AgentInstance"] = relationship(
@@ -188,7 +188,7 @@ class AgentQuestion(Base):
     answered_by_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True), default=None
     )
-    asked_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    asked_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     answered_at: Mapped[datetime | None] = mapped_column(default=None)
     is_active: Mapped[bool] = mapped_column(default=True)
 
@@ -214,7 +214,7 @@ class AgentUserFeedback(Base):
         ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
     )
     feedback_text: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     retrieved_at: Mapped[datetime | None] = mapped_column(default=None)
 
     # Relationships
@@ -239,7 +239,7 @@ class APIKey(Base):
         Text
     )  # Store the actual JWT for user viewing, not good for security
     is_active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     expires_at: Mapped[datetime | None] = mapped_column(default=None)
     last_used_at: Mapped[datetime | None] = mapped_column(default=None)
 
@@ -259,9 +259,9 @@ class PushToken(Base):
     token: Mapped[str] = mapped_column(String(255), unique=True)
     platform: Mapped[str] = mapped_column(String(50))  # 'ios' or 'android'
     is_active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+        default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
     last_used_at: Mapped[datetime | None] = mapped_column(default=None)
 
