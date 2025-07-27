@@ -5,6 +5,8 @@ the hosted server and stdio server. The authentication logic is handled
 by the individual servers.
 """
 
+from uuid import UUID
+
 from fastmcp import Context
 from shared.database.session import get_db
 
@@ -34,7 +36,13 @@ def log_step_impl(
     Returns:
         LogStepResponse with success status, instance details, and user feedback
     """
-    # Validate inputs
+    if agent_instance_id:
+        try:
+            UUID(agent_instance_id)
+        except ValueError:
+            raise ValueError(
+                f"Invalid agent_instance_id format: must be a valid UUID, got '{agent_instance_id}'"
+            )
     if not agent_type:
         raise ValueError("agent_type is required")
     if not step_description:
@@ -42,11 +50,9 @@ def log_step_impl(
     if not user_id:
         raise ValueError("user_id is required")
 
-    # Get database session
     db = next(get_db())
 
     try:
-        # Use shared business logic
         instance_id, step_number, user_feedback = process_log_step(
             db=db,
             agent_type=agent_type,
@@ -86,19 +92,22 @@ async def ask_question_impl(
     Returns:
         AskQuestionResponse with the user's answer
     """
-    # Validate inputs
     if not agent_instance_id:
         raise ValueError("agent_instance_id is required")
     if not question_text:
         raise ValueError("question_text is required")
     if not user_id:
         raise ValueError("user_id is required")
+    try:
+        UUID(agent_instance_id)
+    except ValueError:
+        raise ValueError(
+            f"Invalid agent_instance_id format: must be a valid UUID, got '{agent_instance_id}'"
+        )
 
-    # Get database session
     db = next(get_db())
 
     try:
-        # Use shared business logic to create question
         question = await create_agent_question(
             db=db,
             agent_instance_id=agent_instance_id,
@@ -106,7 +115,6 @@ async def ask_question_impl(
             user_id=user_id,
         )
 
-        # MCP-specific: Wait for answer (blocking)
         answer = await wait_for_answer(db, question.id, tool_context=tool_context)
 
         if answer is None:
@@ -134,15 +142,20 @@ def end_session_impl(
     Returns:
         EndSessionResponse with success status and final session details
     """
-    # Validate inputs
+    if not agent_instance_id:
+        raise ValueError("agent_instance_id is required")
     if not user_id:
         raise ValueError("user_id is required")
+    try:
+        UUID(agent_instance_id)
+    except ValueError:
+        raise ValueError(
+            f"Invalid agent_instance_id format: must be a valid UUID, got '{agent_instance_id}'"
+        )
 
-    # Get database session
     db = next(get_db())
 
     try:
-        # Use shared business logic
         instance_id, final_status = process_end_session(
             db=db,
             agent_instance_id=agent_instance_id,
