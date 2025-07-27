@@ -49,9 +49,12 @@ class Subscription(Base):
     )
 
     # Timestamps
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc)
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -87,7 +90,9 @@ class BillingEvent(Base):
     provider_event_id: Mapped[str | None] = mapped_column(String(255), default=None)
 
     # Timestamps
-    occurred_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    occurred_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc)
+    )
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="billing_events")
