@@ -18,6 +18,13 @@ from typing import Optional, Tuple, List, Dict
 import select
 import requests
 from omnara.auth import get_stored_credentials, is_logged_in
+from omnara.session_utils import (
+    find_available_port,
+    add_session,
+    get_session_by_name,
+    cleanup_stale_sessions,
+    is_port_available
+)
 
 
 # === CONSTANTS AND CONFIGURATION ===
@@ -554,11 +561,23 @@ async def lifespan(app: FastAPI):
         print("\n[INFO] Auto-registering webhook with Omnara dashboard...")
         # Use provided session name or auto-generate
         session_name = getattr(app.state, "session_name", None)
+        
+        # Check if session already exists
+        if session_name:
+            existing = get_session_by_name(session_name)
+            if existing:
+                print(f"[WARNING] Session '{session_name}' already exists at port {existing['port']}")
+                print("[WARNING] This will update the webhook URL for the existing session")
+        
         registered_name = register_webhook_with_dashboard(
             tunnel_url, secret, session_name
         )
         if registered_name:
             app.state.session_name = registered_name
+            # Track session locally
+            port = getattr(app.state, "port", DEFAULT_PORT)
+            add_session(registered_name, port, os.getcwd(), os.getpid())
+            
     elif tunnel_url and not is_logged_in():
         print("\n[TIP] Run 'omnara login' to enable automatic webhook registration")
     elif not tunnel_url and is_logged_in():
@@ -568,11 +587,21 @@ async def lifespan(app: FastAPI):
         print("\n[INFO] Auto-registering local webhook with Omnara dashboard...")
         print("[WARNING] This webhook will only work from your local machine")
         session_name = getattr(app.state, "session_name", None)
+        
+        # Check if session already exists
+        if session_name:
+            existing = get_session_by_name(session_name)
+            if existing:
+                print(f"[WARNING] Session '{session_name}' already exists at port {existing['port']}")
+                print("[WARNING] This will update the webhook URL for the existing session")
+        
         registered_name = register_webhook_with_dashboard(
             local_url, secret, session_name
         )
         if registered_name:
             app.state.session_name = registered_name
+            # Track session locally
+            add_session(registered_name, port, os.getcwd(), os.getpid())
 
     if app.state.dangerously_skip_permissions:
         print("\n[WARNING] Running with --dangerously-skip-permissions flag enabled!")
@@ -1150,20 +1179,36 @@ Examples:
     )
 
     args = parser.parse_args()
+    
+    # Clean up any stale sessions first
+    cleanup_stale_sessions()
+    
+    # Check if port is available, auto-increment if not
+    port = args.port
+    if not is_port_available(port):
+        print(f"[WARNING] Port {port} is already in use")
+        new_port = find_available_port(port)
+        if new_port:
+            print(f"[INFO] Using available port: {new_port}")
+            port = new_port
+        else:
+            print("[ERROR] No available ports found. Try specifying a different port with --port")
+            print("[TIP] Check existing sessions with 'ps aux | grep claude_code'")
+            sys.exit(1)
 
     # Store the flags in app state for the lifespan to use
     app.state.dangerously_skip_permissions = args.dangerously_skip_permissions
     app.state.cloudflare_tunnel = args.cloudflare_tunnel
-    app.state.port = args.port
+    app.state.port = port  # Use the potentially updated port
     app.state.session_name = args.session_name
 
     print("[INFO] Starting Claude Code Webhook Server")
     print(f"  - Host: {DEFAULT_HOST}")
-    print(f"  - Port: {args.port}")
+    print(f"  - Port: {port}")
     if args.cloudflare_tunnel:
         print("  - Cloudflare tunnel: Enabled")
     if args.dangerously_skip_permissions:
         print("  - Permission prompts: DISABLED (dangerous!)")
     print()
 
-    uvicorn.run(app, host=DEFAULT_HOST, port=args.port)
+    uvicorn.run(app, host=DEFAULT_HOST, port=port)

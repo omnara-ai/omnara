@@ -9,6 +9,7 @@ import argparse
 import sys
 import subprocess
 from .auth import login as auth_login, logout as auth_logout
+from .session_utils import get_active_sessions, is_port_available
 
 
 def run_stdio_server(args):
@@ -192,6 +193,15 @@ Examples:
         sys.exit(0)
     elif args.command == "connect":
         # Connect is an alias for webhook with cloudflare tunnel
+        # Show helpful info about existing sessions
+        sessions = get_active_sessions()
+        if sessions:
+            print("\n[INFO] Active Omnara sessions:")
+            for session in sessions:
+                port_status = "in use" if not is_port_available(session['port']) else "available"
+                print(f"  - {session['name']} (port {session['port']}, {port_status})")
+            print()
+        
         run_webhook_server(
             cloudflare_tunnel=not args.local,
             dangerously_skip_permissions=args.dangerously_skip_permissions,
