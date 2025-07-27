@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 import httpx
@@ -132,9 +133,41 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
             subscription.provider_customer_id = app_user_id
 
         # Check if user has the "Pro" entitlement
-        # If the entitlement exists in the response, it's active
+        # IMPORTANT: RevenueCat returns ALL entitlements including expired ones
+        # We must check the expiration date to determine if it's currently active
         entitlements = subscriber.get("entitlements", {})
-        has_pro_entitlement = "Pro" in entitlements
+        has_pro_entitlement = False
+
+        if "Pro" in entitlements:
+            pro_entitlement = entitlements["Pro"]
+            expires_date_str = pro_entitlement.get("expires_date")
+
+            if expires_date_str:
+                try:
+                    # Parse the ISO format date from RevenueCat
+                    # RevenueCat uses ISO 8601 with Z suffix for UTC
+                    expires_date = datetime.fromisoformat(
+                        expires_date_str.replace("Z", "+00:00")
+                    )
+                    current_time = datetime.now(timezone.utc)
+                    has_pro_entitlement = current_time < expires_date
+
+                    logger.info(
+                        f"Pro entitlement expires at {expires_date.isoformat()}, "
+                        f"current time {current_time.isoformat()}, active={has_pro_entitlement}"
+                    )
+                except ValueError as e:
+                    logger.error(
+                        f"Failed to parse expiration date '{expires_date_str}': {e}"
+                    )
+                    # If we can't parse the date, assume it's active to avoid accidental downgrades
+                    has_pro_entitlement = True
+            else:
+                # No expiration date could mean lifetime subscription
+                # But for our use case (monthly subscriptions), this shouldn't happen
+                logger.warning("Pro entitlement found without expiration date")
+                has_pro_entitlement = True
+
         logger.info(
             f"RevenueCat entitlements: {list(entitlements.keys()) if entitlements else 'None'}, has_pro={has_pro_entitlement}"
         )
