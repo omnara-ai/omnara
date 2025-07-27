@@ -99,17 +99,17 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
 
     try:
         # Log the top-level keys to debug structure
-        logger.debug(
+        logger.info(
             f"Top-level RevenueCat response keys: {list(subscriber_data.keys())}"
         )
 
         subscriber = subscriber_data.get("subscriber", {})
         app_user_id = subscriber.get("original_app_user_id")
 
-        logger.debug(
-            f"RevenueCat subscriber data keys: {subscriber.keys() if subscriber else 'None'}"
+        logger.info(
+            f"RevenueCat subscriber data keys: {list(subscriber.keys()) if subscriber else 'None'}"
         )
-        logger.debug(
+        logger.info(
             f"Entitlements type: {type(subscriber.get('entitlements'))}, value: {subscriber.get('entitlements')}"
         )
 
@@ -124,6 +124,9 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
 
         # Get subscription directly by user ID
         subscription = get_or_create_subscription(user_uuid, db)
+        logger.info(
+            f"Current subscription state: plan_type={subscription.plan_type}, user_id={subscription.user_id}"
+        )
 
         if not subscription.provider_customer_id:
             subscription.provider_customer_id = app_user_id
@@ -132,6 +135,9 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
         # If the entitlement exists in the response, it's active
         entitlements = subscriber.get("entitlements", {})
         has_pro_entitlement = "Pro" in entitlements
+        logger.info(
+            f"RevenueCat entitlements: {list(entitlements.keys()) if entitlements else 'None'}, has_pro={has_pro_entitlement}"
+        )
 
         # Check for active subscriptions
         # RevenueCat returns all subscriptions, we need to find active ones
@@ -174,6 +180,7 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
                 subscription.provider_subscription_id = str(active_subscription_id)
         else:
             # No active subscription - revert to free
+            logger.info("No active Pro entitlement found, downgrading to free")
             subscription.plan_type = "free"
             subscription.agent_limit = 20
 
