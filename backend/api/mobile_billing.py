@@ -104,31 +104,44 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
         if not subscription.provider_customer_id:
             subscription.provider_customer_id = app_user_id
 
-        # Check if user has active Pro entitlement
+        # Check if user has the "Pro" entitlement
+        # If the entitlement exists in the response, it's active
         entitlements = subscriber.get("entitlements", {})
-        has_pro = "pro" in entitlements
+        has_pro_entitlement = "Pro" in entitlements
 
-        # Also check active subscriptions
+        # Check for active subscriptions
+        # RevenueCat returns all subscriptions, we need to find active ones
         subscriptions = subscriber.get("subscriptions", {})
-        has_active_subscription = any(
-            sub.get("is_active", False) for sub in subscriptions.values()
-        )
+        active_subscription_id = None
+        active_store = None
 
-        # Update subscription status
-        if has_pro or has_active_subscription:
-            # Determine provider from store
-            store = subscriber.get("store", "app_store").lower()
-            provider = "apple" if "app_store" in store else "google"
+        # Find subscription that hasn't expired and wasn't cancelled
+        for sub_id, sub_data in subscriptions.items():
+            expires_date = sub_data.get("expires_date")
+            if expires_date and not sub_data.get("unsubscribe_detected_at"):
+                # Simple check: if expires_date exists and no cancellation, consider it active
+                # RevenueCat handles grace periods and other edge cases
+                active_subscription_id = sub_data.get("store_transaction_id")
+                active_store = sub_data.get("store", "app_store")
+                break
+
+        # Update subscription status based on the "pro" entitlement
+        if has_pro_entitlement:
+            # Determine provider from the active subscription's store
+            if active_store:
+                provider = "apple" if active_store == "app_store" else "google"
+            else:
+                # Fallback - check management URL
+                management_url = subscriber.get("management_url", "")
+                provider = "apple" if "apple.com" in management_url else "google"
 
             subscription.plan_type = "pro"
             subscription.agent_limit = -1
             subscription.provider = provider
 
             # Update provider subscription ID if available
-            for sub_id, sub_data in subscriptions.items():
-                if sub_data.get("is_active"):
-                    subscription.provider_subscription_id = sub_id
-                    break
+            if active_subscription_id:
+                subscription.provider_subscription_id = str(active_subscription_id)
         else:
             # No active subscription - revert to free
             subscription.plan_type = "free"
@@ -171,14 +184,15 @@ async def handle_revenuecat_webhook(
         body = await request.body()
         payload = json.loads(body)
 
-        # Extract event details
+        # Extract event details from RevenueCat webhook structure
         event = payload.get("event", {})
         event_type = event.get("type", "unknown")
         event_id = event.get("id")
         app_user_id = event.get("app_user_id")
+        original_app_user_id = event.get("original_app_user_id")
 
         logger.info(
-            f"Received RevenueCat webhook: {event_type} (id: {event_id}) for user {app_user_id}"
+            f"Received RevenueCat webhook: {event_type} (id: {event_id}) for user {app_user_id or original_app_user_id}"
         )
 
         # Check if we've already processed this webhook event
@@ -195,8 +209,9 @@ async def handle_revenuecat_webhook(
                 )
                 return {"status": "already_processed", "event_id": event_id}
 
-        # Skip if no user ID
-        if not app_user_id:
+        # Use app_user_id (current) with fallback to original_app_user_id
+        user_id_to_use = app_user_id or original_app_user_id
+        if not user_id_to_use:
             return {"status": "ignored", "reason": "no app_user_id"}
 
         # For certain events, we should process immediately
@@ -208,6 +223,7 @@ async def handle_revenuecat_webhook(
             "EXPIRATION",
             "BILLING_ISSUE",
             "PRODUCT_CHANGE",
+            "TEST",  # RevenueCat test events
         ]
 
         # Only process important events
@@ -216,22 +232,22 @@ async def handle_revenuecat_webhook(
             return {"status": "ignored", "reason": "non-critical event"}
 
         # Fetch current subscriber status from RevenueCat
-        subscriber_data = await fetch_subscriber_from_revenuecat(app_user_id)
+        subscriber_data = await fetch_subscriber_from_revenuecat(user_id_to_use)
 
         if not subscriber_data:
-            logger.error(f"Failed to fetch subscriber data for {app_user_id}")
+            logger.error(f"Failed to fetch subscriber data for {user_id_to_use}")
             return {"status": "error", "reason": "fetch failed"}
 
         # Sync to our database
         success = sync_subscription_status(subscriber_data, db)
 
         if not success:
-            logger.error(f"Failed to sync subscription for user {app_user_id}")
+            logger.error(f"Failed to sync subscription for user {user_id_to_use}")
             return {"status": "error", "reason": "sync failed"}
 
         # Log billing event for audit trail
         try:
-            user_uuid = UUID(app_user_id)
+            user_uuid = UUID(user_id_to_use)
             subscription = get_or_create_subscription(user_uuid, db)
             if subscription:
                 create_billing_event(
@@ -243,7 +259,7 @@ async def handle_revenuecat_webhook(
                     db=db,
                 )
         except ValueError:
-            logger.error(f"Invalid user ID format in webhook: {app_user_id}")
+            logger.error(f"Invalid user ID format in webhook: {user_id_to_use}")
             return {"status": "error", "reason": "invalid user id"}
 
         return {
