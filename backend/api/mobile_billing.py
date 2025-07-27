@@ -98,8 +98,20 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
         return False
 
     try:
+        # Log the top-level keys to debug structure
+        logger.debug(
+            f"Top-level RevenueCat response keys: {list(subscriber_data.keys())}"
+        )
+
         subscriber = subscriber_data.get("subscriber", {})
         app_user_id = subscriber.get("original_app_user_id")
+
+        logger.debug(
+            f"RevenueCat subscriber data keys: {subscriber.keys() if subscriber else 'None'}"
+        )
+        logger.debug(
+            f"Entitlements type: {type(subscriber.get('entitlements'))}, value: {subscriber.get('entitlements')}"
+        )
 
         if not app_user_id:
             return False
@@ -144,8 +156,14 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
                 provider = "apple" if active_store == "app_store" else "google"
             else:
                 # Fallback - check management URL
-                management_url = subscriber.get("management_url", "")
-                provider = "apple" if "apple.com" in management_url else "google"
+                management_url = subscriber.get("management_url")
+                if management_url and "apple.com" in management_url:
+                    provider = "apple"
+                elif management_url and "play.google" in management_url:
+                    provider = "google"
+                else:
+                    # Keep existing provider if we can't determine it
+                    provider = subscription.provider
 
             subscription.plan_type = "pro"
             subscription.agent_limit = -1
@@ -168,7 +186,8 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
         return True
 
     except Exception as e:
-        logger.error(f"Failed to sync subscription status: {e}")
+        logger.error(f"Failed to sync subscription status: {e}", exc_info=True)
+        logger.error(f"Subscriber data: {subscriber_data}")
         db.rollback()
         return False
 
