@@ -300,3 +300,31 @@ class PromoCodeValidationResponse(BaseModel):
     discount_value: Optional[float] = None
     description: Optional[str] = None
     error: Optional[str] = None
+
+
+# ============================================================================
+# Mobile Subscription Models
+# ============================================================================
+
+
+class MobileSubscriptionActivateRequest(BaseModel):
+    """Request to activate a mobile subscription after purchase."""
+
+    provider: str = Field(..., description="Payment provider: 'apple' or 'google'")
+    provider_customer_id: str = Field(
+        ..., description="Customer ID (user ID in RevenueCat)"
+    )
+    provider_subscription_id: str = Field(
+        ..., description="Apple/Google transaction ID"
+    )
+    product_id: str = Field(
+        ..., description="Product identifier (e.g., com.omnara.app.Monthly)"
+    )
+
+
+class MobileSubscriptionResponse(BaseModel):
+    """Response for mobile subscription activation."""
+
+    success: bool
+    message: str
+    subscription: Optional[SubscriptionResponse] = None
