@@ -27,6 +27,7 @@ router = APIRouter(prefix="/billing/mobile", tags=["mobile-billing"])
 # RevenueCat API configuration
 REVENUECAT_API_URL = "https://api.revenuecat.com/v1"
 REVENUECAT_API_KEY = settings.revenuecat_secret_key
+REVENUECAT_PROJECT_ID = getattr(settings, "revenuecat_project_id", None)
 
 
 @router.get("/status", response_model=SubscriptionResponse)
@@ -70,8 +71,20 @@ async def fetch_subscriber_from_revenuecat(app_user_id: str) -> Optional[dict]:
             )
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 403:
+                logger.error(
+                    f"403 Forbidden when fetching subscriber {app_user_id}. "
+                    f"Check that REVENUECAT_SECRET_KEY is set correctly and "
+                    f"is for the same project as the webhook."
+                )
+            elif e.response.status_code == 404:
+                logger.warning(f"Subscriber {app_user_id} not found in RevenueCat")
+            else:
+                logger.error(f"Failed to fetch subscriber {app_user_id}: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Failed to fetch subscriber {app_user_id}: {e}")
+            logger.error(f"Unexpected error fetching subscriber {app_user_id}: {e}")
             return None
 
 
@@ -177,8 +190,11 @@ async def handle_revenuecat_webhook(
         # Verify webhook authorization if configured
         if settings.revenuecat_webhook_auth_header:
             auth_header = request.headers.get("Authorization")
-            if auth_header != f"Bearer {settings.revenuecat_webhook_auth_header}":
-                logger.warning("Invalid webhook authorization header")
+            if auth_header != settings.revenuecat_webhook_auth_header:
+                logger.warning(
+                    f"Invalid webhook authorization header. "
+                    f"Received: '{auth_header}', Expected: '{settings.revenuecat_webhook_auth_header}'"
+                )
                 raise HTTPException(status_code=401, detail="Unauthorized")
         # Get webhook payload
         body = await request.body()
