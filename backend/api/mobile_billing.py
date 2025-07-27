@@ -27,7 +27,6 @@ router = APIRouter(prefix="/billing/mobile", tags=["mobile-billing"])
 # RevenueCat API configuration
 REVENUECAT_API_URL = "https://api.revenuecat.com/v1"
 REVENUECAT_API_KEY = settings.revenuecat_secret_key
-REVENUECAT_PROJECT_ID = getattr(settings, "revenuecat_project_id", None)
 
 
 @router.get("/status", response_model=SubscriptionResponse)
