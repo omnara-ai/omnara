@@ -46,16 +46,9 @@ async def get_mobile_subscription_status(
         id=subscription.id,
         plan_type=subscription.plan_type,
         agent_limit=subscription.agent_limit,
-        current_period_end=None,  # Mobile subscriptions managed by App Store/Play Store
+        current_period_end=None,
         cancel_at_period_end=False,
     )
-
-
-# Note: Cancellation is now handled entirely through webhooks.
-# Users cancel in App Store/Play Store, and RevenueCat notifies us.
-
-
-# ============== RevenueCat Webhook Handling ==============
 
 
 async def fetch_subscriber_from_revenuecat(app_user_id: str) -> Optional[dict]:
@@ -99,7 +92,6 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
         if not app_user_id:
             return False
 
-        # Since we use logIn with user ID, app_user_id should be a valid UUID
         try:
             user_uuid = UUID(app_user_id)
         except ValueError:
@@ -109,7 +101,6 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
         # Get subscription directly by user ID
         subscription = get_or_create_subscription(user_uuid, db)
 
-        # Update the customer ID to match (should already match due to logIn)
         if not subscription.provider_customer_id:
             subscription.provider_customer_id = app_user_id
 
@@ -130,7 +121,7 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
             provider = "apple" if "app_store" in store else "google"
 
             subscription.plan_type = "pro"
-            subscription.agent_limit = -1  # Unlimited
+            subscription.agent_limit = -1
             subscription.provider = provider
 
             # Update provider subscription ID if available
@@ -142,7 +133,6 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
             # No active subscription - revert to free
             subscription.plan_type = "free"
             subscription.agent_limit = 20
-            # Keep provider info for potential restore
 
         db.commit()
 
@@ -191,12 +181,7 @@ async def handle_revenuecat_webhook(
             f"Received RevenueCat webhook: {event_type} (id: {event_id}) for user {app_user_id}"
         )
 
-        # Check if we've already processed this exact webhook event
-        # Why we need this: While our subscription sync is idempotent (same input = same state),
-        # we create billing event records for audit trails. Without deduplication:
-        # - RevenueCat's 5 retries = 5 duplicate billing event records
-        # - Unnecessary API calls to RevenueCat
-        # - Potential rate limiting issues
+        # Check if we've already processed this webhook event
         if event_id:
             existing_event = (
                 db.query(BillingEvent)
@@ -208,7 +193,6 @@ async def handle_revenuecat_webhook(
                 logger.info(
                     f"Already processed webhook event {event_id}, returning cached result"
                 )
-                # Still return 200 to acknowledge receipt
                 return {"status": "already_processed", "event_id": event_id}
 
         # Skip if no user ID
@@ -223,7 +207,7 @@ async def handle_revenuecat_webhook(
             "UNCANCELLATION",
             "EXPIRATION",
             "BILLING_ISSUE",
-            "PRODUCT_CHANGE",  # User changed subscription tier
+            "PRODUCT_CHANGE",
         ]
 
         # Only process important events
@@ -246,7 +230,6 @@ async def handle_revenuecat_webhook(
             return {"status": "error", "reason": "sync failed"}
 
         # Log billing event for audit trail
-        # Since we use user IDs directly, we can get the subscription by user ID
         try:
             user_uuid = UUID(app_user_id)
             subscription = get_or_create_subscription(user_uuid, db)
@@ -273,5 +256,4 @@ async def handle_revenuecat_webhook(
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
     except Exception as e:
         logger.error(f"Webhook processing error: {e}")
-        # Return 200 to prevent RevenueCat from retrying
         return {"status": "error", "error": str(e)}

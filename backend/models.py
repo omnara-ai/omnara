@@ -311,7 +311,9 @@ class MobileSubscriptionActivateRequest(BaseModel):
     """Request to activate a mobile subscription after purchase."""
 
     provider: str = Field(..., description="Payment provider: 'apple' or 'google'")
-    provider_customer_id: str = Field(..., description="RevenueCat anonymous ID")
+    provider_customer_id: str = Field(
+        ..., description="Customer ID (user ID in RevenueCat)"
+    )
     provider_subscription_id: str = Field(
         ..., description="Apple/Google transaction ID"
     )
