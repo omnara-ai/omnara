@@ -22,7 +22,9 @@ def is_port_available(port: int) -> bool:
         return False
 
 
-def find_available_port(start_port: int = 6662, max_attempts: int = 10) -> Optional[int]:
+def find_available_port(
+    start_port: int = 6662, max_attempts: int = 10
+) -> Optional[int]:
     """Find an available port starting from start_port"""
     for i in range(max_attempts):
         port = start_port + i
@@ -35,7 +37,7 @@ def load_sessions() -> Dict:
     """Load session data from file"""
     if not SESSION_FILE.exists():
         return {"sessions": []}
-    
+
     try:
         with open(SESSION_FILE, "r") as f:
             return json.load(f)
@@ -46,18 +48,20 @@ def load_sessions() -> Dict:
 def save_sessions(data: Dict):
     """Save session data to file"""
     SESSION_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     with open(SESSION_FILE, "w") as f:
         json.dump(data, f, indent=2)
-    
+
     # Set file permissions to 600 (owner read/write only)
     os.chmod(SESSION_FILE, 0o600)
 
 
-def add_session(session_name: str, port: int, working_dir: str, pid: Optional[int] = None):
+def add_session(
+    session_name: str, port: int, working_dir: str, pid: Optional[int] = None
+):
     """Add a new session to tracking"""
     data = load_sessions()
-    
+
     # Check if session already exists
     for session in data["sessions"]:
         if session["name"] == session_name:
@@ -68,17 +72,19 @@ def add_session(session_name: str, port: int, working_dir: str, pid: Optional[in
             session["updated_at"] = datetime.now().isoformat()
             save_sessions(data)
             return
-    
+
     # Add new session
-    data["sessions"].append({
-        "name": session_name,
-        "port": port,
-        "working_dir": working_dir,
-        "pid": pid,
-        "started_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat()
-    })
-    
+    data["sessions"].append(
+        {
+            "name": session_name,
+            "port": port,
+            "working_dir": working_dir,
+            "pid": pid,
+            "started_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+        }
+    )
+
     save_sessions(data)
 
 
@@ -117,7 +123,7 @@ def cleanup_stale_sessions():
     """Remove sessions where the port is no longer in use"""
     data = load_sessions()
     active_sessions = []
-    
+
     for session in data["sessions"]:
         port = session.get("port")
         if port and not is_port_available(port):
@@ -126,6 +132,6 @@ def cleanup_stale_sessions():
         else:
             # Port is available, session is likely dead
             print(f"[INFO] Removing stale session: {session['name']}")
-    
+
     data["sessions"] = active_sessions
     save_sessions(data)

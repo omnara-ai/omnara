@@ -198,10 +198,12 @@ Examples:
         if sessions:
             print("\n[INFO] Active Omnara sessions:")
             for session in sessions:
-                port_status = "in use" if not is_port_available(session['port']) else "available"
+                port_status = (
+                    "in use" if not is_port_available(session["port"]) else "available"
+                )
                 print(f"  - {session['name']} (port {session['port']}, {port_status})")
             print()
-        
+
         run_webhook_server(
             cloudflare_tunnel=not args.local,
             dangerously_skip_permissions=args.dangerously_skip_permissions,

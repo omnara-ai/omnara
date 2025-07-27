@@ -23,7 +23,7 @@ from omnara.session_utils import (
     add_session,
     get_session_by_name,
     cleanup_stale_sessions,
-    is_port_available
+    is_port_available,
 )
 
 
@@ -561,14 +561,18 @@ async def lifespan(app: FastAPI):
         print("\n[INFO] Auto-registering webhook with Omnara dashboard...")
         # Use provided session name or auto-generate
         session_name = getattr(app.state, "session_name", None)
-        
+
         # Check if session already exists
         if session_name:
             existing = get_session_by_name(session_name)
             if existing:
-                print(f"[WARNING] Session '{session_name}' already exists at port {existing['port']}")
-                print("[WARNING] This will update the webhook URL for the existing session")
-        
+                print(
+                    f"[WARNING] Session '{session_name}' already exists at port {existing['port']}"
+                )
+                print(
+                    "[WARNING] This will update the webhook URL for the existing session"
+                )
+
         registered_name = register_webhook_with_dashboard(
             tunnel_url, secret, session_name
         )
@@ -577,7 +581,7 @@ async def lifespan(app: FastAPI):
             # Track session locally
             port = getattr(app.state, "port", DEFAULT_PORT)
             add_session(registered_name, port, os.getcwd(), os.getpid())
-            
+
     elif tunnel_url and not is_logged_in():
         print("\n[TIP] Run 'omnara login' to enable automatic webhook registration")
     elif not tunnel_url and is_logged_in():
@@ -587,14 +591,18 @@ async def lifespan(app: FastAPI):
         print("\n[INFO] Auto-registering local webhook with Omnara dashboard...")
         print("[WARNING] This webhook will only work from your local machine")
         session_name = getattr(app.state, "session_name", None)
-        
+
         # Check if session already exists
         if session_name:
             existing = get_session_by_name(session_name)
             if existing:
-                print(f"[WARNING] Session '{session_name}' already exists at port {existing['port']}")
-                print("[WARNING] This will update the webhook URL for the existing session")
-        
+                print(
+                    f"[WARNING] Session '{session_name}' already exists at port {existing['port']}"
+                )
+                print(
+                    "[WARNING] This will update the webhook URL for the existing session"
+                )
+
         registered_name = register_webhook_with_dashboard(
             local_url, secret, session_name
         )
@@ -1179,10 +1187,10 @@ Examples:
     )
 
     args = parser.parse_args()
-    
+
     # Clean up any stale sessions first
     cleanup_stale_sessions()
-    
+
     # Check if port is available, auto-increment if not
     port = args.port
     if not is_port_available(port):
@@ -1192,7 +1200,9 @@ Examples:
             print(f"[INFO] Using available port: {new_port}")
             port = new_port
         else:
-            print("[ERROR] No available ports found. Try specifying a different port with --port")
+            print(
+                "[ERROR] No available ports found. Try specifying a different port with --port"
+            )
             print("[TIP] Check existing sessions with 'ps aux | grep claude_code'")
             sys.exit(1)
 
