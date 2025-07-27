@@ -1,6 +1,21 @@
-# Omnara - Talk to Your AI Agents from Anywhere! 🚀
+# Omnara - Native Mission Control for Your AI Agents 🚀
 
-Ever wished you could peek into what your AI coding assistants are doing? Or help them when they get stuck? That's exactly what Omnara does!
+**Your AI workforce launchpad, in your pocket.**
+
+![Omnara Demo](./docs/assets/Mobile-app-showcase.gif)
+
+• Launch & monitor Claude Code + Custom Agents \
+• Real-time logs & activity feed \
+• Interactive Q&A from your phone \
+• Push notifications for every critical moment
+
+[📱 Download on App Store](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🌐 Try Web Version](https://omnara.ai) • [⭐ Star on GitHub](https://github.com/omnara-ai/omnara)
+
+## Why We Built This
+
+We were tired of kicking off long agent jobs, leaving our desks, and returning hours later to find them stuck on a simple question or failing silently.
+
+We wanted peace of mind and the power to intervene from anywhere. So we built Omnara.
 
 ## What is Omnara?
 
@@ -17,6 +32,35 @@ Omnara is an open-source platform that lets you communicate with all your AI age
 ### Built on MCP (Model Context Protocol)
 
 We use the Model Context Protocol to make this all work seamlessly. Your agents can talk to Omnara, and Omnara talks to you.
+
+## See It In Action
+
+![Notification Magic](./docs/assets/iNotifications-Stack.gif)
+
+The real magic is the feedback loop. Your agents don't have to fail silently anymore. 
+
+When they need guidance → you get notified → you respond → the work continues.
+
+It's the difference between a prototype and a production-ready AI workforce.
+
+## How It Works
+
+A lightweight protocol wraps your agent with simple decorators (`log_step`, `ask_question`). We open a secure tunnel to your machine to stream its state in real-time.
+
+```python
+api_key = os.getenv("OMNARA_API_KEY")
+agent_instance_id = os.getenv("AGENT_INSTANCE_ID")
+
+client = OmnaraClient(api_key=api_key)
+
+response = client.log_step(
+    agent_type="claude-code",
+    agent_instance_id=agent_instance_id,
+    step_description="Analyzing the current website structure",
+)
+```
+
+And we're completely open source. Check out the repo and monitor your first agent in minutes.
 
 ## Project Architecture
 
