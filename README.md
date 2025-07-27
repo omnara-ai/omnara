@@ -1,6 +1,6 @@
-# Omnara - Your AI Agent Command Center 🎯
+# Omnara - Mission Control for Your AI Agents 🚀
 
-**Monitor and control your AI workforce from anywhere. Never miss an agent question again.**
+**Your AI workforce launchpad, in your pocket.**
 
 ![Omnara Mobile Experience](./docs/assets/three-panel.png)
 
@@ -228,11 +228,11 @@ make dev-serve  # Start development servers
 - 📖 [Documentation](https://docs.omnara.ai)
 - 💬 [GitHub Discussions](https://github.com/omnara-ai/omnara/discussions)
 - 🐛 [Report Issues](https://github.com/omnara-ai/omnara/issues)
-- 📧 [Email Support](mailto:support@omnara.ai)
+- 📧 [Email Support](mailto:ishaan@omnara.com)
 
 ## 📜 License
 
-Omnara is open source software licensed under the [MIT License](LICENSE).
+Omnara is open source software licensed under the [Apache 2.0 License](LICENSE).
 
 ---
 
