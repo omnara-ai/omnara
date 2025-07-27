@@ -245,6 +245,9 @@ class SubscriptionResponse(BaseModel):
     agent_limit: int
     current_period_end: Optional[datetime] = None
     cancel_at_period_end: bool = False
+    provider: Optional[str] = (
+        None  # 'stripe', 'apple', 'google', or None for free users
+    )
 
     @field_serializer("current_period_end")
     def serialize_datetime(self, dt: datetime | None, _info):

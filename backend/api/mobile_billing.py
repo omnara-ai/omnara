@@ -49,6 +49,7 @@ async def get_mobile_subscription_status(
         agent_limit=subscription.agent_limit,
         current_period_end=None,
         cancel_at_period_end=False,
+        provider=subscription.provider,
     )
 
 
@@ -129,9 +130,6 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
             f"Current subscription state: plan_type={subscription.plan_type}, user_id={subscription.user_id}"
         )
 
-        if not subscription.provider_customer_id:
-            subscription.provider_customer_id = app_user_id
-
         # Check if user has the "Pro" entitlement
         # IMPORTANT: RevenueCat returns ALL entitlements including expired ones
         # We must check the expiration date to determine if it's currently active
@@ -206,6 +204,14 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
 
             subscription.plan_type = "pro"
             subscription.agent_limit = -1
+
+            # Update customer ID if switching providers or if it's not set
+            if (
+                not subscription.provider_customer_id
+                or subscription.provider != provider
+            ):
+                subscription.provider_customer_id = app_user_id
+
             subscription.provider = provider
 
             # Update provider subscription ID if available
@@ -216,6 +222,8 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
             logger.info("No active Pro entitlement found, downgrading to free")
             subscription.plan_type = "free"
             subscription.agent_limit = 20
+            subscription.provider = None  # Clear provider when going to free
+            subscription.provider_subscription_id = None  # Clear subscription reference
 
         db.commit()
 

@@ -53,6 +53,7 @@ async def get_subscription(
         agent_limit=subscription.agent_limit,
         current_period_end=None,
         cancel_at_period_end=False,
+        provider=subscription.provider,
     )
 
     # Fetch additional details from Stripe if available
@@ -129,7 +130,9 @@ async def create_checkout_session(
         customer = stripe.Customer.create(
             email=current_user.email, metadata={"user_id": str(current_user.id)}
         )
-        update_subscription_customer_id(subscription, customer.id, db)
+        update_subscription_customer_id(
+            subscription, customer.id, db, provider="stripe"
+        )
 
     # Build checkout session parameters
     checkout_params = {
@@ -387,7 +390,12 @@ def handle_checkout_completed(session: dict, db: Session):
     subscription = get_or_create_subscription(user_id, db)
 
     # Update subscription with Stripe IDs
-    subscription.provider_customer_id = session.get("customer")
+    # Only update customer ID if switching providers or if it's not set
+    customer_id = session.get("customer")
+    if customer_id and (
+        not subscription.provider_customer_id or subscription.provider != "stripe"
+    ):
+        subscription.provider_customer_id = customer_id
     subscription.provider_subscription_id = session.get("subscription")
 
     # Fetch the full session with line items to determine plan type
@@ -416,9 +424,11 @@ def handle_checkout_completed(session: dict, db: Session):
                 if price_id == settings.stripe_pro_price_id:
                     subscription.plan_type = "pro"
                     subscription.agent_limit = -1  # Unlimited
+                    subscription.provider = "stripe"
                 elif price_id == settings.stripe_enterprise_price_id:
                     subscription.plan_type = "enterprise"
                     subscription.agent_limit = -1  # Unlimited
+                    subscription.provider = "stripe"
                 else:
                     logger.warning(
                         f"Unknown price ID in checkout: {price_id}, not matching pro: {settings.stripe_pro_price_id} or enterprise: {settings.stripe_enterprise_price_id}"
@@ -454,9 +464,11 @@ def handle_subscription_updated(stripe_sub: dict, db: Session):
         if price_id == settings.stripe_pro_price_id:
             subscription.plan_type = "pro"
             subscription.agent_limit = -1  # Unlimited
+            subscription.provider = "stripe"
         elif price_id == settings.stripe_enterprise_price_id:
             subscription.plan_type = "enterprise"
             subscription.agent_limit = -1  # Unlimited
+            subscription.provider = "stripe"
 
     db.commit()
     logger.info(f"Updated subscription {subscription.id}")
@@ -474,6 +486,7 @@ def handle_subscription_deleted(stripe_sub: dict, db: Session):
     subscription.plan_type = "free"
     subscription.agent_limit = settings.free_plan_agent_limit
     subscription.provider_subscription_id = None  # Clear the Stripe reference
+    subscription.provider = None  # Clear provider when going to free
 
     db.commit()
     logger.info(f"Reset subscription {subscription.id} to free tier after cancellation")

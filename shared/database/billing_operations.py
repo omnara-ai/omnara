@@ -112,10 +112,15 @@ def find_subscription_by_provider_id(
 
 
 def update_subscription_customer_id(
-    subscription: Subscription, customer_id: str, db: Session
+    subscription: Subscription,
+    customer_id: str,
+    db: Session,
+    provider: str | None = None,
 ) -> None:
-    """Update subscription with Stripe customer ID."""
+    """Update subscription with provider customer ID."""
     subscription.provider_customer_id = customer_id
+    if provider:
+        subscription.provider = provider
     db.commit()
 
 
