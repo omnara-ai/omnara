@@ -7,7 +7,7 @@ name = "omnara"
 version = "1.3.11"
 description = "Omnara Agent Dashboard - MCP Server and Python SDK"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [
     {name = "Omnara", email = "ishaan@omnara.com"}
@@ -17,6 +17,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]

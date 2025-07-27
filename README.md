@@ -72,7 +72,7 @@ Billing is only enforced when explicitly configured with Stripe keys.
 
 ### Prerequisites
 
-- Python 3.12
+- Python 3.10+
 - PostgreSQL
 - Make (for development commands)
 
