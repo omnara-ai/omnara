@@ -57,7 +57,7 @@ async def get_subscription(
     )
 
     # Fetch additional details from Stripe if available
-    if subscription.provider_subscription_id:
+    if subscription.provider == "stripe" and subscription.provider_subscription_id:
         try:
             stripe_sub = stripe.Subscription.retrieve(
                 subscription.provider_subscription_id
@@ -127,6 +127,7 @@ async def create_checkout_session(
 
     # Check if we need to create a new Stripe customer
     # This handles cases where user previously had mobile subscription
+    stripe_customer_id = subscription.provider_customer_id
     if not subscription.provider_customer_id or subscription.provider != "stripe":
         # Create Stripe customer
         customer = stripe.Customer.create(
@@ -135,10 +136,11 @@ async def create_checkout_session(
         update_subscription_customer_id(
             subscription, customer.id, db, provider="stripe"
         )
+        stripe_customer_id = customer.id
 
     # Build checkout session parameters
     checkout_params = {
-        "customer": subscription.provider_customer_id,
+        "customer": stripe_customer_id,
         "payment_method_types": ["card"],
         "line_items": [
             {
@@ -267,6 +269,13 @@ async def cancel_subscription(
 ):
     """Cancel the current subscription at period end."""
     subscription = get_or_create_subscription(current_user.id, db)
+
+    # Only handle Stripe subscriptions
+    if subscription.provider != "stripe":
+        raise HTTPException(
+            status_code=400,
+            detail="This endpoint only handles Stripe subscriptions. Use the appropriate provider's interface to manage your subscription.",
+        )
 
     if subscription.provider_subscription_id:
         # Cancel in Stripe at period end (user keeps access until then)
