@@ -4,7 +4,7 @@ Database queries for UserAgent operations.
 
 import httpx
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 import hashlib
 
 from shared.database import (
@@ -18,6 +18,7 @@ from shared.database import (
 )
 from shared.database.billing_operations import check_agent_limit
 from sqlalchemy import and_, func
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import UserAgentRequest, WebhookTriggerResponse
@@ -117,18 +118,10 @@ async def trigger_webhook_agent(
             error=str(e),
         )
 
-    # Create the agent instance first
-    instance = AgentInstance(
-        user_agent_id=user_agent.id, user_id=user_id, status=AgentStatus.ACTIVE
-    )
-    db.add(instance)
-    db.commit()
-    db.refresh(instance)
+    agent_instance_id = uuid4()
 
-    # Get or create an Omnara API key for this agent
     api_key_name = f"{user_agent.name} Key"
 
-    # Check if an API key already exists for this agent
     existing_key = (
         db.query(APIKey)
         .filter(
@@ -144,38 +137,33 @@ async def trigger_webhook_agent(
     if existing_key:
         omnara_api_key = existing_key.api_key
     else:
-        # Create a new API key
         jwt_token = create_api_key_jwt(
             user_id=str(user_id),
-            expires_in_days=None,  # No expiration
+            expires_in_days=None,
         )
 
-        # Store API key in database
         api_key = APIKey(
             user_id=user_id,
             name=api_key_name,
             api_key_hash=hashlib.sha256(jwt_token.encode()).hexdigest(),
             api_key=jwt_token,
-            expires_at=None,  # No expiration
+            expires_at=None,
         )
         db.add(api_key)
         db.commit()
 
         omnara_api_key = jwt_token
 
-    # Prepare webhook payload
     payload = {
-        "agent_instance_id": str(instance.id),
+        "agent_instance_id": str(agent_instance_id),
         "prompt": prompt,
     }
 
-    # Add optional fields if provided
     if name is not None:
         payload["name"] = name
     if worktree_name is not None:
         payload["worktree_name"] = worktree_name
 
-    # Call the webhook
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -186,38 +174,91 @@ async def trigger_webhook_agent(
                     if user_agent.webhook_api_key
                     else "",
                     "Content-Type": "application/json",
-                    "X-Omnara-Api-Key": omnara_api_key,  # Add the Omnara API key header
+                    "X-Omnara-Api-Key": omnara_api_key,
                 },
             )
             response.raise_for_status()
 
+            stmt = insert(AgentInstance).values(
+                id=agent_instance_id,
+                user_agent_id=user_agent.id,
+                user_id=user_id,
+                status=AgentStatus.ACTIVE,
+            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
+
+            db.execute(stmt)
+            db.commit()
+
             return WebhookTriggerResponse(
                 success=True,
-                agent_instance_id=str(instance.id),
+                agent_instance_id=str(agent_instance_id),
                 message="Webhook triggered successfully",
             )
 
-    except httpx.HTTPError as e:
-        # Mark instance as failed
-        instance.status = AgentStatus.FAILED
-        instance.ended_at = datetime.now(timezone.utc)
-        db.commit()
+    except httpx.ConnectError as e:
+        error_str = str(e)
+        # Check for URL format errors and provide clearer message
+        if "Request URL is missing" in error_str:
+            error_msg = error_str.replace("Request URL", "Webhook URL")
+        else:
+            error_msg = f"Unable to connect to webhook URL. Check URL is correct and webhook is running: {error_str}"
 
         return WebhookTriggerResponse(
             success=False,
-            agent_instance_id=str(instance.id),
+            agent_instance_id=None,
+            message="Unable to connect to webhook URL",
+            error=error_msg,
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            error_msg = "Authentication failed. Please check your webhook API key."
+        elif e.response.status_code == 403:
+            error_msg = "Access forbidden. Please verify your webhook API key has the correct permissions."
+        elif e.response.status_code >= 500:
+            if e.response.status_code == 530:
+                # 530 is often used by proxy/tunnel services
+                error_msg = "HTTP 530: Proxy/tunnel error. Check URL or try restarting tunnel service."
+            else:
+                error_msg = f"HTTP {e.response.status_code}: Webhook service error. Check if webhook is running or try restarting it."
+        else:
+            error_msg = (
+                f"Webhook returned error status {e.response.status_code}: {str(e)}"
+            )
+
+        return WebhookTriggerResponse(
+            success=False,
+            agent_instance_id=None,
+            message="Webhook request failed",
+            error=error_msg,
+        )
+    except httpx.TimeoutException:
+        return WebhookTriggerResponse(
+            success=False,
+            agent_instance_id=None,
+            message="Webhook request timed out",
+            error="Webhook timeout (30s). Check if service is running and URL is correct.",
+        )
+    except (httpx.RequestError, httpx.InvalidURL) as e:
+        error_str = str(e)
+        # Check for URL format errors and provide clearer message
+        if "Request URL is missing" in error_str or "Invalid URL" in error_str:
+            error_msg = error_str.replace("Request URL", "Webhook URL").replace(
+                "request URL", "webhook URL"
+            )
+        else:
+            error_msg = f"Request error: {error_str}"
+
+        return WebhookTriggerResponse(
+            success=False,
+            agent_instance_id=None,
             message="Failed to trigger webhook",
-            error=str(e),
+            error=error_msg,
         )
     except Exception as e:
-        # Mark instance as failed
-        instance.status = AgentStatus.FAILED
-        instance.ended_at = datetime.now(timezone.utc)
-        db.commit()
-
         return WebhookTriggerResponse(
             success=False,
-            agent_instance_id=str(instance.id),
+            agent_instance_id=None,
             message="Unexpected error occurred",
             error=str(e),
         )
