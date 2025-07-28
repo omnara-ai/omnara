@@ -28,6 +28,8 @@ def run_stdio_server(args):
         cmd.append("--claude-code-permission-tool")
     if hasattr(args, "git_diff") and args.git_diff:
         cmd.append("--git-diff")
+    if hasattr(args, "agent_instance_id") and args.agent_instance_id:
+        cmd.extend(["--agent-instance-id", args.agent_instance_id])
 
     subprocess.run(cmd)
 
@@ -133,6 +135,11 @@ Examples:
         "--git-diff",
         action="store_true",
         help="Enable git diff capture for log_step and ask_question (stdio mode only)",
+    )
+    parser.add_argument(
+        "--agent-instance-id",
+        type=str,
+        help="Pre-existing agent instance ID to use for this session (stdio mode only)",
     )
 
     args = parser.parse_args()
