@@ -132,16 +132,60 @@ async def create_agent_instance(
         request.worktree_name,
     )
 
-    # Handle different failure cases with appropriate HTTP status codes
     if not result.success:
         if "Agent limit exceeded" in result.message:
-            # 402 Payment Required for quota exceeded
             raise HTTPException(status_code=402, detail=result.error or result.message)
+        elif "Unable to connect to webhook URL" in result.message:
+            raise HTTPException(
+                status_code=424,  # Failed Dependency - webhook not available
+                detail={
+                    "error": "webhook_connection_error",
+                    "message": result.error or "Unable to connect to the webhook URL",
+                },
+            )
+        elif "Webhook request failed" in result.message:
+            # Always return 424 for webhook failures to avoid auth redirects
+            # Include the actual webhook status in the error details
+            webhook_status = None
+            if result.error and "Authentication failed" in result.error:
+                webhook_status = 401
+            elif result.error and "Access forbidden" in result.error:
+                webhook_status = 403
+            elif result.error and "Webhook server error" in result.error:
+                webhook_status = 500
+
+            raise HTTPException(
+                status_code=424,  # Always 424 for webhook failures
+                detail={
+                    "error": "webhook_request_failed",
+                    "message": result.error or result.message,
+                    "webhook_status": webhook_status,  # Include actual webhook status for debugging
+                },
+            )
+        elif "Webhook request timed out" in result.message:
+            raise HTTPException(
+                status_code=424,  # Use 424 instead of 504 to avoid potential issues
+                detail={
+                    "error": "webhook_timeout",
+                    "message": result.error or "Webhook request timed out",
+                    "webhook_status": 504,  # Include actual timeout status
+                },
+            )
         elif "Failed to trigger webhook" in result.message:
-            # 502 Bad Gateway for webhook communication failure
-            raise HTTPException(status_code=502, detail=result.error or result.message)
+            raise HTTPException(
+                status_code=424,  # Failed Dependency - webhook not available
+                detail={
+                    "error": "webhook_error",
+                    "message": result.error or result.message,
+                },
+            )
         else:
-            # 500 for other unexpected errors
-            raise HTTPException(status_code=500, detail=result.error or result.message)
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "internal_error",
+                    "message": result.error or result.message,
+                },
+            )
 
     return result
