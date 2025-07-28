@@ -125,7 +125,9 @@ async def create_checkout_session(
     # Get or create Stripe customer
     subscription = get_or_create_subscription(current_user.id, db)
 
-    if not subscription.provider_customer_id:
+    # Check if we need to create a new Stripe customer
+    # This handles cases where user previously had mobile subscription
+    if not subscription.provider_customer_id or subscription.provider != "stripe":
         # Create Stripe customer
         customer = stripe.Customer.create(
             email=current_user.email, metadata={"user_id": str(current_user.id)}
