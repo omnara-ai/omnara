@@ -218,8 +218,8 @@ async def log_step_tool(
         git_diff=git_diff,
     )
 
-    # Store the instance ID for use by other tools
-    current_agent_instance_id = response.agent_instance_id
+    if current_agent_instance_id is None:
+        current_agent_instance_id = response.agent_instance_id
 
     return LogStepResponse(
         success=response.success,
@@ -249,8 +249,8 @@ async def ask_question_tool(
     # Get git diff if enabled
     git_diff = get_git_diff()
 
-    # Store the instance ID for use by other tools
-    current_agent_instance_id = agent_instance_id
+    if current_agent_instance_id is None:
+        current_agent_instance_id = agent_instance_id
 
     try:
         response = await client.ask_question(
@@ -276,11 +276,15 @@ async def ask_question_tool(
 async def end_session_tool(
     agent_instance_id: str,
 ) -> EndSessionResponse:
+    global current_agent_instance_id
+
     client = get_client()
 
     response = await client.end_session(
         agent_instance_id=agent_instance_id,
     )
+
+    current_agent_instance_id = None
 
     return EndSessionResponse(
         success=response.success,
@@ -457,15 +461,23 @@ def main():
         action="store_true",
         help="Enable git diff capture for log_step and ask_question (stdio mode only)",
     )
+    parser.add_argument(
+        "--agent-instance-id",
+        type=str,
+        help="Pre-existing agent instance ID to use for this session",
+    )
 
     args = parser.parse_args()
 
-    # Initialize the global client
-    global client, git_diff_enabled, initial_git_hash
+    global client, git_diff_enabled, initial_git_hash, current_agent_instance_id
     client = AsyncOmnaraClient(
         api_key=args.api_key,
         base_url=args.base_url,
     )
+
+    if args.agent_instance_id:
+        current_agent_instance_id = args.agent_instance_id
+        logger.info(f"Using provided agent instance ID: {args.agent_instance_id}")
 
     # Set git diff flag
     git_diff_enabled = args.git_diff
