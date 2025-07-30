@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import pty
+import re
 import select
 import shutil
 import signal
@@ -46,6 +47,30 @@ class ClaudeJSONLogWrapper:
         self.permission_check_thread = None
         self.terminal_buffer = ""  # Buffer for terminal output
         self.permission_active = False
+        self.claude_status = (
+            "idle"  # idle, working, waiting_for_input, waiting_for_permission
+        )
+        self.last_terminal_activity = time.time()  # Track last terminal activity
+        self.terminal_activity_buffer = ""  # Previous terminal buffer for comparison
+        self.last_esc_interrupt_seen = (
+            None  # Track when we last saw "(esc to interrupt)"
+        )
+        self.status_monitor_thread = None
+        self.waiting_message_sent = False  # Track if we already sent waiting message
+        self.last_entry_was_tool_result = False  # Track if last entry was a tool result
+        self.tool_result_timer = None  # Timer to check if Claude responds after tool
+
+        # Clear debug logs on startup
+        for log_file in [
+            "/tmp/claude_message_debug.log",
+            "/tmp/claude_terminal_output.log",
+            "/tmp/claude_tool_debug.log",
+        ]:
+            try:
+                with open(log_file, "w") as f:
+                    f.write(f"=== Log started at {time.time()} ===\n")
+            except (OSError, IOError):
+                pass
 
         self.setup_routes()
 
@@ -120,6 +145,41 @@ class ClaudeJSONLogWrapper:
         .waiting {
             background-color: #f39c12;
             color: white;
+        }
+
+        .claude-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            margin-left: 1rem;
+        }
+
+        .claude-working {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .claude-waiting-input {
+            background-color: #27ae60;
+            color: white;
+        }
+
+        .claude-waiting-permission {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .pulse {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
         }
 
         .chat-container {
@@ -315,7 +375,13 @@ class ClaudeJSONLogWrapper:
     <div class="header">
         <h1>Claude Code Web Interface</h1>
         <div class="subtitle">Terminal running in background • Web chat synced via JSON logs</div>
-        <div class="connection-status waiting" id="status">Waiting for session...</div>
+        <div style="display: flex; align-items: center; justify-content: center; margin-top: 0.5rem;">
+            <div class="connection-status waiting" id="status">Waiting for session...</div>
+            <div class="claude-indicator" id="claude-status" style="display: none;">
+                <span id="claude-status-icon">●</span>
+                <span id="claude-status-text">Idle</span>
+            </div>
+        </div>
     </div>
 
     <div class="chat-container">
@@ -350,6 +416,9 @@ class ClaudeJSONLogWrapper:
         const inputEl = document.getElementById('input');
         const sendButton = document.getElementById('send-button');
         const quickResponsesEl = document.getElementById('quick-responses');
+        const claudeStatusEl = document.getElementById('claude-status');
+        const claudeStatusIconEl = document.getElementById('claude-status-icon');
+        const claudeStatusTextEl = document.getElementById('claude-status-text');
 
         function setConnectionStatus(status) {
             statusEl.className = 'connection-status ' + status;
@@ -359,6 +428,35 @@ class ClaudeJSONLogWrapper:
                 statusEl.textContent = 'Waiting for session...';
             } else {
                 statusEl.textContent = 'Disconnected';
+            }
+        }
+
+        function updateClaudeStatus(status) {
+            claudeStatusEl.style.display = status !== 'idle' ? 'inline-flex' : 'none';
+
+            // Remove all status classes
+            claudeStatusEl.classList.remove('claude-working', 'claude-waiting-input', 'claude-waiting-permission', 'pulse');
+
+            switch(status) {
+                case 'working':
+                    claudeStatusEl.classList.add('claude-working', 'pulse');
+                    claudeStatusIconEl.textContent = '●';
+                    claudeStatusTextEl.textContent = 'Claude is working...';
+                    break;
+                case 'waiting_for_input':
+                    claudeStatusEl.classList.add('claude-waiting-input');
+                    claudeStatusIconEl.textContent = '💬';
+                    claudeStatusTextEl.textContent = 'Waiting for your response...';
+                    claudeStatusEl.style.backgroundColor = '#28a745';
+                    claudeStatusEl.style.color = 'white';
+                    break;
+                case 'waiting_for_permission':
+                    claudeStatusEl.classList.add('claude-waiting-permission');
+                    claudeStatusIconEl.textContent = '!';
+                    claudeStatusTextEl.textContent = 'Permission needed';
+                    break;
+                default:
+                    claudeStatusEl.style.display = 'none';
             }
         }
 
@@ -376,6 +474,15 @@ class ClaudeJSONLogWrapper:
             const contentEl = document.createElement('div');
             contentEl.innerHTML = formatContent(data.content);
             messageEl.appendChild(contentEl);
+
+            // Add indicator if Claude needs input
+            if (data.needs_input && data.type === 'assistant') {
+                const indicatorEl = document.createElement('div');
+                indicatorEl.className = 'needs-input-indicator';
+                indicatorEl.innerHTML = '⏸ Waiting for your response...';
+                indicatorEl.style.cssText = 'font-size: 0.875rem; color: #666; margin-top: 0.5rem; font-style: italic;';
+                messageEl.appendChild(indicatorEl);
+            }
 
             messagesEl.appendChild(messageEl);
             messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -428,6 +535,11 @@ class ClaudeJSONLogWrapper:
                             addMessage(msg);
                             lastMessageId = Math.max(lastMessageId, msg.id);
                         });
+                    }
+
+                    // Update Claude status
+                    if (data.claude_status) {
+                        updateClaudeStatus(data.claude_status);
                     }
                 } else {
                     setConnectionStatus('waiting');
@@ -515,6 +627,7 @@ class ClaudeJSONLogWrapper:
                     "total": len(self.messages),
                     "session_active": self.log_file_path is not None,
                     "ready": True,  # Always ready
+                    "claude_status": self.claude_status,
                 }
 
                 return JSONResponse(response_data)
@@ -583,6 +696,15 @@ class ClaudeJSONLogWrapper:
     def monitor_log_file(self):
         """Monitor the JSON log file for new messages."""
         print("Log monitor thread started", file=sys.stderr)
+
+        # Start the status monitor thread too
+        if not self.status_monitor_thread:
+            self.status_monitor_thread = threading.Thread(
+                target=self.monitor_claude_status
+            )
+            self.status_monitor_thread.daemon = True
+            self.status_monitor_thread.start()
+            print("Status monitor thread started", file=sys.stderr)
 
         # Wait for log file to be created
         while self.running and not self.log_file_path:
@@ -661,6 +783,11 @@ class ClaudeJSONLogWrapper:
                 message = data.get("message", {})
                 content = message.get("content", "")
 
+                # User message means Claude will start working on a response
+                if self.claude_status != "waiting_for_permission":
+                    self.claude_status = "working"
+                    self.waiting_message_sent = False  # Reset the flag
+
                 # Handle both string content and tool result content
                 if isinstance(content, str) and content:
                     self.add_message("user", content)
@@ -687,20 +814,57 @@ class ClaudeJSONLogWrapper:
 
                             if len(result_content) > 200:
                                 result_content = result_content[:200] + "..."
-                            self.add_message(
-                                "user",
-                                f"[Tool result for {tool_id[:8]}...]: {result_content}",
-                            )
+                            # Don't show tool results in the chat - they're internal
+                            # self.add_message(
+                            #     "system",
+                            #     f"[Tool result for {tool_id[:8]}...]: {result_content}",
+                            # )
+
                         else:
                             # Other content types
                             self.add_message("user", str(item))
 
+                # Check if this entry has toolUseResult - that means a tool was executed
+                if data.get("toolUseResult"):
+                    self.last_entry_was_tool_result = True
+                    # Cancel any existing timer
+                    if self.tool_result_timer:
+                        self.tool_result_timer = None
+                    # Start a new timer to check if Claude responds
+                    self.tool_result_timer = threading.Thread(
+                        target=self.check_for_waiting_after_tool, daemon=True
+                    )
+                    self.tool_result_timer.start()
+                    with open("/tmp/claude_message_debug.log", "a") as f:
+                        f.write(
+                            f"Tool result detected, starting timer at {time.time()}\n"
+                        )
+
             elif msg_type == "assistant":
+                # Claude is responding, so clear the tool result flag
+                self.last_entry_was_tool_result = False
+
                 # Extract assistant message
                 message = data.get("message", {})
+                message_id = message.get("id", "")
                 content_blocks = message.get("content", [])
                 text_parts = []
                 tool_parts = []
+
+                # Check stop reason to determine Claude's status
+                stop_reason = message.get("stop_reason")
+                print(
+                    f"DEBUG: Assistant message {message_id} stop_reason: {stop_reason}",
+                    file=sys.stderr,
+                )
+
+                if stop_reason is None:
+                    self.claude_status = "working"
+                elif stop_reason in ["end_turn", "stop_sequence"]:
+                    self.claude_status = "waiting_for_input"
+                elif stop_reason == "tool_use":
+                    self.claude_status = "working"  # Still working, will use tool
+                    # The actual waiting detection is handled by toolUseResult tracking
 
                 for block in content_blocks:
                     if isinstance(block, dict):
@@ -764,8 +928,17 @@ class ClaudeJSONLogWrapper:
 
                 # Combine all parts
                 all_parts = text_parts + tool_parts
+
+                # Only process if we have content
                 if all_parts:
-                    self.add_message("assistant", "\n".join(all_parts))
+                    message_content = "\n".join(all_parts)
+
+                    # ALWAYS delay assistant messages by 3 seconds to check status
+                    threading.Thread(
+                        target=self.add_message_with_status_check,
+                        args=(message_content,),
+                        daemon=True,
+                    ).start()
 
             elif msg_type == "summary":
                 # Session started
@@ -812,7 +985,115 @@ class ClaudeJSONLogWrapper:
                 # Last resort - just log the error
                 print(f"Critical error processing log entry: {e}", file=sys.stderr)
 
-    def add_message(self, msg_type: str, content: str):
+    def add_message_with_status_check(self, content: str):
+        """Add assistant message after checking if Claude is waiting for input."""
+        # Wait 3 seconds
+        time.sleep(3.0)
+
+        # Check if Claude is working based on "esc to interrupt)" indicator
+        needs_input = not self.is_claude_working()
+
+        # Add message with appropriate needs_input flag
+        self.add_message("assistant", content, needs_input=needs_input)
+
+    def check_for_waiting_after_tool(self):
+        """Check if Claude needs input after a tool result."""
+        # Wait 3 seconds to see if Claude responds
+        time.sleep(3.0)
+
+        # Only add waiting message if:
+        # 1. We're still marked as tool result being the last entry (Claude didn't respond)
+        # 2. Claude is NOT currently working
+        if self.last_entry_was_tool_result and not self.is_claude_working():
+            # Add an empty message with waiting indicator
+            self.add_message("assistant", "", needs_input=True)
+            self.last_entry_was_tool_result = False
+            with open("/tmp/claude_message_debug.log", "a") as f:
+                f.write(f"Added waiting message after tool result at {time.time()}\n")
+        elif self.last_entry_was_tool_result and self.is_claude_working():
+            # Claude is still working, check again later
+            with open("/tmp/claude_message_debug.log", "a") as f:
+                f.write(
+                    f"Skipped waiting message - Claude still working at {time.time()}\n"
+                )
+            # Start a new thread to check again when Claude stops working
+            threading.Thread(
+                target=self.check_again_when_claude_stops, daemon=True
+            ).start()
+
+    def check_again_when_claude_stops(self):
+        """Keep checking until Claude stops working, then add waiting message if needed."""
+        # Check every 0.5 seconds until Claude stops working
+        while self.is_claude_working() and self.last_entry_was_tool_result:
+            time.sleep(0.5)
+
+        # Claude has stopped working, check if we still need to add the message
+        if self.last_entry_was_tool_result:
+            # Add an empty message with waiting indicator
+            self.add_message("assistant", "", needs_input=True)
+            self.last_entry_was_tool_result = False
+            with open("/tmp/claude_message_debug.log", "a") as f:
+                f.write(
+                    f"Added waiting message after Claude stopped working at {time.time()}\n"
+                )
+
+    def is_claude_working(self):
+        """Check various indicators to determine if Claude is actively working."""
+        # List of indicators that show Claude is working
+        # We can easily add more indicators here in the future
+
+        # Check 1: "esc to interrupt)" indicator (with closing parenthesis)
+        if self.last_esc_interrupt_seen:
+            time_since_esc = time.time() - self.last_esc_interrupt_seen
+            if time_since_esc < 3.0:
+                with open("/tmp/claude_message_debug.log", "a") as f:
+                    f.write(
+                        f"is_claude_working: YES - esc seen {time_since_esc:.2f}s ago\n"
+                    )
+                return True
+
+        # Check 2: Could add animation detection here
+        # if self.has_terminal_animation():
+        #     return True
+
+        # Check 3: Could add other indicators like "Thinking..." etc
+        # if "Thinking" in self.terminal_buffer:
+        #     return True
+
+        with open("/tmp/claude_message_debug.log", "a") as f:
+            f.write(
+                f"is_claude_working: NO - last_esc={self.last_esc_interrupt_seen}\n"
+            )
+        return False
+
+    def monitor_claude_status(self):
+        """Monitor Claude's status using various indicators."""
+        while self.running:
+            time.sleep(0.5)  # Check every 0.5 seconds
+
+            # Only check if we have a session and Claude is not waiting for permission
+            if self.log_file_path and self.claude_status != "waiting_for_permission":
+                if self.is_claude_working():
+                    # Claude is working
+                    self.claude_status = "working"
+                    self.waiting_message_sent = False  # Reset flag
+                else:
+                    # Claude appears to be idle
+                    if not self.waiting_message_sent and self.last_esc_interrupt_seen:
+                        # Only update status, don't send a separate message
+                        # The waiting indicator is already handled when we process assistant messages
+                        self.claude_status = "waiting_for_input"
+                        self.waiting_message_sent = True
+                        # Don't add a separate message here - it's handled in process_log_entry
+                        # self.add_message("assistant", "💬", needs_input=True)
+                        print(
+                            "DEBUG: Claude appears idle, status updated",
+                            file=sys.stderr,
+                        )
+
+    def add_message(
+        self, msg_type: str, content: str, needs_input: Optional[bool] = None
+    ):
         """Add a message to the list."""
         self.message_id += 1
         msg = {
@@ -821,6 +1102,11 @@ class ClaudeJSONLogWrapper:
             "content": content,
             "timestamp": datetime.now().isoformat(),
         }
+
+        # Add needs_input flag if specified
+        if needs_input is not None:
+            msg["needs_input"] = needs_input
+
         self.messages.append(msg)
 
         # Keep only last 1000 messages
@@ -883,9 +1169,49 @@ class ClaudeJSONLogWrapper:
                                 text = data.decode("utf-8", errors="ignore")
                                 self.terminal_buffer += text
 
+                                # Track terminal activity - only significant changes
+                                if (
+                                    self.terminal_buffer
+                                    != self.terminal_activity_buffer
+                                ):
+                                    # Check if it's a significant change (more than just cursor/prompt)
+                                    diff_len = abs(
+                                        len(self.terminal_buffer)
+                                        - len(self.terminal_activity_buffer)
+                                    )
+                                    if diff_len > 5:  # More than 5 chars different
+                                        self.last_terminal_activity = time.time()
+                                    self.terminal_activity_buffer = self.terminal_buffer
+
+                                # Check for "esc to interrupt)" indicator (may have escape sequences)
+                                # Remove ANSI escape sequences first
+                                clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+                                if "esc to interrupt)" in clean_text:
+                                    self.last_esc_interrupt_seen = time.time()
+                                    self.claude_status = "working"
+                                    self.waiting_message_sent = False  # Reset flag
+                                    with open(
+                                        "/tmp/claude_message_debug.log", "a"
+                                    ) as f:
+                                        f.write(
+                                            f"FOUND ESC INTERRUPT at {time.time()}\n"
+                                        )
+
+                                # Debug: log what we're seeing in terminal
+                                if len(text.strip()) > 0 and not text.isspace():
+                                    with open(
+                                        "/tmp/claude_terminal_output.log", "a"
+                                    ) as f:
+                                        f.write(f"=== Terminal at {time.time()} ===\n")
+                                        f.write(repr(text) + "\n")
+                                        f.write(
+                                            f"Buffer size: {len(self.terminal_buffer)}\n"
+                                        )
+
                                 # Keep only last 1000 chars
                                 if len(self.terminal_buffer) > 1000:
                                     self.terminal_buffer = self.terminal_buffer[-1000:]
+                                    self.terminal_activity_buffer = self.terminal_buffer
 
                                 # Check for permission prompt patterns
                                 if any(
@@ -898,6 +1224,7 @@ class ClaudeJSONLogWrapper:
                                 ):
                                     if not self.permission_active:
                                         self.permission_active = True
+                                        self.claude_status = "waiting_for_permission"
                                         # Extract what Claude is asking permission for
                                         lines = self.terminal_buffer.split("\n")
                                         question = None
@@ -911,7 +1238,10 @@ class ClaudeJSONLogWrapper:
                                                     .strip()
                                                 )
                                             # Check if it's a 3-option prompt
-                                            if "2. Yes, and don't ask again" in line:
+                                            if (
+                                                "don't ask again" in line
+                                                or "shift+tab" in line
+                                            ):
                                                 has_three_options = True
 
                                         if question:
@@ -935,6 +1265,12 @@ class ClaudeJSONLogWrapper:
                                     # Reset if prompt is gone
                                     if self.permission_active and "❯" not in text:
                                         self.permission_active = False
+                                        # If no longer waiting for permission, update status based on last message
+                                        if (
+                                            self.claude_status
+                                            == "waiting_for_permission"
+                                        ):
+                                            self.claude_status = "waiting_for_input"
                             except Exception:
                                 pass
                         else:
