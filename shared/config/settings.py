@@ -29,8 +29,9 @@ def get_port_from_env() -> int:
 class Settings(BaseSettings):
     # Environment Configuration
     environment: str = "development"
-    development_db_url: str = (
-        "postgresql://user:password@localhost:5432/agent_dashboard"
+    development_db_url: str = os.getenv(
+        "DEVELOPMENT_DB_URL",
+        "postgresql://user:password@localhost:5432/agent_dashboard",
     )
     production_db_url: str = ""
 
