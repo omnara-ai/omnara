@@ -299,6 +299,20 @@ def get_question(db: Session, question_id: str) -> AgentQuestion | None:
     return db.query(AgentQuestion).filter(AgentQuestion.id == question_id).first()
 
 
+def get_active_question_for_instance(
+    db: Session, instance_id: str
+) -> AgentQuestion | None:
+    """Get the active question for an agent instance, if any"""
+    return (
+        db.query(AgentQuestion)
+        .filter(
+            AgentQuestion.agent_instance_id == instance_id,
+            AgentQuestion.is_active.is_(True),
+        )
+        .first()
+    )
+
+
 def get_and_mark_unretrieved_feedback(
     db: Session, instance_id: UUID, since_time: datetime | None = None
 ) -> list[str]:
@@ -320,6 +334,41 @@ def get_and_mark_unretrieved_feedback(
     db.commit()
 
     return [feedback.feedback_text for feedback in feedback_list]
+
+
+def answer_question(
+    db: Session, question_id: str, answer_text: str, user_id: str
+) -> bool:
+    """Answer a pending question for the authenticated user"""
+    question = db.query(AgentQuestion).filter(AgentQuestion.id == question_id).first()
+
+    if not question:
+        return False
+
+    # Verify the question belongs to the authenticated user
+    instance = (
+        db.query(AgentInstance)
+        .filter(AgentInstance.id == question.agent_instance_id)
+        .first()
+    )
+    if not instance or str(instance.user_id) != user_id:
+        return False
+
+    # Check if already answered
+    if question.answer_text is not None:
+        return False
+
+    # Update the question with the answer
+    question.answer_text = answer_text
+    question.answered_at = datetime.now(timezone.utc)
+    question.is_active = False
+
+    # Update agent instance status back to active
+    if instance.status == AgentStatus.AWAITING_INPUT:
+        instance.status = AgentStatus.ACTIVE
+
+    db.commit()
+    return True
 
 
 def end_session(db: Session, instance_id: UUID) -> AgentInstance:

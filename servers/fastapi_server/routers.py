@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from shared.database.session import get_db
 from servers.shared.db import get_question, get_agent_instance
+from servers.shared.db.queries import answer_question
 from servers.shared.core import (
     process_log_step,
     create_agent_question,
@@ -15,6 +16,8 @@ from .auth import get_current_user_id
 from .models import (
     AskQuestionRequest,
     AskQuestionResponse,
+    AnswerQuestionRequest,
+    AnswerQuestionResponse,
     EndSessionRequest,
     EndSessionResponse,
     LogStepRequest,
@@ -152,6 +155,48 @@ async def get_question_status(
             answered_at=question.answered_at.isoformat()
             if question.answered_at
             else None,
+        )
+    finally:
+        db.close()
+
+
+@agent_router.post(
+    "/questions/{question_id}/answer", response_model=AnswerQuestionResponse
+)
+async def answer_question_endpoint(
+    question_id: str,
+    request: AnswerQuestionRequest,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+) -> AnswerQuestionResponse:
+    """Answer a pending question.
+
+    This endpoint:
+    - Updates the question with the provided answer
+    - Marks the question as answered
+    - Changes agent status from AWAITING_INPUT back to ACTIVE
+    """
+    db = next(get_db())
+
+    try:
+        # Use the answer_question function
+        success = answer_question(db, question_id, request.answer, user_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Question not found, already answered, or access denied",
+            )
+
+        return AnswerQuestionResponse(
+            success=True, message="Answer submitted successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}",
         )
     finally:
         db.close()
