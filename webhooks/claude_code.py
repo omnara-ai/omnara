@@ -15,7 +15,7 @@ import platform
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
 from typing import Optional, Tuple, List, Dict
-import select
+# import select  # Not used on Windows
 
 
 # === CONSTANTS AND CONFIGURATION ===
@@ -29,10 +29,14 @@ COMMAND_PATHS = {}
 # === DEPENDENCY CHECKING ===
 REQUIRED_COMMANDS = {
     "git": "Git is required for creating worktrees",
-    "screen": "GNU Screen is required for running Claude sessions",
+    "screen": "GNU Screen is required for running Claude sessions (Unix only)",
     "claude": "Claude Code CLI is required",
     "pipx": "pipx is required for running the Omnara MCP server",
 }
+
+# Remove screen requirement on Windows
+if platform.system() == "Windows":
+    REQUIRED_COMMANDS.pop("screen", None)
 
 OPTIONAL_COMMANDS = {"cloudflared": "Cloudflared is optional for tunnel support"}
 
@@ -40,6 +44,11 @@ OPTIONAL_COMMANDS = {"cloudflared": "Cloudflared is optional for tunnel support"
 def is_macos() -> bool:
     """Check if running on macOS"""
     return platform.system() == "Darwin"
+
+
+def is_windows() -> bool:
+    """Check if running on Windows"""
+    return platform.system() == "Windows"
 
 
 def get_command_path(command: str) -> Optional[str]:
@@ -57,10 +66,19 @@ def get_command_path(command: str) -> Optional[str]:
 def check_command(command: str) -> Tuple[bool, Optional[str]]:
     """Check if a command exists and return its path"""
     try:
-        # First try without shell (more secure, finds actual executables)
-        result = subprocess.run(["which", command], capture_output=True, text=True)
-        if result.returncode == 0:
-            return True, result.stdout.strip()
+        # Use 'where' on Windows, 'which' on Unix
+        if is_windows():
+            result = subprocess.run(["where", command], capture_output=True, text=True, shell=True)
+            if result.returncode == 0:
+                # 'where' can return multiple paths, take the first one
+                paths = result.stdout.strip().split('\n')
+                if paths and paths[0]:
+                    return True, paths[0].strip()
+        else:
+            # First try without shell (more secure, finds actual executables)
+            result = subprocess.run(["which", command], capture_output=True, text=True)
+            if result.returncode == 0:
+                return True, result.stdout.strip()
 
         # If that fails, try with shell to catch aliases (less secure but necessary for aliases)
         shell_result = subprocess.run(
@@ -308,17 +326,26 @@ def start_cloudflare_tunnel(
             try:
                 # Read available lines from stderr
                 if process.stderr:
-                    readable, _, _ = select.select([process.stderr], [], [], 0.1)
-                    if readable:
+                    if is_windows():
+                        # On Windows, just read directly without select
                         line = process.stderr.readline()
-                        if line:
-                            # Look for the tunnel URL pattern
-                            url_match = re.search(
-                                r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line
-                            )
-                            if url_match:
-                                tunnel_url = url_match.group()
-                                break
+                    else:
+                        # On Unix, use select for non-blocking read
+                        import select
+                        readable, _, _ = select.select([process.stderr], [], [], 0.1)
+                        if readable:
+                            line = process.stderr.readline()
+                        else:
+                            line = None
+                    
+                    if line:
+                        # Look for the tunnel URL pattern
+                        url_match = re.search(
+                            r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line
+                        )
+                        if url_match:
+                            tunnel_url = url_match.group()
+                            break
             except Exception:
                 pass
 
