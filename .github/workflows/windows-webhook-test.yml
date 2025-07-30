@@ -1,0 +1,67 @@
+name: Windows Webhook Test
+
+on: [push, pull_request]
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install Git
+        shell: pwsh
+        run: |
+          # Git should already be installed on GitHub runners
+          git --version
+      
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+      
+      - name: Test webhook help
+        shell: pwsh
+        run: |
+          python -m webhooks.claude_code --help
+      
+      - name: Test webhook imports and basic functionality
+        shell: pwsh
+        run: |
+          python -c "from webhooks.claude_code import is_windows, check_command; print(f'Is Windows: {is_windows()}'); print(f'Git available: {check_command(\"git\")[0]}')"
+      
+      - name: Test health endpoint
+        shell: pwsh
+        run: |
+          # Start the server in background
+          $job = Start-Job -ScriptBlock { 
+            cd $using:PWD
+            python -m webhooks.claude_code --port 6663
+          }
+          
+          # Wait for server to start
+          Start-Sleep -Seconds 5
+          
+          # Test health endpoint
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost:6663/health" -Method GET
+            if ($response.StatusCode -eq 200) {
+              Write-Host "Health check passed!"
+            }
+          } catch {
+            Write-Host "Health check failed: $_"
+            exit 1
+          } finally {
+            # Stop the server
+            Stop-Job -Job $job
+            Remove-Job -Job $job
+          }
