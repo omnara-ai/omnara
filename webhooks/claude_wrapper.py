@@ -425,10 +425,9 @@ class ClaudeJSONLogWrapper:
                         )
 
             elif msg_type == "summary":
-                # Session started
+                # Session started - just track the session ID, don't log
                 summary = data.get("summary", "")
                 if summary:
-                    await self.log_to_omnara(f"[Session: {summary}]")
                     self.current_session_id = data.get("leafUuid")
 
             elif msg_type == "thinking":
