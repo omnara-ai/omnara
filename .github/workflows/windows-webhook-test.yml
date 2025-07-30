@@ -37,7 +37,17 @@ jobs:
       - name: Test webhook imports and basic functionality
         shell: pwsh
         run: |
-          python -c "from webhooks.claude_code import is_windows, check_command; print(f'Is Windows: {is_windows()}'); print(f'Git available: {check_command(\"git\")[0]}')"
+          # Create a test script to avoid quoting issues
+          @'
+          from webhooks.claude_code import is_windows, check_command
+          print(f"Is Windows: {is_windows()}")
+          git_available, git_path = check_command("git")
+          print(f"Git available: {git_available}")
+          if git_available:
+              print(f"Git path: {git_path}")
+          '@ | Out-File -FilePath test_webhook.py -Encoding UTF8
+          
+          python test_webhook.py
       
       - name: Test health endpoint
         shell: pwsh
