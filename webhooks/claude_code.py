@@ -68,10 +68,12 @@ def check_command(command: str) -> Tuple[bool, Optional[str]]:
     try:
         # Use 'where' on Windows, 'which' on Unix
         if is_windows():
-            result = subprocess.run(["where", command], capture_output=True, text=True, shell=True)
+            result = subprocess.run(
+                ["where", command], capture_output=True, text=True, shell=True
+            )
             if result.returncode == 0:
                 # 'where' can return multiple paths, take the first one
-                paths = result.stdout.strip().split('\n')
+                paths = result.stdout.strip().split("\n")
                 if paths and paths[0]:
                     return True, paths[0].strip()
         else:
@@ -332,12 +334,13 @@ def start_cloudflare_tunnel(
                     else:
                         # On Unix, use select for non-blocking read
                         import select
+
                         readable, _, _ = select.select([process.stderr], [], [], 0.1)
                         if readable:
                             line = process.stderr.readline()
                         else:
                             line = None
-                    
+
                     if line:
                         # Look for the tunnel URL pattern
                         url_match = re.search(
