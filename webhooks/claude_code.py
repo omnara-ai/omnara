@@ -14,7 +14,7 @@ import sys
 import platform
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Any
 
 # Conditional import for select (not available on Windows)
 if platform.system() != "Windows":
@@ -75,12 +75,16 @@ def check_command(command: str) -> Tuple[bool, Optional[str]]:
     try:
         # Use 'where' on Windows, 'which' on Unix-like systems
         if is_windows():
-            result = subprocess.run(["where", command], capture_output=True, text=True, shell=False)
+            result = subprocess.run(
+                ["where", command], capture_output=True, text=True, shell=False
+            )
         else:
             result = subprocess.run(["which", command], capture_output=True, text=True)
-        
+
         if result.returncode == 0:
-            return True, result.stdout.strip().split('\n')[0]  # Get first result on Windows
+            return True, result.stdout.strip().split("\n")[
+                0
+            ]  # Get first result on Windows
 
         # If that fails, try with shell to catch aliases (less secure but necessary for aliases)
         if is_windows():
@@ -374,7 +378,7 @@ def start_cloudflare_tunnel(
 def quote_for_windows(s: str) -> str:
     """Quote a string for Windows cmd.exe"""
     # Escape special characters for Windows
-    if ' ' in s or '"' in s or '^' in s or '&' in s or '|' in s or '<' in s or '>' in s:
+    if " " in s or '"' in s or "^" in s or "&" in s or "|" in s or "<" in s or ">" in s:
         # Escape internal quotes and wrap in quotes
         return '"' + s.replace('"', '""') + '"'
     return s
@@ -385,24 +389,34 @@ def list_claude_processes_windows() -> List[Dict[str, Any]]:
     try:
         # Use wmic to get process info
         result = subprocess.run(
-            ['wmic', 'process', 'where', 'name="claude.exe"', 'get', 'ProcessId,CommandLine', '/format:csv'],
+            [
+                "wmic",
+                "process",
+                "where",
+                'name="claude.exe"',
+                "get",
+                "ProcessId,CommandLine",
+                "/format:csv",
+            ],
             capture_output=True,
             text=True,
-            shell=True
+            shell=True,
         )
         # Parse and return process list
         processes = []
         if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             # Skip empty lines and headers
             for line in lines:
-                if line and ',' in line and not line.startswith('Node'):
-                    parts = line.split(',', 2)
+                if line and "," in line and not line.startswith("Node"):
+                    parts = line.split(",", 2)
                     if len(parts) >= 3:
-                        processes.append({
-                            'pid': parts[1],
-                            'command': parts[2] if len(parts) > 2 else ''
-                        })
+                        processes.append(
+                            {
+                                "pid": parts[1],
+                                "command": parts[2] if len(parts) > 2 else "",
+                            }
+                        )
         return processes
     except Exception as e:
         print(f"[WARNING] Failed to list Claude processes: {e}")
@@ -929,24 +943,39 @@ async def start_claude(
             print(f"  - Working directory: {work_dir}")
             print("  - Running in new console window")
             print("  - MCP server: Omnara with API key")
-            
+
             # Create startup info for Windows
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_SHOW
-            
+            startupinfo = None
+            creationflags = 0
+
+            # Windows-specific process creation flags
+            # Use getattr with defaults to avoid pyright errors
+            STARTUPINFO = getattr(subprocess, "STARTUPINFO", None)
+            if STARTUPINFO is not None:
+                startupinfo = STARTUPINFO()  # type: ignore
+                STARTF_USESHOWWINDOW = getattr(
+                    subprocess, "STARTF_USESHOWWINDOW", 0x00000001
+                )
+                SW_SHOW = getattr(subprocess, "SW_SHOW", 5)
+                startupinfo.dwFlags |= STARTF_USESHOWWINDOW  # type: ignore
+                startupinfo.wShowWindow = SW_SHOW  # type: ignore
+
+            CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010)
+            if CREATE_NEW_CONSOLE:
+                creationflags = CREATE_NEW_CONSOLE
+
             try:
                 # Start claude in a new console window
                 claude_process = subprocess.Popen(
                     claude_args,
                     cwd=work_dir,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                    startupinfo=startupinfo
+                    creationflags=creationflags,
+                    startupinfo=startupinfo,
                 )
-                
+
                 # Give it a moment to start
                 time.sleep(2)
-                
+
                 # Check if process is still running
                 if claude_process.poll() is not None:
                     print("\n[ERROR] Claude process exited immediately")
@@ -960,20 +989,20 @@ async def start_claude(
                         status_code=500,
                         detail="Claude process started but exited immediately. Check server logs for details.",
                     )
-                
-                print(f"\n[SUCCESS] Claude session started successfully!")
+
+                print("\n[SUCCESS] Claude session started successfully!")
                 print(f"  - Process ID: {claude_process.pid}")
                 print(f"  - Working directory: {work_dir}")
-                print(f"  - To view: Check the new console window")
-                
+                print("  - To view: Check the new console window")
+
                 return {
                     "message": "Successfully started claude",
                     "branch": feature_branch_name,
                     "process_id": claude_process.pid,
                     "work_dir": work_dir,
-                    "platform": "windows"
+                    "platform": "windows",
                 }
-                
+
             except Exception as e:
                 print(f"\n[ERROR] Failed to start Claude process: {str(e)}")
                 raise HTTPException(
