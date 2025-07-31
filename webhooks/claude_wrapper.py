@@ -3,6 +3,7 @@
 Claude JSON Log Wrapper - Run Claude with terminal UI while sending logs to Omnara
 """
 
+import argparse
 import asyncio
 import json
 import os
@@ -27,16 +28,23 @@ CLAUDE_LOG_BASE = Path.home() / ".claude" / "projects"
 
 
 class ClaudeJSONLogWrapper:
-    def __init__(self):
-        # Omnara SDK setup
-        api_key = os.environ.get("OMNARA_API_KEY")
-        if not api_key:
-            print("ERROR: OMNARA_API_KEY environment variable not set", file=sys.stderr)
-            sys.exit(1)
-        # api_key is guaranteed to be str after the check above
-        self.api_key: str = api_key
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+        # Create a unique session UUID for this instance
+        import uuid
 
-        self.base_url = os.environ.get(
+        self.session_uuid = str(uuid.uuid4())
+        self.instance_id = self.session_uuid[:8]  # Short version for debugging
+
+        # Omnara SDK setup - use provided values or fall back to environment
+        self.api_key = api_key or os.environ.get("OMNARA_API_KEY")
+        if not self.api_key:
+            print(
+                "ERROR: API key must be provided via --api-key or OMNARA_API_KEY environment variable",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        self.base_url = base_url or os.environ.get(
             "OMNARA_BASE_URL", "https://agent-dashboard-mcp.onrender.com"
         )
         self.omnara_client: Optional[AsyncOmnaraClient] = None
@@ -75,6 +83,7 @@ class ClaudeJSONLogWrapper:
         self.check_tool_task = (
             None  # Track the task checking for empty question after tool
         )
+        self.existing_logs = set()  # Track log files that existed before we started
 
         # Debug log file
         self.debug_log_file = None
@@ -97,13 +106,17 @@ class ClaudeJSONLogWrapper:
         """Write to debug log file."""
         if self.debug_log_file:
             try:
-                self.debug_log_file.write(f"[{time.strftime('%H:%M:%S')}] {message}\n")
+                self.debug_log_file.write(
+                    f"[{time.strftime('%H:%M:%S')}][{self.instance_id}] {message}\n"
+                )
                 self.debug_log_file.flush()
             except Exception:
                 pass
 
     async def init_omnara_client(self):
         """Initialize the Omnara SDK client."""
+        # Type assertion since we check for None in __init__
+        assert self.api_key is not None
         self.omnara_client = AsyncOmnaraClient(
             api_key=self.api_key, base_url=self.base_url
         )
@@ -121,12 +134,16 @@ class ClaudeJSONLogWrapper:
                 # Ask a question and wait for response
                 if not self.agent_instance_id:
                     # Create an instance first if we don't have one
+                    agent_type = "Claude Code"
                     response = await self.omnara_client.log_step(
-                        agent_type="Claude Code",
+                        agent_type=agent_type,
                         step_description="[Session started]",
                         agent_instance_id=None,
                     )
                     self.agent_instance_id = response.agent_instance_id
+                    self.debug_log(
+                        f"Got agent instance ID from question creation: {self.agent_instance_id}"
+                    )
 
                 # Create question but don't wait for response
                 data = {
@@ -137,6 +154,9 @@ class ClaudeJSONLogWrapper:
                     "POST", "/api/v1/questions", json=data, timeout=5
                 )
                 self.pending_question_id = response["question_id"]
+                self.debug_log(
+                    f"Created question with ID: {self.pending_question_id} for agent instance: {self.agent_instance_id}"
+                )
 
                 # Start a background task to poll for dashboard responses
                 asyncio.create_task(
@@ -146,14 +166,16 @@ class ClaudeJSONLogWrapper:
                 return None  # Don't block waiting
             else:
                 # Just log a step
+                agent_type = "Claude Code"
                 response = await self.omnara_client.log_step(
-                    agent_type="Claude Code",
+                    agent_type=agent_type,
                     step_description=description,
                     agent_instance_id=self.agent_instance_id,
                 )
                 # Store instance ID if this is the first call
                 if not self.agent_instance_id:
                     self.agent_instance_id = response.agent_instance_id
+                    self.debug_log(f"Got agent instance ID: {self.agent_instance_id}")
 
                 # Process any user feedback
                 if response.user_feedback:
@@ -169,6 +191,7 @@ class ClaudeJSONLogWrapper:
 
     async def _poll_for_dashboard_answer(self, question_id: str):
         """Poll for answers from the dashboard in the background."""
+        self.debug_log(f"Starting to poll for answer to question: {question_id}")
         try:
             poll_interval = 2.0  # Check every 2 seconds
             timeout = 86400  # 24 hours
@@ -186,6 +209,9 @@ class ClaudeJSONLogWrapper:
                     return
                 status = await self.omnara_client.get_question_status(question_id)
                 if status.status == "answered" and status.answer:
+                    self.debug_log(
+                        f"Got answer for question {question_id}: {status.answer[:50]}..."
+                    )
                     # Clear the pending question
                     self.pending_question_id = None
                     # Queue the response to be injected into terminal
@@ -252,23 +278,19 @@ class ClaudeJSONLogWrapper:
             self.status_monitor_thread.start()
             # Status monitor thread started
 
-        # Wait for log file to be created
+        # Wait for OUR SPECIFIC session log file to be created
+        expected_filename = f"{self.session_uuid}.jsonl"
+        self.debug_log(f"Waiting for log file: {expected_filename}")
+
         while self.running and not self.log_file_path:
             project_dir = self.get_project_log_dir()
             if project_dir:
-                # Check for new log file
-                latest_log = self.find_latest_log_file(project_dir)
-                if latest_log and (
-                    not self.log_file_path or latest_log != self.log_file_path
-                ):
-                    # Check if this is a new file (created recently)
-                    if (
-                        time.time() - latest_log.stat().st_mtime < 10
-                    ):  # Created in last 10 seconds
-                        self.log_file_path = latest_log
-                        # Found new log file
-                        pass
-                        break
+                # Look for our specific session file
+                expected_path = project_dir / expected_filename
+                if expected_path.exists():
+                    self.log_file_path = expected_path
+                    self.debug_log(f"Found our session log file: {expected_filename}")
+                    break
             time.sleep(0.5)
 
         if not self.log_file_path:
@@ -318,6 +340,9 @@ class ClaudeJSONLogWrapper:
         """Process a log entry and send to Omnara."""
         try:
             msg_type = data.get("type")
+            self.debug_log(
+                f"Processing log entry type: {msg_type} from file: {self.log_file_path.name if self.log_file_path else 'unknown'}"
+            )
 
             if msg_type == "user":
                 # Extract user message
@@ -347,11 +372,15 @@ class ClaudeJSONLogWrapper:
                     # Now handle the user's response
                     if self.pending_question_id and self.omnara_client:
                         try:
+                            self.debug_log(
+                                f"Answering question {self.pending_question_id} with: {content[:50]}..."
+                            )
                             await self.omnara_client.answer_question(
                                 question_id=self.pending_question_id, answer=content
                             )
                             self.pending_question_id = None  # Clear after answering
-                        except Exception:
+                        except Exception as e:
+                            self.debug_log(f"Error answering question: {e}")
                             pass
                     else:
                         # No pending question, send as user feedback
@@ -674,11 +703,29 @@ class ClaudeJSONLogWrapper:
         claude_path = self.find_claude_cli()
 
         # Build command - normal mode to preserve terminal UI
-        cmd = [claude_path]
+        # Try to use --session-id if available (newer Claude versions)
+        cmd = [claude_path, "--session-id", self.session_uuid]
+        self.debug_log(f"Using session UUID: {self.session_uuid}")
+
+        # Process command line arguments, filtering out -c/--continue and -r/--resume
         if len(sys.argv) > 1:
-            cmd.extend(sys.argv[1:])
+            i = 1
+            while i < len(sys.argv):
+                arg = sys.argv[i]
+                # Skip continue and resume flags to ensure fresh start
+                if arg in ["-c", "--continue"]:
+                    i += 1
+                elif arg in ["-r", "--resume"]:
+                    # Skip the flag and its optional argument
+                    i += 1
+                    if i < len(sys.argv) and not sys.argv[i].startswith("-"):
+                        i += 1
+                else:
+                    cmd.append(arg)
+                    i += 1
 
         # Starting Claude
+        self.debug_log(f"Starting Claude with command: {' '.join(cmd)}")
 
         # Save original terminal settings if in a terminal
         try:
@@ -700,6 +747,9 @@ class ClaudeJSONLogWrapper:
         if self.child_pid == 0:
             # Child process - exec Claude CLI
             os.environ["CLAUDE_CODE_ENTRYPOINT"] = "jsonlog-wrapper"
+            # Clear any session environment variables that might affect conversation state
+            os.environ.pop("CLAUDE_SESSION_ID", None)
+            os.environ.pop("CLAUDE_CONVERSATION_ID", None)
             os.execvp(cmd[0], cmd)
 
         # Parent process - set PTY size to match terminal
@@ -1213,19 +1263,39 @@ class ClaudeJSONLogWrapper:
         # Store the async loop for use in threads
         self.async_loop = asyncio.get_event_loop()
 
-        # Create initial log step and ask empty question
-        await self.log_to_omnara("[Session started]")
+        # Create initial log step with our session UUID immediately
+        session_timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.debug_log(
+            f"Creating initial log step with session UUID: {self.session_uuid}"
+        )
+        await self.log_to_omnara(
+            f"[Session {self.session_uuid} started at {session_timestamp}]"
+        )
+
+        # Create initial empty question so the dashboard can send input
         await self.log_to_omnara("", needs_response=True)
 
-        # Start log monitor thread
-        self.log_monitor_thread = threading.Thread(target=self.monitor_log_file)
-        self.log_monitor_thread.daemon = True
-        self.log_monitor_thread.start()
+        # Record existing log files before starting Claude
+        project_dir = self.get_project_log_dir()
+        self.existing_logs = set()
+        if project_dir and project_dir.exists():
+            self.existing_logs = set(project_dir.glob("*.jsonl"))
+            self.debug_log(
+                f"Found {len(self.existing_logs)} existing log files before starting Claude"
+            )
 
-        # Start Claude in PTY (in thread)
+        # Start Claude in PTY (in thread) FIRST
         claude_thread = threading.Thread(target=self.run_claude_with_pty)
         claude_thread.daemon = True
         claude_thread.start()
+
+        # Wait a moment for Claude to create its log file
+        await asyncio.sleep(1.0)  # Give Claude more time to start
+
+        # Now start log monitor thread
+        self.log_monitor_thread = threading.Thread(target=self.monitor_log_file)
+        self.log_monitor_thread.daemon = True
+        self.log_monitor_thread.start()
 
         # Keep the async loop running
         try:
@@ -1247,7 +1317,20 @@ class ClaudeJSONLogWrapper:
 
 def main():
     """Main entry point."""
-    wrapper = ClaudeJSONLogWrapper()
+    parser = argparse.ArgumentParser(
+        description="Claude wrapper for Omnara integration",
+        add_help=False,  # Disable help to pass through to Claude
+    )
+    parser.add_argument("--api-key", help="Omnara API key")
+    parser.add_argument("--base-url", help="Omnara base URL")
+
+    # Parse known args and pass the rest to Claude
+    args, claude_args = parser.parse_known_args()
+
+    # Update sys.argv to only include Claude args
+    sys.argv = [sys.argv[0]] + claude_args
+
+    wrapper = ClaudeJSONLogWrapper(api_key=args.api_key, base_url=args.base_url)
 
     def signal_handler(sig, frame):
         # Shutting down

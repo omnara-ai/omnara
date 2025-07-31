@@ -57,6 +57,23 @@ def run_webhook_server(
     subprocess.run(cmd)
 
 
+def run_native_claude_wrapper(api_key, base_url):
+    """Run the native Claude Code wrapper"""
+    cmd = [
+        sys.executable,
+        "-m",
+        "webhooks.claude_wrapper",
+    ]
+
+    if api_key:
+        cmd.extend(["--api-key", api_key])
+    if base_url:
+        cmd.extend(["--base-url", base_url])
+
+    print("[INFO] Starting native Claude Code wrapper...")
+    subprocess.run(cmd)
+
+
 def main():
     """Main entry point that dispatches based on command line arguments"""
     parser = argparse.ArgumentParser(
@@ -79,6 +96,9 @@ Examples:
   # Run webhook server on custom port
   omnara --claude-code-webhook --port 8080
 
+  # Run native Claude Code wrapper
+  omnara --native-claude-code --api-key YOUR_API_KEY
+
   # Run with custom API base URL
   omnara --stdio --api-key YOUR_API_KEY --base-url http://localhost:8000
 
@@ -98,6 +118,11 @@ Examples:
         "--claude-code-webhook",
         action="store_true",
         help="Run the Claude Code webhook server",
+    )
+    mode_group.add_argument(
+        "--native-claude-code",
+        action="store_true",
+        help="Run the native Claude Code wrapper",
     )
 
     # Arguments for webhook mode
@@ -156,6 +181,8 @@ Examples:
             dangerously_skip_permissions=args.dangerously_skip_permissions,
             port=args.port,
         )
+    elif args.native_claude_code:
+        run_native_claude_wrapper(args.api_key, args.base_url)
     else:
         if not args.api_key:
             parser.error("--api-key is required for stdio mode")
