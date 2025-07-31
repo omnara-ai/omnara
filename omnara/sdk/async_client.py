@@ -259,6 +259,44 @@ class AsyncOmnaraClient:
             answered_at=response.get("answered_at"),
         )
 
+    async def answer_question(self, question_id: str, answer: str) -> Dict[str, Any]:
+        """Answer a pending question.
+
+        Args:
+            question_id: ID of the question to answer
+            answer: The answer text
+
+        Returns:
+            Response with success status and message
+        """
+        data: Dict[str, Any] = {"answer": answer}
+        response = await self._make_request(
+            "POST", f"/api/v1/questions/{question_id}/answer", json=data
+        )
+        return response
+
+    async def add_user_feedback(
+        self, agent_instance_id: str, feedback: str
+    ) -> Dict[str, Any]:
+        """Add user feedback for an agent instance.
+
+        This is used to record user messages that were typed before Claude could
+        create a "waiting for input" question. The feedback is automatically marked
+        as retrieved since it's coming from the terminal.
+
+        Args:
+            agent_instance_id: Agent instance ID
+            feedback: The feedback text from the user
+
+        Returns:
+            Response with success status
+        """
+        data: Dict[str, Any] = {"feedback": feedback}
+        response = await self._make_request(
+            "POST", f"/api/v1/agent-instances/{agent_instance_id}/feedback", json=data
+        )
+        return response
+
     async def end_session(self, agent_instance_id: str) -> EndSessionResponse:
         """End an agent session and mark it as completed.
 

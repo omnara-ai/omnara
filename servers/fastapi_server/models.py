@@ -65,3 +65,29 @@ class QuestionStatusResponse(BaseModel):
     )
     asked_at: str
     answered_at: Optional[str] = None
+
+
+class AnswerQuestionRequest(BaseModel):
+    """Request model for answering a question."""
+
+    answer: str = Field(..., description="The answer to the question")
+
+
+class AnswerQuestionResponse(BaseModel):
+    """Response model for answer question endpoint."""
+
+    success: bool
+    message: str
+
+
+class UserFeedbackRequest(BaseModel):
+    """Request model for adding user feedback."""
+
+    feedback: str = Field(..., description="The feedback text from the user")
+
+
+class UserFeedbackResponse(BaseModel):
+    """Response model for user feedback endpoint."""
+
+    success: bool
+    message: str

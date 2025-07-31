@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from shared.database.session import get_db
 from servers.shared.db import get_question, get_agent_instance
+from servers.shared.db.queries import answer_question
 from servers.shared.core import (
     process_log_step,
     create_agent_question,
@@ -15,11 +16,15 @@ from .auth import get_current_user_id
 from .models import (
     AskQuestionRequest,
     AskQuestionResponse,
+    AnswerQuestionRequest,
+    AnswerQuestionResponse,
     EndSessionRequest,
     EndSessionResponse,
     LogStepRequest,
     LogStepResponse,
     QuestionStatusResponse,
+    UserFeedbackRequest,
+    UserFeedbackResponse,
 )
 
 agent_router = APIRouter(tags=["agents"])
@@ -157,6 +162,48 @@ async def get_question_status(
         db.close()
 
 
+@agent_router.post(
+    "/questions/{question_id}/answer", response_model=AnswerQuestionResponse
+)
+async def answer_question_endpoint(
+    question_id: str,
+    request: AnswerQuestionRequest,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+) -> AnswerQuestionResponse:
+    """Answer a pending question.
+
+    This endpoint:
+    - Updates the question with the provided answer
+    - Marks the question as answered
+    - Changes agent status from AWAITING_INPUT back to ACTIVE
+    """
+    db = next(get_db())
+
+    try:
+        # Use the answer_question function
+        success = answer_question(db, question_id, request.answer, user_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Question not found, already answered, or access denied",
+            )
+
+        return AnswerQuestionResponse(
+            success=True, message="Answer submitted successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}",
+        )
+    finally:
+        db.close()
+
+
 @agent_router.post("/sessions/end", response_model=EndSessionResponse)
 async def end_session(
     request: EndSessionRequest, user_id: Annotated[str, Depends(get_current_user_id)]
@@ -185,6 +232,58 @@ async def end_session(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}",
+        )
+    finally:
+        db.close()
+
+
+@agent_router.post(
+    "/agent-instances/{instance_id}/feedback", response_model=UserFeedbackResponse
+)
+async def add_user_feedback(
+    instance_id: str,
+    request: UserFeedbackRequest,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+) -> UserFeedbackResponse:
+    """Submit user feedback for an agent instance.
+
+    This is used to record user messages that were typed before Claude could
+    create a "waiting for input" question. The feedback is automatically marked
+    as retrieved since it's coming from the terminal.
+    """
+    db = next(get_db())
+
+    try:
+        # Verify the instance belongs to the user
+        instance = get_agent_instance(db, instance_id)
+        if not instance or str(instance.user_id) != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+            )
+
+        # Add the feedback and mark it as retrieved
+        from shared.database import AgentUserFeedback
+        from datetime import datetime, timezone
+        from uuid import UUID
+
+        feedback = AgentUserFeedback(
+            agent_instance_id=UUID(instance_id),
+            feedback_text=request.feedback,
+            retrieved_at=datetime.now(timezone.utc),  # Mark as already retrieved
+        )
+        db.add(feedback)
+        db.commit()
+
+        return UserFeedbackResponse(
+            success=True, message="Feedback recorded successfully"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(
