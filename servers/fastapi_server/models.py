@@ -78,3 +78,16 @@ class AnswerQuestionResponse(BaseModel):
 
     success: bool
     message: str
+
+
+class UserFeedbackRequest(BaseModel):
+    """Request model for adding user feedback."""
+
+    feedback: str = Field(..., description="The feedback text from the user")
+
+
+class UserFeedbackResponse(BaseModel):
+    """Response model for user feedback endpoint."""
+
+    success: bool
+    message: str

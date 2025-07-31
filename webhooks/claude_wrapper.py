@@ -65,6 +65,11 @@ class ClaudeJSONLogWrapper:
         self.status_monitor_thread = None
         self.waiting_message_sent = False
         self.last_entry_was_tool_result = False
+        self.pending_claude_message = None  # Store Claude message while waiting
+        self.pending_claude_message_task = None
+        self.check_tool_task = (
+            None  # Track the task checking for empty question after tool
+        )
 
         # Debug logs disabled to avoid terminal interference
         pass
@@ -298,7 +303,20 @@ class ClaudeJSONLogWrapper:
 
                 # Handle both string content and tool result content
                 if isinstance(content, str) and content:
-                    # Check if we have a pending question to answer
+                    # Check if we have a pending Claude message waiting to be processed
+                    if self.pending_claude_message and not self.pending_question_id:
+                        # Cancel the delayed processing
+                        if self.pending_claude_message_task:
+                            self.pending_claude_message_task.cancel()
+
+                        # Claude was waiting for input, create a question now
+                        await self.log_to_omnara(
+                            self.pending_claude_message,
+                            needs_response=True,
+                        )
+                        self.pending_claude_message = None
+
+                    # Now handle the user's response
                     if self.pending_question_id and self.omnara_client:
                         try:
                             await self.omnara_client.answer_question(
@@ -307,7 +325,16 @@ class ClaudeJSONLogWrapper:
                             self.pending_question_id = None  # Clear after answering
                         except Exception:
                             pass
-                    # Don't log user messages - we already see them when answering questions
+                    else:
+                        # No pending question, send as user feedback
+                        if self.agent_instance_id and self.omnara_client:
+                            try:
+                                await self.omnara_client.add_user_feedback(
+                                    agent_instance_id=self.agent_instance_id,
+                                    feedback=f"User: {content}",
+                                )
+                            except Exception:
+                                pass
                 elif isinstance(content, list):
                     # This is a tool result
                     for item in content:
@@ -329,12 +356,20 @@ class ClaudeJSONLogWrapper:
 
                 if is_tool_result:
                     self.last_entry_was_tool_result = True
+                    # Cancel any existing task checking for tool response
+                    if self.check_tool_task and not self.check_tool_task.done():
+                        self.check_tool_task.cancel()
                     # Start a new timer to check if Claude responds
-                    asyncio.create_task(self.check_for_waiting_after_tool())
+                    self.check_tool_task = asyncio.create_task(
+                        self.check_for_waiting_after_tool()
+                    )
 
             elif msg_type == "assistant":
                 # Claude is responding, so clear the tool result flag
                 self.last_entry_was_tool_result = False
+                # Cancel any pending check for empty question
+                if self.check_tool_task and not self.check_tool_task.done():
+                    self.check_tool_task.cancel()
 
                 # Extract assistant message
                 message = data.get("message", {})
@@ -410,19 +445,13 @@ class ClaudeJSONLogWrapper:
                 if all_parts:
                     message_content = "\n".join(all_parts)
 
-                    # Wait 3 seconds to see if Claude is still working
-                    await asyncio.sleep(3.0)
-
-                    # Check if Claude is still working (has "esc to interrupt)" indicator)
-                    if self.is_claude_working():
-                        # Claude is still working, just log the message
-                        await self.log_to_omnara(message_content)
-                    else:
-                        # Claude is NOT working (no "esc to interrupt)"), so it's waiting for input
-                        await self.log_to_omnara(
-                            message_content,
-                            needs_response=True,
-                        )
+                    # Store the message and start a task to process it after delay
+                    self.pending_claude_message = message_content
+                    if self.pending_claude_message_task:
+                        self.pending_claude_message_task.cancel()
+                    self.pending_claude_message_task = asyncio.create_task(
+                        self._process_claude_message_after_delay(message_content)
+                    )
 
             elif msg_type == "summary":
                 # Session started - just track the session ID, don't log
@@ -441,20 +470,53 @@ class ClaudeJSONLogWrapper:
             # Error processing log entry
             pass
 
+    async def _process_claude_message_after_delay(self, message_content: str):
+        """Process a Claude message after waiting to see if Claude is still working."""
+        try:
+            # Wait 3 seconds to see if Claude is still working
+            await asyncio.sleep(3.0)
+
+            # Only process if this message is still pending
+            if self.pending_claude_message != message_content:
+                return
+
+            # Check if Claude is still working (has "esc to interrupt)" indicator)
+            if self.is_claude_working():
+                # Claude is still working, just log the message
+                await self.log_to_omnara(message_content)
+            else:
+                # Claude is NOT working, so it's waiting for input
+                await self.log_to_omnara(
+                    message_content,
+                    needs_response=True,
+                )
+
+            # Clear the pending message
+            self.pending_claude_message = None
+        except asyncio.CancelledError:
+            pass
+
     async def check_for_waiting_after_tool(self):
         """Check if Claude needs input after a tool result."""
-        # Keep checking until Claude stops working
-        while self.is_claude_working() and self.last_entry_was_tool_result:
-            await asyncio.sleep(0.5)
+        try:
+            # Keep checking until Claude stops working
+            while self.is_claude_working() and self.last_entry_was_tool_result:
+                await asyncio.sleep(0.5)
 
-        # Claude has stopped working, check if we still need to add the message
-        if self.last_entry_was_tool_result:
-            # Claude needs input - ask via Omnara with empty question
-            await self.log_to_omnara(
-                "",
-                needs_response=True,
-            )
-            self.last_entry_was_tool_result = False
+            # Wait 3 seconds to ensure Claude is truly done
+            await asyncio.sleep(3.0)
+
+            # Claude has stopped working, check if we still need to add the message
+            if self.last_entry_was_tool_result:
+                # Claude needs input - ask via Omnara with empty question
+                await self.log_to_omnara(
+                    "",
+                    needs_response=True,
+                )
+                self.last_entry_was_tool_result = False
+        except asyncio.CancelledError:
+            # Task was cancelled, this is expected
+            pass
 
     def is_claude_working(self):
         """Check various indicators to determine if Claude is actively working."""
