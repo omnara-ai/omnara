@@ -651,6 +651,10 @@ class ClaudeJSONLogWrapper:
         # Store the async loop for use in threads
         self.async_loop = asyncio.get_event_loop()
 
+        # Create initial log step and ask empty question
+        await self.log_to_omnara("[Session started]")
+        await self.log_to_omnara("", needs_response=True)
+
         # Start log monitor thread
         self.log_monitor_thread = threading.Thread(target=self.monitor_log_file)
         self.log_monitor_thread.daemon = True
