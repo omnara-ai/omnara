@@ -56,6 +56,11 @@ class ClaudeJSONLogWrapper:
         self.pending_tools = {}  # Track pending tool uses
         self.terminal_buffer = ""  # Buffer for terminal output
         self.permission_active = False
+        self.permission_question = None  # Store permission question text
+        self.permission_response_time = (
+            None  # Track when we last responded to a permission
+        )
+        self.pending_permission_tool = None  # Track tool waiting for permission
         self.claude_status = (
             "idle"  # idle, working, waiting_for_input, waiting_for_permission
         )
@@ -71,8 +76,31 @@ class ClaudeJSONLogWrapper:
             None  # Track the task checking for empty question after tool
         )
 
-        # Debug logs disabled to avoid terminal interference
-        pass
+        # Debug log file
+        self.debug_log_file = None
+        self._init_debug_log()
+
+    def _init_debug_log(self):
+        """Initialize debug log file."""
+        try:
+            log_path = Path.home() / ".claude" / "omnara_debug.log"
+            log_path.parent.mkdir(exist_ok=True)
+            # Clear existing log
+            self.debug_log_file = open(log_path, "w")
+            self.debug_log(
+                f"=== Claude Wrapper Debug Log Started at {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
+            )
+        except Exception as e:
+            print(f"Failed to init debug log: {e}", file=sys.stderr)
+
+    def debug_log(self, message: str):
+        """Write to debug log file."""
+        if self.debug_log_file:
+            try:
+                self.debug_log_file.write(f"[{time.strftime('%H:%M:%S')}] {message}\n")
+                self.debug_log_file.flush()
+            except Exception:
+                pass
 
     async def init_omnara_client(self):
         """Initialize the Omnara SDK client."""
@@ -356,6 +384,9 @@ class ClaudeJSONLogWrapper:
 
                 if is_tool_result:
                     self.last_entry_was_tool_result = True
+                    # Clear permission state when tool completes
+                    self.permission_active = False
+                    self.permission_question = None
                     # Cancel any existing task checking for tool response
                     if self.check_tool_task and not self.check_tool_task.done():
                         self.check_tool_task.cancel()
@@ -378,11 +409,17 @@ class ClaudeJSONLogWrapper:
                 text_parts = []
                 tool_parts = []
 
+                self.debug_log(
+                    f"Assistant message with {len(content_blocks)} content blocks"
+                )
+
                 for block in content_blocks:
                     if isinstance(block, dict):
                         block_type = block.get("type")
                         if block_type == "text":
-                            text_parts.append(block.get("text", ""))
+                            text_content = block.get("text", "")
+                            self.debug_log(f"  - Text block: {repr(text_content)}")
+                            text_parts.append(text_content)
                         elif block_type == "tool_use":
                             # Format tool use simply
                             tool_name = block.get("name", "unknown")
@@ -395,6 +432,7 @@ class ClaudeJSONLogWrapper:
                                 "input": input_data,
                                 "timestamp": time.time(),
                                 "shown_prompt": False,
+                                "processed": False,  # Track if we've already processed this
                             }
 
                             # Format tool use message based on tool type
@@ -426,6 +464,9 @@ class ClaudeJSONLogWrapper:
                                 )
                             else:
                                 tool_parts.append(f"Using tool: {tool_name}")
+
+                            # Mark this tool as potentially needing permission
+                            self.pending_tools[tool_id]["needs_permission_check"] = True
                         elif block_type == "thinking":
                             # Show thinking content
                             thinking_text = block.get("text", "")
@@ -444,14 +485,32 @@ class ClaudeJSONLogWrapper:
                 # Only process if we have content
                 if all_parts:
                     message_content = "\n".join(all_parts)
-
-                    # Store the message and start a task to process it after delay
-                    self.pending_claude_message = message_content
-                    if self.pending_claude_message_task:
-                        self.pending_claude_message_task.cancel()
-                    self.pending_claude_message_task = asyncio.create_task(
-                        self._process_claude_message_after_delay(message_content)
+                    self.debug_log(
+                        f"Combined message to process after delay: {repr(message_content)}"
                     )
+
+                    # If we have a pending message that hasn't been processed yet, process it immediately
+                    # BUT NOT if we're waiting for a permission prompt to render!
+                    if (
+                        self.pending_claude_message
+                        and self.pending_claude_message_task
+                        and not self.permission_active
+                    ):
+                        self.debug_log(
+                            f"Processing previous pending message immediately: {repr(self.pending_claude_message)}"
+                        )
+                        self.pending_claude_message_task.cancel()
+                        # Log the previous message immediately as a step since Claude is still working
+                        await self.log_to_omnara(self.pending_claude_message)
+                        self.pending_claude_message = None
+
+                    # Store the new message and start a task to process it after delay
+                    # Only if it's different from what we just processed
+                    if message_content != self.pending_claude_message:
+                        self.pending_claude_message = message_content
+                        self.pending_claude_message_task = asyncio.create_task(
+                            self._process_claude_message_after_delay(message_content)
+                        )
 
             elif msg_type == "summary":
                 # Session started - just track the session ID, don't log
@@ -470,29 +529,95 @@ class ClaudeJSONLogWrapper:
             # Error processing log entry
             pass
 
-    async def _process_claude_message_after_delay(self, message_content: str):
+    async def _process_claude_message_after_delay(
+        self, message_content: str, delay: float = 3.0
+    ):
         """Process a Claude message after waiting to see if Claude is still working."""
         try:
-            # Wait 3 seconds to see if Claude is still working
-            await asyncio.sleep(3.0)
+            self.debug_log(
+                f"_process_claude_message_after_delay called with delay={delay}, message={repr(message_content[:50])}..."
+            )
+            # Check if this message is a tool use that might need permission
+            tool_use_match = re.match(r"^Using tool: (\w+)", message_content)
+            might_need_permission = False
+
+            if tool_use_match:
+                tool_name = tool_use_match.group(1)
+                # Check if we have pending tools that need permission check
+                for tool_id, tool_info in self.pending_tools.items():
+                    if tool_info["name"] == tool_name and not tool_info.get(
+                        "processed", False
+                    ):
+                        if tool_info.get("needs_permission_check"):
+                            might_need_permission = True
+                        # Mark this tool as processed so we don't handle it again
+                        tool_info["processed"] = True
+                        break
+
+                # Also check if we already have a stored permission question
+                if self.permission_question:
+                    might_need_permission = True
+                    self.debug_log(
+                        f"Found stored permission question for tool use: {tool_name}"
+                    )
+
+            # Wait for the specified delay
+            if delay > 0:
+                if (
+                    might_need_permission and delay == 3.0
+                ):  # Use default longer delay for permission
+                    await asyncio.sleep(
+                        4.0
+                    )  # Give more time for permission prompt to appear
+                else:
+                    await asyncio.sleep(delay)
 
             # Only process if this message is still pending
             if self.pending_claude_message != message_content:
                 return
 
             # Check if Claude is still working (has "esc to interrupt)" indicator)
-            if self.is_claude_working():
-                # Claude is still working, just log the message
+            # OR if there's a permission prompt active
+            is_working = self.is_claude_working()
+            self.debug_log(
+                f"After {delay}s delay: is_claude_working={is_working}, permission_active={self.permission_active}, has_permission_question={bool(self.permission_question)}, might_need_permission={might_need_permission}"
+            )
+
+            # If this is a tool use message and we have a permission question stored, use it
+            if might_need_permission and self.permission_question:
+                # Send the permission question with OPTIONS instead of just the tool message
+                self.debug_log(
+                    f"Sending permission question for tool use: {repr(self.permission_question[:100])}..."
+                )
+                await self.log_to_omnara(self.permission_question, needs_response=True)
+                self.permission_question = None  # Clear after sending
+                # Don't clear permission_active here - keep it true until the user responds
+                # Don't clear permission_active here - wait for the response to be processed
+                # Clear the pending message since we sent the permission question instead
+                self.pending_claude_message = None
+                return
+            elif is_working:
+                # Claude is still working
+                self.debug_log(f"Logging as STEP: {repr(message_content)}")
                 await self.log_to_omnara(message_content)
             else:
                 # Claude is NOT working, so it's waiting for input
-                await self.log_to_omnara(
-                    message_content,
-                    needs_response=True,
-                )
+                # But if this is a tool use message and permission is active, skip sending it
+                # The permission question will be sent instead after extraction
+                if might_need_permission and self.permission_active:
+                    self.debug_log(
+                        "Skipping tool message, waiting for permission question extraction"
+                    )
+                else:
+                    self.debug_log(f"Logging as QUESTION: {repr(message_content)}")
+                    await self.log_to_omnara(
+                        message_content,
+                        needs_response=True,
+                    )
 
-            # Clear the pending message
-            self.pending_claude_message = None
+            # Clear the pending message (but not if we're waiting for permission extraction)
+            if not self.permission_active:
+                self.pending_claude_message = None
         except asyncio.CancelledError:
             pass
 
@@ -508,9 +633,9 @@ class ClaudeJSONLogWrapper:
 
             # Claude has stopped working, check if we still need to add the message
             if self.last_entry_was_tool_result:
-                # Claude needs input - ask via Omnara with empty question
+                # Claude needs input - ask via Omnara
                 await self.log_to_omnara(
-                    "",
+                    "Waiting for your response...",
                     needs_response=True,
                 )
                 self.last_entry_was_tool_result = False
@@ -561,6 +686,14 @@ class ClaudeJSONLogWrapper:
         except Exception:
             self.original_tty_attrs = None
 
+        # Get terminal size before forking
+        try:
+            # Get the current terminal size
+            cols, rows = os.get_terminal_size()
+        except Exception:
+            # Default to standard size if unable to get
+            cols, rows = 80, 24
+
         # Create PTY
         self.child_pid, self.master_fd = pty.fork()
 
@@ -569,24 +702,50 @@ class ClaudeJSONLogWrapper:
             os.environ["CLAUDE_CODE_ENTRYPOINT"] = "jsonlog-wrapper"
             os.execvp(cmd[0], cmd)
 
+        # Parent process - set PTY size to match terminal
+        if self.child_pid > 0:
+            try:
+                # Set the PTY size to match the parent terminal
+                import fcntl
+                import struct
+
+                # TIOCSWINSZ is the ioctl to set window size
+                TIOCSWINSZ = 0x5414  # Linux value, may differ on macOS
+                if sys.platform == "darwin":
+                    TIOCSWINSZ = 0x80087467  # macOS value
+
+                winsize = struct.pack("HHHH", rows, cols, 0, 0)
+                fcntl.ioctl(self.master_fd, TIOCSWINSZ, winsize)
+            except Exception:
+                pass
+
         # Parent process - handle I/O
         try:
             # Set stdin to raw mode if in a terminal
             if self.original_tty_attrs:
                 tty.setraw(sys.stdin)
 
+            # Set non-blocking mode on master_fd for better performance
+            import fcntl
+
+            flags = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
+            fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+            # Buffer for more efficient writing
+
             while self.running:
                 # Use select to multiplex I/O
-                rlist, _, _ = select.select([sys.stdin, self.master_fd], [], [], 0.05)
+                rlist, _, _ = select.select([sys.stdin, self.master_fd], [], [], 0.01)
 
-                # Handle terminal I/O first
+                # Handle terminal output from Claude
                 if self.master_fd in rlist:
-                    # Read from PTY
                     try:
-                        data = os.read(self.master_fd, 4096)
+                        # Read more data at once to reduce syscalls
+                        data = os.read(self.master_fd, 65536)
                         if data:
-                            # Forward to stdout (terminal)
+                            # Write immediately for better responsiveness
                             os.write(sys.stdout.fileno(), data)
+                            sys.stdout.flush()
 
                             # Check for indicators in terminal output
                             try:
@@ -612,73 +771,423 @@ class ClaudeJSONLogWrapper:
                                     self.last_esc_interrupt_seen = time.time()
                                     self.claude_status = "working"
                                     self.waiting_message_sent = False
+                                    self.debug_log(
+                                        "Detected 'esc to interrupt)' indicator - Claude is working"
+                                    )
 
-                                # Keep only last 1000 chars
-                                if len(self.terminal_buffer) > 1000:
-                                    self.terminal_buffer = self.terminal_buffer[-1000:]
+                                # Keep more terminal buffer to capture full permission prompts
+                                if len(self.terminal_buffer) > 20000:
+                                    self.terminal_buffer = self.terminal_buffer[-20000:]
                                     self.terminal_activity_buffer = self.terminal_buffer
 
-                                # Check for permission prompt patterns
-                                if any(
-                                    pattern in self.terminal_buffer
-                                    for pattern in [
-                                        "Do you want to",
-                                        "❯ 1. Yes",
-                                        "❯ 1. Proceed",
-                                    ]
-                                ):
+                                # Check for permission prompt patterns (but only if not already handling one)
+                                # Also don't check too soon after responding to avoid re-detection
+                                can_check_permission = not self.permission_active
+                                if self.permission_response_time:
+                                    time_since_response = (
+                                        time.time() - self.permission_response_time
+                                    )
+                                    # Wait at least 2 seconds after responding before checking again
+                                    if time_since_response < 2.0:
+                                        can_check_permission = False
+
+                                # Look for numbered options with keyboard shortcuts
+                                # Must have BOTH "Do you want to" AND numbered options
+                                has_question = (
+                                    "Do you want to" in self.terminal_buffer
+                                    and can_check_permission
+                                )
+                                # Check if we have the prompt structure with options
+                                # Look for "1." followed by any amount of whitespace and "Yes"
+                                clean_buffer = re.sub(
+                                    r"\s+", " ", self.terminal_buffer
+                                )  # Normalize whitespace
+                                has_options = has_question and (
+                                    "❯" in self.terminal_buffer
+                                    or "1. Yes" in clean_buffer
+                                    or re.search(r"1\.\s*Yes", self.terminal_buffer)
+                                )
+
+                                # Debug what we're seeing
+                                if has_question:
+                                    # Always log what we're seeing after the question
+                                    buffer_after_q = self.terminal_buffer.split(
+                                        "Do you want to"
+                                    )[-1][:500]
+                                    clean_after_q = re.sub(
+                                        r"\x1b\[[0-9;]*[a-zA-Z]", "", buffer_after_q
+                                    )
+                                    self.debug_log(
+                                        f"Buffer after 'Do you want to': {repr(clean_after_q)}"
+                                    )
+
+                                    # Check for specific indicators
+                                    has_arrow = "❯" in self.terminal_buffer
+                                    has_opt1 = "1. Yes" in self.terminal_buffer
+                                    self.debug_log(
+                                        f"has_arrow={has_arrow}, has_opt1={has_opt1}, has_options={has_options}"
+                                    )
+
+                                    if not has_options:
+                                        self.debug_log(
+                                            "Found question but no options detected yet"
+                                        )
+                                    else:
+                                        # Log when we first see both question and options
+                                        if not hasattr(
+                                            self, "_logged_permission_detection"
+                                        ):
+                                            self.debug_log(
+                                                "Found both question and option 1 in terminal buffer!"
+                                            )
+                                            self._logged_permission_detection = True
+
+                                if has_question and has_options:
                                     if not self.permission_active:
                                         self.permission_active = True
                                         self.claude_status = "waiting_for_permission"
+                                        self.debug_log(
+                                            "Permission prompt detected in terminal with options"
+                                        )
+                                        # Store the time we first detected the prompt
+                                        self.permission_prompt_time = time.time()
+                                        self.debug_log(
+                                            "Setting permission prompt detection time"
+                                        )
 
-                                        # Extract what Claude is asking permission for
+                                # Check if we should extract options now
+                                if self.permission_active and hasattr(
+                                    self, "permission_prompt_time"
+                                ):
+                                    time_since_detection = (
+                                        time.time() - self.permission_prompt_time
+                                    )
+                                    if time_since_detection >= 0.15 and not hasattr(
+                                        self, "_permission_extracted"
+                                    ):
+                                        # Mark as extracted so we don't do it again
+                                        self._permission_extracted = True
+
+                                        # Now extract after waiting for prompt to render
+                                        self.debug_log(
+                                            f"Processing permission prompt after {time_since_detection:.3f}s wait"
+                                        )
+
+                                        # Log the full buffer to debug
+                                        clean_full_buffer = re.sub(
+                                            r"\x1b\[[0-9;]*[a-zA-Z]",
+                                            "",
+                                            self.terminal_buffer,
+                                        )
+                                        self.debug_log(
+                                            f"Full terminal buffer at extraction time: {repr(clean_full_buffer[-2000:])}"
+                                        )
+
+                                        # Extract the question and options from terminal
                                         lines = self.terminal_buffer.split("\n")
                                         question = None
-                                        for line in lines:
+                                        options = []
+
+                                        # Find the question
+                                        for i, line in enumerate(lines):
                                             if "Do you want to" in line:
+                                                # Strip ANSI codes and clean up
+                                                clean_line = re.sub(
+                                                    r"\x1b\[[0-9;]*[a-zA-Z]",
+                                                    "",
+                                                    line,
+                                                )
                                                 question = (
-                                                    line.strip()
+                                                    clean_line.strip()
                                                     .replace("│", "")
                                                     .strip()
                                                 )
-                                                break
 
-                                        if question:
-                                            # Ask via Omnara
-                                            asyncio.run_coroutine_threadsafe(
-                                                self.handle_permission_prompt(question),
-                                                self.async_loop,
-                                            )
+                                                # Look for options in the following lines (check more lines)
+                                                self.debug_log(
+                                                    f"Looking for options starting at line {i + 1}, total lines: {len(lines)}"
+                                                )
+                                                # Log a few lines after the question to see what's there
+                                                for debug_idx in range(
+                                                    i + 1, min(i + 5, len(lines))
+                                                ):
+                                                    debug_line = lines[debug_idx]
+                                                    clean_debug = re.sub(
+                                                        r"\x1b\[[0-9;]*[a-zA-Z]",
+                                                        "",
+                                                        debug_line,
+                                                    ).strip()
+                                                    self.debug_log(
+                                                        f"  Line {debug_idx}: {repr(clean_debug[:100])}..."
+                                                    )
+
+                                                # Instead of line-by-line, search the entire buffer after the question
+                                                # This handles cases where options might be split across lines
+                                                remaining_buffer = "\n".join(
+                                                    lines[i + 1 :]
+                                                )
+                                                # Clean ANSI codes from remaining buffer for matching
+                                                re.sub(
+                                                    r"\x1b\[[0-9;]*[a-zA-Z]",
+                                                    "",
+                                                    remaining_buffer,
+                                                )
+
+                                                # Look in the FULL buffer, not just after the question
+                                                # because options might appear on the same line or before
+                                                full_clean = re.sub(
+                                                    r"\x1b\[[0-9;]*[a-zA-Z]",
+                                                    "",
+                                                    self.terminal_buffer,
+                                                )
+
+                                                # Look for numbered options more flexibly
+                                                # Match any line that starts with a number followed by period
+                                                option_matches = re.findall(
+                                                    r"(\d+)\.\s*([^\n│]+)", full_clean
+                                                )
+
+                                                for num, text in option_matches:
+                                                    option_text = (
+                                                        f"{num}. {text.strip()}"
+                                                    )
+                                                    if num == "1" and "Yes" in text:
+                                                        options.append("1. Yes")
+                                                        self.debug_log("Found option 1")
+                                                    elif num == "2":
+                                                        # Option 2 can vary - just use the full text
+                                                        if "Yes" in text:
+                                                            options.append(option_text)
+                                                            self.debug_log(
+                                                                f"Found option 2: {option_text}"
+                                                            )
+                                                    elif num == "3" and "No" in text:
+                                                        options.append(
+                                                            "3. No, and tell Claude what to do differently"
+                                                        )
+                                                        self.debug_log("Found option 3")
+
+                                                self.debug_log(
+                                                    f"Total options found: {len(options)}"
+                                                )
+                                                self.debug_log(
+                                                    f"Debug - looking for options in buffer segment: {repr(full_clean[-1000:])}"
+                                                )
+
+                                            # Store the permission question to be sent later with the tool message
+                                            if (
+                                                question
+                                                and not self.permission_question
+                                            ):  # Only store if we don't already have one
+                                                # Find the most recent tool for context
+                                                recent_tool = None
+                                                if self.pending_tools:
+                                                    sorted_tools = sorted(
+                                                        self.pending_tools.items(),
+                                                        key=lambda x: x[1]["timestamp"],
+                                                        reverse=True,
+                                                    )
+                                                    if sorted_tools:
+                                                        recent_tool = sorted_tools[0][1]
+
+                                                # Build the permission question with tool details
+                                                permission_msg = question
+                                                if recent_tool:
+                                                    tool_name = recent_tool["name"]
+                                                    tool_input = recent_tool["input"]
+
+                                                    permission_msg += (
+                                                        f"\n\nTool: {tool_name}"
+                                                    )
+                                                    if tool_name in [
+                                                        "Write",
+                                                        "Edit",
+                                                        "MultiEdit",
+                                                    ]:
+                                                        file_path = tool_input.get(
+                                                            "file_path", "unknown"
+                                                        )
+                                                        permission_msg += (
+                                                            f"\nFile: {file_path}"
+                                                        )
+                                                    elif tool_name == "Bash":
+                                                        command = tool_input.get(
+                                                            "command", ""
+                                                        )
+                                                        permission_msg += (
+                                                            f"\nCommand: {command}"
+                                                        )
+                                                    else:
+                                                        # Include basic info for any other tool
+                                                        permission_msg += (
+                                                            f"\nDetails: {tool_input}"
+                                                        )
+
+                                                # Format with OPTIONS tag for UI
+                                                permission_msg += "\n\n[OPTIONS]\n"
+
+                                                # Use the actual options from the terminal if we found them
+                                                if options:
+                                                    for option in options:
+                                                        permission_msg += f"{option}\n"
+                                                else:
+                                                    # Fallback to default options
+                                                    permission_msg += "1. Yes\n"
+                                                    permission_msg += "2. Yes, and don't ask again this session\n"
+                                                    permission_msg += "3. No, and tell Claude what to do differently\n"
+
+                                                permission_msg += "[/OPTIONS]"
+
+                                                # Store the permission question to send later
+                                                self.permission_question = (
+                                                    permission_msg
+                                                )
+                                                self.debug_log(
+                                                    f"Stored permission question: {repr(permission_msg[:100])}..."
+                                                )
+
+                                                # Re-process the pending message now that we have the permission question
+                                                self.debug_log(
+                                                    f"Checking for re-processing: pending_msg={repr(self.pending_claude_message[:50]) if self.pending_claude_message else None}, has_task={bool(self.pending_claude_message_task)}"
+                                                )
+                                                if (
+                                                    self.pending_claude_message
+                                                    and self.pending_claude_message_task
+                                                ):
+                                                    self.debug_log(
+                                                        "Re-processing message with permission question"
+                                                    )
+                                                    # Cancel the current task and create a new one to process immediately
+                                                    try:
+                                                        self.pending_claude_message_task.cancel()
+                                                    except Exception:
+                                                        pass
+                                                    # Schedule the task in the async loop
+                                                    self.pending_claude_message_task = asyncio.run_coroutine_threadsafe(
+                                                        self._process_claude_message_after_delay(
+                                                            self.pending_claude_message,
+                                                            delay=0,
+                                                        ),
+                                                        self.async_loop,
+                                                    )
+                                                else:
+                                                    # If no pending message, we need to send the permission question directly
+                                                    self.debug_log(
+                                                        "No pending message to re-process, sending permission question directly"
+                                                    )
+
+                                                    async def send_permission():
+                                                        if self.permission_question:
+                                                            await self.log_to_omnara(
+                                                                self.permission_question,
+                                                                needs_response=True,
+                                                            )
+                                                            self.permission_question = (
+                                                                None
+                                                            )
+                                                        # Keep permission_active true until user responds
+
+                                                    asyncio.run_coroutine_threadsafe(
+                                                        send_permission(),
+                                                        self.async_loop,
+                                                    )
+
+                                                # Clear the prompt detection time and flags
+                                                if hasattr(
+                                                    self, "permission_prompt_time"
+                                                ):
+                                                    delattr(
+                                                        self, "permission_prompt_time"
+                                                    )
+                                                if hasattr(
+                                                    self, "_logged_permission_detection"
+                                                ):
+                                                    delattr(
+                                                        self,
+                                                        "_logged_permission_detection",
+                                                    )
+                                                if hasattr(
+                                                    self, "_permission_extracted"
+                                                ):
+                                                    delattr(
+                                                        self,
+                                                        "_permission_extracted",
+                                                    )
                                 else:
-                                    # Reset if prompt is gone
-                                    if self.permission_active and "❯" not in text:
-                                        self.permission_active = False
-                                        if (
-                                            self.claude_status
-                                            == "waiting_for_permission"
-                                        ):
-                                            self.claude_status = "waiting_for_input"
+                                    # Don't reset permission state too quickly - wait for it to be used
+                                    pass
+
                             except Exception:
                                 pass
                         else:
                             break
+                    except BlockingIOError:
+                        # No data available, continue
+                        pass
                     except OSError:
                         break
 
+                # Handle user input
                 if sys.stdin in rlist and self.original_tty_attrs:
-                    # Forward stdin to PTY
-                    data = os.read(sys.stdin.fileno(), 1024)
-                    if data:
-                        os.write(self.master_fd, data)
+                    try:
+                        # Read user input
+                        data = os.read(sys.stdin.fileno(), 4096)
+                        if data:
+                            # Forward directly to Claude
+                            os.write(self.master_fd, data)
+                    except OSError:
+                        pass
 
-                # Process Omnara responses
+                # Process Omnara responses with less delay
                 if self.input_queue:
                     content = self.input_queue.popleft()
+                    self.debug_log(f"Processing Omnara response: {repr(content)}")
 
-                    # Send the complete text at once
+                    # If this is a permission response, convert to the right number
+                    if self.permission_active:
+                        content_lower = content.lower().strip()
+                        self.debug_log(
+                            f"Permission active, converting response: {repr(content_lower)}"
+                        )
+                        # Map various forms of "yes" to "1"
+                        if content_lower in ["yes", "1", "1. yes"]:
+                            content = "1"
+                        # Map "yes always" variations to "2"
+                        elif any(
+                            phrase in content_lower
+                            for phrase in [
+                                "yes always",
+                                "yes, and don't ask again",
+                                "2. yes",
+                            ]
+                        ):
+                            content = "2"
+                        # Map "no" variations to "3"
+                        elif any(
+                            phrase in content_lower
+                            for phrase in ["no", "3. no", "tell claude"]
+                        ):
+                            content = "3"
+                        # For any other response, treat as "No"
+                        else:
+                            content = "3"
+                        self.debug_log(f"Mapped response to: {repr(content)}")
+                        # Clear permission state since we're responding to it
+                        self.permission_active = False
+                        self.permission_response_time = time.time()
+                    else:
+                        # This is a new user message, not a permission response
+                        # Clear any stored permission question from previous interactions
+                        if self.permission_question:
+                            self.debug_log(
+                                "Clearing stored permission question due to new user message"
+                            )
+                            self.permission_question = None
+
+                    # Send the response immediately
                     os.write(self.master_fd, content.encode())
+                    # Small delay to ensure content is processed before sending Enter
                     time.sleep(0.05)
-                    # Send Enter
                     os.write(self.master_fd, b"\r")
 
         finally:
@@ -693,15 +1202,6 @@ class ClaudeJSONLogWrapper:
                     os.waitpid(self.child_pid, 0)
                 except Exception:
                     pass
-
-    async def handle_permission_prompt(self, question: str):
-        """Handle permission prompts via Omnara."""
-        response = await self.log_to_omnara(
-            f"Permission requested: {question}\n\nReply with: 1 (Yes), 2 (Yes always), or 3 (No)",
-            needs_response=True,
-        )
-        if response:
-            self.input_queue.append(response)
 
     async def run(self):
         """Run Claude with Omnara integration."""
@@ -756,7 +1256,24 @@ def main():
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, wrapper.original_tty_attrs)
         sys.exit(0)
 
+    def handle_resize(sig, frame):
+        """Handle terminal resize signal."""
+        if wrapper.master_fd:
+            try:
+                # Get new terminal size
+                cols, rows = os.get_terminal_size()
+                # Update PTY size
+                import fcntl
+                import struct
+
+                TIOCSWINSZ = 0x80087467 if sys.platform == "darwin" else 0x5414
+                winsize = struct.pack("HHHH", rows, cols, 0, 0)
+                fcntl.ioctl(wrapper.master_fd, TIOCSWINSZ, winsize)
+            except Exception:
+                pass
+
     signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGWINCH, handle_resize)  # Handle terminal resize
 
     try:
         asyncio.run(wrapper.run())
