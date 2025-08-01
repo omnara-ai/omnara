@@ -62,25 +62,38 @@ def upgrade() -> None:
         ondelete="SET NULL",
     )
 
-    # Create function for message notifications
+    # Create combined function for message notifications
     op.execute("""
-        CREATE OR REPLACE FUNCTION notify_message_insert() RETURNS trigger AS $$
+        CREATE OR REPLACE FUNCTION notify_message_change() RETURNS trigger AS $$
         DECLARE
             channel_name text;
             payload text;
+            event_type text;
         BEGIN
             -- Create channel name based on instance ID
             channel_name := 'message_channel_' || NEW.agent_instance_id::text;
 
+            -- Determine event type
+            IF TG_OP = 'INSERT' THEN
+                event_type := 'message_insert';
+            ELSIF TG_OP = 'UPDATE' THEN
+                event_type := 'message_update';
+            END IF;
+
             -- Create JSON payload with message data
             payload := json_build_object(
+                'event_type', event_type,
                 'id', NEW.id,
                 'agent_instance_id', NEW.agent_instance_id,
                 'sender_type', NEW.sender_type,
                 'content', NEW.content,
                 'created_at', NEW.created_at,
                 'requires_user_input', NEW.requires_user_input,
-                'message_metadata', NEW.message_metadata
+                'message_metadata', NEW.message_metadata,
+                'old_requires_user_input', CASE
+                    WHEN TG_OP = 'UPDATE' THEN OLD.requires_user_input
+                    ELSE NULL
+                END
             )::text;
 
             -- Send notification (quote channel name for UUIDs with hyphens)
@@ -91,12 +104,12 @@ def upgrade() -> None:
         $$ LANGUAGE plpgsql;
     """)
 
-    # Create trigger on messages table
+    # Create single trigger for both INSERT and UPDATE on messages table
     op.execute("""
-        CREATE TRIGGER message_insert_notify
-        AFTER INSERT ON messages
+        CREATE TRIGGER message_change_notify
+        AFTER INSERT OR UPDATE ON messages
         FOR EACH ROW
-        EXECUTE FUNCTION notify_message_insert();
+        EXECUTE FUNCTION notify_message_change();
     """)
 
     # Create function for status change notifications
@@ -147,8 +160,8 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS notify_status_change();")
 
     # Drop message trigger and function
-    op.execute("DROP TRIGGER IF EXISTS message_insert_notify ON messages;")
-    op.execute("DROP FUNCTION IF EXISTS notify_message_insert();")
+    op.execute("DROP TRIGGER IF EXISTS message_change_notify ON messages;")
+    op.execute("DROP FUNCTION IF EXISTS notify_message_change();")
 
     op.drop_constraint(
         "fk_agent_instances_last_read_message", "agent_instances", type_="foreignkey"

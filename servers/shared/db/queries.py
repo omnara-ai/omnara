@@ -292,7 +292,7 @@ async def send_agent_message(
     agent_type: str | None = None,
     requires_user_input: bool = False,
     git_diff: str | None = None,
-) -> tuple[str, str, list[str]]:
+) -> tuple[str, str, list[Message]]:
     """High-level function to send an agent message and get queued user messages.
 
     This combines the common pattern of:
@@ -341,7 +341,7 @@ async def send_agent_message(
     if queued_messages is None:
         queued_messages = []
 
-    return str(instance.id), str(message.id), [msg.content for msg in queued_messages]
+    return str(instance.id), str(message.id), queued_messages
 
 
 def create_user_message(

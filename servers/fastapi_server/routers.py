@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from shared.database.session import get_db
+from shared.database import Message, AgentInstance, SenderType, AgentStatus
 from servers.shared.db import (
     send_agent_message,
     end_session,
@@ -68,11 +69,22 @@ async def create_agent_message_endpoint(
 
         db.commit()
 
+        message_responses = [
+            MessageResponse(
+                id=str(msg.id),
+                content=msg.content,
+                sender_type=msg.sender_type.value,
+                created_at=msg.created_at.isoformat(),
+                requires_user_input=msg.requires_user_input,
+            )
+            for msg in queued_messages
+        ]
+
         return CreateMessageResponse(
             success=True,
             agent_instance_id=instance_id,
             message_id=message_id,
-            queued_user_messages=queued_messages,
+            queued_user_messages=message_responses,
         )
     except ValueError as e:
         db.rollback()
@@ -187,6 +199,103 @@ async def get_pending_messages(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}",
+        )
+    finally:
+        db.close()
+
+
+@agent_router.patch("/messages/{message_id}/request-input")
+async def request_user_input_endpoint(
+    message_id: UUID,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+) -> dict:
+    """Update an agent message to request user input.
+
+    This endpoint:
+    - Updates the requires_user_input field from false to true
+    - Only works on agent messages that don't already require input
+    - Returns any queued user messages since this message
+    - Triggers a notification via the database trigger
+    """
+    db = next(get_db())
+
+    try:
+        # Find the message and verify it's an agent message belonging to the user
+        message = (
+            db.query(Message)
+            .join(AgentInstance, Message.agent_instance_id == AgentInstance.id)
+            .filter(
+                Message.id == message_id,
+                Message.sender_type == SenderType.AGENT,
+                AgentInstance.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not message:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Agent message not found or access denied",
+            )
+
+        # Check if it already requires user input
+        if message.requires_user_input:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Message already requires user input",
+            )
+
+        # Update the field
+        message.requires_user_input = True
+
+        queued_messages = get_queued_user_messages(
+            db, message.agent_instance_id, message_id
+        )
+
+        if not queued_messages:
+            agent_instance = (
+                db.query(AgentInstance)
+                .filter(AgentInstance.id == message.agent_instance_id)
+                .first()
+            )
+            if agent_instance:
+                agent_instance.status = AgentStatus.AWAITING_INPUT
+
+            await send_message_notifications(
+                db=db,
+                instance_id=message.agent_instance_id,
+                content=message.content,
+                requires_user_input=True,
+            )
+
+        db.commit()
+
+        message_responses = [
+            MessageResponse(
+                id=str(msg.id),
+                content=msg.content,
+                sender_type=msg.sender_type.value,
+                created_at=msg.created_at.isoformat(),
+                requires_user_input=msg.requires_user_input,
+            )
+            for msg in (queued_messages or [])
+        ]
+
+        return {
+            "success": True,
+            "message_id": str(message_id),
+            "agent_instance_id": str(message.agent_instance_id),
+            "messages": message_responses,
+            "status": "ok" if queued_messages is not None else "stale",
+        }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(

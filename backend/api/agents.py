@@ -178,12 +178,16 @@ async def stream_messages(
                     # Parse the JSON payload
                     data = json.loads(payload)
 
-                    # Check if this is a status update or a message
-                    if data.get("event_type") == "status_update":
+                    # Check event type and send appropriate SSE event
+                    event_type = data.get("event_type")
+                    if event_type == "status_update":
                         # Send status_update event
                         yield f"event: status_update\ndata: {json.dumps(data)}\n\n"
+                    elif event_type == "message_update":
+                        # Send message_update event for frontend to handle
+                        yield f"event: message_update\ndata: {json.dumps(data)}\n\n"
                     else:
-                        # Regular message event (created_at is already a string from PostgreSQL)
+                        # Regular message event (either message_insert or legacy without event_type)
                         yield f"event: message\ndata: {json.dumps(data)}\n\n"
 
                 except asyncio.TimeoutError:

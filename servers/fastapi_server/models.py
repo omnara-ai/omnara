@@ -62,6 +62,18 @@ class EndSessionRequest(BaseEndSessionRequest):
 
 
 # Response models
+class MessageResponse(BaseModel):
+    """Response model for individual messages."""
+
+    id: str = Field(..., description="Message ID")
+    content: str = Field(..., description="Message content")
+    sender_type: str = Field(..., description="Sender type: 'agent' or 'user'")
+    created_at: str = Field(..., description="ISO timestamp when message was created")
+    requires_user_input: bool = Field(
+        ..., description="Whether this message requires user input"
+    )
+
+
 class CreateMessageResponse(BaseModel):
     """Response model for create message endpoint."""
 
@@ -72,21 +84,9 @@ class CreateMessageResponse(BaseModel):
         ..., description="Agent instance ID (new or existing)"
     )
     message_id: str = Field(..., description="ID of the message that was created")
-    queued_user_messages: list[str] = Field(
+    queued_user_messages: list[MessageResponse] = Field(
         default_factory=list,
-        description="List of queued user message contents",
-    )
-
-
-class MessageResponse(BaseModel):
-    """Response model for individual messages."""
-
-    id: str = Field(..., description="Message ID")
-    content: str = Field(..., description="Message content")
-    sender_type: str = Field(..., description="Sender type: 'agent' or 'user'")
-    created_at: str = Field(..., description="ISO timestamp when message was created")
-    requires_user_input: bool = Field(
-        ..., description="Whether this message requires user input"
+        description="List of queued user messages with full metadata",
     )
 
 

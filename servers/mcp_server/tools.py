@@ -90,7 +90,7 @@ async def log_step_impl(
             success=True,
             agent_instance_id=instance_id,
             step_number=step_count,
-            user_feedback=queued_messages,
+            user_feedback=[msg.content for msg in queued_messages],
         )
 
     except Exception:

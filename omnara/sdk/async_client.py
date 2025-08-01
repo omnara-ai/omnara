@@ -3,7 +3,7 @@
 import asyncio
 import ssl
 import uuid
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, List
 from urllib.parse import urljoin
 
 import aiohttp
@@ -199,12 +199,16 @@ class AsyncOmnaraClient:
         response_agent_instance_id = response["agent_instance_id"]
         message_id = response["message_id"]
 
-        # Create the response object
+        queued_contents = [
+            msg["content"] if isinstance(msg, dict) else msg
+            for msg in response.get("queued_user_messages", [])
+        ]
+
         create_response = CreateMessageResponse(
             success=response["success"],
             agent_instance_id=response_agent_instance_id,
             message_id=message_id,
-            queued_user_messages=response.get("queued_user_messages", []),
+            queued_user_messages=queued_contents,
         )
 
         # If it doesn't require user input, return immediately
@@ -307,6 +311,70 @@ class AsyncOmnaraClient:
         }
 
         return await self._make_request("POST", "/api/v1/messages/user", json=data)
+
+    async def request_user_input(
+        self,
+        message_id: Union[str, uuid.UUID],
+        timeout_minutes: int = 1440,
+        poll_interval: float = 10.0,
+    ) -> List[str]:
+        """Request user input for a previously sent agent message.
+
+        This method updates an agent message to require user input and polls for responses.
+        It's useful when you initially send a message without requiring input, but later
+        decide you need user feedback.
+
+        Args:
+            message_id: The message ID to update (must be an agent message)
+            timeout_minutes: Max time to wait for user response in minutes (default: 1440)
+            poll_interval: Time between polls in seconds (default: 10.0)
+
+        Returns:
+            List of user message contents received as responses
+
+        Raises:
+            ValueError: If message not found, already requires input, or not an agent message
+            TimeoutError: If no user response is received within timeout
+            APIError: If the API request fails
+        """
+        # Convert message_id to string if it's a UUID
+        message_id_str = str(message_id)
+
+        # Call the endpoint to update the message
+        response = await self._make_request(
+            "PATCH", f"/api/v1/messages/{message_id_str}/request-input"
+        )
+
+        agent_instance_id = response["agent_instance_id"]
+        messages = response.get("messages", [])
+
+        if messages:
+            return [msg["content"] for msg in messages]
+
+        # Otherwise, poll for user response
+        timeout_seconds = timeout_minutes * 60
+        start_time = asyncio.get_event_loop().time()
+        all_messages = []
+
+        while asyncio.get_event_loop().time() - start_time < timeout_seconds:
+            # Poll for pending messages using the message_id as last_read
+            pending_response = await self.get_pending_messages(
+                agent_instance_id, message_id_str
+            )
+
+            # If status is "stale", another process has read the messages
+            if pending_response.status == "stale":
+                raise TimeoutError("Another process has read the messages")
+
+            # Check if we got any messages
+            if pending_response.messages:
+                # Collect all message contents
+                all_messages.extend([msg.content for msg in pending_response.messages])
+                return all_messages
+
+            await asyncio.sleep(poll_interval)
+
+        raise TimeoutError(f"No user response received after {timeout_minutes} minutes")
 
     async def end_session(
         self, agent_instance_id: Union[str, uuid.UUID]
