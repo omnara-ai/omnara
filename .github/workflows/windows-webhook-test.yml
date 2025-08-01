@@ -1,0 +1,97 @@
+name: Windows Webhook Test
+
+on: [push, pull_request]
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install Git
+        shell: pwsh
+        run: |
+          # Git should already be installed on GitHub runners
+          git --version
+      
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+      
+      - name: Test webhook module import
+        shell: pwsh
+        run: |
+          python -c "import sys; print('Python path:'); print('\n'.join(sys.path)); import webhooks.claude_code; print('Webhook module imported successfully')"
+      
+      - name: Test webhook help
+        shell: pwsh
+        run: |
+          python -m webhooks.claude_code --help
+      
+      - name: Test webhook imports and basic functionality
+        shell: pwsh
+        run: |
+          # Create a test script to avoid quoting issues
+          @'
+          from webhooks.claude_code import is_windows, check_command
+          print(f"Is Windows: {is_windows()}")
+          git_available, git_path = check_command("git")
+          print(f"Git available: {git_available}")
+          if git_available:
+              print(f"Git path: {git_path}")
+          '@ | Out-File -FilePath test_webhook.py -Encoding UTF8
+          
+          python test_webhook.py
+      
+      - name: Test health endpoint
+        shell: pwsh
+        run: |
+          # Start the server in background
+          $process = Start-Process -FilePath "python" -ArgumentList "-m", "webhooks.claude_code", "--port", "6663" -PassThru -WindowStyle Hidden
+          
+          # Wait for server to start with retries
+          $maxRetries = 10
+          $retryCount = 0
+          $success = $false
+          
+          Write-Host "Waiting for server to start..."
+          while ($retryCount -lt $maxRetries -and -not $success) {
+            Start-Sleep -Seconds 2
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:6663/health" -Method GET -ErrorAction Stop
+              if ($response.StatusCode -eq 200) {
+                Write-Host "Health check passed!"
+                $success = $true
+              }
+            } catch {
+              $retryCount++
+              Write-Host "Attempt $retryCount/$maxRetries failed: $_"
+              if ($retryCount -eq $maxRetries) {
+                Write-Host "Health check failed after $maxRetries attempts"
+                # Try to get process output for debugging
+                if ($process -and -not $process.HasExited) {
+                  Write-Host "Server process is still running (PID: $($process.Id))"
+                } else {
+                  Write-Host "Server process has exited"
+                }
+                exit 1
+              }
+            }
+          }
+          
+          # Stop the server
+          if ($process -and -not $process.HasExited) {
+            Stop-Process -Id $process.Id -Force
+            Write-Host "Server stopped"
+          }
