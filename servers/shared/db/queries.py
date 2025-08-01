@@ -6,14 +6,14 @@ from uuid import UUID
 
 from shared.database import (
     AgentInstance,
-    AgentQuestion,
     AgentStatus,
-    AgentStep,
-    AgentUserFeedback,
+    Message,
+    SenderType,
     UserAgent,
     User,
 )
 from shared.database.billing_operations import check_agent_limit
+from shared.database.utils import sanitize_git_diff
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from fastmcp import Context
@@ -40,8 +40,6 @@ def create_or_get_user_agent(db: Session, name: str, user_id: str) -> UserAgent:
             is_active=True,
         )
         db.add(user_agent)
-        db.commit()
-        db.refresh(user_agent)
     return user_agent
 
 
@@ -56,8 +54,6 @@ def create_agent_instance(
         user_agent_id=user_agent_id, user_id=UUID(user_id), status=AgentStatus.ACTIVE
     )
     db.add(instance)
-    db.commit()
-    db.refresh(instance)
     return instance
 
 
@@ -66,215 +62,126 @@ def get_agent_instance(db: Session, instance_id: str) -> AgentInstance | None:
     return db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
 
 
-def log_step(
-    db: Session,
-    instance_id: UUID,
-    description: str,
-    send_email: bool | None = None,
-    send_sms: bool | None = None,
-    send_push: bool | None = None,
-) -> AgentStep:
-    """Log a new step for an agent instance"""
-    # Get the next step number
-    max_step = (
-        db.query(func.max(AgentStep.step_number))
-        .filter(AgentStep.agent_instance_id == instance_id)
-        .scalar()
-    )
-    next_step_number = (max_step or 0) + 1
-
-    # Create the step
-    step = AgentStep(
-        agent_instance_id=instance_id,
-        step_number=next_step_number,
-        description=description,
-    )
-    db.add(step)
-    db.commit()
-    db.refresh(step)
-
-    # Send notifications if requested (all default to False for log steps)
-    if send_email or send_sms or send_push:
-        # Get instance details for notifications
-        instance = (
-            db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
+def validate_agent_access(db: Session, agent_instance_id: str, user_id: str) -> AgentInstance:
+    """Validate that a user has access to an agent instance.
+    
+    Args:
+        db: Database session
+        agent_instance_id: Agent instance ID to validate
+        user_id: User ID requesting access
+        
+    Returns:
+        The agent instance if validation passes
+        
+    Raises:
+        ValueError: If instance not found or user doesn't have access
+    """
+    instance = get_agent_instance(db, agent_instance_id)
+    if not instance:
+        raise ValueError(f"Agent instance {agent_instance_id} not found")
+    if str(instance.user_id) != user_id:
+        raise ValueError(
+            "Access denied. Agent instance does not belong to authenticated user."
         )
-        if instance:
-            user = db.query(User).filter(User.id == instance.user_id).first()
-
-            if user:
-                agent_name = (
-                    instance.user_agent.name if instance.user_agent else "Agent"
-                )
-
-                # Override defaults - for log steps, all notifications default to False
-                should_send_push = send_push if send_push is not None else False
-                should_send_email = send_email if send_email is not None else False
-                should_send_sms = send_sms if send_sms is not None else False
-
-                # Send push notification if explicitly enabled
-                if should_send_push:
-                    try:
-                        asyncio.create_task(
-                            push_service.send_step_notification(
-                                db=db,
-                                user_id=instance.user_id,
-                                instance_id=str(instance.id),
-                                step_number=step.step_number,
-                                agent_name=agent_name,
-                                step_description=description,
-                            )
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to send push notification for step {step.id}: {e}"
-                        )
-
-                # Send Twilio notifications if explicitly enabled
-                if should_send_email or should_send_sms:
-                    try:
-                        asyncio.create_task(
-                            twilio_service.send_step_notification(
-                                db=db,
-                                user_id=instance.user_id,
-                                instance_id=str(instance.id),
-                                step_number=step.step_number,
-                                agent_name=agent_name,
-                                step_description=description,
-                                send_email=should_send_email,
-                                send_sms=should_send_sms,
-                            )
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to send Twilio notification for step {step.id}: {e}"
-                        )
-
-    return step
+    return instance
 
 
-async def create_question(
+def end_session(db: Session, agent_instance_id: str, user_id: str) -> tuple[str, str]:
+    """End an agent session by marking it as completed.
+    
+    Args:
+        db: Database session
+        agent_instance_id: Agent instance ID to end
+        user_id: Authenticated user ID
+        
+    Returns:
+        Tuple of (agent_instance_id, final_status)
+    """
+    instance = validate_agent_access(db, agent_instance_id, user_id)
+    
+    instance.status = AgentStatus.COMPLETED
+    instance.ended_at = datetime.now(timezone.utc)
+    
+    return str(instance.id), instance.status.value
+
+
+def create_agent_message(
     db: Session,
     instance_id: UUID,
-    question_text: str,
-    send_email: bool | None = None,
-    send_sms: bool | None = None,
-    send_push: bool | None = None,
-) -> AgentQuestion:
-    """Create a new question for an agent instance"""
-    # Mark any existing active questions as inactive
-    db.query(AgentQuestion).filter(
-        AgentQuestion.agent_instance_id == instance_id, AgentQuestion.is_active
-    ).update({"is_active": False})
-
-    # Update agent instance status to awaiting_input
+    content: str,
+    requires_user_input: bool = False,
+) -> Message:
+    """Create a new agent message without committing"""
     instance = db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
-    if instance and instance.status == AgentStatus.ACTIVE:
-        instance.status = AgentStatus.AWAITING_INPUT
-
-    # Create new question
-    question = AgentQuestion(
-        agent_instance_id=instance_id, question_text=question_text, is_active=True
+    if instance and instance.status != AgentStatus.COMPLETED:
+        if requires_user_input:
+            instance.status = AgentStatus.AWAITING_INPUT
+        else:
+            instance.status = AgentStatus.ACTIVE
+        
+    message = Message(
+        agent_instance_id=instance_id,
+        sender_type=SenderType.AGENT,
+        content=content,
+        requires_user_input=requires_user_input,
     )
-    db.add(question)
-    db.commit()
-    db.refresh(question)
-
-    # Send notifications based on user preferences
+    db.add(message)
+    db.flush()  # Flush to get the message ID
+    
+    # Update last read message
     if instance:
-        # Get user for checking preferences
-        user = db.query(User).filter(User.id == instance.user_id).first()
-
-        if user:
-            agent_name = instance.user_agent.name if instance.user_agent else "Agent"
-
-            # Determine notification preferences
-            # For questions: push defaults to True (or user preference), email/SMS default to False
-            should_send_push = (
-                send_push if send_push is not None else user.push_notifications_enabled
-            )
-            should_send_email = (
-                send_email
-                if send_email is not None
-                else user.email_notifications_enabled
-            )
-            should_send_sms = (
-                send_sms if send_sms is not None else user.sms_notifications_enabled
-            )
-
-            # Send push notification if enabled
-            if should_send_push:
-                try:
-                    await push_service.send_question_notification(
-                        db=db,
-                        user_id=instance.user_id,
-                        instance_id=str(instance.id),
-                        question_id=str(question.id),
-                        agent_name=agent_name,
-                        question_text=question_text,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to send push notification for question {question.id}: {e}"
-                    )
-
-            # Send Twilio notification if enabled (email and/or SMS)
-            if should_send_email or should_send_sms:
-                try:
-                    twilio_service.send_question_notification(
-                        db=db,
-                        user_id=instance.user_id,
-                        instance_id=str(instance.id),
-                        question_id=str(question.id),
-                        agent_name=agent_name,
-                        question_text=question_text,
-                        send_email=should_send_email,
-                        send_sms=should_send_sms,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to send Twilio notification for question {question.id}: {e}"
-                    )
-
-    return question
+        instance.last_read_message_id = message.id
+    
+    return message
 
 
 async def wait_for_answer(
     db: Session,
     question_id: UUID,
-    timeout: int = 86400,
+    timeout_seconds: int = 86400,  # 24 hours default
     tool_context: Context | None = None,
 ) -> str | None:
-    """
-    Wait for an answer to a question (async non-blocking)
-
-    Args:
-        db: Database session
-        question_id: Question ID to wait for
-        timeout: Maximum time to wait in seconds (default 24 hours)
-
-    Returns:
-        Answer text if received, None if timeout
-    """
+    """Wait for an answer to a question using polling"""
     start_time = time.time()
     last_progress_report = start_time
-    total_minutes = int(timeout / 60)
+    total_minutes = timeout_seconds // 60
 
-    # Report initial progress (0 minutes elapsed)
-    if tool_context:
-        await tool_context.report_progress(0, total_minutes)
+    # Get the question message
+    question = db.query(Message).filter(Message.id == question_id).first()
+    if not question or not question.requires_user_input:
+        return None
 
-    while time.time() - start_time < timeout:
-        # Check for answer
-        db.commit()  # Ensure we see latest data
-        question = (
-            db.query(AgentQuestion).filter(AgentQuestion.id == question_id).first()
+    while time.time() - start_time < timeout_seconds:
+        # Check if agent has moved on (last read message changed)
+        instance = db.query(AgentInstance).filter(
+            AgentInstance.id == question.agent_instance_id
+        ).first()
+        
+        # If last_read_message_id has changed from our question, agent has moved on
+        if instance and instance.last_read_message_id != question_id:
+            return None
+        
+        # Check for a user message after this question
+        answer = (
+            db.query(Message)
+            .filter(
+                Message.agent_instance_id == question.agent_instance_id,
+                Message.sender_type == SenderType.USER,
+                Message.created_at > question.created_at,
+            )
+            .order_by(Message.created_at)
+            .first()
         )
 
-        if question and question.answer_text is not None:
+        if answer:
+            # Update last read message to this answer
+            if instance:
+                instance.last_read_message_id = answer.id
+            
             if tool_context:
                 await tool_context.report_progress(total_minutes, total_minutes)
-            return question.answer_text
+            
+            return answer.content
 
         # Report progress every minute if tool_context is provided
         current_time = time.time()
@@ -285,59 +192,150 @@ async def wait_for_answer(
 
         await asyncio.sleep(1)
 
-    # Timeout - mark question as inactive
-    db.query(AgentQuestion).filter(AgentQuestion.id == question_id).update(
-        {"is_active": False}
-    )
-    db.commit()
-
     return None
 
 
-def get_question(db: Session, question_id: str) -> AgentQuestion | None:
+def get_question(db: Session, question_id: str) -> Message | None:
     """Get a question by ID"""
-    return db.query(AgentQuestion).filter(AgentQuestion.id == question_id).first()
+    return db.query(Message).filter(Message.id == question_id, Message.requires_user_input == True).first()
 
 
-def get_and_mark_unretrieved_feedback(
-    db: Session, instance_id: UUID, since_time: datetime | None = None
-) -> list[str]:
-    """Get unretrieved user feedback for an agent instance and mark as retrieved"""
-
-    query = db.query(AgentUserFeedback).filter(
-        AgentUserFeedback.agent_instance_id == instance_id,
-        AgentUserFeedback.retrieved_at.is_(None),
+def create_user_message(
+    db: Session,
+    instance_id: UUID,
+    content: str,
+) -> Message:
+    """Create user message without committing"""
+    message = Message(
+        agent_instance_id=instance_id,
+        sender_type=SenderType.USER,
+        content=content,
+        requires_user_input=False,
     )
-
-    if since_time:
-        query = query.filter(AgentUserFeedback.created_at > since_time)
-
-    feedback_list = query.order_by(AgentUserFeedback.created_at).all()
-
-    # Mark all feedback as retrieved
-    for feedback in feedback_list:
-        feedback.retrieved_at = datetime.now(timezone.utc)
-    db.commit()
-
-    return [feedback.feedback_text for feedback in feedback_list]
+    db.add(message)
+    return message
 
 
-def end_session(db: Session, instance_id: UUID) -> AgentInstance:
-    """End an agent session by marking it as completed"""
+def get_queued_user_messages(
+    db: Session, instance_id: UUID, last_read_message_id: UUID | None = None
+) -> list[Message] | None:
+    """Get all user messages since the agent last read them.
+    
+    Args:
+        db: Database session
+        instance_id: Agent instance ID
+        last_read_message_id: The message ID the agent last read (optional)
+        
+    Returns:
+        - None if last_read_message_id doesn't match the instance's current last_read_message_id
+        - Empty list if no new messages
+        - List of messages if there are new user messages
+    """
+    # Get the agent instance to check last read message
     instance = db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
-
     if not instance:
-        raise ValueError(f"Agent instance {instance_id} not found")
+        return []
+    
+    if last_read_message_id is not None and instance.last_read_message_id != last_read_message_id:
+        return None
+    
+    # If no last read message, get all user messages
+    if not instance.last_read_message_id:
+        messages = db.query(Message).filter(
+            Message.agent_instance_id == instance_id,
+            Message.sender_type == SenderType.USER,
+        ).order_by(Message.created_at).all()
+    else:
+        # Get the timestamp of the last read message
+        last_read_message = db.query(Message).filter(
+            Message.id == instance.last_read_message_id
+        ).first()
+        
+        if not last_read_message:
+            return []
+            
+        # Get all user messages after the last read message
+        messages = db.query(Message).filter(
+            Message.agent_instance_id == instance_id,
+            Message.sender_type == SenderType.USER,
+            Message.created_at > last_read_message.created_at,
+        ).order_by(Message.created_at).all()
+    
+    # Update last read message to the latest message if any
+    if messages:
+        instance.last_read_message_id = messages[-1].id
+    
+    return messages
 
-    # Update status to completed
-    instance.status = AgentStatus.COMPLETED
-    instance.ended_at = datetime.now(timezone.utc)
 
-    # Mark any active questions as inactive
-    db.query(AgentQuestion).filter(
-        AgentQuestion.agent_instance_id == instance_id, AgentQuestion.is_active
-    ).update({"is_active": False})
+async def send_agent_message(
+    db: Session,
+    agent_type: str,
+    content: str,
+    user_id: str,
+    agent_instance_id: str | None = None,
+    requires_user_input: bool = False,
+    git_diff: str | None = None,
+) -> tuple[str, list[str]]:
+    """High-level function to send an agent message and get queued user messages.
+    
+    This combines the common pattern of:
+    1. Getting or creating an agent instance
+    2. Validating access (if existing instance)
+    3. Creating a message
+    4. Updating git diff if provided
+    5. Getting any queued user messages
+    
+    Args:
+        db: Database session
+        agent_type: Type of agent (e.g., 'claude_code')
+        content: Message content
+        user_id: Authenticated user ID
+        agent_instance_id: Optional existing instance ID
+        requires_user_input: Whether this is a question requiring response
+        send_email: Override email notification preference
+        send_sms: Override SMS notification preference
+        send_push: Override push notification preference
+        git_diff: Optional git diff to update on the instance
+        
+    Returns:
+        Tuple of (agent_instance_id, list of queued user message contents)
+    """
+    # Get or create user agent type
+    agent_type_obj = create_or_get_user_agent(db, agent_type, user_id)
+    
+    # Get or create instance
+    if agent_instance_id:
+        instance = validate_agent_access(db, agent_instance_id, user_id)
+    else:
+        instance = create_agent_instance(db, agent_type_obj.id, user_id)
+    
+    # Update git diff if provided (but don't commit yet)
+    if git_diff is not None:
+        sanitized_diff = sanitize_git_diff(git_diff)
+        if sanitized_diff is not None:  # Allow empty string (cleared diff)
+            instance.git_diff = sanitized_diff
+        else:
+            logger.warning(
+                f"Invalid git diff format for instance {instance.id}, skipping git diff update"
+            )
+    
+    # Create the message (this will handle status updates but NOT commit)
+    message = create_agent_message(
+        db=db,
+        instance_id=instance.id,
+        content=content,
+        requires_user_input=requires_user_input,
+    )
+        
+    # Get queued user messages (passing the new message id as last read)
+    queued_messages = get_queued_user_messages(db, instance.id, message.id)
+    
+    # Handle the None case (shouldn't happen here since we just created the message)
+    if queued_messages is None:
+        queued_messages = []
+    
+    return str(instance.id), [msg.content for msg in queued_messages]
 
-    db.commit()
-    db.refresh(instance)
-    return instance
+
+

@@ -10,16 +10,19 @@ from uuid import UUID
 from fastmcp import Context
 from shared.database.session import get_db
 
-from servers.shared.db import wait_for_answer
-from servers.shared.core import (
-    process_log_step,
-    create_agent_question,
-    process_end_session,
+from servers.shared.db import (
+    send_agent_message,
+    end_session,
+    wait_for_answer,
+    create_agent_message,
+    validate_agent_access,
+    get_queued_user_messages,
 )
+from servers.shared.notification_utils import send_message_notifications
 from .models import AskQuestionResponse, EndSessionResponse, LogStepResponse
 
 
-def log_step_impl(
+async def log_step_impl(
     agent_instance_id: str | None = None,
     agent_type: str = "",
     step_description: str = "",
@@ -29,7 +32,7 @@ def log_step_impl(
 
     Args:
         agent_instance_id: Existing agent instance ID (optional)
-        agent_type: Name of the agent (e.g., 'Claude Code', 'Cursor')
+        agent_type: Name of the agent (e.g., 'claude_code', 'cursor')
         step_description: High-level description of the current step
         user_id: Authenticated user ID
 
@@ -53,19 +56,32 @@ def log_step_impl(
     db = next(get_db())
 
     try:
-        instance_id, step_number, user_feedback = process_log_step(
+        # Use send_agent_message for steps (requires_user_input=False)
+        instance_id, queued_messages = await send_agent_message(
             db=db,
             agent_type=agent_type,
-            step_description=step_description,
+            content=step_description,
             user_id=user_id,
             agent_instance_id=agent_instance_id,
+            requires_user_input=False,
         )
+        
+        # For backward compatibility, we need to return a step number
+        # Count the number of agent messages (steps) for this instance
+        from shared.database import Message, SenderType
+        step_count = db.query(Message).filter(
+            Message.agent_instance_id == UUID(instance_id),
+            Message.sender_type == SenderType.AGENT,
+            Message.requires_user_input == False
+        ).count()
+        
+        db.commit()
 
         return LogStepResponse(
             success=True,
             agent_instance_id=instance_id,
-            step_number=step_number,
-            user_feedback=user_feedback,
+            step_number=step_count,
+            user_feedback=queued_messages,
         )
 
     except Exception:
@@ -108,13 +124,21 @@ async def ask_question_impl(
     db = next(get_db())
 
     try:
-        question = await create_agent_question(
+        # Validate access first
+        instance = validate_agent_access(db, agent_instance_id, user_id)
+        
+        # Create question message (requires_user_input=True)
+        question = create_agent_message(
             db=db,
-            agent_instance_id=agent_instance_id,
-            question_text=question_text,
-            user_id=user_id,
+            instance_id=instance.id,
+            content=question_text,
+            requires_user_input=True,
         )
+        
+        # Commit to make the question visible
+        db.commit()
 
+        # Wait for answer
         answer = await wait_for_answer(db, question.id, tool_context=tool_context)
 
         if answer is None:
@@ -156,11 +180,14 @@ def end_session_impl(
     db = next(get_db())
 
     try:
-        instance_id, final_status = process_end_session(
+        instance_id, final_status = end_session(
             db=db,
             agent_instance_id=agent_instance_id,
             user_id=user_id,
         )
+        
+        # Commit the transaction
+        db.commit()
 
         return EndSessionResponse(
             success=True,

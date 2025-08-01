@@ -10,3 +10,8 @@ class AgentStatus(str, Enum):
     FAILED = "failed"
     KILLED = "killed"
     DISCONNECTED = "disconnected"
+
+
+class SenderType(str, Enum):
+    AGENT = "agent"
+    USER = "user"

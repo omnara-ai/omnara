@@ -14,14 +14,16 @@ from shared.database.models import (
     AgentStep,
     AgentQuestion,
     AgentUserFeedback,
+    Message,
 )
-from shared.database.enums import AgentStatus
+from shared.database.enums import AgentStatus, SenderType
 
-# Import the core functions we want to test
-from servers.shared.core import (
-    process_log_step,
-    create_agent_question,
-    process_end_session,
+# Import the functions we want to test
+from servers.shared.db import (
+    send_agent_message,
+    end_session,
+    create_agent_message,
+    wait_for_answer,
 )
 
 
