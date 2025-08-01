@@ -176,11 +176,15 @@ async def stream_messages(
                     )
 
                     # Parse the JSON payload
-                    message_data = json.loads(payload)
-                    # created_at is already a string from PostgreSQL's json_build_object
+                    data = json.loads(payload)
 
-                    # Send message event
-                    yield f"event: message\ndata: {json.dumps(message_data)}\n\n"
+                    # Check if this is a status update or a message
+                    if data.get("event_type") == "status_update":
+                        # Send status_update event
+                        yield f"event: status_update\ndata: {json.dumps(data)}\n\n"
+                    else:
+                        # Regular message event (created_at is already a string from PostgreSQL)
+                        yield f"event: message\ndata: {json.dumps(data)}\n\n"
 
                 except asyncio.TimeoutError:
                     # Send heartbeat to keep connection alive
