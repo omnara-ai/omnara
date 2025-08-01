@@ -29,6 +29,11 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
       
+      - name: Test webhook module import
+        shell: pwsh
+        run: |
+          python -c "import sys; print('Python path:'); print('\n'.join(sys.path)); import webhooks.claude_code; print('Webhook module imported successfully')"
+      
       - name: Test webhook help
         shell: pwsh
         run: |
@@ -53,25 +58,40 @@ jobs:
         shell: pwsh
         run: |
           # Start the server in background
-          $job = Start-Job -ScriptBlock { 
-            cd $using:PWD
-            python -m webhooks.claude_code --port 6663
+          $process = Start-Process -FilePath "python" -ArgumentList "-m", "webhooks.claude_code", "--port", "6663" -PassThru -WindowStyle Hidden
+          
+          # Wait for server to start with retries
+          $maxRetries = 10
+          $retryCount = 0
+          $success = $false
+          
+          Write-Host "Waiting for server to start..."
+          while ($retryCount -lt $maxRetries -and -not $success) {
+            Start-Sleep -Seconds 2
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:6663/health" -Method GET -ErrorAction Stop
+              if ($response.StatusCode -eq 200) {
+                Write-Host "Health check passed!"
+                $success = $true
+              }
+            } catch {
+              $retryCount++
+              Write-Host "Attempt $retryCount/$maxRetries failed: $_"
+              if ($retryCount -eq $maxRetries) {
+                Write-Host "Health check failed after $maxRetries attempts"
+                # Try to get process output for debugging
+                if ($process -and -not $process.HasExited) {
+                  Write-Host "Server process is still running (PID: $($process.Id))"
+                } else {
+                  Write-Host "Server process has exited"
+                }
+                exit 1
+              }
+            }
           }
           
-          # Wait for server to start
-          Start-Sleep -Seconds 5
-          
-          # Test health endpoint
-          try {
-            $response = Invoke-WebRequest -Uri "http://localhost:6663/health" -Method GET
-            if ($response.StatusCode -eq 200) {
-              Write-Host "Health check passed!"
-            }
-          } catch {
-            Write-Host "Health check failed: $_"
-            exit 1
-          } finally {
-            # Stop the server
-            Stop-Job -Job $job
-            Remove-Job -Job $job
+          # Stop the server
+          if ($process -and -not $process.HasExited) {
+            Stop-Process -Id $process.Id -Force
+            Write-Host "Server stopped"
           }
