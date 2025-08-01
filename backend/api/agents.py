@@ -14,14 +14,14 @@ from ..db import (
     get_all_agent_instances,
     get_all_agent_types_with_instances,
     mark_instance_completed,
-    submit_user_feedback,
+    submit_user_message,
 )
 from ..models import (
     AgentInstanceDetail,
     AgentInstanceResponse,
     AgentTypeOverview,
-    UserFeedbackRequest,
-    UserFeedbackResponse,
+    UserMessageRequest,
+    UserMessageResponse,
 )
 
 router = APIRouter(tags=["agents"])
@@ -87,16 +87,16 @@ async def get_instance_detail(
 
 
 @router.post(
-    "/agent-instances/{instance_id}/feedback", response_model=UserFeedbackResponse
+    "/agent-instances/{instance_id}/messages", response_model=UserMessageResponse
 )
-async def add_user_feedback(
+async def create_user_message(
     instance_id: UUID,
-    request: UserFeedbackRequest,
+    request: UserMessageRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Submit user feedback for an agent instance for the current user"""
-    result = submit_user_feedback(db, instance_id, request.feedback, current_user.id)
+    """Send a message to an agent instance (answers questions or provides feedback)"""
+    result = submit_user_message(db, instance_id, request.content, current_user.id)
     if not result:
         raise HTTPException(status_code=404, detail="Agent instance not found")
     return result

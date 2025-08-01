@@ -13,31 +13,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from shared.database.enums import AgentStatus
 
 # ============================================================================
-# Question Models
+# Message Models
 # ============================================================================
 
 
-# This is when the Agent prompts the user for an answer and this format
-# is what the user responds with.
-class AnswerRequest(BaseModel):
-    answer: str = Field(..., description="User's answer to the question")
+# Unified message models
+class UserMessageRequest(BaseModel):
+    content: str = Field(..., description="Message content from the user")
 
 
-# User feedback that agents can retrieve during their operations
-class UserFeedbackRequest(BaseModel):
-    feedback: str = Field(..., description="User's feedback or additional information")
-
-
-class UserFeedbackResponse(BaseModel):
+class UserMessageResponse(BaseModel):
     id: str
-    feedback_text: str
+    content: str
+    sender_type: str
     created_at: datetime
-    retrieved_at: datetime | None
+    requires_user_input: bool
 
-    @field_serializer("created_at", "retrieved_at")
-    def serialize_datetime(self, dt: datetime | None, _info):
-        if dt is None:
-            return None
+    @field_serializer("created_at")
+    def serialize_datetime(self, dt: datetime, _info):
         return dt.isoformat() + "Z"
 
     model_config = ConfigDict(from_attributes=True)
@@ -97,13 +90,11 @@ class AgentInstanceResponse(BaseModel):
     status: AgentStatus
     started_at: datetime
     ended_at: datetime | None
-    latest_step: str | None = None
-    has_pending_question: bool = False
-    pending_question_age: int | None = None  # Age in seconds
-    pending_questions_count: int = 0
-    step_count: int = 0
+    latest_message: str | None = None
+    latest_message_at: datetime | None = None  # Timestamp of the latest message
+    chat_length: int = 0  # Total message count
 
-    @field_serializer("started_at", "ended_at")
+    @field_serializer("started_at", "ended_at", "latest_message_at")
     def serialize_datetime(self, dt: datetime | None, _info):
         if dt is None:
             return None
@@ -152,19 +143,33 @@ class QuestionDetail(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Message model for the chat interface
+class MessageResponse(BaseModel):
+    id: str
+    content: str
+    sender_type: str
+    created_at: datetime
+    requires_user_input: bool
+
+    @field_serializer("created_at")
+    def serialize_datetime(self, dt: datetime, _info):
+        return dt.isoformat() + "Z"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Complete detailed view of a specific agent instance
-# with full step and question history
+# with full message history
 class AgentInstanceDetail(BaseModel):
     id: str
     agent_type_id: str
-    agent_type: AgentTypeOverview
+    agent_type_name: str
     status: AgentStatus
     started_at: datetime
     ended_at: datetime | None
     git_diff: str | None = None
-    steps: list[AgentStepResponse] = []
-    questions: list[QuestionDetail] = []
-    user_feedback: list[UserFeedbackResponse] = []
+    messages: list[MessageResponse] = []
+    last_read_message_id: str | None = None
 
     @field_serializer("started_at", "ended_at")
     def serialize_datetime(self, dt: datetime | None, _info):

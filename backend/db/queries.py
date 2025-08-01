@@ -5,12 +5,11 @@ from uuid import UUID
 from shared.config import settings
 from shared.database import (
     AgentInstance,
-    AgentQuestion,
     AgentStatus,
-    AgentStep,
-    AgentUserFeedback,
     APIKey,
+    Message,
     PushToken,
+    SenderType,
     User,
     UserAgent,
 )
@@ -19,52 +18,48 @@ from shared.database.subscription_models import BillingEvent, Subscription
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session, joinedload
 
+# Import Pydantic models for type-safe returns
+from backend.models import (
+    AgentInstanceResponse,
+    AgentInstanceDetail,
+    MessageResponse,
+    UserMessageResponse,
+    AgentTypeOverview,
+)
 
-def _format_instance(instance: AgentInstance) -> dict:
+
+def _format_instance(instance: AgentInstance) -> AgentInstanceResponse:
     """Helper function to format an agent instance consistently"""
-    # Get latest step
-    latest_step = None
-    if instance.steps:
-        latest_step = max(instance.steps, key=lambda s: s.created_at).description
+    # Get all messages for this instance
+    messages = instance.messages if hasattr(instance, "messages") else []
 
-    # Get step count
-    step_count = len(instance.steps) if instance.steps else 0
+    # Get latest message and its timestamp
+    latest_message = None
+    latest_message_at = None
+    if messages:
+        last_msg = max(messages, key=lambda m: m.created_at)
+        latest_message = last_msg.content
+        latest_message_at = last_msg.created_at
 
-    # Check for pending questions
-    pending_questions = [q for q in instance.questions if q.is_active]
-    pending_questions_count = len(pending_questions)
-    has_pending = pending_questions_count > 0
-    pending_age = None
-    if has_pending:
-        oldest_pending = min(pending_questions, key=lambda q: q.asked_at)
-        # All database times are stored as UTC but may be naive
-        now_utc = datetime.now(timezone.utc)
-        asked_at = oldest_pending.asked_at
-        if asked_at.tzinfo is None:
-            asked_at = asked_at.replace(tzinfo=timezone.utc)
-        pending_age = int((now_utc - asked_at).total_seconds())
+    # Get total message count (chat length)
+    chat_length = len(messages)
 
-    return {
-        "id": str(instance.id),
-        "agent_type_id": str(instance.user_agent_id) if instance.user_agent_id else "",
-        "agent_type_name": instance.user_agent.name
-        if instance.user_agent
-        else "Unknown",
-        "status": instance.status,
-        "started_at": instance.started_at,
-        "ended_at": instance.ended_at,
-        "latest_step": latest_step,
-        "has_pending_question": has_pending,
-        "pending_question_age": pending_age,
-        "pending_questions_count": pending_questions_count,
-        "step_count": step_count,
-        "last_signal_at": instance.steps[-1].created_at
-        if instance.steps
-        else instance.started_at,
-    }
+    return AgentInstanceResponse(
+        id=str(instance.id),
+        agent_type_id=str(instance.user_agent_id) if instance.user_agent_id else "",
+        agent_type_name=instance.user_agent.name if instance.user_agent else "Unknown",
+        status=instance.status,
+        started_at=instance.started_at,
+        ended_at=instance.ended_at,
+        latest_message=latest_message,
+        latest_message_at=latest_message_at,
+        chat_length=chat_length,
+    )
 
 
-def get_all_agent_types_with_instances(db: Session, user_id: UUID) -> list[dict]:
+def get_all_agent_types_with_instances(
+    db: Session, user_id: UUID
+) -> list[AgentTypeOverview]:
     """Get all user agents with their instances for a specific user"""
 
     # Get all user agents for this user
@@ -79,25 +74,29 @@ def get_all_agent_types_with_instances(db: Session, user_id: UUID) -> list[dict]
                 AgentInstance.user_agent_id == user_agent.id,
             )
             .options(
-                joinedload(AgentInstance.steps),
-                joinedload(AgentInstance.questions),
+                joinedload(AgentInstance.messages),
                 joinedload(AgentInstance.user_agent),
             )
             .all()
         )
 
-        # Sort instances: pending questions first, then by most recent activity
+        # Sort instances: AWAITING_INPUT instances first, then by most recent activity
         def sort_key(instance):
-            pending_questions = [q for q in instance.questions if q.is_active]
-            if pending_questions:
-                oldest_question = min(pending_questions, key=lambda q: q.asked_at)
-                return (0, oldest_question.asked_at)
+            messages = instance.messages if hasattr(instance, "messages") else []
 
+            # If instance is awaiting input, prioritize it
+            if instance.status == AgentStatus.AWAITING_INPUT:
+                # Sort by when the question was asked (last message time)
+                if messages:
+                    last_msg_time = max(messages, key=lambda m: m.created_at).created_at
+                    return (0, last_msg_time)
+                else:
+                    return (0, instance.started_at)
+
+            # Otherwise sort by last activity
             last_activity = instance.started_at
-            if instance.steps:
-                last_activity = max(
-                    instance.steps, key=lambda s: s.created_at
-                ).created_at
+            if messages:
+                last_activity = max(messages, key=lambda m: m.created_at).created_at
             return (1, -last_activity.timestamp())
 
         sorted_instances = sorted(instances, key=sort_key)
@@ -108,16 +107,16 @@ def get_all_agent_types_with_instances(db: Session, user_id: UUID) -> list[dict]
         ]
 
         result.append(
-            {
-                "id": str(user_agent.id),
-                "name": user_agent.name,
-                "created_at": user_agent.created_at,
-                "recent_instances": formatted_instances,
-                "total_instances": len(instances),
-                "active_instances": sum(
+            AgentTypeOverview(
+                id=str(user_agent.id),
+                name=user_agent.name,
+                created_at=user_agent.created_at,
+                recent_instances=formatted_instances,
+                total_instances=len(instances),
+                active_instances=sum(
                     1 for i in instances if i.status == AgentStatus.ACTIVE
                 ),
-            }
+            )
         )
 
     return result
@@ -125,15 +124,14 @@ def get_all_agent_types_with_instances(db: Session, user_id: UUID) -> list[dict]
 
 def get_all_agent_instances(
     db: Session, user_id: UUID, limit: int | None = None
-) -> list[dict]:
+) -> list[AgentInstanceResponse]:
     """Get all agent instances for a specific user, sorted by most recent activity"""
 
     query = (
         db.query(AgentInstance)
         .filter(AgentInstance.user_id == user_id)
         .options(
-            joinedload(AgentInstance.steps),
-            joinedload(AgentInstance.questions),
+            joinedload(AgentInstance.messages),
             joinedload(AgentInstance.user_agent),
         )
         .order_by(desc(AgentInstance.started_at))
@@ -216,7 +214,7 @@ def get_agent_summary(db: Session, user_id: UUID) -> dict:
 
 def get_agent_type_instances(
     db: Session, agent_type_id: UUID, user_id: UUID
-) -> list[dict] | None:
+) -> list[AgentInstanceResponse] | None:
     """Get all instances for a specific user agent"""
 
     user_agent = (
@@ -233,8 +231,7 @@ def get_agent_type_instances(
             AgentInstance.user_agent_id == agent_type_id,
         )
         .options(
-            joinedload(AgentInstance.steps),
-            joinedload(AgentInstance.questions),
+            joinedload(AgentInstance.messages),
             joinedload(AgentInstance.user_agent),
         )
         .order_by(desc(AgentInstance.started_at))
@@ -247,7 +244,7 @@ def get_agent_type_instances(
 
 def get_agent_instance_detail(
     db: Session, instance_id: UUID, user_id: UUID
-) -> dict | None:
+) -> AgentInstanceDetail | None:
     """Get detailed information about a specific agent instance for a specific user"""
 
     instance = (
@@ -255,9 +252,7 @@ def get_agent_instance_detail(
         .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
         .options(
             joinedload(AgentInstance.user_agent),
-            joinedload(AgentInstance.steps),
-            joinedload(AgentInstance.questions),
-            joinedload(AgentInstance.user_feedback),
+            joinedload(AgentInstance.messages),
         )
         .first()
     )
@@ -265,122 +260,45 @@ def get_agent_instance_detail(
     if not instance:
         return None
 
-    # Sort steps by step number
-    sorted_steps = sorted(instance.steps, key=lambda s: s.step_number)
-
-    # Sort questions by asked_at
-    sorted_questions = sorted(instance.questions, key=lambda q: q.asked_at)
-
-    # Sort user feedback by created_at
-    sorted_feedback = sorted(instance.user_feedback, key=lambda f: f.created_at)
-
-    return {
-        "id": str(instance.id),
-        "agent_type_id": str(instance.user_agent_id) if instance.user_agent_id else "",
-        "agent_type": {
-            "id": str(instance.user_agent.id) if instance.user_agent else "",
-            "name": instance.user_agent.name if instance.user_agent else "Unknown",
-            "created_at": instance.user_agent.created_at
-            if instance.user_agent
-            else datetime.now(timezone.utc),
-            "recent_instances": [],
-            "total_instances": 0,
-            "active_instances": 0,
-        },
-        "status": instance.status,
-        "started_at": instance.started_at,
-        "ended_at": instance.ended_at,
-        "git_diff": instance.git_diff,
-        "steps": [
-            {
-                "id": str(step.id),
-                "step_number": step.step_number,
-                "description": step.description,
-                "created_at": step.created_at,
-            }
-            for step in sorted_steps
-        ],
-        "questions": [
-            {
-                "id": str(question.id),
-                "question_text": question.question_text,
-                "answer_text": question.answer_text,
-                "asked_at": question.asked_at,
-                "answered_at": question.answered_at,
-                "is_active": question.is_active,
-            }
-            for question in sorted_questions
-        ],
-        "user_feedback": [
-            {
-                "id": str(feedback.id),
-                "feedback_text": feedback.feedback_text,
-                "created_at": feedback.created_at,
-                "retrieved_at": feedback.retrieved_at,
-            }
-            for feedback in sorted_feedback
-        ],
-    }
-
-
-def submit_answer(
-    db: Session, question_id: UUID, answer: str, user_id: UUID
-) -> dict | None:
-    """Submit an answer to a question for a specific user"""
-
-    question = (
-        db.query(AgentQuestion)
-        .filter(AgentQuestion.id == question_id, AgentQuestion.is_active)
-        .join(AgentInstance)
-        .filter(AgentInstance.user_id == user_id)
-        .first()
+    # Get all messages and sort by created_at
+    messages = (
+        sorted(instance.messages, key=lambda m: m.created_at)
+        if hasattr(instance, "messages")
+        else []
     )
 
-    if not question:
-        return None
-
-    question.answer_text = answer
-    question.answered_at = datetime.now(timezone.utc)
-    question.is_active = False
-    question.answered_by_user_id = user_id
-
-    # Update agent instance status back to ACTIVE if it was AWAITING_INPUT
-    instance = (
-        db.query(AgentInstance)
-        .filter(AgentInstance.id == question.agent_instance_id)
-        .first()
-    )
-    if instance and instance.status == AgentStatus.AWAITING_INPUT:
-        # Check if there are other active questions for this instance
-        other_active_questions = (
-            db.query(AgentQuestion)
-            .filter(
-                AgentQuestion.agent_instance_id == instance.id,
-                AgentQuestion.id != question_id,
-                AgentQuestion.is_active,
+    # Format messages for chat display
+    formatted_messages = []
+    for msg in messages:
+        formatted_messages.append(
+            MessageResponse(
+                id=str(msg.id),
+                content=msg.content,
+                sender_type=msg.sender_type.value,  # "agent" or "user"
+                created_at=msg.created_at,
+                requires_user_input=msg.requires_user_input,
             )
-            .count()
         )
-        # Only change status back to ACTIVE if no other questions are pending
-        if other_active_questions == 0:
-            instance.status = AgentStatus.ACTIVE
 
-    db.commit()
+    return AgentInstanceDetail(
+        id=str(instance.id),
+        agent_type_id=str(instance.user_agent_id) if instance.user_agent_id else "",
+        agent_type_name=instance.user_agent.name if instance.user_agent else "Unknown",
+        status=instance.status,
+        started_at=instance.started_at,
+        ended_at=instance.ended_at,
+        git_diff=instance.git_diff,
+        messages=formatted_messages,
+        last_read_message_id=str(instance.last_read_message_id)
+        if instance.last_read_message_id
+        else None,
+    )
 
-    return {
-        "id": str(question.id),
-        "question_text": question.question_text,
-        "answer_text": question.answer_text,
-        "asked_at": question.asked_at,
-        "answered_at": question.answered_at,
-        "is_active": question.is_active,
-    }
 
-
-def submit_user_feedback(
-    db: Session, instance_id: UUID, feedback_text: str, user_id: UUID
-) -> dict | None:
-    """Submit user feedback for an agent instance for a specific user"""
+def submit_user_message(
+    db: Session, instance_id: UUID, content: str, user_id: UUID
+) -> UserMessageResponse | None:
+    """Submit a user message to an agent instance"""
 
     # Check if instance exists and belongs to user
     instance = (
@@ -391,28 +309,33 @@ def submit_user_feedback(
     if not instance:
         return None
 
-    # Create new feedback
-    feedback = AgentUserFeedback(
+    # Create new user message
+    user_message = Message(
         agent_instance_id=instance_id,
-        feedback_text=feedback_text,
-        created_by_user_id=user_id,
+        sender_type=SenderType.USER,
+        content=content,
+        requires_user_input=False,
     )
+    db.add(user_message)
 
-    db.add(feedback)
+    if instance.status != AgentStatus.COMPLETED:
+        instance.status = AgentStatus.ACTIVE
+
     db.commit()
-    db.refresh(feedback)
+    db.refresh(user_message)
 
-    return {
-        "id": str(feedback.id),
-        "feedback_text": feedback.feedback_text,
-        "created_at": feedback.created_at,
-        "retrieved_at": feedback.retrieved_at,
-    }
+    return UserMessageResponse(
+        id=str(user_message.id),
+        content=user_message.content,
+        sender_type=user_message.sender_type.value,
+        created_at=user_message.created_at,
+        requires_user_input=user_message.requires_user_input,
+    )
 
 
 def mark_instance_completed(
     db: Session, instance_id: UUID, user_id: UUID
-) -> dict | None:
+) -> AgentInstanceResponse | None:
     """Mark an agent instance as completed for a specific user"""
 
     # Check if instance exists and belongs to user
@@ -428,10 +351,7 @@ def mark_instance_completed(
     instance.status = AgentStatus.COMPLETED
     instance.ended_at = datetime.now(timezone.utc)
 
-    # Deactivate any pending questions
-    db.query(AgentQuestion).filter(
-        AgentQuestion.agent_instance_id == instance_id, AgentQuestion.is_active
-    ).update({"is_active": False})
+    # No need to deactivate questions - they're handled by checking for user responses
 
     db.commit()
 
@@ -441,8 +361,7 @@ def mark_instance_completed(
         .filter(AgentInstance.id == instance_id)
         .options(
             joinedload(AgentInstance.user_agent),
-            joinedload(AgentInstance.steps),
-            joinedload(AgentInstance.questions),
+            joinedload(AgentInstance.messages),
         )
         .first()
     )
@@ -483,16 +402,6 @@ def delete_user_account(db: Session, user_id: UUID) -> None:
                 )
 
         # Delete in order of foreign key dependencies
-        # 1. Delete AgentUserFeedback (depends on AgentInstance and User)
-        db.query(AgentUserFeedback).filter(
-            AgentUserFeedback.created_by_user_id == user_id
-        ).delete(synchronize_session=False)
-
-        # 2. Delete AgentQuestions (depends on AgentInstance and User)
-        db.query(AgentQuestion).filter(
-            AgentQuestion.answered_by_user_id == user_id
-        ).delete(synchronize_session=False)
-
         # Get all agent instances for this user to delete their related data
         instance_ids = [
             instance.id
@@ -502,19 +411,9 @@ def delete_user_account(db: Session, user_id: UUID) -> None:
         ]
 
         if instance_ids:
-            # Delete questions for user's instances
-            db.query(AgentQuestion).filter(
-                AgentQuestion.agent_instance_id.in_(instance_ids)
-            ).delete(synchronize_session=False)
-
-            # Delete steps for user's instances
-            db.query(AgentStep).filter(
-                AgentStep.agent_instance_id.in_(instance_ids)
-            ).delete(synchronize_session=False)
-
-            # Delete feedback for user's instances
-            db.query(AgentUserFeedback).filter(
-                AgentUserFeedback.agent_instance_id.in_(instance_ids)
+            # Delete messages for user's instances
+            db.query(Message).filter(
+                Message.agent_instance_id.in_(instance_ids)
             ).delete(synchronize_session=False)
 
         # 3. Delete AgentInstances (depends on UserAgent and User)
