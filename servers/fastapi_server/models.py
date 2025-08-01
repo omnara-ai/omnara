@@ -14,10 +14,10 @@ class CreateMessageRequest(BaseModel):
 
     agent_instance_id: str = Field(
         ...,
-        description="Existing agent instance ID. If not provided, creates a new instance.",
+        description="Existing agent instance ID. Creates a new agent instance if ID doesn't exist.",
     )
-    agent_type: str = Field(
-        ..., description="Type of agent (e.g., 'claude_code', 'cursor')"
+    agent_type: str | None = Field(
+        None, description="Type of agent (e.g., 'claude_code', 'cursor')"
     )
     content: str = Field(
         ..., description="Message content (step description or question text)"

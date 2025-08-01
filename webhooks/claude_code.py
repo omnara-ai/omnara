@@ -339,6 +339,7 @@ class WebhookRequest(BaseModel):
     prompt: str
     name: str | None = None  # Branch name
     worktree_name: str | None = None
+    agent_type: str | None = None  # Agent type name
 
     @field_validator("agent_instance_id")
     def validate_instance_id(cls, v):
@@ -589,6 +590,7 @@ async def start_claude(
         prompt = webhook_data.prompt
         worktree_name = webhook_data.worktree_name
         branch_name = webhook_data.name
+        agent_type = webhook_data.agent_type
 
         print("\n[INFO] Received webhook request:")
         print(f"  - Instance ID: {agent_instance_id}")
@@ -814,10 +816,18 @@ async def start_claude(
                         "--git-diff",
                         "--agent-instance-id",
                         agent_instance_id,
+                        "--base-url",
+                        "http://localhost:8080",
                     ],
                 }
             }
         }
+
+        # Add environment variable for agent type if provided
+        if agent_type:
+            mcp_config["mcpServers"]["omnara"]["env"] = {
+                "OMNARA_CLIENT_TYPE": agent_type
+            }
         mcp_config_str = json.dumps(mcp_config)
 
         # Build claude command with MCP config as string

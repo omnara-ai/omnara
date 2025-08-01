@@ -246,6 +246,7 @@ async def ask_question_tool(
     if not question_text:
         raise ValueError("question_text is required")
 
+    agent_type = detect_agent_type_from_environment()
     client = get_client()
 
     # Get git diff if enabled
@@ -256,6 +257,7 @@ async def ask_question_tool(
 
     try:
         response = await client.send_message(
+            agent_type=agent_type,
             agent_instance_id=agent_instance_id,
             content=question_text,
             requires_user_input=True,  # Questions require user input
