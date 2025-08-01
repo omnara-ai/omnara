@@ -1,6 +1,7 @@
 """Main client for interacting with the Omnara Agent Dashboard API."""
 
 import time
+import uuid
 from typing import Optional, Dict, Any, Union
 from urllib.parse import urljoin
 
@@ -10,11 +11,14 @@ from urllib3.util.retry import Retry
 
 from .exceptions import AuthenticationError, TimeoutError, APIError
 from .models import (
-    QuestionResponse,
     EndSessionResponse,
     CreateMessageResponse,
     PendingMessagesResponse,
     Message,
+)
+from .utils import (
+    validate_agent_instance_id,
+    build_message_request_data,
 )
 
 
@@ -113,7 +117,7 @@ class OmnaraClient:
         self,
         content: str,
         agent_type: Optional[str] = None,
-        agent_instance_id: Optional[str] = None,
+        agent_instance_id: Optional[Union[str, uuid.UUID]] = None,
         requires_user_input: bool = False,
         timeout_minutes: int = 1440,
         poll_interval: float = 10.0,
@@ -121,8 +125,8 @@ class OmnaraClient:
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
         git_diff: Optional[str] = None,
-    ) -> Union[CreateMessageResponse, QuestionResponse]:
-        """Send a message to the dashboard (either a step or a question).
+    ) -> CreateMessageResponse:
+        """Send a message to the dashboard.
 
         Args:
             content: The message content (step description or question text)
@@ -137,78 +141,87 @@ class OmnaraClient:
             git_diff: Git diff content to include (optional)
 
         Returns:
-            CreateMessageResponse if requires_user_input is False
-            QuestionResponse if requires_user_input is True (after polling for answer)
+            CreateMessageResponse with any queued user messages
 
         Raises:
             ValueError: If neither agent_type nor agent_instance_id is provided
             TimeoutError: If requires_user_input and no answer is received within timeout
         """
-        # Validate inputs
-        if not agent_instance_id and not agent_type:
-            raise ValueError("Either agent_type or agent_instance_id must be provided")
+        # If no agent_instance_id provided, generate one client-side
+        if not agent_instance_id:
+            if not agent_type:
+                raise ValueError("agent_type is required when creating a new instance")
+            agent_instance_id = uuid.uuid4()
 
-        # Build request data
-        data: Dict[str, Any] = {
-            "content": content,
-            "requires_user_input": requires_user_input,
-        }
-        if agent_type:
-            data["agent_type"] = agent_type
-        if agent_instance_id:
-            data["agent_instance_id"] = agent_instance_id
-        if send_push is not None:
-            data["send_push"] = send_push
-        if send_email is not None:
-            data["send_email"] = send_email
-        if send_sms is not None:
-            data["send_sms"] = send_sms
-        if git_diff is not None:
-            data["git_diff"] = git_diff
+        # Validate and convert agent_instance_id to string
+        agent_instance_id_str = validate_agent_instance_id(agent_instance_id)
+
+        # Build request data using shared utility
+        data = build_message_request_data(
+            content=content,
+            agent_instance_id=agent_instance_id_str,
+            requires_user_input=requires_user_input,
+            agent_type=agent_type,
+            send_push=send_push,
+            send_email=send_email,
+            send_sms=send_sms,
+            git_diff=git_diff,
+        )
 
         # Send the message
-        response = self._make_request("POST", "/api/v1/messages", json=data)
-        
-        # If it doesn't require user input, return immediately
+        response = self._make_request("POST", "/api/v1/messages/agent", json=data)
+        response_agent_instance_id = response["agent_instance_id"]
+        message_id = response["message_id"]
+
+        # Create the response object
+        create_response = CreateMessageResponse(
+            success=response["success"],
+            agent_instance_id=response_agent_instance_id,
+            message_id=message_id,
+            queued_user_messages=response.get("queued_user_messages", []),
+        )
+
+        # If it doesn't require user input, return immediately with any queued messages
         if not requires_user_input:
-            return CreateMessageResponse(
-                success=response["success"],
-                agent_instance_id=response["agent_instance_id"],
-                queued_user_messages=response.get("queued_user_messages", []),
-            )
-        
-        # Otherwise, poll for the answer
-        agent_instance_id = response["agent_instance_id"]
-        last_read_message_id = None
+            return create_response
+
+        # Otherwise, we need to poll for user response
+        # Use the message ID we just created as our starting point
+        last_read_message_id = message_id
+
         timeout_seconds = timeout_minutes * 60
         start_time = time.time()
-        
+        all_messages = []
+
         while time.time() - start_time < timeout_seconds:
             # Poll for pending messages
-            pending_response = self.get_pending_messages(agent_instance_id, last_read_message_id)
-            
+            pending_response = self.get_pending_messages(
+                agent_instance_id_str, last_read_message_id
+            )
+
             # If status is "stale", another process has read the messages
             if pending_response.status == "stale":
                 raise TimeoutError("Another process has read the messages")
-            
+
             # Check if we got any messages
             if pending_response.messages:
-                # Return the first message as the answer
-                first_message = pending_response.messages[0]
-                return QuestionResponse(
-                    answer=first_message.content, 
-                    question_id=first_message.id
-                )
-            
+                # Collect all messages
+                all_messages.extend(pending_response.messages)
+
+                # Return the response with all collected messages
+                create_response.queued_user_messages = [
+                    msg.content for msg in all_messages
+                ]
+                return create_response
+
             time.sleep(poll_interval)
 
         raise TimeoutError(f"Question timed out after {timeout_minutes} minutes")
 
-
     def get_pending_messages(
-        self, 
-        agent_instance_id: str, 
-        last_read_message_id: Optional[str] = None
+        self,
+        agent_instance_id: Union[str, uuid.UUID],
+        last_read_message_id: Optional[str] = None,
     ) -> PendingMessagesResponse:
         """Get pending user messages for an agent instance.
 
@@ -219,10 +232,13 @@ class OmnaraClient:
         Returns:
             PendingMessagesResponse with messages and status
         """
-        params = {"agent_instance_id": agent_instance_id}
+        # Validate and convert agent_instance_id to string
+        agent_instance_id_str = validate_agent_instance_id(agent_instance_id)
+
+        params = {"agent_instance_id": agent_instance_id_str}
         if last_read_message_id:
             params["last_read_message_id"] = last_read_message_id
-            
+
         response = self._make_request("GET", "/api/v1/messages/pending", params=params)
 
         return PendingMessagesResponse(
@@ -230,9 +246,44 @@ class OmnaraClient:
             messages=[Message(**msg) for msg in response["messages"]],
             status=response["status"],
         )
-        
 
-    def end_session(self, agent_instance_id: str) -> EndSessionResponse:
+    def send_user_message(
+        self,
+        agent_instance_id: Union[str, uuid.UUID],
+        content: str,
+        mark_as_read: bool = True,
+    ) -> Dict[str, Any]:
+        """Send a user message to an agent instance.
+
+        Args:
+            agent_instance_id: The agent instance ID to send the message to
+            content: Message content
+            mark_as_read: Whether to mark as read (update last_read_message_id) (default: True)
+
+        Returns:
+            Dict containing:
+                - success: Whether the message was created
+                - message_id: ID of the created message
+                - marked_as_read: Whether the message was marked as read
+
+        Raises:
+            ValueError: If agent instance not found or access denied
+            APIError: If the API request fails
+        """
+        # Validate and convert agent_instance_id
+        agent_instance_id = validate_agent_instance_id(agent_instance_id)
+
+        data = {
+            "agent_instance_id": str(agent_instance_id),
+            "content": content,
+            "mark_as_read": mark_as_read,
+        }
+
+        return self._make_request("POST", "/api/v1/messages/user", json=data)
+
+    def end_session(
+        self, agent_instance_id: Union[str, uuid.UUID]
+    ) -> EndSessionResponse:
         """End an agent session and mark it as completed.
 
         Args:
@@ -241,7 +292,10 @@ class OmnaraClient:
         Returns:
             EndSessionResponse with success status and final details
         """
-        data: Dict[str, Any] = {"agent_instance_id": agent_instance_id}
+        # Validate and convert agent_instance_id to string
+        agent_instance_id_str = validate_agent_instance_id(agent_instance_id)
+
+        data: Dict[str, Any] = {"agent_instance_id": agent_instance_id_str}
         response = self._make_request("POST", "/api/v1/sessions/end", json=data)
 
         return EndSessionResponse(

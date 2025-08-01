@@ -10,15 +10,11 @@ from shared.database import (
     Message,
     SenderType,
     UserAgent,
-    User,
 )
 from shared.database.billing_operations import check_agent_limit
 from shared.database.utils import sanitize_git_diff
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 from fastmcp import Context
-from servers.shared.notifications import push_service
-from servers.shared.twilio_service import twilio_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +36,7 @@ def create_or_get_user_agent(db: Session, name: str, user_id: str) -> UserAgent:
             is_active=True,
         )
         db.add(user_agent)
+        db.flush()  # Flush to get the user_agent ID
     return user_agent
 
 
@@ -62,46 +59,71 @@ def get_agent_instance(db: Session, instance_id: str) -> AgentInstance | None:
     return db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
 
 
-def validate_agent_access(db: Session, agent_instance_id: str, user_id: str) -> AgentInstance:
-    """Validate that a user has access to an agent instance.
-    
+def get_or_create_agent_instance(
+    db: Session, agent_instance_id: str, user_id: str, agent_type: str | None = None
+) -> AgentInstance:
+    """Get an existing agent instance or create a new one.
+
     Args:
         db: Database session
-        agent_instance_id: Agent instance ID to validate
+        agent_instance_id: Agent instance ID (always required)
         user_id: User ID requesting access
-        
+        agent_type: Agent type name (required only when creating new instance)
+
     Returns:
-        The agent instance if validation passes
-        
+        The agent instance (existing or newly created)
+
     Raises:
-        ValueError: If instance not found or user doesn't have access
+        ValueError: If instance not found, user doesn't have access, or agent_type missing when creating
     """
+    # Try to get existing instance
     instance = get_agent_instance(db, agent_instance_id)
-    if not instance:
-        raise ValueError(f"Agent instance {agent_instance_id} not found")
-    if str(instance.user_id) != user_id:
-        raise ValueError(
-            "Access denied. Agent instance does not belong to authenticated user."
+
+    if instance:
+        # Validate access to existing instance
+        if str(instance.user_id) != user_id:
+            raise ValueError(
+                "Access denied. Agent instance does not belong to authenticated user."
+            )
+        return instance
+    else:
+        # Create new instance with the provided ID
+        if not agent_type:
+            raise ValueError("agent_type is required when creating new instance")
+
+        agent_type_obj = create_or_get_user_agent(db, agent_type, user_id)
+
+        # Check usage limits if billing is enabled
+        check_agent_limit(UUID(user_id), db)
+
+        # Create instance with the specific ID
+        instance = AgentInstance(
+            id=UUID(agent_instance_id),
+            user_agent_id=agent_type_obj.id,
+            user_id=UUID(user_id),
+            status=AgentStatus.ACTIVE,
         )
-    return instance
+        db.add(instance)
+        db.flush()  # Flush to ensure the instance is in the session with its ID
+        return instance
 
 
 def end_session(db: Session, agent_instance_id: str, user_id: str) -> tuple[str, str]:
     """End an agent session by marking it as completed.
-    
+
     Args:
         db: Database session
         agent_instance_id: Agent instance ID to end
         user_id: Authenticated user ID
-        
+
     Returns:
         Tuple of (agent_instance_id, final_status)
     """
-    instance = validate_agent_access(db, agent_instance_id, user_id)
-    
+    instance = get_or_create_agent_instance(db, agent_instance_id, user_id)
+
     instance.status = AgentStatus.COMPLETED
     instance.ended_at = datetime.now(timezone.utc)
-    
+
     return str(instance.id), instance.status.value
 
 
@@ -118,7 +140,7 @@ def create_agent_message(
             instance.status = AgentStatus.AWAITING_INPUT
         else:
             instance.status = AgentStatus.ACTIVE
-        
+
     message = Message(
         agent_instance_id=instance_id,
         sender_type=SenderType.AGENT,
@@ -127,11 +149,11 @@ def create_agent_message(
     )
     db.add(message)
     db.flush()  # Flush to get the message ID
-    
+
     # Update last read message
     if instance:
         instance.last_read_message_id = message.id
-    
+
     return message
 
 
@@ -153,14 +175,16 @@ async def wait_for_answer(
 
     while time.time() - start_time < timeout_seconds:
         # Check if agent has moved on (last read message changed)
-        instance = db.query(AgentInstance).filter(
-            AgentInstance.id == question.agent_instance_id
-        ).first()
-        
+        instance = (
+            db.query(AgentInstance)
+            .filter(AgentInstance.id == question.agent_instance_id)
+            .first()
+        )
+
         # If last_read_message_id has changed from our question, agent has moved on
         if instance and instance.last_read_message_id != question_id:
             return None
-        
+
         # Check for a user message after this question
         answer = (
             db.query(Message)
@@ -177,10 +201,10 @@ async def wait_for_answer(
             # Update last read message to this answer
             if instance:
                 instance.last_read_message_id = answer.id
-            
+
             if tool_context:
                 await tool_context.report_progress(total_minutes, total_minutes)
-            
+
             return answer.content
 
         # Report progress every minute if tool_context is provided
@@ -195,37 +219,16 @@ async def wait_for_answer(
     return None
 
 
-def get_question(db: Session, question_id: str) -> Message | None:
-    """Get a question by ID"""
-    return db.query(Message).filter(Message.id == question_id, Message.requires_user_input == True).first()
-
-
-def create_user_message(
-    db: Session,
-    instance_id: UUID,
-    content: str,
-) -> Message:
-    """Create user message without committing"""
-    message = Message(
-        agent_instance_id=instance_id,
-        sender_type=SenderType.USER,
-        content=content,
-        requires_user_input=False,
-    )
-    db.add(message)
-    return message
-
-
 def get_queued_user_messages(
     db: Session, instance_id: UUID, last_read_message_id: UUID | None = None
 ) -> list[Message] | None:
     """Get all user messages since the agent last read them.
-    
+
     Args:
         db: Database session
         instance_id: Agent instance ID
         last_read_message_id: The message ID the agent last read (optional)
-        
+
     Returns:
         - None if last_read_message_id doesn't match the instance's current last_read_message_id
         - Empty list if no new messages
@@ -235,81 +238,85 @@ def get_queued_user_messages(
     instance = db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
     if not instance:
         return []
-    
-    if last_read_message_id is not None and instance.last_read_message_id != last_read_message_id:
+
+    if (
+        last_read_message_id is not None
+        and instance.last_read_message_id != last_read_message_id
+    ):
         return None
-    
+
     # If no last read message, get all user messages
     if not instance.last_read_message_id:
-        messages = db.query(Message).filter(
-            Message.agent_instance_id == instance_id,
-            Message.sender_type == SenderType.USER,
-        ).order_by(Message.created_at).all()
+        messages = (
+            db.query(Message)
+            .filter(
+                Message.agent_instance_id == instance_id,
+                Message.sender_type == SenderType.USER,
+            )
+            .order_by(Message.created_at)
+            .all()
+        )
     else:
-        # Get the timestamp of the last read message
-        last_read_message = db.query(Message).filter(
-            Message.id == instance.last_read_message_id
-        ).first()
-        
+        last_read_message = (
+            db.query(Message)
+            .filter(Message.id == instance.last_read_message_id)
+            .first()
+        )
+
         if not last_read_message:
             return []
-            
+
         # Get all user messages after the last read message
-        messages = db.query(Message).filter(
-            Message.agent_instance_id == instance_id,
-            Message.sender_type == SenderType.USER,
-            Message.created_at > last_read_message.created_at,
-        ).order_by(Message.created_at).all()
-    
-    # Update last read message to the latest message if any
-    if messages:
+        messages = (
+            db.query(Message)
+            .filter(
+                Message.agent_instance_id == instance_id,
+                Message.sender_type == SenderType.USER,
+                Message.created_at > last_read_message.created_at,
+            )
+            .order_by(Message.created_at)
+            .all()
+        )
+
+    if messages and last_read_message_id is not None:
         instance.last_read_message_id = messages[-1].id
-    
+
     return messages
 
 
 async def send_agent_message(
     db: Session,
-    agent_type: str,
+    agent_instance_id: str,
     content: str,
     user_id: str,
-    agent_instance_id: str | None = None,
+    agent_type: str | None = None,
     requires_user_input: bool = False,
     git_diff: str | None = None,
-) -> tuple[str, list[str]]:
+) -> tuple[str, str, list[str]]:
     """High-level function to send an agent message and get queued user messages.
-    
+
     This combines the common pattern of:
     1. Getting or creating an agent instance
     2. Validating access (if existing instance)
     3. Creating a message
     4. Updating git diff if provided
     5. Getting any queued user messages
-    
+
     Args:
         db: Database session
-        agent_type: Type of agent (e.g., 'claude_code')
+        agent_instance_id: Agent instance ID (pass None to create new)
         content: Message content
         user_id: Authenticated user ID
-        agent_instance_id: Optional existing instance ID
+        agent_type: Type of agent (required if creating new instance)
         requires_user_input: Whether this is a question requiring response
-        send_email: Override email notification preference
-        send_sms: Override SMS notification preference
-        send_push: Override push notification preference
         git_diff: Optional git diff to update on the instance
-        
+
     Returns:
-        Tuple of (agent_instance_id, list of queued user message contents)
+        Tuple of (agent_instance_id, message_id, list of queued user message contents)
     """
-    # Get or create user agent type
-    agent_type_obj = create_or_get_user_agent(db, agent_type, user_id)
-    
-    # Get or create instance
-    if agent_instance_id:
-        instance = validate_agent_access(db, agent_instance_id, user_id)
-    else:
-        instance = create_agent_instance(db, agent_type_obj.id, user_id)
-    
+    # Get or create instance using the unified function
+    instance = get_or_create_agent_instance(db, agent_instance_id, user_id, agent_type)
+
     # Update git diff if provided (but don't commit yet)
     if git_diff is not None:
         sanitized_diff = sanitize_git_diff(git_diff)
@@ -319,23 +326,68 @@ async def send_agent_message(
             logger.warning(
                 f"Invalid git diff format for instance {instance.id}, skipping git diff update"
             )
-    
-    # Create the message (this will handle status updates but NOT commit)
+
+    queued_messages = get_queued_user_messages(db, instance.id, None)
+
+    # Create the message (this will update last_read_message_id)
     message = create_agent_message(
         db=db,
         instance_id=instance.id,
         content=content,
         requires_user_input=requires_user_input,
     )
-        
-    # Get queued user messages (passing the new message id as last read)
-    queued_messages = get_queued_user_messages(db, instance.id, message.id)
-    
+
     # Handle the None case (shouldn't happen here since we just created the message)
     if queued_messages is None:
         queued_messages = []
-    
-    return str(instance.id), [msg.content for msg in queued_messages]
+
+    return str(instance.id), str(message.id), [msg.content for msg in queued_messages]
 
 
+def create_user_message(
+    db: Session,
+    agent_instance_id: str,
+    content: str,
+    user_id: str,
+    mark_as_read: bool = True,
+) -> tuple[str, bool]:
+    """Create a user message for an agent instance.
 
+    Args:
+        db: Database session
+        agent_instance_id: Agent instance ID to send the message to
+        content: Message content
+        user_id: Authenticated user ID
+        mark_as_read: Whether to update last_read_message_id (default: True)
+
+    Returns:
+        Tuple of (message_id, marked_as_read)
+
+    Raises:
+        ValueError: If instance not found or user doesn't have access
+    """
+    # Get the instance and validate access
+    instance = get_agent_instance(db, agent_instance_id)
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if str(instance.user_id) != user_id:
+        raise ValueError(
+            "Access denied. Agent instance does not belong to authenticated user."
+        )
+
+    # Create the user message
+    message = Message(
+        agent_instance_id=UUID(agent_instance_id),
+        sender_type=SenderType.USER,
+        content=content,
+        requires_user_input=False,
+    )
+    db.add(message)
+    db.flush()  # Get the message ID
+
+    # Update last_read_message_id if requested
+    if mark_as_read:
+        instance.last_read_message_id = message.id
+
+    return str(message.id), mark_as_read

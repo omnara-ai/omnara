@@ -1,7 +1,5 @@
 """Pydantic models for FastAPI request/response schemas."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 from servers.shared.models import (
@@ -14,8 +12,8 @@ from servers.shared.models import (
 class CreateMessageRequest(BaseModel):
     """Request model for creating a new message."""
 
-    agent_instance_id: str | None = Field(
-        None,
+    agent_instance_id: str = Field(
+        ...,
         description="Existing agent instance ID. If not provided, creates a new instance.",
     )
     agent_type: str = Field(
@@ -44,6 +42,19 @@ class CreateMessageRequest(BaseModel):
     )
 
 
+class CreateUserMessageRequest(BaseModel):
+    """Request model for creating a user message."""
+
+    agent_instance_id: str = Field(
+        ..., description="Agent instance ID to send the message to"
+    )
+    content: str = Field(..., description="Message content")
+    mark_as_read: bool = Field(
+        True,
+        description="Whether to mark this message as read (update last_read_message_id)",
+    )
+
+
 class EndSessionRequest(BaseEndSessionRequest):
     """FastAPI-specific request model for ending a session."""
 
@@ -54,10 +65,13 @@ class EndSessionRequest(BaseEndSessionRequest):
 class CreateMessageResponse(BaseModel):
     """Response model for create message endpoint."""
 
-    success: bool = Field(..., description="Whether the message was created successfully")
+    success: bool = Field(
+        ..., description="Whether the message was created successfully"
+    )
     agent_instance_id: str = Field(
         ..., description="Agent instance ID (new or existing)"
     )
+    message_id: str = Field(..., description="ID of the message that was created")
     queued_user_messages: list[str] = Field(
         default_factory=list,
         description="List of queued user message contents",
@@ -76,6 +90,18 @@ class MessageResponse(BaseModel):
     )
 
 
+class CreateUserMessageResponse(BaseModel):
+    """Response model for create user message endpoint."""
+
+    success: bool = Field(
+        ..., description="Whether the message was created successfully"
+    )
+    message_id: str = Field(..., description="ID of the created message")
+    marked_as_read: bool = Field(
+        ..., description="Whether the message was marked as read"
+    )
+
+
 class GetMessagesResponse(BaseModel):
     """Response model for get messages endpoint."""
 
@@ -84,7 +110,8 @@ class GetMessagesResponse(BaseModel):
         default_factory=list, description="List of messages"
     )
     status: str = Field(
-        "ok", description="Status: 'ok' if messages retrieved, 'stale' if last_read_message_id is outdated"
+        "ok",
+        description="Status: 'ok' if messages retrieved, 'stale' if last_read_message_id is outdated",
     )
 
 

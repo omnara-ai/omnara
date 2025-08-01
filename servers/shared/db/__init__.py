@@ -9,8 +9,7 @@ from .queries import (
     end_session,
     get_agent_instance,
     get_queued_user_messages,
-    get_question,
-    validate_agent_access,
+    get_or_create_agent_instance,
     wait_for_answer,
     # High-level functions
     send_agent_message,
@@ -25,8 +24,7 @@ __all__ = [
     "end_session",
     "get_agent_instance",
     "get_queued_user_messages",
-    "get_question",
-    "validate_agent_access",
+    "get_or_create_agent_instance",
     "wait_for_answer",
     # High-level functions
     "send_agent_message",

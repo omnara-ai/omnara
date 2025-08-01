@@ -1,6 +1,6 @@
 """Data models for the Omnara SDK."""
 
-from typing import List, Optional
+from typing import List
 from dataclasses import dataclass
 
 
@@ -15,14 +15,6 @@ class LogStepResponse:
 
 
 @dataclass
-class QuestionResponse:
-    """Response from asking a question."""
-
-    answer: str
-    question_id: str
-
-
-@dataclass
 class EndSessionResponse:
     """Response from ending a session."""
 
@@ -34,16 +26,17 @@ class EndSessionResponse:
 @dataclass
 class CreateMessageResponse:
     """Response from creating a message."""
-    
+
     success: bool
     agent_instance_id: str
+    message_id: str
     queued_user_messages: List[str]
 
 
 @dataclass
 class Message:
     """A message in the conversation."""
-    
+
     id: str
     content: str
     sender_type: str  # 'agent' or 'user'
@@ -54,7 +47,7 @@ class Message:
 @dataclass
 class PendingMessagesResponse:
     """Response from getting pending messages."""
-    
+
     agent_instance_id: str
     messages: List[Message]
     status: str  # 'ok' or 'stale'

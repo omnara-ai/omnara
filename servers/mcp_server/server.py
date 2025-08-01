@@ -73,13 +73,13 @@ mcp = FastMCP("Agent Dashboard MCP Server", auth=auth)
 
 @mcp.tool(name="log_step", description=LOG_STEP_DESCRIPTION)
 @require_auth
-def log_step_tool(
+async def log_step_tool(
     agent_instance_id: str | None = None,
     step_description: str = "",
     _user_id: str = "",  # Injected by decorator
 ) -> LogStepResponse:
     agent_type = detect_agent_type_from_headers()
-    return log_step_impl(
+    return await log_step_impl(
         agent_instance_id=agent_instance_id,
         agent_type=agent_type,
         step_description=step_description,

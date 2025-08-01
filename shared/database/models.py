@@ -131,7 +131,14 @@ class AgentInstance(Base):
     ended_at: Mapped[datetime | None] = mapped_column(default=None)
     git_diff: Mapped[str | None] = mapped_column(Text, default=None)
     last_read_message_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("messages.id"), type_=PostgresUUID(as_uuid=True), default=None
+        ForeignKey(
+            "messages.id",
+            use_alter=True,
+            name="fk_agent_instances_last_read_message",
+            ondelete="SET NULL",
+        ),
+        type_=PostgresUUID(as_uuid=True),
+        default=None,
     )
 
     # Relationships
@@ -151,15 +158,16 @@ class AgentInstance(Base):
         order_by="AgentUserFeedback.created_at",
     )
     messages: Mapped[list["Message"]] = relationship(
-        "Message", 
-        back_populates="instance", 
+        "Message",
+        back_populates="instance",
         order_by="Message.created_at",
         foreign_keys="Message.agent_instance_id",
     )
     last_read_message: Mapped["Message | None"] = relationship(
         "Message",
-        foreign_keys="AgentInstance.last_read_message_id",
+        foreign_keys=[last_read_message_id],
         post_update=True,
+        passive_deletes=True,
     )
 
     @validates("git_diff")
@@ -168,7 +176,7 @@ class AgentInstance(Base):
 
         Raises ValueError if the git diff is invalid.
         """
-        if value is None:
+        if value is None or value == "":
             return value
 
         if not is_valid_git_diff(value):
@@ -324,5 +332,7 @@ class Message(Base):
 
     # Relationships
     instance: Mapped["AgentInstance"] = relationship(
-        "AgentInstance", back_populates="messages"
+        "AgentInstance",
+        back_populates="messages",
+        foreign_keys=[agent_instance_id],
     )

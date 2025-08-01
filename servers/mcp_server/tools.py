@@ -5,6 +5,7 @@ the hosted server and stdio server. The authentication logic is handled
 by the individual servers.
 """
 
+import uuid
 from uuid import UUID
 
 from fastmcp import Context
@@ -15,10 +16,8 @@ from servers.shared.db import (
     end_session,
     wait_for_answer,
     create_agent_message,
-    validate_agent_access,
-    get_queued_user_messages,
+    get_or_create_agent_instance,
 )
-from servers.shared.notification_utils import send_message_notifications
 from .models import AskQuestionResponse, EndSessionResponse, LogStepResponse
 
 
@@ -39,13 +38,18 @@ async def log_step_impl(
     Returns:
         LogStepResponse with success status, instance details, and user feedback
     """
-    if agent_instance_id:
+    # Generate a new UUID if agent_instance_id is not provided
+    if not agent_instance_id:
+        agent_instance_id = str(uuid.uuid4())
+    else:
+        # Validate the provided UUID
         try:
             UUID(agent_instance_id)
         except ValueError:
             raise ValueError(
                 f"Invalid agent_instance_id format: must be a valid UUID, got '{agent_instance_id}'"
             )
+
     if not agent_type:
         raise ValueError("agent_type is required")
     if not step_description:
@@ -57,24 +61,29 @@ async def log_step_impl(
 
     try:
         # Use send_agent_message for steps (requires_user_input=False)
-        instance_id, queued_messages = await send_agent_message(
+        instance_id, message_id, queued_messages = await send_agent_message(
             db=db,
-            agent_type=agent_type,
+            agent_instance_id=agent_instance_id,
             content=step_description,
             user_id=user_id,
-            agent_instance_id=agent_instance_id,
+            agent_type=agent_type,
             requires_user_input=False,
         )
-        
+
         # For backward compatibility, we need to return a step number
         # Count the number of agent messages (steps) for this instance
         from shared.database import Message, SenderType
-        step_count = db.query(Message).filter(
-            Message.agent_instance_id == UUID(instance_id),
-            Message.sender_type == SenderType.AGENT,
-            Message.requires_user_input == False
-        ).count()
-        
+
+        step_count = (
+            db.query(Message)
+            .filter(
+                Message.agent_instance_id == UUID(instance_id),
+                Message.sender_type == SenderType.AGENT,
+                Message.requires_user_input.is_(False),
+            )
+            .count()
+        )
+
         db.commit()
 
         return LogStepResponse(
@@ -124,9 +133,9 @@ async def ask_question_impl(
     db = next(get_db())
 
     try:
-        # Validate access first
-        instance = validate_agent_access(db, agent_instance_id, user_id)
-        
+        # Validate access first (agent_instance_id is required here)
+        instance = get_or_create_agent_instance(db, agent_instance_id, user_id)
+
         # Create question message (requires_user_input=True)
         question = create_agent_message(
             db=db,
@@ -134,7 +143,7 @@ async def ask_question_impl(
             content=question_text,
             requires_user_input=True,
         )
-        
+
         # Commit to make the question visible
         db.commit()
 
@@ -185,7 +194,7 @@ def end_session_impl(
             agent_instance_id=agent_instance_id,
             user_id=user_id,
         )
-        
+
         # Commit the transaction
         db.commit()
 

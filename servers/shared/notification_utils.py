@@ -1,7 +1,6 @@
 """Notification utilities for sending push, email, and SMS notifications."""
 
 import logging
-from typing import Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
 
@@ -22,7 +21,7 @@ async def send_message_notifications(
     send_push: bool | None = None,
 ) -> None:
     """Send notifications for a message (either step or question).
-    
+
     Args:
         db: Database session
         instance_id: Agent instance ID
@@ -37,12 +36,12 @@ async def send_message_notifications(
     if not instance:
         logger.warning(f"Instance {instance_id} not found for notifications")
         return
-        
+
     user = db.query(User).filter(User.id == instance.user_id).first()
     if not user:
         logger.warning(f"User {instance.user_id} not found for notifications")
         return
-        
+
     agent_name = instance.user_agent.name if instance.user_agent else "Agent"
 
     # Determine notification preferences based on message type
