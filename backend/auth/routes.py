@@ -38,6 +38,11 @@ class CreateAPIKeyRequest(BaseModel):
     expires_in_days: int | None = None
 
 
+class CLIAuthRequest(BaseModel):
+    auth_code: str
+    code_verifier: str | None = None  # For PKCE if implemented
+
+
 class APIKeyResponse(BaseModel):
     id: str
     name: str
@@ -273,3 +278,76 @@ async def delete_user_account(
         }
 
     return {"message": "User account successfully deleted"}
+
+
+@router.post("/cli/exchange-token", response_model=APIKeyResponse)
+async def exchange_cli_token(
+    request: CLIAuthRequest,
+    db: Session = Depends(get_db),
+):
+    """Exchange OAuth authorization code for API key (CLI authentication)"""
+    supabase = get_supabase_client()
+
+    try:
+        # Exchange the auth code for session
+        # For CLI auth, we don't use PKCE so code_verifier is empty
+        auth_response = supabase.auth.exchange_code_for_session(
+            {
+                "auth_code": request.auth_code,
+                "code_verifier": "",  # CLI doesn't use PKCE
+                "redirect_to": "",  # Not needed for CLI auth
+            }
+        )
+
+        if not auth_response.session:
+            raise HTTPException(status_code=401, detail="Invalid authorization code")
+
+        if not auth_response.user:
+            raise HTTPException(status_code=401, detail="No user returned from auth")
+
+        user_id = auth_response.user.id
+
+        # Get or create user in our database
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            # User doesn't exist in our DB yet, create them
+            user = User(
+                id=user_id,
+                email=auth_response.user.email or "",
+                display_name=auth_response.user.user_metadata.get("display_name")
+                if auth_response.user.user_metadata
+                else None,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        # Create API key for CLI
+        jwt_token = create_api_key_jwt(
+            user_id=str(user.id),
+            expires_in_days=365,  # CLI tokens last 1 year
+        )
+
+        api_key = APIKey(
+            user_id=user.id,
+            name="Omnara CLI",
+            api_key_hash=get_token_hash(jwt_token),
+            api_key=jwt_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=365),
+        )
+
+        db.add(api_key)
+        db.commit()
+        db.refresh(api_key)
+
+        return APIKeyResponse(
+            id=str(api_key.id),
+            name=api_key.name,
+            api_key=jwt_token,
+            created_at=api_key.created_at.isoformat(),
+            expires_at=api_key.expires_at.isoformat() if api_key.expires_at else None,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to exchange CLI token: {str(e)}")
+        raise HTTPException(status_code=401, detail="Failed to authenticate")
