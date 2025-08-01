@@ -854,34 +854,8 @@ async def start_claude(
                 detail="GNU Screen not found. Please install screen to run Claude sessions.",
             )
 
-        # Create a log file for this screen session
-        log_dir = os.path.join(work_dir, ".omnara")
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, f"{screen_name}.log")
-
-        # Start screen with logging enabled
-        # -L enables logging, -Logfile specifies the log file path
-        screen_cmd = [
-            screen_path,
-            "-dmS",
-            screen_name,
-            "-L",
-            "-Logfile",
-            log_file,
-        ] + claude_args
-
-        print(f"\n[INFO] Screen session will log to: {log_file}")
-
-        # Write debug information to the log file
-        with open(log_file, "w") as f:
-            f.write("=== OMNARA CLAUDE SESSION DEBUG INFO ===\n")
-            f.write(f"Started at: {datetime.now().isoformat()}\n")
-            f.write(f"Working directory: {work_dir}\n")
-            f.write(f"Screen command: {' '.join(screen_cmd[:6])}\n")
-            f.write(f"Claude args: {' '.join(claude_args)}\n")
-            f.write(f"MCP config: {mcp_config_str}\n")
-            f.write(f"Full command: {' '.join(screen_cmd)}\n")
-            f.write("=== END DEBUG INFO ===\n\n")
+        # Start screen directly with the claude command
+        screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
 
         screen_result = subprocess.run(
             screen_cmd,
@@ -918,33 +892,12 @@ async def start_claude(
             print("\n[ERROR] Screen session exited immediately")
             print(f"  - Session name: {screen_name}")
             print(f"  - Screen list output: {list_result.stdout}")
-
-            # Try to read the log file to understand why it failed
-            if os.path.exists(log_file):
-                print(f"\n[INFO] Reading screen log file: {log_file}")
-                try:
-                    with open(log_file, "r") as f:
-                        log_contents = f.read()
-                        if log_contents:
-                            print("\n[ERROR] Screen session output:")
-                            print("-" * 50)
-                            print(
-                                log_contents[-2000:]
-                            )  # Last 2000 chars to avoid too much output
-                            print("-" * 50)
-                        else:
-                            print("[INFO] Log file is empty")
-                except Exception as e:
-                    print(f"[ERROR] Could not read log file: {e}")
-            else:
-                print(f"[INFO] No log file found at: {log_file}")
-
             print("\n[ERROR] Possible causes:")
             print("  - Claude command failed to start")
             print("  - MCP server (omnara) cannot be started")
             print("  - Invalid API key")
             print("  - Working directory issues")
-            print(f"\n[INFO] Check logs in {log_dir} for more details")
+            print(f"\n[INFO] Check logs in {work_dir} for more details")
             raise HTTPException(
                 status_code=500,
                 detail="Screen session started but exited immediately. Check server logs for details.",
