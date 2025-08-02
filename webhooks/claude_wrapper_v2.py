@@ -97,6 +97,9 @@ class ClaudeWrapperV2:
         self.permission_extracted = False
         self.permission_message_id = None
         self.need_followup_prompt = False
+        self.permission_input_requested = (
+            False  # Track if we've already requested input
+        )
 
         # Async event loop reference
         self.async_loop = None
@@ -309,7 +312,7 @@ class ClaudeWrapperV2:
                     self.last_message_id = response.message_id
                     self.last_message_time = time.time()
                     self.log(
-                        f"[INFO] Sent message {self.last_message_id}, Claude working: {self.is_claude_working()}"
+                        f"[INFO] Sent message {self.last_message_id}, Claude idle: {self.is_claude_idle()}"
                     )
 
                     # Process any queued user messages
@@ -332,84 +335,105 @@ class ClaudeWrapperV2:
         except Exception as e:
             self.log(f"Error processing log entry: {e}")
 
-    def is_claude_working(self):
-        """Check if Claude is actively working based on terminal output."""
+    def is_claude_idle(self):
+        """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.25+ seconds)."""
         if self.last_esc_interrupt_seen:
             time_since_esc = time.time() - self.last_esc_interrupt_seen
-            # Claude is working if we've seen "esc to interrupt" within last 3 seconds
-            return time_since_esc < 3.0
-        return False
+            return time_since_esc >= 0.25
+        # If we've never seen esc, consider it idle
+        return True
 
-    async def extract_and_send_permission_prompt(self):
-        """Extract permission prompt details and send to Omnara."""
+    async def handle_permission_prompt(self):
+        """Handle permission prompt by parsing and sending the actual options to the web UI."""
         if not self.permission_active or self.permission_extracted:
             return
 
-        self.log("[INFO] Extracting permission prompt from terminal")
+        self.log("[INFO] Handling permission prompt")
         self.permission_extracted = True
         self._last_permission_extraction_time = time.time()
 
-        # Extract question and options from terminal buffer
+        # Parse the actual options from the terminal buffer
         import re
 
-        lines = self.terminal_buffer.split("\n")
-        question = None
-        options = []
+        buffer_to_use = getattr(
+            self, "permission_buffer_snapshot", self.terminal_buffer
+        )
+        self.log(f"[DEBUG] Parsing permission from buffer length: {len(buffer_to_use)}")
+
+        # Clean ANSI codes
+        clean_buffer = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", buffer_to_use)
 
         # Find the question
+        question = "Do you want to proceed?"
+        if "Do you want to" in clean_buffer:
+            for line in clean_buffer.split("\n"):
+                if "Do you want to" in line:
+                    question = line.strip().replace("│", "").strip()
+                    self.log(f"[DEBUG] Found question: {question}")
+                    break
+
+        # Extract the actual options from the terminal
+        options = []
+
+        # Look for lines with "1.", "2.", "3." followed by actual text
+        lines = clean_buffer.split("\n")
         for i, line in enumerate(lines):
-            if "Do you want to" in line:
-                # Clean ANSI codes
-                clean_line = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", line)
-                question = clean_line.strip().replace("│", "").strip()
-                break
+            line = line.strip().replace("│", "").strip()
 
-        # Extract options from the full buffer
-        full_clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer)
-        option_matches = re.findall(r"(\d+)\.\s*([^\n│]+)", full_clean)
+            # Remove selection indicators like ❯
+            line = line.replace("❯", "").strip()
 
-        for num, text in option_matches:
-            option_text = f"{num}. {text.strip()}"
-            if num == "1" and "Yes" in text:
-                options.append("1. Yes")
-            elif num == "2" and "Yes" in text:
-                options.append(option_text)
-            elif num == "3" and "No" in text:
-                options.append("3. No, and tell Claude what to do differently")
+            # Match numbered options
+            if line.startswith("1."):
+                options.append(line)
+                self.log(f"[DEBUG] Found option 1: {line}")
+            elif line.startswith("2."):
+                options.append(line)
+                self.log(f"[DEBUG] Found option 2: {line}")
+            elif line.startswith("3."):
+                options.append(line)
+                self.log(f"[DEBUG] Found option 3: {line}")
 
-        if question and options:
-            # Build the permission message
-            permission_msg = question
+        # If we didn't find options, try a more flexible regex
+        if len(options) < 3:
+            self.log("[DEBUG] Trying regex approach for options")
+            option_matches = re.findall(
+                r"([123])\.\s+([^\n]+?)(?:\s*\([^)]+\))?\s*(?=\n|$)", clean_buffer
+            )
+            options = []
+            for num, text in option_matches:
+                full_option = f"{num}. {text.strip()}"
+                options.append(full_option)
+                self.log(f"[DEBUG] Regex found option: {full_option}")
 
-            # Add tool context from the last assistant message
-            # This is simpler than v1 - we just need the basic context
-            permission_msg += "\n\n[OPTIONS]\n"
+        # Build the permission message with actual options
+        if options:
+            permission_msg = f"{question}\n\n"
             for option in options:
                 permission_msg += f"{option}\n"
-            permission_msg += "[/OPTIONS]"
+        else:
+            # Fallback to generic options if parsing failed
+            self.log("[WARNING] Could not parse options, using generic ones")
+            permission_msg = f"{question}\n\n"
+            permission_msg += "1. Yes\n"
+            permission_msg += "2. Yes, and don't ask again this session\n"
+            permission_msg += "3. No, and tell Claude what to do differently"
 
-            self.log(f"[INFO] Sending permission prompt: {permission_msg[:100]}...")
+        self.log(
+            f"[INFO] Sending permission prompt to web UI: {permission_msg[:100]}..."
+        )
 
-            # Send as a message NOT requiring user input initially
-            # We'll let the normal idle detection convert it
-            if self.agent_instance_id and self.omnara_client:
-                response = await self.omnara_client.send_message(
-                    content=permission_msg,
-                    agent_type="Claude Code",
-                    agent_instance_id=self.agent_instance_id,
-                    requires_user_input=False,
-                )
+        if self.agent_instance_id and self.omnara_client:
+            response = await self.omnara_client.send_message(
+                content=permission_msg,
+                agent_type="Claude Code",
+                agent_instance_id=self.agent_instance_id,
+                requires_user_input=False,  # Will be converted by idle detection
+            )
 
-                # Update last message tracking so idle detection will handle it
-                self.last_message_id = response.message_id
-                self.last_message_time = time.time()
-
-                # Mark that we're waiting for permission response
-                self.permission_message_id = response.message_id
-
-                self.log(
-                    "[INFO] Permission message sent, will be converted to require input by idle detection"
-                )
+            self.permission_message_id = response.message_id
+            self.last_message_id = response.message_id
+            self.last_message_time = time.time()
 
     def run_claude_with_pty(self):
         """Run Claude CLI in a PTY."""
@@ -520,25 +544,105 @@ class ClaudeWrapperV2:
                                         - self._last_permission_extraction_time
                                     )
 
+                                # Check for Write tool specifically
+                                if "dummy" in text.lower() or "write" in text.lower():
+                                    self.log(
+                                        f"[DEBUG] Detected potential Write tool text: {text[:100]}"
+                                    )
+
                                 if (
                                     "Do you want to" in self.terminal_buffer
                                     and not self.permission_active
-                                    and time_since_extracted > 5.0
-                                ):  # Wait at least 5 seconds between detections
-                                    # Look for numbered options
-                                    clean_buffer = re.sub(
-                                        r"\s+", " ", self.terminal_buffer
-                                    )
-                                    has_options = (
-                                        "❯" in self.terminal_buffer
-                                        or "1. Yes" in clean_buffer
-                                        or re.search(r"1\.\s*Yes", self.terminal_buffer)
-                                    )
+                                ):
+                                    # Check cooldown
+                                    if time_since_extracted <= 2.0:
+                                        self.log(
+                                            f"[DEBUG] Skipping permission detection - cooldown active ({time_since_extracted:.1f}s < 2.0s)"
+                                        )
+                                    else:
+                                        # Look for numbered options
+                                        clean_buffer = re.sub(
+                                            r"\s+", " ", self.terminal_buffer
+                                        )
+                                        has_options = (
+                                            "❯" in self.terminal_buffer
+                                            or "1. Yes" in clean_buffer
+                                            or re.search(
+                                                r"1\.\s*Yes", self.terminal_buffer
+                                            )
+                                        )
+
+                                        if not has_options:
+                                            self.log(
+                                                "[DEBUG] Found 'Do you want to' but no options yet"
+                                            )
 
                                     if has_options:
                                         self.permission_active = True
                                         self.permission_prompt_time = time.time()
-                                        self.log("[INFO] Permission prompt detected")
+                                        self.log(
+                                            "[INFO] Permission prompt detected with options"
+                                        )
+                                        # Capture the terminal buffer RIGHT NOW while we have it
+                                        self.permission_buffer_snapshot = (
+                                            self.terminal_buffer
+                                        )
+                                        self.log(
+                                            f"[DEBUG] Captured permission buffer length: {len(self.permission_buffer_snapshot)}"
+                                        )
+                                    else:
+                                        # We see "Do you want to" but no options yet
+                                        # Set a flag to check again soon
+                                        self.log(
+                                            "[INFO] Detected 'Do you want to' but no options yet, will check again"
+                                        )
+                                        self._permission_check_pending = True
+                                        self._permission_check_time = time.time()
+
+                                # If we're waiting for options to appear, check again
+                                elif (
+                                    hasattr(self, "_permission_check_pending")
+                                    and self._permission_check_pending
+                                    and not self.permission_active
+                                ):
+                                    time_since_check = (
+                                        time.time() - self._permission_check_time
+                                    )
+                                    if (
+                                        time_since_check < 2.0
+                                    ):  # Give it up to 2 seconds for options to appear
+                                        # Check if options have appeared now
+                                        clean_buffer = re.sub(
+                                            r"\s+", " ", self.terminal_buffer
+                                        )
+                                        has_options = (
+                                            "❯" in self.terminal_buffer
+                                            or "1. Yes" in clean_buffer
+                                            or re.search(
+                                                r"1\.\s*Yes", self.terminal_buffer
+                                            )
+                                        )
+
+                                        if has_options:
+                                            self.permission_active = True
+                                            self.permission_prompt_time = time.time()
+                                            self._permission_check_pending = False
+                                            self.log(
+                                                "[INFO] Permission prompt options appeared, now detected"
+                                            )
+                                            # Capture the terminal buffer RIGHT NOW while we have it
+                                            self.permission_buffer_snapshot = (
+                                                self.terminal_buffer
+                                            )
+                                            self.log(
+                                                f"[DEBUG] Captured permission buffer length: {len(self.permission_buffer_snapshot)}"
+                                            )
+                                    else:
+                                        # Timeout - options didn't appear
+                                        self._permission_check_pending = False
+                                        self.log(
+                                            "[INFO] Timeout waiting for permission options"
+                                        )
                             except Exception:
                                 pass
                         else:
@@ -587,155 +691,147 @@ class ClaudeWrapperV2:
         while self.running:
             await asyncio.sleep(0.5)  # Check every 500ms
 
-            # Check if we need to extract permission prompt
+            # Check if we need to handle permission prompt
             if self.permission_active and self.permission_prompt_time:
                 time_since_prompt = time.time() - self.permission_prompt_time
                 if time_since_prompt >= 0.2 and not self.permission_extracted:
-                    # Extract and send permission prompt
-                    await self.extract_and_send_permission_prompt()
-                    continue  # Skip normal idle checking during permission
+                    # Handle the permission prompt
+                    await self.handle_permission_prompt()
+                    # Don't skip idle checking - we want to request input for the permission
 
             # Check if we need to send a follow-up prompt after "No" selection
-            if self.need_followup_prompt:
-                # Check if Claude has been idle for at least 1 second (instead of waiting for full idle)
-                time_since_esc = (
-                    time.time() - self.last_esc_interrupt_seen
-                    if self.last_esc_interrupt_seen
-                    else 999
-                )
-                if time_since_esc > 1.0:  # Reduced from 3.0 seconds
-                    # Clear the flag FIRST to prevent multiple sends
-                    self.need_followup_prompt = False
-                    self.log("[INFO] Sending follow-up prompt after No selection")
+            if self.need_followup_prompt and self.is_claude_idle():
+                # Clear the flag FIRST to prevent multiple sends
+                self.need_followup_prompt = False
+                self.log("[INFO] Sending follow-up prompt after No selection")
 
-                    # Send a message asking what to do next
-                    if self.agent_instance_id and self.omnara_client:
-                        response = await self.omnara_client.send_message(
-                            content="What would you like me to do instead?",
-                            agent_type="Claude Code",
-                            agent_instance_id=self.agent_instance_id,
-                            requires_user_input=False,  # Will be converted by idle detection
-                        )
-                        # Track this message for idle detection
-                        self.last_message_id = response.message_id
-                        self.last_message_time = time.time()
-
-                    continue
-
-            # Log current state every check
-            if self.last_message_id:
-                time_since_message = (
-                    time.time() - self.last_message_time
-                    if self.last_message_time
-                    else 0
-                )
-                is_working = self.is_claude_working()
-                time_since_esc = (
-                    time.time() - self.last_esc_interrupt_seen
-                    if self.last_esc_interrupt_seen
-                    else 999
-                )
-
-                self.log(
-                    f"[DEBUG] Check idle: msg_id={self.last_message_id}, time_since_msg={time_since_message:.1f}s, is_working={is_working}, time_since_esc={time_since_esc:.1f}s"
-                )
-
-                # Don't skip idle checking - we still need to handle normal messages
-
-                # If Claude hasn't been working for 2+ seconds after sending a message
-                if not is_working and time_since_message >= 2.0:
-                    self.log(
-                        f"[INFO] Claude idle for {time_since_message:.1f}s, requesting user input for message {self.last_message_id}"
+                # Send a message asking what to do next
+                if self.agent_instance_id and self.omnara_client:
+                    response = await self.omnara_client.send_message(
+                        content="What would you like me to do instead?",
+                        agent_type="Claude Code",
+                        agent_instance_id=self.agent_instance_id,
+                        requires_user_input=False,  # Will be converted by idle detection
                     )
+                    # Track this message for idle detection
+                    self.last_message_id = response.message_id
+                    self.last_message_time = time.time()
 
-                    # Clear these first to avoid repeated calls while waiting
+                continue
+
+            # Clear permission state if Claude is idle and we had a permission
+            if (
+                self.is_claude_idle()
+                and self.permission_extracted
+                and not self.permission_message_id
+            ):
+                self.log("[DEBUG] Clearing permission state after completion")
+                self.permission_active = False
+                self.permission_extracted = False
+                self.permission_prompt_time = None
+                self.permission_buffer_snapshot = None
+                self.permission_input_requested = False
+
+            # Simple idle checking - if Claude is idle and we have a message, request input
+            if self.is_claude_idle() and (
+                self.permission_message_id or self.last_message_id
+            ):
+                # Priority: Check for permission message first, then regular messages
+                if self.permission_message_id and not self.permission_input_requested:
+                    self.log(
+                        f"[INFO] Claude is idle, requesting user input for PERMISSION message {self.permission_message_id}"
+                    )
+                    message_id_to_update = self.permission_message_id
+                    self.permission_input_requested = (
+                        True  # Mark that we've requested input
+                    )
+                elif self.last_message_id:
+                    self.log(
+                        f"[INFO] Claude is idle, requesting user input for message {self.last_message_id}"
+                    )
                     message_id_to_update = self.last_message_id
                     self.last_message_id = None
                     self.last_message_time = None
+                else:
+                    # No message to update, skip this iteration
+                    continue
 
-                    try:
-                        # Start request_user_input in background - don't await it
-                        self.log(
-                            f"[INFO] Starting request_user_input task for message {message_id_to_update}"
-                        )
+                try:
+                    # Start request_user_input in background - don't await it
+                    self.log(
+                        f"[INFO] Starting request_user_input task for message {message_id_to_update}"
+                    )
 
-                        async def request_input_task():
-                            try:
-                                self.log(
-                                    f"[INFO] Calling request_user_input for message {message_id_to_update}"
+                    async def request_input_task():
+                        try:
+                            self.log(
+                                f"[INFO] Calling request_user_input for message {message_id_to_update}"
+                            )
+
+                            # The request_user_input will update the message and wait for a response
+                            user_responses = (
+                                await self.omnara_client.request_user_input(
+                                    message_id=message_id_to_update,
+                                    timeout_minutes=1440,  # 24 hours
+                                    poll_interval=1.0,
                                 )
+                            )
 
-                                # The request_user_input will update the message and wait for a response
-                                # It uses the message_id as the last_read_message_id for polling
-                                # So it will only get messages AFTER this message
-                                user_responses = (
-                                    await self.omnara_client.request_user_input(
-                                        message_id=message_id_to_update,
-                                        timeout_minutes=1440,  # 24 hours
-                                        poll_interval=1.0,
+                            self.log(
+                                f"[INFO] Got {len(user_responses)} responses from request_user_input"
+                            )
+                            for response in user_responses:
+                                response_text = response.strip()
+
+                                # Simple check: if response is exactly "1", "2", or "3" and we have permission state
+                                if response_text in ["1", "2", "3"] and (
+                                    self.permission_message_id or self.permission_active
+                                ):
+                                    self.log(
+                                        f"[INFO] Permission response detected: {response}"
                                     )
-                                )
 
-                                self.log(
-                                    f"[INFO] Got {len(user_responses)} responses from request_user_input"
-                                )
-                                for response in user_responses:
-                                    # Check if this is a permission response
-                                    if (
-                                        self.permission_message_id
-                                        == message_id_to_update
-                                    ):
-                                        response_text = response.lower().strip()
-
-                                        # Check if it's a yes response (1 or 2)
-                                        if response_text in ["1", "2"]:
-                                            # For yes responses, just send the number
-                                            self.log(
-                                                f"[INFO] Permission YES response: {response} -> {response_text}"
-                                            )
-                                            self.web_ui_messages.add(response_text)
-                                            self.input_queue.append(response_text)
-                                        else:
-                                            # For any other response, just send "3"
-                                            self.log(
-                                                f"[INFO] Permission NO/other response: {response} -> sending '3'"
-                                            )
-                                            self.web_ui_messages.add("3")
-                                            self.input_queue.append("3")
-
-                                            # Mark that we need to send a follow-up prompt after this
-                                            self.need_followup_prompt = True
-
-                                        # Reset permission state and clear buffer
-                                        self.permission_active = False
-                                        self.permission_extracted = False
-                                        self.permission_prompt_time = None
-                                        self.permission_message_id = None
-                                        # Clear terminal buffer to prevent re-detection
-                                        self.terminal_buffer = ""
-                                    else:
-                                        # Normal message
+                                    if response_text in ["1", "2"]:
+                                        # Yes responses
                                         self.log(
-                                            f"[INFO] Queueing user response from request_user_input: {response[:50]}..."
+                                            f"[INFO] Permission YES: sending '{response_text}'"
                                         )
-                                        self.web_ui_messages.add(
-                                            response
-                                        )  # Track that this came from web UI
-                                        self.input_queue.append(response)
+                                        self.web_ui_messages.add(response_text)
+                                        self.input_queue.append(response_text)
+                                    else:
+                                        # No response (3)
+                                        self.log(
+                                            "[INFO] Permission NO: sending '3' and marking for follow-up"
+                                        )
+                                        self.web_ui_messages.add("3")
+                                        self.input_queue.append("3")
+                                        self.need_followup_prompt = True
 
-                            except Exception as e:
-                                self.log(f"[ERROR] request_user_input task failed: {e}")
-                            finally:
-                                self.log("[INFO] request_user_input task completed")
+                                    # Clear all permission state
+                                    self.permission_active = False
+                                    self.permission_extracted = False
+                                    self.permission_prompt_time = None
+                                    self.permission_message_id = None
+                                    self.permission_input_requested = False
+                                    self.permission_buffer_snapshot = None
+                                    self.terminal_buffer = ""
+                                else:
+                                    # Normal message
+                                    self.log(
+                                        f"[INFO] Queueing user response from request_user_input: {response[:50]}..."
+                                    )
+                                    self.web_ui_messages.add(response)
+                                    self.input_queue.append(response)
 
-                        # Start the task without awaiting
-                        asyncio.create_task(request_input_task())
-                        self.log("[INFO] Started request_user_input task in background")
+                        except Exception as e:
+                            self.log(f"[ERROR] request_user_input task failed: {e}")
 
-                    except Exception as e:
-                        self.log(
-                            f"[ERROR] Failed to start request_user_input task: {e}"
-                        )
+                    # Start the task without awaiting
+                    asyncio.create_task(request_input_task())
+                    self.log("[INFO] Started request_user_input task in background")
+
+                except Exception as e:
+                    self.log(f"[ERROR] Failed to start request_user_input task: {e}")
 
     async def run(self):
         """Run Claude with Omnara integration."""
