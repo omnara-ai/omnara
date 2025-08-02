@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
+from sqlalchemy.dialects.postgresql import UUID as PostgresUUID, JSONB
 from sqlalchemy.orm import (
     DeclarativeBase,  # type: ignore[attr-defined]
     Mapped,  # type: ignore[attr-defined]
@@ -12,7 +12,7 @@ from sqlalchemy.orm import (
     validates,
 )
 
-from .enums import AgentStatus
+from .enums import AgentStatus, SenderType
 from .utils import is_valid_git_diff
 
 if TYPE_CHECKING:
@@ -130,6 +130,16 @@ class AgentInstance(Base):
     )
     ended_at: Mapped[datetime | None] = mapped_column(default=None)
     git_diff: Mapped[str | None] = mapped_column(Text, default=None)
+    last_read_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "messages.id",
+            use_alter=True,
+            name="fk_agent_instances_last_read_message",
+            ondelete="SET NULL",
+        ),
+        type_=PostgresUUID(as_uuid=True),
+        default=None,
+    )
 
     # Relationships
     user_agent: Mapped["UserAgent"] = relationship(
@@ -147,6 +157,18 @@ class AgentInstance(Base):
         back_populates="instance",
         order_by="AgentUserFeedback.created_at",
     )
+    messages: Mapped[list["Message"]] = relationship(
+        "Message",
+        back_populates="instance",
+        order_by="Message.created_at",
+        foreign_keys="Message.agent_instance_id",
+    )
+    last_read_message: Mapped["Message | None"] = relationship(
+        "Message",
+        foreign_keys=[last_read_message_id],
+        post_update=True,
+        passive_deletes=True,
+    )
 
     @validates("git_diff")
     def validate_git_diff(self, key, value):
@@ -154,7 +176,7 @@ class AgentInstance(Base):
 
         Raises ValueError if the git diff is invalid.
         """
-        if value is None:
+        if value is None or value == "":
             return value
 
         if not is_valid_git_diff(value):
@@ -286,3 +308,31 @@ class PushToken(Base):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="push_tokens")
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    __table_args__ = (
+        Index("idx_messages_instance_created", "agent_instance_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    agent_instance_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_instances.id"), type_=PostgresUUID(as_uuid=True)
+    )
+    sender_type: Mapped[SenderType] = mapped_column()
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc)
+    )
+    requires_user_input: Mapped[bool] = mapped_column(default=False)
+    message_metadata: Mapped[dict | None] = mapped_column(JSONB, default=None)
+
+    # Relationships
+    instance: Mapped["AgentInstance"] = relationship(
+        "AgentInstance",
+        back_populates="messages",
+        foreign_keys=[agent_instance_id],
+    )

@@ -211,21 +211,23 @@ async def log_step_tool(
     # Get git diff if enabled
     git_diff = get_git_diff()
 
-    response = await client.log_step(
+    response = await client.send_message(
         agent_type=agent_type,
-        step_description=step_description,
+        content=step_description,
         agent_instance_id=agent_instance_id,
+        requires_user_input=False,  # Log steps don't require user input
         git_diff=git_diff,
     )
 
     if current_agent_instance_id is None:
         current_agent_instance_id = response.agent_instance_id
 
+    # Return LogStepResponse with queued messages as user_feedback
     return LogStepResponse(
         success=response.success,
         agent_instance_id=response.agent_instance_id,
-        step_number=response.step_number,
-        user_feedback=response.user_feedback,
+        step_number=1,  # We don't track step numbers anymore
+        user_feedback=response.queued_user_messages,
     )
 
 
@@ -244,6 +246,7 @@ async def ask_question_tool(
     if not question_text:
         raise ValueError("question_text is required")
 
+    agent_type = detect_agent_type_from_environment()
     client = get_client()
 
     # Get git diff if enabled
@@ -253,17 +256,24 @@ async def ask_question_tool(
         current_agent_instance_id = agent_instance_id
 
     try:
-        response = await client.ask_question(
+        response = await client.send_message(
+            agent_type=agent_type,
             agent_instance_id=agent_instance_id,
-            question_text=question_text,
+            content=question_text,
+            requires_user_input=True,  # Questions require user input
             timeout_minutes=1440,  # 24 hours default
             poll_interval=10.0,
             git_diff=git_diff,
         )
 
+        # Get the answer from queued_user_messages
+        answer = (
+            response.queued_user_messages[0] if response.queued_user_messages else ""
+        )
+
         return AskQuestionResponse(
-            answer=response.answer,
-            question_id=response.question_id,
+            answer=answer,
+            question_id=response.message_id,
         )
     except OmnaraTimeoutError:
         raise TimeoutError("Question timed out waiting for user response")
@@ -316,10 +326,11 @@ async def approve_tool(
         instance_id = current_agent_instance_id
     else:
         # Only create a new instance if we don't have one
-        response = await client.log_step(
+        response = await client.send_message(
             agent_type="Claude Code",
-            step_description="Permission request",
+            content="Permission request",
             agent_instance_id=None,
+            requires_user_input=False,
         )
         instance_id = response.agent_instance_id
         current_agent_instance_id = instance_id
@@ -384,15 +395,21 @@ async def approve_tool(
 
     try:
         # Ask the permission question
-        answer_response = await client.ask_question(
+        response = await client.send_message(
             agent_instance_id=instance_id,
-            question_text=question_text,
+            content=question_text,
+            requires_user_input=True,
             timeout_minutes=1440,
             poll_interval=10.0,
         )
 
         # Parse the answer to determine approval
-        answer = answer_response.answer.strip()
+        # Get the answer from queued_user_messages
+        answer = (
+            response.queued_user_messages[0].strip()
+            if response.queued_user_messages
+            else ""
+        )
 
         # Handle option selections by comparing with actual option text
         if answer == option_yes:
@@ -432,7 +449,7 @@ async def approve_tool(
             # Custom text response - treat as denial with message
             return {
                 "behavior": "deny",
-                "message": f"Permission denied by user: {answer_response.answer}",
+                "message": f"Permission denied by user: {answer}",
             }
 
     except OmnaraTimeoutError:

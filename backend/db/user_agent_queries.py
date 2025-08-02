@@ -157,6 +157,7 @@ async def trigger_webhook_agent(
     payload = {
         "agent_instance_id": str(agent_instance_id),
         "prompt": prompt,
+        "agent_type": user_agent.name,
     }
 
     if name is not None:

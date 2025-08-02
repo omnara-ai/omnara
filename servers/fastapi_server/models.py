@@ -1,29 +1,58 @@
 """Pydantic models for FastAPI request/response schemas."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 from servers.shared.models import (
-    BaseLogStepRequest,
-    BaseLogStepResponse,
-    BaseAskQuestionRequest,
     BaseEndSessionRequest,
     BaseEndSessionResponse,
 )
 
 
 # Request models
-class LogStepRequest(BaseLogStepRequest):
-    """FastAPI-specific request model for logging a step."""
+class CreateMessageRequest(BaseModel):
+    """Request model for creating a new message."""
 
-    pass
+    agent_instance_id: str = Field(
+        ...,
+        description="Existing agent instance ID. Creates a new agent instance if ID doesn't exist.",
+    )
+    agent_type: str | None = Field(
+        None, description="Type of agent (e.g., 'claude_code', 'cursor')"
+    )
+    content: str = Field(
+        ..., description="Message content (step description or question text)"
+    )
+    requires_user_input: bool = Field(
+        False, description="Whether this message requires user input (is a question)"
+    )
+    send_email: bool | None = Field(
+        None,
+        description="Whether to send email notification (overrides user preference)",
+    )
+    send_sms: bool | None = Field(
+        None, description="Whether to send SMS notification (overrides user preference)"
+    )
+    send_push: bool | None = Field(
+        None,
+        description="Whether to send push notification (overrides user preference)",
+    )
+    git_diff: str | None = Field(
+        None,
+        description="Git diff content to store with the instance",
+    )
 
 
-class AskQuestionRequest(BaseAskQuestionRequest):
-    """FastAPI-specific request model for asking a question."""
+class CreateUserMessageRequest(BaseModel):
+    """Request model for creating a user message."""
 
-    pass
+    agent_instance_id: str = Field(
+        ..., description="Agent instance ID to send the message to"
+    )
+    content: str = Field(..., description="Message content")
+    mark_as_read: bool = Field(
+        True,
+        description="Whether to mark this message as read (update last_read_message_id)",
+    )
 
 
 class EndSessionRequest(BaseEndSessionRequest):
@@ -33,35 +62,60 @@ class EndSessionRequest(BaseEndSessionRequest):
 
 
 # Response models
-class LogStepResponse(BaseLogStepResponse):
-    """FastAPI-specific response model for log step endpoint."""
+class MessageResponse(BaseModel):
+    """Response model for individual messages."""
 
-    pass
+    id: str = Field(..., description="Message ID")
+    content: str = Field(..., description="Message content")
+    sender_type: str = Field(..., description="Sender type: 'agent' or 'user'")
+    created_at: str = Field(..., description="ISO timestamp when message was created")
+    requires_user_input: bool = Field(
+        ..., description="Whether this message requires user input"
+    )
 
 
-# FastAPI-specific: Response only contains question ID (non-blocking)
-class AskQuestionResponse(BaseModel):
-    """FastAPI-specific response model for ask question endpoint."""
+class CreateMessageResponse(BaseModel):
+    """Response model for create message endpoint."""
 
-    question_id: str = Field(..., description="ID of the created question")
+    success: bool = Field(
+        ..., description="Whether the message was created successfully"
+    )
+    agent_instance_id: str = Field(
+        ..., description="Agent instance ID (new or existing)"
+    )
+    message_id: str = Field(..., description="ID of the message that was created")
+    queued_user_messages: list[MessageResponse] = Field(
+        default_factory=list,
+        description="List of queued user messages with full metadata",
+    )
+
+
+class CreateUserMessageResponse(BaseModel):
+    """Response model for create user message endpoint."""
+
+    success: bool = Field(
+        ..., description="Whether the message was created successfully"
+    )
+    message_id: str = Field(..., description="ID of the created message")
+    marked_as_read: bool = Field(
+        ..., description="Whether the message was marked as read"
+    )
+
+
+class GetMessagesResponse(BaseModel):
+    """Response model for get messages endpoint."""
+
+    agent_instance_id: str = Field(..., description="Agent instance ID")
+    messages: list[MessageResponse] = Field(
+        default_factory=list, description="List of messages"
+    )
+    status: str = Field(
+        "ok",
+        description="Status: 'ok' if messages retrieved, 'stale' if last_read_message_id is outdated",
+    )
 
 
 class EndSessionResponse(BaseEndSessionResponse):
     """FastAPI-specific response model for end session endpoint."""
 
     pass
-
-
-# FastAPI-specific: Additional model for polling question status
-class QuestionStatusResponse(BaseModel):
-    """Response model for question status endpoint."""
-
-    question_id: str
-    status: str = Field(
-        ..., description="Status of the question: 'pending' or 'answered'"
-    )
-    answer: Optional[str] = Field(
-        None, description="Answer text if status is 'answered'"
-    )
-    asked_at: str
-    answered_at: Optional[str] = None

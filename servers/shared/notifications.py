@@ -189,7 +189,6 @@ class PushNotificationService(NotificationServiceBase):
         db: Session,
         user_id: UUID,
         instance_id: str,
-        question_id: str,
         agent_name: str,
         question_text: str,
     ) -> bool:
@@ -206,7 +205,6 @@ class PushNotificationService(NotificationServiceBase):
         data = {
             "type": "new_question",
             "instanceId": instance_id,
-            "questionId": question_id,
         }
 
         return await self.send_notification(
@@ -222,14 +220,13 @@ class PushNotificationService(NotificationServiceBase):
         db: Session,
         user_id: UUID,
         instance_id: str,
-        step_number: int,
         agent_name: str,
         step_description: str,
     ) -> bool:
         """Send notification for new agent step"""
         # Format agent name for display
         display_name = agent_name.replace("_", " ").title()
-        title = f"{display_name} - Step {step_number}"
+        title = f"{display_name} - New Step"
 
         # Truncate step description for notification
         body = step_description
@@ -239,7 +236,6 @@ class PushNotificationService(NotificationServiceBase):
         data = {
             "type": "new_step",
             "instanceId": instance_id,
-            "stepNumber": step_number,
         }
 
         return await self.send_notification(

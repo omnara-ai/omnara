@@ -172,12 +172,11 @@ class TwilioNotificationService(NotificationServiceBase):
             logger.error(f"Error sending Twilio notifications: {e}")
             return results
 
-    def send_question_notification(
+    async def send_question_notification(
         self,
         db: Session,
         user_id: UUID,
         instance_id: str,
-        question_id: str,
         agent_name: str,
         question_text: str,
         send_email: bool | None = None,
@@ -218,7 +217,6 @@ The Omnara Team
         db: Session,
         user_id: UUID,
         instance_id: str,
-        step_number: int,
         agent_name: str,
         step_description: str,
         send_email: bool | None = None,
@@ -227,13 +225,13 @@ The Omnara Team
         """Send notification for new agent step"""
         # Format agent name for display
         display_name = agent_name.replace("_", " ").title()
-        title = f"{display_name} - Step {step_number}"
+        title = f"{display_name} - New Step"
 
         # Email body with more detail
         email_body = f"""
 Your agent {display_name} has logged a new step:
 
-Step {step_number}: {step_description}
+{step_description}
 
 You can view the full session at: https://omnara.com/dashboard/instances/{instance_id}
 
@@ -242,9 +240,9 @@ The Omnara Team
 """
 
         # SMS body (shorter)
-        sms_body = f"{display_name} Step {step_number}: {step_description}"
+        sms_body = f"{display_name}: {step_description}"
         if len(sms_body) > 160:
-            sms_body = f"{display_name} Step {step_number}: {step_description[:140]}..."
+            sms_body = f"{display_name}: {step_description[:140]}..."
 
         return self.send_notification(
             db=db,
