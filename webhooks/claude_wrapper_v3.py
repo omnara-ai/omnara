@@ -109,13 +109,10 @@ class MessageProcessor:
     def should_request_input(self) -> Optional[str]:
         """Check if we should request input, returns message_id if yes"""
         # Don't request input if we might have a permission prompt
-        if (
-            self.last_was_tool_use
-            and self.wrapper.is_claude_idle()
-            and "Do you want to" in self.wrapper.terminal_buffer
-        ):
+        if self.last_was_tool_use and self.wrapper.is_claude_idle():
+            # We're in a state where a permission prompt might appear
             self.wrapper.log(
-                "[DEBUG] should_request_input: Skipping due to permission prompt in buffer"
+                "[DEBUG] should_request_input: Skipping due to recent tool use"
             )
             return None
 
@@ -832,6 +829,137 @@ class ClaudeWrapperV3:
                 # Use select to multiplex I/O
                 rlist, _, _ = select.select([sys.stdin, self.master_fd], [], [], 0.01)
 
+                # When expecting permission prompt, check if we need to handle it
+                if self.message_processor.last_was_tool_use and self.is_claude_idle():
+                    # After tool use + idle, assume permission prompt is shown
+                    if not hasattr(self, "_permission_assumed_time"):
+                        self._permission_assumed_time = time.time()
+                        self.log(
+                            "[DEBUG] Tool use + idle detected, starting permission prompt timer"
+                        )
+
+                    # After 0.25 seconds, check if we can parse the prompt from buffer
+                    elif time.time() - self._permission_assumed_time > 0.25:
+                        # Clean the buffer to check for content
+                        import re
+
+                        clean_buffer = re.sub(
+                            r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
+                        )
+
+                        # If we see "Do you want to" AND "(esc" (indicating full prompt), extract it
+                        if "Do you want to" in clean_buffer and "(esc" in clean_buffer:
+                            if not hasattr(self, "_permission_handled"):
+                                self._permission_handled = True
+
+                                # Extract the full permission prompt including options
+                                question = ""
+                                options = []
+                                lines = clean_buffer.split("\n")
+
+                                # Find the question
+                                for line in lines:
+                                    line = line.strip().replace("\u2502", "").strip()
+                                    if "Do you want to" in line:
+                                        question = line
+                                        break
+
+                                # Find the options (numbered items)
+                                for line in lines:
+                                    line = line.strip().replace("\u2502", "").strip()
+                                    # Remove selection indicators
+                                    line = line.replace("\u276f", "").strip()
+                                    if line.startswith("1."):
+                                        options.append(line)
+                                    elif line.startswith("2."):
+                                        options.append(line)
+                                    elif line.startswith("3."):
+                                        options.append(line)
+
+                                # Build the message
+                                if question and options:
+                                    options_text = "\n".join(options)
+                                    permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
+
+                                    # Build mapping for response conversion
+                                    self.pending_permission_options = {}
+                                    for option in options:
+                                        # Parse "1. Yes" -> {"Yes": "1"}
+                                        parts = option.split(". ", 1)
+                                        if len(parts) == 2:
+                                            number = parts[0].strip()
+                                            text = parts[1].strip()
+                                            self.pending_permission_options[text] = (
+                                                number
+                                            )
+                                else:
+                                    # Fallback if parsing fails
+                                    permission_msg = f"{question if question else 'Permission required'}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
+                                    self.pending_permission_options = {
+                                        "Yes": "1",
+                                        "Yes, and don't ask again this session": "2",
+                                        "No": "3",
+                                    }
+
+                                self.log(
+                                    f"[INFO] Permission prompt extracted: {permission_msg[:100]}..."
+                                )
+
+                                # Send to Omnara with extracted text
+                                if self.agent_instance_id and self.omnara_client_sync:
+                                    response = self.omnara_client_sync.send_message(
+                                        content=permission_msg,
+                                        agent_type="Claude Code",
+                                        agent_instance_id=self.agent_instance_id,
+                                        requires_user_input=False,
+                                    )
+                                    self.message_processor.last_message_id = (
+                                        response.message_id
+                                    )
+                                    self.message_processor.last_message_time = (
+                                        time.time()
+                                    )
+                                    self.message_processor.last_was_tool_use = False
+
+                        # Fallback after 1 second if we still don't have the full prompt
+                        elif time.time() - self._permission_assumed_time > 1.0:
+                            if not hasattr(self, "_permission_handled"):
+                                self._permission_handled = True
+                                self.log(
+                                    "[INFO] Permission prompt timeout - sending generic prompt"
+                                )
+
+                                prompt_text = (
+                                    "Permission required. Check your terminal."
+                                )
+
+                            # Send permission prompt
+                            if self.agent_instance_id and self.omnara_client_sync:
+                                response = self.omnara_client_sync.send_message(
+                                    content=f"{prompt_text}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]",
+                                    agent_type="Claude Code",
+                                    agent_instance_id=self.agent_instance_id,
+                                    requires_user_input=False,
+                                )
+                                self.message_processor.last_message_id = (
+                                    response.message_id
+                                )
+                                self.message_processor.last_message_time = time.time()
+                                self.message_processor.last_was_tool_use = False
+
+                                # Basic permission mapping
+                                self.pending_permission_options = {
+                                    "Yes": "1",
+                                    "Yes, and don't ask again this session": "2",
+                                    "No": "3",
+                                }
+                else:
+                    # Clear state when conditions change
+                    if hasattr(self, "_permission_assumed_time"):
+                        delattr(self, "_permission_assumed_time")
+                    if hasattr(self, "_permission_handled"):
+                        delattr(self, "_permission_handled")
+
                 # Handle terminal output from Claude
                 if self.master_fd in rlist:
                     try:
@@ -857,22 +985,37 @@ class ClaudeWrapperV3:
                                 if "esc to interrupt)" in clean_text:
                                     self.last_esc_interrupt_seen = time.time()
 
-                                # Check for permission prompt
+                                # Check for permission prompt - handle chunked rendering
                                 if (
                                     self.message_processor.last_was_tool_use
                                     and self.is_claude_idle()
                                     and "Do you want to" in self.terminal_buffer
                                 ):
-                                    # Look for the numbered options
+                                    # Mark that we've seen the start of the prompt
+                                    if not hasattr(self, "_prompt_start_time"):
+                                        self._prompt_start_time = time.time()
+                                        self.log(
+                                            "[DEBUG] Detected 'Do you want to' - waiting for options"
+                                        )
+
+                                    # Check if we have the options or if enough time has passed
                                     if (
                                         "1. Yes" in self.terminal_buffer
                                         or "❯" in self.terminal_buffer
+                                        or (
+                                            hasattr(self, "_prompt_start_time")
+                                            and time.time() - self._prompt_start_time
+                                            > 0.5
+                                        )
                                     ):
                                         self.log(
                                             "[INFO] Permission prompt detected in terminal"
                                         )
                                         # Handle permission prompt directly
                                         self.handle_permission_prompt()
+                                        # Clear the timer
+                                        if hasattr(self, "_prompt_start_time"):
+                                            delattr(self, "_prompt_start_time")
                             except Exception:
                                 pass
                         else:
