@@ -402,6 +402,28 @@ class ClaudeWrapperV3:
             raise
         except Exception as e:
             self.log(f"[ERROR] Failed to request user input: {e}")
+            
+            # If we get a 400 error about message already requiring input,
+            # send a new message instead
+            if "400" in str(e) and "already requires user input" in str(e):
+                self.log("[INFO] Message already requires input, sending new message")
+                try:
+                    response = await self.omnara_client_async.send_message(
+                        content="Waiting for your input...",
+                        agent_type="Claude Code",
+                        agent_instance_id=self.agent_instance_id,
+                        requires_user_input=True,
+                    )
+                    self.log(f"[INFO] Sent new message with requires_user_input=True: {response.message_id}")
+                    
+                    # Process responses
+                    for response in response.queued_user_messages:
+                        self.log(f"[INFO] Got user response from web UI: {response[:50]}...")
+                        self.message_processor.process_user_message_sync(response, from_web=True)
+                        self.input_queue.append(response)
+                        
+                except Exception as send_error:
+                    self.log(f"[ERROR] Failed to send new message: {send_error}")
     
     def handle_permission_prompt(self):
         """Handle permission prompt by parsing terminal and sending to Omnara"""
