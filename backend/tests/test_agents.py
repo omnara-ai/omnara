@@ -7,7 +7,6 @@ from shared.database.models import (
     User,
     UserAgent,
     AgentInstance,
-    AgentQuestion,
 )
 from shared.database.enums import AgentStatus
 
@@ -157,15 +156,19 @@ class TestAgentEndpoints:
         )
         test_db.add(completed_instance)
 
-        # Add a question to the active instance
-        question = AgentQuestion(
+        # Add a message with requires_user_input to the active instance
+        from shared.database import Message, SenderType
+
+        question_msg = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            question_text="Test question?",
-            asked_at=datetime.now(timezone.utc),
-            is_active=True,
+            sender_type=SenderType.AGENT,
+            content="Test question?",
+            requires_user_input=True,
+            created_at=datetime.now(timezone.utc),
         )
-        test_db.add(question)
+        test_db.add(question_msg)
+        test_agent_instance.status = AgentStatus.AWAITING_INPUT
         test_db.commit()
 
         response = authenticated_client.get("/api/v1/agent-summary")
@@ -173,7 +176,7 @@ class TestAgentEndpoints:
         data = response.json()
 
         assert data["total_instances"] == 2
-        assert data["active_instances"] == 1
+        assert data["active_instances"] == 0  # AWAITING_INPUT doesn't count as active
         assert data["completed_instances"] == 1
         assert "agent_types" in data
         assert len(data["agent_types"]) == 1
@@ -298,24 +301,104 @@ class TestAgentEndpoints:
         assert response.status_code == 404
         assert response.json()["detail"] == "Agent instance not found"
 
-    def test_update_agent_status_completed(
+    def test_instance_status_changes_with_messages(
         self, authenticated_client, test_db, test_agent_instance
     ):
-        """Test marking an agent instance as completed."""
-        # Status updates are now handled automatically through message flow
-        # This test is no longer applicable as there's no direct status update endpoint
-        pass
+        """Test that instance status changes based on message flow."""
+        from shared.database import Message, SenderType
 
-    def test_update_agent_status_unsupported(
-        self, authenticated_client, test_agent_instance
+        # Initially instance should be ACTIVE
+        assert test_agent_instance.status == AgentStatus.ACTIVE
+
+        # Agent sends a message requiring user input
+        question_msg = Message(
+            id=uuid4(),
+            agent_instance_id=test_agent_instance.id,
+            sender_type=SenderType.AGENT,
+            content="Should I use TypeScript or JavaScript?",
+            requires_user_input=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        test_db.add(question_msg)
+        test_db.commit()
+
+        # Status should change to AWAITING_INPUT (this would be done by the agent)
+        test_agent_instance.status = AgentStatus.AWAITING_INPUT
+        test_db.commit()
+
+        # User responds
+        response = authenticated_client.post(
+            f"/api/v1/agent-instances/{test_agent_instance.id}/messages",
+            json={"content": "Use TypeScript for better type safety"},
+        )
+        assert response.status_code == 200
+
+        # Check that status changed back to ACTIVE
+        test_db.refresh(test_agent_instance)
+        assert test_agent_instance.status == AgentStatus.ACTIVE
+
+    def test_message_creates_status_update_notification(
+        self, authenticated_client, test_db, test_agent_instance
     ):
-        """Test unsupported status update."""
-        # Status updates are now handled automatically through message flow
-        # This test is no longer applicable as there's no direct status update endpoint
-        pass
+        """Test that sending messages triggers appropriate notifications."""
+        # This would test the notification system if implemented
+        # For now, just verify message creation works
+        response = authenticated_client.post(
+            f"/api/v1/agent-instances/{test_agent_instance.id}/messages",
+            json={"content": "Test message for notifications"},
+        )
+        assert response.status_code == 200
 
-    def test_update_status_nonexistent_instance(self, authenticated_client):
-        """Test updating status of non-existent instance."""
-        # Status updates are now handled automatically through message flow
-        # This test is no longer applicable as there's no direct status update endpoint
-        pass
+        # Verify message was created
+        from shared.database import Message
+
+        messages = (
+            test_db.query(Message)
+            .filter_by(agent_instance_id=test_agent_instance.id)
+            .all()
+        )
+        assert len(messages) >= 1
+        assert any(msg.content == "Test message for notifications" for msg in messages)
+
+    def test_agent_instance_latest_message_tracking(
+        self, authenticated_client, test_db, test_agent_instance
+    ):
+        """Test that latest_message is properly tracked in instance listing."""
+        from shared.database import Message, SenderType
+        import time
+
+        # Create messages with different timestamps
+        msg1 = Message(
+            id=uuid4(),
+            agent_instance_id=test_agent_instance.id,
+            sender_type=SenderType.AGENT,
+            content="First message",
+            requires_user_input=False,
+            created_at=datetime.now(timezone.utc),
+        )
+        test_db.add(msg1)
+        test_db.commit()
+
+        # Small delay to ensure different timestamps
+        time.sleep(0.1)
+
+        msg2 = Message(
+            id=uuid4(),
+            agent_instance_id=test_agent_instance.id,
+            sender_type=SenderType.USER,
+            content="Latest message",
+            requires_user_input=False,
+            created_at=datetime.now(timezone.utc),
+        )
+        test_db.add(msg2)
+        test_db.commit()
+
+        # Get instance list
+        response = authenticated_client.get("/api/v1/agent-instances")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data) == 1
+        instance = data[0]
+        assert instance["latest_message"] == "Latest message"
+        assert instance["chat_length"] == 2
