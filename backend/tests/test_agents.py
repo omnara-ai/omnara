@@ -7,9 +7,7 @@ from shared.database.models import (
     User,
     UserAgent,
     AgentInstance,
-    AgentStep,
     AgentQuestion,
-    AgentUserFeedback,
 )
 from shared.database.enums import AgentStatus
 
@@ -74,20 +72,23 @@ class TestAgentEndpoints:
             id=uuid4(),
             user_agent_id=test_user_agent.id,
             user_id=test_user.id,
-            status=AgentStatus.ACTIVE,
+            status=AgentStatus.AWAITING_INPUT,
             started_at=datetime.now(timezone.utc),
         )
         test_db.add(instance)
 
-        # Create a pending question with timezone-aware datetime
-        question = AgentQuestion(
+        # Create a message with requires_user_input=True to simulate a question
+        from shared.database import Message, SenderType
+
+        question_msg = Message(
             id=uuid4(),
             agent_instance_id=instance.id,
-            question_text="Test question?",
-            asked_at=datetime.now(timezone.utc),
-            is_active=True,
+            sender_type=SenderType.AGENT,
+            content="Test question?",
+            requires_user_input=True,
+            created_at=datetime.now(timezone.utc),
         )
-        test_db.add(question)
+        test_db.add(question_msg)
         test_db.commit()
 
         # This should not raise a timezone error
@@ -99,12 +100,10 @@ class TestAgentEndpoints:
         agent_type = data[0]
         assert len(agent_type["recent_instances"]) == 1
 
-        # Check that pending question info is populated
+        # Check that the instance has AWAITING_INPUT status
         instance_data = agent_type["recent_instances"][0]
-        assert instance_data["has_pending_question"] is True
-        assert instance_data["pending_questions_count"] == 1
-        assert instance_data["pending_question_age"] is not None
-        assert instance_data["pending_question_age"] >= 0
+        assert instance_data["status"] == "AWAITING_INPUT"
+        assert instance_data["latest_message"] == "Test question?"
 
     def test_list_all_agent_instances(self, authenticated_client, test_agent_instance):
         """Test listing all agent instances."""
@@ -115,7 +114,7 @@ class TestAgentEndpoints:
         assert len(data) == 1
         instance = data[0]
         assert instance["id"] == str(test_agent_instance.id)
-        assert instance["status"] == "active"
+        assert instance["status"] == "ACTIVE"
 
     def test_list_agent_instances_with_limit(
         self, authenticated_client, test_db, test_user, test_user_agent
@@ -203,39 +202,35 @@ class TestAgentEndpoints:
         self, authenticated_client, test_db, test_agent_instance
     ):
         """Test getting detailed agent instance information."""
-        # Add steps and questions
-        step1 = AgentStep(
+        # Add messages to simulate conversation
+        from shared.database import Message, SenderType
+
+        msg1 = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            step_number=1,
-            description="First step",
+            sender_type=SenderType.AGENT,
+            content="First step completed",
+            requires_user_input=False,
             created_at=datetime.now(timezone.utc),
         )
-        step2 = AgentStep(
+        msg2 = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            step_number=2,
-            description="Second step",
+            sender_type=SenderType.AGENT,
+            content="Need input?",
+            requires_user_input=True,
             created_at=datetime.now(timezone.utc),
         )
-
-        question = AgentQuestion(
+        msg3 = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            question_text="Need input?",
-            asked_at=datetime.now(timezone.utc),
-            is_active=True,
-        )
-
-        feedback = AgentUserFeedback(
-            id=uuid4(),
-            agent_instance_id=test_agent_instance.id,
-            created_by_user_id=test_agent_instance.user_id,
-            feedback_text="Great work!",
+            sender_type=SenderType.USER,
+            content="Great work!",
+            requires_user_input=False,
             created_at=datetime.now(timezone.utc),
         )
 
-        test_db.add_all([step1, step2, question, feedback])
+        test_db.add_all([msg1, msg2, msg3])
         test_db.commit()
 
         response = authenticated_client.get(
@@ -245,12 +240,14 @@ class TestAgentEndpoints:
         data = response.json()
 
         assert data["id"] == str(test_agent_instance.id)
-        assert len(data["steps"]) == 2
-        assert data["steps"][0]["description"] == "First step"
-        assert len(data["questions"]) == 1
-        assert data["questions"][0]["question_text"] == "Need input?"
-        assert len(data["user_feedback"]) == 1
-        assert data["user_feedback"][0]["feedback_text"] == "Great work!"
+        assert "messages" in data
+        assert len(data["messages"]) == 3
+        assert data["messages"][0]["content"] == "First step completed"
+        assert data["messages"][0]["sender_type"] == "AGENT"
+        assert data["messages"][1]["content"] == "Need input?"
+        assert data["messages"][1]["requires_user_input"] is True
+        assert data["messages"][2]["content"] == "Great work!"
+        assert data["messages"][2]["sender_type"] == "USER"
 
     def test_get_instance_detail_not_found(self, authenticated_client):
         """Test getting non-existent instance detail."""
@@ -265,32 +262,38 @@ class TestAgentEndpoints:
         """Test adding user feedback to an agent instance."""
         feedback_text = "Please use TypeScript for this component"
         response = authenticated_client.post(
-            f"/api/v1/agent-instances/{test_agent_instance.id}/feedback",
-            json={"feedback": feedback_text},
+            f"/api/v1/agent-instances/{test_agent_instance.id}/messages",
+            json={"content": feedback_text},
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["feedback_text"] == feedback_text
+        assert data["content"] == feedback_text
+        assert data["sender_type"] == "USER"
         assert "id" in data
         assert "created_at" in data
+        assert data["requires_user_input"] is False
 
         # Verify in database
-        feedback = (
-            test_db.query(AgentUserFeedback)
-            .filter_by(agent_instance_id=test_agent_instance.id)
+        from shared.database import Message, SenderType
+
+        message = (
+            test_db.query(Message)
+            .filter_by(
+                agent_instance_id=test_agent_instance.id, sender_type=SenderType.USER
+            )
             .first()
         )
-        assert feedback is not None
-        assert feedback.feedback_text == feedback_text
-        assert feedback.retrieved_at is None
+        assert message is not None
+        assert message.content == feedback_text
+        assert message.sender_type == SenderType.USER
 
     def test_add_feedback_to_nonexistent_instance(self, authenticated_client):
         """Test adding feedback to non-existent instance."""
         fake_id = uuid4()
         response = authenticated_client.post(
-            f"/api/v1/agent-instances/{fake_id}/feedback",
-            json={"feedback": "Test feedback"},
+            f"/api/v1/agent-instances/{fake_id}/messages",
+            json={"content": "Test feedback"},
         )
         assert response.status_code == 404
         assert response.json()["detail"] == "Agent instance not found"
@@ -299,37 +302,20 @@ class TestAgentEndpoints:
         self, authenticated_client, test_db, test_agent_instance
     ):
         """Test marking an agent instance as completed."""
-        response = authenticated_client.put(
-            f"/api/v1/agent-instances/{test_agent_instance.id}/status",
-            json={"status": "completed"},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "completed"
-        assert data["ended_at"] is not None
-
-        # Verify in database
-        test_db.refresh(test_agent_instance)
-        assert test_agent_instance.status == AgentStatus.COMPLETED
-        assert test_agent_instance.ended_at is not None
+        # Status updates are now handled automatically through message flow
+        # This test is no longer applicable as there's no direct status update endpoint
+        pass
 
     def test_update_agent_status_unsupported(
         self, authenticated_client, test_agent_instance
     ):
         """Test unsupported status update."""
-        response = authenticated_client.put(
-            f"/api/v1/agent-instances/{test_agent_instance.id}/status",
-            json={"status": "paused"},
-        )
-        assert response.status_code == 400
-        assert response.json()["detail"] == "Status update not supported"
+        # Status updates are now handled automatically through message flow
+        # This test is no longer applicable as there's no direct status update endpoint
+        pass
 
     def test_update_status_nonexistent_instance(self, authenticated_client):
         """Test updating status of non-existent instance."""
-        fake_id = uuid4()
-        response = authenticated_client.put(
-            f"/api/v1/agent-instances/{fake_id}/status", json={"status": "completed"}
-        )
-        assert response.status_code == 404
-        assert response.json()["detail"] == "Agent instance not found"
+        # Status updates are now handled automatically through message flow
+        # This test is no longer applicable as there's no direct status update endpoint
+        pass

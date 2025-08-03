@@ -132,7 +132,7 @@ class TestMessageIntegration:
         test_db.commit()
 
         assert len(queued_user_msgs) == 1
-        assert queued_user_msgs[0] == "Yes, please use async/await pattern"
+        assert queued_user_msgs[0].content == "Yes, please use async/await pattern"
 
         # Step 5: End the session
         ended_instance_id, final_status = end_session(
@@ -143,7 +143,7 @@ class TestMessageIntegration:
         test_db.commit()
 
         assert ended_instance_id == instance_id
-        assert final_status == "completed"
+        assert final_status == "COMPLETED"
 
         # Verify final state
         test_db.refresh(instance)
@@ -256,7 +256,7 @@ class TestMessageIntegration:
         test_db.commit()
 
         assert len(queued_messages) == 3
-        assert set(queued_messages) == {
+        assert set(msg.content for msg in queued_messages) == {
             "User feedback 1",
             "User feedback 2",
             "User feedback 3",
@@ -875,7 +875,7 @@ index 1234567..abcdefg 100644
         )
         test_db.commit()
         assert len(queued) == 2
-        assert queued == [
+        assert [msg.content for msg in queued] == [
             "User: Actually, change approach",
             "User: Use async pattern instead",
         ]
@@ -957,7 +957,10 @@ index 1234567..abcdefg 100644
         test_db.commit()
 
         assert len(queued) == 2
-        assert queued == ["Use FastAPI", "And include Pydantic for validation"]
+        assert [msg.content for msg in queued] == [
+            "Use FastAPI",
+            "And include Pydantic for validation",
+        ]
 
         # Status should be back to ACTIVE
         test_db.refresh(instance)

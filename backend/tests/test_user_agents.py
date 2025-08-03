@@ -186,8 +186,8 @@ class TestUserAgentEndpoints:
 
         assert len(data) == 2
         statuses = [inst["status"] for inst in data]
-        assert "active" in statuses
-        assert "completed" in statuses
+        assert "ACTIVE" in statuses
+        assert "COMPLETED" in statuses
 
     def test_get_user_agent_instances_not_found(self, authenticated_client):
         """Test getting instances for non-existent user agent."""
