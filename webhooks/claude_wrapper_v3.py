@@ -96,6 +96,10 @@ class MessageProcessor:
         self.last_message_id = response.message_id
         self.last_message_time = time.time()
 
+        # Clear old tracked input requests since we have a new message
+        if hasattr(self.wrapper, "requested_input_messages"):
+            self.wrapper.requested_input_messages.clear()
+
         # Process any queued user messages
         if response.queued_user_messages:
             concatenated = "\n".join(response.queued_user_messages)
@@ -110,6 +114,9 @@ class MessageProcessor:
             and self.wrapper.is_claude_idle()
             and "Do you want to" in self.wrapper.terminal_buffer
         ):
+            self.wrapper.log(
+                "[DEBUG] should_request_input: Skipping due to permission prompt in buffer"
+            )
             return None
 
         # Only request if:
@@ -122,6 +129,7 @@ class MessageProcessor:
             and self.wrapper.is_claude_idle()
         ):
             return self.last_message_id
+
         return None
 
     def mark_input_requested(self, message_id: str) -> None:
@@ -177,6 +185,10 @@ class ClaudeWrapperV3:
         # Async task management
         self.pending_input_task = None
         self.async_loop = None
+        self.requested_input_messages = (
+            set()
+        )  # Track messages we've already requested input for
+        self.pending_permission_options = {}  # Map option text to number for permission prompts
 
     def _init_logging(self):
         """Initialize debug logging"""
@@ -210,8 +222,56 @@ class ClaudeWrapperV3:
         if tool_name.startswith("mcp__omnara__"):
             return f"Using tool: {tool_name}"
 
-        # File-related tools
-        if tool_name in ["Write", "Read", "NotebookRead", "NotebookEdit"]:
+        # Write tool - show content in code block
+        if tool_name == "Write":
+            file_path = input_data.get("file_path", "unknown")
+            content = input_data.get("content", "")
+
+            # Truncate if too long
+            max_content_length = 300
+            content_truncated = self._truncate_text(content, max_content_length)
+
+            # Detect file type for syntax highlighting
+            file_ext = file_path.split(".")[-1] if "." in file_path else ""
+            lang_map = {
+                "py": "python",
+                "js": "javascript",
+                "ts": "typescript",
+                "jsx": "jsx",
+                "tsx": "tsx",
+                "java": "java",
+                "cpp": "cpp",
+                "c": "c",
+                "cs": "csharp",
+                "rb": "ruby",
+                "go": "go",
+                "rs": "rust",
+                "php": "php",
+                "swift": "swift",
+                "kt": "kotlin",
+                "yaml": "yaml",
+                "yml": "yaml",
+                "json": "json",
+                "xml": "xml",
+                "html": "html",
+                "css": "css",
+                "scss": "scss",
+                "sql": "sql",
+                "sh": "bash",
+                "bash": "bash",
+                "md": "markdown",
+                "txt": "text",
+            }
+            lang = lang_map.get(file_ext, "")
+
+            lines = [f"Using tool: Write - `{file_path}`"]
+            lines.append(f"```{lang}")
+            lines.append(content_truncated)
+            lines.append("```")
+            return "\n".join(lines)
+
+        # Other file-related tools
+        elif tool_name in ["Read", "NotebookRead", "NotebookEdit"]:
             file_path = input_data.get(
                 "file_path", input_data.get("notebook_path", "unknown")
             )
@@ -655,12 +715,30 @@ class ClaudeWrapperV3:
             # Convert to list maintaining order
             options = [options_dict[key] for key in sorted(options_dict.keys())]
 
-            # Build permission message
+            # Build permission message in the requested format
             if not options:
                 # Fallback to generic options
-                permission_msg = f"{question}\n\n1. Yes\n2. Yes, and don't ask again this session\n3. No"
+                permission_msg = f"{question}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
+                # Store mapping for response conversion
+                self.pending_permission_options = {
+                    "Yes": "1",
+                    "Yes, and don't ask again this session": "2",
+                    "No": "3",
+                }
             else:
-                permission_msg = f"{question}\n\n" + "\n".join(options)
+                # Format options with [OPTIONS] tags
+                options_text = "\n".join(options)
+                permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
+
+                # Store mapping for response conversion (extract text after number)
+                self.pending_permission_options = {}
+                for option in options:
+                    # Parse "1. Yes" -> {"Yes": "1"}
+                    parts = option.split(". ", 1)
+                    if len(parts) == 2:
+                        number = parts[0].strip()
+                        text = parts[1].strip()
+                        self.pending_permission_options[text] = number
 
             self.log(
                 f"[INFO] Sending permission prompt to Omnara: {permission_msg[:100]}..."
@@ -817,6 +895,26 @@ class ClaudeWrapperV3:
                 # Process messages from Omnara web UI
                 if self.input_queue:
                     content = self.input_queue.popleft()
+
+                    # Check if this is a permission prompt response
+                    if self.pending_permission_options:
+                        if content in self.pending_permission_options:
+                            # Convert full text to number
+                            converted = self.pending_permission_options[content]
+                            self.log(
+                                f"[INFO] Converting permission response '{content}' to '{converted}'"
+                            )
+                            content = converted
+                        else:
+                            # Doesn't match any option - default to "No" (3)
+                            self.log(
+                                f"[INFO] Unmatched permission response '{content}' - defaulting to No (3)"
+                            )
+                            content = "3"
+
+                        # Always clear the mapping after handling a permission response
+                        self.pending_permission_options = {}
+
                     self.log(
                         f"[INFO] Sending web UI message to Claude: {content[:50]}..."
                     )
@@ -855,10 +953,17 @@ class ClaudeWrapperV3:
 
             # Check if we should request input
             message_id = self.message_processor.should_request_input()
-            if message_id:
+
+            if message_id and message_id in self.requested_input_messages:
+                await asyncio.sleep(0.5)
+                self.requested_input_messages.clear()
+            elif message_id and message_id not in self.requested_input_messages:
                 self.log(
                     f"[INFO] Claude is idle, starting request_user_input for message {message_id}"
                 )
+
+                # Track that we've requested input for this message
+                self.requested_input_messages.add(message_id)
 
                 # Mark as requested
                 self.message_processor.mark_input_requested(message_id)
