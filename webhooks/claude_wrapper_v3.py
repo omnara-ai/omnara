@@ -63,10 +63,10 @@ class DefaultMessageProcessor:
         self.last_message_time = None
         self.web_ui_messages = set()  # Track messages from web UI to avoid duplicates
         self.pending_input_message_id = None  # Track if we're waiting for input
+        self.last_was_tool_use = False  # Track if last assistant message used tools
     
     def process_user_message_sync(self, content: str, from_web: bool) -> None:
         """Process a user message (sync version for monitor thread)"""
-        
         if from_web:
             # Message from web UI - track it to avoid duplicate sends
             self.web_ui_messages.add(content)
@@ -92,6 +92,9 @@ class DefaultMessageProcessor:
         if not self.wrapper.agent_instance_id or not self.wrapper.omnara_client_sync:
             return
         
+        # Track if this message uses tools
+        self.last_was_tool_use = bool(tools_used)
+        
         # Send to Omnara
         response = self.wrapper.omnara_client_sync.send_message(
             content=content,
@@ -116,6 +119,12 @@ class DefaultMessageProcessor:
     
     def should_request_input(self) -> Optional[str]:
         """Check if we should request input, returns message_id if yes"""
+        # Don't request input if we might have a permission prompt
+        if (self.last_was_tool_use and 
+            self.wrapper.is_claude_idle() and 
+            "Do you want to" in self.wrapper.terminal_buffer):
+            return None
+        
         # Only request if:
         # 1. We have a message to request input for
         # 2. We haven't already requested input for it
@@ -332,7 +341,7 @@ class ClaudeWrapperV3:
                             if thinking_text:
                                 text_parts.append(f"[Thinking: {thinking_text}]")
                 
-                # Combine all parts
+                # Process message normally
                 all_parts = text_parts + tools_used
                 if all_parts:
                     message_content = "\n".join(all_parts)
@@ -354,10 +363,10 @@ class ClaudeWrapperV3:
             self.log(f"[ERROR] Error processing Claude log entry: {e}")
     
     def is_claude_idle(self):
-        """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.25+ seconds)"""
+        """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.5+ seconds)"""
         if self.last_esc_interrupt_seen:
             time_since_esc = time.time() - self.last_esc_interrupt_seen
-            return time_since_esc >= 0.25
+            return time_since_esc >= 0.5
         return True
     
     def cancel_pending_input_request(self):
@@ -393,6 +402,60 @@ class ClaudeWrapperV3:
             raise
         except Exception as e:
             self.log(f"[ERROR] Failed to request user input: {e}")
+    
+    def handle_permission_prompt(self):
+        """Handle permission prompt by parsing terminal and sending to Omnara"""
+        try:
+            # Parse the permission prompt from terminal buffer
+            import re
+            clean_buffer = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer)
+            
+            # Find the question
+            question = "Do you want to proceed?"
+            for line in clean_buffer.split("\n"):
+                if "Do you want to" in line:
+                    question = line.strip().replace("\u2502", "").strip()
+                    break
+            
+            # Find the options
+            options = []
+            lines = clean_buffer.split("\n")
+            for line in lines:
+                line = line.strip().replace("\u2502", "").strip()
+                # Remove selection indicators
+                line = line.replace("\u276f", "").strip()
+                if line.startswith("1."):
+                    options.append(line)
+                elif line.startswith("2."):
+                    options.append(line)
+                elif line.startswith("3."):
+                    options.append(line)
+            
+            # Build permission message
+            if not options:
+                # Fallback to generic options
+                permission_msg = f"{question}\n\n1. Yes\n2. Yes, and don't ask again this session\n3. No"
+            else:
+                permission_msg = f"{question}\n\n" + "\n".join(options)
+            
+            self.log(f"[INFO] Sending permission prompt to Omnara: {permission_msg[:100]}...")
+            
+            # Send to Omnara
+            if self.agent_instance_id and self.omnara_client_sync:
+                response = self.omnara_client_sync.send_message(
+                    content=permission_msg,
+                    agent_type="Claude Code",
+                    agent_instance_id=self.agent_instance_id,
+                    requires_user_input=False,  # Will be set by idle detection
+                )
+                
+                # Track the message for idle detection
+                self.message_processor.last_message_id = response.message_id
+                self.message_processor.last_message_time = time.time()
+                self.message_processor.last_was_tool_use = False
+                
+        except Exception as e:
+            self.log(f"[ERROR] Failed to handle permission prompt: {e}")
     
     def run_claude_with_pty(self):
         """Run Claude CLI in a PTY"""
@@ -487,6 +550,16 @@ class ClaudeWrapperV3:
                                 clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
                                 if "esc to interrupt)" in clean_text:
                                     self.last_esc_interrupt_seen = time.time()
+                                
+                                # Check for permission prompt
+                                if (self.message_processor.last_was_tool_use and 
+                                    self.is_claude_idle() and
+                                    "Do you want to" in self.terminal_buffer):
+                                    # Look for the numbered options
+                                    if "1. Yes" in self.terminal_buffer or "❯" in self.terminal_buffer:
+                                        self.log("[INFO] Permission prompt detected in terminal")
+                                        # Handle permission prompt directly
+                                        self.handle_permission_prompt()
                             except Exception:
                                 pass
                         else:
