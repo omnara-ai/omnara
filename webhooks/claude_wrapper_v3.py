@@ -680,6 +680,169 @@ class ClaudeWrapperV3:
                 except Exception as send_error:
                     self.log(f"[ERROR] Failed to send new message: {send_error}")
 
+    def _extract_permission_prompt(
+        self, clean_buffer: str
+    ) -> tuple[str, list[str], dict[str, str]]:
+        """Extract permission/plan mode prompt from terminal buffer
+        Returns: (question, options_list, options_map)
+        """
+        import re
+
+        # Log basic buffer info for debugging
+        self.log(f"[DEBUG] Buffer length: {len(clean_buffer)}")
+
+        # Check if this is plan mode - look for the specific options
+        is_plan_mode = "Would you like to proceed" in clean_buffer and (
+            "auto-accept edits" in clean_buffer
+            or "manually approve edits" in clean_buffer
+        )
+
+        # Find the question - support both permission and plan mode prompts
+        question = ""
+        plan_content = ""
+
+        if is_plan_mode:
+            # For plan mode, extract the question from buffer
+
+            # Find the actual question in the buffer
+            for line in clean_buffer.split("\n"):
+                line_clean = line.strip().replace("\u2502", "").strip()
+                if "Would you like to proceed" in line_clean:
+                    question = line_clean
+                    break
+
+            if not question:
+                question = "Would you like to proceed with this plan?"
+
+            # Extract plan content - look for the box content before "Would you like to proceed"
+            end_idx = clean_buffer.find("Would you like to proceed")
+
+            if end_idx != -1:
+                # Get content before the question (last 4000 chars should be enough)
+                start_pos = max(0, end_idx - 4000)
+                content_section = clean_buffer[start_pos:end_idx]
+
+                # Look for the box borders - plan is between ╭─ and ╰─
+                # Find the start of the box (look for ╭ followed by ─)
+                import re
+
+                box_start_match = None
+                for match in re.finditer(r"╭─+╮", content_section):
+                    box_start_match = match
+                    break  # Get the first one
+
+                # Find the end of the box (look for ╰ followed by ─)
+                box_end_match = None
+                for match in re.finditer(r"╰─+╯", content_section):
+                    box_end_match = match  # Keep the last one
+
+                if box_start_match and box_end_match:
+                    box_start = box_start_match.end()  # Start after the top border
+                    box_end = box_end_match.start()  # End before the bottom border
+                else:
+                    box_start = -1
+                    box_end = -1
+
+                if box_start != -1 and box_end != -1 and box_start < box_end:
+                    # Extract content between box borders
+                    box_content = content_section[box_start:box_end]
+
+                    # Clean up the content
+                    plan_lines = []
+                    for line in box_content.split("\n"):
+                        # Remove box characters and clean up
+                        cleaned = re.sub(
+                            r"^[│\s]+", "", line
+                        )  # Remove leading box chars
+                        cleaned = re.sub(
+                            r"[│\s]+$", "", cleaned
+                        )  # Remove trailing box chars
+                        cleaned = cleaned.strip()
+
+                        # Skip empty lines and box border lines
+                        if cleaned and not re.match(r"^[╭─╮╰╯]+$", cleaned):
+                            plan_lines.append(cleaned)
+
+                    plan_content = "\n".join(plan_lines)
+                    self.log(
+                        f"[DEBUG] Extracted plan content ({len(plan_content)} chars)"
+                    )
+        else:
+            # Regular permission prompt
+            for line in clean_buffer.split("\n"):
+                line_clean = line.strip().replace("\u2502", "").strip()
+                if "Do you want to" in line_clean:
+                    question = line_clean
+                    break
+
+        # Default question if not found
+        if not question:
+            question = "Permission required"
+            self.log("[DEBUG] No question found, using default")
+
+        # Find the options
+        options_dict = {}
+
+        if is_plan_mode:
+            # For plan mode, use hardcoded options since they're always the same
+            options_dict = {
+                "1": "1. Yes, and auto-accept edits",
+                "2": "2. Yes, and manually approve edits",
+                "3": "3. No, keep planning",
+            }
+        else:
+            # Regular permission prompt - look for numbered options
+            lines = clean_buffer.split("\n")
+            # Look for options from bottom to top to get the actual prompt options
+            for i in range(len(lines) - 1, -1, -1):
+                line = lines[i].strip().replace("\u2502", "").strip()
+                # Remove selection indicators
+                line = line.replace("\u276f", "").strip()
+
+                # Check for specific permission prompt options
+                if line.startswith("1.") and "Yes" in line and "1" not in options_dict:
+                    options_dict["1"] = line
+                elif (
+                    line.startswith("2.")
+                    and ("don't ask again" in line or "Yes" in line)
+                    and "2" not in options_dict
+                ):
+                    options_dict["2"] = line
+                elif line.startswith("3.") and "No" in line and "3" not in options_dict:
+                    options_dict["3"] = line
+
+                # Stop if we've found all three options
+                if len(options_dict) == 3:
+                    break
+
+        # Convert to list maintaining order
+        options = [options_dict[key] for key in sorted(options_dict.keys())]
+
+        # Build options mapping
+        options_map = {}
+        if is_plan_mode:
+            # For plan mode, use specific mapping
+            options_map = {
+                "Yes, and auto-accept edits": "1",
+                "Yes, and manually approve edits": "2",
+                "No, keep planning": "3",
+            }
+        else:
+            # Regular mapping
+            for option in options:
+                # Parse "1. Yes" -> {"Yes": "1"}
+                parts = option.split(". ", 1)
+                if len(parts) == 2:
+                    number = parts[0].strip()
+                    text = parts[1].strip()
+                    options_map[text] = number
+
+        # Return plan content as part of question if available
+        if plan_content:
+            question = f"{question}\n\n{plan_content}"
+
+        return question, options, options_map
+
     def handle_permission_prompt(self):
         """Handle permission prompt by parsing terminal and sending to Omnara"""
         try:
@@ -688,29 +851,10 @@ class ClaudeWrapperV3:
 
             clean_buffer = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer)
 
-            # Find the question
-            question = "Do you want to proceed?"
-            for line in clean_buffer.split("\n"):
-                if "Do you want to" in line:
-                    question = line.strip().replace("\u2502", "").strip()
-                    break
-
-            # Find the options (use dict to maintain order while deduplicating)
-            options_dict = {}
-            lines = clean_buffer.split("\n")
-            for line in lines:
-                line = line.strip().replace("\u2502", "").strip()
-                # Remove selection indicators
-                line = line.replace("\u276f", "").strip()
-                if line.startswith("1.") and "1" not in options_dict:
-                    options_dict["1"] = line
-                elif line.startswith("2.") and "2" not in options_dict:
-                    options_dict["2"] = line
-                elif line.startswith("3.") and "3" not in options_dict:
-                    options_dict["3"] = line
-
-            # Convert to list maintaining order
-            options = [options_dict[key] for key in sorted(options_dict.keys())]
+            # Extract prompt components
+            question, options, options_map = self._extract_permission_prompt(
+                clean_buffer
+            )
 
             # Build permission message in the requested format
             if not options:
@@ -726,16 +870,8 @@ class ClaudeWrapperV3:
                 # Format options with [OPTIONS] tags
                 options_text = "\n".join(options)
                 permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
-
-                # Store mapping for response conversion (extract text after number)
-                self.pending_permission_options = {}
-                for option in options:
-                    # Parse "1. Yes" -> {"Yes": "1"}
-                    parts = option.split(". ", 1)
-                    if len(parts) == 2:
-                        number = parts[0].strip()
-                        text = parts[1].strip()
-                        self.pending_permission_options[text] = number
+                # Use the extracted mapping
+                self.pending_permission_options = options_map
 
             self.log(
                 f"[INFO] Sending permission prompt to Omnara: {permission_msg[:100]}..."
@@ -847,54 +983,31 @@ class ClaudeWrapperV3:
                             r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
                         )
 
-                        # If we see "Do you want to" AND "(esc" (indicating full prompt), extract it
-                        if "Do you want to" in clean_buffer and "(esc" in clean_buffer:
+                        # If we see permission/plan prompt, extract it
+                        # For plan mode: "Would you like to proceed" without "(esc"
+                        # For permission: "Do you want to" with "(esc"
+                        if (
+                            "Do you want to" in clean_buffer and "(esc" in clean_buffer
+                        ) or (
+                            "Would you like to proceed" in clean_buffer
+                            and "No, keep planning" in clean_buffer
+                        ):
                             if not hasattr(self, "_permission_handled"):
                                 self._permission_handled = True
 
-                                # Extract the full permission prompt including options
-                                question = ""
-                                options = []
-                                lines = clean_buffer.split("\n")
-
-                                # Find the question
-                                for line in lines:
-                                    line = line.strip().replace("\u2502", "").strip()
-                                    if "Do you want to" in line:
-                                        question = line
-                                        break
-
-                                # Find the options (numbered items)
-                                for line in lines:
-                                    line = line.strip().replace("\u2502", "").strip()
-                                    # Remove selection indicators
-                                    line = line.replace("\u276f", "").strip()
-                                    if line.startswith("1."):
-                                        options.append(line)
-                                    elif line.startswith("2."):
-                                        options.append(line)
-                                    elif line.startswith("3."):
-                                        options.append(line)
+                                # Extract prompt components using the shared method
+                                question, options, options_map = (
+                                    self._extract_permission_prompt(clean_buffer)
+                                )
 
                                 # Build the message
-                                if question and options:
+                                if options:
                                     options_text = "\n".join(options)
                                     permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
-
-                                    # Build mapping for response conversion
-                                    self.pending_permission_options = {}
-                                    for option in options:
-                                        # Parse "1. Yes" -> {"Yes": "1"}
-                                        parts = option.split(". ", 1)
-                                        if len(parts) == 2:
-                                            number = parts[0].strip()
-                                            text = parts[1].strip()
-                                            self.pending_permission_options[text] = (
-                                                number
-                                            )
+                                    self.pending_permission_options = options_map
                                 else:
                                     # Fallback if parsing fails
-                                    permission_msg = f"{question if question else 'Permission required'}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
+                                    permission_msg = f"{question}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
                                     self.pending_permission_options = {
                                         "Yes": "1",
                                         "Yes, and don't ask again this session": "2",
@@ -985,22 +1098,27 @@ class ClaudeWrapperV3:
                                 if "esc to interrupt)" in clean_text:
                                     self.last_esc_interrupt_seen = time.time()
 
-                                # Check for permission prompt - handle chunked rendering
+                                # Check for permission/plan prompt - handle chunked rendering
                                 if (
                                     self.message_processor.last_was_tool_use
                                     and self.is_claude_idle()
-                                    and "Do you want to" in self.terminal_buffer
+                                    and (
+                                        "Do you want to" in self.terminal_buffer
+                                        or "Would you like to proceed"
+                                        in self.terminal_buffer
+                                    )
                                 ):
                                     # Mark that we've seen the start of the prompt
                                     if not hasattr(self, "_prompt_start_time"):
                                         self._prompt_start_time = time.time()
                                         self.log(
-                                            "[DEBUG] Detected 'Do you want to' - waiting for options"
+                                            "[DEBUG] Detected permission/plan prompt - waiting for options"
                                         )
 
                                     # Check if we have the options or if enough time has passed
                                     if (
                                         "1. Yes" in self.terminal_buffer
+                                        or "No, keep planning" in self.terminal_buffer
                                         or "❯" in self.terminal_buffer
                                         or (
                                             hasattr(self, "_prompt_start_time")
