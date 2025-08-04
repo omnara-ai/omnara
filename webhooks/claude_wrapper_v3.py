@@ -635,7 +635,7 @@ class ClaudeWrapperV3:
             user_responses = await self.omnara_client_async.request_user_input(
                 message_id=message_id,
                 timeout_minutes=1440,  # 24 hours
-                poll_interval=1.0,
+                poll_interval=3.0,
             )
 
             # Process responses
@@ -663,6 +663,7 @@ class ClaudeWrapperV3:
                             agent_type="Claude Code",
                             agent_instance_id=self.agent_instance_id,
                             requires_user_input=True,
+                            poll_interval=3.0,
                         )
                         self.log(
                             f"[INFO] Sent new message with requires_user_input=True: {response.message_id}"
