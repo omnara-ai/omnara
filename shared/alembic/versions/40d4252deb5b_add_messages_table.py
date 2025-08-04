@@ -144,7 +144,7 @@ def upgrade() -> None:
                 'agent_instance_id', NEW.agent_instance_id,
                 'sender_type', NEW.sender_type,
                 'content', NEW.content,
-                'created_at', NEW.created_at,
+                'created_at', to_char(NEW.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
                 'requires_user_input', NEW.requires_user_input,
                 'message_metadata', NEW.message_metadata,
                 'old_requires_user_input', CASE
@@ -186,7 +186,7 @@ def upgrade() -> None:
                     'event_type', 'status_update',
                     'instance_id', NEW.id,
                     'status', NEW.status,
-                    'timestamp', NOW()
+                    'timestamp', to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
                 )::text;
 
                 -- Send notification (quote channel name for UUIDs with hyphens)
