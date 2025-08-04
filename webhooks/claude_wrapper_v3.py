@@ -814,57 +814,6 @@ class ClaudeWrapperV3:
 
         return question, options, options_map
 
-    def handle_permission_prompt(self):
-        """Handle permission prompt by parsing terminal and sending to Omnara"""
-        try:
-            # Parse the permission prompt from terminal buffer
-            import re
-
-            clean_buffer = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer)
-
-            # Extract prompt components
-            question, options, options_map = self._extract_permission_prompt(
-                clean_buffer
-            )
-
-            # Build permission message in the requested format
-            if not options:
-                # Fallback to generic options
-                permission_msg = f"{question}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
-                # Store mapping for response conversion
-                self.pending_permission_options = {
-                    "Yes": "1",
-                    "Yes, and don't ask again this session": "2",
-                    "No": "3",
-                }
-            else:
-                # Format options with [OPTIONS] tags
-                options_text = "\n".join(options)
-                permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
-                # Use the extracted mapping
-                self.pending_permission_options = options_map
-
-            self.log(
-                f"[INFO] Sending permission prompt to Omnara: {permission_msg[:100]}..."
-            )
-
-            # Send to Omnara
-            if self.agent_instance_id and self.omnara_client_sync:
-                response = self.omnara_client_sync.send_message(
-                    content=permission_msg,
-                    agent_type="Claude Code",
-                    agent_instance_id=self.agent_instance_id,
-                    requires_user_input=False,  # Will be set by idle detection
-                )
-
-                # Track the message for idle detection
-                self.message_processor.last_message_id = response.message_id
-                self.message_processor.last_message_time = time.time()
-                self.message_processor.last_was_tool_use = False
-
-        except Exception as e:
-            self.log(f"[ERROR] Failed to handle permission prompt: {e}")
-
     def run_claude_with_pty(self):
         """Run Claude CLI in a PTY"""
         claude_path = self.find_claude_cli()
@@ -1006,18 +955,9 @@ class ClaudeWrapperV3:
                         elif time.time() - self._permission_assumed_time > 1.0:
                             if not hasattr(self, "_permission_handled"):
                                 self._permission_handled = True
-                                self.log(
-                                    "[INFO] Permission prompt timeout - sending generic prompt"
-                                )
-
-                                prompt_text = (
-                                    "Permission required. Check your terminal."
-                                )
-
-                            # Send permission prompt
                             if self.agent_instance_id and self.omnara_client_sync:
                                 response = self.omnara_client_sync.send_message(
-                                    content=f"{prompt_text}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]",
+                                    content="Waiting for your input...",
                                     agent_type="Claude Code",
                                     agent_instance_id=self.agent_instance_id,
                                     requires_user_input=False,
@@ -1028,12 +968,6 @@ class ClaudeWrapperV3:
                                 self.message_processor.last_message_time = time.time()
                                 self.message_processor.last_was_tool_use = False
 
-                                # Basic permission mapping
-                                self.pending_permission_options = {
-                                    "Yes": "1",
-                                    "Yes, and don't ask again this session": "2",
-                                    "No": "3",
-                                }
                 else:
                     # Clear state when conditions change
                     if hasattr(self, "_permission_assumed_time"):
@@ -1068,39 +1002,6 @@ class ClaudeWrapperV3:
                                 if "esc to interrupt)" in clean_text:
                                     self.last_esc_interrupt_seen = time.time()
 
-                                # Check for permission/plan prompt - handle chunked rendering
-                                if (
-                                    self.message_processor.last_was_tool_use
-                                    and self.is_claude_idle()
-                                    and (
-                                        "Do you want to" in self.terminal_buffer
-                                        or "Would you like to proceed"
-                                        in self.terminal_buffer
-                                    )
-                                ):
-                                    # Mark that we've seen the start of the prompt
-                                    if not hasattr(self, "_prompt_start_time"):
-                                        self._prompt_start_time = time.time()
-
-                                    # Check if we have the options or if enough time has passed
-                                    if (
-                                        "1. Yes" in self.terminal_buffer
-                                        or "No, keep planning" in self.terminal_buffer
-                                        or "❯" in self.terminal_buffer
-                                        or (
-                                            hasattr(self, "_prompt_start_time")
-                                            and time.time() - self._prompt_start_time
-                                            > 0.5
-                                        )
-                                    ):
-                                        self.log(
-                                            "[INFO] Permission prompt detected in terminal"
-                                        )
-                                        # Handle permission prompt directly
-                                        self.handle_permission_prompt()
-                                        # Clear the timer
-                                        if hasattr(self, "_prompt_start_time"):
-                                            delattr(self, "_prompt_start_time")
                             except Exception:
                                 pass
                         else:
