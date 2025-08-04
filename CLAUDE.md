@@ -40,7 +40,8 @@ omnara/
 - **PostgreSQL** with **SQLAlchemy 2.0+**
 - **Alembic** for migrations - ALWAYS create migrations for schema changes
 - Multi-tenant design - all data is scoped by user_id
-- Key tables: users, agent_types, agent_instances, agent_steps, agent_questions, agent_user_feedback, api_keys
+- Key tables: users, user_agents, agent_instances, messages, api_keys
+- **Unified messaging system**: All agent interactions (steps, questions, feedback) are now stored in the `messages` table with `sender_type` and `requires_user_input` fields
 
 ### Server Architecture
 - **Unified server** (`servers/app.py`) supports both MCP and REST
@@ -106,6 +107,13 @@ make test-integration  # Integration tests (needs Docker)
 3. **Update documentation** if you changed functionality
 
 ## Common Tasks
+
+### Working with Messages
+The unified messaging system uses a single `messages` table:
+- **Agent messages**: Set `sender_type=AGENT`, use `requires_user_input=True` for questions
+- **User messages**: Set `sender_type=USER` for feedback/responses
+- **Reading messages**: Use `last_read_message_id` to track reading progress
+- **Queued messages**: Agent receives unread user messages when sending new messages
 
 ### Adding a New API Endpoint
 1. Add route in `backend/api/` or `servers/fastapi_server/routers.py`

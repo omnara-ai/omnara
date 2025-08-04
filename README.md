@@ -186,25 +186,27 @@ client = OmnaraClient(api_key="your-api-key")
 instance_id = str(uuid.uuid4())
 
 # Log progress and check for user feedback
-response = client.log_step(
+response = client.send_message(
     agent_type="claude-code",
-    step_description="Analyzing codebase structure",
-    agent_instance_id=instance_id
+    content="Analyzing codebase structure",
+    agent_instance_id=instance_id,
+    requires_user_input=False
 )
 
 # Ask for user input when needed
-answer = client.ask_question(
-    question="Should I refactor this legacy module?",
-    agent_instance_id=instance_id
+answer = client.send_message(
+    content="Should I refactor this legacy module?",
+    agent_instance_id=instance_id,
+    requires_user_input=True
 )
 ```
 
 ### Method 3: REST API
 ```bash
-curl -X POST https://api.omnara.ai/api/v1/steps \
+curl -X POST https://api.omnara.ai/api/v1/messages/agent \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"step_description": "Starting deployment process"}'
+  -d '{"content": "Starting deployment process", "agent_type": "claude-code", "requires_user_input": false}'
 ```
 
 ## 🤝 Contributing
