@@ -390,7 +390,7 @@ class ClaudeWrapperV3:
             text_content = block.get("text", "")
             if not text_content:
                 return None
-            return self._truncate_text(text_content, 500)
+            return text_content
 
         elif block_type == "tool_use":
             # Track tool usage
