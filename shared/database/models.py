@@ -57,12 +57,6 @@ class User(Base):
     agent_instances: Mapped[list["AgentInstance"]] = relationship(
         "AgentInstance", back_populates="user"
     )
-    answered_questions: Mapped[list["AgentQuestion"]] = relationship(
-        "AgentQuestion", back_populates="answered_by_user"
-    )
-    feedback: Mapped[list["AgentUserFeedback"]] = relationship(
-        "AgentUserFeedback", back_populates="created_by_user"
-    )
     api_keys: Mapped[list["APIKey"]] = relationship("APIKey", back_populates="user")
     user_agents: Mapped[list["UserAgent"]] = relationship(
         "UserAgent", back_populates="user"
@@ -146,17 +140,6 @@ class AgentInstance(Base):
         "UserAgent", back_populates="instances"
     )
     user: Mapped["User"] = relationship("User", back_populates="agent_instances")
-    steps: Mapped[list["AgentStep"]] = relationship(
-        "AgentStep", back_populates="instance", order_by="AgentStep.created_at"
-    )
-    questions: Mapped[list["AgentQuestion"]] = relationship(
-        "AgentQuestion", back_populates="instance", order_by="AgentQuestion.asked_at"
-    )
-    user_feedback: Mapped[list["AgentUserFeedback"]] = relationship(
-        "AgentUserFeedback",
-        back_populates="instance",
-        order_by="AgentUserFeedback.created_at",
-    )
     messages: Mapped[list["Message"]] = relationship(
         "Message",
         back_populates="instance",
@@ -183,81 +166,6 @@ class AgentInstance(Base):
             raise ValueError("Invalid git diff format. Must be a valid unified diff.")
 
         return value
-
-
-class AgentStep(Base):
-    __tablename__ = "agent_steps"
-
-    id: Mapped[UUID] = mapped_column(
-        PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
-    )
-    agent_instance_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agent_instances.id"), type_=PostgresUUID(as_uuid=True)
-    )
-    step_number: Mapped[int] = mapped_column()
-    description: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc)
-    )
-
-    # Relationships
-    instance: Mapped["AgentInstance"] = relationship(
-        "AgentInstance", back_populates="steps"
-    )
-
-
-class AgentQuestion(Base):
-    __tablename__ = "agent_questions"
-
-    id: Mapped[UUID] = mapped_column(
-        PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
-    )
-    agent_instance_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agent_instances.id"), type_=PostgresUUID(as_uuid=True)
-    )
-    question_text: Mapped[str] = mapped_column(Text)
-    answer_text: Mapped[str | None] = mapped_column(Text, default=None)
-    answered_by_user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True), default=None
-    )
-    asked_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc)
-    )
-    answered_at: Mapped[datetime | None] = mapped_column(default=None)
-    is_active: Mapped[bool] = mapped_column(default=True)
-
-    # Relationships
-    instance: Mapped["AgentInstance"] = relationship(
-        "AgentInstance", back_populates="questions"
-    )
-    answered_by_user: Mapped["User | None"] = relationship(
-        "User", back_populates="answered_questions"
-    )
-
-
-class AgentUserFeedback(Base):
-    __tablename__ = "agent_user_feedback"
-
-    id: Mapped[UUID] = mapped_column(
-        PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
-    )
-    agent_instance_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agent_instances.id"), type_=PostgresUUID(as_uuid=True)
-    )
-    created_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
-    )
-    feedback_text: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc)
-    )
-    retrieved_at: Mapped[datetime | None] = mapped_column(default=None)
-
-    # Relationships
-    instance: Mapped["AgentInstance"] = relationship(
-        "AgentInstance", back_populates="user_feedback"
-    )
-    created_by_user: Mapped["User"] = relationship("User", back_populates="feedback")
 
 
 class APIKey(Base):

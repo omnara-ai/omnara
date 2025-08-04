@@ -68,20 +68,6 @@ class UserNotificationSettingsResponse(BaseModel):
 # ============================================================================
 
 
-# Represents individual steps/actions taken by an agent
-class AgentStepResponse(BaseModel):
-    id: str
-    step_number: int
-    description: str
-    created_at: datetime
-
-    @field_serializer("created_at")
-    def serialize_datetime(self, dt: datetime, _info):
-        return dt.isoformat() + "Z"
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 # Summary view of an agent instance (a single agent session/run)
 class AgentInstanceResponse(BaseModel):
     id: str
@@ -123,24 +109,6 @@ class AgentTypeOverview(BaseModel):
 # ============================================================================
 # Detailed Views
 # ============================================================================
-
-
-# Detailed information about a question asked by an agent, including answer status
-class QuestionDetail(BaseModel):
-    id: str
-    question_text: str
-    answer_text: str | None
-    asked_at: datetime
-    answered_at: datetime | None
-    is_active: bool
-
-    @field_serializer("asked_at", "answered_at")
-    def serialize_datetime(self, dt: datetime | None, _info):
-        if dt is None:
-            return None
-        return dt.isoformat() + "Z"
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 # Message model for the chat interface

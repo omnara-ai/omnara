@@ -3,12 +3,8 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from shared.database.models import (
-    AgentStep,
-    AgentQuestion,
-    AgentUserFeedback,
-)
-from shared.database.enums import AgentStatus
+from shared.database.models import Message
+from shared.database.enums import AgentStatus, SenderType
 
 
 class TestDatabaseModels:
@@ -21,117 +17,125 @@ class TestDatabaseModels:
         assert test_agent_instance.started_at is not None
         assert test_agent_instance.ended_at is None
 
-    def test_create_agent_step(self, test_db, test_agent_instance):
-        """Test creating agent steps."""
-        step1 = AgentStep(
+    def test_create_agent_messages(self, test_db, test_agent_instance):
+        """Test creating agent messages."""
+        message1 = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            step_number=1,
-            description="First step",
+            sender_type=SenderType.AGENT,
+            content="First step",
             created_at=datetime.now(timezone.utc),
+            requires_user_input=False,
         )
 
-        step2 = AgentStep(
+        message2 = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            step_number=2,
-            description="Second step",
+            sender_type=SenderType.AGENT,
+            content="Second step",
             created_at=datetime.now(timezone.utc),
+            requires_user_input=False,
         )
 
-        test_db.add_all([step1, step2])
+        test_db.add_all([message1, message2])
         test_db.commit()
 
-        # Query steps
-        steps = (
-            test_db.query(AgentStep)
+        # Query messages
+        messages = (
+            test_db.query(Message)
             .filter_by(agent_instance_id=test_agent_instance.id)
-            .order_by(AgentStep.step_number)
+            .order_by(Message.created_at)
             .all()
         )
 
-        assert len(steps) == 2
-        assert steps[0].step_number == 1
-        assert steps[0].description == "First step"
-        assert steps[1].step_number == 2
-        assert steps[1].description == "Second step"
+        assert len(messages) == 2
+        assert messages[0].content == "First step"
+        assert messages[1].content == "Second step"
+        assert all(msg.sender_type == SenderType.AGENT for msg in messages)
 
-    def test_create_agent_question(self, test_db, test_agent_instance):
-        """Test creating agent questions."""
-        question = AgentQuestion(
+    def test_create_agent_question_message(self, test_db, test_agent_instance):
+        """Test creating agent question as a message."""
+        question = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            question_text="Should I continue?",
-            asked_at=datetime.now(timezone.utc),
-            is_active=True,
+            sender_type=SenderType.AGENT,
+            content="Should I continue?",
+            created_at=datetime.now(timezone.utc),
+            requires_user_input=True,
         )
 
         test_db.add(question)
         test_db.commit()
 
         # Query question
-        saved_question = test_db.query(AgentQuestion).filter_by(id=question.id).first()
+        saved_question = test_db.query(Message).filter_by(id=question.id).first()
 
         assert saved_question is not None
-        assert saved_question.question_text == "Should I continue?"
-        assert saved_question.is_active is True
-        assert saved_question.answer_text is None
-        assert saved_question.answered_at is None
+        assert saved_question.content == "Should I continue?"
+        assert saved_question.requires_user_input is True
+        assert saved_question.sender_type == SenderType.AGENT
 
-    def test_create_user_feedback(self, test_db, test_agent_instance):
-        """Test creating user feedback."""
-        feedback = AgentUserFeedback(
+    def test_create_user_feedback_message(self, test_db, test_agent_instance):
+        """Test creating user feedback as a message."""
+        feedback = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            created_by_user_id=test_agent_instance.user_id,
-            feedback_text="Please use TypeScript",
+            sender_type=SenderType.USER,
+            content="Please use TypeScript",
             created_at=datetime.now(timezone.utc),
+            requires_user_input=False,
+            message_metadata={
+                "source": "user_feedback",
+                "created_by_user_id": str(test_agent_instance.user_id),
+            },
         )
 
         test_db.add(feedback)
         test_db.commit()
 
         # Query feedback
-        saved_feedback = (
-            test_db.query(AgentUserFeedback).filter_by(id=feedback.id).first()
-        )
+        saved_feedback = test_db.query(Message).filter_by(id=feedback.id).first()
 
         assert saved_feedback is not None
-        assert saved_feedback.feedback_text == "Please use TypeScript"
-        assert saved_feedback.retrieved_at is None
+        assert saved_feedback.content == "Please use TypeScript"
+        assert saved_feedback.sender_type == SenderType.USER
+        assert saved_feedback.message_metadata["created_by_user_id"] == str(
+            test_agent_instance.user_id
+        )
 
-    def test_agent_instance_relationships(self, test_db, test_agent_instance):
-        """Test agent instance relationships."""
-        # Add a step
-        step = AgentStep(
+    def test_agent_instance_message_relationships(self, test_db, test_agent_instance):
+        """Test agent instance message relationships."""
+        # Add an agent message
+        agent_msg = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            step_number=1,
-            description="Test step",
+            sender_type=SenderType.AGENT,
+            content="Test step",
             created_at=datetime.now(timezone.utc),
+            requires_user_input=False,
         )
 
-        # Add a question
-        question = AgentQuestion(
+        # Add a question message
+        question_msg = Message(
             id=uuid4(),
             agent_instance_id=test_agent_instance.id,
-            question_text="Test question?",
-            asked_at=datetime.now(timezone.utc),
-            is_active=True,
+            sender_type=SenderType.AGENT,
+            content="Test question?",
+            created_at=datetime.now(timezone.utc),
+            requires_user_input=True,
         )
 
-        test_db.add_all([step, question])
+        test_db.add_all([agent_msg, question_msg])
         test_db.commit()
 
         # Refresh instance to load relationships
         test_db.refresh(test_agent_instance)
 
         # Test relationships
-        assert len(test_agent_instance.steps) == 1
-        assert test_agent_instance.steps[0].description == "Test step"
-
-        assert len(test_agent_instance.questions) == 1
-        assert test_agent_instance.questions[0].question_text == "Test question?"
+        assert len(test_agent_instance.messages) == 2
+        assert test_agent_instance.messages[0].content == "Test step"
+        assert test_agent_instance.messages[1].content == "Test question?"
+        assert test_agent_instance.messages[1].requires_user_input is True
 
 
 class TestAgentStatusTransitions:
