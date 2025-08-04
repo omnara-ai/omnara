@@ -1,11 +1,9 @@
-from .enums import AgentStatus
+from .enums import AgentStatus, SenderType
 from .models import (
     AgentInstance,
-    AgentQuestion,
-    AgentStep,
-    AgentUserFeedback,
     APIKey,
     Base,
+    Message,
     PushToken,
     User,
     UserAgent,
@@ -20,12 +18,11 @@ __all__ = [
     "User",
     "UserAgent",
     "AgentInstance",
-    "AgentStep",
-    "AgentQuestion",
     "AgentStatus",
-    "AgentUserFeedback",
     "APIKey",
+    "Message",
     "PushToken",
+    "SenderType",
     "Subscription",
     "BillingEvent",
 ]

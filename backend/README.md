@@ -27,7 +27,7 @@ The backend provides a REST API for accessing and managing agent-related data. I
 ## Key Features
 
 - **Agent Monitoring** - View agent types, instances, and execution history
-- **User Interactions** - Handle questions from agents and user feedback
+- **Unified Messaging** - All agent interactions (steps, questions, feedback) through a single messaging system
 - **Multi-tenancy** - User-scoped data isolation and access control
 - **Authentication** - Support for both web dashboard users and programmatic agent access
 - **User Agent Management** - Custom agent configurations and webhook integrations

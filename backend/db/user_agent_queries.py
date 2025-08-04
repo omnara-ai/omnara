@@ -12,9 +12,7 @@ from shared.database import (
     AgentInstance,
     AgentStatus,
     APIKey,
-    AgentStep,
-    AgentQuestion,
-    AgentUserFeedback,
+    Message,
 )
 from shared.database.billing_operations import check_agent_limit
 from sqlalchemy import and_, func
@@ -157,6 +155,7 @@ async def trigger_webhook_agent(
     payload = {
         "agent_instance_id": str(agent_instance_id),
         "prompt": prompt,
+        "agent_type": user_agent.name,
     }
 
     if name is not None:
@@ -281,9 +280,7 @@ def get_user_agent_instances(db: Session, agent_id: UUID, user_id: UUID) -> list
     instances = (
         db.query(AgentInstance)
         .options(
-            joinedload(AgentInstance.questions),
-            joinedload(AgentInstance.steps),
-            joinedload(AgentInstance.user_feedback),
+            joinedload(AgentInstance.messages),
             joinedload(AgentInstance.user_agent),
         )
         .filter(AgentInstance.user_agent_id == agent_id)
@@ -315,18 +312,8 @@ def delete_user_agent(db: Session, agent_id: UUID, user_id: UUID) -> bool:
 
     # For each agent instance, delete all related data
     for instance in agent_instances:
-        # Delete agent steps
-        db.query(AgentStep).filter(AgentStep.agent_instance_id == instance.id).delete()
-
-        # Delete agent questions
-        db.query(AgentQuestion).filter(
-            AgentQuestion.agent_instance_id == instance.id
-        ).delete()
-
-        # Delete user feedback
-        db.query(AgentUserFeedback).filter(
-            AgentUserFeedback.agent_instance_id == instance.id
-        ).delete()
+        # Delete messages
+        db.query(Message).filter(Message.agent_instance_id == instance.id).delete()
 
     # Delete all agent instances
     db.query(AgentInstance).filter(AgentInstance.user_agent_id == agent_id).delete()

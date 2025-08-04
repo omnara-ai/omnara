@@ -4,9 +4,9 @@ This directory contains the write operations server for the Agent Dashboard syst
 
 ## Overview
 
-The servers directory implements all write operations that agents need:
-- Logging their progress and receiving user feedback
-- Asking questions to users
+The servers directory implements all write operations that agents need through a unified messaging system:
+- Sending messages (both informational steps and questions requiring user input)
+- Receiving user responses and feedback
 - Managing session lifecycle
 
 All operations are authenticated and multi-tenant, ensuring data isolation between users.
@@ -36,10 +36,10 @@ The servers use a separate authentication system from the main backend:
 
 ## Key Features
 
-- **Write-only operations**: Designed for agent interactions, not data retrieval
+- **Unified messaging**: All agent interactions use the same message-based API
 - **Automatic session management**: Creates sessions on first interaction
-- **User feedback delivery**: Agents receive feedback when logging steps
-- **Non-blocking questions**: Async implementation for user interactions
+- **Message queuing**: Agents receive unread user messages when sending new messages
+- **Flexible interactions**: Messages can be informational or require user input
 - **Multi-protocol support**: Same functionality via MCP or REST API
 
 ## Running the Server

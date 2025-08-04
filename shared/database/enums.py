@@ -2,11 +2,16 @@ from enum import Enum
 
 
 class AgentStatus(str, Enum):
-    ACTIVE = "active"
-    AWAITING_INPUT = "awaiting_input"
-    PAUSED = "paused"
-    STALE = "stale"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    KILLED = "killed"
-    DISCONNECTED = "disconnected"
+    ACTIVE = "ACTIVE"
+    AWAITING_INPUT = "AWAITING_INPUT"
+    PAUSED = "PAUSED"
+    STALE = "STALE"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    KILLED = "KILLED"
+    DISCONNECTED = "DISCONNECTED"
+
+
+class SenderType(str, Enum):
+    AGENT = "AGENT"
+    USER = "USER"

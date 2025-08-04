@@ -1,10 +1,15 @@
 from uuid import UUID
+import asyncio
+import json
+from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from shared.database.models import User
 from shared.database.session import get_db
 from shared.database.enums import AgentStatus
 from sqlalchemy.orm import Session
+import asyncpg
 
 from ..auth.dependencies import get_current_user
 from ..db import (
@@ -14,14 +19,14 @@ from ..db import (
     get_all_agent_instances,
     get_all_agent_types_with_instances,
     mark_instance_completed,
-    submit_user_feedback,
+    submit_user_message,
 )
 from ..models import (
     AgentInstanceDetail,
     AgentInstanceResponse,
     AgentTypeOverview,
-    UserFeedbackRequest,
-    UserFeedbackResponse,
+    UserMessageRequest,
+    UserMessageResponse,
 )
 
 router = APIRouter(tags=["agents"])
@@ -87,19 +92,127 @@ async def get_instance_detail(
 
 
 @router.post(
-    "/agent-instances/{instance_id}/feedback", response_model=UserFeedbackResponse
+    "/agent-instances/{instance_id}/messages", response_model=UserMessageResponse
 )
-async def add_user_feedback(
+async def create_user_message(
     instance_id: UUID,
-    request: UserFeedbackRequest,
+    request: UserMessageRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Submit user feedback for an agent instance for the current user"""
-    result = submit_user_feedback(db, instance_id, request.feedback, current_user.id)
+    """Send a message to an agent instance (answers questions or provides feedback)"""
+    result = submit_user_message(db, instance_id, request.content, current_user.id)
     if not result:
         raise HTTPException(status_code=404, detail="Agent instance not found")
     return result
+
+
+@router.get("/agent-instances/{instance_id}/messages/stream")
+async def stream_messages(
+    request: Request,
+    instance_id: UUID,
+    token: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Stream new messages for an agent instance using Server-Sent Events"""
+    # Handle SSE authentication - token comes from query param
+    if not token:
+        raise HTTPException(status_code=401, detail="Token required for SSE")
+
+    try:
+        # Verify token and get user
+        from ..auth.supabase_client import get_supabase_anon_client
+
+        supabase = get_supabase_anon_client()
+        user_response = supabase.auth.get_user(token)
+
+        if not user_response or not user_response.user:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        user_id = UUID(user_response.user.id)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+    # Verify the user has access to this instance
+    instance = get_agent_instance_detail(db, instance_id, user_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Agent instance not found")
+
+    async def message_generator() -> AsyncGenerator[str, None]:
+        # Import settings here to avoid circular imports
+        from shared.config.settings import settings
+
+        # Create connection to PostgreSQL for LISTEN/NOTIFY
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            # Listen to the channel for this instance
+            channel_name = f"message_channel_{instance_id}"
+
+            # Execute LISTEN command (quote channel name for UUIDs with hyphens)
+            await conn.execute(f'LISTEN "{channel_name}"')
+
+            # Create a queue to receive notifications
+            notification_queue = asyncio.Queue()
+
+            # Define callback to put notifications in queue
+            def notification_callback(connection, pid, channel, payload):
+                asyncio.create_task(notification_queue.put(payload))
+
+            # Add listener with callback
+            await conn.add_listener(channel_name, notification_callback)
+
+            # Send initial connection event
+            yield f"event: connected\ndata: {json.dumps({'instance_id': str(instance_id)})}\n\n"
+
+            while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    # Wait for notification with timeout for heartbeat
+                    payload = await asyncio.wait_for(
+                        notification_queue.get(), timeout=30.0
+                    )
+
+                    # Parse the JSON payload
+                    data = json.loads(payload)
+
+                    # Check event type and send appropriate SSE event
+                    event_type = data.get("event_type")
+                    if event_type == "status_update":
+                        # Send status_update event
+                        yield f"event: status_update\ndata: {json.dumps(data)}\n\n"
+                    elif event_type == "message_update":
+                        # Send message_update event for frontend to handle
+                        yield f"event: message_update\ndata: {json.dumps(data)}\n\n"
+                    else:
+                        # Regular message event (either message_insert or legacy without event_type)
+                        yield f"event: message\ndata: {json.dumps(data)}\n\n"
+
+                except asyncio.TimeoutError:
+                    # Send heartbeat to keep connection alive
+                    yield f"event: heartbeat\ndata: {json.dumps({'timestamp': asyncio.get_event_loop().time()})}\n\n"
+
+                except Exception as e:
+                    # Send error event
+                    yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+                    break
+
+        finally:
+            # Clean up listener and connection
+            await conn.remove_listener(channel_name, notification_callback)
+            await conn.close()
+
+    return StreamingResponse(
+        message_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable Nginx buffering
+        },
+    )
 
 
 @router.put(
