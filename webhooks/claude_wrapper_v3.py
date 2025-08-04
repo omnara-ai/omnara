@@ -100,6 +100,10 @@ class MessageProcessor:
         if hasattr(self.wrapper, "requested_input_messages"):
             self.wrapper.requested_input_messages.clear()
 
+        # Clear pending permission options since we have a new message
+        if hasattr(self.wrapper, "pending_permission_options"):
+            self.wrapper.pending_permission_options.clear()
+
         # Process any queued user messages
         if response.queued_user_messages:
             concatenated = "\n".join(response.queued_user_messages)
@@ -111,9 +115,6 @@ class MessageProcessor:
         # Don't request input if we might have a permission prompt
         if self.last_was_tool_use and self.wrapper.is_claude_idle():
             # We're in a state where a permission prompt might appear
-            self.wrapper.log(
-                "[DEBUG] should_request_input: Skipping due to recent tool use"
-            )
             return None
 
         # Only request if:
@@ -688,9 +689,6 @@ class ClaudeWrapperV3:
         """
         import re
 
-        # Log basic buffer info for debugging
-        self.log(f"[DEBUG] Buffer length: {len(clean_buffer)}")
-
         # Check if this is plan mode - look for the specific options
         is_plan_mode = "Would you like to proceed" in clean_buffer and (
             "auto-accept edits" in clean_buffer
@@ -703,70 +701,41 @@ class ClaudeWrapperV3:
 
         if is_plan_mode:
             # For plan mode, extract the question from buffer
+            question = "Would you like to proceed with this plan?"
 
-            # Find the actual question in the buffer
-            for line in clean_buffer.split("\n"):
-                line_clean = line.strip().replace("\u2502", "").strip()
-                if "Would you like to proceed" in line_clean:
-                    question = line_clean
-                    break
+            # Simple approach: Just use the terminal buffer for plan extraction
+            import re
 
-            if not question:
-                question = "Would you like to proceed with this plan?"
+            # Look for "Ready to code?" marker in the buffer
+            plan_marker = "Ready to code?"
+            plan_start = clean_buffer.rfind(plan_marker)
 
-            # Extract plan content - look for the box content before "Would you like to proceed"
-            end_idx = clean_buffer.find("Would you like to proceed")
+            if plan_start != -1:
+                # Extract everything after "Ready to code?" up to the prompt
+                plan_end = clean_buffer.find("Would you like to proceed", plan_start)
+                if plan_end != -1:
+                    plan_content = clean_buffer[
+                        plan_start + len(plan_marker) : plan_end
+                    ]
 
-            if end_idx != -1:
-                # Get content before the question (last 4000 chars should be enough)
-                start_pos = max(0, end_idx - 4000)
-                content_section = clean_buffer[start_pos:end_idx]
-
-                # Look for the box borders - plan is between ╭─ and ╰─
-                # Find the start of the box (look for ╭ followed by ─)
-                import re
-
-                box_start_match = None
-                for match in re.finditer(r"╭─+╮", content_section):
-                    box_start_match = match
-                    break  # Get the first one
-
-                # Find the end of the box (look for ╰ followed by ─)
-                box_end_match = None
-                for match in re.finditer(r"╰─+╯", content_section):
-                    box_end_match = match  # Keep the last one
-
-                if box_start_match and box_end_match:
-                    box_start = box_start_match.end()  # Start after the top border
-                    box_end = box_end_match.start()  # End before the bottom border
-                else:
-                    box_start = -1
-                    box_end = -1
-
-                if box_start != -1 and box_end != -1 and box_start < box_end:
-                    # Extract content between box borders
-                    box_content = content_section[box_start:box_end]
-
-                    # Clean up the content
-                    plan_lines = []
-                    for line in box_content.split("\n"):
-                        # Remove box characters and clean up
-                        cleaned = re.sub(
-                            r"^[│\s]+", "", line
-                        )  # Remove leading box chars
-                        cleaned = re.sub(
-                            r"[│\s]+$", "", cleaned
-                        )  # Remove trailing box chars
+                    # Clean up the plan content - remove ANSI codes and box characters
+                    lines = []
+                    for line in plan_content.split("\n"):
+                        # Remove box drawing characters and clean up
+                        cleaned = re.sub(r"^[│\s]+", "", line)
+                        cleaned = re.sub(r"[│\s]+$", "", cleaned)
                         cleaned = cleaned.strip()
 
-                        # Skip empty lines and box border lines
+                        # Skip empty lines and box borders
                         if cleaned and not re.match(r"^[╭─╮╰╯]+$", cleaned):
-                            plan_lines.append(cleaned)
+                            lines.append(cleaned)
 
-                    plan_content = "\n".join(plan_lines)
-                    self.log(
-                        f"[DEBUG] Extracted plan content ({len(plan_content)} chars)"
-                    )
+                    plan_content = "\n".join(lines).strip()
+                else:
+                    plan_content = ""
+            else:
+                # No "Ready to code?" found - might be a very short plan or scrolled off
+                plan_content = ""
         else:
             # Regular permission prompt
             for line in clean_buffer.split("\n"):
@@ -840,6 +809,8 @@ class ClaudeWrapperV3:
         # Return plan content as part of question if available
         if plan_content:
             question = f"{question}\n\n{plan_content}"
+            # Clear terminal buffer after extracting plan to avoid old plans
+            self.terminal_buffer = ""
 
         return question, options, options_map
 
@@ -970,9 +941,6 @@ class ClaudeWrapperV3:
                     # After tool use + idle, assume permission prompt is shown
                     if not hasattr(self, "_permission_assumed_time"):
                         self._permission_assumed_time = time.time()
-                        self.log(
-                            "[DEBUG] Tool use + idle detected, starting permission prompt timer"
-                        )
 
                     # After 0.25 seconds, check if we can parse the prompt from buffer
                     elif time.time() - self._permission_assumed_time > 0.25:
@@ -1087,9 +1055,11 @@ class ClaudeWrapperV3:
                                 text = data.decode("utf-8", errors="ignore")
                                 self.terminal_buffer += text
 
-                                # Keep buffer size reasonable
-                                if len(self.terminal_buffer) > 10000:
-                                    self.terminal_buffer = self.terminal_buffer[-10000:]
+                                # Keep buffer large enough for long plans
+                                if len(self.terminal_buffer) > 200000:
+                                    self.terminal_buffer = self.terminal_buffer[
+                                        -200000:
+                                    ]
 
                                 # Check for the indicator
                                 import re
@@ -1111,9 +1081,6 @@ class ClaudeWrapperV3:
                                     # Mark that we've seen the start of the prompt
                                     if not hasattr(self, "_prompt_start_time"):
                                         self._prompt_start_time = time.time()
-                                        self.log(
-                                            "[DEBUG] Detected permission/plan prompt - waiting for options"
-                                        )
 
                                     # Check if we have the options or if enough time has passed
                                     if (
@@ -1167,11 +1134,12 @@ class ClaudeWrapperV3:
                             )
                             content = converted
                         else:
-                            # Doesn't match any option - default to "No" (3)
+                            # Default to the highest numbered option (last option)
+                            max_option = max(self.pending_permission_options.values())
                             self.log(
-                                f"[INFO] Unmatched permission response '{content}' - defaulting to No (3)"
+                                f"[INFO] Unmatched permission response '{content}' - defaulting to option {max_option}"
                             )
-                            content = "3"
+                            content = max_option
 
                         # Always clear the mapping after handling a permission response
                         self.pending_permission_options = {}

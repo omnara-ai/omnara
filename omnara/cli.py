@@ -57,6 +57,29 @@ def run_webhook_server(
     subprocess.run(cmd)
 
 
+def run_claude_wrapper(api_key, base_url=None, claude_args=None):
+    """Run the Claude wrapper V3 for Omnara integration"""
+    # Import and run directly instead of subprocess
+    from webhooks.claude_wrapper_v3 import main as claude_wrapper_main
+
+    # Prepare sys.argv for the claude wrapper
+    original_argv = sys.argv
+    new_argv = ["claude_wrapper_v3", "--api-key", api_key]
+
+    if base_url:
+        new_argv.extend(["--base-url", base_url])
+
+    # Add any additional Claude arguments
+    if claude_args:
+        new_argv.extend(claude_args)
+
+    try:
+        sys.argv = new_argv
+        claude_wrapper_main()
+    finally:
+        sys.argv = original_argv
+
+
 def main():
     """Main entry point that dispatches based on command line arguments"""
     parser = argparse.ArgumentParser(
@@ -79,6 +102,12 @@ Examples:
   # Run webhook server on custom port
   omnara --claude-code-webhook --port 8080
 
+  # Run Claude wrapper V3
+  omnara --claude --api-key YOUR_API_KEY
+
+  # Run Claude wrapper with custom base URL
+  omnara --claude --api-key YOUR_API_KEY --base-url http://localhost:8000
+
   # Run with custom API base URL
   omnara --stdio --api-key YOUR_API_KEY --base-url http://localhost:8000
 
@@ -98,6 +127,11 @@ Examples:
         "--claude-code-webhook",
         action="store_true",
         help="Run the Claude Code webhook server",
+    )
+    mode_group.add_argument(
+        "--claude",
+        action="store_true",
+        help="Run the Claude wrapper V3 for Omnara integration",
     )
 
     # Arguments for webhook mode
@@ -142,7 +176,8 @@ Examples:
         help="Pre-existing agent instance ID to use for this session (stdio mode only)",
     )
 
-    args = parser.parse_args()
+    # Use parse_known_args to capture remaining args for Claude
+    args, unknown_args = parser.parse_known_args()
 
     if args.cloudflare_tunnel and not args.claude_code_webhook:
         parser.error("--cloudflare-tunnel can only be used with --claude-code-webhook")
@@ -156,6 +191,10 @@ Examples:
             dangerously_skip_permissions=args.dangerously_skip_permissions,
             port=args.port,
         )
+    elif args.claude:
+        if not args.api_key:
+            parser.error("--api-key is required for --claude mode")
+        run_claude_wrapper(args.api_key, args.base_url, unknown_args)
     else:
         if not args.api_key:
             parser.error("--api-key is required for stdio mode")
