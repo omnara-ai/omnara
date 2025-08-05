@@ -65,10 +65,17 @@ class AsyncOmnaraClient:
             # This fixes SSL verification issues with aiohttp on some systems
             ssl_context = ssl.create_default_context(cafile=certifi.where())
 
+            # Configure connector
+            connector = aiohttp.TCPConnector(
+                ssl=ssl_context,
+                limit=100,
+                ttl_dns_cache=300,
+            )
+
             self.session = aiohttp.ClientSession(
                 headers=self.headers,
                 timeout=self.timeout,
-                connector=aiohttp.TCPConnector(ssl=ssl_context),
+                connector=connector,
             )
 
     async def close(self):
@@ -84,7 +91,7 @@ class AsyncOmnaraClient:
         params: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Make an async HTTP request to the API.
+        """Make an async HTTP request to the API with retry logic.
 
         Args:
             method: HTTP method (GET, POST, etc.)
@@ -105,39 +112,73 @@ class AsyncOmnaraClient:
         assert self.session is not None
 
         url = urljoin(self.base_url, endpoint)
-
-        # Override timeout if specified
         request_timeout = ClientTimeout(total=timeout) if timeout else self.timeout
 
-        try:
-            async with self.session.request(
-                method=method,
-                url=url,
-                json=json,
-                params=params,
-                timeout=request_timeout,
-            ) as response:
-                if response.status == 401:
-                    raise AuthenticationError(
-                        "Invalid API key or authentication failed"
-                    )
+        # Retry configuration to match urllib3
+        max_retries = 6  # Total attempts (1 initial + 5 retries)
+        backoff_factor = 1.0
+        status_forcelist = {429, 500, 502, 503, 504}
 
-                if not response.ok:
-                    try:
-                        error_data = await response.json()
-                        error_detail = error_data.get("detail", await response.text())
-                    except Exception:
-                        error_detail = await response.text()
-                    raise APIError(response.status, error_detail)
+        last_error = None
 
-                return await response.json()
+        for attempt in range(max_retries):
+            try:
+                async with self.session.request(
+                    method=method,
+                    url=url,
+                    json=json,
+                    params=params,
+                    timeout=request_timeout,
+                ) as response:
+                    if response.status == 401:
+                        raise AuthenticationError(
+                            "Invalid API key or authentication failed"
+                        )
 
-        except asyncio.TimeoutError:
-            raise TimeoutError(
-                f"Request timed out after {timeout or self.timeout.total} seconds"
-            )
-        except aiohttp.ClientError as e:
-            raise APIError(0, f"Request failed: {str(e)}")
+                    if not response.ok:
+                        try:
+                            error_data = await response.json()
+                            error_detail = error_data.get(
+                                "detail", await response.text()
+                            )
+                        except Exception:
+                            error_detail = await response.text()
+
+                        # Check if we should retry this status code
+                        if response.status in status_forcelist:
+                            last_error = APIError(response.status, error_detail)
+                            # Continue to retry logic below
+                        else:
+                            # Don't retry client errors
+                            raise APIError(response.status, error_detail)
+                    else:
+                        # Success!
+                        return await response.json()
+
+            except (aiohttp.ClientConnectionError, aiohttp.ClientError) as e:
+                # Connection errors - retry these
+                last_error = APIError(0, f"Request failed: {str(e)}")
+            except asyncio.TimeoutError:
+                last_error = TimeoutError(
+                    f"Request timed out after {timeout or self.timeout.total} seconds"
+                )
+            except (AuthenticationError, APIError) as e:
+                if isinstance(e, APIError) and e.status_code in status_forcelist:
+                    last_error = e
+                else:
+                    # Don't retry auth errors or client errors
+                    raise
+
+            # If this is not the last attempt, sleep before retrying
+            if attempt < max_retries - 1 and last_error:
+                sleep_time = min(backoff_factor * (2**attempt), 60.0)
+                await asyncio.sleep(sleep_time)
+            elif last_error:
+                # Last attempt failed, raise the error
+                raise last_error
+
+        # Should never reach here
+        raise APIError(0, "Unexpected retry exhaustion")
 
     async def send_message(
         self,

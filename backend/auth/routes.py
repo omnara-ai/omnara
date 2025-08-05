@@ -243,6 +243,46 @@ async def revoke_api_key(
     return {"message": "API key revoked successfully"}
 
 
+@router.post("/cli-key", response_model=APIKeyResponse)
+async def create_cli_key(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new CLI-specific API key for the current user"""
+
+    # Always generate a new CLI key
+    try:
+        jwt_token = create_api_key_jwt(
+            user_id=str(current_user.id),
+            expires_in_days=None,  # No expiration for CLI keys
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate API key: {str(e)}"
+        )
+
+    # Store the new CLI key
+    api_key = APIKey(
+        user_id=current_user.id,
+        name="CLI Key",
+        api_key_hash=get_token_hash(jwt_token),
+        api_key=jwt_token,
+        expires_at=None,  # No expiration
+    )
+
+    db.add(api_key)
+    db.commit()
+    db.refresh(api_key)
+
+    return APIKeyResponse(
+        id=str(api_key.id),
+        name=api_key.name,
+        api_key=jwt_token,
+        created_at=api_key.created_at.isoformat(),
+        expires_at=None,
+    )
+
+
 @router.delete("/me")
 async def delete_user_account(
     current_user: User = Depends(get_current_user),

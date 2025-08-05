@@ -1,5 +1,6 @@
 """API routes for agent operations."""
 
+import logging
 from typing import Annotated
 from uuid import UUID
 
@@ -28,6 +29,7 @@ from .models import (
 )
 
 agent_router = APIRouter(tags=["agents"])
+logger = logging.getLogger(__name__)
 
 
 @agent_router.post("/messages/agent", response_model=CreateMessageResponse)
@@ -89,11 +91,15 @@ async def create_agent_message_endpoint(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except HTTPException:
+        db.rollback()
+        raise  # Re-raise HTTPExceptions (including UsageLimitError) with their original status
     except Exception as e:
         db.rollback()
+        logger.error(f"Error in create_agent_message_endpoint: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}",
+            detail="Internal server error",
         )
     finally:
         db.close()
