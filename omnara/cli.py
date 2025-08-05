@@ -127,103 +127,110 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
                     self.send_response(200)
                     self.send_header("Content-type", "text/html")
                     self.end_headers()
-                    self.wfile.write(b"""
-                    <html>
-                    <head>
-                        <title>Omnara CLI - Authentication Successful</title>
-                        <style>
-                            body {
-                                margin: 0;
-                                padding: 0;
-                                min-height: 100vh;
-                                background: linear-gradient(135deg, #1a1618 0%, #2a1f3d 100%);
-                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                color: #fef3c7;
-                            }
-                            .card {
-                                background: rgba(26, 22, 24, 0.8);
-                                border: 1px solid rgba(245, 158, 11, 0.2);
-                                border-radius: 12px;
-                                padding: 48px;
-                                text-align: center;
-                                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3),
-                                           0 0 60px rgba(245, 158, 11, 0.1);
-                                max-width: 400px;
-                                animation: fadeIn 0.5s ease-out;
-                            }
-                            @keyframes fadeIn {
-                                from { opacity: 0; transform: translateY(20px); }
-                                to { opacity: 1; transform: translateY(0); }
-                            }
-                            .icon {
-                                width: 64px;
-                                height: 64px;
-                                margin: 0 auto 24px;
-                                background: rgba(134, 239, 172, 0.2);
-                                border-radius: 50%;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                animation: scaleIn 0.5s ease-out 0.2s both;
-                            }
-                            @keyframes scaleIn {
-                                from { transform: scale(0); }
-                                to { transform: scale(1); }
-                            }
-                            .checkmark {
-                                width: 32px;
-                                height: 32px;
-                                stroke: #86efac;
-                                stroke-width: 3;
-                                fill: none;
-                                stroke-dasharray: 100;
-                                stroke-dashoffset: 100;
-                                animation: draw 0.5s ease-out 0.5s forwards;
-                            }
-                            @keyframes draw {
-                                to { stroke-dashoffset: 0; }
-                            }
-                            h1 {
-                                margin: 0 0 16px;
-                                font-size: 24px;
-                                font-weight: 600;
-                                color: #86efac;
-                            }
-                            p {
-                                margin: 0;
-                                opacity: 0.8;
-                                line-height: 1.5;
-                            }
-                            .close-hint {
-                                margin-top: 24px;
-                                font-size: 14px;
-                                opacity: 0.6;
-                            }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="card">
-                            <div class="icon">
-                                <svg class="checkmark" viewBox="0 0 24 24">
-                                    <path d="M20 6L9 17l-5-5" />
-                                </svg>
+                    try:
+                        self.wfile.write(b"""
+                        <html>
+                        <head>
+                            <title>Omnara CLI - Authentication Successful</title>
+                            <style>
+                                body {
+                                    margin: 0;
+                                    padding: 0;
+                                    min-height: 100vh;
+                                    background: linear-gradient(135deg, #1a1618 0%, #2a1f3d 100%);
+                                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    color: #fef3c7;
+                                }
+                                .card {
+                                    background: rgba(26, 22, 24, 0.8);
+                                    border: 1px solid rgba(245, 158, 11, 0.2);
+                                    border-radius: 12px;
+                                    padding: 48px;
+                                    text-align: center;
+                                    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3),
+                                               0 0 60px rgba(245, 158, 11, 0.1);
+                                    max-width: 400px;
+                                    animation: fadeIn 0.5s ease-out;
+                                }
+                                @keyframes fadeIn {
+                                    from { opacity: 0; transform: translateY(20px); }
+                                    to { opacity: 1; transform: translateY(0); }
+                                }
+                                .icon {
+                                    width: 64px;
+                                    height: 64px;
+                                    margin: 0 auto 24px;
+                                    background: rgba(134, 239, 172, 0.2);
+                                    border-radius: 50%;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    animation: scaleIn 0.5s ease-out 0.2s both;
+                                }
+                                @keyframes scaleIn {
+                                    from { transform: scale(0); }
+                                    to { transform: scale(1); }
+                                }
+                                .checkmark {
+                                    width: 32px;
+                                    height: 32px;
+                                    stroke: #86efac;
+                                    stroke-width: 3;
+                                    fill: none;
+                                    stroke-dasharray: 100;
+                                    stroke-dashoffset: 100;
+                                    animation: draw 0.5s ease-out 0.5s forwards;
+                                }
+                                @keyframes draw {
+                                    to { stroke-dashoffset: 0; }
+                                }
+                                h1 {
+                                    margin: 0 0 16px;
+                                    font-size: 24px;
+                                    font-weight: 600;
+                                    color: #86efac;
+                                }
+                                p {
+                                    margin: 0;
+                                    opacity: 0.8;
+                                    line-height: 1.5;
+                                }
+                                .close-hint {
+                                    margin-top: 24px;
+                                    font-size: 14px;
+                                    opacity: 0.6;
+                                }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="card">
+                                <div class="icon">
+                                    <svg class="checkmark" viewBox="0 0 24 24">
+                                        <path d="M20 6L9 17l-5-5" />
+                                    </svg>
+                                </div>
+                                <h1>Authentication Successful!</h1>
+                                <p>Your CLI has been authorized to access Omnara.</p>
+                                <p class="close-hint">You can now close this window and return to your terminal.</p>
                             </div>
-                            <h1>Authentication Successful!</h1>
-                            <p>Your CLI has been authorized to access Omnara.</p>
-                            <p class="close-hint">You can now close this window and return to your terminal.</p>
-                        </div>
-                        <script>
-                            // Try to close the window after a short delay
-                            setTimeout(() => {
-                                window.close();
-                            }, 2000);
-                        </script>
-                    </body>
-                    </html>
-                    """)
+                            <script>
+                                // Try to close the window after a short delay
+                                setTimeout(() => {
+                                    window.close();
+                                }, 2000);
+                            </script>
+                        </body>
+                        </html>
+                        """)
+                    except BrokenPipeError:
+                        # Client closed connection, ignore
+                        pass
+                    except ConnectionResetError:
+                        # Client reset connection, ignore
+                        pass
                     return
             else:
                 # Invalid or missing state parameter
@@ -289,6 +296,10 @@ def authenticate_via_browser(auth_url="https://omnara.com"):
     server.timeout = 300  # 5 minute timeout
     try:
         server.handle_request()
+        # Keep server running for a few more seconds to handle any follow-up requests
+        import time
+
+        time.sleep(3)
         server.server_close()
     except Exception as e:
         server.server_close()
