@@ -813,6 +813,7 @@ async def start_claude(
                         "run",
                         "--no-cache",
                         "omnara",
+                        "--stdio",
                         "--api-key",
                         omnara_api_key,
                         "--claude-code-permission-tool",
