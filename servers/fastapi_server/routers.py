@@ -89,6 +89,9 @@ async def create_agent_message_endpoint(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except HTTPException:
+        db.rollback()
+        raise  # Re-raise HTTPExceptions (including UsageLimitError) with their original status
     except Exception as e:
         db.rollback()
         raise HTTPException(

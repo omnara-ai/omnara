@@ -8,9 +8,11 @@ This server provides:
 
 import logging
 from contextlib import asynccontextmanager
+import traceback
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import sentry_sdk
 from shared.config import settings
 
@@ -67,6 +69,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler that logs all unhandled exceptions."""
+    # Log the error with full traceback
+    logger.error(f"Unhandled exception in {request.method} {request.url.path}")
+    logger.error(f"Exception: {type(exc).__name__}: {str(exc)}")
+    logger.error(traceback.format_exc())
+
+    # Re-raise HTTPExceptions to preserve their status codes
+    if isinstance(exc, HTTPException):
+        raise exc
+
+    # For all other exceptions, return 500
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 app.include_router(agent_router, prefix="/api/v1")
 app.mount("/mcp", mcp_app)
