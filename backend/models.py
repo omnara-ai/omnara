@@ -73,6 +73,7 @@ class AgentInstanceResponse(BaseModel):
     id: str
     agent_type_id: str
     agent_type_name: str | None = None
+    name: str | None = None
     status: AgentStatus
     started_at: datetime
     ended_at: datetime | None

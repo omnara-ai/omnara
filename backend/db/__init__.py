@@ -6,6 +6,8 @@ from .queries import (
     get_agent_summary,
     mark_instance_completed,
     submit_user_message,
+    delete_agent_instance,
+    update_agent_instance_name,
 )
 from .user_agent_queries import (
     create_user_agent,
@@ -24,6 +26,8 @@ __all__ = [
     "get_agent_instance_detail",
     "mark_instance_completed",
     "submit_user_message",
+    "delete_agent_instance",
+    "update_agent_instance_name",
     "create_user_agent",
     "get_user_agents",
     "update_user_agent",

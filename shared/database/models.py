@@ -124,6 +124,7 @@ class AgentInstance(Base):
     )
     ended_at: Mapped[datetime | None] = mapped_column(default=None)
     git_diff: Mapped[str | None] = mapped_column(Text, default=None)
+    name: Mapped[str | None] = mapped_column(String(255), default=None)
     last_read_message_id: Mapped[UUID | None] = mapped_column(
         ForeignKey(
             "messages.id",

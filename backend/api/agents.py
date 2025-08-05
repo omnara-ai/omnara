@@ -20,6 +20,8 @@ from ..db import (
     get_all_agent_types_with_instances,
     mark_instance_completed,
     submit_user_message,
+    delete_agent_instance,
+    update_agent_instance_name,
 )
 from ..models import (
     AgentInstanceDetail,
@@ -234,3 +236,36 @@ async def update_agent_status(
         return result
     else:
         raise HTTPException(status_code=400, detail="Status update not supported")
+
+
+@router.delete("/agent-instances/{instance_id}")
+async def delete_agent_instance_endpoint(
+    instance_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete an agent instance"""
+    result = delete_agent_instance(db, instance_id, current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Agent instance not found")
+    return {"message": "Agent instance deleted successfully"}
+
+
+@router.patch("/agent-instances/{instance_id}", response_model=AgentInstanceResponse)
+async def update_agent_instance_endpoint(
+    instance_id: UUID,
+    update_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update agent instance (currently only supports name)"""
+    if "name" not in update_data:
+        raise HTTPException(status_code=400, detail="Only name updates are supported")
+
+    result = update_agent_instance_name(
+        db, instance_id, current_user.id, update_data["name"]
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Agent instance not found")
+
+    return result

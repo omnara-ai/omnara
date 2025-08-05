@@ -48,6 +48,7 @@ def _format_instance(instance: AgentInstance) -> AgentInstanceResponse:
         id=str(instance.id),
         agent_type_id=str(instance.user_agent_id) if instance.user_agent_id else "",
         agent_type_name=instance.user_agent.name if instance.user_agent else "Unknown",
+        name=instance.name,
         status=instance.status,
         started_at=instance.started_at,
         ended_at=instance.ended_at,
@@ -458,3 +459,51 @@ def delete_user_account(db: Session, user_id: UUID) -> None:
         db.rollback()
         logger.error(f"Failed to delete user {user_id}: {str(e)}")
         raise
+
+
+def delete_agent_instance(db: Session, instance_id: UUID, user_id: UUID) -> bool:
+    """Delete an agent instance for a specific user"""
+
+    instance = (
+        db.query(AgentInstance)
+        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
+        .first()
+    )
+
+    if not instance:
+        return False
+
+    # Delete related messages (cascade should handle this, but being explicit)
+    db.query(Message).filter(Message.agent_instance_id == instance_id).delete()
+
+    # Delete the instance
+    db.delete(instance)
+    db.commit()
+
+    return True
+
+
+def update_agent_instance_name(
+    db: Session, instance_id: UUID, user_id: UUID, name: str
+) -> AgentInstanceResponse | None:
+    """Update the name of an agent instance for a specific user"""
+
+    instance = (
+        db.query(AgentInstance)
+        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
+        .options(
+            joinedload(AgentInstance.user_agent),
+            joinedload(AgentInstance.messages),
+        )
+        .first()
+    )
+
+    if not instance:
+        return None
+
+    instance.name = name
+    db.commit()
+    db.refresh(instance)
+
+    # Return the updated instance in the standard format
+    return _format_instance(instance)
