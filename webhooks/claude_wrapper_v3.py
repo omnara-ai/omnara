@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 
 from omnara.sdk.async_client import AsyncOmnaraClient
 from omnara.sdk.client import OmnaraClient
+from omnara.sdk.exceptions import AuthenticationError, APIError
 
 
 # Constants
@@ -1112,14 +1113,14 @@ class ClaudeWrapperV3:
         """Run Claude with Omnara integration (main entry point)"""
         self.log("[INFO] Starting run() method")
 
-        # Initialize Omnara clients (sync)
-        self.log("[INFO] Initializing Omnara clients...")
-        self.init_omnara_clients()
-        self.log("[INFO] Omnara clients initialized")
-
-        # Create initial session (sync)
-        self.log("[INFO] Creating initial Omnara session...")
         try:
+            # Initialize Omnara clients (sync)
+            self.log("[INFO] Initializing Omnara clients...")
+            self.init_omnara_clients()
+            self.log("[INFO] Omnara clients initialized")
+
+            # Create initial session (sync)
+            self.log("[INFO] Creating initial Omnara session...")
             if self.omnara_client_sync:
                 response = self.omnara_client_sync.send_message(
                     content="Claude Code session started - waiting for your input...",
@@ -1133,8 +1134,76 @@ class ClaudeWrapperV3:
                 if hasattr(self.message_processor, "last_message_id"):
                     self.message_processor.last_message_id = response.message_id
                     self.message_processor.last_message_time = time.time()
+        except AuthenticationError as e:
+            # Log the error
+            self.log(f"[ERROR] Authentication failed: {e}")
+
+            # Print user-friendly error message
+            print(
+                "\nError: Authentication failed. Please check your Omnara API key.",
+                file=sys.stderr,
+            )
+            print(
+                "Set the OMNARA_API_KEY environment variable or use --api-key flag.",
+                file=sys.stderr,
+            )
+
+            # Clean up and exit
+            if self.omnara_client_sync:
+                self.omnara_client_sync.close()
+            if self.debug_log_file:
+                self.debug_log_file.close()
+            sys.exit(1)
+
+        except APIError as e:
+            # Log the error
+            self.log(f"[ERROR] API error: {e}")
+
+            # Print user-friendly error message based on status code
+            if e.status_code >= 500:
+                print(
+                    "\nError: Omnara server error. Please try again later.",
+                    file=sys.stderr,
+                )
+            elif e.status_code == 404:
+                print(
+                    "\nError: Omnara endpoint not found. Please check your base URL.",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"\nError: Omnara API error: {e}", file=sys.stderr)
+
+            # Clean up and exit
+            if self.omnara_client_sync:
+                self.omnara_client_sync.close()
+            if self.debug_log_file:
+                self.debug_log_file.close()
+            sys.exit(1)
+
         except Exception as e:
-            self.log(f"[ERROR] Failed to create initial session: {e}")
+            # Log the error
+            self.log(f"[ERROR] Failed to initialize Omnara connection: {e}")
+
+            # Print user-friendly error message
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "refused" in error_msg.lower():
+                print("\nError: Could not connect to Omnara server.", file=sys.stderr)
+                print(
+                    "Please check your internet connection and try again.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"\nError: Failed to connect to Omnara: {error_msg}",
+                    file=sys.stderr,
+                )
+
+            # Clean up and exit
+            if self.omnara_client_sync:
+                self.omnara_client_sync.close()
+            if self.debug_log_file:
+                self.debug_log_file.close()
+            sys.exit(1)
 
         # Start Claude in PTY (in thread)
         claude_thread = threading.Thread(target=self.run_claude_with_pty)
@@ -1208,7 +1277,8 @@ def main():
         wrapper.running = False
         if wrapper.original_tty_attrs:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, wrapper.original_tty_attrs)
-        sys.exit(0)
+        print("\nEnded Omnara Claude Session", file=sys.stderr)
+        os._exit(0)  # Use os._exit to avoid SystemExit exception
 
     def handle_resize(sig, frame):
         """Handle terminal resize signal"""
@@ -1232,7 +1302,11 @@ def main():
     try:
         wrapper.run()
     except KeyboardInterrupt:
-        signal_handler(None, None)
+        wrapper.running = False
+        if wrapper.original_tty_attrs:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, wrapper.original_tty_attrs)
+        print("\nEnded Omnara Claude Session", file=sys.stderr)
+        os._exit(0)
     except Exception as e:
         # Fatal errors still go to stderr
         print(f"Fatal error: {e}", file=sys.stderr)

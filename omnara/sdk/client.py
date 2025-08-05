@@ -41,10 +41,20 @@ class OmnaraClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
-        # Set up session with retries
+        # Set up session with urllib3 retry strategy
         self.session = requests.Session()
+
+        # Configure retry strategy
         retry_strategy = Retry(
-            total=3, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504]
+            total=5,  # Total number of retries
+            backoff_factor=1.0,  # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+            status_forcelist=[429, 500, 502, 503, 504],  # Retry on these HTTP codes
+            allowed_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+            raise_on_status=False,
+            # Important: retry on connection errors
+            connect=5,  # Number of connection-related errors to retry
+            read=5,  # Number of read errors to retry
+            other=5,  # Number of other errors to retry
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
