@@ -14,7 +14,6 @@ from pathlib import Path
 import webbrowser
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
 import secrets
 import requests
 from datetime import datetime, timedelta
@@ -171,11 +170,98 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(b"""
                     <html>
-                    <head><title>Omnara CLI - Authentication Successful</title></head>
-                    <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                        <h1>Authentication Successful!</h1>
-                        <p>You can now close this window and return to your terminal.</p>
-                        <script>window.close();</script>
+                    <head>
+                        <title>Omnara CLI - Authentication Successful</title>
+                        <style>
+                            body {
+                                margin: 0;
+                                padding: 0;
+                                min-height: 100vh;
+                                background: linear-gradient(135deg, #1a1618 0%, #2a1f3d 100%);
+                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                color: #fef3c7;
+                            }
+                            .card {
+                                background: rgba(26, 22, 24, 0.8);
+                                border: 1px solid rgba(245, 158, 11, 0.2);
+                                border-radius: 12px;
+                                padding: 48px;
+                                text-align: center;
+                                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3),
+                                           0 0 60px rgba(245, 158, 11, 0.1);
+                                max-width: 400px;
+                                animation: fadeIn 0.5s ease-out;
+                            }
+                            @keyframes fadeIn {
+                                from { opacity: 0; transform: translateY(20px); }
+                                to { opacity: 1; transform: translateY(0); }
+                            }
+                            .icon {
+                                width: 64px;
+                                height: 64px;
+                                margin: 0 auto 24px;
+                                background: rgba(134, 239, 172, 0.2);
+                                border-radius: 50%;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                animation: scaleIn 0.5s ease-out 0.2s both;
+                            }
+                            @keyframes scaleIn {
+                                from { transform: scale(0); }
+                                to { transform: scale(1); }
+                            }
+                            .checkmark {
+                                width: 32px;
+                                height: 32px;
+                                stroke: #86efac;
+                                stroke-width: 3;
+                                fill: none;
+                                stroke-dasharray: 100;
+                                stroke-dashoffset: 100;
+                                animation: draw 0.5s ease-out 0.5s forwards;
+                            }
+                            @keyframes draw {
+                                to { stroke-dashoffset: 0; }
+                            }
+                            h1 {
+                                margin: 0 0 16px;
+                                font-size: 24px;
+                                font-weight: 600;
+                                color: #86efac;
+                            }
+                            p {
+                                margin: 0;
+                                opacity: 0.8;
+                                line-height: 1.5;
+                            }
+                            .close-hint {
+                                margin-top: 24px;
+                                font-size: 14px;
+                                opacity: 0.6;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="card">
+                            <div class="icon">
+                                <svg class="checkmark" viewBox="0 0 24 24">
+                                    <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                            </div>
+                            <h1>Authentication Successful!</h1>
+                            <p>Your CLI has been authorized to access Omnara.</p>
+                            <p class="close-hint">You can now close this window and return to your terminal.</p>
+                        </div>
+                        <script>
+                            // Try to close the window after a short delay
+                            setTimeout(() => {
+                                window.close();
+                            }, 2000);
+                        </script>
                     </body>
                     </html>
                     """)
@@ -211,7 +297,7 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
         """)
 
 
-def authenticate_via_browser():
+def authenticate_via_browser(auth_url="https://omnara.com"):
     """Authenticate via browser and return the API key"""
     # Generate a secure random state parameter
     state = secrets.token_urlsafe(32)
@@ -221,9 +307,12 @@ def authenticate_via_browser():
     server.state = state  # Store state in server instance
     port = server.server_port
 
+    # Ensure auth_url doesn't have trailing slash
+    auth_base = auth_url.rstrip("/")
+
     # Construct the auth URL with state parameter
     callback_url = f"http://localhost:{port}"
-    auth_url = f"https://omnara.com/cli-auth?callback={urllib.parse.quote(callback_url)}&state={urllib.parse.quote(state)}"
+    auth_url = f"{auth_base}/cli-auth?callback={urllib.parse.quote(callback_url)}&state={urllib.parse.quote(state)}"
 
     print("\nOpening browser for authentication...")
     print("If your browser doesn't open automatically, please click this link:")
@@ -237,22 +326,19 @@ def authenticate_via_browser():
         # If browser fails to open, user can still click the link
         pass
 
-    # Handle the callback in a separate thread
-    def handle_request():
+    # Handle the callback (standard OAuth pattern - wait for one request)
+    server.timeout = 300  # 5 minute timeout
+    try:
         server.handle_request()
         server.server_close()
-
-    thread = threading.Thread(target=handle_request)
-    thread.daemon = True
-    thread.start()
-
-    # Wait for the thread with timeout
-    thread.join(timeout=300)  # 5 minute timeout
+    except Exception as e:
+        server.server_close()
+        raise Exception(f"Authentication failed: {str(e)}")
 
     if server.api_key:
         return server.api_key
     else:
-        raise Exception("Authentication timed out or failed")
+        raise Exception("Authentication failed - no API key received")
 
 
 def run_stdio_server(args):
@@ -353,6 +439,9 @@ Examples:
   # Run with custom API base URL
   omnara --stdio --api-key YOUR_API_KEY --base-url http://localhost:8000
 
+  # Run with custom frontend URL for authentication
+  omnara --auth-url http://localhost:3000
+
   # Run with git diff capture enabled
   omnara --stdio --api-key YOUR_API_KEY --git-diff
         """,
@@ -411,6 +500,11 @@ Examples:
         help="Base URL of the Omnara API server (stdio mode only)",
     )
     parser.add_argument(
+        "--auth-url",
+        default="https://omnara.com",
+        help="Base URL of the Omnara frontend for authentication (default: https://omnara.com)",
+    )
+    parser.add_argument(
         "--claude-code-permission-tool",
         action="store_true",
         help="Enable Claude Code permission prompt tool for handling tool execution approvals (stdio mode only)",
@@ -447,7 +541,7 @@ Examples:
     if args.reauth:
         try:
             print("Re-authenticating...")
-            api_key = authenticate_via_browser()
+            api_key = authenticate_via_browser(args.auth_url)
             save_api_key(api_key)
             args.api_key = api_key
             print("Re-authentication successful! API key saved.")
@@ -473,7 +567,7 @@ Examples:
         if not args.api_key:
             try:
                 print("No API key found. Starting authentication...")
-                api_key = authenticate_via_browser()
+                api_key = authenticate_via_browser(args.auth_url)
                 save_api_key(api_key)
                 args.api_key = api_key
                 print("Authentication successful! API key saved.")
@@ -485,7 +579,7 @@ Examples:
         if not args.api_key:
             try:
                 print("No API key found. Starting authentication...")
-                api_key = authenticate_via_browser()
+                api_key = authenticate_via_browser(args.auth_url)
                 save_api_key(api_key)
                 args.api_key = api_key
                 print("Authentication successful! API key saved.")

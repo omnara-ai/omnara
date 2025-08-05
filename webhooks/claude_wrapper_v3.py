@@ -32,7 +32,7 @@ from omnara.sdk.client import OmnaraClient
 
 # Constants
 CLAUDE_LOG_BASE = Path.home() / ".claude" / "projects"
-WRAPPER_DEBUG_LOG = Path.home() / ".claude" / "wrapper_v3_debug.log"
+OMNARA_WRAPPER_LOG_DIR = Path.home() / ".omnara" / "claude_wrapper"
 
 
 class MessageProcessor:
@@ -191,8 +191,9 @@ class ClaudeWrapperV3:
     def _init_logging(self):
         """Initialize debug logging"""
         try:
-            WRAPPER_DEBUG_LOG.parent.mkdir(exist_ok=True, parents=True)
-            self.debug_log_file = open(WRAPPER_DEBUG_LOG, "w")
+            OMNARA_WRAPPER_LOG_DIR.mkdir(exist_ok=True, parents=True)
+            log_file_path = OMNARA_WRAPPER_LOG_DIR / f"{self.session_uuid}.log"
+            self.debug_log_file = open(log_file_path, "w")
             self.log(
                 f"=== Claude Wrapper V3 Debug Log - {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
             )
@@ -1121,7 +1122,7 @@ class ClaudeWrapperV3:
         try:
             if self.omnara_client_sync:
                 response = self.omnara_client_sync.send_message(
-                    content="Claude wrapper V3 session started - waiting for your input...",
+                    content="Claude Code session started - waiting for your input...",
                     agent_type="Claude Code",
                     requires_user_input=False,
                 )
