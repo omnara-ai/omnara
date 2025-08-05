@@ -248,25 +248,9 @@ async def create_cli_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create a CLI-specific API key for the current user"""
+    """Create a new CLI-specific API key for the current user"""
 
-    # Check if user already has a CLI key
-    existing_cli_key = (
-        db.query(APIKey)
-        .filter(
-            APIKey.user_id == current_user.id,
-            APIKey.name == "CLI Key",
-            APIKey.is_active,
-        )
-        .first()
-    )
-
-    if existing_cli_key:
-        # Deactivate the old CLI key
-        existing_cli_key.is_active = False
-        db.commit()
-
-    # Generate new CLI key (no expiration for CLI keys)
+    # Always generate a new CLI key
     try:
         jwt_token = create_api_key_jwt(
             user_id=str(current_user.id),

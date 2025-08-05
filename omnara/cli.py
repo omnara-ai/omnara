@@ -16,7 +16,6 @@ import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import secrets
 import requests
-from datetime import datetime, timedelta
 
 
 def get_current_version():
@@ -29,57 +28,17 @@ def get_current_version():
         return "unknown"
 
 
-def get_version_check_path():
-    """Get the path to the version check file"""
-    config_dir = Path.home() / ".omnara"
-    return config_dir / "version_check.json"
-
-
-def should_check_for_updates():
-    """Check if we should check for updates (once per day)"""
-    version_check_path = get_version_check_path()
-
-    if not version_check_path.exists():
-        return True
-
-    try:
-        with open(version_check_path, "r") as f:
-            data = json.load(f)
-            last_check = datetime.fromisoformat(data.get("last_check", "2000-01-01"))
-            return datetime.now() - last_check > timedelta(days=1)
-    except Exception:
-        return True
-
-
-def save_version_check():
-    """Save the timestamp of the last version check"""
-    version_check_path = get_version_check_path()
-    version_check_path.parent.mkdir(mode=0o700, exist_ok=True)
-
-    with open(version_check_path, "w") as f:
-        json.dump({"last_check": datetime.now().isoformat()}, f)
-
-
 def check_for_updates():
     """Check PyPI for a newer version of omnara"""
-    if not should_check_for_updates():
-        return
-
     try:
-        # Check PyPI for the latest version
         response = requests.get("https://pypi.org/pypi/omnara/json", timeout=2)
         latest_version = response.json()["info"]["version"]
         current_version = get_current_version()
 
-        # Save that we checked
-        save_version_check()
-
-        # Compare versions (simple string comparison - could be improved)
         if latest_version != current_version and current_version != "unknown":
             print(f"\n✨ Update available: {current_version} → {latest_version}")
             print("   Run: pip install --upgrade omnara\n")
     except Exception:
-        # Silently fail - don't interrupt the user's workflow
         pass
 
 
