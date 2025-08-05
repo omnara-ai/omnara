@@ -1140,11 +1140,7 @@ class ClaudeWrapperV3:
 
             # Print user-friendly error message
             print(
-                "\nError: Authentication failed. Please check your Omnara API key.",
-                file=sys.stderr,
-            )
-            print(
-                "Set the OMNARA_API_KEY environment variable or use --api-key flag.",
+                "\nError: Authentication failed. Please check for valid Omnara API key in ~/.omnara/credentials.json.",
                 file=sys.stderr,
             )
 
@@ -1255,6 +1251,10 @@ class ClaudeWrapperV3:
                 self.log("=== Claude Wrapper V3 Log Ended ===")
                 self.debug_log_file.close()
 
+            # Only print exit message if we're exiting normally (not due to errors)
+            if not sys.exc_info()[0]:
+                print("\nEnded Omnara Claude Session", file=sys.stderr)
+
 
 def main():
     """Main entry point"""
@@ -1274,11 +1274,14 @@ def main():
     wrapper = ClaudeWrapperV3(api_key=args.api_key, base_url=args.base_url)
 
     def signal_handler(sig, frame):
+        # Just set the flag and let the finally block handle cleanup
         wrapper.running = False
-        if wrapper.original_tty_attrs:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, wrapper.original_tty_attrs)
-        print("\nEnded Omnara Claude Session", file=sys.stderr)
-        os._exit(0)  # Use os._exit to avoid SystemExit exception
+        if wrapper.child_pid:
+            try:
+                # Kill Claude process to trigger exit
+                os.kill(wrapper.child_pid, signal.SIGTERM)
+            except Exception:
+                pass
 
     def handle_resize(sig, frame):
         """Handle terminal resize signal"""
@@ -1301,12 +1304,6 @@ def main():
 
     try:
         wrapper.run()
-    except KeyboardInterrupt:
-        wrapper.running = False
-        if wrapper.original_tty_attrs:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, wrapper.original_tty_attrs)
-        print("\nEnded Omnara Claude Session", file=sys.stderr)
-        os._exit(0)
     except Exception as e:
         # Fatal errors still go to stderr
         print(f"Fatal error: {e}", file=sys.stderr)
