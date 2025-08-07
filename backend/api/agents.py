@@ -188,6 +188,9 @@ async def stream_messages(
                     elif event_type == "message_update":
                         # Send message_update event for frontend to handle
                         yield f"event: message_update\ndata: {json.dumps(data)}\n\n"
+                    elif event_type == "git_diff_update":
+                        # Send git_diff_update event for frontend to handle
+                        yield f"event: git_diff_update\ndata: {json.dumps(data)}\n\n"
                     else:
                         # Regular message event (either message_insert or legacy without event_type)
                         yield f"event: message\ndata: {json.dumps(data)}\n\n"
