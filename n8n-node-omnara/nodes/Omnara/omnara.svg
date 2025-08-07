@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" width="60" height="60">
+  <!-- Background Circle -->
+  <circle cx="30" cy="30" r="28" fill="#6366F1" stroke="#4F46E5" stroke-width="2"/>
+  
+  <!-- Human Icon (simplified) -->
+  <g fill="white">
+    <!-- Head -->
+    <circle cx="30" cy="20" r="6"/>
+    <!-- Body -->
+    <path d="M22 28 Q22 26 24 26 L36 26 Q38 26 38 28 L38 40 Q38 42 36 42 L24 42 Q22 42 22 40 Z"/>
+    <!-- Arms suggesting "approval" gesture -->
+    <rect x="18" y="30" width="4" height="8" rx="2"/>
+    <rect x="38" y="30" width="4" height="8" rx="2"/>
+  </g>
+  
+  <!-- Check mark overlay for approval -->
+  <path d="M40 38 L44 42 L52 30" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Small notification dot -->
+  <circle cx="48" cy="12" r="5" fill="#10B981"/>
+</svg>

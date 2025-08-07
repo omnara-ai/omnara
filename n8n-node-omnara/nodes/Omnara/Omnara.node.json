@@ -1,0 +1,23 @@
+{
+  "node": "n8n-nodes-base.omnara",
+  "nodeVersion": "1.0",
+  "codexVersion": "1.0",
+  "categories": ["Communication", "Utility"],
+  "resources": {
+    "credentialDocumentation": [
+      {
+        "url": "https://github.com/omnara-ai/omnara"
+      }
+    ],
+    "primaryDocumentation": [
+      {
+        "url": "https://github.com/omnara-ai/omnara"
+      }
+    ]
+  },
+  "subcategories": {
+    "Communication": ["Messaging", "Notifications"],
+    "Utility": ["Approval", "Human-in-the-Loop"]
+  },
+  "alias": ["HITL", "Approval", "Human in the Loop", "Wait for Response"]
+}

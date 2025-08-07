@@ -1,0 +1,61 @@
+{
+  "name": "n8n-nodes-omnara",
+  "version": "0.1.0",
+  "description": "n8n node for Omnara - Human-in-the-loop approvals and notifications",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "omnara",
+    "human-in-the-loop",
+    "approval",
+    "workflow",
+    "automation"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/omnara-ai/n8n-nodes-omnara",
+  "author": {
+    "name": "Omnara",
+    "email": "support@omnara.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omnara-ai/n8n-nodes-omnara.git"
+  },
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "format": "prettier nodes credentials --write",
+    "lint": "eslint nodes credentials package.json",
+    "lintfix": "eslint nodes credentials package.json --fix",
+    "prepublishOnly": "npm run build && npm run lint"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/OmnaraApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Omnara/Omnara.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "@typescript-eslint/parser": "^6.7.0",
+    "eslint": "^8.50.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-n8n-nodes-base": "^1.16.0",
+    "prettier": "^3.0.3",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "uuid": "^9.0.1"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+}
