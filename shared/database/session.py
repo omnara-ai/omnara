@@ -6,14 +6,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from ..config.settings import settings
 
 # For Supabase session mode pooler (port 5432)
-# Keep pool small since Supabase pooler has 15 connection limit
+# Single process configuration - maximize pool usage
 engine = create_engine(
     settings.database_url,
-    pool_size=3,  # Small pool size to stay under Supabase's 15 limit
-    max_overflow=2,  # Allow 2 overflow connections (total: 5)
-    pool_timeout=30,  # Wait up to 30 seconds for connection
-    pool_recycle=1800,  # Recycle connections after 30 minutes
-    pool_pre_ping=True,  # Test connections before using them
+    pool_size=10,  # Use most of the 15 connection limit
+    max_overflow=4,  # Allow overflow up to 14 total (under 15 limit)
+    pool_timeout=10,  # Fast timeout for better responsiveness
+    pool_recycle=3600,  # Recycle after 1 hour
+    pool_pre_ping=False,  # Skip pre-ping since Supabase pooler handles connection health
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
