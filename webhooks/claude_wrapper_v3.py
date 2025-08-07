@@ -558,7 +558,7 @@ class ClaudeWrapperV3:
 
                         combined_output += "\n"
 
-            return combined_output if combined_output else None
+            return combined_output
 
         except Exception as e:
             self.log(f"[WARNING] Failed to get git diff: {e}")
