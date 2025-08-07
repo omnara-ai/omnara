@@ -15,8 +15,8 @@ from shared.database import (
 )
 from shared.database.billing_operations import get_or_create_subscription
 from shared.database.subscription_models import BillingEvent, Subscription
-from sqlalchemy import desc, func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, desc, func
+from sqlalchemy.orm import Session, joinedload, subqueryload
 
 # Import Pydantic models for type-safe returns
 from backend.models import (
@@ -61,51 +61,120 @@ def _format_instance(instance: AgentInstance) -> AgentInstanceResponse:
 def get_all_agent_types_with_instances(
     db: Session, user_id: UUID
 ) -> list[AgentTypeOverview]:
-    """Get all user agents with their instances for a specific user"""
+    """Get all user agents with their instances for a specific user - OPTIMIZED"""
+    # Get all user agents for this user with instances in a single query
+    user_agents = (
+        db.query(UserAgent)
+        .filter(UserAgent.user_id == user_id)
+        .options(subqueryload(UserAgent.instances))
+        .all()
+    )
 
-    # Get all user agents for this user
-    user_agents = db.query(UserAgent).filter(UserAgent.user_id == user_id).all()
-
-    result = []
+    # Collect all instance IDs for bulk message stats query
+    all_instance_ids = []
     for user_agent in user_agents:
-        # Get all instances for this user agent
-        instances = (
-            db.query(AgentInstance)
-            .filter(
-                AgentInstance.user_agent_id == user_agent.id,
+        for instance in user_agent.instances:
+            all_instance_ids.append(instance.id)
+
+    # Get message stats for ALL instances in a single query
+    message_stats = {}
+    if all_instance_ids:
+        # Subquery to get latest message per instance
+        latest_messages_subq = (
+            db.query(
+                Message.agent_instance_id,
+                func.count(Message.id).label("msg_count"),
+                func.max(Message.created_at).label("latest_at"),
             )
-            .options(
-                joinedload(AgentInstance.messages),
-                joinedload(AgentInstance.user_agent),
+            .filter(Message.agent_instance_id.in_(all_instance_ids))
+            .group_by(Message.agent_instance_id)
+            .subquery()
+        )
+
+        # Join to get the actual latest message content
+        stats_results = (
+            db.query(
+                latest_messages_subq.c.agent_instance_id,
+                latest_messages_subq.c.msg_count,
+                latest_messages_subq.c.latest_at,
+                Message.content,
+            )
+            .outerjoin(
+                Message,
+                and_(
+                    Message.agent_instance_id
+                    == latest_messages_subq.c.agent_instance_id,
+                    Message.created_at == latest_messages_subq.c.latest_at,
+                ),
             )
             .all()
         )
 
+        for row in stats_results:
+            message_stats[row.agent_instance_id] = {
+                "count": row.msg_count or 0,
+                "latest_at": row.latest_at,
+                "latest_content": row.content,
+            }
+
+    result = []
+    for user_agent in user_agents:
+        instances = user_agent.instances
+
+        # Create a list of instances with their stats
+        instances_with_stats = []
+        for instance in instances:
+            stats = message_stats.get(instance.id, {})
+            instances_with_stats.append(
+                {
+                    "instance": instance,
+                    "message_count": stats.get("count", 0),
+                    "latest_message_at": stats.get("latest_at"),
+                    "latest_message": stats.get("latest_content"),
+                }
+            )
+
         # Sort instances: AWAITING_INPUT instances first, then by most recent activity
-        def sort_key(instance):
-            messages = instance.messages if hasattr(instance, "messages") else []
+        def sort_key(item):
+            instance = item["instance"]
+            latest_at = item["latest_message_at"]
 
             # If instance is awaiting input, prioritize it
             if instance.status == AgentStatus.AWAITING_INPUT:
                 # Sort by when the question was asked (last message time)
-                if messages:
-                    last_msg_time = max(messages, key=lambda m: m.created_at).created_at
-                    return (0, last_msg_time)
+                if latest_at:
+                    return (0, latest_at)
                 else:
                     return (0, instance.started_at)
 
             # Otherwise sort by last activity
-            last_activity = instance.started_at
-            if messages:
-                last_activity = max(messages, key=lambda m: m.created_at).created_at
+            last_activity = latest_at if latest_at else instance.started_at
             return (1, -last_activity.timestamp())
 
-        sorted_instances = sorted(instances, key=sort_key)
+        sorted_items = sorted(instances_with_stats, key=sort_key)
 
-        # Format instances with helper function
-        formatted_instances = [
-            _format_instance(instance) for instance in sorted_instances
-        ]
+        # Format instances with optimized data
+        formatted_instances = []
+        for item in sorted_items:
+            instance = item["instance"]
+            formatted_instances.append(
+                AgentInstanceResponse(
+                    id=str(instance.id),
+                    agent_type_id=str(instance.user_agent_id)
+                    if instance.user_agent_id
+                    else "",
+                    agent_type_name=instance.user_agent.name
+                    if instance.user_agent
+                    else "Unknown",
+                    name=instance.name,
+                    status=instance.status,
+                    started_at=instance.started_at,
+                    ended_at=instance.ended_at,
+                    latest_message=item["latest_message"],
+                    latest_message_at=item["latest_message_at"],
+                    chat_length=item["message_count"],
+                )
+            )
 
         result.append(
             AgentTypeOverview(
