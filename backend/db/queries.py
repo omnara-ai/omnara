@@ -507,3 +507,46 @@ def update_agent_instance_name(
 
     # Return the updated instance in the standard format
     return _format_instance(instance)
+
+
+def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | None:
+    """
+    Get a single message by ID with user authorization check.
+    Returns the message data if authorized, None if not found or unauthorized.
+    """
+    message = (
+        db.query(Message)
+        .join(AgentInstance)
+        .filter(Message.id == message_id, AgentInstance.user_id == user_id)
+        .first()
+    )
+
+    if not message:
+        return None
+
+    return {
+        "id": str(message.id),
+        "agent_instance_id": str(message.agent_instance_id),
+        "sender_type": message.sender_type.value,
+        "content": message.content,
+        "created_at": message.created_at.isoformat() + "Z",
+        "requires_user_input": message.requires_user_input,
+        "message_metadata": message.message_metadata,
+    }
+
+
+def get_instance_git_diff(db: Session, instance_id: UUID, user_id: UUID) -> dict | None:
+    """
+    Get the git diff for an agent instance with user authorization check.
+    Returns the git diff data if authorized, None if not found or unauthorized.
+    """
+    instance = (
+        db.query(AgentInstance)
+        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
+        .first()
+    )
+
+    if not instance:
+        return None
+
+    return {"instance_id": str(instance.id), "git_diff": instance.git_diff}
