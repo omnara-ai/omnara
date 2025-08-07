@@ -182,46 +182,42 @@ async def stream_messages(
                     # Parse the JSON payload
                     data = json.loads(payload)
 
-                    # Check event type and send appropriate SSE event
+                    # Check event type and handle accordingly
                     event_type = data.get("event_type")
+
                     if event_type == "status_update":
-                        # Status updates already have all needed data, send as-is
+                        # Status updates already have all needed data
                         yield f"event: status_update\ndata: {json.dumps(data)}\n\n"
+
                     elif event_type in ["message_insert", "message_update"]:
-                        # Fetch the full message content from database
+                        # Fetch full message content from database
                         message_id = data.get("id")
                         if message_id:
                             message_data = get_message_by_id(
                                 db, UUID(message_id), user_id
                             )
                             if message_data:
-                                # Merge notification data with fetched content
+                                # Preserve old_requires_user_input for update events
+                                old_requires_user_input = data.get(
+                                    "old_requires_user_input"
+                                )
                                 data.update(message_data)
-                        # Send message event with full data
+                                if old_requires_user_input is not None:
+                                    data["old_requires_user_input"] = (
+                                        old_requires_user_input
+                                    )
                         yield f"event: message\ndata: {json.dumps(data)}\n\n"
+
                     elif event_type == "git_diff_update":
-                        # Fetch the git diff from database
+                        # Fetch git diff from database
                         instance_id_str = data.get("instance_id")
                         if instance_id_str:
                             diff_data = get_instance_git_diff(
                                 db, UUID(instance_id_str), user_id
                             )
                             if diff_data:
-                                # Add the git_diff to the notification data
                                 data["git_diff"] = diff_data["git_diff"]
-                        # Send git_diff_update event with full data
                         yield f"event: git_diff_update\ndata: {json.dumps(data)}\n\n"
-                    else:
-                        # Legacy message event or unknown type - try to fetch if it has an ID
-                        if "id" in data and "content" not in data:
-                            message_id = data.get("id")
-                            if message_id:
-                                message_data = get_message_by_id(
-                                    db, UUID(message_id), user_id
-                                )
-                                if message_data:
-                                    data.update(message_data)
-                        yield f"event: message\ndata: {json.dumps(data)}\n\n"
 
                 except asyncio.TimeoutError:
                     # Send heartbeat to keep connection alive
