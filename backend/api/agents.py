@@ -22,6 +22,8 @@ from ..db import (
     submit_user_message,
     delete_agent_instance,
     update_agent_instance_name,
+    get_message_by_id,
+    get_instance_git_diff,
 )
 from ..models import (
     AgentInstanceDetail,
@@ -180,20 +182,58 @@ async def stream_messages(
                     # Parse the JSON payload
                     data = json.loads(payload)
 
-                    # Check event type and send appropriate SSE event
+                    # Check event type and handle accordingly
                     event_type = data.get("event_type")
+
                     if event_type == "status_update":
-                        # Send status_update event
+                        # Status updates already have all needed data
                         yield f"event: status_update\ndata: {json.dumps(data)}\n\n"
-                    elif event_type == "message_update":
-                        # Send message_update event for frontend to handle
-                        yield f"event: message_update\ndata: {json.dumps(data)}\n\n"
-                    elif event_type == "git_diff_update":
-                        # Send git_diff_update event for frontend to handle
-                        yield f"event: git_diff_update\ndata: {json.dumps(data)}\n\n"
-                    else:
-                        # Regular message event (either message_insert or legacy without event_type)
+
+                    elif event_type == "message_insert":
+                        # Fetch and send new message
+                        message_id = data.get("id")
+                        if not message_id:
+                            continue
+
+                        message_data = get_message_by_id(db, UUID(message_id), user_id)
+                        if message_data:
+                            data.update(message_data)
+
                         yield f"event: message\ndata: {json.dumps(data)}\n\n"
+
+                    elif event_type == "message_update":
+                        # Fetch and send message update
+                        message_id = data.get("id")
+                        if not message_id:
+                            continue
+
+                        message_data = get_message_by_id(db, UUID(message_id), user_id)
+                        if message_data:
+                            # Preserve old_requires_user_input from notification
+                            old_requires_user_input = data.get(
+                                "old_requires_user_input"
+                            )
+                            data.update(message_data)
+                            if old_requires_user_input is not None:
+                                data["old_requires_user_input"] = (
+                                    old_requires_user_input
+                                )
+
+                        yield f"event: message_update\ndata: {json.dumps(data)}\n\n"
+
+                    elif event_type == "git_diff_update":
+                        # Fetch and send git diff update
+                        instance_id_str = data.get("instance_id")
+                        if not instance_id_str:
+                            continue
+
+                        diff_data = get_instance_git_diff(
+                            db, UUID(instance_id_str), user_id
+                        )
+                        if diff_data:
+                            data["git_diff"] = diff_data["git_diff"]
+
+                        yield f"event: git_diff_update\ndata: {json.dumps(data)}\n\n"
 
                 except asyncio.TimeoutError:
                     # Send heartbeat to keep connection alive

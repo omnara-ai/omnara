@@ -8,6 +8,8 @@ from .queries import (
     submit_user_message,
     delete_agent_instance,
     update_agent_instance_name,
+    get_message_by_id,
+    get_instance_git_diff,
 )
 from .user_agent_queries import (
     create_user_agent,
@@ -28,6 +30,8 @@ __all__ = [
     "submit_user_message",
     "delete_agent_instance",
     "update_agent_instance_name",
+    "get_message_by_id",
+    "get_instance_git_diff",
     "create_user_agent",
     "get_user_agents",
     "update_user_agent",
