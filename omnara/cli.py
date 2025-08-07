@@ -216,10 +216,12 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
                             </div>
                             <h1>Authentication Successful!</h1>
                             <p>Your CLI has been authorized to access Omnara.</p>
-                            <p class="close-hint">You can now close this window and return to your terminal.</p>
+                            <p class="close-hint">Redirecting to dashboard in a moment...</p>
                         </div>
                         <script>
-                            setTimeout(() => { window.close(); }, 2000);
+                            setTimeout(() => {
+                                window.location.href = 'https://omnara.com/dashboard';
+                            }, 2000);
                         </script>
                     </body>
                     </html>
