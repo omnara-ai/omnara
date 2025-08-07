@@ -516,7 +516,7 @@ def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | No
     """
     message = (
         db.query(Message)
-        .join(AgentInstance)
+        .join(AgentInstance, Message.agent_instance_id == AgentInstance.id)
         .filter(Message.id == message_id, AgentInstance.user_id == user_id)
         .first()
     )
