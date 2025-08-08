@@ -108,6 +108,10 @@ class UserAgent(Base):
 
 class AgentInstance(Base):
     __tablename__ = "agent_instances"
+    __table_args__ = (
+        Index("idx_agent_instances_user_agent_id", "user_agent_id"),
+        Index("idx_agent_instances_user_status", "user_id", "status"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
