@@ -50,18 +50,18 @@ We built Omnara because we were tired of:
 
 ## 🏗️ Architecture Overview
 
-Omnara uses the **Model Context Protocol (MCP)** to enable seamless communication between your agents and the dashboard.
+Omnara provides a unified platform for monitoring and controlling your AI agents:
 
 ```mermaid
 graph TB
     subgraph "Your AI Agents"
-        A[🤖 AI Agents<br/>Claude, Cursor, Copilot]
+        A[🤖 AI Agents<br/>Claude Code, Cursor, etc.]
     end
 
     subgraph "Omnara Platform"
-        S[🔄 MCP Server]
-        DB[(📊 Database)]
         API[🌐 API Server]
+        DB[(📊 PostgreSQL)]
+        NOTIFY[🔔 Notification Service<br/>Push/Email/SMS]
     end
 
     subgraph "Your Devices"
@@ -69,23 +69,141 @@ graph TB
         W[💻 Web Dashboard]
     end
 
-    A -->|Log activities| S
-    S -->|Store data| DB
-    DB -->|Real-time sync| API
-    API -->|Push updates| M
-    API -->|Push updates| W
-    M -->|Send feedback| API
-    W -->|Send feedback| API
-    API -->|Store feedback| DB
-    S <-->|Agent queries| DB
+    A -->|Send updates| API
+    API -->|Store data| DB
+    API -->|Trigger notifications| NOTIFY
+    NOTIFY -->|Alert users| M
+    DB -->|Real-time sync| M
+    DB -->|Real-time sync| W
+    M -->|User responses| API
+    W -->|User responses| API
+    API -->|Deliver feedback| A
 
     style A fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style S fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px
     style API fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px
+    style NOTIFY fill:#fff59d,stroke:#f57f17,stroke-width:2px
     style M fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
     style W fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
 ```
+
+Omnara supports two distinct modes of operation:
+
+### Mode 1: Real-Time Claude Code Monitoring
+
+When you run Claude Code locally with the Omnara wrapper, it monitors your agent's activity in real-time:
+
+```mermaid
+graph TB
+    subgraph "Your Local Machine"
+        CC[🤖 Claude Code]
+        CW[📊 Claude Wrapper<br/>claude_wrapper_v3.py]
+        LOG[📄 JSONL Logs<br/>~/.claude/projects/]
+        TERM[🖥️ Terminal Output]
+    end
+
+    subgraph "Omnara Platform"
+        API[🌐 REST API Server]
+        DB[(📊 PostgreSQL)]
+        SSE[📡 SSE Endpoint]
+        NOTIFY[🔔 Notification Service<br/>Push/Email/SMS]
+    end
+
+    subgraph "Your Devices"
+        M[📱 Mobile App]
+        W[💻 Web Dashboard]
+    end
+
+    CC -->|Writes logs| LOG
+    CC -->|Displays output| TERM
+    CW -->|Monitors| LOG
+    CW -->|Watches| TERM
+    CW -->|Sends messages via REST| API
+    API -->|Stores messages| DB
+    API -->|Triggers notifications| NOTIFY
+    DB -->|NOTIFY triggers| SSE
+    SSE -->|Real-time updates| M
+    SSE -->|Real-time updates| W
+    NOTIFY -->|Push/Email/SMS| M
+    M -->|User responses| API
+    W -->|User responses| API
+    API -->|Queued messages| CW
+    CW -->|Types into| CC
+
+    style CC fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style CW fill:#fff59d,stroke:#f57f17,stroke-width:2px
+    style API fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px
+    style NOTIFY fill:#ffe082,stroke:#f57f17,stroke-width:2px
+    style M fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
+    style W fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
+```
+
+**How it works:**
+- The wrapper monitors Claude's JSONL log files and terminal output
+- It identifies questions by detecting idle states and parsing terminal prompts
+- Messages are sent to Omnara via REST API with `requires_user_input` flag
+- PostgreSQL triggers send real-time notifications via SSE
+- Users receive push/email/SMS notifications for questions
+- Responses are injected back into Claude's terminal
+
+### Mode 2: Remote Agent Launch via Webhook
+
+When you trigger an agent remotely from Omnara, it uses the Model Context Protocol (MCP):
+
+```mermaid
+graph TB
+    subgraph "Omnara Platform"
+        UI[🌐 Web/Mobile UI]
+        API[🌐 API Server<br/>+ MCP Endpoint]
+        DB[(📊 PostgreSQL)]
+        SSE[📡 SSE Endpoint]
+    end
+
+    subgraph "Your Computer"
+        WH[🔗 Webhook Server<br/>claude_code.py]
+        CT[☁️ Cloudflare Tunnel<br/>optional]
+        CC[🤖 Claude Code<br/>w/ MCP Config]
+    end
+
+    UI -->|Trigger agent| API
+    API -->|POST webhook| CT
+    CT -->|Forward request| WH
+    WH -->|Launch Claude| CC
+    CC -->|log_step/ask_question<br/>via MCP| API
+    API -->|Store messages| DB
+    DB -->|Real-time updates| SSE
+    SSE -->|Push updates| UI
+    UI -->|User responses| API
+    API -->|Return answers<br/>via MCP| CC
+
+    style UI fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
+    style WH fill:#fff59d,stroke:#f57f17,stroke-width:2px
+    style CC fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style API fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px
+    style SSE fill:#dcedc8,stroke:#689f38,stroke-width:2px
+```
+
+**How it works:**
+- User triggers an agent from the Omnara interface
+- Webhook server receives the request (optionally via Cloudflare tunnel)
+- Claude is launched with MCP configuration pointing to Omnara
+- The system prompt enforces Omnara-only communication (no terminal output)
+- All communication flows through `log_step` and `ask_question` MCP tools
+- Questions are explicitly marked with `requires_user_input=true`
+
+### 🔄 Mode Comparison
+
+| Feature | Real-Time Monitoring | Remote Launch |
+|---------|---------------------|---------------|
+| **Best for** | Local development | Remote automation |
+| **Setup complexity** | Simple (just run wrapper) | Moderate (webhook + tunnel) |
+| **Claude output visible** | Yes (in terminal) | No (MCP only) |
+| **Question detection** | Automatic (terminal parsing) | Explicit (ask_question) |
+| **Git isolation** | Uses current directory | Creates worktrees |
+| **Parallel sessions** | Not recommended | Fully supported |
+| **Network requirements** | API access only | Webhook endpoint |
 
 ### 🔧 Technical Stack
 
@@ -97,12 +215,29 @@ graph TB
 
 ## 🚀 Quick Start
 
-### For Claude Code Users
+### Option 1: Real-Time Monitoring (Recommended for local development)
+
+Monitor your Claude Code sessions in real-time:
 
 1. **Download the app** or visit [omnara.ai](https://omnara.ai)
-2. **Launch the webhook server** with the command in the onboarding flow
-3. **Create your agent** with the webhook endpoint and API key
-4. **Start monitoring** your AI workforce!
+2. **Get your API key** from the dashboard
+3. **Run Claude with the wrapper**:
+   ```bash
+   python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY
+   ```
+4. **See everything** your agent does in the Omnara dashboard!
+
+### Option 2: Remote Agent Launch (For triggering agents from anywhere)
+
+Launch Claude Code remotely from your phone or web browser:
+
+1. **Download the app** or visit [omnara.ai](https://omnara.ai)
+2. **Start the webhook server** on your computer:
+   ```bash
+   python -m webhooks.claude_code --cloudflare-tunnel
+   ```
+3. **Create your agent** with the webhook URL and API key shown
+4. **Trigger agents remotely** from anywhere!
 
 ### For Developers
 
@@ -163,21 +298,37 @@ graph TB
 
 ## 📚 Integration Guide
 
-### Method 1: MCP Configuration
+### Method 1: Real-Time Monitoring with Wrapper
+
+Run Claude Code with the Omnara wrapper for automatic monitoring:
+
+```bash
+# Basic usage
+python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY
+
+# With git diff tracking
+python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY --git-diff
+
+# Custom API endpoint (for self-hosted)
+python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY --base-url https://your-server.com
+```
+
+### Method 2: Remote Launch with MCP
+
+For remote agent launching, the webhook automatically configures MCP:
+
 ```json
 {
   "mcpServers": {
     "omnara": {
-      "url": "https://api.omnara.ai/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
-      }
+      "command": "pipx",
+      "args": ["run", "--no-cache", "omnara", "--stdio", "--api-key", "YOUR_API_KEY"]
     }
   }
 }
 ```
 
-### Method 2: Python SDK
+### Method 3: Python SDK
 ```python
 from omnara import OmnaraClient
 import uuid
@@ -201,7 +352,7 @@ answer = client.send_message(
 )
 ```
 
-### Method 3: REST API
+### Method 4: REST API
 ```bash
 curl -X POST https://api.omnara.ai/api/v1/messages/agent \
   -H "Authorization: Bearer YOUR_API_KEY" \
