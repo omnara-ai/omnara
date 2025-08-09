@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from uuid import UUID
+from datetime import datetime, timedelta
 
 # Add parent directory to path to import shared module
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -14,6 +15,10 @@ from sqlalchemy.orm import Session
 from .supabase_client import get_supabase_client
 
 security = HTTPBearer(auto_error=False)  # Don't auto-error so we can check cookies
+
+# Simple in-memory cache for validated tokens
+_token_cache: dict[str, tuple[UUID, datetime]] = {}
+_CACHE_TTL = timedelta(minutes=5)  # Cache tokens for 5 minutes
 
 
 class AuthError(HTTPException):
@@ -48,6 +53,15 @@ async def get_current_user_id(
     if not token:
         raise AuthError("No authentication token provided")
 
+    # Check cache first
+    if token in _token_cache:
+        user_id, expires_at = _token_cache[token]
+        if datetime.now() < expires_at:
+            return user_id
+        else:
+            # Cache expired, remove it
+            del _token_cache[token]
+
     try:
         # Use anon client to verify user tokens (not service role)
         from .supabase_client import get_supabase_anon_client
@@ -60,7 +74,16 @@ async def get_current_user_id(
         if not user_response or not user_response.user:
             raise AuthError("Invalid authentication token")
 
-        return UUID(user_response.user.id)
+        user_id = UUID(user_response.user.id)
+
+        # Cache the validated token
+        _token_cache[token] = (user_id, datetime.now() + _CACHE_TTL)
+
+        # Clean up old cache entries periodically (simple approach)
+        if len(_token_cache) > 1000:  # Prevent unbounded growth
+            _token_cache.clear()  # Simple clear for now
+
+        return user_id
 
     except Exception as e:
         raise AuthError(f"Could not validate credentials: {str(e)}")
@@ -111,16 +134,29 @@ async def get_optional_current_user(
         return None
 
     try:
-        # Verify token manually since get_current_user_id requires authentication
-        from .supabase_client import get_supabase_anon_client
+        # Check cache first
+        user_id = None
+        if token in _token_cache:
+            cached_user_id, expires_at = _token_cache[token]
+            if datetime.now() < expires_at:
+                user_id = cached_user_id
+            else:
+                del _token_cache[token]
 
-        supabase = get_supabase_anon_client()
-        user_response = supabase.auth.get_user(token)
+        if not user_id:
+            # Verify token manually since get_current_user_id requires authentication
+            from .supabase_client import get_supabase_anon_client
 
-        if not user_response or not user_response.user:
-            return None
+            supabase = get_supabase_anon_client()
+            user_response = supabase.auth.get_user(token)
 
-        user_id = UUID(user_response.user.id)
+            if not user_response or not user_response.user:
+                return None
+
+            user_id = UUID(user_response.user.id)
+
+            # Cache the validated token
+            _token_cache[token] = (user_id, datetime.now() + _CACHE_TTL)
 
         # Get user from database
         user = db.query(User).filter(User.id == user_id).first()
