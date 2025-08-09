@@ -7,7 +7,7 @@ from ..config.settings import settings
 
 engine = create_engine(
     settings.database_url,
-    pool_size=20,
+    pool_size=35,
     max_overflow=10,
     pool_timeout=30,
     pool_recycle=3600,
