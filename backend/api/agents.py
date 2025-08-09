@@ -6,12 +6,13 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from shared.database.models import User
-from shared.database.session import get_db
+from shared.database.session import get_db, SessionLocal
 from shared.database.enums import AgentStatus
 from sqlalchemy.orm import Session
 import asyncpg
 
 from ..auth.dependencies import get_current_user
+from ..auth.supabase_client import get_supabase_anon_client
 from ..db import (
     get_agent_instance_detail,
     get_agent_type_instances,
@@ -116,17 +117,12 @@ async def stream_messages(
     request: Request,
     instance_id: UUID,
     token: str | None = None,
-    db: Session = Depends(get_db),
 ):
     """Stream new messages for an agent instance using Server-Sent Events"""
-    # Handle SSE authentication - token comes from query param
     if not token:
         raise HTTPException(status_code=401, detail="Token required for SSE")
 
     try:
-        # Verify token and get user
-        from ..auth.supabase_client import get_supabase_anon_client
-
         supabase = get_supabase_anon_client()
         user_response = supabase.auth.get_user(token)
 
@@ -137,10 +133,10 @@ async def stream_messages(
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
-    # Verify the user has access to this instance
-    instance = get_agent_instance_detail(db, instance_id, user_id)
-    if not instance:
-        raise HTTPException(status_code=404, detail="Agent instance not found")
+    with SessionLocal() as db:
+        instance = get_agent_instance_detail(db, instance_id, user_id)
+        if not instance:
+            raise HTTPException(status_code=404, detail="Agent instance not found")
 
     async def message_generator() -> AsyncGenerator[str, None]:
         # Import settings here to avoid circular imports
@@ -190,26 +186,29 @@ async def stream_messages(
                         yield f"event: status_update\ndata: {json.dumps(data)}\n\n"
 
                     elif event_type == "message_insert":
-                        # Fetch and send new message
                         message_id = data.get("id")
                         if not message_id:
                             continue
 
-                        message_data = get_message_by_id(db, UUID(message_id), user_id)
+                        with SessionLocal() as db:
+                            message_data = get_message_by_id(
+                                db, UUID(message_id), user_id
+                            )
                         if message_data:
                             data.update(message_data)
 
                         yield f"event: message\ndata: {json.dumps(data)}\n\n"
 
                     elif event_type == "message_update":
-                        # Fetch and send message update
                         message_id = data.get("id")
                         if not message_id:
                             continue
 
-                        message_data = get_message_by_id(db, UUID(message_id), user_id)
+                        with SessionLocal() as db:
+                            message_data = get_message_by_id(
+                                db, UUID(message_id), user_id
+                            )
                         if message_data:
-                            # Preserve old_requires_user_input from notification
                             old_requires_user_input = data.get(
                                 "old_requires_user_input"
                             )
@@ -222,14 +221,14 @@ async def stream_messages(
                         yield f"event: message_update\ndata: {json.dumps(data)}\n\n"
 
                     elif event_type == "git_diff_update":
-                        # Fetch and send git diff update
                         instance_id_str = data.get("instance_id")
                         if not instance_id_str:
                             continue
 
-                        diff_data = get_instance_git_diff(
-                            db, UUID(instance_id_str), user_id
-                        )
+                        with SessionLocal() as db:
+                            diff_data = get_instance_git_diff(
+                                db, UUID(instance_id_str), user_id
+                            )
                         if diff_data:
                             data["git_diff"] = diff_data["git_diff"]
 
