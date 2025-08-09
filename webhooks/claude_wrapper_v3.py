@@ -1359,41 +1359,55 @@ class ClaudeWrapperV3:
             self.async_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.async_loop)
             self.async_loop.run_until_complete(self.idle_monitor_loop())
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, RuntimeError):
+            # RuntimeError happens when loop.stop() is called
             pass
         finally:
             # Clean up
             self.running = False
             self.log("[INFO] Shutting down wrapper...")
 
-            # Cancel pending tasks
-            self.cancel_pending_input_request()
-
-            # Close clients
-            if self.omnara_client_sync:
-                if self.agent_instance_id:
-                    try:
-                        self.omnara_client_sync.end_session(self.agent_instance_id)
-                    except Exception as e:
-                        self.log(f"[ERROR] Failed to end session: {e}")
-                self.omnara_client_sync.close()
-
-            # Close async client
-            if self.omnara_client_async and self.async_loop:
-
-                async def close_async_client():
-                    if self.omnara_client_async:
-                        await self.omnara_client_async.close()
-
-                self.async_loop.run_until_complete(close_async_client())
-
-            if self.debug_log_file:
-                self.log("=== Claude Wrapper V3 Log Ended ===")
-                self.debug_log_file.close()
-
-            # Only print exit message if we're exiting normally (not due to errors)
+            # Print exit message immediately for better UX
             if not sys.exc_info()[0]:
                 print("\nEnded Omnara Claude Session", file=sys.stderr)
+
+            # Quick cleanup - cancel pending tasks
+            self.cancel_pending_input_request()
+
+            # Run cleanup in background daemon thread
+            def background_cleanup():
+                try:
+                    # Use sync client for end_session - simpler and more reliable
+                    if self.omnara_client_sync and self.agent_instance_id:
+                        self.omnara_client_sync.end_session(self.agent_instance_id)
+                        self.log("[INFO] Session ended successfully")
+
+                    if self.omnara_client_sync:
+                        self.omnara_client_sync.close()
+
+                    if self.omnara_client_async:
+                        # Close async client synchronously
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(self.omnara_client_async.close())
+                        loop.close()
+
+                    if self.debug_log_file:
+                        self.log("=== Claude Wrapper V3 Log Ended ===")
+                        self.debug_log_file.flush()  # Force flush before close
+                        self.debug_log_file.close()
+                except Exception as e:
+                    self.log(f"[ERROR] Background cleanup error: {e}")
+                    if self.debug_log_file:
+                        self.debug_log_file.flush()
+
+            # Start background cleanup and exit immediately
+            cleanup_thread = threading.Thread(target=background_cleanup)
+            cleanup_thread.daemon = True
+            cleanup_thread.start()
+
+            # Give thread a tiny bit of time to start (critical for daemon thread)
+            cleanup_thread.join(timeout=0.05)
 
 
 def main():
@@ -1414,8 +1428,19 @@ def main():
     wrapper = ClaudeWrapperV3(api_key=args.api_key, base_url=args.base_url)
 
     def signal_handler(sig, frame):
-        # Just set the flag and let the finally block handle cleanup
+        # Check if this is a repeated Ctrl+C (user really wants to exit)
+        if not wrapper.running:
+            # Second Ctrl+C - exit immediately
+            print("\nForce exiting...", file=sys.stderr)
+            os._exit(1)
+
+        # First Ctrl+C - initiate graceful shutdown
         wrapper.running = False
+
+        # Stop the async event loop to trigger cleanup
+        if wrapper.async_loop and wrapper.async_loop.is_running():
+            wrapper.async_loop.call_soon_threadsafe(wrapper.async_loop.stop)
+
         if wrapper.child_pid:
             try:
                 # Kill Claude process to trigger exit
@@ -1440,6 +1465,8 @@ def main():
                 pass
 
     signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)  # Handle terminal close
+    signal.signal(signal.SIGHUP, signal_handler)  # Handle terminal disconnect
     signal.signal(signal.SIGWINCH, handle_resize)  # Handle terminal resize
 
     try:
