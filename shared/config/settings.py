@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     )
 
     # Plan Configuration - used when enforce_limits is True
-    free_plan_agent_limit: int = 20  # 20 total agents per month
+    free_plan_agent_limit: int = 10  # 10 total agents per month
     pro_plan_agent_limit: int = -1  # Unlimited
     pro_plan_price: float = 9
     enterprise_plan_agent_limit: int = -1  # Unlimited

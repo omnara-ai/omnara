@@ -85,7 +85,7 @@ def get_or_create_subscription(user_id: UUID, db: Session) -> Subscription:
     """Get existing subscription or create a default free one."""
     subscription = db.query(Subscription).filter_by(user_id=user_id).first()
     if not subscription:
-        # Create with defaults from model (plan_type="free", agent_limit=20)
+        # Create with defaults from model (plan_type="free", agent_limit=10)
         subscription = Subscription(user_id=user_id)
         db.add(subscription)
         db.commit()

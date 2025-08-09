@@ -36,8 +36,8 @@ class Subscription(Base):
 
     # Limits - -1 means unlimited (default to free plan limits)
     agent_limit: Mapped[int] = mapped_column(
-        Integer, default=20
-    )  # Free plan: 20 agents/month
+        Integer, default=10
+    )  # Free plan: 10 agents/month
 
     # Payment provider information - minimal needed for operations
     provider: Mapped[str | None] = mapped_column(
