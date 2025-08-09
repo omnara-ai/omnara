@@ -376,7 +376,7 @@ make dev-serve  # Start development servers
 
 | Plan | Price | Features |
 |------|-------|----------|
-| **Free** | $0/mo | 20 agents/month, Core features |
+| **Free** | $0/mo | 10 agents/month, Core features |
 | **Pro** | $9/mo | Unlimited agents, Priority support |
 | **Enterprise** | [Contact Us](https://cal.com/ishaan-sehgal-8kc22w/omnara-demo) | Teams, SSO, Custom integrations |
 

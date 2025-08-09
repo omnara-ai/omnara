@@ -221,7 +221,7 @@ def sync_subscription_status(subscriber_data: dict, db: Session) -> bool:
             # No active subscription - revert to free
             logger.info("No active Pro entitlement found, downgrading to free")
             subscription.plan_type = "free"
-            subscription.agent_limit = 20
+            subscription.agent_limit = 10
             subscription.provider = None  # Clear provider when going to free
             subscription.provider_subscription_id = None  # Clear subscription reference
 
