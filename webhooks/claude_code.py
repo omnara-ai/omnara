@@ -14,8 +14,11 @@ import sys
 import platform
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, field_validator
-from typing import Optional, Tuple, List, Dict
-import select
+from typing import Optional, Tuple, List, Dict, Any
+
+# Conditional import for select (not available on Windows)
+if platform.system() != "Windows":
+    import select
 
 
 # === CONSTANTS AND CONFIGURATION ===
@@ -27,12 +30,20 @@ DEFAULT_HOST = "0.0.0.0"
 COMMAND_PATHS = {}
 
 # === DEPENDENCY CHECKING ===
-REQUIRED_COMMANDS = {
-    "git": "Git is required for creating worktrees",
-    "screen": "GNU Screen is required for running Claude sessions",
-    "claude": "Claude Code CLI is required",
-    "pipx": "pipx is required for running the Omnara MCP server",
-}
+# Platform-specific required commands
+if platform.system() == "Windows":
+    REQUIRED_COMMANDS = {
+        "git": "Git is required for creating worktrees",
+        "claude": "Claude Code CLI is required",
+        "pipx": "pipx is required for running the Omnara MCP server",
+    }
+else:
+    REQUIRED_COMMANDS = {
+        "git": "Git is required for creating worktrees",
+        "screen": "GNU Screen is required for running Claude sessions",
+        "claude": "Claude Code CLI is required",
+        "pipx": "pipx is required for running the Omnara MCP server",
+    }
 
 OPTIONAL_COMMANDS = {"cloudflared": "Cloudflared is optional for tunnel support"}
 
@@ -40,6 +51,11 @@ OPTIONAL_COMMANDS = {"cloudflared": "Cloudflared is optional for tunnel support"
 def is_macos() -> bool:
     """Check if running on macOS"""
     return platform.system() == "Darwin"
+
+
+def is_windows() -> bool:
+    """Check if running on Windows"""
+    return platform.system() == "Windows"
 
 
 def get_command_path(command: str) -> Optional[str]:
@@ -57,31 +73,43 @@ def get_command_path(command: str) -> Optional[str]:
 def check_command(command: str) -> Tuple[bool, Optional[str]]:
     """Check if a command exists and return its path"""
     try:
-        # First try without shell (more secure, finds actual executables)
-        result = subprocess.run(["which", command], capture_output=True, text=True)
+        # Use 'where' on Windows, 'which' on Unix-like systems
+        if is_windows():
+            result = subprocess.run(
+                ["where", command], capture_output=True, text=True, shell=False
+            )
+        else:
+            result = subprocess.run(["which", command], capture_output=True, text=True)
+
         if result.returncode == 0:
-            return True, result.stdout.strip()
+            return True, result.stdout.strip().split("\n")[
+                0
+            ]  # Get first result on Windows
 
         # If that fails, try with shell to catch aliases (less secure but necessary for aliases)
-        shell_result = subprocess.run(
-            f"which {command}",
-            shell=True,
-            capture_output=True,
-            text=True,
-            executable="/bin/bash",  # Use bash to ensure consistent behavior
-        )
-        if shell_result.returncode == 0:
-            path = shell_result.stdout.strip()
-            # For aliases, extract the actual path if possible
-            if "aliased to" in path:
-                # Extract path from "claude: aliased to /path/to/claude"
-                parts = path.split("aliased to")
-                if len(parts) > 1:
-                    actual_path = parts[1].strip()
-                    # Verify the extracted path exists
-                    if os.path.exists(actual_path):
-                        return True, actual_path
-            return True, path
+        if is_windows():
+            # Windows doesn't have aliases in the same way, skip shell check
+            return False, None
+        else:
+            shell_result = subprocess.run(
+                f"which {command}",
+                shell=True,
+                capture_output=True,
+                text=True,
+                executable="/bin/bash",  # Use bash to ensure consistent behavior
+            )
+            if shell_result.returncode == 0:
+                path = shell_result.stdout.strip()
+                # For aliases, extract the actual path if possible
+                if "aliased to" in path:
+                    # Extract path from "claude: aliased to /path/to/claude"
+                    parts = path.split("aliased to")
+                    if len(parts) > 1:
+                        actual_path = parts[1].strip()
+                        # Verify the extracted path exists
+                        if os.path.exists(actual_path):
+                            return True, actual_path
+                return True, path
 
         return False, None
     except Exception:
@@ -306,10 +334,9 @@ def start_cloudflare_tunnel(
 
             # Check stderr (cloudflared outputs to stderr)
             try:
-                # Read available lines from stderr
-                if process.stderr:
-                    readable, _, _ = select.select([process.stderr], [], [], 0.1)
-                    if readable:
+                if is_windows():
+                    # Windows doesn't have select, use non-blocking read
+                    if process.stderr:
                         line = process.stderr.readline()
                         if line:
                             # Look for the tunnel URL pattern
@@ -319,6 +346,20 @@ def start_cloudflare_tunnel(
                             if url_match:
                                 tunnel_url = url_match.group()
                                 break
+                else:
+                    # Unix-like systems can use select
+                    if process.stderr:
+                        readable, _, _ = select.select([process.stderr], [], [], 0.1)
+                        if readable:
+                            line = process.stderr.readline()
+                            if line:
+                                # Look for the tunnel URL pattern
+                                url_match = re.search(
+                                    r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line
+                                )
+                                if url_match:
+                                    tunnel_url = url_match.group()
+                                    break
             except Exception:
                 pass
 
@@ -332,6 +373,54 @@ def start_cloudflare_tunnel(
     except Exception as e:
         print(f"\n[ERROR] Failed to start Cloudflare tunnel: {e}")
         return None, None
+
+
+def quote_for_windows(s: str) -> str:
+    """Quote a string for Windows cmd.exe"""
+    # Escape special characters for Windows
+    if " " in s or '"' in s or "^" in s or "&" in s or "|" in s or "<" in s or ">" in s:
+        # Escape internal quotes and wrap in quotes
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+def list_claude_processes_windows() -> List[Dict[str, Any]]:
+    """List running Claude processes on Windows"""
+    try:
+        # Use wmic to get process info
+        result = subprocess.run(
+            [
+                "wmic",
+                "process",
+                "where",
+                'name="claude.exe"',
+                "get",
+                "ProcessId,CommandLine",
+                "/format:csv",
+            ],
+            capture_output=True,
+            text=True,
+            shell=True,
+        )
+        # Parse and return process list
+        processes = []
+        if result.returncode == 0:
+            lines = result.stdout.strip().split("\n")
+            # Skip empty lines and headers
+            for line in lines:
+                if line and "," in line and not line.startswith("Node"):
+                    parts = line.split(",", 2)
+                    if len(parts) >= 3:
+                        processes.append(
+                            {
+                                "pid": parts[1],
+                                "command": parts[2] if len(parts) > 2 else "",
+                            }
+                        )
+        return processes
+    except Exception as e:
+        print(f"[WARNING] Failed to list Claude processes: {e}")
+        return []
 
 
 class WebhookRequest(BaseModel):
@@ -784,7 +873,11 @@ async def start_claude(
             # safe_timestamp was defined when auto-generating name
             screen_name = f"omnara-claude-{agent_instance_id[:8]}"
 
-        escaped_prompt = shlex.quote(safe_prompt)
+        # Use platform-specific quoting
+        if is_windows():
+            escaped_prompt = quote_for_windows(safe_prompt)
+        else:
+            escaped_prompt = shlex.quote(safe_prompt)
 
         # Get claude path (we already checked it exists at startup)
         _, claude_path = check_command("claude")
@@ -852,80 +945,155 @@ async def start_claude(
         # Add the prompt to claude args
         claude_args.append(escaped_prompt)
 
-        print("\n[INFO] Starting Claude session:")
-        print(f"  - Working directory: {work_dir}")
-        print(f"  - Screen session: {screen_name}")
-        print("  - MCP server: Omnara with API key")
+        # Platform-specific Claude session launching
+        if is_windows():
+            # Windows implementation
+            print("\n[INFO] Starting Claude session:")
+            print(f"  - Working directory: {work_dir}")
+            print("  - Running in new console window")
+            print("  - MCP server: Omnara with API key")
 
-        # Get screen path
-        screen_path = get_command_path("screen")
-        if not screen_path:
-            print("[ERROR] GNU Screen not found in PATH or as alias")
-            raise HTTPException(
-                status_code=500,
-                detail="GNU Screen not found. Please install screen to run Claude sessions.",
+            # Create startup info for Windows
+            startupinfo = None
+            creationflags = 0
+
+            # Windows-specific process creation flags
+            # Use getattr with defaults to avoid pyright errors
+            STARTUPINFO = getattr(subprocess, "STARTUPINFO", None)
+            if STARTUPINFO is not None:
+                startupinfo = STARTUPINFO()  # type: ignore
+                STARTF_USESHOWWINDOW = getattr(
+                    subprocess, "STARTF_USESHOWWINDOW", 0x00000001
+                )
+                SW_SHOW = getattr(subprocess, "SW_SHOW", 5)
+                startupinfo.dwFlags |= STARTF_USESHOWWINDOW  # type: ignore
+                startupinfo.wShowWindow = SW_SHOW  # type: ignore
+
+            CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010)
+            if CREATE_NEW_CONSOLE:
+                creationflags = CREATE_NEW_CONSOLE
+
+            try:
+                # Start claude in a new console window
+                claude_process = subprocess.Popen(
+                    claude_args,
+                    cwd=work_dir,
+                    creationflags=creationflags,
+                    startupinfo=startupinfo,
+                )
+
+                # Give it a moment to start
+                time.sleep(2)
+
+                # Check if process is still running
+                if claude_process.poll() is not None:
+                    print("\n[ERROR] Claude process exited immediately")
+                    print("\n[ERROR] Possible causes:")
+                    print("  - Claude command failed to start")
+                    print("  - MCP server (omnara) cannot be started")
+                    print("  - Invalid API key")
+                    print("  - Working directory issues")
+                    print(f"\n[INFO] Check logs in {work_dir} for more details")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Claude process started but exited immediately. Check server logs for details.",
+                    )
+
+                print("\n[SUCCESS] Claude session started successfully!")
+                print(f"  - Process ID: {claude_process.pid}")
+                print(f"  - Working directory: {work_dir}")
+                print("  - To view: Check the new console window")
+
+                return {
+                    "message": "Successfully started claude",
+                    "branch": feature_branch_name,
+                    "process_id": claude_process.pid,
+                    "work_dir": work_dir,
+                    "platform": "windows",
+                }
+
+            except Exception as e:
+                print(f"\n[ERROR] Failed to start Claude process: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to start Claude process: {str(e)}",
+                )
+        else:
+            # Unix/macOS implementation with screen
+            print("\n[INFO] Starting Claude session:")
+            print(f"  - Working directory: {work_dir}")
+            print(f"  - Screen session: {screen_name}")
+            print("  - MCP server: Omnara with API key")
+
+            # Get screen path
+            screen_path = get_command_path("screen")
+            if not screen_path:
+                print("[ERROR] GNU Screen not found in PATH or as alias")
+                raise HTTPException(
+                    status_code=500,
+                    detail="GNU Screen not found. Please install screen to run Claude sessions.",
+                )
+
+            # Start screen directly with the claude command
+            screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
+
+            screen_result = subprocess.run(
+                screen_cmd,
+                cwd=work_dir,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
 
-        # Start screen directly with the claude command
-        screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
+            if screen_result.returncode != 0:
+                print("\n[ERROR] Failed to start screen session:")
+                print(f"  - Exit code: {screen_result.returncode}")
+                print(f"  - stdout: {screen_result.stdout}")
+                print(f"  - stderr: {screen_result.stderr}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to start screen session: {screen_result.stderr}",
+                )
 
-        screen_result = subprocess.run(
-            screen_cmd,
-            cwd=work_dir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+            # Wait a moment and check if screen is still running
+            time.sleep(1)
 
-        if screen_result.returncode != 0:
-            print("\n[ERROR] Failed to start screen session:")
-            print(f"  - Exit code: {screen_result.returncode}")
-            print(f"  - stdout: {screen_result.stdout}")
-            print(f"  - stderr: {screen_result.stderr}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to start screen session: {screen_result.stderr}",
+            # Check if the screen session exists
+            list_result = subprocess.run(
+                [screen_path, "-ls"],
+                capture_output=True,
+                text=True,
             )
 
-        # Wait a moment and check if screen is still running
-        time.sleep(1)
+            if (
+                "No Sockets found" in list_result.stdout
+                or screen_name not in list_result.stdout
+            ):
+                print("\n[ERROR] Screen session exited immediately")
+                print(f"  - Session name: {screen_name}")
+                print(f"  - Screen list output: {list_result.stdout}")
+                print("\n[ERROR] Possible causes:")
+                print("  - Claude command failed to start")
+                print("  - MCP server (omnara) cannot be started")
+                print("  - Invalid API key")
+                print("  - Working directory issues")
+                print(f"\n[INFO] Check logs in {work_dir} for more details")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Screen session started but exited immediately. Check server logs for details.",
+                )
 
-        # Check if the screen session exists
-        list_result = subprocess.run(
-            [screen_path, "-ls"],
-            capture_output=True,
-            text=True,
-        )
+            print("\n[SUCCESS] Claude session started successfully!")
+            print(f"  - To attach: screen -r {screen_name}")
+            print("  - To list sessions: screen -ls")
+            print("  - To detach: Ctrl+A then D")
 
-        if (
-            "No Sockets found" in list_result.stdout
-            or screen_name not in list_result.stdout
-        ):
-            print("\n[ERROR] Screen session exited immediately")
-            print(f"  - Session name: {screen_name}")
-            print(f"  - Screen list output: {list_result.stdout}")
-            print("\n[ERROR] Possible causes:")
-            print("  - Claude command failed to start")
-            print("  - MCP server (omnara) cannot be started")
-            print("  - Invalid API key")
-            print("  - Working directory issues")
-            print(f"\n[INFO] Check logs in {work_dir} for more details")
-            raise HTTPException(
-                status_code=500,
-                detail="Screen session started but exited immediately. Check server logs for details.",
-            )
-
-        print("\n[SUCCESS] Claude session started successfully!")
-        print(f"  - To attach: screen -r {screen_name}")
-        print("  - To list sessions: screen -ls")
-        print("  - To detach: Ctrl+A then D")
-
-        return {
-            "message": "Successfully started claude",
-            "branch": feature_branch_name,
-            "screen_session": screen_name,
-            "work_dir": work_dir,
-        }
+            return {
+                "message": "Successfully started claude",
+                "branch": feature_branch_name,
+                "screen_session": screen_name,
+                "work_dir": work_dir,
+            }
 
     except subprocess.TimeoutExpired:
         print("[ERROR] Git operation timed out")
