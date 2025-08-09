@@ -1125,10 +1125,26 @@ class ClaudeWrapperV3:
                             except Exception:
                                 pass
                         else:
+                            # Claude process has exited - trigger cleanup
+                            self.log(
+                                "[INFO] Claude process exited, shutting down wrapper"
+                            )
+                            self.running = False
+                            if self.async_loop and self.async_loop.is_running():
+                                self.async_loop.call_soon_threadsafe(
+                                    self.async_loop.stop
+                                )
                             break
                     except BlockingIOError:
                         pass
                     except OSError:
+                        # Claude process has exited - trigger cleanup
+                        self.log(
+                            "[INFO] Claude process exited (OSError), shutting down wrapper"
+                        )
+                        self.running = False
+                        if self.async_loop and self.async_loop.is_running():
+                            self.async_loop.call_soon_threadsafe(self.async_loop.stop)
                         break
 
                 # Handle user input from stdin
@@ -1369,7 +1385,7 @@ class ClaudeWrapperV3:
 
             # Print exit message immediately for better UX
             if not sys.exc_info()[0]:
-                print("\nEnded Omnara Claude Session", file=sys.stderr)
+                print("\nEnded Omnara Claude Session\n", file=sys.stderr)
 
             # Quick cleanup - cancel pending tasks
             self.cancel_pending_input_request()
