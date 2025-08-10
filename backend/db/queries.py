@@ -70,11 +70,12 @@ def get_all_agent_types_with_instances(
         .all()
     )
 
-    # Collect all instance IDs for bulk message stats query
+    # Collect all instance IDs for bulk message stats query (excluding DELETED)
     all_instance_ids = []
     for user_agent in user_agents:
         for instance in user_agent.instances:
-            all_instance_ids.append(instance.id)
+            if instance.status != AgentStatus.DELETED:
+                all_instance_ids.append(instance.id)
 
     # Get message stats for ALL instances in a simpler, more efficient query
     message_stats = {}
@@ -123,7 +124,8 @@ def get_all_agent_types_with_instances(
 
     result = []
     for user_agent in user_agents:
-        instances = user_agent.instances
+        # Filter out DELETED instances
+        instances = [i for i in user_agent.instances if i.status != AgentStatus.DELETED]
 
         # Create a list of instances with their stats
         instances_with_stats = []
@@ -203,7 +205,10 @@ def get_all_agent_instances(
 
     query = (
         db.query(AgentInstance)
-        .filter(AgentInstance.user_id == user_id)
+        .filter(
+            AgentInstance.user_id == user_id,
+            AgentInstance.status != AgentStatus.DELETED,
+        )
         .options(
             joinedload(AgentInstance.messages),
             joinedload(AgentInstance.user_agent),
@@ -223,7 +228,7 @@ def get_all_agent_instances(
 def get_agent_summary(db: Session, user_id: UUID) -> dict:
     """Get lightweight summary of agent counts without fetching detailed instance data"""
 
-    # Single query to get all counts using conditional aggregation
+    # Single query to get all counts using conditional aggregation (excluding DELETED)
     stats = (
         db.query(
             func.count(AgentInstance.id).label("total"),
@@ -234,7 +239,10 @@ def get_agent_summary(db: Session, user_id: UUID) -> dict:
                 "completed"
             ),
         )
-        .filter(AgentInstance.user_id == user_id)
+        .filter(
+            AgentInstance.user_id == user_id,
+            AgentInstance.status != AgentStatus.DELETED,
+        )
         .first()
     )
 
@@ -248,7 +256,7 @@ def get_agent_summary(db: Session, user_id: UUID) -> dict:
         active_instances = 0
         completed_instances = 0
 
-    # Count by user agent and status (for fleet overview)
+    # Count by user agent and status (for fleet overview, excluding DELETED)
     # Get instances with their user agents
     agent_type_stats = (
         db.query(
@@ -258,7 +266,9 @@ def get_agent_summary(db: Session, user_id: UUID) -> dict:
             func.count(AgentInstance.id).label("count"),
         )
         .join(AgentInstance, AgentInstance.user_agent_id == UserAgent.id)
-        .filter(UserAgent.user_id == user_id)
+        .filter(
+            UserAgent.user_id == user_id, AgentInstance.status != AgentStatus.DELETED
+        )
         .group_by(UserAgent.id, UserAgent.name, AgentInstance.status)
         .all()
     )
@@ -304,6 +314,7 @@ def get_agent_type_instances(
         db.query(AgentInstance)
         .filter(
             AgentInstance.user_agent_id == agent_type_id,
+            AgentInstance.status != AgentStatus.DELETED,
         )
         .options(
             joinedload(AgentInstance.messages),
@@ -536,7 +547,7 @@ def delete_user_account(db: Session, user_id: UUID) -> None:
 
 
 def delete_agent_instance(db: Session, instance_id: UUID, user_id: UUID) -> bool:
-    """Delete an agent instance for a specific user"""
+    """Soft delete an agent instance for a specific user"""
 
     instance = (
         db.query(AgentInstance)
@@ -547,11 +558,11 @@ def delete_agent_instance(db: Session, instance_id: UUID, user_id: UUID) -> bool
     if not instance:
         return False
 
-    # Delete related messages (cascade should handle this, but being explicit)
+    # Delete related messages to save space
     db.query(Message).filter(Message.agent_instance_id == instance_id).delete()
 
-    # Delete the instance
-    db.delete(instance)
+    # Soft delete: mark as DELETED instead of actually deleting
+    instance.status = AgentStatus.DELETED
     db.commit()
 
     return True
