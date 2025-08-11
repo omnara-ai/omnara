@@ -145,6 +145,9 @@ class ClaudeWrapperV3:
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
         # Session management
         self.session_uuid = str(uuid.uuid4())
+        self.session_start_time = (
+            time.time()
+        )  # Track when session started for file filtering
         self.agent_instance_id = None
 
         # Set up logging
@@ -531,6 +534,16 @@ class ClaudeWrapperV3:
 
                     # For each untracked file, show its contents with diff-like format
                     for file_path in untracked_files:
+                        # Check if file was created after session started
+                        try:
+                            file_creation_time = os.path.getctime(file_path)
+                            if file_creation_time < self.session_start_time:
+                                # Skip files that existed before the session started
+                                continue
+                        except (OSError, IOError):
+                            # If we can't get creation time, skip the file
+                            continue
+
                         combined_output += f"diff --git a/{file_path} b/{file_path}\n"
                         combined_output += "new file mode 100644\n"
                         combined_output += "index 0000000..0000000\n"
