@@ -352,7 +352,36 @@ class ClaudeWrapperV3:
         # Todo management
         elif tool_name == "TodoWrite":
             todos = input_data.get("todos", [])
-            return f"Using tool: TodoWrite - updating {len(todos)} todo(s)"
+
+            if not todos:
+                return "Using tool: TodoWrite - clearing todo list"
+
+            # Map status to symbols
+            status_symbol = {"pending": "○", "in_progress": "◐", "completed": "●"}
+
+            # Group todos by status for counting
+            status_counts = {"pending": 0, "in_progress": 0, "completed": 0}
+
+            # Build formatted todo list
+            lines = ["Using tool: TodoWrite - Todo List", ""]
+
+            for todo in todos:
+                status = todo.get("status", "pending")
+                content = todo.get("content", "")
+
+                # Count by status
+                if status in status_counts:
+                    status_counts[status] += 1
+
+                # Truncate content if too long
+                max_content_length = 100
+                content_truncated = self._truncate_text(content, max_content_length)
+
+                # Format todo item with symbol
+                symbol = status_symbol.get(status, "•")
+                lines.append(f"{symbol} {content_truncated}")
+
+            return "\n".join(lines)
 
         # Task delegation
         elif tool_name == "Task":
