@@ -106,10 +106,16 @@ async def create_agent_instance(
 ):
     """Create a new instance of a user agent (trigger webhook if applicable)"""
 
-    # Get the user agent
+    # Get the user agent (excluding soft-deleted ones)
     user_agent = (
         db.query(UserAgent)
-        .filter(and_(UserAgent.id == agent_id, UserAgent.user_id == current_user.id))
+        .filter(
+            and_(
+                UserAgent.id == agent_id,
+                UserAgent.user_id == current_user.id,
+                UserAgent.is_deleted.is_(False),
+            )
+        )
         .first()
     )
 
