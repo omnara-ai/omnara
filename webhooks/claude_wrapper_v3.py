@@ -770,7 +770,7 @@ class ClaudeWrapperV3:
         """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.5+ seconds)"""
         if self.last_esc_interrupt_seen:
             time_since_esc = time.time() - self.last_esc_interrupt_seen
-            return time_since_esc >= 0.5
+            return time_since_esc >= 0.75
         return True
 
     def cancel_pending_input_request(self):
@@ -1161,7 +1161,11 @@ class ClaudeWrapperV3:
                                 import re
 
                                 clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
-                                if "esc to interrupt)" in clean_text:
+                                # Check for both "esc to interrupt" and "ctrl+b to run in background"
+                                if (
+                                    "esc to interrupt)" in clean_text
+                                    or "ctrl+b to run in background" in clean_text
+                                ):
                                     self.last_esc_interrupt_seen = time.time()
 
                             except Exception:
