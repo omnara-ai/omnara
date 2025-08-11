@@ -232,12 +232,17 @@ Monitor your Claude Code sessions in real-time:
 Launch Claude Code remotely from your phone or web browser:
 
 1. **Download the app** or visit [omnara.ai](https://omnara.ai)
-2. **Start the webhook server** on your computer:
+2. **Install Omnara CLI**:
    ```bash
-   python -m webhooks.claude_code --cloudflare-tunnel
+   pip install omnara
+   # or with uv: uv pip install omnara
    ```
-3. **Create your agent** with the webhook URL and API key shown
-4. **Trigger agents remotely** from anywhere!
+3. **Start the webhook server** on your computer:
+   ```bash
+   omnara serve
+   ```
+4. **Create your agent** with the webhook URL and API key shown
+5. **Trigger agents remotely** from anywhere!
 
 ### For Developers
 
@@ -322,7 +327,7 @@ For remote agent launching, the webhook automatically configures MCP:
   "mcpServers": {
     "omnara": {
       "command": "pipx",
-      "args": ["run", "--no-cache", "omnara", "--stdio", "--api-key", "YOUR_API_KEY"]
+      "args": ["run", "--no-cache", "omnara", "mcp", "--api-key", "YOUR_API_KEY"]
     }
   }
 }
