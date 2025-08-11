@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, String, Text, text
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PostgresUUID, JSONB
 from sqlalchemy.orm import (
     DeclarativeBase,  # type: ignore[attr-defined]
@@ -77,14 +77,7 @@ class User(Base):
 class UserAgent(Base):
     __tablename__ = "user_agents"
     __table_args__ = (
-        # Partial unique index: only enforce uniqueness for non-deleted agents
-        Index(
-            "uq_user_agents_user_id_name",
-            "user_id",
-            "name",
-            unique=True,
-            postgresql_where=text("is_deleted = FALSE"),
-        ),
+        UniqueConstraint("user_id", "name", name="uq_user_agents_user_id_name"),
         Index("ix_user_agents_user_id", "user_id"),
     )
 
@@ -98,7 +91,6 @@ class UserAgent(Base):
     webhook_url: Mapped[str | None] = mapped_column(Text, default=None)
     webhook_api_key: Mapped[str | None] = mapped_column(Text, default=None)  # Encrypted
     is_active: Mapped[bool] = mapped_column(default=True)
-    is_deleted: Mapped[bool] = mapped_column(default=False)  # Soft delete flag
     created_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc)
     )
