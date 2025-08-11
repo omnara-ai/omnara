@@ -24,6 +24,7 @@ from ..db import (
     delete_agent_instance,
     update_agent_instance_name,
     get_message_by_id,
+    get_instance_messages,
     get_instance_git_diff,
 )
 from ..models import (
@@ -86,11 +87,40 @@ async def get_type_instances(
 @router.get("/agent-instances/{instance_id}", response_model=AgentInstanceDetail)
 async def get_instance_detail(
     instance_id: UUID,
+    message_limit: int = 50,
+    before_message_id: UUID | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get detailed information about a specific agent instance for the current user"""
-    result = get_agent_instance_detail(db, instance_id, current_user.id)
+    """Get detailed information about a specific agent instance for the current user with cursor-based message pagination"""
+    result = get_agent_instance_detail(
+        db,
+        instance_id,
+        current_user.id,
+        message_limit=message_limit,
+        before_message_id=before_message_id,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Agent instance not found")
+    return result
+
+
+@router.get("/agent-instances/{instance_id}/messages")
+async def get_instance_messages_paginated(
+    instance_id: UUID,
+    limit: int = 50,
+    before_message_id: UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get paginated messages for an agent instance using cursor-based pagination"""
+    result = get_instance_messages(
+        db,
+        instance_id,
+        current_user.id,
+        limit=limit,
+        before_message_id=before_message_id,
+    )
     if not result:
         raise HTTPException(status_code=404, detail="Agent instance not found")
     return result

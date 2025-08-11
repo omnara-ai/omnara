@@ -138,6 +138,7 @@ class AgentInstanceDetail(BaseModel):
     ended_at: datetime | None
     git_diff: str | None = None
     messages: list[MessageResponse] = []
+    total_message_count: int = 0
     last_read_message_id: str | None = None
 
     @field_serializer("started_at", "ended_at")

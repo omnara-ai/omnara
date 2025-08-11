@@ -329,16 +329,19 @@ def get_agent_type_instances(
 
 
 def get_agent_instance_detail(
-    db: Session, instance_id: UUID, user_id: UUID
+    db: Session,
+    instance_id: UUID,
+    user_id: UUID,
+    message_limit: int | None = None,
+    before_message_id: UUID | None = None,
 ) -> AgentInstanceDetail | None:
-    """Get detailed information about a specific agent instance for a specific user"""
+    """Get detailed information about a specific agent instance for a specific user with optional message pagination using cursor"""
 
     instance = (
         db.query(AgentInstance)
         .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
         .options(
             joinedload(AgentInstance.user_agent),
-            joinedload(AgentInstance.messages),
         )
         .first()
     )
@@ -346,12 +349,35 @@ def get_agent_instance_detail(
     if not instance:
         return None
 
-    # Get all messages and sort by created_at
-    messages = (
-        sorted(instance.messages, key=lambda m: m.created_at)
-        if hasattr(instance, "messages")
-        else []
-    )
+    # Get total message count for this instance
+    total_message_count = (
+        db.query(func.count(Message.id))
+        .filter(Message.agent_instance_id == instance_id)
+        .scalar()
+    ) or 0
+
+    # Build message query
+    messages_query = db.query(Message).filter(Message.agent_instance_id == instance_id)
+
+    # If cursor provided, get messages before that message
+    if before_message_id:
+        cursor_message = (
+            db.query(Message.created_at).filter(Message.id == before_message_id).first()
+        )
+        if cursor_message:
+            messages_query = messages_query.filter(
+                Message.created_at < cursor_message.created_at
+            )
+
+    # Order by created_at DESC and apply limit
+    messages_query = messages_query.order_by(desc(Message.created_at))
+    if message_limit is not None:
+        messages_query = messages_query.limit(message_limit)
+
+    messages = messages_query.all()
+
+    # Reverse to get chronological order (oldest first) for display
+    messages = list(reversed(messages))
 
     # Format messages for chat display
     formatted_messages = []
@@ -375,6 +401,7 @@ def get_agent_instance_detail(
         ended_at=instance.ended_at,
         git_diff=instance.git_diff,
         messages=formatted_messages,
+        total_message_count=total_message_count,
         last_read_message_id=str(instance.last_read_message_id)
         if instance.last_read_message_id
         else None,
@@ -617,6 +644,73 @@ def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | No
         "created_at": message.created_at.isoformat() + "Z",
         "requires_user_input": message.requires_user_input,
         "message_metadata": message.message_metadata,
+    }
+
+
+def get_instance_messages(
+    db: Session,
+    instance_id: UUID,
+    user_id: UUID,
+    limit: int = 50,
+    before_message_id: UUID | None = None,
+) -> dict | None:
+    """
+    Get paginated messages for an agent instance using cursor-based pagination.
+    Returns paginated messages and total count if authorized, None if not found or unauthorized.
+    """
+    # Verify instance belongs to user
+    instance = (
+        db.query(AgentInstance)
+        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
+        .first()
+    )
+
+    if not instance:
+        return None
+
+    # Get total message count
+    total_count = (
+        db.query(func.count(Message.id))
+        .filter(Message.agent_instance_id == instance_id)
+        .scalar()
+    ) or 0
+
+    # Build message query
+    messages_query = db.query(Message).filter(Message.agent_instance_id == instance_id)
+
+    # If cursor provided, get messages before that message
+    if before_message_id:
+        cursor_message = (
+            db.query(Message.created_at).filter(Message.id == before_message_id).first()
+        )
+        if cursor_message:
+            messages_query = messages_query.filter(
+                Message.created_at < cursor_message.created_at
+            )
+
+    # Order by created_at DESC and apply limit
+    messages = messages_query.order_by(desc(Message.created_at)).limit(limit).all()
+
+    # Reverse to get chronological order
+    messages = list(reversed(messages))
+
+    # Format messages
+    formatted_messages = []
+    for msg in messages:
+        formatted_messages.append(
+            {
+                "id": str(msg.id),
+                "content": msg.content,
+                "sender_type": msg.sender_type.value,
+                "created_at": msg.created_at.isoformat() + "Z",
+                "requires_user_input": msg.requires_user_input,
+            }
+        )
+
+    return {
+        "messages": formatted_messages,
+        "total_count": total_count,
+        "has_more": len(formatted_messages) > 0,  # Has more if we got any messages
     }
 
 
