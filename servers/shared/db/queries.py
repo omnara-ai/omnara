@@ -20,13 +20,18 @@ logger = logging.getLogger(__name__)
 
 
 def create_or_get_user_agent(db: Session, name: str, user_id: str) -> UserAgent:
-    """Create or get a user agent by name for a specific user"""
+    """Create or get a non-deleted user agent by name for a specific user"""
     # Normalize name to lowercase for consistent storage
     normalized_name = name.lower()
 
+    # Only look for non-deleted user agents
     user_agent = (
         db.query(UserAgent)
-        .filter(UserAgent.name == normalized_name, UserAgent.user_id == UUID(user_id))
+        .filter(
+            UserAgent.name == normalized_name,
+            UserAgent.user_id == UUID(user_id),
+            UserAgent.is_deleted.is_(False),
+        )
         .first()
     )
     if not user_agent:
@@ -34,6 +39,7 @@ def create_or_get_user_agent(db: Session, name: str, user_id: str) -> UserAgent:
             name=normalized_name,
             user_id=UUID(user_id),
             is_active=True,
+            is_deleted=False,  # Explicitly set to False for new agents
         )
         db.add(user_agent)
         db.flush()  # Flush to get the user_agent ID
