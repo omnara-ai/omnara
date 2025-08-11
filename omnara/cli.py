@@ -135,6 +135,7 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
                     <html>
                     <head>
                         <title>Omnara CLI - Authentication Successful</title>
+                        <meta http-equiv="refresh" content="1;url=https://omnara.com/dashboard">
                         <style>
                             body {
                                 margin: 0;
@@ -218,15 +219,21 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
                             <h1>Authentication Successful!</h1>
                             <p>Your CLI has been authorized to access Omnara.</p>
                             <p class="close-hint">Redirecting to dashboard in a moment...</p>
+                            <p style="margin-top: 20px; font-size: 12px;">
+                                If you are not redirected automatically,
+                                <a href="https://omnara.com/dashboard" style="color: #86efac;">click here</a>.
+                            </p>
                         </div>
                         <script>
                             setTimeout(() => {
                                 window.location.href = 'https://omnara.com/dashboard';
-                            }, 2000);
+                            }, 500);
                         </script>
                     </body>
                     </html>
                     """)
+                    # Give the browser time to receive the response
+                    self.wfile.flush()
                     return
             else:
                 # Invalid or missing state parameter
@@ -296,6 +303,10 @@ def authenticate_via_browser(auth_url="https://omnara.com"):
     start_time = time.time()
     while not server.api_key and (time.time() - start_time) < 300:
         time.sleep(0.1)
+
+    # If we got the API key, wait a bit for the browser to process the redirect
+    if server.api_key:
+        time.sleep(1.5)  # Give browser time to receive response and start redirect
 
     # Shutdown server in a separate thread to avoid deadlock
     def shutdown_server():
