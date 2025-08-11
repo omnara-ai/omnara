@@ -2,6 +2,17 @@
 
 **Your AI workforce launchpad, in your pocket.**
 
+<div align="center">
+
+[![PyPI version](https://badge.fury.io/py/omnara.svg)](https://badge.fury.io/py/omnara)
+[![Downloads](https://pepy.tech/badge/omnara)](https://pepy.tech/project/omnara)
+[![Python Versions](https://img.shields.io/pypi/pyversions/omnara.svg)](https://pypi.org/project/omnara/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GitHub stars](https://img.shields.io/github/stars/omnara-ai/omnara?style=social)](https://github.com/omnara-ai/omnara)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
+</div>
+
 ![Omnara Mobile Experience](./docs/assets/three-panel.png)
 
 <div align="center">
