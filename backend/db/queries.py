@@ -645,7 +645,7 @@ def get_instance_messages(
     user_id: UUID,
     limit: int = 50,
     before_message_id: UUID | None = None,
-) -> list[dict] | None:
+) -> list[MessageResponse] | None:
     """
     Get paginated messages for an agent instance using cursor-based pagination.
     Returns list of messages if authorized, None if not found or unauthorized.
@@ -679,20 +679,17 @@ def get_instance_messages(
     # Reverse to get chronological order
     messages = list(reversed(messages))
 
-    # Format messages
-    formatted_messages = []
-    for msg in messages:
-        formatted_messages.append(
-            {
-                "id": str(msg.id),
-                "content": msg.content,
-                "sender_type": msg.sender_type.value,
-                "created_at": msg.created_at.isoformat() + "Z",
-                "requires_user_input": msg.requires_user_input,
-            }
+    # Convert to MessageResponse objects
+    return [
+        MessageResponse(
+            id=str(msg.id),
+            content=msg.content,
+            sender_type=msg.sender_type.value,
+            created_at=msg.created_at,
+            requires_user_input=msg.requires_user_input,
         )
-
-    return formatted_messages
+        for msg in messages
+    ]
 
 
 def get_instance_git_diff(db: Session, instance_id: UUID, user_id: UUID) -> dict | None:
