@@ -401,16 +401,15 @@ def cmd_serve(args):
 
 def cmd_mcp(args):
     """Handle the 'mcp' subcommand"""
-    api_key = ensure_api_key(args)
 
     cmd = [
         sys.executable,
         "-m",
         "servers.mcp_server.stdio_server",
-        "--api-key",
-        api_key,
     ]
 
+    if args.base_url:
+        cmd.extend(["--api-key", args.api_key])
     if args.base_url:
         cmd.extend(["--base-url", args.base_url])
     if args.permission_tool:
@@ -524,6 +523,11 @@ Examples:
         "--agent-instance-id",
         type=str,
         help="Pre-existing agent instance ID to use for this session",
+    )
+    mcp_parser.add_argument(
+        "--api-key",
+        type=str,
+        help="API key to use for the MCP server",
     )
 
     # Parse arguments
