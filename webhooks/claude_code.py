@@ -811,6 +811,7 @@ async def start_claude(
                     "command": "pipx",
                     "args": [
                         "run",
+                        "--no-cache",
                         "omnara",
                         "mcp",
                         "--api-key",
