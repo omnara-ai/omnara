@@ -145,6 +145,9 @@ class ClaudeWrapperV3:
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
         # Session management
         self.session_uuid = str(uuid.uuid4())
+        self.session_start_time = (
+            time.time()
+        )  # Track when session started for file filtering
         self.agent_instance_id = None
 
         # Set up logging
@@ -352,7 +355,36 @@ class ClaudeWrapperV3:
         # Todo management
         elif tool_name == "TodoWrite":
             todos = input_data.get("todos", [])
-            return f"Using tool: TodoWrite - updating {len(todos)} todo(s)"
+
+            if not todos:
+                return "Using tool: TodoWrite - clearing todo list"
+
+            # Map status to symbols
+            status_symbol = {"pending": "○", "in_progress": "◐", "completed": "●"}
+
+            # Group todos by status for counting
+            status_counts = {"pending": 0, "in_progress": 0, "completed": 0}
+
+            # Build formatted todo list
+            lines = ["Using tool: TodoWrite - Todo List", ""]
+
+            for todo in todos:
+                status = todo.get("status", "pending")
+                content = todo.get("content", "")
+
+                # Count by status
+                if status in status_counts:
+                    status_counts[status] += 1
+
+                # Truncate content if too long
+                max_content_length = 100
+                content_truncated = self._truncate_text(content, max_content_length)
+
+                # Format todo item with symbol
+                symbol = status_symbol.get(status, "•")
+                lines.append(f"{symbol} {content_truncated}")
+
+            return "\n".join(lines)
 
         # Task delegation
         elif tool_name == "Task":
@@ -531,6 +563,16 @@ class ClaudeWrapperV3:
 
                     # For each untracked file, show its contents with diff-like format
                     for file_path in untracked_files:
+                        # Check if file was created after session started
+                        try:
+                            file_creation_time = os.path.getctime(file_path)
+                            if file_creation_time < self.session_start_time:
+                                # Skip files that existed before the session started
+                                continue
+                        except (OSError, IOError):
+                            # If we can't get creation time, skip the file
+                            continue
+
                         combined_output += f"diff --git a/{file_path} b/{file_path}\n"
                         combined_output += "new file mode 100644\n"
                         combined_output += "index 0000000..0000000\n"
@@ -728,7 +770,7 @@ class ClaudeWrapperV3:
         """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.5+ seconds)"""
         if self.last_esc_interrupt_seen:
             time_since_esc = time.time() - self.last_esc_interrupt_seen
-            return time_since_esc >= 0.5
+            return time_since_esc >= 0.75
         return True
 
     def cancel_pending_input_request(self):
@@ -1119,7 +1161,11 @@ class ClaudeWrapperV3:
                                 import re
 
                                 clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
-                                if "esc to interrupt)" in clean_text:
+                                # Check for both "esc to interrupt" and "ctrl+b to run in background"
+                                if (
+                                    "esc to interrupt)" in clean_text
+                                    or "ctrl+b to run in background" in clean_text
+                                ):
                                     self.last_esc_interrupt_seen = time.time()
 
                             except Exception:

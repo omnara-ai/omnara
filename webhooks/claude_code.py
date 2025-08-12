@@ -956,7 +956,10 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run webhook server
+  # Run webhook server (NEW - recommended way)
+  omnara serve
+
+  # Old way (still works):
   python -m webhooks.claude_code
 
   # Run with Cloudflare tunnel for external access
@@ -967,6 +970,9 @@ Examples:
 
   # Run on a custom port
   python -m webhooks.claude_code --port 8080
+
+Note: 'omnara serve' is the new recommended way to run the webhook server.
+It automatically includes Cloudflare tunnel and simplifies the setup.
         """,
     )
     parser.add_argument(

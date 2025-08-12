@@ -29,10 +29,16 @@ def create_user_agent(
 ) -> dict | None:
     """Create a new user agent configuration"""
 
-    # Check if agent with same name already exists for this user
+    # Check if non-deleted agent with same name already exists for this user
     existing = (
         db.query(UserAgent)
-        .filter(and_(UserAgent.user_id == user_id, UserAgent.name == request.name))
+        .filter(
+            and_(
+                UserAgent.user_id == user_id,
+                UserAgent.name == request.name,
+                UserAgent.is_deleted.is_(False),
+            )
+        )
         .first()
     )
 
@@ -55,9 +61,13 @@ def create_user_agent(
 
 
 def get_user_agents(db: Session, user_id: UUID) -> list[dict]:
-    """Get all user agents for a specific user"""
+    """Get all non-deleted user agents for a specific user"""
 
-    user_agents = db.query(UserAgent).filter(UserAgent.user_id == user_id).all()
+    user_agents = (
+        db.query(UserAgent)
+        .filter(and_(UserAgent.user_id == user_id, UserAgent.is_deleted.is_(False)))
+        .all()
+    )
 
     return [_format_user_agent(agent, db) for agent in user_agents]
 
@@ -69,7 +79,13 @@ def update_user_agent(
 
     user_agent = (
         db.query(UserAgent)
-        .filter(and_(UserAgent.id == agent_id, UserAgent.user_id == user_id))
+        .filter(
+            and_(
+                UserAgent.id == agent_id,
+                UserAgent.user_id == user_id,
+                UserAgent.is_deleted.is_(False),
+            )
+        )
         .first()
     )
 
@@ -266,10 +282,16 @@ async def trigger_webhook_agent(
 def get_user_agent_instances(db: Session, agent_id: UUID, user_id: UUID) -> list | None:
     """Get all instances for a specific user agent"""
 
-    # Verify the user agent exists and belongs to the user
+    # Verify the user agent exists, belongs to the user, and is not deleted
     user_agent = (
         db.query(UserAgent)
-        .filter(and_(UserAgent.id == agent_id, UserAgent.user_id == user_id))
+        .filter(
+            and_(
+                UserAgent.id == agent_id,
+                UserAgent.user_id == user_id,
+                UserAgent.is_deleted.is_(False),
+            )
+        )
         .first()
     )
 
@@ -293,12 +315,18 @@ def get_user_agent_instances(db: Session, agent_id: UUID, user_id: UUID) -> list
 
 
 def delete_user_agent(db: Session, agent_id: UUID, user_id: UUID) -> bool:
-    """Delete a user agent and all its associated instances and related data"""
+    """Soft delete a user agent and mark its instances as deleted, while removing messages"""
 
-    # First verify the user agent exists and belongs to the user
+    # First verify the user agent exists, belongs to the user, and is not already deleted
     user_agent = (
         db.query(UserAgent)
-        .filter(and_(UserAgent.id == agent_id, UserAgent.user_id == user_id))
+        .filter(
+            and_(
+                UserAgent.id == agent_id,
+                UserAgent.user_id == user_id,
+                UserAgent.is_deleted.is_(False),
+            )
+        )
         .first()
     )
 
@@ -310,16 +338,19 @@ def delete_user_agent(db: Session, agent_id: UUID, user_id: UUID) -> bool:
         db.query(AgentInstance).filter(AgentInstance.user_agent_id == agent_id).all()
     )
 
-    # For each agent instance, delete all related data
+    # For each agent instance, delete all messages (for privacy/storage)
     for instance in agent_instances:
-        # Delete messages
         db.query(Message).filter(Message.agent_instance_id == instance.id).delete()
 
-    # Delete all agent instances
-    db.query(AgentInstance).filter(AgentInstance.user_agent_id == agent_id).delete()
+    # Mark all agent instances as DELETED
+    db.query(AgentInstance).filter(AgentInstance.user_agent_id == agent_id).update(
+        {"status": AgentStatus.DELETED}
+    )
 
-    # Delete the user agent
-    db.delete(user_agent)
+    # Soft delete the user agent
+    user_agent.is_deleted = True
+    user_agent.updated_at = datetime.now(timezone.utc)
+
     db.commit()
 
     return True

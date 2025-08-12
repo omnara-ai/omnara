@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from shared.config import settings
 from shared.database import Subscription, AgentInstance, UserAgent, BillingEvent
@@ -88,8 +89,16 @@ def get_or_create_subscription(user_id: UUID, db: Session) -> Subscription:
         # Create with defaults from model (plan_type="free", agent_limit=10)
         subscription = Subscription(user_id=user_id)
         db.add(subscription)
-        db.commit()
-        db.refresh(subscription)
+        try:
+            db.commit()
+            db.refresh(subscription)
+        except IntegrityError:
+            # Handle race condition - another process may have created it
+            db.rollback()
+            subscription = db.query(Subscription).filter_by(user_id=user_id).first()
+            if not subscription:
+                # If still not found, re-raise the original error
+                raise
     return subscription
 
 

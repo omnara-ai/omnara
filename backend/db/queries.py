@@ -61,11 +61,11 @@ def _format_instance(instance: AgentInstance) -> AgentInstanceResponse:
 def get_all_agent_types_with_instances(
     db: Session, user_id: UUID
 ) -> list[AgentTypeOverview]:
-    """Get all user agents with their instances for a specific user - OPTIMIZED"""
-    # Get all user agents for this user with instances in a single query
+    """Get all non-deleted user agents with their instances for a specific user - OPTIMIZED"""
+    # Get all non-deleted user agents for this user with instances in a single query
     user_agents = (
         db.query(UserAgent)
-        .filter(UserAgent.user_id == user_id)
+        .filter(UserAgent.user_id == user_id, UserAgent.is_deleted.is_(False))
         .options(subqueryload(UserAgent.instances))
         .all()
     )
@@ -267,7 +267,9 @@ def get_agent_summary(db: Session, user_id: UUID) -> dict:
         )
         .join(AgentInstance, AgentInstance.user_agent_id == UserAgent.id)
         .filter(
-            UserAgent.user_id == user_id, AgentInstance.status != AgentStatus.DELETED
+            UserAgent.user_id == user_id,
+            UserAgent.is_deleted.is_(False),
+            AgentInstance.status != AgentStatus.DELETED,
         )
         .group_by(UserAgent.id, UserAgent.name, AgentInstance.status)
         .all()
@@ -304,7 +306,11 @@ def get_agent_type_instances(
 
     user_agent = (
         db.query(UserAgent)
-        .filter(UserAgent.id == agent_type_id, UserAgent.user_id == user_id)
+        .filter(
+            UserAgent.id == agent_type_id,
+            UserAgent.user_id == user_id,
+            UserAgent.is_deleted.is_(False),
+        )
         .first()
     )
     if not user_agent:

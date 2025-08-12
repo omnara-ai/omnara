@@ -2,6 +2,17 @@
 
 **Your AI workforce launchpad, in your pocket.**
 
+<div align="center">
+
+[![PyPI version](https://badge.fury.io/py/omnara.svg)](https://badge.fury.io/py/omnara)
+[![Downloads](https://pepy.tech/badge/omnara)](https://pepy.tech/project/omnara)
+[![Python Versions](https://img.shields.io/pypi/pyversions/omnara.svg)](https://pypi.org/project/omnara/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GitHub stars](https://img.shields.io/github/stars/omnara-ai/omnara?style=social)](https://github.com/omnara-ai/omnara)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
+</div>
+
 ![Omnara Mobile Experience](./docs/assets/three-panel.png)
 
 <div align="center">
@@ -48,6 +59,23 @@ We built Omnara because we were tired of:
 - ✅ Send real-time feedback to guide your agents
 - ✅ Have confidence your AI workforce is productive
 
+## 🎯 Real-World Use Cases
+
+### 🔍 **Code Review Assistant**
+Launch Claude to review PRs while you're at lunch. Get notified only if it needs clarification on architectural decisions.
+
+### 🚨 **Production Firefighter**
+Debug production issues from your phone at 2am. See exactly what your agent is investigating and guide it to the right logs.
+
+### 📊 **Data Pipeline Guardian**
+Start a 6-hour data migration before leaving work. Get alerts if anything looks suspicious, approve schema changes on the go.
+
+### 🏗️ **Refactoring Copilot**
+Let Claude refactor that legacy module while you're in meetings. Answer its questions about business logic without context switching.
+
+### 🧪 **Test Suite Doctor**
+Have Claude fix failing tests overnight. Wake up to either green builds or specific questions about expected behavior.
+
 ## 🏗️ Architecture Overview
 
 Omnara provides a unified platform for monitoring and controlling your AI agents:
@@ -87,123 +115,18 @@ graph TB
     style W fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
 ```
 
-Omnara supports two distinct modes of operation:
+### 🚀 How It Works
 
-### Mode 1: Real-Time Claude Code Monitoring
+**1. Connect Your Agent** → Install Omnara SDK or wrapper  
+**2. Get Real-Time Updates** → See every step your agent takes  
+**3. Respond Instantly** → Answer questions from anywhere  
 
-When you run Claude Code locally with the Omnara wrapper, it monitors your agent's activity in real-time:
+### 🔄 Two Ways to Use Omnara
 
-```mermaid
-graph TB
-    subgraph "Your Local Machine"
-        CC[🤖 Claude Code]
-        CW[📊 Claude Wrapper<br/>claude_wrapper_v3.py]
-        LOG[📄 JSONL Logs<br/>~/.claude/projects/]
-        TERM[🖥️ Terminal Output]
-    end
-
-    subgraph "Omnara Platform"
-        API[🌐 REST API Server]
-        DB[(📊 PostgreSQL)]
-        SSE[📡 SSE Endpoint]
-        NOTIFY[🔔 Notification Service<br/>Push/Email/SMS]
-    end
-
-    subgraph "Your Devices"
-        M[📱 Mobile App]
-        W[💻 Web Dashboard]
-    end
-
-    CC -->|Writes logs| LOG
-    CC -->|Displays output| TERM
-    CW -->|Monitors| LOG
-    CW -->|Watches| TERM
-    CW -->|Sends messages via REST| API
-    API -->|Stores messages| DB
-    API -->|Triggers notifications| NOTIFY
-    DB -->|NOTIFY triggers| SSE
-    SSE -->|Real-time updates| M
-    SSE -->|Real-time updates| W
-    NOTIFY -->|Push/Email/SMS| M
-    M -->|User responses| API
-    W -->|User responses| API
-    API -->|Queued messages| CW
-    CW -->|Types into| CC
-
-    style CC fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style CW fill:#fff59d,stroke:#f57f17,stroke-width:2px
-    style API fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px
-    style NOTIFY fill:#ffe082,stroke:#f57f17,stroke-width:2px
-    style M fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
-    style W fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
-```
-
-**How it works:**
-- The wrapper monitors Claude's JSONL log files and terminal output
-- It identifies questions by detecting idle states and parsing terminal prompts
-- Messages are sent to Omnara via REST API with `requires_user_input` flag
-- PostgreSQL triggers send real-time notifications via SSE
-- Users receive push/email/SMS notifications for questions
-- Responses are injected back into Claude's terminal
-
-### Mode 2: Remote Agent Launch via Webhook
-
-When you trigger an agent remotely from Omnara, it uses the Model Context Protocol (MCP):
-
-```mermaid
-graph TB
-    subgraph "Omnara Platform"
-        UI[🌐 Web/Mobile UI]
-        API[🌐 API Server<br/>+ MCP Endpoint]
-        DB[(📊 PostgreSQL)]
-        SSE[📡 SSE Endpoint]
-    end
-
-    subgraph "Your Computer"
-        WH[🔗 Webhook Server<br/>claude_code.py]
-        CT[☁️ Cloudflare Tunnel<br/>optional]
-        CC[🤖 Claude Code<br/>w/ MCP Config]
-    end
-
-    UI -->|Trigger agent| API
-    API -->|POST webhook| CT
-    CT -->|Forward request| WH
-    WH -->|Launch Claude| CC
-    CC -->|log_step/ask_question<br/>via MCP| API
-    API -->|Store messages| DB
-    DB -->|Real-time updates| SSE
-    SSE -->|Push updates| UI
-    UI -->|User responses| API
-    API -->|Return answers<br/>via MCP| CC
-
-    style UI fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
-    style WH fill:#fff59d,stroke:#f57f17,stroke-width:2px
-    style CC fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style API fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px
-    style SSE fill:#dcedc8,stroke:#689f38,stroke-width:2px
-```
-
-**How it works:**
-- User triggers an agent from the Omnara interface
-- Webhook server receives the request (optionally via Cloudflare tunnel)
-- Claude is launched with MCP configuration pointing to Omnara
-- The system prompt enforces Omnara-only communication (no terminal output)
-- All communication flows through `log_step` and `ask_question` MCP tools
-- Questions are explicitly marked with `requires_user_input=true`
-
-### 🔄 Mode Comparison
-
-| Feature | Real-Time Monitoring | Remote Launch |
-|---------|---------------------|---------------|
-| **Best for** | Local development | Remote automation |
-| **Setup complexity** | Simple (just run wrapper) | Moderate (webhook + tunnel) |
-| **Claude output visible** | Yes (in terminal) | No (MCP only) |
-| **Question detection** | Automatic (terminal parsing) | Explicit (ask_question) |
-| **Git isolation** | Uses current directory | Creates worktrees |
-| **Parallel sessions** | Not recommended | Fully supported |
-| **Network requirements** | API access only | Webhook endpoint |
+| Mode | Setup | How It Works |
+|------|-------|-------------|
+| **Real-Time Monitoring** | `omnara` or `uv run omnara` | Monitor your Claude session, forwards to Omnara |
+| **Remote Launch** | `omnara serve` or `uv run omnara serve` | Launch agents from phone, communicate via MCP |
 
 ### 🔧 Technical Stack
 
@@ -215,29 +138,45 @@ graph TB
 
 ## 🚀 Quick Start
 
-### Option 1: Real-Time Monitoring (Recommended for local development)
+### Option 1: Monitor Your Claude Sessions
 
-Monitor your Claude Code sessions in real-time:
+See what Claude is doing in real-time:
 
-1. **Download the app** or visit [omnara.ai](https://omnara.ai)
-2. **Get your API key** from the dashboard
-3. **Run Claude with the wrapper**:
+1. **Install Omnara**:
    ```bash
-   python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY
+   # Using pip
+   pip install omnara
+   
+   # Using uv (faster)
+   uv pip install omnara
    ```
+2. **Start monitoring**:
+   ```bash
+   # If installed with pip
+   omnara
+   
+   # If installed with uv
+   uv run omnara
+   ```
+3. **Authenticate** in your browser (opens automatically)
 4. **See everything** your agent does in the Omnara dashboard!
 
-### Option 2: Remote Agent Launch (For triggering agents from anywhere)
+### Option 2: Launch Agents Remotely
 
-Launch Claude Code remotely from your phone or web browser:
+Trigger Claude from your phone:
 
-1. **Download the app** or visit [omnara.ai](https://omnara.ai)
-2. **Start the webhook server** on your computer:
+1. **Start the server** on your computer:
    ```bash
-   python -m webhooks.claude_code --cloudflare-tunnel
+   # Using pip
+   pip install omnara
+   omnara serve
+   
+   # Using uv (faster)
+   uv pip install omnara
+   uv run omnara serve
    ```
-3. **Create your agent** with the webhook URL and API key shown
-4. **Trigger agents remotely** from anywhere!
+2. **Set up your agent** in the mobile app with the webhook URL shown
+3. **Launch agents** from anywhere - beach, coffee shop, bed!
 
 ### For Developers
 
@@ -296,11 +235,13 @@ Launch Claude Code remotely from your phone or web browser:
 
 </details>
 
-## 📚 Integration Guide
+## 🔧 Advanced Usage (Without CLI)
 
-### Method 1: Real-Time Monitoring with Wrapper
+> **Note**: Most users should use the simple `omnara` or `omnara serve` commands shown above. These methods are for advanced users who need custom integrations or want to run the underlying scripts directly.
 
-Run Claude Code with the Omnara wrapper for automatic monitoring:
+### Method 1: Direct Wrapper Script
+
+Run the monitoring wrapper directly (what `omnara` does under the hood):
 
 ```bash
 # Basic usage
@@ -313,16 +254,16 @@ python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY --git-diff
 python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY --base-url https://your-server.com
 ```
 
-### Method 2: Remote Launch with MCP
+### Method 2: Manual MCP Configuration
 
-For remote agent launching, the webhook automatically configures MCP:
+For custom MCP setups, you can configure manually:
 
 ```json
 {
   "mcpServers": {
     "omnara": {
       "command": "pipx",
-      "args": ["run", "--no-cache", "omnara", "--stdio", "--api-key", "YOUR_API_KEY"]
+      "args": ["run", "--no-cache", "omnara", "mcp", "--api-key", "YOUR_API_KEY"]
     }
   }
 }
