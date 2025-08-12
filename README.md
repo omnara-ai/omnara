@@ -323,10 +323,10 @@ make dev-serve  # Start development servers
 
 ## 🆘 Support
 
-- 📖 [Documentation](https://docs.omnara.ai)
 - 💬 [GitHub Discussions](https://github.com/omnara-ai/omnara/discussions)
 - 🐛 [Report Issues](https://github.com/omnara-ai/omnara/issues)
 - 📧 [Email Support](mailto:ishaan@omnara.com)
+- 📖 Documentation (coming soon)
 
 ## 📜 License
 
