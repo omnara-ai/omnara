@@ -808,8 +808,10 @@ async def start_claude(
         mcp_config = {
             "mcpServers": {
                 "omnara": {
-                    "command": "omnara",
+                    "command": "pipx",
                     "args": [
+                        "run",
+                        "omnara",
                         "mcp",
                         "--api-key",
                         omnara_api_key,
