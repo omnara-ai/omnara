@@ -980,8 +980,24 @@ class ClaudeWrapperV3:
         """Run Claude CLI in a PTY"""
         claude_path = self.find_claude_cli()
 
-        # Build command with session ID
-        cmd = [claude_path, "--session-id", self.session_uuid]
+        # Check if session-related flags are present (which conflict with --session-id)
+        has_session_flag = (
+            "--continue" in sys.argv
+            or "-c" in sys.argv
+            or "--resume" in sys.argv
+            or "-r" in sys.argv
+        )
+
+        # Build command - only add session ID if not using session-related flags
+        if has_session_flag:
+            # Don't add session-id when using --continue/-c or --resume/-r
+            cmd = [claude_path]
+            self.log(
+                "[INFO] Detected session flag (--continue/-c or --resume/-r), not adding --session-id"
+            )
+        else:
+            # Normal behavior: add session ID for tracking
+            cmd = [claude_path, "--session-id", self.session_uuid]
 
         # Process any additional command line arguments
         if len(sys.argv) > 1:
