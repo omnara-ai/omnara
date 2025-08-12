@@ -349,13 +349,6 @@ def get_agent_instance_detail(
     if not instance:
         return None
 
-    # Get total message count for this instance
-    total_message_count = (
-        db.query(func.count(Message.id))
-        .filter(Message.agent_instance_id == instance_id)
-        .scalar()
-    ) or 0
-
     # Build message query
     messages_query = db.query(Message).filter(Message.agent_instance_id == instance_id)
 
@@ -401,7 +394,6 @@ def get_agent_instance_detail(
         ended_at=instance.ended_at,
         git_diff=instance.git_diff,
         messages=formatted_messages,
-        total_message_count=total_message_count,
         last_read_message_id=str(instance.last_read_message_id)
         if instance.last_read_message_id
         else None,
@@ -653,10 +645,10 @@ def get_instance_messages(
     user_id: UUID,
     limit: int = 50,
     before_message_id: UUID | None = None,
-) -> dict | None:
+) -> list[dict] | None:
     """
     Get paginated messages for an agent instance using cursor-based pagination.
-    Returns paginated messages and total count if authorized, None if not found or unauthorized.
+    Returns list of messages if authorized, None if not found or unauthorized.
     """
     # Verify instance belongs to user
     instance = (
@@ -667,13 +659,6 @@ def get_instance_messages(
 
     if not instance:
         return None
-
-    # Get total message count
-    total_count = (
-        db.query(func.count(Message.id))
-        .filter(Message.agent_instance_id == instance_id)
-        .scalar()
-    ) or 0
 
     # Build message query
     messages_query = db.query(Message).filter(Message.agent_instance_id == instance_id)
@@ -707,11 +692,7 @@ def get_instance_messages(
             }
         )
 
-    return {
-        "messages": formatted_messages,
-        "total_count": total_count,
-        "has_more": len(formatted_messages) > 0,  # Has more if we got any messages
-    }
+    return formatted_messages
 
 
 def get_instance_git_diff(db: Session, instance_id: UUID, user_id: UUID) -> dict | None:

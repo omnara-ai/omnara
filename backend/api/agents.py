@@ -114,16 +114,17 @@ async def get_instance_messages_paginated(
     db: Session = Depends(get_db),
 ):
     """Get paginated messages for an agent instance using cursor-based pagination"""
-    result = get_instance_messages(
+    messages = get_instance_messages(
         db,
         instance_id,
         current_user.id,
         limit=limit,
         before_message_id=before_message_id,
     )
-    if not result:
+    if messages is None:
         raise HTTPException(status_code=404, detail="Agent instance not found")
-    return result
+    # Return just the messages array
+    return messages
 
 
 @router.post(
