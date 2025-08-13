@@ -25,3 +25,4 @@ Paste any relevant error messages
 **Environment:**
 - Python version: 
 - Omnara version: 
+- Claude Code version (run `claude --version`): 
