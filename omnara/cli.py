@@ -408,9 +408,9 @@ def cmd_mcp(args):
         "servers.mcp_server.stdio_server",
     ]
 
-    if hasattr(args, "api_key") and args.api_key:
+    if args.api_key:
         cmd.extend(["--api-key", args.api_key])
-    if hasattr(args, "base_url") and args.base_url:
+    if args.base_url:
         cmd.extend(["--base-url", args.base_url])
     if args.permission_tool:
         cmd.append("--claude-code-permission-tool")
