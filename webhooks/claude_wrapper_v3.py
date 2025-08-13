@@ -239,10 +239,6 @@ class ClaudeWrapperV3:
             file_path = input_data.get("file_path", "unknown")
             content = input_data.get("content", "")
 
-            # Truncate if too long
-            max_content_length = 300
-            content_truncated = self._truncate_text(content, max_content_length)
-
             # Detect file type for syntax highlighting
             file_ext = file_path.split(".")[-1] if "." in file_path else ""
             lang_map = {
@@ -278,7 +274,7 @@ class ClaudeWrapperV3:
 
             lines = [f"Using tool: Write - `{file_path}`"]
             lines.append(f"```{lang}")
-            lines.append(content_truncated)
+            lines.append(content)
             lines.append("```")
             return "\n".join(lines)
 
@@ -339,7 +335,7 @@ class ClaudeWrapperV3:
         # Command execution
         elif tool_name == "Bash":
             command = input_data.get("command", "")
-            return f"Using tool: Bash - `{self._truncate_text(command, 80)}`"
+            return f"Using tool: Bash - `{command}`"
 
         # Search tools
         elif tool_name in ["Grep", "Glob"]:
