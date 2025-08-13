@@ -413,7 +413,7 @@ def cmd_mcp(args):
     if hasattr(args, "base_url") and args.base_url:
         cmd.extend(["--base-url", args.base_url])
     if args.permission_tool:
-        cmd.append("--claude-code-permission-tool")
+        cmd.append("--permission-tool")
     if args.git_diff:
         cmd.append("--git-diff")
     if args.agent_instance_id:

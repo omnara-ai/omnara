@@ -816,7 +816,7 @@ async def start_claude(
                         "mcp",
                         "--api-key",
                         omnara_api_key,
-                        "--claude-code-permission-tool",
+                        "--permission-tool",
                         "--git-diff",
                         "--agent-instance-id",
                         agent_instance_id,

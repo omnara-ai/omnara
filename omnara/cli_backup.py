@@ -336,11 +336,8 @@ def run_stdio_server(args):
     ]
     if args.base_url:
         cmd.extend(["--base-url", args.base_url])
-    if (
-        hasattr(args, "claude_code_permission_tool")
-        and args.claude_code_permission_tool
-    ):
-        cmd.append("--claude-code-permission-tool")
+    if hasattr(args, "permission_tool") and args.permission_tool:
+        cmd.append("--permission_tool")
     if hasattr(args, "git_diff") and args.git_diff:
         cmd.append("--git-diff")
     if hasattr(args, "agent_instance_id") and args.agent_instance_id:
@@ -497,7 +494,7 @@ Examples:
         help="Base URL of the Omnara frontend for authentication (default: https://omnara.com)",
     )
     parser.add_argument(
-        "--claude-code-permission-tool",
+        "--permission-tool",
         action="store_true",
         help="Enable Claude Code permission prompt tool for handling tool execution approvals (stdio mode only)",
     )
