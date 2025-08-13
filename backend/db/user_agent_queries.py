@@ -302,7 +302,7 @@ def get_user_agent_instances(db: Session, agent_id: UUID, user_id: UUID) -> list
     instances = (
         db.query(AgentInstance)
         .options(
-            joinedload(AgentInstance.user_agent),  # Keep user_agent for name
+            joinedload(AgentInstance.user_agent),
         )
         .filter(AgentInstance.user_agent_id == agent_id)
         .order_by(AgentInstance.started_at.desc())
