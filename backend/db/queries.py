@@ -28,21 +28,88 @@ from backend.models import (
 )
 
 
-def _format_instance(instance: AgentInstance) -> AgentInstanceResponse:
-    """Helper function to format an agent instance consistently"""
-    # Get all messages for this instance
-    messages = instance.messages if hasattr(instance, "messages") else []
+def _get_instance_message_stats(db: Session, instance_ids: list[UUID]) -> dict:
+    """
+    Efficiently get message statistics for multiple instances.
+    Returns a dict mapping instance_id to (latest_message, latest_message_at, message_count)
+    """
+    if not instance_ids:
+        return {}
 
-    # Get latest message and its timestamp
+    # Use a single query with window functions to get both count and latest message
+    subquery = (
+        db.query(
+            Message.agent_instance_id,
+            Message.content,
+            Message.created_at,
+            func.row_number()
+            .over(
+                partition_by=Message.agent_instance_id,
+                order_by=desc(Message.created_at),
+            )
+            .label("rn"),
+            func.count(Message.id)
+            .over(partition_by=Message.agent_instance_id)
+            .label("msg_count"),
+        )
+        .filter(Message.agent_instance_id.in_(instance_ids))
+        .subquery()
+    )
+
+    # Get only the latest message (rn=1) with the count
+    results = (
+        db.query(
+            subquery.c.agent_instance_id,
+            subquery.c.content,
+            subquery.c.created_at,
+            subquery.c.msg_count,
+        )
+        .filter(subquery.c.rn == 1)
+        .all()
+    )
+
+    # Convert to dict for easy lookup
+    stats = {}
+    for row in results:
+        stats[row.agent_instance_id] = {
+            "latest_message": row.content,
+            "latest_message_at": row.created_at,
+            "message_count": row.msg_count,
+        }
+
+    return stats
+
+
+def _format_instance(
+    instance: AgentInstance, message_stats: dict | None = None
+) -> AgentInstanceResponse:
+    """
+    Helper function to format an agent instance consistently.
+
+    Args:
+        instance: The AgentInstance to format
+        message_stats: Optional pre-computed message statistics dict.
+                      If provided, should contain 'latest_message', 'latest_message_at', 'message_count'
+                      If not provided, will try to use instance.messages if available
+    """
     latest_message = None
     latest_message_at = None
-    if messages:
-        last_msg = max(messages, key=lambda m: m.created_at)
-        latest_message = last_msg.content
-        latest_message_at = last_msg.created_at
+    chat_length = 0
 
-    # Get total message count (chat length)
-    chat_length = len(messages)
+    if message_stats:
+        # Use pre-computed stats if provided
+        stats = message_stats.get(instance.id, {})
+        latest_message = stats.get("latest_message")
+        latest_message_at = stats.get("latest_message_at")
+        chat_length = stats.get("message_count", 0)
+    elif hasattr(instance, "messages"):
+        # Fall back to using loaded messages (for detail view)
+        messages = instance.messages
+        if messages:
+            last_msg = max(messages, key=lambda m: m.created_at)
+            latest_message = last_msg.content
+            latest_message_at = last_msg.created_at
+        chat_length = len(messages)
 
     return AgentInstanceResponse(
         id=str(instance.id),
@@ -210,8 +277,7 @@ def get_all_agent_instances(
             AgentInstance.status != AgentStatus.DELETED,
         )
         .options(
-            joinedload(AgentInstance.messages),
-            joinedload(AgentInstance.user_agent),
+            joinedload(AgentInstance.user_agent),  # Keep user_agent for name
         )
         .order_by(desc(AgentInstance.started_at))
     )
@@ -221,8 +287,14 @@ def get_all_agent_instances(
 
     instances = query.all()
 
-    # Format instances using helper function
-    return [_format_instance(instance) for instance in instances]
+    # Get all instance IDs for bulk message stats query
+    instance_ids = [instance.id for instance in instances]
+
+    # Get message stats for all instances in one efficient query
+    message_stats = _get_instance_message_stats(db, instance_ids)
+
+    # Format instances using helper function with pre-computed stats
+    return [_format_instance(instance, message_stats) for instance in instances]
 
 
 def get_agent_summary(db: Session, user_id: UUID) -> dict:
@@ -323,15 +395,20 @@ def get_agent_type_instances(
             AgentInstance.status != AgentStatus.DELETED,
         )
         .options(
-            joinedload(AgentInstance.messages),
-            joinedload(AgentInstance.user_agent),
+            joinedload(AgentInstance.user_agent),  # Keep user_agent for name
         )
         .order_by(desc(AgentInstance.started_at))
         .all()
     )
 
-    # Format instances using helper function
-    return [_format_instance(instance) for instance in instances]
+    # Get all instance IDs for bulk message stats query
+    instance_ids = [instance.id for instance in instances]
+
+    # Get message stats for all instances in one efficient query
+    message_stats = _get_instance_message_stats(db, instance_ids)
+
+    # Format instances using helper function with pre-computed stats
+    return [_format_instance(instance, message_stats) for instance in instances]
 
 
 def get_agent_instance_detail(
@@ -452,8 +529,7 @@ def mark_instance_completed(
         db.query(AgentInstance)
         .filter(AgentInstance.id == instance_id)
         .options(
-            joinedload(AgentInstance.user_agent),
-            joinedload(AgentInstance.messages),
+            joinedload(AgentInstance.user_agent),  # Keep user_agent for name
         )
         .first()
     )
@@ -461,7 +537,10 @@ def mark_instance_completed(
     if not instance:
         return None
 
-    return _format_instance(instance)
+    # Get message stats for this single instance
+    message_stats = _get_instance_message_stats(db, [instance.id])
+
+    return _format_instance(instance, message_stats)
 
 
 def delete_user_account(db: Session, user_id: UUID) -> None:
@@ -583,8 +662,7 @@ def update_agent_instance_name(
         db.query(AgentInstance)
         .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
         .options(
-            joinedload(AgentInstance.user_agent),
-            joinedload(AgentInstance.messages),
+            joinedload(AgentInstance.user_agent),  # Keep user_agent for name
         )
         .first()
     )
@@ -596,8 +674,11 @@ def update_agent_instance_name(
     db.commit()
     db.refresh(instance)
 
+    # Get message stats for this single instance
+    message_stats = _get_instance_message_stats(db, [instance.id])
+
     # Return the updated instance in the standard format
-    return _format_instance(instance)
+    return _format_instance(instance, message_stats)
 
 
 def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | None:
