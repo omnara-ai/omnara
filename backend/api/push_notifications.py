@@ -3,6 +3,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime, timezone
@@ -56,6 +57,25 @@ def register_push_token(
 
         db.commit()
         return {"success": True, "message": "Push token registered successfully"}
+    except IntegrityError as e:
+        # Handle race condition where token was inserted by another request
+        db.rollback()
+
+        # Try to update the existing token instead
+        existing = db.query(PushToken).filter(PushToken.token == request.token).first()
+        if existing:
+            existing.user_id = user_id
+            existing.platform = request.platform
+            existing.is_active = True
+            existing.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            return {"success": True, "message": "Push token registered successfully"}
+        else:
+            # If we still can't find it, something else is wrong
+            logging.error(
+                f"Push token registration failed for user {user_id}: {str(e)}"
+            )
+            raise HTTPException(status_code=400, detail="Failed to register push token")
     except Exception as e:
         db.rollback()
         logging.error(f"Push token registration failed for user {user_id}: {str(e)}")
