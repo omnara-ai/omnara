@@ -82,12 +82,25 @@ class MessageProcessor:
         # Track if this message uses tools
         self.last_was_tool_use = bool(tools_used)
 
+        # Sanitize content - remove NUL characters and control characters that break the API
+        # This handles binary content from .docx, PDFs, etc.
+        sanitized_content = "".join(
+            char if ord(char) >= 32 or char in "\n\r\t" else ""
+            for char in content.replace("\x00", "")
+        )
+
         # Get git diff if enabled
         git_diff = self.wrapper.get_git_diff()
+        # Sanitize git diff as well if present (handles binary files in git diff)
+        if git_diff:
+            git_diff = "".join(
+                char if ord(char) >= 32 or char in "\n\r\t" else ""
+                for char in git_diff.replace("\x00", "")
+            )
 
         # Send to Omnara
         response = self.wrapper.omnara_client_sync.send_message(
-            content=content,
+            content=sanitized_content,
             agent_type="Claude Code",
             agent_instance_id=self.wrapper.agent_instance_id,
             requires_user_input=False,
