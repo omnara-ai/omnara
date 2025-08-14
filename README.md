@@ -1,8 +1,8 @@
 # Omnara - Mission Control for Your AI Agents 🚀
 
-**Your AI workforce launchpad, in your pocket.**
-
 <div align="center">
+
+**Your AI workforce, in your pocket.**
 
 [![PyPI version](https://badge.fury.io/py/omnara.svg)](https://badge.fury.io/py/omnara)
 [![Downloads](https://pepy.tech/badge/omnara)](https://pepy.tech/project/omnara)
