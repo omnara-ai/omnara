@@ -1378,19 +1378,20 @@ class ClaudeWrapperV3:
                                     self.pending_write_buffer = (
                                         self.pending_write_buffer[bytes_written:]
                                     )
-                                    if self.pending_write_buffer:
-                                        self.log(
-                                            f"[DEBUG] PTY buffer full, queued {len(self.pending_write_buffer)} bytes for later"
-                                        )
                                 except OSError as e:
-                                    if e.errno in (35, 11):  # EAGAIN/EWOULDBLOCK
-                                        self.log(
-                                            f"[DEBUG] PTY buffer full, queued {len(self.pending_write_buffer)} bytes"
-                                        )
+                                    if e.errno in (
+                                        35,
+                                        11,
+                                    ):  # EAGAIN/EWOULDBLOCK (35=macOS, 11=Linux)
+                                        # PTY buffer full, data remains in pending_write_buffer
+                                        pass
                                     else:
+                                        self.log(
+                                            f"[ERROR] Unexpected error writing to PTY: {e}"
+                                        )
                                         raise
                     except OSError as e:
-                        self.log(f"[ERROR] OSError reading stdin: {e}")
+                        self.log(f"[ERROR] Error reading from stdin: {e}")
                         pass
 
                 # Try to flush pending write buffer when PTY might be ready
@@ -1402,10 +1403,10 @@ class ClaudeWrapperV3:
                         self.pending_write_buffer = self.pending_write_buffer[
                             bytes_written:
                         ]
-                        if not self.pending_write_buffer:
-                            self.log("[DEBUG] Flushed all pending data to PTY")
-                    except OSError:
-                        # PTY still full, will retry next iteration
+                    except OSError as e:
+                        if e.errno not in (35, 11):  # Log unexpected errors
+                            self.log(f"[ERROR] Unexpected error flushing buffer: {e}")
+                        # PTY still full or other error, will retry next iteration
                         pass
 
                 # Process messages from Omnara web UI
