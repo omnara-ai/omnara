@@ -71,11 +71,14 @@ If you prefer manual control:
 
 5. Start services manually:
    ```bash
+   # Set Python path (required for imports)
+   export PYTHONPATH="$(pwd)"
+   
    # Terminal 1: Unified Server
    python -m servers.app
    
-   # Terminal 2: Backend API
-   cd backend && uvicorn main:app --port 8000
+   # Terminal 2: Backend API (in project root, not backend/)
+   uvicorn backend.main:app --port 8000
    ```
 
 ## Development Process
