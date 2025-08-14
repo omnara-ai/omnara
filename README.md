@@ -1,5 +1,3 @@
-[![MSeeP.ai Security Assessment Badge](https://mseep.net/pr/omnara-ai-omnara-badge.png)](https://mseep.ai/app/omnara-ai-omnara)
-
 # Omnara - Mission Control for Your AI Agents 🚀
 
 **Your AI workforce launchpad, in your pocket.**
