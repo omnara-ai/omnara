@@ -1358,11 +1358,55 @@ class ClaudeWrapperV3:
                 # Handle user input from stdin
                 if sys.stdin in rlist and self.original_tty_attrs:
                     try:
-                        data = os.read(sys.stdin.fileno(), 4096)
+                        # Read available data (larger buffer for efficiency)
+                        data = os.read(sys.stdin.fileno(), 65536)
                         if data:
-                            # Forward to Claude
-                            os.write(self.master_fd, data)
-                    except OSError:
+                            # Store data in a buffer attribute if PTY is full
+                            if not hasattr(self, "pending_write_buffer"):
+                                self.pending_write_buffer = b""
+
+                            # Add new data to any pending data
+                            self.pending_write_buffer += data
+
+                            # Try to write as much as possible
+                            if self.pending_write_buffer:
+                                try:
+                                    bytes_written = os.write(
+                                        self.master_fd, self.pending_write_buffer
+                                    )
+                                    # Remove written data from buffer
+                                    self.pending_write_buffer = (
+                                        self.pending_write_buffer[bytes_written:]
+                                    )
+                                except OSError as e:
+                                    if e.errno in (
+                                        35,
+                                        11,
+                                    ):  # EAGAIN/EWOULDBLOCK (35=macOS, 11=Linux)
+                                        # PTY buffer full, data remains in pending_write_buffer
+                                        pass
+                                    else:
+                                        self.log(
+                                            f"[ERROR] Unexpected error writing to PTY: {e}"
+                                        )
+                                        raise
+                    except OSError as e:
+                        self.log(f"[ERROR] Error reading from stdin: {e}")
+                        pass
+
+                # Try to flush pending write buffer when PTY might be ready
+                if hasattr(self, "pending_write_buffer") and self.pending_write_buffer:
+                    try:
+                        bytes_written = os.write(
+                            self.master_fd, self.pending_write_buffer
+                        )
+                        self.pending_write_buffer = self.pending_write_buffer[
+                            bytes_written:
+                        ]
+                    except OSError as e:
+                        if e.errno not in (35, 11):  # Log unexpected errors
+                            self.log(f"[ERROR] Unexpected error flushing buffer: {e}")
+                        # PTY still full or other error, will retry next iteration
                         pass
 
                 # Process messages from Omnara web UI
