@@ -384,6 +384,9 @@ def cmd_serve(args):
     if args.skip_permissions:
         cmd.append("--dangerously-skip-permissions")
 
+    if args.debug:
+        cmd.append("--debug")
+
     # Handle tunnel configuration
     if not args.no_tunnel:
         # Default: use Cloudflare tunnel
@@ -505,6 +508,11 @@ Examples:
         "--skip-permissions",
         action="store_true",
         help="Skip permission prompts in Claude Code - USE WITH CAUTION",
+    )
+    serve_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode with verbose logging and screen output capture (-L flag)",
     )
 
     # 'mcp' subcommand
