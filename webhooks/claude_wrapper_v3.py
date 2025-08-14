@@ -1019,17 +1019,18 @@ class ClaudeWrapperV3:
                 # No "Ready to code?" found - might be a very short plan or scrolled off
                 plan_content = ""
         else:
-            # Regular permission prompt
-            for line in clean_buffer.split("\n"):
-                line_clean = line.strip().replace("\u2502", "").strip()
-                if "Do you want to" in line_clean:
+            # Regular permission prompt - find the actual question
+            lines = clean_buffer.split("\n")
+            # Look for "Do you want" line - search from end to get most recent
+            for i in range(len(lines) - 1, -1, -1):
+                line_clean = lines[i].strip().replace("\u2502", "").strip()
+                if "Do you want" in line_clean:
                     question = line_clean
                     break
 
         # Default question if not found
         if not question:
             question = "Permission required"
-            self.log("[DEBUG] No question found, using default")
 
         # Find the options
         options_dict = {}
@@ -1044,27 +1045,50 @@ class ClaudeWrapperV3:
         else:
             # Regular permission prompt - look for numbered options
             lines = clean_buffer.split("\n")
-            # Look for options from bottom to top to get the actual prompt options
-            for i in range(len(lines) - 1, -1, -1):
-                line = lines[i].strip().replace("\u2502", "").strip()
-                # Remove selection indicators
-                line = line.replace("\u276f", "").strip()
 
-                # Check for specific permission prompt options
-                if line.startswith("1.") and "Yes" in line and "1" not in options_dict:
-                    options_dict["1"] = line
-                elif (
-                    line.startswith("2.")
-                    and ("don't ask again" in line or "Yes" in line)
-                    and "2" not in options_dict
-                ):
-                    options_dict["2"] = line
-                elif line.startswith("3.") and "No" in line and "3" not in options_dict:
-                    options_dict["3"] = line
+            # Look for lines that start with "1. " to find option groups
+            # Then extract consecutive numbered options from that point
 
-                # Stop if we've found all three options
-                if len(options_dict) == 3:
-                    break
+            # Find all lines starting with "1. "
+            option_starts = []
+            for i, line in enumerate(lines):
+                clean_line = line.strip().replace("\u2502", "").strip()
+                clean_line = clean_line.replace("\u276f", "").strip()
+                if re.match(r"^1\.\s+", clean_line):
+                    option_starts.append(i)
+
+            # Process the last (most recent) option group
+            if option_starts:
+                start_line = option_starts[-1]
+
+                # Extract consecutive numbered options from this point
+                current_num = 1
+                for i in range(
+                    start_line, min(start_line + 10, len(lines))
+                ):  # Check up to 10 lines
+                    clean_line = lines[i].strip().replace("\u2502", "").strip()
+                    clean_line = clean_line.replace("\u276f", "").strip()
+
+                    # Check if this line is the expected next option
+                    pattern = rf"^{current_num}\.\s+(.+)"
+                    match = re.match(pattern, clean_line)
+                    if match:
+                        options_dict[str(current_num)] = clean_line
+                        current_num += 1
+                    elif current_num > 1 and not clean_line:
+                        # Empty line might be between options, continue
+                        continue
+                    elif current_num > 1:
+                        # Non-empty line that's not an option, stop here
+                        break
+
+                # Log summary of what was found
+                if options_dict:
+                    self.log(f"[INFO] Found {len(options_dict)} permission options")
+            else:
+                self.log(
+                    "[WARNING] No permission options found in buffer, using defaults"
+                )
 
         # Convert to list maintaining order
         options = [options_dict[key] for key in sorted(options_dict.keys())]
@@ -1200,9 +1224,9 @@ class ClaudeWrapperV3:
 
                         # If we see permission/plan prompt, extract it
                         # For plan mode: "Would you like to proceed" without "(esc"
-                        # For permission: "Do you want to" with "(esc"
+                        # For permission: "Do you want" with "(esc"
                         if (
-                            "Do you want to" in clean_buffer and "(esc" in clean_buffer
+                            "Do you want" in clean_buffer and "(esc" in clean_buffer
                         ) or (
                             "Would you like to proceed" in clean_buffer
                             and "No, keep planning" in clean_buffer
@@ -1220,6 +1244,9 @@ class ClaudeWrapperV3:
                                     options_text = "\n".join(options)
                                     permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
                                     self.pending_permission_options = options_map
+                                    self.log(
+                                        f"[INFO] Permission prompt with {len(options)} options sent to Omnara"
+                                    )
                                 else:
                                     # Fallback if parsing fails
                                     permission_msg = f"{question}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
@@ -1228,10 +1255,9 @@ class ClaudeWrapperV3:
                                         "Yes, and don't ask again this session": "2",
                                         "No": "3",
                                     }
-
-                                self.log(
-                                    f"[INFO] Permission prompt extracted: {permission_msg[:100]}..."
-                                )
+                                    self.log(
+                                        "[WARNING] Using default permission options (extraction failed)"
+                                    )
 
                                 # Send to Omnara with extracted text
                                 if self.agent_instance_id and self.omnara_client_sync:
