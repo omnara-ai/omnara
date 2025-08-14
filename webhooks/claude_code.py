@@ -591,7 +591,7 @@ async def start_claude(
             print(f"  - Prompt length: {len(webhook_data.prompt)} characters")
             if webhook_data.worktree_name:
                 print(f"  - Worktree requested: {webhook_data.worktree_name}")
-            print(f"  - Permissions skip: {webhook_data.dangerously_skip_permissions}")
+            print(f"  - Permissions skip: {app.state.dangerously_skip_permissions}")
 
         if not verify_auth(request, authorization):
             print("[ERROR] Invalid or missing authorization")
@@ -845,6 +845,10 @@ async def start_claude(
             }
         mcp_config_str = json.dumps(mcp_config)
 
+        if DEBUG_MODE:
+            print("\n[DEBUG] MCP Configuration:")
+            print(f"  - MCP config: {json.dumps(mcp_config, indent=2)}")
+
         # Build claude command with MCP config as string
         claude_args = [
             claude_path,  # Use full path to claude
@@ -893,8 +897,6 @@ async def start_claude(
             print("\n[DEBUG] Starting screen session:")
             print(f"  - Session name: {screen_name}")
             print(f"  - Working directory: {work_dir}")
-            print(f"  - Screen command: {' '.join(screen_cmd)}")
-            print(f"  - Claude arguments: {' '.join(claude_args)}")
             if worktree_name:
                 print(f"  - Worktree: {worktree_name}")
 
@@ -1032,8 +1034,7 @@ It automatically includes Cloudflare tunnel and simplifies the setup.
 
     args = parser.parse_args()
 
-    # Set global debug mode
-    global DEBUG_MODE
+    # Set debug mode (no need for global declaration at module level)
     DEBUG_MODE = args.debug
 
     # Store the flags in app state for the lifespan to use
