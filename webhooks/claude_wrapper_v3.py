@@ -1019,11 +1019,14 @@ class ClaudeWrapperV3:
                 # No "Ready to code?" found - might be a very short plan or scrolled off
                 plan_content = ""
         else:
-            # Regular permission prompt
-            for line in clean_buffer.split("\n"):
-                line_clean = line.strip().replace("\u2502", "").strip()
-                if "Do you want to" in line_clean:
+            # Regular permission prompt - find the actual question
+            lines = clean_buffer.split("\n")
+            # Look for "Do you want to" line - search from end to get most recent
+            for i in range(len(lines) - 1, -1, -1):
+                line_clean = lines[i].strip().replace("\u2502", "").strip()
+                if "Do you want to" in line_clean or "Do you want" in line_clean:
                     question = line_clean
+                    self.log(f"[DEBUG] Found question: {question}")
                     break
 
         # Default question if not found
@@ -1045,44 +1048,59 @@ class ClaudeWrapperV3:
             # Regular permission prompt - look for numbered options
             lines = clean_buffer.split("\n")
 
-            # First pass: find all numbered options to determine how many there are
-            max_option_num = 0
-            for line in lines:
-                line_clean = line.strip().replace("\u2502", "").strip()
-                line_clean = line_clean.replace(
-                    "\u276f", ""
-                ).strip()  # Remove selection indicators
+            # Look for lines that start with "1. " to find option groups
+            # Then extract consecutive numbered options from that point
+            self.log("[DEBUG] Looking for option groups in buffer")
 
-                # Check if this line is a numbered option
-                import re
+            # Find all lines starting with "1. "
+            option_starts = []
+            for i, line in enumerate(lines):
+                clean_line = line.strip().replace("\u2502", "").strip()
+                clean_line = clean_line.replace("\u276f", "").strip()
+                if re.match(r"^1\.\s+", clean_line):
+                    option_starts.append(i)
+                    self.log(
+                        f"[DEBUG] Found option group starting at line {i}: {repr(clean_line[:50])}"
+                    )
 
-                match = re.match(r"^(\d+)\.", line_clean)
-                if match:
-                    option_num = int(match.group(1))
-                    max_option_num = max(max_option_num, option_num)
+            # Process the last (most recent) option group
+            if option_starts:
+                start_line = option_starts[-1]
+                self.log(
+                    f"[DEBUG] Processing option group starting at line {start_line}"
+                )
 
-            # Log for debugging
-            self.log(f"[DEBUG] Found max option number: {max_option_num}")
+                # Extract consecutive numbered options from this point
+                current_num = 1
+                for i in range(
+                    start_line, min(start_line + 10, len(lines))
+                ):  # Check up to 10 lines
+                    clean_line = lines[i].strip().replace("\u2502", "").strip()
+                    clean_line = clean_line.replace("\u276f", "").strip()
 
-            # Second pass: extract all options from bottom to top
-            for i in range(len(lines) - 1, -1, -1):
-                line = lines[i].strip().replace("\u2502", "").strip()
-                # Remove selection indicators
-                line = line.replace("\u276f", "").strip()
+                    # Check if this line is the expected next option
+                    pattern = rf"^{current_num}\.\s+(.+)"
+                    match = re.match(pattern, clean_line)
+                    if match:
+                        options_dict[str(current_num)] = clean_line
+                        self.log(
+                            f"[DEBUG] Found option {current_num}: {clean_line[:80]}"
+                        )
+                        current_num += 1
+                    elif current_num > 1 and not clean_line:
+                        # Empty line might be between options, continue
+                        continue
+                    elif current_num > 1:
+                        # Non-empty line that's not an option, stop here
+                        self.log(
+                            f"[DEBUG] Stopped at line {i} (not an option): {repr(clean_line[:50])}"
+                        )
+                        break
+            else:
+                self.log("[DEBUG] No option groups found in buffer")
 
-                # Check for any numbered option (1., 2., 3., 4., etc.)
-                import re
-
-                match = re.match(r"^(\d+)\.", line)
-                if match:
-                    option_num = match.group(1)
-                    if option_num not in options_dict:
-                        options_dict[option_num] = line
-                        self.log(f"[DEBUG] Found option {option_num}: {line[:50]}...")
-
-                # Stop if we've found all expected options
-                if len(options_dict) == max_option_num:
-                    break
+            # Log final extraction
+            self.log(f"[DEBUG] Final options extracted: {sorted(options_dict.keys())}")
 
         # Convert to list maintaining order
         options = [options_dict[key] for key in sorted(options_dict.keys())]
@@ -1223,13 +1241,31 @@ class ClaudeWrapperV3:
                         ):
                             # Log a snippet of the buffer for debugging
                             buffer_snippet = (
-                                clean_buffer[-1000:]
-                                if len(clean_buffer) > 1000
+                                clean_buffer[-2000:]
+                                if len(clean_buffer) > 2000
                                 else clean_buffer
                             )
                             self.log(
-                                f"[DEBUG] Permission buffer content (last 1000 chars): {buffer_snippet}"
+                                f"[DEBUG] Permission buffer content (last 2000 chars):\n{buffer_snippet}"
                             )
+
+                            # Also log the lines around the question
+                            lines = clean_buffer.split("\n")
+                            for i, line in enumerate(lines):
+                                if (
+                                    "Do you want to" in line
+                                    or "Would you like to proceed" in line
+                                ):
+                                    start = max(0, i - 2)
+                                    end = min(len(lines), i + 10)
+                                    context_lines = lines[start:end]
+                                    self.log(
+                                        f"[DEBUG] Question context (lines {start}-{end}):"
+                                    )
+                                    for j, context_line in enumerate(context_lines):
+                                        self.log(
+                                            f"  Line {start + j}: {repr(context_line[:100])}"
+                                        )
 
                         # If we see permission/plan prompt, extract it
                         # For plan mode: "Would you like to proceed" without "(esc"
