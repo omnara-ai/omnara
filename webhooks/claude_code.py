@@ -26,6 +26,9 @@ DEFAULT_HOST = "0.0.0.0"
 # Cache for command paths to avoid repeated lookups
 COMMAND_PATHS = {}
 
+# Debug mode flag (set via --debug argument)
+DEBUG_MODE = False
+
 # === DEPENDENCY CHECKING ===
 REQUIRED_COMMANDS = {
     "git": "Git is required for creating worktrees",
@@ -248,6 +251,8 @@ def start_cloudflare_tunnel(
     port: int = DEFAULT_PORT,
 ) -> Tuple[Optional[subprocess.Popen], Optional[str]]:
     """Start Cloudflare tunnel and return the process and tunnel URL"""
+    if DEBUG_MODE:
+        print(f"\n[DEBUG] Starting Cloudflare tunnel on port {port}")
     if not check_cloudflared_installed():
         # Try to install with brew on macOS
         if is_macos() and try_install_with_brew("cloudflared"):
@@ -580,6 +585,14 @@ async def start_claude(
     x_omnara_api_key: str = Header(None, alias="X-Omnara-Api-Key"),
 ):
     try:
+        if DEBUG_MODE:
+            print("\n[DEBUG] Received webhook request:")
+            print(f"  - Agent instance ID: {webhook_data.agent_instance_id}")
+            print(f"  - Prompt length: {len(webhook_data.prompt)} characters")
+            if webhook_data.worktree_name:
+                print(f"  - Worktree requested: {webhook_data.worktree_name}")
+            print(f"  - Permissions skip: {webhook_data.dangerously_skip_permissions}")
+
         if not verify_auth(request, authorization):
             print("[ERROR] Invalid or missing authorization")
             raise HTTPException(
@@ -867,7 +880,23 @@ async def start_claude(
             )
 
         # Start screen directly with the claude command
-        screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
+        if DEBUG_MODE:
+            # Add -L flag to enable logging when in debug mode
+            screen_cmd = [screen_path, "-L", "-dmS", screen_name] + claude_args
+            print(
+                "\n[DEBUG] Screen logging enabled - output will be saved to screenlog.0"
+            )
+        else:
+            screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
+
+        if DEBUG_MODE:
+            print("\n[DEBUG] Starting screen session:")
+            print(f"  - Session name: {screen_name}")
+            print(f"  - Working directory: {work_dir}")
+            print(f"  - Screen command: {' '.join(screen_cmd)}")
+            print(f"  - Claude arguments: {' '.join(claude_args)}")
+            if worktree_name:
+                print(f"  - Worktree: {worktree_name}")
 
         screen_result = subprocess.run(
             screen_cmd,
@@ -876,6 +905,10 @@ async def start_claude(
             text=True,
             timeout=10,
         )
+
+        if DEBUG_MODE and screen_result.returncode == 0:
+            print("\n[DEBUG] Screen session started successfully")
+            print(f"  - Screen log will be saved in: {work_dir}/screenlog.0")
 
         if screen_result.returncode != 0:
             print("\n[ERROR] Failed to start screen session:")
@@ -986,6 +1019,11 @@ It automatically includes Cloudflare tunnel and simplifies the setup.
         help="Start Cloudflare tunnel for external access",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode with verbose logging and screen output capture (-L flag)",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=DEFAULT_PORT,
@@ -994,14 +1032,23 @@ It automatically includes Cloudflare tunnel and simplifies the setup.
 
     args = parser.parse_args()
 
+    # Set global debug mode
+    global DEBUG_MODE
+    DEBUG_MODE = args.debug
+
     # Store the flags in app state for the lifespan to use
     app.state.dangerously_skip_permissions = args.dangerously_skip_permissions
     app.state.cloudflare_tunnel = args.cloudflare_tunnel
     app.state.port = args.port
+    app.state.debug = args.debug
 
     print("[INFO] Starting Claude Code Webhook Server")
     print(f"  - Host: {DEFAULT_HOST}")
     print(f"  - Port: {args.port}")
+    print(f"  - Debug Mode: {'Enabled' if args.debug else 'Disabled'}")
+    if args.debug:
+        print("  - Screen logging: Enabled (-L flag)")
+        print("  - Verbose output: Enabled")
     if args.cloudflare_tunnel:
         print("  - Cloudflare tunnel: Enabled")
     if args.dangerously_skip_permissions:
