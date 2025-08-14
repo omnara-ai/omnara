@@ -1044,26 +1044,44 @@ class ClaudeWrapperV3:
         else:
             # Regular permission prompt - look for numbered options
             lines = clean_buffer.split("\n")
-            # Look for options from bottom to top to get the actual prompt options
+
+            # First pass: find all numbered options to determine how many there are
+            max_option_num = 0
+            for line in lines:
+                line_clean = line.strip().replace("\u2502", "").strip()
+                line_clean = line_clean.replace(
+                    "\u276f", ""
+                ).strip()  # Remove selection indicators
+
+                # Check if this line is a numbered option
+                import re
+
+                match = re.match(r"^(\d+)\.", line_clean)
+                if match:
+                    option_num = int(match.group(1))
+                    max_option_num = max(max_option_num, option_num)
+
+            # Log for debugging
+            self.log(f"[DEBUG] Found max option number: {max_option_num}")
+
+            # Second pass: extract all options from bottom to top
             for i in range(len(lines) - 1, -1, -1):
                 line = lines[i].strip().replace("\u2502", "").strip()
                 # Remove selection indicators
                 line = line.replace("\u276f", "").strip()
 
-                # Check for specific permission prompt options
-                if line.startswith("1.") and "Yes" in line and "1" not in options_dict:
-                    options_dict["1"] = line
-                elif (
-                    line.startswith("2.")
-                    and ("don't ask again" in line or "Yes" in line)
-                    and "2" not in options_dict
-                ):
-                    options_dict["2"] = line
-                elif line.startswith("3.") and "No" in line and "3" not in options_dict:
-                    options_dict["3"] = line
+                # Check for any numbered option (1., 2., 3., 4., etc.)
+                import re
 
-                # Stop if we've found all three options
-                if len(options_dict) == 3:
+                match = re.match(r"^(\d+)\.", line)
+                if match:
+                    option_num = match.group(1)
+                    if option_num not in options_dict:
+                        options_dict[option_num] = line
+                        self.log(f"[DEBUG] Found option {option_num}: {line[:50]}...")
+
+                # Stop if we've found all expected options
+                if len(options_dict) == max_option_num:
                     break
 
         # Convert to list maintaining order
@@ -1197,6 +1215,21 @@ class ClaudeWrapperV3:
                         clean_buffer = re.sub(
                             r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
                         )
+
+                        # Debug log to see what's in the buffer
+                        if (
+                            "Do you want to" in clean_buffer
+                            or "Would you like to proceed" in clean_buffer
+                        ):
+                            # Log a snippet of the buffer for debugging
+                            buffer_snippet = (
+                                clean_buffer[-1000:]
+                                if len(clean_buffer) > 1000
+                                else clean_buffer
+                            )
+                            self.log(
+                                f"[DEBUG] Permission buffer content (last 1000 chars): {buffer_snippet}"
+                            )
 
                         # If we see permission/plan prompt, extract it
                         # For plan mode: "Would you like to proceed" without "(esc"
