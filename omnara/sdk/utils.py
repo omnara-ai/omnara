@@ -43,6 +43,7 @@ def build_message_request_data(
     send_email: Optional[bool] = None,
     send_sms: Optional[bool] = None,
     git_diff: Optional[str] = None,
+    instance_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build request data for creating a message.
 
@@ -55,6 +56,7 @@ def build_message_request_data(
         send_email: Optional email notification flag
         send_sms: Optional SMS notification flag
         git_diff: Optional git diff content
+        instance_name: Optional name for the agent instance
 
     Returns:
         Dictionary of request data
@@ -74,5 +76,7 @@ def build_message_request_data(
         data["send_sms"] = send_sms
     if git_diff is not None:
         data["git_diff"] = git_diff
+    if instance_name is not None:
+        data["instance_name"] = instance_name
 
     return data

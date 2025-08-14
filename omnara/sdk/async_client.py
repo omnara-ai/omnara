@@ -192,6 +192,7 @@ class AsyncOmnaraClient:
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
         git_diff: Optional[str] = None,
+        instance_name: Optional[str] = None,
     ) -> CreateMessageResponse:
         """Send a message to the dashboard.
 
@@ -206,6 +207,7 @@ class AsyncOmnaraClient:
             send_email: Send email notification (default: False for steps, user pref for questions)
             send_sms: Send SMS notification (default: False for steps, user pref for questions)
             git_diff: Git diff content to include (optional)
+            instance_name: Optional name for the agent instance (only used when creating new instances)
 
         Returns:
             CreateMessageResponse with any queued user messages
@@ -233,6 +235,7 @@ class AsyncOmnaraClient:
             send_email=send_email,
             send_sms=send_sms,
             git_diff=git_diff,
+            instance_name=instance_name,
         )
 
         # Send the message

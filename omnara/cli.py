@@ -361,6 +361,10 @@ def run_claude_chat(args, unknown_args):
     if hasattr(args, "base_url") and args.base_url:
         new_argv.extend(["--base-url", args.base_url])
 
+    # Pass the instance name if provided
+    if hasattr(args, "name") and args.name:
+        new_argv.extend(["--instance-name", args.name])
+
     # Add any additional Claude arguments
     if unknown_args:
         new_argv.extend(unknown_args)
@@ -452,6 +456,10 @@ def add_global_arguments(parser):
         "--auth-url",
         default="https://omnara.com",
         help="Base URL of the Omnara frontend for authentication",
+    )
+    parser.add_argument(
+        "--name",
+        help="Name for the agent instance (only used with default omnara command)",
     )
 
 

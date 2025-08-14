@@ -99,13 +99,20 @@ class MessageProcessor:
             )
 
         # Send to Omnara
-        response = self.wrapper.omnara_client_sync.send_message(
-            content=sanitized_content,
-            agent_type="Claude Code",
-            agent_instance_id=self.wrapper.agent_instance_id,
-            requires_user_input=False,
-            git_diff=git_diff,
-        )
+        # On first message, include the instance name if provided
+        send_kwargs = {
+            "content": sanitized_content,
+            "agent_type": "Claude Code",
+            "agent_instance_id": self.wrapper.agent_instance_id,
+            "requires_user_input": False,
+            "git_diff": git_diff,
+        }
+
+        # Add instance_name only on first message when creating the instance
+        if not self.wrapper.agent_instance_id and self.wrapper.instance_name:
+            send_kwargs["instance_name"] = self.wrapper.instance_name
+
+        response = self.wrapper.omnara_client_sync.send_message(**send_kwargs)
 
         # Store instance ID if first message
         if not self.wrapper.agent_instance_id:
@@ -155,13 +162,19 @@ class MessageProcessor:
 
 
 class ClaudeWrapperV3:
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        instance_name: Optional[str] = None,
+    ):
         # Session management
         self.session_uuid = str(uuid.uuid4())
         self.session_start_time = (
             time.time()
         )  # Track when session started for file filtering
         self.agent_instance_id = None
+        self.instance_name = instance_name  # Store the instance name for first message
 
         # Set up logging
         self.debug_log_file = None
@@ -1700,6 +1713,7 @@ def main():
     )
     parser.add_argument("--api-key", help="Omnara API key")
     parser.add_argument("--base-url", help="Omnara base URL")
+    parser.add_argument("--instance-name", help="Name for the agent instance")
 
     # Parse known args and pass the rest to Claude
     args, claude_args = parser.parse_known_args()
@@ -1707,7 +1721,9 @@ def main():
     # Update sys.argv to only include Claude args
     sys.argv = [sys.argv[0]] + claude_args
 
-    wrapper = ClaudeWrapperV3(api_key=args.api_key, base_url=args.base_url)
+    wrapper = ClaudeWrapperV3(
+        api_key=args.api_key, base_url=args.base_url, instance_name=args.instance_name
+    )
 
     def signal_handler(sig, frame):
         # Check if this is a repeated Ctrl+C (user really wants to exit)

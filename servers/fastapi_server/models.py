@@ -40,6 +40,10 @@ class CreateMessageRequest(BaseModel):
         None,
         description="Git diff content to store with the instance",
     )
+    instance_name: str | None = Field(
+        None,
+        description="Optional name for the agent instance (only used when creating new instances)",
+    )
 
 
 class CreateUserMessageRequest(BaseModel):
