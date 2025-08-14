@@ -1,8 +1,8 @@
 # Omnara - Mission Control for Your AI Agents 🚀
 
-**Your AI workforce launchpad, in your pocket.**
-
 <div align="center">
+
+**Your AI workforce, in your pocket.**
 
 [![PyPI version](https://badge.fury.io/py/omnara.svg)](https://badge.fury.io/py/omnara)
 [![Downloads](https://pepy.tech/badge/omnara)](https://pepy.tech/project/omnara)
@@ -17,7 +17,7 @@
 
 <div align="center">
 
-[📱 **Download iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🌐 **Try Web Dashboard**](https://omnara.ai) • [⭐ **Star on GitHub**](https://github.com/omnara-ai/omnara)
+[📱 **Download iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🌐 **Try Web Dashboard**](https://omnara.ai) • [🎥 **See a Demo**](https://www.loom.com/share/03d30efcf8e44035af03cbfebf840c73?sid=1c209c04-8a4c-4dd6-8c92-735c399886a6) • [⭐ **Star on GitHub**](https://github.com/omnara-ai/omnara)
 
 </div>
 
@@ -323,10 +323,10 @@ make dev-serve  # Start development servers
 
 ## 🆘 Support
 
-- 📖 [Documentation](https://docs.omnara.ai)
 - 💬 [GitHub Discussions](https://github.com/omnara-ai/omnara/discussions)
 - 🐛 [Report Issues](https://github.com/omnara-ai/omnara/issues)
 - 📧 [Email Support](mailto:ishaan@omnara.com)
+- 📖 Documentation (coming soon)
 
 ## 📜 License
 

@@ -82,12 +82,25 @@ class MessageProcessor:
         # Track if this message uses tools
         self.last_was_tool_use = bool(tools_used)
 
+        # Sanitize content - remove NUL characters and control characters that break the API
+        # This handles binary content from .docx, PDFs, etc.
+        sanitized_content = "".join(
+            char if ord(char) >= 32 or char in "\n\r\t" else ""
+            for char in content.replace("\x00", "")
+        )
+
         # Get git diff if enabled
         git_diff = self.wrapper.get_git_diff()
+        # Sanitize git diff as well if present (handles binary files in git diff)
+        if git_diff:
+            git_diff = "".join(
+                char if ord(char) >= 32 or char in "\n\r\t" else ""
+                for char in git_diff.replace("\x00", "")
+            )
 
         # Send to Omnara
         response = self.wrapper.omnara_client_sync.send_message(
-            content=content,
+            content=sanitized_content,
             agent_type="Claude Code",
             agent_instance_id=self.wrapper.agent_instance_id,
             requires_user_input=False,
@@ -239,10 +252,6 @@ class ClaudeWrapperV3:
             file_path = input_data.get("file_path", "unknown")
             content = input_data.get("content", "")
 
-            # Truncate if too long
-            max_content_length = 300
-            content_truncated = self._truncate_text(content, max_content_length)
-
             # Detect file type for syntax highlighting
             file_ext = file_path.split(".")[-1] if "." in file_path else ""
             lang_map = {
@@ -278,7 +287,7 @@ class ClaudeWrapperV3:
 
             lines = [f"Using tool: Write - `{file_path}`"]
             lines.append(f"```{lang}")
-            lines.append(content_truncated)
+            lines.append(content)
             lines.append("```")
             return "\n".join(lines)
 
@@ -289,57 +298,168 @@ class ClaudeWrapperV3:
             )
             return f"Using tool: {tool_name} - `{file_path}`"
 
-        # Edit tool - show diff
+        # Edit tool - show full diff without truncation
         elif tool_name == "Edit":
             file_path = input_data.get("file_path", "unknown")
             old_string = input_data.get("old_string", "")
             new_string = input_data.get("new_string", "")
-
-            # Truncate if too long
-            max_diff_length = 200
-            old_truncated = self._truncate_text(old_string, max_diff_length)
-            new_truncated = self._truncate_text(new_string, max_diff_length)
+            replace_all = input_data.get("replace_all", False)
 
             # Create a markdown diff
             diff_lines = []
-            diff_lines.append(f"Using tool: Edit - `{file_path}`")
+            diff_lines.append(f"Using tool: **Edit** - `{file_path}`")
 
-            # If both are single line and short, show inline
-            if (
-                "\n" not in old_truncated
-                and "\n" not in new_truncated
-                and len(old_truncated) < 80
-                and len(new_truncated) < 80
-            ):
+            if replace_all:
+                diff_lines.append("*Replacing all occurrences*")
+
+            diff_lines.append("")
+
+            # Handle empty old_string (new content)
+            if not old_string and new_string:
+                # Adding new content
                 diff_lines.append("```diff")
-                diff_lines.append(f"- {old_truncated}")
-                diff_lines.append(f"+ {new_truncated}")
-                diff_lines.append("```")
-            else:
-                # Multi-line diff
-                diff_lines.append("```diff")
-                if old_truncated:
-                    diff_lines.append("@@ Removed @@")
-                    for line in old_truncated.splitlines():
-                        diff_lines.append(f"- {line}")
-                if old_truncated and new_truncated:
-                    diff_lines.append("@@ Added @@")
-                for line in new_truncated.splitlines():
+                for line in new_string.splitlines():
                     diff_lines.append(f"+ {line}")
                 diff_lines.append("```")
+            # Handle empty new_string (deletion)
+            elif old_string and not new_string:
+                # Removing content
+                diff_lines.append("```diff")
+                for line in old_string.splitlines():
+                    diff_lines.append(f"- {line}")
+                diff_lines.append("```")
+            # Handle replacement - try to show as inline diff if possible
+            elif old_string and new_string:
+                old_lines = old_string.splitlines()
+                new_lines = new_string.splitlines()
+
+                # Try to find the actual change within context
+                # Look for common prefix and suffix
+                common_prefix = []
+                common_suffix = []
+
+                # Find common prefix
+                for i in range(min(len(old_lines), len(new_lines))):
+                    if old_lines[i] == new_lines[i]:
+                        common_prefix.append(old_lines[i])
+                    else:
+                        break
+
+                # Find common suffix
+                old_remaining = old_lines[len(common_prefix) :]
+                new_remaining = new_lines[len(common_prefix) :]
+
+                if old_remaining and new_remaining:
+                    for i in range(1, min(len(old_remaining), len(new_remaining)) + 1):
+                        if old_remaining[-i] == new_remaining[-i]:
+                            common_suffix.insert(0, old_remaining[-i])
+                        else:
+                            break
+
+                # Get the actual changed lines
+                changed_old = (
+                    old_remaining[: len(old_remaining) - len(common_suffix)]
+                    if common_suffix
+                    else old_remaining
+                )
+                changed_new = (
+                    new_remaining[: len(new_remaining) - len(common_suffix)]
+                    if common_suffix
+                    else new_remaining
+                )
+
+                # If we have context and a focused change, show it inline style
+                if (common_prefix or common_suffix) and (changed_old or changed_new):
+                    diff_lines.append("```diff")
+
+                    # Show some context before (last 2 lines of prefix)
+                    context_before = (
+                        common_prefix[-2:] if len(common_prefix) > 2 else common_prefix
+                    )
+                    for line in context_before:
+                        diff_lines.append(f"  {line}")
+
+                    # Show removed lines
+                    for line in changed_old:
+                        diff_lines.append(f"- {line}")
+
+                    # Show added lines
+                    for line in changed_new:
+                        diff_lines.append(f"+ {line}")
+
+                    # Show some context after (first 2 lines of suffix)
+                    context_after = (
+                        common_suffix[:2] if len(common_suffix) > 2 else common_suffix
+                    )
+                    for line in context_after:
+                        diff_lines.append(f"  {line}")
+
+                    diff_lines.append("```")
+                else:
+                    # Full replacement - no common context
+                    diff_lines.append("```diff")
+                    for line in old_lines:
+                        diff_lines.append(f"- {line}")
+                    for line in new_lines:
+                        diff_lines.append(f"+ {line}")
+                    diff_lines.append("```")
 
             return "\n".join(diff_lines)
 
-        # MultiEdit tool - show file path and number of edits
+        # MultiEdit tool - show file path and all edits with full diffs
         elif tool_name == "MultiEdit":
             file_path = input_data.get("file_path", "unknown")
             edits = input_data.get("edits", [])
-            return f"Using tool: {tool_name} - `{file_path}` ({len(edits)} edits)"
+
+            lines = [f"Using tool: **MultiEdit** - `{file_path}`"]
+            lines.append(f"*Making {len(edits)} edit{'s' if len(edits) != 1 else ''}:*")
+            lines.append("")
+
+            # Show each edit with full content (no truncation)
+            for i, edit in enumerate(edits, 1):
+                old_string = edit.get("old_string", "")
+                new_string = edit.get("new_string", "")
+                replace_all = edit.get("replace_all", False)
+
+                # Add edit header
+                if replace_all:
+                    lines.append(f"### Edit {i} *(replacing all occurrences)*")
+                else:
+                    lines.append(f"### Edit {i}")
+
+                lines.append("")
+
+                # Create a proper diff display
+                lines.append("```diff")
+
+                # Handle empty old_string (new content)
+                if not old_string and new_string:
+                    # Adding new content
+                    for line in new_string.splitlines():
+                        lines.append(f"+ {line}")
+                # Handle empty new_string (deletion)
+                elif old_string and not new_string:
+                    # Removing content
+                    for line in old_string.splitlines():
+                        lines.append(f"- {line}")
+                # Handle replacement
+                elif old_string and new_string:
+                    # Show the removal first
+                    for line in old_string.splitlines():
+                        lines.append(f"- {line}")
+                    # Then show the addition
+                    for line in new_string.splitlines():
+                        lines.append(f"+ {line}")
+
+                lines.append("```")
+                lines.append("")  # Add spacing between edits
+
+            return "\n".join(lines)
 
         # Command execution
         elif tool_name == "Bash":
             command = input_data.get("command", "")
-            return f"Using tool: Bash - `{self._truncate_text(command, 80)}`"
+            return f"Using tool: Bash - `{command}`"
 
         # Search tools
         elif tool_name in ["Grep", "Glob"]:
@@ -899,17 +1019,18 @@ class ClaudeWrapperV3:
                 # No "Ready to code?" found - might be a very short plan or scrolled off
                 plan_content = ""
         else:
-            # Regular permission prompt
-            for line in clean_buffer.split("\n"):
-                line_clean = line.strip().replace("\u2502", "").strip()
-                if "Do you want to" in line_clean:
+            # Regular permission prompt - find the actual question
+            lines = clean_buffer.split("\n")
+            # Look for "Do you want" line - search from end to get most recent
+            for i in range(len(lines) - 1, -1, -1):
+                line_clean = lines[i].strip().replace("\u2502", "").strip()
+                if "Do you want" in line_clean:
                     question = line_clean
                     break
 
         # Default question if not found
         if not question:
             question = "Permission required"
-            self.log("[DEBUG] No question found, using default")
 
         # Find the options
         options_dict = {}
@@ -924,27 +1045,50 @@ class ClaudeWrapperV3:
         else:
             # Regular permission prompt - look for numbered options
             lines = clean_buffer.split("\n")
-            # Look for options from bottom to top to get the actual prompt options
-            for i in range(len(lines) - 1, -1, -1):
-                line = lines[i].strip().replace("\u2502", "").strip()
-                # Remove selection indicators
-                line = line.replace("\u276f", "").strip()
 
-                # Check for specific permission prompt options
-                if line.startswith("1.") and "Yes" in line and "1" not in options_dict:
-                    options_dict["1"] = line
-                elif (
-                    line.startswith("2.")
-                    and ("don't ask again" in line or "Yes" in line)
-                    and "2" not in options_dict
-                ):
-                    options_dict["2"] = line
-                elif line.startswith("3.") and "No" in line and "3" not in options_dict:
-                    options_dict["3"] = line
+            # Look for lines that start with "1. " to find option groups
+            # Then extract consecutive numbered options from that point
 
-                # Stop if we've found all three options
-                if len(options_dict) == 3:
-                    break
+            # Find all lines starting with "1. "
+            option_starts = []
+            for i, line in enumerate(lines):
+                clean_line = line.strip().replace("\u2502", "").strip()
+                clean_line = clean_line.replace("\u276f", "").strip()
+                if re.match(r"^1\.\s+", clean_line):
+                    option_starts.append(i)
+
+            # Process the last (most recent) option group
+            if option_starts:
+                start_line = option_starts[-1]
+
+                # Extract consecutive numbered options from this point
+                current_num = 1
+                for i in range(
+                    start_line, min(start_line + 10, len(lines))
+                ):  # Check up to 10 lines
+                    clean_line = lines[i].strip().replace("\u2502", "").strip()
+                    clean_line = clean_line.replace("\u276f", "").strip()
+
+                    # Check if this line is the expected next option
+                    pattern = rf"^{current_num}\.\s+(.+)"
+                    match = re.match(pattern, clean_line)
+                    if match:
+                        options_dict[str(current_num)] = clean_line
+                        current_num += 1
+                    elif current_num > 1 and not clean_line:
+                        # Empty line might be between options, continue
+                        continue
+                    elif current_num > 1:
+                        # Non-empty line that's not an option, stop here
+                        break
+
+                # Log summary of what was found
+                if options_dict:
+                    self.log(f"[INFO] Found {len(options_dict)} permission options")
+            else:
+                self.log(
+                    "[WARNING] No permission options found in buffer, using defaults"
+                )
 
         # Convert to list maintaining order
         options = [options_dict[key] for key in sorted(options_dict.keys())]
@@ -980,8 +1124,24 @@ class ClaudeWrapperV3:
         """Run Claude CLI in a PTY"""
         claude_path = self.find_claude_cli()
 
-        # Build command with session ID
-        cmd = [claude_path, "--session-id", self.session_uuid]
+        # Check if session-related flags are present (which conflict with --session-id)
+        has_session_flag = (
+            "--continue" in sys.argv
+            or "-c" in sys.argv
+            or "--resume" in sys.argv
+            or "-r" in sys.argv
+        )
+
+        # Build command - only add session ID if not using session-related flags
+        if has_session_flag:
+            # Don't add session-id when using --continue/-c or --resume/-r
+            cmd = [claude_path]
+            self.log(
+                "[INFO] Detected session flag (--continue/-c or --resume/-r), not adding --session-id"
+            )
+        else:
+            # Normal behavior: add session ID for tracking
+            cmd = [claude_path, "--session-id", self.session_uuid]
 
         # Process any additional command line arguments
         if len(sys.argv) > 1:
@@ -1064,9 +1224,9 @@ class ClaudeWrapperV3:
 
                         # If we see permission/plan prompt, extract it
                         # For plan mode: "Would you like to proceed" without "(esc"
-                        # For permission: "Do you want to" with "(esc"
+                        # For permission: "Do you want" with "(esc"
                         if (
-                            "Do you want to" in clean_buffer and "(esc" in clean_buffer
+                            "Do you want" in clean_buffer and "(esc" in clean_buffer
                         ) or (
                             "Would you like to proceed" in clean_buffer
                             and "No, keep planning" in clean_buffer
@@ -1084,6 +1244,9 @@ class ClaudeWrapperV3:
                                     options_text = "\n".join(options)
                                     permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
                                     self.pending_permission_options = options_map
+                                    self.log(
+                                        f"[INFO] Permission prompt with {len(options)} options sent to Omnara"
+                                    )
                                 else:
                                     # Fallback if parsing fails
                                     permission_msg = f"{question}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
@@ -1092,10 +1255,9 @@ class ClaudeWrapperV3:
                                         "Yes, and don't ask again this session": "2",
                                         "No": "3",
                                     }
-
-                                self.log(
-                                    f"[INFO] Permission prompt extracted: {permission_msg[:100]}..."
-                                )
+                                    self.log(
+                                        "[WARNING] Using default permission options (extraction failed)"
+                                    )
 
                                 # Send to Omnara with extracted text
                                 if self.agent_instance_id and self.omnara_client_sync:
@@ -1436,10 +1598,22 @@ class ClaudeWrapperV3:
             # Quick cleanup - cancel pending tasks
             self.cancel_pending_input_request()
 
-            # Run cleanup in background daemon thread
+            # Run cleanup in background thread with timeout
             def background_cleanup():
+                import threading
+
+                # Create a timer to force exit after 10 seconds
+                def force_exit():
+                    self.log("[WARNING] Cleanup timeout reached, forcing exit")
+                    if self.debug_log_file:
+                        self.debug_log_file.flush()
+                    os._exit(0)
+
+                timer = threading.Timer(10.0, force_exit)
+                timer.daemon = True
+                timer.start()
+
                 try:
-                    # Use sync client for end_session - simpler and more reliable
                     if self.omnara_client_sync and self.agent_instance_id:
                         self.omnara_client_sync.end_session(self.agent_instance_id)
                         self.log("[INFO] Session ended successfully")
@@ -1456,20 +1630,22 @@ class ClaudeWrapperV3:
 
                     if self.debug_log_file:
                         self.log("=== Claude Wrapper V3 Log Ended ===")
-                        self.debug_log_file.flush()  # Force flush before close
+                        self.debug_log_file.flush()
                         self.debug_log_file.close()
+
+                    # Cancel timer if cleanup completed successfully
+                    timer.cancel()
+
                 except Exception as e:
                     self.log(f"[ERROR] Background cleanup error: {e}")
                     if self.debug_log_file:
                         self.debug_log_file.flush()
+                    timer.cancel()
 
-            # Start background cleanup and exit immediately
+            # Start background cleanup as non-daemon thread
             cleanup_thread = threading.Thread(target=background_cleanup)
-            cleanup_thread.daemon = True
+            cleanup_thread.daemon = False
             cleanup_thread.start()
-
-            # Give thread a tiny bit of time to start (critical for daemon thread)
-            cleanup_thread.join(timeout=0.05)
 
 
 def main():
@@ -1498,6 +1674,7 @@ def main():
 
         # First Ctrl+C - initiate graceful shutdown
         wrapper.running = False
+        wrapper.log("[INFO] SIGINT received, initiating shutdown")
 
         # Stop the async event loop to trigger cleanup
         if wrapper.async_loop and wrapper.async_loop.is_running():
