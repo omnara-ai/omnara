@@ -1021,18 +1021,16 @@ class ClaudeWrapperV3:
         else:
             # Regular permission prompt - find the actual question
             lines = clean_buffer.split("\n")
-            # Look for "Do you want to" line - search from end to get most recent
+            # Look for "Do you want" line - search from end to get most recent
             for i in range(len(lines) - 1, -1, -1):
                 line_clean = lines[i].strip().replace("\u2502", "").strip()
-                if "Do you want to" in line_clean or "Do you want" in line_clean:
+                if "Do you want" in line_clean:
                     question = line_clean
-                    self.log(f"[DEBUG] Found question: {question}")
                     break
 
         # Default question if not found
         if not question:
             question = "Permission required"
-            self.log("[DEBUG] No question found, using default")
 
         # Find the options
         options_dict = {}
@@ -1050,7 +1048,6 @@ class ClaudeWrapperV3:
 
             # Look for lines that start with "1. " to find option groups
             # Then extract consecutive numbered options from that point
-            self.log("[DEBUG] Looking for option groups in buffer")
 
             # Find all lines starting with "1. "
             option_starts = []
@@ -1059,16 +1056,10 @@ class ClaudeWrapperV3:
                 clean_line = clean_line.replace("\u276f", "").strip()
                 if re.match(r"^1\.\s+", clean_line):
                     option_starts.append(i)
-                    self.log(
-                        f"[DEBUG] Found option group starting at line {i}: {repr(clean_line[:50])}"
-                    )
 
             # Process the last (most recent) option group
             if option_starts:
                 start_line = option_starts[-1]
-                self.log(
-                    f"[DEBUG] Processing option group starting at line {start_line}"
-                )
 
                 # Extract consecutive numbered options from this point
                 current_num = 1
@@ -1083,24 +1074,13 @@ class ClaudeWrapperV3:
                     match = re.match(pattern, clean_line)
                     if match:
                         options_dict[str(current_num)] = clean_line
-                        self.log(
-                            f"[DEBUG] Found option {current_num}: {clean_line[:80]}"
-                        )
                         current_num += 1
                     elif current_num > 1 and not clean_line:
                         # Empty line might be between options, continue
                         continue
                     elif current_num > 1:
                         # Non-empty line that's not an option, stop here
-                        self.log(
-                            f"[DEBUG] Stopped at line {i} (not an option): {repr(clean_line[:50])}"
-                        )
                         break
-            else:
-                self.log("[DEBUG] No option groups found in buffer")
-
-            # Log final extraction
-            self.log(f"[DEBUG] Final options extracted: {sorted(options_dict.keys())}")
 
         # Convert to list maintaining order
         options = [options_dict[key] for key in sorted(options_dict.keys())]
@@ -1234,44 +1214,11 @@ class ClaudeWrapperV3:
                             r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
                         )
 
-                        # Debug log to see what's in the buffer
-                        if (
-                            "Do you want to" in clean_buffer
-                            or "Would you like to proceed" in clean_buffer
-                        ):
-                            # Log a snippet of the buffer for debugging
-                            buffer_snippet = (
-                                clean_buffer[-2000:]
-                                if len(clean_buffer) > 2000
-                                else clean_buffer
-                            )
-                            self.log(
-                                f"[DEBUG] Permission buffer content (last 2000 chars):\n{buffer_snippet}"
-                            )
-
-                            # Also log the lines around the question
-                            lines = clean_buffer.split("\n")
-                            for i, line in enumerate(lines):
-                                if (
-                                    "Do you want to" in line
-                                    or "Would you like to proceed" in line
-                                ):
-                                    start = max(0, i - 2)
-                                    end = min(len(lines), i + 10)
-                                    context_lines = lines[start:end]
-                                    self.log(
-                                        f"[DEBUG] Question context (lines {start}-{end}):"
-                                    )
-                                    for j, context_line in enumerate(context_lines):
-                                        self.log(
-                                            f"  Line {start + j}: {repr(context_line[:100])}"
-                                        )
-
                         # If we see permission/plan prompt, extract it
                         # For plan mode: "Would you like to proceed" without "(esc"
-                        # For permission: "Do you want to" with "(esc"
+                        # For permission: "Do you want" with "(esc"
                         if (
-                            "Do you want to" in clean_buffer and "(esc" in clean_buffer
+                            "Do you want" in clean_buffer and "(esc" in clean_buffer
                         ) or (
                             "Would you like to proceed" in clean_buffer
                             and "No, keep planning" in clean_buffer
