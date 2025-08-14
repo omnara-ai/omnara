@@ -745,6 +745,7 @@ class ClaudeWrapperV3:
     def find_claude_cli(self):
         """Find Claude CLI binary"""
         if cli := shutil.which("claude"):
+            self.log(f"[INFO] Found Claude CLI at: {cli}")
             return cli
 
         locations = [
@@ -758,6 +759,7 @@ class ClaudeWrapperV3:
 
         for path in locations:
             if path.exists() and path.is_file():
+                self.log(f"[INFO] Found Claude CLI at: {path}")
                 return str(path)
 
         raise FileNotFoundError(
