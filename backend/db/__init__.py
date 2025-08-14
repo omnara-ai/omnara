@@ -9,6 +9,7 @@ from .queries import (
     delete_agent_instance,
     update_agent_instance_name,
     get_message_by_id,
+    get_instance_messages,
     get_instance_git_diff,
 )
 from .user_agent_queries import (
@@ -31,6 +32,7 @@ __all__ = [
     "delete_agent_instance",
     "update_agent_instance_name",
     "get_message_by_id",
+    "get_instance_messages",
     "get_instance_git_diff",
     "create_user_agent",
     "get_user_agents",

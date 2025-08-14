@@ -398,16 +398,19 @@ def get_agent_type_instances(
 
 
 def get_agent_instance_detail(
-    db: Session, instance_id: UUID, user_id: UUID
+    db: Session,
+    instance_id: UUID,
+    user_id: UUID,
+    message_limit: int | None = None,
+    before_message_id: UUID | None = None,
 ) -> AgentInstanceDetail | None:
-    """Get detailed information about a specific agent instance for a specific user"""
+    """Get detailed information about a specific agent instance for a specific user with optional message pagination using cursor"""
 
     instance = (
         db.query(AgentInstance)
         .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
         .options(
             joinedload(AgentInstance.user_agent),
-            joinedload(AgentInstance.messages),
         )
         .first()
     )
@@ -415,12 +418,28 @@ def get_agent_instance_detail(
     if not instance:
         return None
 
-    # Get all messages and sort by created_at
-    messages = (
-        sorted(instance.messages, key=lambda m: m.created_at)
-        if hasattr(instance, "messages")
-        else []
-    )
+    # Build message query
+    messages_query = db.query(Message).filter(Message.agent_instance_id == instance_id)
+
+    # If cursor provided, get messages before that message
+    if before_message_id:
+        cursor_message = (
+            db.query(Message.created_at).filter(Message.id == before_message_id).first()
+        )
+        if cursor_message:
+            messages_query = messages_query.filter(
+                Message.created_at < cursor_message.created_at
+            )
+
+    # Order by created_at DESC and apply limit
+    messages_query = messages_query.order_by(desc(Message.created_at))
+    if message_limit is not None:
+        messages_query = messages_query.limit(message_limit)
+
+    messages = messages_query.all()
+
+    # Reverse to get chronological order (oldest first) for display
+    messages = list(reversed(messages))
 
     # Format messages for chat display
     formatted_messages = []
@@ -691,6 +710,59 @@ def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | No
         "requires_user_input": message.requires_user_input,
         "message_metadata": message.message_metadata,
     }
+
+
+def get_instance_messages(
+    db: Session,
+    instance_id: UUID,
+    user_id: UUID,
+    limit: int = 50,
+    before_message_id: UUID | None = None,
+) -> list[MessageResponse] | None:
+    """
+    Get paginated messages for an agent instance using cursor-based pagination.
+    Returns list of messages if authorized, None if not found or unauthorized.
+    """
+    # Verify instance belongs to user
+    instance = (
+        db.query(AgentInstance)
+        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
+        .first()
+    )
+
+    if not instance:
+        return None
+
+    # Build message query
+    messages_query = db.query(Message).filter(Message.agent_instance_id == instance_id)
+
+    # If cursor provided, get messages before that message
+    if before_message_id:
+        cursor_message = (
+            db.query(Message.created_at).filter(Message.id == before_message_id).first()
+        )
+        if cursor_message:
+            messages_query = messages_query.filter(
+                Message.created_at < cursor_message.created_at
+            )
+
+    # Order by created_at DESC and apply limit
+    messages = messages_query.order_by(desc(Message.created_at)).limit(limit).all()
+
+    # Reverse to get chronological order
+    messages = list(reversed(messages))
+
+    # Convert to MessageResponse objects
+    return [
+        MessageResponse(
+            id=str(msg.id),
+            content=msg.content,
+            sender_type=msg.sender_type.value,
+            created_at=msg.created_at,
+            requires_user_input=msg.requires_user_input,
+        )
+        for msg in messages
+    ]
 
 
 def get_instance_git_diff(db: Session, instance_id: UUID, user_id: UUID) -> dict | None:
