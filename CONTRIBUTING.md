@@ -16,7 +16,7 @@ The fastest way to get started:
 
 1. **Fork and clone the repository**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/omnara.git
+   git clone https://github.com/omnara-ai/omnara.git
    cd omnara
    ```
 
@@ -128,4 +128,4 @@ make typecheck     # Type checking
 
 ## Questions?
 
-Open an issue or discussion on GitHub!
+Open an issue on GitHub!
