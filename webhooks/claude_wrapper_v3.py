@@ -1598,10 +1598,22 @@ class ClaudeWrapperV3:
             # Quick cleanup - cancel pending tasks
             self.cancel_pending_input_request()
 
-            # Run cleanup in background daemon thread
+            # Run cleanup in background thread with timeout
             def background_cleanup():
+                import threading
+
+                # Create a timer to force exit after 10 seconds
+                def force_exit():
+                    self.log("[WARNING] Cleanup timeout reached, forcing exit")
+                    if self.debug_log_file:
+                        self.debug_log_file.flush()
+                    os._exit(0)
+
+                timer = threading.Timer(10.0, force_exit)
+                timer.daemon = True
+                timer.start()
+
                 try:
-                    # Use sync client for end_session - simpler and more reliable
                     if self.omnara_client_sync and self.agent_instance_id:
                         self.omnara_client_sync.end_session(self.agent_instance_id)
                         self.log("[INFO] Session ended successfully")
@@ -1618,20 +1630,22 @@ class ClaudeWrapperV3:
 
                     if self.debug_log_file:
                         self.log("=== Claude Wrapper V3 Log Ended ===")
-                        self.debug_log_file.flush()  # Force flush before close
+                        self.debug_log_file.flush()
                         self.debug_log_file.close()
+
+                    # Cancel timer if cleanup completed successfully
+                    timer.cancel()
+
                 except Exception as e:
                     self.log(f"[ERROR] Background cleanup error: {e}")
                     if self.debug_log_file:
                         self.debug_log_file.flush()
+                    timer.cancel()
 
-            # Start background cleanup and exit immediately
+            # Start background cleanup as non-daemon thread
             cleanup_thread = threading.Thread(target=background_cleanup)
-            cleanup_thread.daemon = True
+            cleanup_thread.daemon = False
             cleanup_thread.start()
-
-            # Give thread a tiny bit of time to start (critical for daemon thread)
-            cleanup_thread.join(timeout=0.05)
 
 
 def main():
@@ -1660,6 +1674,7 @@ def main():
 
         # First Ctrl+C - initiate graceful shutdown
         wrapper.running = False
+        wrapper.log("[INFO] SIGINT received, initiating shutdown")
 
         # Stop the async event loop to trigger cleanup
         if wrapper.async_loop and wrapper.async_loop.is_running():
