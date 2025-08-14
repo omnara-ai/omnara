@@ -1082,6 +1082,14 @@ class ClaudeWrapperV3:
                         # Non-empty line that's not an option, stop here
                         break
 
+                # Log summary of what was found
+                if options_dict:
+                    self.log(f"[INFO] Found {len(options_dict)} permission options")
+            else:
+                self.log(
+                    "[WARNING] No permission options found in buffer, using defaults"
+                )
+
         # Convert to list maintaining order
         options = [options_dict[key] for key in sorted(options_dict.keys())]
 
@@ -1236,6 +1244,9 @@ class ClaudeWrapperV3:
                                     options_text = "\n".join(options)
                                     permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
                                     self.pending_permission_options = options_map
+                                    self.log(
+                                        f"[INFO] Permission prompt with {len(options)} options sent to Omnara"
+                                    )
                                 else:
                                     # Fallback if parsing fails
                                     permission_msg = f"{question}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
@@ -1244,10 +1255,9 @@ class ClaudeWrapperV3:
                                         "Yes, and don't ask again this session": "2",
                                         "No": "3",
                                     }
-
-                                self.log(
-                                    f"[INFO] Permission prompt extracted: {permission_msg[:100]}..."
-                                )
+                                    self.log(
+                                        "[WARNING] Using default permission options (extraction failed)"
+                                    )
 
                                 # Send to Omnara with extracted text
                                 if self.agent_instance_id and self.omnara_client_sync:
