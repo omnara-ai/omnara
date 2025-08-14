@@ -408,12 +408,12 @@ def cmd_mcp(args):
         "servers.mcp_server.stdio_server",
     ]
 
-    if args.base_url:
+    if args.api_key:
         cmd.extend(["--api-key", args.api_key])
     if args.base_url:
         cmd.extend(["--base-url", args.base_url])
     if args.permission_tool:
-        cmd.append("--claude-code-permission-tool")
+        cmd.append("--permission-tool")
     if args.git_diff:
         cmd.append("--git-diff")
     if args.agent_instance_id:

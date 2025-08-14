@@ -469,7 +469,7 @@ def main():
         help="Base URL of the Omnara API server",
     )
     parser.add_argument(
-        "--claude-code-permission-tool",
+        "--permission-tool",
         action="store_true",
         help="Enable Claude Code permission prompt tool for handling tool execution approvals",
     )
@@ -514,14 +514,14 @@ def main():
             logger.warning(f"Failed to get initial git hash: {e}")
 
     # Enable/disable tools based on feature flags
-    if args.claude_code_permission_tool:
+    if args.permission_tool:
         approve_tool.enable()
         logger.info("Claude Code permission tool enabled")
 
     logger.info("Starting Omnara MCP server (stdio)")
     logger.info(f"Using API server: {args.base_url}")
     logger.info(
-        f"Claude Code permission tool: {'enabled' if args.claude_code_permission_tool else 'disabled'}"
+        f"Claude Code permission tool: {'enabled' if args.permission_tool else 'disabled'}"
     )
     logger.info(f"Git diff capture: {'enabled' if args.git_diff else 'disabled'}")
 
