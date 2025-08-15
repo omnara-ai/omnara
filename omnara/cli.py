@@ -358,49 +358,49 @@ def run_agent_chat(args, unknown_args):
     api_key = ensure_api_key(args)
 
     # Import and run directly instead of subprocess
-    from integrations.cli_wrappers.claude_code.claude_wrapper_v3 import (
-        main as claude_wrapper_main,
-    )
 
     # Prepare sys.argv for the claude wrapper
-    
+
     # Agent configuration mapping
     AGENT_CONFIGS = {
         "claude": {
             "module": "integrations.cli_wrappers.claude_code.claude_wrapper_v3",
             "function": "main",
-            "argv_name": "claude_wrapper_v3"
+            "argv_name": "claude_wrapper_v3",
         },
         "amp": {
             "module": "integrations.cli_wrappers.amp.amp",
             "function": "main",
-            "argv_name": "amp_wrapper"
-        }
+            "argv_name": "amp_wrapper",
+        },
     }
-    
+
     # Get agent configuration
     agent = getattr(args, "agent", "claude").lower()
     config = AGENT_CONFIGS.get(agent)
-    
+
     if not config:
-        raise ValueError(f"Unknown agent: {agent}. Supported agents: {', '.join(AGENT_CONFIGS.keys())}")
-    
+        raise ValueError(
+            f"Unknown agent: {agent}. Supported agents: {', '.join(AGENT_CONFIGS.keys())}"
+        )
+
     # Dynamically import the appropriate wrapper
     import importlib
+
     module = importlib.import_module(config["module"])
     wrapper_main = getattr(module, config["function"])
-    
+
     # Prepare sys.argv for the wrapper
     original_argv = sys.argv
     new_argv = [config["argv_name"], "--api-key", api_key]
-    
+
     if hasattr(args, "base_url") and args.base_url:
         new_argv.extend(["--base-url", args.base_url])
-    
+
     # Add any additional arguments
     if unknown_args:
         new_argv.extend(unknown_args)
-    
+
     try:
         sys.argv = new_argv
         wrapper_main()
