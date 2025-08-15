@@ -380,7 +380,7 @@ def cmd_serve(args):
     cmd = [
         sys.executable,
         "-m",
-        "webhooks.claude_code",
+        "integrations.webhooks.claude_code.claude_code",
     ]
 
     if args.skip_permissions:
