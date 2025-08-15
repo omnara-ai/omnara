@@ -30,129 +30,15 @@ from typing import Any, Dict, Optional
 from omnara.sdk.async_client import AsyncOmnaraClient
 from omnara.sdk.client import OmnaraClient
 from omnara.sdk.exceptions import AuthenticationError, APIError
-from webhooks.session_reset_handler import SessionResetHandler
+from .session_reset_handler import SessionResetHandler
+from .message_processor import MessageProcessor
+from .git_utils import GitDiffManager
 
 
 # Constants
 CLAUDE_LOG_BASE = Path.home() / ".claude" / "projects"
 OMNARA_WRAPPER_LOG_DIR = Path.home() / ".omnara" / "claude_wrapper"
 
-
-class MessageProcessor:
-    """Message processing implementation"""
-
-    def __init__(self, wrapper: "ClaudeWrapperV3"):
-        self.wrapper = wrapper
-        self.last_message_id = None
-        self.last_message_time = None
-        self.web_ui_messages = set()  # Track messages from web UI to avoid duplicates
-        self.pending_input_message_id = None  # Track if we're waiting for input
-        self.last_was_tool_use = False  # Track if last assistant message used tools
-
-    def process_user_message_sync(self, content: str, from_web: bool) -> None:
-        """Process a user message (sync version for monitor thread)"""
-        if from_web:
-            # Message from web UI - track it to avoid duplicate sends
-            self.web_ui_messages.add(content)
-        else:
-            # Message from CLI - send to Omnara if not already from web
-            if content not in self.web_ui_messages:
-                self.wrapper.log(
-                    f"[INFO] Sending CLI message to Omnara: {content[:50]}..."
-                )
-                if self.wrapper.agent_instance_id and self.wrapper.omnara_client_sync:
-                    self.wrapper.omnara_client_sync.send_user_message(
-                        agent_instance_id=self.wrapper.agent_instance_id,
-                        content=content,
-                    )
-            else:
-                # Remove from tracking set
-                self.web_ui_messages.discard(content)
-
-        # Reset idle timer and clear pending input
-        self.last_message_time = time.time()
-        self.pending_input_message_id = None
-
-    def process_assistant_message_sync(
-        self, content: str, tools_used: list[str]
-    ) -> None:
-        """Process an assistant message (sync version for monitor thread)"""
-        if not self.wrapper.agent_instance_id or not self.wrapper.omnara_client_sync:
-            return
-
-        # Track if this message uses tools
-        self.last_was_tool_use = bool(tools_used)
-
-        # Sanitize content - remove NUL characters and control characters that break the API
-        # This handles binary content from .docx, PDFs, etc.
-        sanitized_content = "".join(
-            char if ord(char) >= 32 or char in "\n\r\t" else ""
-            for char in content.replace("\x00", "")
-        )
-
-        # Get git diff if enabled
-        git_diff = self.wrapper.get_git_diff()
-        # Sanitize git diff as well if present (handles binary files in git diff)
-        if git_diff:
-            git_diff = "".join(
-                char if ord(char) >= 32 or char in "\n\r\t" else ""
-                for char in git_diff.replace("\x00", "")
-            )
-
-        # Send to Omnara
-        response = self.wrapper.omnara_client_sync.send_message(
-            content=sanitized_content,
-            agent_type="Claude Code",
-            agent_instance_id=self.wrapper.agent_instance_id,
-            requires_user_input=False,
-            git_diff=git_diff,
-        )
-
-        # Store instance ID if first message
-        if not self.wrapper.agent_instance_id:
-            self.wrapper.agent_instance_id = response.agent_instance_id
-
-        # Track message for idle detection
-        self.last_message_id = response.message_id
-        self.last_message_time = time.time()
-
-        # Clear old tracked input requests since we have a new message
-        if hasattr(self.wrapper, "requested_input_messages"):
-            self.wrapper.requested_input_messages.clear()
-
-        # Clear pending permission options since we have a new message
-        if hasattr(self.wrapper, "pending_permission_options"):
-            self.wrapper.pending_permission_options.clear()
-
-        # Process any queued user messages
-        if response.queued_user_messages:
-            concatenated = "\n".join(response.queued_user_messages)
-            self.web_ui_messages.add(concatenated)
-            self.wrapper.input_queue.append(concatenated)
-
-    def should_request_input(self) -> Optional[str]:
-        """Check if we should request input, returns message_id if yes"""
-        # Don't request input if we might have a permission prompt
-        if self.last_was_tool_use and self.wrapper.is_claude_idle():
-            # We're in a state where a permission prompt might appear
-            return None
-
-        # Only request if:
-        # 1. We have a message to request input for
-        # 2. We haven't already requested input for it
-        # 3. Claude is idle
-        if (
-            self.last_message_id
-            and self.last_message_id != self.pending_input_message_id
-            and self.wrapper.is_claude_idle()
-        ):
-            return self.last_message_id
-
-        return None
-
-    def mark_input_requested(self, message_id: str) -> None:
-        """Mark that input has been requested for a message"""
-        self.pending_input_message_id = message_id
 
 
 class ClaudeWrapperV3:
@@ -207,6 +93,9 @@ class ClaudeWrapperV3:
         # Message processor
         self.message_processor = MessageProcessor(self)
 
+        # Git diff manager
+        self.git_diff_manager = GitDiffManager(log_func=self.log, session_start_time=self.session_start_time)
+
         # Async task management
         self.pending_input_task = None
         self.async_loop = None
@@ -214,10 +103,6 @@ class ClaudeWrapperV3:
             set()
         )  # Track messages we've already requested input for
         self.pending_permission_options = {}  # Map option text to number for permission prompts
-
-        # Git diff tracking
-        self.git_diff_enabled = False
-        self.initial_git_hash = None
 
     def _init_logging(self):
         """Initialize debug logging"""
@@ -621,116 +506,7 @@ class ClaudeWrapperV3:
         Returns:
             The git diff output if enabled and there are changes, None otherwise.
         """
-        # Check if git diff is enabled
-        if not self.git_diff_enabled:
-            return None
-
-        try:
-            combined_output = ""
-
-            # Get list of worktrees to exclude
-            worktree_result = subprocess.run(
-                ["git", "worktree", "list", "--porcelain"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            exclude_patterns = []
-            if worktree_result.returncode == 0:
-                # Parse worktree list to get paths to exclude
-                cwd = os.getcwd()
-                for line in worktree_result.stdout.strip().split("\n"):
-                    if line.startswith("worktree "):
-                        worktree_path = line[9:]  # Remove "worktree " prefix
-                        # Only exclude if it's a subdirectory of current directory
-                        if worktree_path != cwd and worktree_path.startswith(
-                            os.path.dirname(cwd)
-                        ):
-                            # Get relative path from current directory
-                            try:
-                                rel_path = os.path.relpath(worktree_path, cwd)
-                                if not rel_path.startswith(".."):
-                                    exclude_patterns.append(f":(exclude){rel_path}")
-                            except ValueError:
-                                # Can't compute relative path, skip
-                                pass
-
-            # Build git diff command
-            if self.initial_git_hash:
-                # Use git diff from initial hash to current working tree
-                # This shows ALL changes (committed + uncommitted) as one unified diff
-                diff_cmd = ["git", "diff", self.initial_git_hash]
-            else:
-                # No initial hash - just show uncommitted changes
-                diff_cmd = ["git", "diff", "HEAD"]
-
-            if exclude_patterns:
-                diff_cmd.extend(["--"] + exclude_patterns)
-
-            # Run git diff
-            result = subprocess.run(diff_cmd, capture_output=True, text=True, timeout=5)
-            if result.returncode == 0 and result.stdout.strip():
-                combined_output = result.stdout.strip()
-
-            # Get untracked files (with exclusions)
-            untracked_cmd = ["git", "ls-files", "--others", "--exclude-standard"]
-            if exclude_patterns:
-                untracked_cmd.extend(["--"] + exclude_patterns)
-
-            result_untracked = subprocess.run(
-                untracked_cmd, capture_output=True, text=True, timeout=5
-            )
-            if result_untracked.returncode == 0 and result_untracked.stdout.strip():
-                untracked_files = result_untracked.stdout.strip().split("\n")
-                if untracked_files:
-                    if combined_output:
-                        combined_output += "\n"
-
-                    # For each untracked file, show its contents with diff-like format
-                    for file_path in untracked_files:
-                        # Check if file was created after session started
-                        try:
-                            file_creation_time = os.path.getctime(file_path)
-                            if file_creation_time < self.session_start_time:
-                                # Skip files that existed before the session started
-                                continue
-                        except (OSError, IOError):
-                            # If we can't get creation time, skip the file
-                            continue
-
-                        combined_output += f"diff --git a/{file_path} b/{file_path}\n"
-                        combined_output += "new file mode 100644\n"
-                        combined_output += "index 0000000..0000000\n"
-                        combined_output += "--- /dev/null\n"
-                        combined_output += f"+++ b/{file_path}\n"
-
-                        # Read file contents and add with + prefix
-                        try:
-                            with open(
-                                file_path, "r", encoding="utf-8", errors="ignore"
-                            ) as f:
-                                lines = f.readlines()
-                                combined_output += f"@@ -0,0 +1,{len(lines)} @@\n"
-                                for line in lines:
-                                    # Preserve the line exactly as-is, just add + prefix
-                                    if line.endswith("\n"):
-                                        combined_output += f"+{line}"
-                                    else:
-                                        combined_output += f"+{line}\n"
-                                if lines and not lines[-1].endswith("\n"):
-                                    combined_output += "\\ No newline at end of file\n"
-                        except Exception:
-                            combined_output += "@@ -0,0 +1,1 @@\n"
-                            combined_output += "+[Binary or unreadable file]\n"
-
-                        combined_output += "\n"
-
-            return combined_output
-
-        except Exception as e:
-            self.log(f"[WARNING] Failed to get git diff: {e}")
-
-        return None
+        return self.git_diff_manager.get_git_diff()
 
     def init_omnara_clients(self):
         """Initialize both sync and async Omnara SDK clients"""
@@ -1678,27 +1454,9 @@ class ClaudeWrapperV3:
                     self.message_processor.last_message_time = time.time()
 
                 # Auto-detect git repository and enable git diff if available
-                try:
-                    result = subprocess.run(
-                        ["git", "rev-parse", "HEAD"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    if result.returncode == 0 and result.stdout.strip():
-                        self.initial_git_hash = result.stdout.strip()
-                        self.git_diff_enabled = True
-                        self.log(
-                            f"[INFO] Git diff enabled. Initial commit: {self.initial_git_hash[:8]}"
-                        )
-                    else:
-                        self.git_diff_enabled = False
-                        self.log("[INFO] Git diff disabled (not in a git repository)")
-                except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-                    self.git_diff_enabled = False
-                    self.log(
-                        f"[INFO] Git diff disabled (git not available or error: {e})"
-                    )
+                enabled, initial_hash = self.git_diff_manager.initialize_git()
+                if enabled:
+                    self.initial_git_hash = initial_hash
         except AuthenticationError as e:
             # Log the error
             self.log(f"[ERROR] Authentication failed: {e}")
