@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import pty
+import re
 import select
 import shutil
 import signal
@@ -879,12 +880,42 @@ class ClaudeWrapperV3:
             msg_type = data.get("type")
 
             if msg_type == "user":
+                # Skip meta messages (like "Caveat:" messages)
+                if data.get("isMeta", False):
+                    self.log("[INFO] Skipping meta message")
+                    return
+
                 # User message
                 message = data.get("message", {})
                 content = message.get("content", "")
 
                 # Handle both string content and structured content blocks
                 if isinstance(content, str) and content:
+                    # Skip empty command output
+                    if (
+                        content.strip()
+                        == "<local-command-stdout></local-command-stdout>"
+                    ):
+                        self.log("[INFO] Skipping empty command output")
+                        return
+
+                    # Check for command messages and extract the actual command
+                    if "<command-name>" in content:
+                        # Parse command name and args
+                        command_match = re.search(
+                            r"<command-name>(.*?)</command-name>", content
+                        )
+                        args_match = re.search(
+                            r"<command-args>(.*?)</command-args>", content
+                        )
+
+                        if command_match:
+                            command = command_match.group(1).strip()
+                            args = args_match.group(1).strip() if args_match else ""
+
+                            # Replace content with the actual command
+                            content = f"{command} {args}".strip()
+
                     self.log(f"[INFO] User message in JSONL: {content[:50]}...")
                     # CLI user input arrived - cancel any pending web input request
                     self.cancel_pending_input_request()
@@ -1426,8 +1457,17 @@ class ClaudeWrapperV3:
                                 # Try to decode and log readable text
                                 text_input = data.decode("utf-8", errors="replace")
 
-                                # Accumulate input in line buffer
-                                self.stdin_line_buffer += text_input
+                                # Process the input character by character to handle backspaces
+                                for char in text_input:
+                                    if char in ["\x7f", "\x08"]:  # Backspace or DEL
+                                        # Remove last character from buffer if present
+                                        if self.stdin_line_buffer:
+                                            self.stdin_line_buffer = (
+                                                self.stdin_line_buffer[:-1]
+                                            )
+                                    elif char not in ["\n", "\r"]:
+                                        # Add regular characters to buffer
+                                        self.stdin_line_buffer += char
 
                                 # Check if Enter was pressed (newline or carriage return)
                                 if "\n" in text_input or "\r" in text_input:
@@ -1436,18 +1476,43 @@ class ClaudeWrapperV3:
                                     if line:
                                         self.log(f"[STDIN] User entered: {repr(line)}")
 
+                                        # Clean the line - remove escape sequences and get just the text
+                                        # Remove various ANSI escape sequences
+                                        clean_line = re.sub(
+                                            r"\x1b\[[^m]*m", "", line
+                                        )  # Color codes
+                                        clean_line = re.sub(
+                                            r"\x1b\[[0-9;]*[A-Za-z]", "", clean_line
+                                        )  # Cursor movement
+                                        clean_line = re.sub(
+                                            r"\x1b[>=\[\]OPI]", "", clean_line
+                                        )  # Various single char escapes
+                                        clean_line = re.sub(
+                                            r"\x1b\([AB012]", "", clean_line
+                                        )  # Character set selection
+                                        clean_line = re.sub(
+                                            r"\x1b\].*?\x07", "", clean_line
+                                        )  # OSC sequences
+                                        # Remove all remaining control characters except spaces
+                                        clean_line = "".join(
+                                            c
+                                            for c in clean_line
+                                            if c.isprintable() or c.isspace()
+                                        )
+                                        clean_line = clean_line.strip()
+
                                         # Check for special commands like /clear
-                                        if line.startswith("/"):
+                                        if clean_line.startswith("/"):
                                             self.log(
-                                                f"[STDIN] ⚠️ Detected slash command: {line}"
+                                                f"[STDIN] ⚠️ Detected slash command: {clean_line}"
                                             )
 
                                             # Check for session reset commands
                                             if self.reset_handler.check_for_reset_command(
-                                                line
+                                                clean_line
                                             ):
                                                 self.reset_handler.mark_reset_detected(
-                                                    line
+                                                    clean_line
                                                 )
 
                                     # Reset buffer for next line
