@@ -41,7 +41,7 @@ Issues = "https://github.com/omnara-ai/omnara/issues"
 omnara = "omnara.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["omnara*", "servers.mcp_server*", "servers.shared*", "webhooks*"]
+include = ["omnara*", "servers.mcp_server*", "servers.shared*", "integrations*"]
 
 
 [tool.pytest.ini_options]
