@@ -1185,16 +1185,16 @@ Examples:
   omnara serve
 
   # Old way (still works):
-  python -m webhooks.claude_code
+  python -m integrations.webhooks.claude_code.claude_code
 
   # Run with Cloudflare tunnel for external access
-  python -m webhooks.claude_code --cloudflare-tunnel
+  python -m integrations.webhooks.claude_code.claude_code --cloudflare-tunnel
 
   # Run with permission skipping (dangerous!)
-  python -m webhooks.claude_code --dangerously-skip-permissions
+  python -m integrations.webhooks.claude_code.claude_code --dangerously-skip-permissions
 
   # Run on a custom port
-  python -m webhooks.claude_code --port 8080
+  python -m integrations.webhooks.claude_code.claude_code --port 8080
 
 Note: 'omnara serve' is the new recommended way to run the webhook server.
 It automatically includes Cloudflare tunnel and simplifies the setup.

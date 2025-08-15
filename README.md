@@ -230,13 +230,13 @@ Run the monitoring wrapper directly (what `omnara` does under the hood):
 
 ```bash
 # Basic usage
-python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY
+python -m integrations.cli_wrappers.claude_code.claude_wrapper_v3 --api-key YOUR_API_KEY
 
 # With git diff tracking
-python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY --git-diff
+python -m integrations.cli_wrappers.claude_code.claude_wrapper_v3 --api-key YOUR_API_KEY --git-diff
 
 # Custom API endpoint (for self-hosted)
-python -m webhooks.claude_wrapper_v3 --api-key YOUR_API_KEY --base-url https://your-server.com
+python -m integrations.cli_wrappers.claude_code.claude_wrapper_v3 --api-key YOUR_API_KEY --base-url https://your-server.com
 ```
 
 ### Method 2: Manual MCP Configuration
