@@ -25,7 +25,7 @@ omnara/
 ├── cli/              # Node.js CLI tool for MCP configuration
 ├── scripts/          # Utility scripts (JWT generation, linting, etc.)
 ├── tests/            # Integration tests
-└── webhooks/         # Webhook handlers (e.g., claude_code.py)
+└── integrations/     # Integration handlers (webhooks, CLI wrappers, etc.)
 ```
 
 ## Key Technical Decisions
