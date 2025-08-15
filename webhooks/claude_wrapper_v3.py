@@ -1056,7 +1056,6 @@ class ClaudeWrapperV3:
         """Extract permission/plan mode prompt from terminal buffer
         Returns: (question, options_list, options_map)
         """
-        import re
 
         # Check if this is plan mode - look for the specific options
         is_plan_mode = "Would you like to proceed" in clean_buffer and (
@@ -1073,8 +1072,6 @@ class ClaudeWrapperV3:
             question = "Would you like to proceed with this plan?"
 
             # Simple approach: Just use the terminal buffer for plan extraction
-            import re
-
             # Look for "Ready to code?" marker in the buffer
             plan_marker = "Ready to code?"
             plan_start = clean_buffer.rfind(plan_marker)
@@ -1303,7 +1300,6 @@ class ClaudeWrapperV3:
                     # After 0.25 seconds, check if we can parse the prompt from buffer
                     elif time.time() - self._permission_assumed_time > 0.25:
                         # Clean the buffer to check for content
-                        import re
 
                         clean_buffer = re.sub(
                             r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
@@ -1407,9 +1403,8 @@ class ClaudeWrapperV3:
                                     ]
 
                                 # Check for the indicator
-                                import re
-
                                 clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+
                                 # Check for both "esc to interrupt" and "ctrl+b to run in background"
                                 if (
                                     "esc to interrupt)" in clean_text
