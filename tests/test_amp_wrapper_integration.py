@@ -19,12 +19,28 @@ from unittest.mock import Mock, patch
 from integrations.cli_wrappers.amp.amp import AmpWrapper
 
 
+def is_amp_cli_available():
+    """Check if Amp CLI is available in the system"""
+    try:
+        wrapper = AmpWrapper(api_key="test")
+        amp_path = wrapper.find_amp_cli()
+        return amp_path is not None
+    except Exception:
+        return False
+
+
+def is_ci_environment():
+    """Check if running in CI environment"""
+    return os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
+
 class TestPTYIntegration(unittest.TestCase):
     """Test PTY creation and management"""
 
     def setUp(self):
         self.wrapper = AmpWrapper(api_key="test")
 
+    @unittest.skipIf(is_ci_environment(), "PTY operations may not work in CI")
     @patch("pty.fork")
     @patch("os.execvp")
     def test_pty_creation(self, mock_execvp, mock_fork):
@@ -59,6 +75,7 @@ class TestPTYIntegration(unittest.TestCase):
             self.wrapper.running = False
             thread.join(timeout=1)
 
+    @unittest.skipIf(not is_amp_cli_available(), "Amp CLI not available")
     @patch("os.get_terminal_size")
     def test_terminal_size_handling(self, mock_get_size):
         """Test terminal size detection and setting"""
@@ -78,6 +95,7 @@ class TestPTYIntegration(unittest.TestCase):
                 self.assertEqual(os.environ.get("COLUMNS"), "120")
                 self.assertEqual(os.environ.get("ROWS"), "30")
 
+    @unittest.skipIf(is_ci_environment(), "PTY operations may not work in CI")
     def test_stdin_passthrough(self):
         """Test that user input reaches Amp"""
         # Mock successful fork
