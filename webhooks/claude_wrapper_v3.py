@@ -33,7 +33,6 @@ from omnara.sdk.client import OmnaraClient
 
 from omnara.sdk.exceptions import AuthenticationError, APIError
 
-# Import session reset handler
 from webhooks.session_reset_handler import SessionResetHandler
 
 
