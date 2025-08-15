@@ -56,6 +56,7 @@ async def create_agent_message_endpoint(
             agent_type=request.agent_type,
             requires_user_input=request.requires_user_input,
             git_diff=request.git_diff,
+            instance_name=request.instance_name,
         )
 
         # Send notifications if requested

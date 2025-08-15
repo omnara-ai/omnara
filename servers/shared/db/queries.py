@@ -66,7 +66,11 @@ def get_agent_instance(db: Session, instance_id: str) -> AgentInstance | None:
 
 
 def get_or_create_agent_instance(
-    db: Session, agent_instance_id: str, user_id: str, agent_type: str | None = None
+    db: Session,
+    agent_instance_id: str,
+    user_id: str,
+    agent_type: str | None = None,
+    instance_name: str | None = None,
 ) -> AgentInstance:
     """Get an existing agent instance or create a new one.
 
@@ -75,6 +79,7 @@ def get_or_create_agent_instance(
         agent_instance_id: Agent instance ID (always required)
         user_id: User ID requesting access
         agent_type: Agent type name (required only when creating new instance)
+        instance_name: Optional name for the agent instance (only used when creating new instances)
 
     Returns:
         The agent instance (existing or newly created)
@@ -108,6 +113,7 @@ def get_or_create_agent_instance(
             user_agent_id=agent_type_obj.id,
             user_id=UUID(user_id),
             status=AgentStatus.ACTIVE,
+            name=instance_name,  # Set the optional name
         )
         db.add(instance)
         db.flush()  # Flush to ensure the instance is in the session with its ID
@@ -298,6 +304,7 @@ async def send_agent_message(
     agent_type: str | None = None,
     requires_user_input: bool = False,
     git_diff: str | None = None,
+    instance_name: str | None = None,
 ) -> tuple[str, str, list[Message]]:
     """High-level function to send an agent message and get queued user messages.
 
@@ -316,12 +323,15 @@ async def send_agent_message(
         agent_type: Type of agent (required if creating new instance)
         requires_user_input: Whether this is a question requiring response
         git_diff: Optional git diff to update on the instance
+        instance_name: Optional name for the agent instance (only used when creating new instances)
 
     Returns:
         Tuple of (agent_instance_id, message_id, list of queued user message contents)
     """
     # Get or create instance using the unified function
-    instance = get_or_create_agent_instance(db, agent_instance_id, user_id, agent_type)
+    instance = get_or_create_agent_instance(
+        db, agent_instance_id, user_id, agent_type, instance_name
+    )
 
     # Update git diff if provided (but don't commit yet)
     if git_diff is not None:
