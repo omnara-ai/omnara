@@ -30,7 +30,9 @@ from typing import Any, Dict, Optional
 from omnara.sdk.async_client import AsyncOmnaraClient
 from omnara.sdk.client import OmnaraClient
 from omnara.sdk.exceptions import AuthenticationError, APIError
-from integrations.cli_wrappers.claude_code.session_reset_handler import SessionResetHandler
+from integrations.cli_wrappers.claude_code.session_reset_handler import (
+    SessionResetHandler,
+)
 
 
 # Constants
