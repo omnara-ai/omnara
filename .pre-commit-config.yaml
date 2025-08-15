@@ -6,17 +6,17 @@ repos:
       # Run the linter
       - id: ruff
         args: [--fix]
-        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|webhooks)/.*\.py$
+        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|integrations)/.*\.py$
       # Run the formatter
       - id: ruff-format
-        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|webhooks)/.*\.py$
+        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|integrations)/.*\.py$
 
   # Pyright for type checking (using npm package)
   - repo: https://github.com/RobertCraigie/pyright-python
     rev: v1.1.390
     hooks:
       - id: pyright
-        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|webhooks)/.*\.py$
+        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|integrations)/.*\.py$
         additional_dependencies: []
 
   # General file checks
@@ -24,9 +24,9 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|webhooks)/.*\.py$
+        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|integrations)/.*\.py$
       - id: end-of-file-fixer
-        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|webhooks)/.*\.py$
+        files: ^(backend|mcp_server|servers|shared|omnara|tests|scripts|integrations)/.*\.py$
       - id: check-yaml
       - id: check-added-large-files
       - id: check-merge-conflict

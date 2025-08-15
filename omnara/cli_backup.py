@@ -353,7 +353,7 @@ def run_webhook_server(
     cmd = [
         sys.executable,
         "-m",
-        "webhooks.claude_code",
+        "integrations.webhooks.claude_code.claude_code",
     ]
 
     if dangerously_skip_permissions:
@@ -372,7 +372,9 @@ def run_webhook_server(
 def run_claude_wrapper(api_key, base_url=None, claude_args=None):
     """Run the Claude wrapper V3 for Omnara integration"""
     # Import and run directly instead of subprocess
-    from webhooks.claude_wrapper_v3 import main as claude_wrapper_main
+    from integrations.cli_wrappers.claude_code.claude_wrapper_v3 import (
+        main as claude_wrapper_main,
+    )
 
     # Prepare sys.argv for the claude wrapper
     original_argv = sys.argv

@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import pty
+import re
 import select
 import shutil
 import signal
@@ -26,10 +27,12 @@ import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any, Dict, Optional
-
 from omnara.sdk.async_client import AsyncOmnaraClient
 from omnara.sdk.client import OmnaraClient
 from omnara.sdk.exceptions import AuthenticationError, APIError
+from integrations.cli_wrappers.claude_code.session_reset_handler import (
+    SessionResetHandler,
+)
 
 
 # Constants
@@ -189,6 +192,10 @@ class ClaudeWrapperV3:
         self.master_fd = None
         self.original_tty_attrs = None
         self.input_queue = deque()
+        self.stdin_line_buffer = ""  # Buffer to accumulate stdin input until Enter
+
+        # Session reset handler
+        self.reset_handler = SessionResetHandler(log_func=self.log)
 
         # Claude JSONL log monitoring
         self.claude_jsonl_path = None
@@ -745,6 +752,7 @@ class ClaudeWrapperV3:
     def find_claude_cli(self):
         """Find Claude CLI binary"""
         if cli := shutil.which("claude"):
+            self.log(f"[INFO] Found Claude CLI at: {cli}")
             return cli
 
         locations = [
@@ -758,6 +766,7 @@ class ClaudeWrapperV3:
 
         for path in locations:
             if path.exists() and path.is_file():
+                self.log(f"[INFO] Found Claude CLI at: {path}")
                 return str(path)
 
         raise FileNotFoundError(
@@ -768,7 +777,9 @@ class ClaudeWrapperV3:
         """Get the Claude project log directory for current working directory"""
         cwd = os.getcwd()
         # Convert path to Claude's format
-        project_name = cwd.replace("/", "-").replace(".", "-")
+        project_name = (
+            cwd.replace("/", "-").replace(".", "-").replace(" ", "-").replace("@", "-")
+        )
         project_dir = CLAUDE_LOG_BASE / project_name
         return project_dir if project_dir.exists() else None
 
@@ -791,27 +802,77 @@ class ClaudeWrapperV3:
             return
 
         # Monitor the file
-        try:
-            with open(self.claude_jsonl_path, "r") as f:
-                f.seek(0)  # Start from beginning
+        while self.running:
+            try:
+                with open(self.claude_jsonl_path, "r") as f:
+                    f.seek(0)  # Start from beginning
+                    self.log(
+                        f"[INFO] Monitoring JSONL file: {self.claude_jsonl_path.name}"
+                    )
 
-                while self.running:
-                    line = f.readline()
-                    if line:
-                        try:
-                            data = json.loads(line.strip())
-                            # Process directly with sync client
-                            self.process_claude_log_entry(data)
-                        except json.JSONDecodeError:
-                            pass
-                    else:
-                        # Check if file still exists
-                        if not self.claude_jsonl_path.exists():
-                            break
-                        time.sleep(0.1)
+                    while self.running:
+                        # Check for session reset
+                        if self.reset_handler.is_reset_pending():
+                            self.log(
+                                "[INFO] Session reset pending, waiting for new JSONL file..."
+                            )
 
-        except Exception as e:
-            self.log(f"[ERROR] Error monitoring Claude JSONL: {e}")
+                            project_dir = self.get_project_log_dir()
+
+                            if project_dir:
+                                # Look for new session file
+                                new_jsonl_path = (
+                                    self.reset_handler.find_reset_session_file(
+                                        project_dir=project_dir,
+                                        current_file=self.claude_jsonl_path,
+                                        max_wait=10.0,
+                                    )
+                                )
+                            else:
+                                new_jsonl_path = None
+                                self.log("[WARNING] Could not get project directory")
+
+                            if new_jsonl_path:
+                                old_path = self.claude_jsonl_path.name
+                                self.claude_jsonl_path = new_jsonl_path
+                                self.log(
+                                    f"[INFO] ✅ Switched from {old_path} to {new_jsonl_path.name}"
+                                )
+
+                                # Reset the handler state
+                                self.reset_handler.clear_reset_state()
+
+                                # Break out of inner loop to reopen with new file
+                                break
+                            else:
+                                # Couldn't find new file, continue with current
+                                self.log(
+                                    "[WARNING] Could not find new session file, continuing with current"
+                                )
+                                self.reset_handler.clear_reset_state()
+
+                        # Read next line from current file
+                        line = f.readline()
+                        if line:
+                            try:
+                                data = json.loads(line.strip())
+                                # Process directly with sync client
+                                self.process_claude_log_entry(data)
+                            except json.JSONDecodeError:
+                                pass
+                        else:
+                            # Check if file still exists
+                            if not self.claude_jsonl_path.exists():
+                                self.log(
+                                    "[WARNING] Current JSONL file no longer exists"
+                                )
+                                break
+                            time.sleep(0.1)
+
+            except Exception as e:
+                self.log(f"[ERROR] Error monitoring Claude JSONL: {e}")
+                # If we hit an error, wait a bit before retrying
+                time.sleep(1)
 
     def process_claude_log_entry(self, data: Dict[str, Any]):
         """Process a log entry from Claude's JSONL (sync)"""
@@ -819,12 +880,42 @@ class ClaudeWrapperV3:
             msg_type = data.get("type")
 
             if msg_type == "user":
+                # Skip meta messages (like "Caveat:" messages)
+                if data.get("isMeta", False):
+                    self.log("[INFO] Skipping meta message")
+                    return
+
                 # User message
                 message = data.get("message", {})
                 content = message.get("content", "")
 
                 # Handle both string content and structured content blocks
                 if isinstance(content, str) and content:
+                    # Skip empty command output
+                    if (
+                        content.strip()
+                        == "<local-command-stdout></local-command-stdout>"
+                    ):
+                        self.log("[INFO] Skipping empty command output")
+                        return
+
+                    # Check for command messages and extract the actual command
+                    if "<command-name>" in content:
+                        # Parse command name and args
+                        command_match = re.search(
+                            r"<command-name>(.*?)</command-name>", content
+                        )
+                        args_match = re.search(
+                            r"<command-args>(.*?)</command-args>", content
+                        )
+
+                        if command_match:
+                            command = command_match.group(1).strip()
+                            args = args_match.group(1).strip() if args_match else ""
+
+                            # Replace content with the actual command
+                            content = f"{command} {args}".strip()
+
                     self.log(f"[INFO] User message in JSONL: {content[:50]}...")
                     # CLI user input arrived - cancel any pending web input request
                     self.cancel_pending_input_request()
@@ -969,7 +1060,6 @@ class ClaudeWrapperV3:
         """Extract permission/plan mode prompt from terminal buffer
         Returns: (question, options_list, options_map)
         """
-        import re
 
         # Check if this is plan mode - look for the specific options
         is_plan_mode = "Would you like to proceed" in clean_buffer and (
@@ -986,8 +1076,6 @@ class ClaudeWrapperV3:
             question = "Would you like to proceed with this plan?"
 
             # Simple approach: Just use the terminal buffer for plan extraction
-            import re
-
             # Look for "Ready to code?" marker in the buffer
             plan_marker = "Ready to code?"
             plan_start = clean_buffer.rfind(plan_marker)
@@ -1216,7 +1304,6 @@ class ClaudeWrapperV3:
                     # After 0.25 seconds, check if we can parse the prompt from buffer
                     elif time.time() - self._permission_assumed_time > 0.25:
                         # Clean the buffer to check for content
-                        import re
 
                         clean_buffer = re.sub(
                             r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
@@ -1320,9 +1407,8 @@ class ClaudeWrapperV3:
                                     ]
 
                                 # Check for the indicator
-                                import re
-
                                 clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+
                                 # Check for both "esc to interrupt" and "ctrl+b to run in background"
                                 if (
                                     "esc to interrupt)" in clean_text
@@ -1361,6 +1447,77 @@ class ClaudeWrapperV3:
                         # Read available data (larger buffer for efficiency)
                         data = os.read(sys.stdin.fileno(), 65536)
                         if data:
+                            # Log user input for debugging
+                            try:
+                                # Try to decode and log readable text
+                                text_input = data.decode("utf-8", errors="replace")
+
+                                # Process the input character by character to handle backspaces
+                                for char in text_input:
+                                    if char in ["\x7f", "\x08"]:  # Backspace or DEL
+                                        # Remove last character from buffer if present
+                                        if self.stdin_line_buffer:
+                                            self.stdin_line_buffer = (
+                                                self.stdin_line_buffer[:-1]
+                                            )
+                                    elif char not in ["\n", "\r"]:
+                                        # Add regular characters to buffer
+                                        self.stdin_line_buffer += char
+
+                                # Check if Enter was pressed (newline or carriage return)
+                                if "\n" in text_input or "\r" in text_input:
+                                    # Log the complete line
+                                    line = self.stdin_line_buffer.strip()
+                                    if line:
+                                        self.log(f"[STDIN] User entered: {repr(line)}")
+
+                                        # Clean the line - remove escape sequences and get just the text
+                                        # Remove various ANSI escape sequences
+                                        clean_line = re.sub(
+                                            r"\x1b\[[^m]*m", "", line
+                                        )  # Color codes
+                                        clean_line = re.sub(
+                                            r"\x1b\[[0-9;]*[A-Za-z]", "", clean_line
+                                        )  # Cursor movement
+                                        clean_line = re.sub(
+                                            r"\x1b[>=\[\]OPI]", "", clean_line
+                                        )  # Various single char escapes
+                                        clean_line = re.sub(
+                                            r"\x1b\([AB012]", "", clean_line
+                                        )  # Character set selection
+                                        clean_line = re.sub(
+                                            r"\x1b\].*?\x07", "", clean_line
+                                        )  # OSC sequences
+                                        # Remove all remaining control characters except spaces
+                                        clean_line = "".join(
+                                            c
+                                            for c in clean_line
+                                            if c.isprintable() or c.isspace()
+                                        )
+                                        clean_line = clean_line.strip()
+
+                                        # Check for special commands like /clear
+                                        if clean_line.startswith("/"):
+                                            self.log(
+                                                f"[STDIN] ⚠️ Detected slash command: {clean_line}"
+                                            )
+
+                                            # Check for session reset commands
+                                            if self.reset_handler.check_for_reset_command(
+                                                clean_line
+                                            ):
+                                                self.reset_handler.mark_reset_detected(
+                                                    clean_line
+                                                )
+
+                                    # Reset buffer for next line
+                                    self.stdin_line_buffer = ""
+                            except Exception:
+                                # If decode fails, log the raw bytes
+                                self.log(
+                                    f"[STDIN] User input (raw bytes): {data[:100]}"
+                                )
+
                             # Store data in a buffer attribute if PTY is full
                             if not hasattr(self, "pending_write_buffer"):
                                 self.pending_write_buffer = b""
@@ -1436,6 +1593,10 @@ class ClaudeWrapperV3:
                     self.log(
                         f"[INFO] Sending web UI message to Claude: {content[:50]}..."
                     )
+
+                    # Check for session reset commands from web UI
+                    if self.reset_handler.check_for_reset_command(content.strip()):
+                        self.reset_handler.mark_reset_detected(content.strip())
 
                     # Send to Claude
                     os.write(self.master_fd, content.encode())
