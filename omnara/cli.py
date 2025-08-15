@@ -12,6 +12,12 @@ import subprocess
 import json
 import os
 from pathlib import Path
+
+# Add project root to Python path for local development
+if __name__ == "__main__":
+    project_root = Path(__file__).parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
 import webbrowser
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -361,12 +367,12 @@ def run_agent_chat(args, unknown_args):
     # Agent configuration mapping
     AGENT_CONFIGS = {
         "claude": {
-            "module": "webhooks.claude_wrapper_v3",
+            "module": "integrations.cli_wrappers.claude_code.claude_wrapper_v3",
             "function": "main",
             "argv_name": "claude_wrapper_v3"
         },
         "amp": {
-            "module": "webhooks.amp_wrapper",
+            "module": "integrations.cli_wrappers.amp.amp",
             "function": "main",
             "argv_name": "amp_wrapper"
         }

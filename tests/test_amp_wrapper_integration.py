@@ -20,7 +20,7 @@ import sys
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from webhooks.amp_wrapper import AmpWrapper
+from integrations.cli_wrappers.amp.amp import AmpWrapper
 
 
 class TestPTYIntegration(unittest.TestCase):

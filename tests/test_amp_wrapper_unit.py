@@ -16,7 +16,7 @@ import sys
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from webhooks.amp_wrapper import AmpWrapper, MessageProcessor, ANSI_ESCAPE
+from integrations.cli_wrappers.amp.amp import AmpWrapper, MessageProcessor, ANSI_ESCAPE
 
 
 class TestAmpWrapperInit(unittest.TestCase):
