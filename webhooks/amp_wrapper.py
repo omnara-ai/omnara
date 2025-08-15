@@ -22,7 +22,7 @@ import tty
 import uuid
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from omnara.sdk.async_client import AsyncOmnaraClient
 from omnara.sdk.client import OmnaraClient
@@ -47,6 +47,137 @@ PATTERNS = {
     'error': r'Error:|Failed|Cannot|Unable',
     'prompt_ready': r'╭─',  # New prompt box appearing
 }
+
+
+class AmpResponseProcessor:
+    """Handles processing and extraction of Amp responses from terminal output"""
+    
+    def __init__(self, wrapper: "AmpWrapper"):
+        self.wrapper = wrapper
+        self.response_buffer: List[str] = []
+        self.inference_started = False
+        self.has_response_content = False
+        self.last_activity_time = 0.0
+    
+    def reset(self):
+        """Reset processor state for new response"""
+        self.response_buffer = []
+        self.inference_started = False
+        self.has_response_content = False
+        self.last_activity_time = time.time()
+    
+    def add_output_chunk(self, output: str) -> bool:
+        """
+        Add output chunk and return True if processing started
+        Returns True if inference detection triggered
+        """
+        clean_output = self.wrapper.strip_ansi(output)
+        
+        # Check if AMP started processing
+        if "Running inference" in clean_output:
+            if not self.inference_started:
+                self.wrapper.log("[INFO] AMP started processing")
+                self.inference_started = True
+                self.reset()
+                self.wrapper.message_processor.process_assistant_message_sync(
+                    "AMP is processing your request..."
+                )
+                return True
+        
+        # If inference has started, capture output
+        if self.inference_started:
+            self.response_buffer.append(output)
+            self.last_activity_time = time.time()
+            self.wrapper.log(f"[DEBUG] Buffering chunk ({len(output)} chars)")
+            
+            # Check for response content (not just thinking)
+            if not self.has_response_content:
+                self.has_response_content = self._detect_response_content(clean_output)
+        
+        return False
+    
+    def _detect_response_content(self, clean_output: str) -> bool:
+        """Detect if output contains actual response content (not just thinking)"""
+        lines = clean_output.split('\n')
+        for line in lines:
+            stripped = line.strip()
+            
+            # Skip UI elements
+            if any(ui in line for ui in ['───', '╭', '╮', '╯', '╰', '│', 'Ctrl+R', '┃']):
+                continue
+            
+            # Check if this looks like actual response
+            if (stripped and len(stripped) > 5 and
+                not stripped.startswith("The user") and
+                not "not a request" in stripped.lower() and
+                not "following the guidelines" in stripped.lower() and
+                not "I should" in stripped.lower() and
+                not "I don't need" in stripped.lower() and
+                not "need to use" in stripped.lower() and
+                not "Thinking" in stripped and
+                not "Running inference" in stripped):
+                
+                # Check if it looks like a greeting or response
+                if (stripped[0].isupper() and  # Starts with capital
+                    ('!' in stripped or '?' in stripped or '.' in stripped)):  # Has punctuation
+                    self.wrapper.log(f"[INFO] Detected actual response: {stripped[:50]}")
+                    return True
+        
+        return False
+    
+    def check_completion(self, clean_output: str) -> bool:
+        """Check if response is complete based on output markers"""
+        if "Thread:" in clean_output or "Continue this thread" in clean_output:
+            return True
+        return False
+    
+    def is_idle_complete(self) -> bool:
+        """Check if response is complete due to idle timeout"""
+        if (self.inference_started and self.has_response_content and 
+            time.time() - self.last_activity_time > 2.0):
+            return True
+        return False
+    
+    def extract_response(self) -> str:
+        """Extract the final response from buffered output - SIMPLIFIED VERSION"""
+        if not self.response_buffer:
+            return "AMP has completed processing."
+        
+        full_output = ''.join(self.response_buffer)
+        self.wrapper.log(f"[DEBUG] Extracting from {len(full_output)} chars")
+        
+        # Use simpler logic: split by lines, filter out UI elements and thinking
+        response_lines = []
+        seen_lines = set()
+        
+        for line in full_output.split('\n'):
+            clean_line = self.wrapper.strip_ansi(line).strip()
+            
+            # Skip UI elements and empty lines
+            if (not clean_line or 
+                any(ui in clean_line for ui in ['───', '╭', '╮', '╯', '╰', '│', 
+                                               'Running inference', 'Ctrl+R', 'Thread:', 
+                                               'Continue this thread', '┃'])):
+                continue
+            
+            # Skip obvious thinking patterns
+            if any(thinking in clean_line.lower() for thinking in [
+                "thinking", "i need to", "i should", "the user", "according to",
+                "this is a", "this seems", "let me analyze"
+            ]):
+                continue
+            
+            # Keep substantial content (avoid duplicates)
+            if len(clean_line) > 10 and clean_line not in seen_lines:
+                response_lines.append(clean_line)
+                seen_lines.add(clean_line)
+        
+        if response_lines:
+            response_text = '\n'.join(response_lines)
+            self.wrapper.log(f"[INFO] Extracted response ({len(response_text)} chars)")
+            return response_text
+        else:
+            return "AMP has completed processing."
 
 
 class MessageProcessor:
@@ -178,6 +309,7 @@ class AmpWrapper:
         self.child_pid = None
         self.master_fd = None
         self.original_tty_attrs = None
+        self.temp_settings_path = None
         self.input_queue = deque()
         
         # Amp output monitoring
@@ -202,6 +334,77 @@ class AmpWrapper:
         self.amp_ready = False
         self.last_prompt_sent = None
         self.waiting_for_response = False
+    
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self.cleanup()
+    
+    def __del__(self):
+        """Defensive cleanup if user forgets"""
+        try:
+            self.cleanup()
+        except Exception:
+            pass  # Avoid exceptions in __del__
+    
+    def cleanup(self):
+        """Close all resources safely (idempotent)"""
+        # Set running to False to stop loops
+        self.running = False
+        
+        # Debug log file
+        if getattr(self, "debug_log_file", None) and hasattr(self.debug_log_file, 'closed') and not self.debug_log_file.closed:
+            try:
+                self.debug_log_file.flush()
+            finally:
+                self.debug_log_file.close()
+        
+        # Async client
+        if getattr(self, "omnara_client_async", None):
+            try:
+                # Use a private loop so we are independent from the caller
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.omnara_client_async.close())
+            finally:
+                loop.close()
+            self.omnara_client_async = None
+        
+        # Sync client
+        if getattr(self, "omnara_client_sync", None):
+            try:
+                self.omnara_client_sync.close()
+            except Exception:
+                pass
+            self.omnara_client_sync = None
+        
+        # PTY file descriptor
+        if getattr(self, "master_fd", None):
+            try:
+                os.close(self.master_fd)
+            except OSError:
+                pass
+            self.master_fd = None
+        
+        # Temp settings file
+        temp_path = getattr(self, "temp_settings_path", None)
+        if temp_path and Path(temp_path).exists():
+            try:
+                Path(temp_path).unlink()
+            except OSError:
+                pass
+            self.temp_settings_path = None
+        
+        # Child process
+        if getattr(self, "child_pid", None):
+            try:
+                os.kill(self.child_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            self.child_pid = None
         
     def _init_logging(self):
         """Initialize debug logging"""
@@ -231,29 +434,6 @@ class AmpWrapper:
         """Extract ANSI codes from text to understand formatting"""
         codes = ANSI_ESCAPE.findall(text)
         return codes
-    
-    def split_by_ansi_style(self, text: str) -> list:
-        """Split text into segments with their ANSI style information"""
-        segments = []
-        current_pos = 0
-        
-        for match in ANSI_ESCAPE.finditer(text):
-            # Add text before this ANSI code
-            if match.start() > current_pos:
-                segments.append({
-                    'text': text[current_pos:match.start()],
-                    'code': match.group(0)
-                })
-            current_pos = match.end()
-        
-        # Add any remaining text
-        if current_pos < len(text):
-            segments.append({
-                'text': text[current_pos:],
-                'code': None
-            })
-        
-        return segments
     
     def init_omnara_clients(self):
         """Initialize Omnara SDK clients"""
@@ -303,7 +483,8 @@ class AmpWrapper:
         with open(temp_settings, "w") as f:
             json.dump(settings, f)
         
-        return str(temp_settings)
+        self.temp_settings_path = str(temp_settings)
+        return self.temp_settings_path
     
     def init_git_tracking(self):
         """Initialize git tracking for file changes"""
@@ -430,57 +611,7 @@ class AmpWrapper:
     
     # Removed is_response_complete - we now detect completion differently
     
-    def extract_message(self, raw_output: str) -> Tuple[str, str]:
-        """Extract user prompt and assistant response from Amp output"""
-        clean = self.strip_ansi(raw_output)
-        
-        # Log for debugging - show more output
-        self.log(f"[DEBUG] Raw buffer length: {len(raw_output)}, Clean buffer length: {len(clean)}")
-        self.log(f"[DEBUG] Clean buffer (first 500 chars): {clean[:500]}")
-        
-        # Simple approach: everything after the last prompt is the assistant response
-        # Look for the user's input (what we sent) and everything after is the response
-        
-        user_prompt = ""
-        assistant_response = ""
-        
-        # If we have a last prompt sent, find it in the output
-        if self.last_prompt_sent:
-            prompt_idx = clean.find(self.last_prompt_sent)
-            if prompt_idx >= 0:
-                # Everything after the prompt is the assistant's response
-                response_start = prompt_idx + len(self.last_prompt_sent)
-                assistant_response = clean[response_start:].strip()
-                
-                # Clean up the response - remove any UI elements
-                lines = assistant_response.split('\n')
-                cleaned_lines = []
-                for line in lines:
-                    # Skip UI elements and empty lines
-                    if not any(char in line for char in ['╭', '╰', '│', '─']):
-                        if line.strip() and not line.strip().startswith('Type '):
-                            cleaned_lines.append(line)
-                
-                assistant_response = '\n'.join(cleaned_lines).strip()
-        
-        # If we didn't find the prompt, try to extract any substantial text
-        if not assistant_response:
-            lines = clean.split('\n')
-            response_lines = []
-            for line in lines:
-                # Skip UI elements and prompts
-                if not any(char in line for char in ['╭', '╰', '│', '─', 'Welcome to', 'Type ']):
-                    if line.strip() and len(line.strip()) > 5:
-                        response_lines.append(line.strip())
-            
-            if response_lines:
-                assistant_response = '\n'.join(response_lines)
-        
-        # Log what we extracted
-        self.log(f"[DEBUG] Last prompt sent: {self.last_prompt_sent[:50] if self.last_prompt_sent else 'None'}")
-        self.log(f"[DEBUG] Extracted assistant_response ({len(assistant_response)} chars): {assistant_response[:200] if assistant_response else 'None'}")
-        
-        return user_prompt, assistant_response
+
     
     def send_prompt_to_amp(self, prompt: str):
         """Send a prompt to Amp via PTY"""
@@ -686,8 +817,8 @@ class AmpWrapper:
                                                 # Extract ANSI codes from this line
                                                 codes_in_line = self.extract_ansi_codes(line)
                                                 
-                                                # Debug: Log ANSI codes for analysis
-                                                if codes_in_line and self.debug:
+                                                # Debug: Log ANSI codes for analysis (when codes exist)
+                                                if codes_in_line:
                                                     self.log(f"[DEBUG] ANSI codes in line: {codes_in_line}")
                                                     self.log(f"[DEBUG] Line content: {clean_line[:80]}")
                                                 
@@ -1247,6 +1378,14 @@ class AmpWrapper:
             # Cancel pending tasks
             self.cancel_pending_input_request()
             
+            # Close PTY file descriptor immediately to prevent leaks
+            if self.master_fd:
+                try:
+                    os.close(self.master_fd)
+                except OSError:
+                    pass
+                self.master_fd = None
+            
             # Clean up in background
             def background_cleanup():
                 try:
@@ -1269,9 +1408,8 @@ class AmpWrapper:
                         self.debug_log_file.close()
                     
                     # Clean up temp settings file
-                    temp_settings = Path("/tmp") / f"amp_omnara_{self.session_uuid}.json"
-                    if temp_settings.exists():
-                        temp_settings.unlink()
+                    if self.temp_settings_path and Path(self.temp_settings_path).exists():
+                        Path(self.temp_settings_path).unlink()
                 
                 except Exception as e:
                     self.log(f"[ERROR] Cleanup error: {e}")
