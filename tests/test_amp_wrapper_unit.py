@@ -10,13 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-# Add the project root to the Python path
-import sys
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-from integrations.cli_wrappers.amp.amp import (  # noqa: E402
+from integrations.cli_wrappers.amp.amp import (
     AmpWrapper,
     MessageProcessor,
     ANSI_ESCAPE,
@@ -206,8 +200,10 @@ class TestGitTracking(unittest.TestCase):
 
         diff = self.wrapper.get_git_diff()
 
-        self.assertIn("diff --git a/test.py b/test.py", diff)
-        self.assertIn("diff --git a/new_file.txt b/new_file.txt", diff)
+        self.assertIsNotNone(diff)
+        if diff is not None:
+            self.assertIn("diff --git a/test.py b/test.py", diff)
+            self.assertIn("diff --git a/new_file.txt b/new_file.txt", diff)
 
     def test_get_git_diff_disabled(self):
         """Test git diff when tracking disabled"""

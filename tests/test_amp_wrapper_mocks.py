@@ -10,13 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 
-# Add the project root to the Python path
-import sys
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-from integrations.cli_wrappers.amp.amp import AmpWrapper, MessageProcessor  # noqa: E402
+from integrations.cli_wrappers.amp.amp import AmpWrapper, MessageProcessor
 
 
 class MockAmpProcess:
@@ -165,7 +159,7 @@ class TestOmnaraAPIIntegration(unittest.TestCase):
     def setUp(self):
         self.wrapper = AmpWrapper(api_key="test")
         self.mock_client = MockOmnaraClient()
-        self.wrapper.omnara_client_sync = self.mock_client
+        self.wrapper.omnara_client_sync = self.mock_client  # type: ignore
 
         # Load API response fixtures
         self.api_fixtures_dir = Path(__file__).parent / "fixtures" / "api_responses"
@@ -252,6 +246,8 @@ class TestAsyncOperations(unittest.TestCase):
     def setUp(self):
         self.wrapper = AmpWrapper(api_key="test")
         self.mock_async_client = AsyncMock()
+        # Mock the close method to prevent warnings during cleanup
+        self.mock_async_client.close = AsyncMock(return_value=None)
         self.wrapper.omnara_client_async = self.mock_async_client
 
     def test_input_request(self):
@@ -371,8 +367,10 @@ class TestErrorHandling(unittest.TestCase):
                 diff = self.wrapper.get_git_diff()
 
                 # Should handle binary files gracefully
-                self.assertIn("binary.jpg", diff)
-                self.assertIn("[Binary or unreadable file]", diff)
+                self.assertIsNotNone(diff)
+                if diff is not None:
+                    self.assertIn("binary.jpg", diff)
+                    self.assertIn("[Binary or unreadable file]", diff)
 
 
 if __name__ == "__main__":

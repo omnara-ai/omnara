@@ -1,1 +1,0 @@
-# AmpWrapper test package

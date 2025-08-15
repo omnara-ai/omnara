@@ -11,13 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-# Add the project root to the Python path
-import sys
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-from integrations.cli_wrappers.amp.amp import AmpWrapper, MessageProcessor  # noqa: E402
+from integrations.cli_wrappers.amp.amp import AmpWrapper, MessageProcessor
 
 
 class TestMemoryLeaks(unittest.TestCase):
@@ -252,16 +246,17 @@ class TestResourceCleanup(unittest.TestCase):
         # Create temporary log file
         import tempfile
 
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
-            self.wrapper.debug_log_file = f
-            temp_path = f.name
+        temp_file = tempfile.NamedTemporaryFile(mode="w", delete=False)
+        temp_path = temp_file.name
+        self.wrapper.debug_log_file = temp_file  # type: ignore
 
         # Close the file
         if self.wrapper.debug_log_file and not self.wrapper.debug_log_file.closed:
             self.wrapper.debug_log_file.close()
 
         # Verify it's closed
-        self.assertTrue(self.wrapper.debug_log_file.closed)
+        if self.wrapper.debug_log_file is not None:
+            self.assertTrue(self.wrapper.debug_log_file.closed)
 
         # Clean up temp file
         Path(temp_path).unlink()
@@ -308,7 +303,8 @@ class TestDuplicateMessagePrevention(unittest.TestCase):
         processor.process_user_message_sync("Test message", from_web=False)
 
         # Should not have called send_user_message
-        self.wrapper.omnara_client_sync.send_user_message.assert_not_called()
+        # Type ignore because we know this is a Mock in setUp
+        self.wrapper.omnara_client_sync.send_user_message.assert_not_called()  # type: ignore
 
     def test_no_duplicate_assistant_messages(self):
         """Test that identical assistant messages are not sent multiple times"""
@@ -319,7 +315,8 @@ class TestDuplicateMessagePrevention(unittest.TestCase):
         processor.process_assistant_message_sync("Same response")
 
         # Should have been called twice (no deduplication for assistant messages)
-        self.assertEqual(self.wrapper.omnara_client_sync.send_message.call_count, 2)
+        # Type ignore because we know this is a Mock in setUp
+        self.assertEqual(self.wrapper.omnara_client_sync.send_message.call_count, 2)  # type: ignore
 
     def test_web_ui_message_deduplication(self):
         """Test web UI message deduplication works correctly"""

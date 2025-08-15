@@ -400,6 +400,7 @@ class AmpWrapper:
         # Debug log file
         if (
             getattr(self, "debug_log_file", None)
+            and self.debug_log_file is not None
             and hasattr(self.debug_log_file, "closed")
             and not self.debug_log_file.closed
         ):
@@ -409,7 +410,10 @@ class AmpWrapper:
                 self.debug_log_file.close()
 
         # Async client
-        if getattr(self, "omnara_client_async", None):
+        if (
+            getattr(self, "omnara_client_async", None)
+            and self.omnara_client_async is not None
+        ):
             try:
                 # Use a private loop so we are independent from the caller
                 loop = asyncio.new_event_loop()
@@ -420,7 +424,10 @@ class AmpWrapper:
             self.omnara_client_async = None
 
         # Sync client
-        if getattr(self, "omnara_client_sync", None):
+        if (
+            getattr(self, "omnara_client_sync", None)
+            and self.omnara_client_sync is not None
+        ):
             try:
                 self.omnara_client_sync.close()
             except Exception:
@@ -428,7 +435,7 @@ class AmpWrapper:
             self.omnara_client_sync = None
 
         # PTY file descriptor
-        if getattr(self, "master_fd", None):
+        if getattr(self, "master_fd", None) and self.master_fd is not None:
             try:
                 os.close(self.master_fd)
             except OSError:
@@ -445,7 +452,7 @@ class AmpWrapper:
             self.temp_settings_path = None
 
         # Child process
-        if getattr(self, "child_pid", None):
+        if getattr(self, "child_pid", None) and self.child_pid is not None:
             try:
                 os.kill(self.child_pid, signal.SIGTERM)
             except ProcessLookupError:
@@ -746,6 +753,8 @@ class AmpWrapper:
         self.log("[DEBUG] select() says data available on master_fd")
 
         try:
+            if self.master_fd is None:
+                return False
             data = os.read(self.master_fd, 4096)
             self.log(f"[DEBUG] Read {len(data) if data else 0} bytes from master_fd")
 
@@ -1023,10 +1032,9 @@ class AmpWrapper:
                     self.log(f"[DEBUG] Fallback captured: {clean_line[:80]}")
 
         if all_lines:
-            self.log(
-                f"[INFO] Sending fallback response ({len('\\n'.join(all_lines))} chars)"
-            )
-            return "\n".join(all_lines)
+            response_text = "\n".join(all_lines)
+            self.log(f"[INFO] Sending fallback response ({len(response_text)} chars)")
+            return response_text
         else:
             self.log("[INFO] No response text captured, sending default")
             return "AMP has completed processing."
@@ -1330,7 +1338,8 @@ class AmpWrapper:
 
     async def idle_monitor_loop(self):
         """Monitor for idle state and request input when needed"""
-        await self.omnara_client_async._ensure_session()
+        if self.omnara_client_async is not None:
+            await self.omnara_client_async._ensure_session()
 
         while self.running:
             try:

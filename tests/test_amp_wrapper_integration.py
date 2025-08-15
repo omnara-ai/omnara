@@ -8,6 +8,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -15,13 +16,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-# Add the project root to the Python path
-import sys
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-from integrations.cli_wrappers.amp.amp import AmpWrapper  # noqa: E402
+from integrations.cli_wrappers.amp.amp import AmpWrapper
 
 
 class TestPTYIntegration(unittest.TestCase):
@@ -83,37 +78,71 @@ class TestPTYIntegration(unittest.TestCase):
                 self.assertEqual(os.environ.get("COLUMNS"), "120")
                 self.assertEqual(os.environ.get("ROWS"), "30")
 
-    @patch("pty.fork")
-    @patch("select.select")
-    def test_stdin_passthrough(self, mock_select, mock_fork):
+    def test_stdin_passthrough(self):
         """Test that user input reaches Amp"""
-        mock_fork.return_value = (12345, 10)
-        mock_select.return_value = ([sys.stdin], [], [])
+        # Mock successful fork
+        mock_fork_return = (12345, 10)  # child_pid, master_fd
+
+        # Track test progress
+        write_called = threading.Event()
+
+        def mock_read_side_effect(fd, size):
+            """Mock reading from stdin"""
+            if fd == 0:  # stdin file descriptor
+                # Return test input on first read
+                return b"test input\n"
+            return b""
+
+        def mock_write_side_effect(fd, data):
+            """Mock writing to master_fd"""
+            if fd == 10 and data == b"test input\n":
+                write_called.set()
+                # Stop the wrapper after successful write
+                self.wrapper.running = False
+            return len(data)
 
         with (
-            patch("os.read", return_value=b"test input\n"),
-            patch("os.write") as mock_write,
+            patch("pty.fork", return_value=mock_fork_return),
+            patch("os.read", side_effect=mock_read_side_effect),
+            patch("os.write", side_effect=mock_write_side_effect) as mock_write,
             patch("termios.tcgetattr"),
             patch("tty.setraw"),
             patch("fcntl.fcntl"),
-            patch("os.waitpid", return_value=(0, 0)),
-        ):  # No child exit
-            # Set up minimal state
-            self.wrapper.running = True
+            patch("os.waitpid", return_value=(0, 0)),  # Never exit during test
+            patch("os.get_terminal_size", return_value=(80, 24)),
+            patch("sys.stdin.fileno", return_value=0),  # Mock stdin file descriptor
+        ):
+            # Control select to return stdin has data initially
+            select_call_count = [0]
 
-            # Start in thread
-            thread = threading.Thread(target=self.wrapper.run_amp_with_pty)
-            thread.daemon = True
-            thread.start()
+            def select_side_effect(rlist, wlist, xlist, timeout):
+                select_call_count[0] += 1
+                # Return stdin ready for first 5 calls to handle timing
+                if select_call_count[0] <= 5 and sys.stdin in rlist:
+                    return ([sys.stdin], [], [])
+                return ([], [], [])
 
-            time.sleep(0.1)
+            with patch("select.select", side_effect=select_side_effect):
+                # Set up minimal state
+                self.wrapper.running = True
 
-            # Stop
-            self.wrapper.running = False
-            thread.join(timeout=1)
+                # Start in thread
+                thread = threading.Thread(target=self.wrapper.run_amp_with_pty)
+                thread.daemon = True
+                thread.start()
 
-            # Should have written input to master_fd
-            mock_write.assert_called()
+                # Wait for write to be called
+                success = write_called.wait(timeout=3.0)
+
+                # Clean up
+                self.wrapper.running = False
+                thread.join(timeout=2)
+
+                # Verify write was called
+                self.assertTrue(success, "Write was not called within timeout")
+                mock_write.assert_called()
+                # Verify it was called with the correct arguments
+                mock_write.assert_any_call(10, b"test input\n")
 
 
 class TestOutputProcessing(unittest.TestCase):
@@ -200,7 +229,8 @@ class TestGitIntegration(unittest.TestCase):
 
         self.assertTrue(self.wrapper.git_diff_enabled)
         self.assertIsNotNone(self.wrapper.initial_git_hash)
-        self.assertEqual(len(self.wrapper.initial_git_hash), 40)  # SHA-1 hash
+        if self.wrapper.initial_git_hash is not None:
+            self.assertEqual(len(self.wrapper.initial_git_hash), 40)  # SHA-1 hash
 
     def test_git_diff_generation(self):
         """Test git diff generation with real files"""
@@ -215,9 +245,11 @@ class TestGitIntegration(unittest.TestCase):
 
         diff = self.wrapper.get_git_diff()
 
-        self.assertIn("new_file.txt", diff)
-        self.assertIn("Modified content", diff)
-        self.assertIn("diff --git", diff)
+        self.assertIsNotNone(diff)
+        if diff is not None:
+            self.assertIn("new_file.txt", diff)
+            self.assertIn("Modified content", diff)
+            self.assertIn("diff --git", diff)
 
     def test_git_diff_untracked_files(self):
         """Test that untracked files appear in diff"""
@@ -229,9 +261,11 @@ class TestGitIntegration(unittest.TestCase):
 
         diff = self.wrapper.get_git_diff()
 
-        self.assertIn("untracked.py", diff)
-        self.assertIn('print("Hello from untracked file")', diff)
-        self.assertIn("new file mode", diff)
+        self.assertIsNotNone(diff)
+        if diff is not None:
+            self.assertIn("untracked.py", diff)
+            self.assertIn('print("Hello from untracked file")', diff)
+            self.assertIn("new file mode", diff)
 
 
 class TestSignalHandling(unittest.TestCase):
