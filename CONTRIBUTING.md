@@ -25,7 +25,7 @@ Thanks for your interest in contributing!
 
 ## Code Style
 
-- Python 3.11+
+- Python 3.10+
 - Type hints required
 - Follow existing patterns
 - Tests for new features
