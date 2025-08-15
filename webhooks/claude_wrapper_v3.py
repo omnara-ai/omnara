@@ -29,7 +29,11 @@ from typing import Any, Dict, Optional
 
 from omnara.sdk.async_client import AsyncOmnaraClient
 from omnara.sdk.client import OmnaraClient
+
 from omnara.sdk.exceptions import AuthenticationError, APIError
+
+# Import session reset handler
+from webhooks.session_reset_handler import SessionResetHandler
 
 
 # Constants
@@ -189,6 +193,10 @@ class ClaudeWrapperV3:
         self.master_fd = None
         self.original_tty_attrs = None
         self.input_queue = deque()
+        self.stdin_line_buffer = ""  # Buffer to accumulate stdin input until Enter
+
+        # Session reset handler
+        self.reset_handler = SessionResetHandler(log_func=self.log)
 
         # Claude JSONL log monitoring
         self.claude_jsonl_path = None
@@ -793,27 +801,77 @@ class ClaudeWrapperV3:
             return
 
         # Monitor the file
-        try:
-            with open(self.claude_jsonl_path, "r") as f:
-                f.seek(0)  # Start from beginning
+        while self.running:
+            try:
+                with open(self.claude_jsonl_path, "r") as f:
+                    f.seek(0)  # Start from beginning
+                    self.log(
+                        f"[INFO] Monitoring JSONL file: {self.claude_jsonl_path.name}"
+                    )
 
-                while self.running:
-                    line = f.readline()
-                    if line:
-                        try:
-                            data = json.loads(line.strip())
-                            # Process directly with sync client
-                            self.process_claude_log_entry(data)
-                        except json.JSONDecodeError:
-                            pass
-                    else:
-                        # Check if file still exists
-                        if not self.claude_jsonl_path.exists():
-                            break
-                        time.sleep(0.1)
+                    while self.running:
+                        # Check for session reset
+                        if self.reset_handler.is_reset_pending():
+                            self.log(
+                                "[INFO] Session reset pending, waiting for new JSONL file..."
+                            )
 
-        except Exception as e:
-            self.log(f"[ERROR] Error monitoring Claude JSONL: {e}")
+                            project_dir = self.get_project_log_dir()
+
+                            if project_dir:
+                                # Look for new session file
+                                new_jsonl_path = (
+                                    self.reset_handler.find_reset_session_file(
+                                        project_dir=project_dir,
+                                        current_file=self.claude_jsonl_path,
+                                        max_wait=10.0,
+                                    )
+                                )
+                            else:
+                                new_jsonl_path = None
+                                self.log("[WARNING] Could not get project directory")
+
+                            if new_jsonl_path:
+                                old_path = self.claude_jsonl_path.name
+                                self.claude_jsonl_path = new_jsonl_path
+                                self.log(
+                                    f"[INFO] ✅ Switched from {old_path} to {new_jsonl_path.name}"
+                                )
+
+                                # Reset the handler state
+                                self.reset_handler.clear_reset_state()
+
+                                # Break out of inner loop to reopen with new file
+                                break
+                            else:
+                                # Couldn't find new file, continue with current
+                                self.log(
+                                    "[WARNING] Could not find new session file, continuing with current"
+                                )
+                                self.reset_handler.clear_reset_state()
+
+                        # Read next line from current file
+                        line = f.readline()
+                        if line:
+                            try:
+                                data = json.loads(line.strip())
+                                # Process directly with sync client
+                                self.process_claude_log_entry(data)
+                            except json.JSONDecodeError:
+                                pass
+                        else:
+                            # Check if file still exists
+                            if not self.claude_jsonl_path.exists():
+                                self.log(
+                                    "[WARNING] Current JSONL file no longer exists"
+                                )
+                                break
+                            time.sleep(0.1)
+
+            except Exception as e:
+                self.log(f"[ERROR] Error monitoring Claude JSONL: {e}")
+                # If we hit an error, wait a bit before retrying
+                time.sleep(1)
 
     def process_claude_log_entry(self, data: Dict[str, Any]):
         """Process a log entry from Claude's JSONL (sync)"""
@@ -1363,6 +1421,43 @@ class ClaudeWrapperV3:
                         # Read available data (larger buffer for efficiency)
                         data = os.read(sys.stdin.fileno(), 65536)
                         if data:
+                            # Log user input for debugging
+                            try:
+                                # Try to decode and log readable text
+                                text_input = data.decode("utf-8", errors="replace")
+
+                                # Accumulate input in line buffer
+                                self.stdin_line_buffer += text_input
+
+                                # Check if Enter was pressed (newline or carriage return)
+                                if "\n" in text_input or "\r" in text_input:
+                                    # Log the complete line
+                                    line = self.stdin_line_buffer.strip()
+                                    if line:
+                                        self.log(f"[STDIN] User entered: {repr(line)}")
+
+                                        # Check for special commands like /clear
+                                        if line.startswith("/"):
+                                            self.log(
+                                                f"[STDIN] ⚠️ Detected slash command: {line}"
+                                            )
+
+                                            # Check for session reset commands
+                                            if self.reset_handler.check_for_reset_command(
+                                                line
+                                            ):
+                                                self.reset_handler.mark_reset_detected(
+                                                    line
+                                                )
+
+                                    # Reset buffer for next line
+                                    self.stdin_line_buffer = ""
+                            except Exception:
+                                # If decode fails, log the raw bytes
+                                self.log(
+                                    f"[STDIN] User input (raw bytes): {data[:100]}"
+                                )
+
                             # Store data in a buffer attribute if PTY is full
                             if not hasattr(self, "pending_write_buffer"):
                                 self.pending_write_buffer = b""
@@ -1438,6 +1533,10 @@ class ClaudeWrapperV3:
                     self.log(
                         f"[INFO] Sending web UI message to Claude: {content[:50]}..."
                     )
+
+                    # Check for session reset commands from web UI
+                    if self.reset_handler.check_for_reset_command(content.strip()):
+                        self.reset_handler.mark_reset_detected(content.strip())
 
                     # Send to Claude
                     os.write(self.master_fd, content.encode())
