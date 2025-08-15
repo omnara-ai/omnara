@@ -635,9 +635,34 @@ class AmpWrapper:
     
     def monitor_amp_output(self):
         """Monitor Amp's terminal output in a separate thread"""
+        if not self._wait_for_master_fd():
+            return
+        
+        self.log(f"[INFO] master_fd is ready (fd={self.master_fd}), starting output monitoring")
+        
+        loop_count = 0
+        while self.running and self.master_fd is not None:
+            loop_count += 1
+            self._log_monitor_status(loop_count)
+            
+            try:
+                if self._has_data_available():
+                    if not self._process_output_data():
+                        break
+                else:
+                    self._check_idle_completion()
+            except Exception as e:
+                self.log(f"[ERROR] Output monitor error: {e}")
+                import traceback
+                self.log(f"[DEBUG] Traceback: {traceback.format_exc()}")
+                break
+        
+        self.log(f"[INFO] Output monitor stopped - running={self.running}, master_fd={self.master_fd}, loop_count={loop_count}")
+    
+    def _wait_for_master_fd(self) -> bool:
+        """Wait for master_fd to be created by PTY thread"""
         self.log("[INFO] Starting Amp output monitor")
         
-        # Wait for master_fd to be created by the PTY thread
         wait_time = 0
         while self.master_fd is None and wait_time < 10:
             time.sleep(0.1)
@@ -645,430 +670,372 @@ class AmpWrapper:
         
         if self.master_fd is None:
             self.log("[ERROR] master_fd not created after 10 seconds, exiting monitor")
+            return False
+        
+        return True
+    
+    def _log_monitor_status(self, loop_count: int) -> None:
+        """Log periodic monitor status"""
+        if loop_count % 50 == 0:  # Log every 5 seconds (0.1 * 50)
+            self.log(f"[DEBUG] Monitor loop still running, iteration {loop_count}")
+    
+    def _has_data_available(self) -> bool:
+        """Check if data is available on master_fd"""
+        r, _, _ = select.select([self.master_fd], [], [], 0.1)
+        return self.master_fd in r
+    
+    def _process_output_data(self) -> bool:
+        """Process available output data. Returns False if should break main loop."""
+        self.log(f"[DEBUG] select() says data available on master_fd")
+        
+        try:
+            data = os.read(self.master_fd, 4096)
+            self.log(f"[DEBUG] Read {len(data) if data else 0} bytes from master_fd")
+            
+            if not data:
+                self.log("[INFO] EOF on master_fd - AMP has closed PTY")
+                return False
+            
+            return self._handle_output_data(data)
+            
+        except OSError as e:
+            return self._handle_read_error(e)
+    
+    def _handle_output_data(self, data: bytes) -> bool:
+        """Handle the actual output data processing"""
+        # Write to stdout for user to see (do this FIRST before decoding)
+        os.write(sys.stdout.fileno(), data)
+        
+        output = data.decode('utf-8', errors='ignore')
+        
+        # Update buffers and timing
+        self._update_buffers(output)
+        
+        # Check for Amp ready state
+        self._check_amp_ready(output)
+        
+        # Process response if waiting
+        if self.waiting_for_response:
+            self._process_response_output(output)
+        
+        return True
+    
+    def _handle_read_error(self, error: OSError) -> bool:
+        """Handle read errors from master_fd"""
+        if error.errno in (35, 11):  # EAGAIN/EWOULDBLOCK
+            # This is expected - select() sometimes gives false positives with PTYs
+            time.sleep(0.01)  # 10ms
+            return True
+        else:
+            self.log(f"[ERROR] OSError reading from master_fd: {error}")
+            return False
+    
+    def _update_buffers(self, output: str) -> None:
+        """Update terminal buffers and manage their size"""
+        self.terminal_buffer += output
+        self.output_buffer += output
+        self.last_output_time = time.time()
+        
+        self.log(f"[DEBUG] Got output chunk ({len(output)} bytes): {repr(output[:200])}")
+        
+        # Keep terminal buffer size manageable
+        if len(self.terminal_buffer) > 10000:
+            self.terminal_buffer = self.terminal_buffer[-5000:]
+    
+    def _check_amp_ready(self, output: str) -> None:
+        """Check if Amp shows ready/welcome message"""
+        if not self.amp_ready and re.search(PATTERNS['welcome'], output):
+            self.amp_ready = True
+            self.log("[INFO] Amp is ready")
+    
+    def _process_response_output(self, output: str) -> None:
+        """Process output when waiting for a response"""
+        clean_output = self.strip_ansi(output)
+        
+        # Check if AMP started processing
+        if self._check_inference_start(clean_output):
             return
         
-        self.log(f"[INFO] master_fd is ready (fd={self.master_fd}), starting output monitoring")
-        self.log(f"[DEBUG] Initial conditions: running={self.running}, master_fd={self.master_fd}, master_fd type={type(self.master_fd)}")
+        # If inference has started, capture output
+        if hasattr(self, 'inference_started') and self.inference_started:
+            self._capture_response_output(output, clean_output)
         
-        loop_count = 0
-        while self.running and self.master_fd is not None:
-            loop_count += 1
-            if loop_count % 50 == 0:  # Log every 5 seconds (0.1 * 50)
-                self.log(f"[DEBUG] Monitor loop still running, iteration {loop_count}, running={self.running}, master_fd={self.master_fd}")
-            
-            try:
-                # Check for output
-                r, _, _ = select.select([self.master_fd], [], [], 0.1)
+        # Check for immediate completion signals
+        if self._check_immediate_completion(clean_output):
+            self._process_complete_response()
+    
+    def _check_inference_start(self, clean_output: str) -> bool:
+        """Check if AMP started processing and initialize response capture"""
+        if "Running inference" in clean_output:
+            if not hasattr(self, 'inference_started') or not self.inference_started:
+                self.log("[INFO] AMP started processing")
+                self.message_processor.process_assistant_message_sync("AMP is processing your request...")
+                self._initialize_response_capture()
+                return True
+        return False
+    
+    def _initialize_response_capture(self) -> None:
+        """Initialize response capture state"""
+        self.inference_started = True
+        self.waiting_for_response = True
+        self.response_buffer = []
+        self.last_activity_time = time.time()
+        self.has_response_content = False
+        self.log("[DEBUG] Started response capture")
+    
+    def _capture_response_output(self, output: str, clean_output: str) -> None:
+        """Capture and buffer output for response processing"""
+        # Store the RAW chunk (with ANSI codes) for later processing
+        self.response_buffer.append(output)
+        self.last_activity_time = time.time()
+        self.log(f"[DEBUG] Buffering chunk ({len(output)} chars, raw with ANSI)")
+        
+        # Check if we're seeing actual response content
+        self._detect_response_content(clean_output)
+    
+    def _detect_response_content(self, clean_output: str) -> None:
+        """Detect when actual response content appears (not just thinking)"""
+        if "Thinking" in ''.join(self.response_buffer) and not self.has_response_content:
+            lines = clean_output.split('\n')
+            for line in lines:
+                stripped = line.strip()
                 
-                if self.master_fd in r:
-                    self.log(f"[DEBUG] select() says data available on master_fd")
-                    try:
-                        data = os.read(self.master_fd, 4096)
-                        self.log(f"[DEBUG] Read {len(data) if data else 0} bytes from master_fd")
-                        if not data:
-                            # EOF - child process closed the PTY
-                            self.log("[INFO] EOF on master_fd - AMP has closed PTY")
-                            break
-                        if data:
-                            # Write to stdout for user to see (do this FIRST before decoding)
-                            os.write(sys.stdout.fileno(), data)
-                            
-                            output = data.decode('utf-8', errors='ignore')
-                            
-                            # We'll capture response text in the processing/completion section below
-                            
-                            self.terminal_buffer += output
-                            self.output_buffer += output
-                            self.last_output_time = time.time()
-                            
-                            # Log ALL output for debugging
-                            self.log(f"[DEBUG] Got output chunk ({len(output)} bytes): {repr(output[:200])}")
-                            
-                            # Keep terminal buffer size manageable
-                            if len(self.terminal_buffer) > 10000:
-                                self.terminal_buffer = self.terminal_buffer[-5000:]
-                            
-                            # Check if Amp is ready (shows welcome message)
-                            if not self.amp_ready and re.search(PATTERNS['welcome'], output):
-                                self.amp_ready = True
-                                self.log("[INFO] Amp is ready")
-                            
-                            # Check for AMP processing/completion
-                            if self.waiting_for_response:
-                                clean_output = self.strip_ansi(output)
-                                
-                                # Check if AMP started processing
-                                if "Running inference" in clean_output:
-                                    if not hasattr(self, 'inference_started') or not self.inference_started:
-                                        self.log("[INFO] AMP started processing")
-                                        self.message_processor.process_assistant_message_sync("AMP is processing your request...")
-                                        self.inference_started = True
-                                        self.waiting_for_response = True  # Ensure this is set
-                                        # Clear the response buffer to start fresh
-                                        self.response_buffer = []
-                                        self.last_activity_time = time.time()
-                                        self.has_response_content = False
-                                        self.log("[DEBUG] Started response capture")
-                                
-                                # If inference has started, capture ALL output INCLUDING ANSI CODES
-                                if hasattr(self, 'inference_started') and self.inference_started:
-                                    # Store the RAW chunk (with ANSI codes) for later processing
-                                    self.response_buffer.append(output)  # Store raw output, not clean
-                                    self.last_activity_time = time.time()
-                                    self.log(f"[DEBUG] Buffering chunk ({len(output)} chars, raw with ANSI)")
-                                    
-                                    # Check if we're seeing actual response content (not UI)
-                                    # The response appears AFTER the thinking section completes
-                                    # We need to see a blank line or end of thinking, then new text
-                                    full_buffer = ''.join(self.response_buffer)
-                                    
-                                    # Look for the pattern: thinking text ends, then response starts
-                                    # The thinking is usually indented or continues from "The user..."
-                                    # The actual response is separate and not indented
-                                    if "Thinking" in full_buffer and not self.has_response_content:
-                                        lines = clean_output.split('\n')
-                                        for i, line in enumerate(lines):
-                                            stripped = line.strip()
-                                            
-                                            # Skip UI elements
-                                            if any(ui in line for ui in ['───', '╭', '╮', '╯', '╰', '│', 'Ctrl+R', '┃']):
-                                                continue
-                                            
-                                            # Check if this looks like the actual response
-                                            # Response characteristics:
-                                            # - Not part of thinking (doesn't continue the thought)
-                                            # - Usually starts with a capital letter
-                                            # - Is a complete sentence/greeting
-                                            # - Doesn't contain "user" or thinking-related phrases
-                                            if (stripped and len(stripped) > 5 and
-                                                not stripped.startswith("The user") and
-                                                not "not a request" in stripped.lower() and
-                                                not "following the guidelines" in stripped.lower() and
-                                                not "I should" in stripped.lower() and
-                                                not "I don't need" in stripped.lower() and
-                                                not "need to use" in stripped.lower() and
-                                                not "Thinking" in stripped and
-                                                not "Running inference" in stripped):
-                                                
-                                                # Check if it looks like a greeting or response
-                                                if (stripped[0].isupper() and  # Starts with capital
-                                                    ('!' in stripped or '?' in stripped or '.' in stripped)):  # Has punctuation
-                                                    self.has_response_content = True
-                                                    self.log(f"[INFO] Detected actual response: {stripped[:50]}")
-                                
-                                # Check for completion based on idle time after seeing response
-                                completion_detected = False
-                                
-                                # Check for thread exit (immediate completion)
-                                if "Thread:" in clean_output or "Continue this thread" in clean_output:
-                                    completion_detected = True
-                                    self.log("[INFO] Detected thread exit")
-                                
-                                # Note: idle detection happens below when no data is available
-                                
-                                if completion_detected:
-                                    if hasattr(self, 'inference_started') and self.inference_started:
-                                        self.log("[INFO] AMP returned to prompt - processing buffered response")
-                                        self.waiting_for_response = False
-                                        self.inference_started = False
-                                        
-                                        # Process all buffered chunks to extract the response
-                                        if hasattr(self, 'response_buffer'):
-                                            full_output = ''.join(self.response_buffer)
-                                            self.log(f"[DEBUG] Full buffered output ({len(full_output)} chars)")
-                                            
-                                            # Use ANSI codes to differentiate thinking from response
-                                            # Thinking typically uses dim/faint text (\x1b[2m or \x1b[90m for gray)
-                                            # Normal response uses regular text (\x1b[0m for reset or no special codes)
-                                            
-                                            response_lines = []
-                                            response_lines_set = set()  # Use set to avoid duplicates
-                                            thinking_lines = []
-                                            last_was_empty = False  # Track consecutive empty lines
-                                            
-                                            # Split into lines while preserving ANSI codes
-                                            raw_lines = full_output.split('\n')
-                                            
-                                            for line in raw_lines:
-                                                # First, check if line has content worth processing
-                                                clean_line = self.strip_ansi(line).strip()
-                                                
-                                                # Skip UI elements
-                                                if any(ui in clean_line for ui in [
-                                                    '───', '╭', '╮', '╯', '╰', '│', 'Running inference', 
-                                                    'Ctrl+R', 'Thread:', 'Continue this thread', '┃'
-                                                ]):
-                                                    continue
-                                                
-                                                # Handle empty lines - preserve single empty lines as paragraph breaks
-                                                if not clean_line:
-                                                    if not last_was_empty and response_lines:
-                                                        # Add empty line for paragraph break if we have content
-                                                        response_lines.append('')
-                                                        last_was_empty = True
-                                                    continue
-                                                
-                                                last_was_empty = False
-                                                
-                                                # Check ANSI codes in the line
-                                                # Dim/gray text codes: \x1b[2m (dim), \x1b[90m (bright black/gray), \x1b[37m (gray)
-                                                # Normal text: \x1b[0m (reset), \x1b[39m (default color), or no codes
-                                                
-                                                # Extract ANSI codes from this line
-                                                codes_in_line = self.extract_ansi_codes(line)
-                                                
-                                                # Debug: Log ANSI codes for analysis (when codes exist)
-                                                if codes_in_line:
-                                                    self.log(f"[DEBUG] ANSI codes in line: {codes_in_line}")
-                                                    self.log(f"[DEBUG] Line content: {clean_line[:80]}")
-                                                
-                                                # Determine if this is thinking (dimmed) or response (normal)
-                                                is_thinking = False
-                                                
-                                                # Check for dim/gray codes that indicate thinking
-                                                for code in codes_in_line:
-                                                    if any(pattern in code for pattern in [
-                                                        '[2m',     # Dim/faint
-                                                        '[90m',    # Bright black (gray)
-                                                        '[37m',    # Light gray
-                                                        '[38;5;',  # 256-color gray shades
-                                                        '[38;2;',  # RGB gray colors
-                                                    ]):
-                                                        is_thinking = True
-                                                        break
-                                                
-                                                # Also check content patterns
-                                                if 'Thinking' in clean_line or '∴' in clean_line:
-                                                    is_thinking = True
-                                                
-                                                # Check for thinking content patterns
-                                                if any(phrase in clean_line.lower() for phrase in [
-                                                    "the user", "i should", "i need to", "this is a", 
-                                                    "this seems", "according to", "let me"
-                                                ]):
-                                                    is_thinking = True
-                                                
-                                                # Check for tool output markers
-                                                is_tool_output = any(marker in clean_line for marker in [
-                                                    '✓', '✔', '⨯', '∿', '≈', 'Web Search', 'Searching'
-                                                ])
-                                                
-                                                # Store based on classification
-                                                if is_thinking:
-                                                    thinking_lines.append(clean_line)
-                                                    self.log(f"[DEBUG] Identified as thinking: {clean_line[:80]}")
-                                                elif len(clean_line) > 3:  # Capture more content
-                                                    # Include tool outputs, bullet points, headers, and regular text
-                                                    if (is_tool_output or  # Tool outputs
-                                                        clean_line.startswith(('*', '-', '•', '▪', '▫', '→', '◦')) or  # Bullet points
-                                                        clean_line.endswith(':') or  # Headers
-                                                        (len(clean_line) > 10 and clean_line[0].isupper()) or  # Regular sentences
-                                                        '**' in clean_line):  # Markdown bold
-                                                        # Smart deduplication - check if this is a partial or extension of existing lines
-                                                        should_add = True
-                                                        line_to_remove = None
-                                                        
-                                                        for existing_line in list(response_lines_set):
-                                                            # If new line contains existing line at the start, replace the old one
-                                                            if clean_line.startswith(existing_line):
-                                                                line_to_remove = existing_line
-                                                                break
-                                                            # If existing line contains new line at the start, don't add new one
-                                                            elif existing_line.startswith(clean_line):
-                                                                should_add = False
-                                                                break
-                                                        
-                                                        if line_to_remove:
-                                                            # Remove the shorter version and add the longer one
-                                                            response_lines_set.remove(line_to_remove)
-                                                            response_lines = [l for l in response_lines if l != line_to_remove]
-                                                            response_lines_set.add(clean_line)
-                                                            response_lines.append(clean_line)
-                                                            self.log(f"[DEBUG] Replaced partial line with complete: {clean_line[:80]}")
-                                                        elif should_add and clean_line not in response_lines_set:
-                                                            response_lines_set.add(clean_line)
-                                                            response_lines.append(clean_line)
-                                                            self.log(f"[DEBUG] Identified as response: {clean_line[:80]}")
-                                            
-                                            # Send the captured response
-                                            if response_lines:
-                                                # Join lines and ensure we strip any remaining ANSI codes
-                                                response_text = '\n'.join(response_lines)
-                                                # Strip any ANSI codes that might have leaked through
-                                                response_text = self.strip_ansi(response_text)
-                                                self.log(f"[INFO] Sending captured response ({len(response_text)} chars): {response_text[:200]}")
-                                            else:
-                                                # Fallback: Try to extract response by looking for text after thinking
-                                                # that doesn't have dim/gray ANSI codes
-                                                self.log(f"[DEBUG] No response lines found, trying fallback extraction")
-                                                self.log(f"[DEBUG] Thinking lines found: {len(thinking_lines)}")
-                                                
-                                                # Look for any non-dimmed text after thinking content
-                                                all_lines = []
-                                                found_thinking = False
-                                                
-                                                for line in raw_lines:
-                                                    clean_line = self.strip_ansi(line).strip()
-                                                    
-                                                    # Track if we've passed thinking section
-                                                    if 'Thinking' in clean_line or '∴' in clean_line:
-                                                        found_thinking = True
-                                                        continue
-                                                    
-                                                    # Skip UI and empty lines
-                                                    if not clean_line or any(ui in clean_line for ui in [
-                                                        '───', '╭', '╮', '╯', '╰', '│', 'Running inference',
-                                                        'Thread:', 'Continue this thread', 'Ctrl+R', '┃'
-                                                    ]):
-                                                        continue
-                                                    
-                                                    # If we found thinking and this line doesn't have dim codes, it might be response
-                                                    if found_thinking and len(clean_line) > 10:
-                                                        codes = self.extract_ansi_codes(line)
-                                                        has_dim_codes = any('[2m' in code or '[90m' in code for code in codes)
-                                                        
-                                                        # If not dimmed and not a thinking pattern, likely response
-                                                        if not has_dim_codes and not any(phrase in clean_line.lower() for phrase in [
-                                                            "the user", "i should", "i need to", "this is a"
-                                                        ]):
-                                                            all_lines.append(clean_line)
-                                                            self.log(f"[DEBUG] Fallback captured: {clean_line[:80]}")
-                                                
-                                                if all_lines:
-                                                    response_text = '\n'.join(all_lines)
-                                                    self.log(f"[INFO] Sending fallback response ({len(response_text)} chars)")
-                                                else:
-                                                    response_text = "AMP has completed processing."
-                                                    self.log("[INFO] No response text captured, sending default")
-                                            
-                                            self.message_processor.process_assistant_message_sync(response_text)
-                                            self.response_buffer = []
-                                            # Reset waiting flag after successfully sending response
-                                            self.waiting_for_response = False
-                                            self.inference_started = False
-                    except OSError as e:
-                        # EAGAIN (35) means no data available yet - this is normal for non-blocking I/O
-                        if e.errno in (35, 11):  # EAGAIN/EWOULDBLOCK
-                            # This is expected - select() sometimes gives false positives with PTYs
-                            # Sleep briefly to avoid busy-waiting
-                            time.sleep(0.01)  # 10ms
-                        else:
-                            self.log(f"[ERROR] OSError reading from master_fd: {e}")
-                            self.log(f"[DEBUG] OSError errno: {e.errno}, strerror: {e.strerror}")
-                            break
-                else:
-                    # No data available - check for idle completion
-                    if (self.waiting_for_response and 
-                        hasattr(self, 'inference_started') and self.inference_started and
-                        hasattr(self, 'has_response_content') and self.has_response_content and
-                        hasattr(self, 'last_activity_time')):
-                        
-                        idle_time = time.time() - self.last_activity_time
-                        if idle_time > 2.0:  # 2 seconds of idle after seeing response
-                            self.log(f"[INFO] Detected completion - idle for {idle_time:.1f}s after response")
-                            self.waiting_for_response = False
-                            self.inference_started = False
-                            
-                            # Process buffered response
-                            if hasattr(self, 'response_buffer'):
-                                full_output = ''.join(self.response_buffer)
-                                self.log(f"[DEBUG] Processing buffered output after idle ({len(full_output)} chars)")
-                                
-                                # Extract response (same logic as above)
-                                lines = full_output.split('\n')
-                                response_lines = []
-                                response_lines_set = set()  # Use set to avoid duplicates
-                                thinking_section_passed = False
-                                last_was_empty = False  # Track consecutive empty lines
-                                
-                                for line in lines:
-                                    # Strip ANSI codes AND whitespace
-                                    stripped = self.strip_ansi(line).strip()
-                                    
-                                    # Skip UI elements
-                                    if any(ui in stripped for ui in ['───', '╭', '╮', '╯', '╰', '│', 'Running inference', 'Ctrl+R']):
-                                        continue
-                                    
-                                    # Handle empty lines - preserve single empty lines as paragraph breaks
-                                    if not stripped:
-                                        if thinking_section_passed and not last_was_empty and response_lines:
-                                            # Add empty line for paragraph break if we have content and past thinking
-                                            response_lines.append('')
-                                            last_was_empty = True
-                                        continue
-                                    
-                                    last_was_empty = False
-                                    if "Thinking" in stripped:
-                                        thinking_section_passed = True
-                                        continue
-                                    # Skip ALL thinking content (multi-line thinking text)
-                                    if thinking_section_passed and any(phrase in stripped.lower() for phrase in [
-                                        "the user", "not a request", "following the guidelines",
-                                        "i should", "i don't need", "need to use", "i need to",
-                                        "this is", "this seems", "according to"
-                                    ]):
-                                        continue
-                                    if "Thread:" in stripped or "Continue this thread" in stripped:
-                                        continue
-                                    # Check for tool output markers
-                                    is_tool_output = any(marker in stripped for marker in [
-                                        '✓', '✔', '⨯', '∿', '≈', 'Web Search', 'Searching'
-                                    ])
-                                    
-                                    # Capture lines that look like actual responses (less restrictive)
-                                    if thinking_section_passed and len(stripped) > 3:
-                                        if (is_tool_output or  # Tool outputs
-                                            stripped.startswith(('*', '-', '•', '▪', '▫', '→', '◦')) or  # Bullet points
-                                            stripped.endswith(':') or  # Headers
-                                            (len(stripped) > 10 and stripped[0].isupper()) or  # Regular sentences
-                                            '**' in stripped):  # Markdown bold
-                                            # Smart deduplication - check if this is a partial or extension of existing lines
-                                            should_add = True
-                                            line_to_remove = None
-                                            
-                                            for existing_line in list(response_lines_set):
-                                                # If new line contains existing line at the start, replace the old one
-                                                if stripped.startswith(existing_line):
-                                                    line_to_remove = existing_line
-                                                    break
-                                                # If existing line contains new line at the start, don't add new one
-                                                elif existing_line.startswith(stripped):
-                                                    should_add = False
-                                                    break
-                                            
-                                            if line_to_remove:
-                                                # Remove the shorter version and add the longer one
-                                                response_lines_set.remove(line_to_remove)
-                                                response_lines = [l for l in response_lines if l != line_to_remove]
-                                                response_lines_set.add(stripped)
-                                                response_lines.append(stripped)
-                                                self.log(f"[DEBUG] Replaced partial line with complete: {stripped[:100]}")
-                                            elif should_add and stripped not in response_lines_set:
-                                                response_lines_set.add(stripped)
-                                                response_lines.append(stripped)
-                                                self.log(f"[DEBUG] Captured response line: {stripped[:100]}")
-                                
-                                if response_lines:
-                                    response_text = '\n'.join(response_lines)
-                                    self.log(f"[INFO] Sending captured response ({len(response_text)} chars)")
-                                else:
-                                    response_text = "AMP has completed processing."
-                                    self.log("[INFO] No response text captured, sending default")
-                                
-                                self.message_processor.process_assistant_message_sync(response_text)
-                                self.response_buffer = []
-                                self.has_response_content = False
-                                # Ensure flags are reset
-                                self.waiting_for_response = False
-                                self.inference_started = False
-            except Exception as e:
-                self.log(f"[ERROR] Output monitor error: {e}")
-                self.log(f"[DEBUG] Exception details: {type(e).__name__}: {str(e)}")
-                import traceback
-                self.log(f"[DEBUG] Traceback: {traceback.format_exc()}")
+                # Skip UI elements
+                if any(ui in line for ui in ['───', '╭', '╮', '╯', '╰', '│', 'Ctrl+R', '┃']):
+                    continue
+                
+                # Check if this looks like actual response (not thinking)
+                if self._is_response_line(stripped):
+                    self.has_response_content = True
+                    self.log(f"[INFO] Detected actual response: {stripped[:50]}")
+                    break
+    
+    def _is_response_line(self, line: str) -> bool:
+        """Check if a line looks like actual response content (not thinking)"""
+        if not line or len(line) <= 5:
+            return False
+        
+        # Exclude thinking patterns
+        thinking_patterns = [
+            "The user", "not a request", "following the guidelines",
+            "I should", "I don't need", "need to use", "Thinking", "Running inference"
+        ]
+        
+        if any(pattern in line for pattern in thinking_patterns):
+            return False
+        
+        # Check if it looks like a greeting or response
+        return (line[0].isupper() and 
+                any(punct in line for punct in ['!', '?', '.']))
+    
+    def _check_immediate_completion(self, clean_output: str) -> bool:
+        """Check for immediate completion signals"""
+        return "Thread:" in clean_output or "Continue this thread" in clean_output
+    
+    def _check_idle_completion(self) -> None:
+        """Check for completion based on idle timeout"""
+        if not self._should_check_idle():
+            return
+        
+        idle_time = time.time() - self.last_activity_time
+        if idle_time > 2.0:  # 2 seconds of idle after seeing response
+            self.log(f"[INFO] Detected completion - idle for {idle_time:.1f}s after response")
+            self._process_complete_response()
+    
+    def _should_check_idle(self) -> bool:
+        """Check if we should perform idle completion check"""
+        return (self.waiting_for_response and 
+                hasattr(self, 'inference_started') and self.inference_started and
+                hasattr(self, 'has_response_content') and self.has_response_content and
+                hasattr(self, 'last_activity_time'))
+    
+    def _process_complete_response(self) -> None:
+        """Process and send the complete buffered response"""
+        if not hasattr(self, 'response_buffer'):
+            return
+        
+        self.log("[INFO] AMP returned to prompt - processing buffered response")
+        self._reset_response_state()
+        
+        full_output = ''.join(self.response_buffer)
+        self.log(f"[DEBUG] Full buffered output ({len(full_output)} chars)")
+        
+        response_text = self._extract_response_from_buffer(full_output)
+        self.message_processor.process_assistant_message_sync(response_text)
+        
+        # Clear buffer and reset state
+        self.response_buffer = []
+        if hasattr(self, 'has_response_content'):
+            self.has_response_content = False
+    
+    def _reset_response_state(self) -> None:
+        """Reset response processing state"""
+        self.waiting_for_response = False
+        self.inference_started = False
+    
+    def _extract_response_from_buffer(self, full_output: str) -> str:
+        """Extract response text from the full buffered output"""
+        # Try ANSI-based extraction first
+        response_text = self._extract_response_using_ansi(full_output)
+        
+        # If no response found, try fallback extraction
+        if response_text == "AMP has completed processing.":
+            response_text = self._extract_response_fallback(full_output)
+        
+        return response_text
+    
+    def _extract_response_using_ansi(self, full_output: str) -> str:
+        """Extract response using ANSI code analysis"""
+        response_lines = []
+        response_lines_set = set()
+        thinking_lines = []
+        
+        raw_lines = full_output.split('\n')
+        
+        for line in raw_lines:
+            clean_line = self.strip_ansi(line).strip()
+            
+            if self._should_skip_line(clean_line):
+                continue
+            
+            # Handle empty lines for paragraph breaks
+            if not clean_line:
+                if response_lines and response_lines[-1] != '':
+                    response_lines.append('')
+                continue
+            
+            # Classify line as thinking or response
+            if self._is_thinking_line(line, clean_line):
+                thinking_lines.append(clean_line)
+                self.log(f"[DEBUG] Identified as thinking: {clean_line[:80]}")
+            elif self._is_response_content_line(clean_line):
+                # Smart deduplication
+                if self._should_add_response_line(clean_line, response_lines_set):
+                    self._add_response_line(clean_line, response_lines, response_lines_set)
+        
+        return self._format_response_text(response_lines, thinking_lines)
+    
+    def _extract_response_fallback(self, full_output: str) -> str:
+        """Fallback response extraction method"""
+        raw_lines = full_output.split('\n')
+        all_lines = []
+        found_thinking = False
+        
+        for line in raw_lines:
+            clean_line = self.strip_ansi(line).strip()
+            
+            # Track if we've passed thinking section
+            if 'Thinking' in clean_line or '∴' in clean_line:
+                found_thinking = True
+                continue
+            
+            # Skip UI and empty lines
+            if self._should_skip_line(clean_line) or not clean_line:
+                continue
+            
+            # If we found thinking and this line doesn't have dim codes, it might be response
+            if found_thinking and len(clean_line) > 10:
+                codes = self.extract_ansi_codes(line)
+                has_dim_codes = any('[2m' in code or '[90m' in code for code in codes)
+                
+                # If not dimmed and not a thinking pattern, likely response
+                if not has_dim_codes and not self._is_thinking_content(clean_line):
+                    all_lines.append(clean_line)
+                    self.log(f"[DEBUG] Fallback captured: {clean_line[:80]}")
+        
+        if all_lines:
+            self.log(f"[INFO] Sending fallback response ({len('\\n'.join(all_lines))} chars)")
+            return '\n'.join(all_lines)
+        else:
+            self.log("[INFO] No response text captured, sending default")
+            return "AMP has completed processing."
+    
+    def _should_skip_line(self, clean_line: str) -> bool:
+        """Check if a line should be skipped during processing"""
+        ui_elements = [
+            '───', '╭', '╮', '╯', '╰', '│', 'Running inference', 
+            'Ctrl+R', 'Thread:', 'Continue this thread', '┃'
+        ]
+        return any(ui in clean_line for ui in ui_elements)
+    
+    def _is_thinking_line(self, line: str, clean_line: str) -> bool:
+        """Check if a line is thinking content based on ANSI codes and content"""
+        # Check for dim/gray ANSI codes
+        codes = self.extract_ansi_codes(line)
+        for code in codes:
+            if any(pattern in code for pattern in ['[2m', '[90m', '[37m', '[38;5;', '[38;2;']):
+                return True
+        
+        # Check content patterns
+        if 'Thinking' in clean_line or '∴' in clean_line:
+            return True
+        
+        return self._is_thinking_content(clean_line)
+    
+    def _is_thinking_content(self, clean_line: str) -> bool:
+        """Check if line content indicates thinking"""
+        thinking_phrases = [
+            "the user", "i should", "i need to", "this is a", 
+            "this seems", "according to", "let me"
+        ]
+        return any(phrase in clean_line.lower() for phrase in thinking_phrases)
+    
+    def _is_response_content_line(self, clean_line: str) -> bool:
+        """Check if line should be included as response content"""
+        if len(clean_line) <= 3:
+            return False
+        
+        # Check for tool output markers
+        tool_markers = ['✓', '✔', '⨯', '∿', '≈', 'Web Search', 'Searching']
+        is_tool_output = any(marker in clean_line for marker in tool_markers)
+        
+        # Include various types of content
+        return (is_tool_output or
+                clean_line.startswith(('*', '-', '•', '▪', '▫', '→', '◦')) or  # Bullet points
+                clean_line.endswith(':') or  # Headers
+                (len(clean_line) > 10 and clean_line[0].isupper()) or  # Regular sentences
+                '**' in clean_line)  # Markdown bold
+    
+    def _should_add_response_line(self, clean_line: str, response_lines_set: set) -> bool:
+        """Check if response line should be added (handles deduplication)"""
+        return clean_line not in response_lines_set
+    
+    def _add_response_line(self, clean_line: str, response_lines: list, response_lines_set: set) -> None:
+        """Add response line with smart deduplication"""
+        should_add = True
+        line_to_remove = None
+        
+        # Check for partial/complete line relationships
+        for existing_line in list(response_lines_set):
+            if clean_line.startswith(existing_line):
+                line_to_remove = existing_line
+                break
+            elif existing_line.startswith(clean_line):
+                should_add = False
                 break
         
-        self.log(f"[INFO] Output monitor stopped - running={self.running}, master_fd={self.master_fd}, loop_count={loop_count}")
+        if line_to_remove:
+            # Replace shorter version with longer one
+            response_lines_set.remove(line_to_remove)
+            response_lines[:] = [l for l in response_lines if l != line_to_remove]
+            response_lines_set.add(clean_line)
+            response_lines.append(clean_line)
+            self.log(f"[DEBUG] Replaced partial line with complete: {clean_line[:80]}")
+        elif should_add:
+            response_lines_set.add(clean_line)
+            response_lines.append(clean_line)
+            self.log(f"[DEBUG] Identified as response: {clean_line[:80]}")
+    
+    def _format_response_text(self, response_lines: list, thinking_lines: list) -> str:
+        """Format the final response text"""
+        if response_lines:
+            response_text = '\n'.join(response_lines)
+            response_text = self.strip_ansi(response_text)  # Strip any remaining ANSI codes
+            self.log(f"[INFO] Sending captured response ({len(response_text)} chars): {response_text[:200]}")
+            return response_text
+        else:
+            self.log(f"[DEBUG] No response lines found, thinking lines: {len(thinking_lines)}")
+            return "AMP has completed processing."
     
     # Removed process_complete_response - we now handle this inline when detecting completion
     
