@@ -1,0 +1,7 @@
+{
+  "message_id": "msg_123456789",
+  "agent_instance_id": "amp_instance_abc123",
+  "queued_user_messages": [],
+  "status": "success",
+  "timestamp": "2025-08-15T10:30:00Z"
+}

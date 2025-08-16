@@ -39,21 +39,21 @@ ruff-format-check:
 
 # Run all tests
 test:
-	pytest
+	python -m pytest
 
 # Run unit tests only (skip integration)
 test-unit:
-	pytest -m "not integration"
+	python -m pytest -m "not integration"
 
 # Run integration tests only
 test-integration:
-	pytest -m integration
+	python -m pytest -m integration
 
 # Run tests with coverage
 test-coverage:
-	pytest --cov=backend --cov=servers --cov=omnara --cov=shared --cov-report=term-missing
+	python -m pytest --cov=backend --cov=servers --cov=omnara --cov=shared --cov-report=term-missing
 
 # Run specific test file or pattern
 # Usage: make test-k ARGS="test_auth"
 test-k:
-	pytest -k "$(ARGS)"
+	python -m pytest -k "$(ARGS)"

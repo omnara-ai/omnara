@@ -1,0 +1,10 @@
+{
+  "message_id": "msg_987654321",
+  "agent_instance_id": "amp_instance_abc123",
+  "queued_user_messages": [
+    "Can you help me with Python?",
+    "What's the weather like?"
+  ],
+  "status": "success",
+  "timestamp": "2025-08-15T10:35:00Z"
+}

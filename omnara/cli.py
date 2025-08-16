@@ -12,6 +12,12 @@ import subprocess
 import json
 import os
 from pathlib import Path
+
+# Add project root to Python path for local development
+if __name__ == "__main__":
+    project_root = Path(__file__).parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
 import webbrowser
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -347,29 +353,57 @@ def ensure_api_key(args):
         raise Exception(f"Authentication failed: {str(e)}")
 
 
-def run_claude_chat(args, unknown_args):
-    """Run the Claude chat integration (default behavior)"""
+def run_agent_chat(args, unknown_args):
+    """Run the agent chat integration (Claude or Amp)"""
     api_key = ensure_api_key(args)
 
     # Import and run directly instead of subprocess
-    from integrations.cli_wrappers.claude_code.claude_wrapper_v3 import (
-        main as claude_wrapper_main,
-    )
 
     # Prepare sys.argv for the claude wrapper
+
+    # Agent configuration mapping
+    AGENT_CONFIGS = {
+        "claude": {
+            "module": "integrations.cli_wrappers.claude_code.claude_wrapper_v3",
+            "function": "main",
+            "argv_name": "claude_wrapper_v3",
+        },
+        "amp": {
+            "module": "integrations.cli_wrappers.amp.amp",
+            "function": "main",
+            "argv_name": "amp_wrapper",
+        },
+    }
+
+    # Get agent configuration
+    agent = getattr(args, "agent", "claude").lower()
+    config = AGENT_CONFIGS.get(agent)
+
+    if not config:
+        raise ValueError(
+            f"Unknown agent: {agent}. Supported agents: {', '.join(AGENT_CONFIGS.keys())}"
+        )
+
+    # Dynamically import the appropriate wrapper
+    import importlib
+
+    module = importlib.import_module(config["module"])
+    wrapper_main = getattr(module, config["function"])
+
+    # Prepare sys.argv for the wrapper
     original_argv = sys.argv
-    new_argv = ["claude_wrapper_v3", "--api-key", api_key]
+    new_argv = [config["argv_name"], "--api-key", api_key]
 
     if hasattr(args, "base_url") and args.base_url:
         new_argv.extend(["--base-url", args.base_url])
 
-    # Add any additional Claude arguments
+    # Add any additional arguments
     if unknown_args:
         new_argv.extend(unknown_args)
 
     try:
         sys.argv = new_argv
-        claude_wrapper_main()
+        wrapper_main()
     finally:
         sys.argv = original_argv
 
@@ -455,6 +489,12 @@ def add_global_arguments(parser):
         default="https://omnara.com",
         help="Base URL of the Omnara frontend for authentication",
     )
+    parser.add_argument(
+        "--agent",
+        choices=["claude", "amp"],
+        default="claude",
+        help="Which AI agent to use (default: claude)",
+    )
 
 
 def main():
@@ -468,6 +508,10 @@ Examples:
   # Start Claude chat (default)
   omnara
   omnara --api-key YOUR_API_KEY
+
+  # Start Amp chat
+  omnara --agent=amp
+  omnara --agent=amp --api-key YOUR_API_KEY
 
   # Start webhook server with Cloudflare tunnel
   omnara serve
@@ -572,8 +616,8 @@ Examples:
     elif args.command == "mcp":
         cmd_mcp(args)
     else:
-        # Default behavior: run Claude chat
-        run_claude_chat(args, unknown_args)
+        # Default behavior: run agent chat (Claude or Amp based on --agent flag)
+        run_agent_chat(args, unknown_args)
 
 
 if __name__ == "__main__":

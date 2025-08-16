@@ -59,13 +59,13 @@ async def get_subscription(
     # Fetch additional details from Stripe if available
     if subscription.provider == "stripe" and subscription.provider_subscription_id:
         try:
-            stripe_sub = stripe.Subscription.retrieve(
+            stripe_sub: stripe.Subscription = stripe.Subscription.retrieve(  # type: ignore
                 subscription.provider_subscription_id
             )
             response.current_period_end = datetime.fromtimestamp(
-                stripe_sub.current_period_end
+                stripe_sub.current_period_end  # type: ignore
             )
-            response.cancel_at_period_end = stripe_sub.cancel_at_period_end
+            response.cancel_at_period_end = stripe_sub.cancel_at_period_end  # type: ignore
         except Exception as e:
             logger.error(f"Failed to fetch Stripe subscription details: {e}")
 
