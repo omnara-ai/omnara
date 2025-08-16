@@ -16,6 +16,8 @@ from shared.database.utils import sanitize_git_diff
 from sqlalchemy.orm import Session
 from fastmcp import Context
 
+from shared.webhook_utils import trigger_webhook_if_exists
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,6 +140,7 @@ def create_agent_message(
     instance_id: UUID,
     content: str,
     requires_user_input: bool = False,
+    metadata: dict | None = None,
 ) -> Message:
     """Create a new agent message without committing"""
     instance = db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
@@ -152,6 +155,7 @@ def create_agent_message(
         sender_type=SenderType.AGENT,
         content=content,
         requires_user_input=requires_user_input,
+        message_metadata=metadata,
     )
     db.add(message)
     db.flush()  # Flush to get the message ID
@@ -298,6 +302,7 @@ async def send_agent_message(
     agent_type: str | None = None,
     requires_user_input: bool = False,
     git_diff: str | None = None,
+    webhook_url: str | None = None,
 ) -> tuple[str, str, list[Message]]:
     """High-level function to send an agent message and get queued user messages.
 
@@ -316,6 +321,7 @@ async def send_agent_message(
         agent_type: Type of agent (required if creating new instance)
         requires_user_input: Whether this is a question requiring response
         git_diff: Optional git diff to update on the instance
+        webhook_url: Optional webhook URL to be called when user responds
 
     Returns:
         Tuple of (agent_instance_id, message_id, list of queued user message contents)
@@ -335,12 +341,18 @@ async def send_agent_message(
 
     queued_messages = get_queued_user_messages(db, instance.id, None)
 
+    # Prepare message metadata if webhook_url is provided
+    message_metadata = None
+    if webhook_url:
+        message_metadata = {"webhook_url": webhook_url}
+
     # Create the message (this will update last_read_message_id)
     message = create_agent_message(
         db=db,
         instance_id=instance.id,
         content=content,
         requires_user_input=requires_user_input,
+        metadata=message_metadata,
     )
 
     # Handle the None case (shouldn't happen here since we just created the message)
@@ -395,5 +407,9 @@ def create_user_message(
     # Update last_read_message_id if requested
     if mark_as_read:
         instance.last_read_message_id = message.id
+
+    # Trigger webhook if one exists for this response
+    # This runs asynchronously in the background
+    trigger_webhook_if_exists(db, UUID(agent_instance_id), message.id, content)
 
     return str(message.id), mark_as_read

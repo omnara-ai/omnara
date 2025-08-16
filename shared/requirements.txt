@@ -5,3 +5,4 @@ pydantic-settings==2.9.1
 python-dotenv==1.1.0
 alembic==1.14.0
 sentry-sdk[fastapi]==2.32.0
+httpx>=0.25.0

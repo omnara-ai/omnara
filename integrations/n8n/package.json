@@ -1,0 +1,62 @@
+{
+  "name": "n8n-nodes-omnara",
+  "version": "0.1.0",
+  "description": "n8n nodes for Omnara - Human-in-the-loop communication platform",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "omnara",
+    "human-in-the-loop",
+    "agent",
+    "communication"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/omnara/omnara",
+  "author": {
+    "name": "Omnara",
+    "email": "support@omnara.io"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omnara/omnara.git"
+  },
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc && cp -r nodes/Omnara/*.png dist/nodes/Omnara/ 2>/dev/null || true",
+    "dev": "tsc --watch",
+    "format": "prettier nodes credentials --write",
+    "lint": "eslint nodes credentials --ext .ts",
+    "lintfix": "eslint nodes credentials --ext .ts --fix",
+    "prepublishOnly": "npm run build && npm run lint"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/OmnaraApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Omnara/Omnara.node.js",
+      "dist/nodes/Omnara/OmnaraTool.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-n8n-nodes-base": "^1.16.1",
+    "n8n-workflow": "^1.19.0",
+    "prettier": "^3.1.0",
+    "typescript": "^5.3.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "^1.19.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

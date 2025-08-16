@@ -18,6 +18,8 @@ from shared.database.subscription_models import BillingEvent, Subscription
 from sqlalchemy import case, desc, func
 from sqlalchemy.orm import Session, joinedload, subqueryload
 
+from shared.webhook_utils import trigger_webhook_if_exists
+
 # Import Pydantic models for type-safe returns
 from backend.models import (
     AgentInstanceResponse,
@@ -497,6 +499,10 @@ def submit_user_message(
 
     db.commit()
     db.refresh(user_message)
+
+    # Trigger webhook if one exists for this response
+    # This runs asynchronously in the background
+    trigger_webhook_if_exists(db, instance_id, user_message.id, content)
 
     return UserMessageResponse(
         id=str(user_message.id),
