@@ -32,6 +32,18 @@ agent_router = APIRouter(tags=["agents"])
 logger = logging.getLogger(__name__)
 
 
+@agent_router.get("/auth/validate")
+async def validate_api_key(
+    user_id: Annotated[str, Depends(get_current_user_id)],
+) -> dict:
+    """Validate API key and return user info.
+
+    This endpoint is used to verify that an API key is valid.
+    Returns basic user information if authentication is successful.
+    """
+    return {"valid": True, "user_id": user_id}
+
+
 @agent_router.post("/messages/agent", response_model=CreateMessageResponse)
 async def create_agent_message_endpoint(
     request: CreateMessageRequest, user_id: Annotated[str, Depends(get_current_user_id)]

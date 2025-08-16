@@ -44,11 +44,8 @@ export class OmnaraApi implements ICredentialType {
 	test: ICredentialTestRequest = {
 		request: {
 			baseURL: '={{$credentials.apiUrl}}',
-			url: '/api/v1/messages/pending',
+			url: '/api/v1/auth/validate',
 			method: 'GET',
-			qs: {
-				agent_instance_id: 'test-connection',
-			},
 		},
 		rules: [
 			{
@@ -63,13 +60,6 @@ export class OmnaraApi implements ICredentialType {
 				properties: {
 					value: 401,
 					message: 'Invalid API key. Please check your credentials.',
-				},
-			},
-			{
-				type: 'responseCode',
-				properties: {
-					value: 400,
-					message: 'Connection works but test endpoint returned an error (this is expected for test).',
 				},
 			},
 		],
