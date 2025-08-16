@@ -82,55 +82,57 @@ class MessageProcessor:
         if not self.wrapper.agent_instance_id or not self.wrapper.omnara_client_sync:
             return
 
-        # Track if this message uses tools
-        self.last_was_tool_use = bool(tools_used)
+        # Use lock to ensure atomic message processing
+        with self.wrapper.send_message_lock:
+            # Track if this message uses tools
+            self.last_was_tool_use = bool(tools_used)
 
-        # Sanitize content - remove NUL characters and control characters that break the API
-        # This handles binary content from .docx, PDFs, etc.
-        sanitized_content = "".join(
-            char if ord(char) >= 32 or char in "\n\r\t" else ""
-            for char in content.replace("\x00", "")
-        )
-
-        # Get git diff if enabled
-        git_diff = self.wrapper.get_git_diff()
-        # Sanitize git diff as well if present (handles binary files in git diff)
-        if git_diff:
-            git_diff = "".join(
+            # Sanitize content - remove NUL characters and control characters that break the API
+            # This handles binary content from .docx, PDFs, etc.
+            sanitized_content = "".join(
                 char if ord(char) >= 32 or char in "\n\r\t" else ""
-                for char in git_diff.replace("\x00", "")
+                for char in content.replace("\x00", "")
             )
 
-        # Send to Omnara
-        response = self.wrapper.omnara_client_sync.send_message(
-            content=sanitized_content,
-            agent_type="Claude Code",
-            agent_instance_id=self.wrapper.agent_instance_id,
-            requires_user_input=False,
-            git_diff=git_diff,
-        )
+            # Get git diff if enabled
+            git_diff = self.wrapper.get_git_diff()
+            # Sanitize git diff as well if present (handles binary files in git diff)
+            if git_diff:
+                git_diff = "".join(
+                    char if ord(char) >= 32 or char in "\n\r\t" else ""
+                    for char in git_diff.replace("\x00", "")
+                )
 
-        # Store instance ID if first message
-        if not self.wrapper.agent_instance_id:
-            self.wrapper.agent_instance_id = response.agent_instance_id
+            # Send to Omnara
+            response = self.wrapper.omnara_client_sync.send_message(
+                content=sanitized_content,
+                agent_type="Claude Code",
+                agent_instance_id=self.wrapper.agent_instance_id,
+                requires_user_input=False,
+                git_diff=git_diff,
+            )
 
-        # Track message for idle detection
-        self.last_message_id = response.message_id
-        self.last_message_time = time.time()
+            # Store instance ID if first message
+            if not self.wrapper.agent_instance_id:
+                self.wrapper.agent_instance_id = response.agent_instance_id
 
-        # Clear old tracked input requests since we have a new message
-        if hasattr(self.wrapper, "requested_input_messages"):
-            self.wrapper.requested_input_messages.clear()
+            # Track message for idle detection
+            self.last_message_id = response.message_id
+            self.last_message_time = time.time()
 
-        # Clear pending permission options since we have a new message
-        if hasattr(self.wrapper, "pending_permission_options"):
-            self.wrapper.pending_permission_options.clear()
+            # Clear old tracked input requests since we have a new message
+            if hasattr(self.wrapper, "requested_input_messages"):
+                self.wrapper.requested_input_messages.clear()
 
-        # Process any queued user messages
-        if response.queued_user_messages:
-            concatenated = "\n".join(response.queued_user_messages)
-            self.web_ui_messages.add(concatenated)
-            self.wrapper.input_queue.append(concatenated)
+            # Clear pending permission options since we have a new message
+            if hasattr(self.wrapper, "pending_permission_options"):
+                self.wrapper.pending_permission_options.clear()
+
+            # Process any queued user messages
+            if response.queued_user_messages:
+                concatenated = "\n".join(response.queued_user_messages)
+                self.web_ui_messages.add(concatenated)
+                self.wrapper.input_queue.append(concatenated)
 
     def should_request_input(self) -> Optional[str]:
         """Check if we should request input, returns message_id if yes"""
@@ -216,6 +218,9 @@ class ClaudeWrapperV3:
             set()
         )  # Track messages we've already requested input for
         self.pending_permission_options = {}  # Map option text to number for permission prompts
+        self.send_message_lock = (
+            threading.Lock()
+        )  # Lock for message sending synchronization
 
         # Git diff tracking
         self.git_diff_enabled = False
@@ -1350,21 +1355,26 @@ class ClaudeWrapperV3:
                                         "[WARNING] Using default permission options (extraction failed)"
                                     )
 
-                                # Send to Omnara with extracted text
-                                if self.agent_instance_id and self.omnara_client_sync:
-                                    response = self.omnara_client_sync.send_message(
-                                        content=permission_msg,
-                                        agent_type="Claude Code",
-                                        agent_instance_id=self.agent_instance_id,
-                                        requires_user_input=False,
-                                    )
-                                    self.message_processor.last_message_id = (
-                                        response.message_id
-                                    )
-                                    self.message_processor.last_message_time = (
-                                        time.time()
-                                    )
-                                    self.message_processor.last_was_tool_use = False
+                                # Use lock to ensure atomic permission prompt handling
+                                with self.send_message_lock:
+                                    # Send to Omnara with extracted text
+                                    if (
+                                        self.agent_instance_id
+                                        and self.omnara_client_sync
+                                    ):
+                                        response = self.omnara_client_sync.send_message(
+                                            content=permission_msg,
+                                            agent_type="Claude Code",
+                                            agent_instance_id=self.agent_instance_id,
+                                            requires_user_input=False,
+                                        )
+                                        self.message_processor.last_message_id = (
+                                            response.message_id
+                                        )
+                                        self.message_processor.last_message_time = (
+                                            time.time()
+                                        )
+                                        self.message_processor.last_was_tool_use = False
 
                         # Fallback after 1 second if we still don't have the full prompt
                         elif time.time() - self._permission_assumed_time > 1.0:
