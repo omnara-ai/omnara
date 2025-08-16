@@ -778,7 +778,11 @@ class ClaudeWrapperV3:
         cwd = os.getcwd()
         # Convert path to Claude's format
         project_name = (
-            cwd.replace("/", "-").replace(".", "-").replace(" ", "-").replace("@", "-")
+            cwd.replace("/", "-")
+            .replace(".", "-")
+            .replace(" ", "-")
+            .replace("@", "-")
+            .replace("_", "-")
         )
         project_dir = CLAUDE_LOG_BASE / project_name
         return project_dir if project_dir.exists() else None
