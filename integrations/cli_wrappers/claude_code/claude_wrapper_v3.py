@@ -810,7 +810,7 @@ class ClaudeWrapperV3:
                         # Extract session ID from filename and update our tracking
                         actual_session_id = latest_jsonl.stem
                         if actual_session_id != self.session_uuid:
-                            self.log(f"[INFO] Detected Claude session ID: {actual_session_id}")
+                            self.log(f"[INFO] Detected Existing Claude session ID: {actual_session_id}")
                             self.log(f"[INFO] Updating from Omnara session ID: {self.session_uuid}")
                             self.session_uuid = actual_session_id
                             
@@ -824,7 +824,6 @@ class ClaudeWrapperV3:
                         self.log(f"[INFO] Found Claude JSONL log: {self.claude_jsonl_path}")
                         break
                 else:
-                    # Normal case - look for our expected session ID
                     expected_filename = f"{self.session_uuid}.jsonl"
                     expected_path = project_dir / expected_filename
                     if expected_path.exists():
