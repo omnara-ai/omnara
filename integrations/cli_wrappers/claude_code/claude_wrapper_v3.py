@@ -806,51 +806,12 @@ class ClaudeWrapperV3:
         while self.running and not self.claude_jsonl_path:
             project_dir = self.get_project_log_dir()
             if project_dir:
-                if (
-                    hasattr(self, "using_continue_or_resume")
-                    and self.using_continue_or_resume
-                ):
-                    # For --continue/--resume, look for any new JSONL file
-                    # and extract the session ID from it
-                    jsonl_files = list(project_dir.glob("*.jsonl"))
-                    if jsonl_files:
-                        # Sort by modification time to get the most recent
-                        latest_jsonl = max(jsonl_files, key=lambda f: f.stat().st_mtime)
-                        self.claude_jsonl_path = latest_jsonl
-
-                        # Extract session ID from filename and update our tracking
-                        actual_session_id = latest_jsonl.stem
-                        if actual_session_id != self.session_uuid:
-                            self.log(
-                                f"[INFO] Detected Existing Claude session ID: {actual_session_id}"
-                            )
-                            self.log(
-                                f"[INFO] Updating from Omnara session ID: {self.session_uuid}"
-                            )
-                            self.session_uuid = actual_session_id
-
-                            # Update log file path to match actual session
-                            if self.debug_log_file:
-                                self.debug_log_file.close()
-                                new_log_path = (
-                                    OMNARA_WRAPPER_LOG_DIR / f"{self.session_uuid}.log"
-                                )
-                                self.debug_log_file = open(new_log_path, "a")
-                                self.log(
-                                    "[INFO] Updated debug log file to match Claude session"
-                                )
-
-                        self.log(
-                            f"[INFO] Found Claude JSONL log: {self.claude_jsonl_path}"
-                        )
-                        break
-                else:
-                    expected_filename = f"{self.session_uuid}.jsonl"
-                    expected_path = project_dir / expected_filename
-                    if expected_path.exists():
-                        self.claude_jsonl_path = expected_path
-                        self.log(f"[INFO] Found Claude JSONL log: {expected_path}")
-                        break
+                expected_filename = f"{self.session_uuid}.jsonl"
+                expected_path = project_dir / expected_filename
+                if expected_path.exists():
+                    self.claude_jsonl_path = expected_path
+                    self.log(f"[INFO] Found Claude JSONL log: {expected_path}")
+                    break
             time.sleep(0.5)
 
         if not self.claude_jsonl_path:
@@ -1272,12 +1233,17 @@ class ClaudeWrapperV3:
             arg in ["--continue", "-c", "--resume", "-r"] for arg in sys.argv[1:]
         )
 
-        # Store flag for JSONL monitoring
-        self.using_continue_or_resume = has_continue_or_resume
-
-        # Build command - only add session ID if not using session-related flags
+        # Show warning for unsupported flags
         if has_continue_or_resume:
-            # Don't add session-id when using --continue/-c or --resume/-r
+            print(
+                "\n⚠️  Warning: --continue and --resume flags are not yet fully supported by Omnara.",
+                file=sys.stderr,
+            )
+            print(
+                "   The flags will be passed to Claude Code, but conversation history may not appear in the Omnara dashboard.\n",
+                file=sys.stderr,
+            )
+            # Don't add session-id when using --continue/-c or --resume/-r (to avoid conflicts)
             cmd = [claude_path]
             self.log(
                 "[INFO] Detected session flag (--continue/-c or --resume/-r), not adding --session-id"
