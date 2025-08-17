@@ -401,6 +401,12 @@ def run_agent_chat(args, unknown_args):
     if hasattr(args, "permission_mode") and args.permission_mode:
         new_argv.extend(["--permission-mode", args.permission_mode])
 
+    if (
+        hasattr(args, "dangerously_skip_permissions")
+        and args.dangerously_skip_permissions
+    ):
+        new_argv.append("--dangerously-skip-permissions")
+
     # Add any additional arguments
     if unknown_args:
         new_argv.extend(unknown_args)
@@ -503,6 +509,11 @@ def add_global_arguments(parser):
         "--permission-mode",
         choices=["acceptEdits", "bypassPermissions", "default", "plan"],
         help="Permission mode to use for the session",
+    )
+    parser.add_argument(
+        "--dangerously-skip-permissions",
+        action="store_true",
+        help="Bypass all permission checks. Recommended only for sandboxes with no internet access.",
     )
 
 
