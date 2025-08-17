@@ -397,6 +397,10 @@ def run_agent_chat(args, unknown_args):
     if hasattr(args, "base_url") and args.base_url:
         new_argv.extend(["--base-url", args.base_url])
 
+    # Add Claude-specific flags
+    if hasattr(args, "permission_mode") and args.permission_mode:
+        new_argv.extend(["--permission-mode", args.permission_mode])
+
     # Add any additional arguments
     if unknown_args:
         new_argv.extend(unknown_args)
@@ -494,6 +498,11 @@ def add_global_arguments(parser):
         choices=["claude", "amp"],
         default="claude",
         help="Which AI agent to use (default: claude)",
+    )
+    parser.add_argument(
+        "--permission-mode",
+        choices=["acceptEdits", "bypassPermissions", "default", "plan"],
+        help="Permission mode to use for the session",
     )
 
 

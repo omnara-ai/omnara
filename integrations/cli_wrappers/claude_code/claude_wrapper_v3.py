@@ -160,13 +160,19 @@ class MessageProcessor:
 
 
 class ClaudeWrapperV3:
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        permission_mode: Optional[str] = None,
+    ):
         # Session management
         self.session_uuid = str(uuid.uuid4())
         self.session_start_time = (
             time.time()
         )  # Track when session started for file filtering
         self.agent_instance_id = None
+        self.permission_mode = permission_mode
 
         # Set up logging
         self.debug_log_file = None
@@ -1240,17 +1246,27 @@ class ClaudeWrapperV3:
             # Normal behavior: add session ID for tracking
             cmd = [claude_path, "--session-id", self.session_uuid]
 
+        # Add permission-mode flag if specified
+        if self.permission_mode:
+            cmd.extend(["--permission-mode", self.permission_mode])
+            self.log(
+                f"[INFO] Added permission-mode to Claude command: {self.permission_mode}"
+            )
+
         # Process any additional command line arguments
         if len(sys.argv) > 1:
             i = 1
             while i < len(sys.argv):
                 arg = sys.argv[i]
                 # Skip wrapper-specific arguments
-                if arg in ["--api-key", "--base-url"]:
+                if arg in ["--api-key", "--base-url", "--permission-mode"]:
                     i += 2  # Skip the argument and its value
                 else:
                     cmd.append(arg)
                     i += 1
+
+        # Log the final command for debugging
+        self.log(f"[INFO] Final Claude command: {' '.join(cmd)}")
 
         # Save original terminal settings
         try:
@@ -1875,6 +1891,11 @@ def main():
     )
     parser.add_argument("--api-key", help="Omnara API key")
     parser.add_argument("--base-url", help="Omnara base URL")
+    parser.add_argument(
+        "--permission-mode",
+        choices=["acceptEdits", "bypassPermissions", "default", "plan"],
+        help="Permission mode to use for the session",
+    )
 
     # Parse known args and pass the rest to Claude
     args, claude_args = parser.parse_known_args()
@@ -1882,7 +1903,11 @@ def main():
     # Update sys.argv to only include Claude args
     sys.argv = [sys.argv[0]] + claude_args
 
-    wrapper = ClaudeWrapperV3(api_key=args.api_key, base_url=args.base_url)
+    wrapper = ClaudeWrapperV3(
+        api_key=args.api_key,
+        base_url=args.base_url,
+        permission_mode=args.permission_mode,
+    )
 
     def signal_handler(sig, frame):
         # Check if this is a repeated Ctrl+C (user really wants to exit)
