@@ -62,9 +62,9 @@ class MessageProcessor:
                 self.wrapper.log(
                     f"[INFO] Sending CLI message to Omnara: {content[:50]}..."
                 )
-                if self.wrapper.agent_instance_id and self.wrapper.omnara_client_sync:
+                if self.wrapper.session_uuid and self.wrapper.omnara_client_sync:
                     self.wrapper.omnara_client_sync.send_user_message(
-                        agent_instance_id=self.wrapper.agent_instance_id,
+                        agent_instance_id=self.wrapper.session_uuid,
                         content=content,
                     )
             else:
@@ -79,7 +79,7 @@ class MessageProcessor:
         self, content: str, tools_used: list[str]
     ) -> None:
         """Process an assistant message (sync version for monitor thread)"""
-        if not self.wrapper.agent_instance_id or not self.wrapper.omnara_client_sync:
+        if not self.wrapper.session_uuid or not self.wrapper.omnara_client_sync:
             return
 
         # Use lock to ensure atomic message processing
@@ -107,14 +107,13 @@ class MessageProcessor:
             response = self.wrapper.omnara_client_sync.send_message(
                 content=sanitized_content,
                 agent_type="Claude Code",
-                agent_instance_id=self.wrapper.agent_instance_id,
+                agent_instance_id=self.wrapper.session_uuid,
                 requires_user_input=False,
                 git_diff=git_diff,
             )
 
             # Store instance ID if first message
-            if not self.wrapper.agent_instance_id:
-                self.wrapper.agent_instance_id = response.agent_instance_id
+            # Using session_uuid as agent_instance_id for consistency
 
             # Track message for idle detection
             self.last_message_id = response.message_id
@@ -168,19 +167,27 @@ class ClaudeWrapperV3:
         dangerously_skip_permissions: bool = False,
     ):
         # Session management
-        self.session_uuid = str(uuid.uuid4())
-        self.session_start_time = (
-            time.time()
-        )  # Track when session started for file filtering
-        self.agent_instance_id = None
+        self.session_start_time = time.time()
         self.permission_mode = permission_mode
         self.dangerously_skip_permissions = dangerously_skip_permissions
 
-        # Set up logging
+        # Detect existing session BEFORE initializing logging
+        existing_session = self.detect_existing_session()
+        if existing_session:
+            self.session_uuid = existing_session
+            self.using_continue_or_resume = True
+        else:
+            self.session_uuid = str(uuid.uuid4())
+            self.using_continue_or_resume = False
+
+        # Now set up logging with the correct session ID
         self.debug_log_file = None
         self._init_logging()
 
-        self.log(f"[INFO] Session UUID: {self.session_uuid}")
+        if self.using_continue_or_resume:
+            self.log(f"[INFO] Continuing existing session: {self.session_uuid}")
+        else:
+            self.log(f"[INFO] Starting new session: {self.session_uuid}")
 
         # Omnara SDK setup
         self.api_key = api_key or os.environ.get("OMNARA_API_KEY")
@@ -235,14 +242,22 @@ class ClaudeWrapperV3:
         self.initial_git_hash = None
 
     def _init_logging(self):
-        """Initialize debug logging"""
+        """Initialize debug logging with correct session ID"""
         try:
             OMNARA_WRAPPER_LOG_DIR.mkdir(exist_ok=True, parents=True)
             log_file_path = OMNARA_WRAPPER_LOG_DIR / f"{self.session_uuid}.log"
-            self.debug_log_file = open(log_file_path, "w")
-            self.log(
-                f"=== Claude Wrapper V3 Debug Log - {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
-            )
+            # Use append mode for both new and continued sessions
+            self.debug_log_file = open(log_file_path, "a")
+            if not self.using_continue_or_resume:
+                # Only write header for new sessions
+                self.log(
+                    f"=== Claude Wrapper V3 Debug Log - {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
+                )
+            else:
+                # Add a separator for continued sessions
+                self.log(
+                    f"=== Session Continued - {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
+                )
         except Exception as e:
             print(f"Failed to create debug log file: {e}", file=sys.stderr)
 
@@ -786,6 +801,12 @@ class ClaudeWrapperV3:
             "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
         )
 
+    def has_continue_or_resume_flag(self):
+        """Check if --continue or --resume flags are present"""
+        return any(
+            arg in ["--continue", "-c", "--resume", "-r"] for arg in sys.argv[1:]
+        )
+
     def get_project_log_dir(self):
         """Get the Claude project log directory for current working directory"""
         cwd = os.getcwd()
@@ -800,44 +821,42 @@ class ClaudeWrapperV3:
         project_dir = CLAUDE_LOG_BASE / project_name
         return project_dir if project_dir.exists() else None
 
+    def detect_existing_session(self):
+        """Detect existing Claude session ID from JSONL files when using --continue/--resume"""
+        # Check for --continue/--resume flags
+        if not self.has_continue_or_resume_flag():
+            return None
+
+        # Look for existing JSONL files in project directory
+        project_dir = self.get_project_log_dir()
+        if not project_dir:
+            return None
+
+        jsonl_files = list(project_dir.glob("*.jsonl"))
+        if not jsonl_files:
+            return None
+
+        # Get most recent JSONL file
+        latest_jsonl = max(jsonl_files, key=lambda f: f.stat().st_mtime)
+        session_id = latest_jsonl.stem
+
+        # Note: Can't log here as logging isn't initialized yet
+        return session_id
+
     def monitor_claude_jsonl(self):
         """Monitor Claude's JSONL log file for messages"""
         # Wait for log file to be created
+        # Now that session ID is set correctly in __init__, we just need to find the file
+        expected_filename = f"{self.session_uuid}.jsonl"
+
         while self.running and not self.claude_jsonl_path:
             project_dir = self.get_project_log_dir()
             if project_dir:
-                if hasattr(self, 'using_continue_or_resume') and self.using_continue_or_resume:
-                    # For --continue/--resume, look for any new JSONL file
-                    # and extract the session ID from it
-                    jsonl_files = list(project_dir.glob("*.jsonl"))
-                    if jsonl_files:
-                        # Sort by modification time to get the most recent
-                        latest_jsonl = max(jsonl_files, key=lambda f: f.stat().st_mtime)
-                        self.claude_jsonl_path = latest_jsonl
-                        
-                        # Extract session ID from filename and update our tracking
-                        actual_session_id = latest_jsonl.stem
-                        if actual_session_id != self.session_uuid:
-                            self.log(f"[INFO] Detected Existing Claude session ID: {actual_session_id}")
-                            self.log(f"[INFO] Updating from Omnara session ID: {self.session_uuid}")
-                            self.session_uuid = actual_session_id
-                            
-                            # Update log file path to match actual session
-                            if self.debug_log_file:
-                                self.debug_log_file.close()
-                                new_log_path = OMNARA_WRAPPER_LOG_DIR / f"{self.session_uuid}.log"
-                                self.debug_log_file = open(new_log_path, "a")
-                                self.log("[INFO] Updated debug log file to match Claude session")
-                        
-                        self.log(f"[INFO] Found Claude JSONL log: {self.claude_jsonl_path}")
-                        break
-                else:
-                    expected_filename = f"{self.session_uuid}.jsonl"
-                    expected_path = project_dir / expected_filename
-                    if expected_path.exists():
-                        self.claude_jsonl_path = expected_path
-                        self.log(f"[INFO] Found Claude JSONL log: {expected_path}")
-                        break
+                expected_path = project_dir / expected_filename
+                if expected_path.exists():
+                    self.claude_jsonl_path = expected_path
+                    self.log(f"[INFO] Found Claude JSONL log: {expected_path}")
+                    break
             time.sleep(0.5)
 
         if not self.claude_jsonl_path:
@@ -847,7 +866,18 @@ class ClaudeWrapperV3:
         while self.running:
             try:
                 with open(self.claude_jsonl_path, "r") as f:
-                    f.seek(0)  # Start from beginning
+                    if (
+                        hasattr(self, "using_continue_or_resume")
+                        and self.using_continue_or_resume
+                    ):
+                        # For continued sessions, skip to end to avoid replaying old messages
+                        f.seek(0, 2)  # Seek to end of file
+                        self.log(
+                            "[INFO] Continuing session - skipping existing messages in JSONL"
+                        )
+                    else:
+                        # For new sessions, start from beginning
+                        f.seek(0)
                     self.log(
                         f"[INFO] Monitoring JSONL file: {self.claude_jsonl_path.name}"
                     )
@@ -1007,14 +1037,13 @@ class ClaudeWrapperV3:
             elif msg_type == "summary":
                 # Session started
                 summary = data.get("summary", "")
-                if summary and not self.agent_instance_id and self.omnara_client_sync:
+                if summary and not self.session_uuid and self.omnara_client_sync:
                     # Send initial message
                     response = self.omnara_client_sync.send_message(
                         content=f"Claude session started: {summary}",
                         agent_type="Claude Code",
                         requires_user_input=False,
                     )
-                    self.agent_instance_id = response.agent_instance_id
 
         except Exception as e:
             self.log(f"[ERROR] Error processing Claude log entry: {e}")
@@ -1075,7 +1104,7 @@ class ClaudeWrapperV3:
                         response = await self.omnara_client_async.send_message(
                             content="Waiting for your input...",
                             agent_type="Claude Code",
-                            agent_instance_id=self.agent_instance_id,
+                            agent_instance_id=self.session_uuid,
                             requires_user_input=True,
                             poll_interval=3.0,
                         )
@@ -1254,21 +1283,11 @@ class ClaudeWrapperV3:
         """Run Claude CLI in a PTY"""
         claude_path = self.find_claude_cli()
 
-        # Check if --continue/-c or --resume/-r flags are present (which conflict with --session-id)
-        has_continue_or_resume = any(
-            arg in ["--continue", "-c", "--resume", "-r"] for arg in sys.argv[1:]
-        )
-
-        # Store flag for JSONL monitoring
-        self.using_continue_or_resume = has_continue_or_resume
-
         # Build command - only add session ID if not using session-related flags
-        if has_continue_or_resume:
+        if self.using_continue_or_resume:
             # Don't add session-id when using --continue/-c or --resume/-r
             cmd = [claude_path]
-            self.log(
-                "[INFO] Detected session flag (--continue/-c or --resume/-r), not adding --session-id"
-            )
+            self.log("[INFO] Using --continue/--resume mode, not adding --session-id")
         else:
             # Normal behavior: add session ID for tracking
             cmd = [claude_path, "--session-id", self.session_uuid]
@@ -1408,14 +1427,11 @@ class ClaudeWrapperV3:
                                 # Use lock to ensure atomic permission prompt handling
                                 with self.send_message_lock:
                                     # Send to Omnara with extracted text
-                                    if (
-                                        self.agent_instance_id
-                                        and self.omnara_client_sync
-                                    ):
+                                    if self.session_uuid and self.omnara_client_sync:
                                         response = self.omnara_client_sync.send_message(
                                             content=permission_msg,
                                             agent_type="Claude Code",
-                                            agent_instance_id=self.agent_instance_id,
+                                            agent_instance_id=self.session_uuid,
                                             requires_user_input=False,
                                         )
                                         self.message_processor.last_message_id = (
@@ -1430,11 +1446,11 @@ class ClaudeWrapperV3:
                         elif time.time() - self._permission_assumed_time > 1.0:
                             if not hasattr(self, "_permission_handled"):
                                 self._permission_handled = True
-                            if self.agent_instance_id and self.omnara_client_sync:
+                            if self.session_uuid and self.omnara_client_sync:
                                 response = self.omnara_client_sync.send_message(
                                     content="Waiting for your input...",
                                     agent_type="Claude Code",
-                                    agent_instance_id=self.agent_instance_id,
+                                    agent_instance_id=self.session_uuid,
                                     requires_user_input=False,
                                 )
                                 self.message_processor.last_message_id = (
@@ -1735,10 +1751,12 @@ class ClaudeWrapperV3:
                 response = self.omnara_client_sync.send_message(
                     content="Claude Code session started - waiting for your input...",
                     agent_type="Claude Code",
+                    agent_instance_id=self.session_uuid,
                     requires_user_input=False,
                 )
-                self.agent_instance_id = response.agent_instance_id
-                self.log(f"[INFO] Omnara agent instance ID: {self.agent_instance_id}")
+                self.log(
+                    f"[INFO] Using session UUID as agent instance: {self.session_uuid}"
+                )
 
                 # Initialize message processor with first message
                 if hasattr(self.message_processor, "last_message_id"):
@@ -1883,8 +1901,8 @@ class ClaudeWrapperV3:
                 timer.start()
 
                 try:
-                    if self.omnara_client_sync and self.agent_instance_id:
-                        self.omnara_client_sync.end_session(self.agent_instance_id)
+                    if self.omnara_client_sync and self.session_uuid:
+                        self.omnara_client_sync.end_session(self.session_uuid)
                         self.log("[INFO] Session ended successfully")
 
                     if self.omnara_client_sync:
