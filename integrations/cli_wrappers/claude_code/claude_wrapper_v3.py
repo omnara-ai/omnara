@@ -40,6 +40,29 @@ CLAUDE_LOG_BASE = Path.home() / ".claude" / "projects"
 OMNARA_WRAPPER_LOG_DIR = Path.home() / ".omnara" / "claude_wrapper"
 
 
+def find_claude_cli():
+    """Find Claude CLI binary"""
+    if cli := shutil.which("claude"):
+        return cli
+
+    locations = [
+        Path.home() / ".npm-global/bin/claude",
+        Path("/usr/local/bin/claude"),
+        Path.home() / ".local/bin/claude",
+        Path.home() / "node_modules/.bin/claude",
+        Path.home() / ".yarn/bin/claude",
+        Path.home() / ".claude/local/claude",
+    ]
+
+    for path in locations:
+        if path.exists() and path.is_file():
+            return str(path)
+
+    raise FileNotFoundError(
+        "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+    )
+
+
 class MessageProcessor:
     """Message processing implementation"""
 
@@ -762,30 +785,6 @@ class ClaudeWrapperV3:
             api_key=self.api_key, base_url=self.base_url
         )
 
-    def find_claude_cli(self):
-        """Find Claude CLI binary"""
-        if cli := shutil.which("claude"):
-            self.log(f"[INFO] Found Claude CLI at: {cli}")
-            return cli
-
-        locations = [
-            Path.home() / ".npm-global/bin/claude",
-            Path("/usr/local/bin/claude"),
-            Path.home() / ".local/bin/claude",
-            Path.home() / "node_modules/.bin/claude",
-            Path.home() / ".yarn/bin/claude",
-            Path.home() / ".claude/local/claude",
-        ]
-
-        for path in locations:
-            if path.exists() and path.is_file():
-                self.log(f"[INFO] Found Claude CLI at: {path}")
-                return str(path)
-
-        raise FileNotFoundError(
-            "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
-        )
-
     def get_project_log_dir(self):
         """Get the Claude project log directory for current working directory"""
         cwd = os.getcwd()
@@ -1226,31 +1225,11 @@ class ClaudeWrapperV3:
 
     def run_claude_with_pty(self):
         """Run Claude CLI in a PTY"""
-        claude_path = self.find_claude_cli()
+        claude_path = find_claude_cli()
+        self.log(f"[INFO] Found Claude CLI at: {claude_path}")
 
-        # Check if --continue/-c or --resume/-r flags are present (which conflict with --session-id)
-        has_continue_or_resume = any(
-            arg in ["--continue", "-c", "--resume", "-r"] for arg in sys.argv[1:]
-        )
-
-        # Show warning for unsupported flags
-        if has_continue_or_resume:
-            print(
-                "\n⚠️  Warning: --continue and --resume flags are not yet fully supported by Omnara.",
-                file=sys.stderr,
-            )
-            print(
-                "   The flags will be passed to Claude Code, but conversation history may not appear in the Omnara dashboard.\n",
-                file=sys.stderr,
-            )
-            # Don't add session-id when using --continue/-c or --resume/-r (to avoid conflicts)
-            cmd = [claude_path]
-            self.log(
-                "[INFO] Detected session flag (--continue/-c or --resume/-r), not adding --session-id"
-            )
-        else:
-            # Normal behavior: add session ID for tracking
-            cmd = [claude_path, "--session-id", self.session_uuid]
+        # Always add session ID for tracking
+        cmd = [claude_path, "--session-id", self.session_uuid]
 
         # Add permission-mode flag if specified
         if self.permission_mode:
@@ -1917,6 +1896,25 @@ def main():
 
     # Parse known args and pass the rest to Claude
     args, claude_args = parser.parse_known_args()
+
+    # Check if --continue or --resume in claude_args and bypass Omnara
+    if any(arg in ["--continue", "-c", "--resume", "-r"] for arg in claude_args):
+        print(
+            "\n⚠️  Warning: --continue and --resume flags are not yet fully supported by Omnara.",
+            file=sys.stderr,
+        )
+        print(
+            "   The flags will be passed to Claude Code, but conversation history may not appear in the Omnara dashboard.\n",
+            file=sys.stderr,
+        )
+        try:
+            claude_path = find_claude_cli()
+            # claude_args already has Omnara flags filtered out!
+            os.execvp(claude_path, [claude_path] + claude_args)
+            # Never returns - process is replaced
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Update sys.argv to only include Claude args
     sys.argv = [sys.argv[0]] + claude_args
