@@ -113,7 +113,6 @@ class MessageProcessor:
             )
 
             # Store instance ID if first message
-            # Using session_uuid as agent_instance_id for consistency
 
             # Track message for idle detection
             self.last_message_id = response.message_id
@@ -1039,7 +1038,7 @@ class ClaudeWrapperV3:
                 summary = data.get("summary", "")
                 if summary and not self.session_uuid and self.omnara_client_sync:
                     # Send initial message
-                    response = self.omnara_client_sync.send_message(
+                    _ = self.omnara_client_sync.send_message(
                         content=f"Claude session started: {summary}",
                         agent_type="Claude Code",
                         requires_user_input=False,
@@ -1745,18 +1744,33 @@ class ClaudeWrapperV3:
             self.init_omnara_clients()
             self.log("[INFO] Omnara clients initialized")
 
-            # Create initial session (sync)
-            self.log("[INFO] Creating initial Omnara session...")
+            # Create initial session or resume existing one
             if self.omnara_client_sync:
-                response = self.omnara_client_sync.send_message(
-                    content="Claude Code session started - waiting for your input...",
-                    agent_type="Claude Code",
-                    agent_instance_id=self.session_uuid,
-                    requires_user_input=False,
-                )
-                self.log(
-                    f"[INFO] Using session UUID as agent instance: {self.session_uuid}"
-                )
+                if not self.using_continue_or_resume:
+                    # New session - send initial message
+                    self.log("[INFO] Creating initial Omnara session...")
+                    response = self.omnara_client_sync.send_message(
+                        content="Claude Code session started - waiting for your input...",
+                        agent_type="Claude Code",
+                        agent_instance_id=self.session_uuid,
+                        requires_user_input=False,
+                    )
+                    self.log(
+                        f"[INFO] Using session UUID as agent instance: {self.session_uuid}"
+                    )
+                else:
+                    # Continuing existing session - send resume message
+                    # This will reactivate COMPLETED sessions or just add to ACTIVE ones
+                    self.log("[INFO] Resuming Omnara session...")
+                    response = self.omnara_client_sync.send_message(
+                        content="Session resumed - waiting for your input...",
+                        agent_type="Claude Code",
+                        agent_instance_id=self.session_uuid,
+                        requires_user_input=False,
+                    )
+                    self.log(
+                        f"[INFO] Connected to existing Omnara session: {self.session_uuid}"
+                    )
 
                 # Initialize message processor with first message
                 if hasattr(self.message_processor, "last_message_id"):
