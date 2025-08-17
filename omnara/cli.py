@@ -353,6 +353,50 @@ def ensure_api_key(args):
         raise Exception(f"Authentication failed: {str(e)}")
 
 
+def cmd_headless(args, unknown_args):
+    """Handle the 'headless' subcommand"""
+    api_key = ensure_api_key(args)
+
+    # Import and run the headless Claude module
+    import importlib
+
+    module = importlib.import_module("integrations.headless.claude_code")
+    headless_main = getattr(module, "main")
+
+    # Prepare sys.argv for the headless runner
+    original_argv = sys.argv
+    new_argv = ["headless_claude", "--api-key", api_key]
+
+    if hasattr(args, "base_url") and args.base_url:
+        new_argv.extend(["--base-url", args.base_url])
+
+    # Add headless-specific flags
+    if hasattr(args, "prompt") and args.prompt:
+        new_argv.extend(["--prompt", args.prompt])
+
+    if hasattr(args, "permission_mode") and args.permission_mode:
+        new_argv.extend(["--permission-mode", args.permission_mode])
+
+    if hasattr(args, "allowed_tools") and args.allowed_tools:
+        new_argv.extend(["--allowed-tools", args.allowed_tools])
+
+    if hasattr(args, "disallowed_tools") and args.disallowed_tools:
+        new_argv.extend(["--disallowed-tools", args.disallowed_tools])
+
+    if hasattr(args, "cwd") and args.cwd:
+        new_argv.extend(["--cwd", args.cwd])
+
+    # Add any unrecognized arguments as extra args for Claude Code SDK
+    if unknown_args:
+        new_argv.extend(unknown_args)
+
+    try:
+        sys.argv = new_argv
+        headless_main()
+    finally:
+        sys.argv = original_argv
+
+
 def run_agent_chat(args, unknown_args):
     """Run the agent chat integration (Claude or Amp)"""
     api_key = ensure_api_key(args)
@@ -467,6 +511,8 @@ def cmd_mcp(args):
         cmd.append("--git-diff")
     if args.agent_instance_id:
         cmd.extend(["--agent-instance-id", args.agent_instance_id])
+    if args.disable_tools:
+        cmd.append("--disable-tools")
 
     subprocess.run(cmd)
 
@@ -532,6 +578,11 @@ Examples:
   # Start Amp chat
   omnara --agent=amp
   omnara --agent=amp --api-key YOUR_API_KEY
+
+  # Start headless Claude (controlled via web dashboard)
+  omnara headless
+  omnara headless --prompt "Help me debug this codebase"
+  omnara headless --permission-mode acceptEdits --allowed-tools Read,Write,Bash
 
   # Start webhook server with Cloudflare tunnel
   omnara serve
@@ -603,6 +654,42 @@ Examples:
         type=str,
         help="API key to use for the MCP server",
     )
+    mcp_parser.add_argument(
+        "--disable-tools",
+        action="store_true",
+        help="Disable all tools except the permission tool",
+    )
+
+    # 'headless' subcommand
+    headless_parser = subparsers.add_parser(
+        "headless",
+        help="Run Claude Code in headless mode (controlled via web dashboard)",
+    )
+    headless_parser.add_argument(
+        "--prompt",
+        default="You are starting a coding session",
+        help="Initial prompt for headless Claude (default: 'You are starting a coding session')",
+    )
+    headless_parser.add_argument(
+        "--permission-mode",
+        choices=["acceptEdits", "bypassPermissions", "default", "plan"],
+        help="Permission mode for Claude Code",
+    )
+    headless_parser.add_argument(
+        "--allowed-tools",
+        type=str,
+        help="Comma-separated list of allowed tools (e.g., 'Read,Write,Bash')",
+    )
+    headless_parser.add_argument(
+        "--disallowed-tools",
+        type=str,
+        help="Comma-separated list of disallowed tools",
+    )
+    headless_parser.add_argument(
+        "--cwd",
+        type=str,
+        help="Working directory for headless Claude (defaults to current directory)",
+    )
 
     # Parse arguments
     args, unknown_args = parser.parse_known_args()
@@ -635,6 +722,8 @@ Examples:
         cmd_serve(args)
     elif args.command == "mcp":
         cmd_mcp(args)
+    elif args.command == "headless":
+        cmd_headless(args, unknown_args)
     else:
         # Default behavior: run agent chat (Claude or Amp based on --agent flag)
         run_agent_chat(args, unknown_args)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnara"
-version = "1.4.24"
+version = "1.5.0"
 description = "Omnara Agent Dashboard - MCP Server and Python SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,7 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
     "pydantic>=2.0.0",
+    "claude-code-sdk>=0.0.20",
 ]
 
 [project.urls]

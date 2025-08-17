@@ -806,7 +806,10 @@ class ClaudeWrapperV3:
         while self.running and not self.claude_jsonl_path:
             project_dir = self.get_project_log_dir()
             if project_dir:
-                if hasattr(self, 'using_continue_or_resume') and self.using_continue_or_resume:
+                if (
+                    hasattr(self, "using_continue_or_resume")
+                    and self.using_continue_or_resume
+                ):
                     # For --continue/--resume, look for any new JSONL file
                     # and extract the session ID from it
                     jsonl_files = list(project_dir.glob("*.jsonl"))
@@ -814,22 +817,32 @@ class ClaudeWrapperV3:
                         # Sort by modification time to get the most recent
                         latest_jsonl = max(jsonl_files, key=lambda f: f.stat().st_mtime)
                         self.claude_jsonl_path = latest_jsonl
-                        
+
                         # Extract session ID from filename and update our tracking
                         actual_session_id = latest_jsonl.stem
                         if actual_session_id != self.session_uuid:
-                            self.log(f"[INFO] Detected Existing Claude session ID: {actual_session_id}")
-                            self.log(f"[INFO] Updating from Omnara session ID: {self.session_uuid}")
+                            self.log(
+                                f"[INFO] Detected Existing Claude session ID: {actual_session_id}"
+                            )
+                            self.log(
+                                f"[INFO] Updating from Omnara session ID: {self.session_uuid}"
+                            )
                             self.session_uuid = actual_session_id
-                            
+
                             # Update log file path to match actual session
                             if self.debug_log_file:
                                 self.debug_log_file.close()
-                                new_log_path = OMNARA_WRAPPER_LOG_DIR / f"{self.session_uuid}.log"
+                                new_log_path = (
+                                    OMNARA_WRAPPER_LOG_DIR / f"{self.session_uuid}.log"
+                                )
                                 self.debug_log_file = open(new_log_path, "a")
-                                self.log("[INFO] Updated debug log file to match Claude session")
-                        
-                        self.log(f"[INFO] Found Claude JSONL log: {self.claude_jsonl_path}")
+                                self.log(
+                                    "[INFO] Updated debug log file to match Claude session"
+                                )
+
+                        self.log(
+                            f"[INFO] Found Claude JSONL log: {self.claude_jsonl_path}"
+                        )
                         break
                 else:
                     expected_filename = f"{self.session_uuid}.jsonl"
