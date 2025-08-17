@@ -1373,8 +1373,8 @@ class ClaudeWrapperV3:
                     if not hasattr(self, "_permission_assumed_time"):
                         self._permission_assumed_time = time.time()
 
-                    # After 0.25 seconds, check if we can parse the prompt from buffer
-                    elif time.time() - self._permission_assumed_time > 0.25:
+                    # After 0.5 seconds, check if we can parse the prompt from buffer
+                    elif time.time() - self._permission_assumed_time > 0.5:
                         # Clean the buffer to check for content
 
                         clean_buffer = re.sub(
@@ -1393,33 +1393,33 @@ class ClaudeWrapperV3:
                             if not hasattr(self, "_permission_handled"):
                                 self._permission_handled = True
 
-                                # Extract prompt components using the shared method
-                                question, options, options_map = (
-                                    self._extract_permission_prompt(clean_buffer)
-                                )
-
-                                # Build the message
-                                if options:
-                                    options_text = "\n".join(options)
-                                    permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
-                                    self.pending_permission_options = options_map
-                                    self.log(
-                                        f"[INFO] Permission prompt with {len(options)} options sent to Omnara"
-                                    )
-                                else:
-                                    # Fallback if parsing fails
-                                    permission_msg = f"{question}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
-                                    self.pending_permission_options = {
-                                        "Yes": "1",
-                                        "Yes, and don't ask again this session": "2",
-                                        "No": "3",
-                                    }
-                                    self.log(
-                                        "[WARNING] Using default permission options (extraction failed)"
-                                    )
-
                                 # Use lock to ensure atomic permission prompt handling
                                 with self.send_message_lock:
+                                    # Extract prompt components using the shared method
+                                    question, options, options_map = (
+                                        self._extract_permission_prompt(clean_buffer)
+                                    )
+
+                                    # Build the message
+                                    if options:
+                                        options_text = "\n".join(options)
+                                        permission_msg = f"{question}\n\n[OPTIONS]\n{options_text}\n[/OPTIONS]"
+                                        self.pending_permission_options = options_map
+                                        self.log(
+                                            f"[INFO] Permission prompt with {len(options)} options sent to Omnara"
+                                        )
+                                    else:
+                                        # Fallback if parsing fails
+                                        permission_msg = f"{question}\n\n[OPTIONS]\n1. Yes\n2. Yes, and don't ask again this session\n3. No\n[/OPTIONS]"
+                                        self.pending_permission_options = {
+                                            "Yes": "1",
+                                            "Yes, and don't ask again this session": "2",
+                                            "No": "3",
+                                        }
+                                        self.log(
+                                            "[WARNING] Using default permission options (extraction failed)"
+                                        )
+
                                     # Send to Omnara with extracted text
                                     if (
                                         self.agent_instance_id
