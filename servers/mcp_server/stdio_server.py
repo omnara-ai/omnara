@@ -395,7 +395,9 @@ async def approve_tool(
 
     try:
         # Ask the permission question
-        await asyncio.sleep(1)
+        await asyncio.sleep(
+            1
+        )  # This prevents a race condition in claude code when a tool call gets logged vs permission gets asked
         response = await client.send_message(
             agent_instance_id=instance_id,
             content=question_text,
