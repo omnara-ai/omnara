@@ -30,6 +30,7 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
     "pydantic>=2.0.0",
+    "claude-code-sdk>=0.0.20",
 ]
 
 [project.urls]

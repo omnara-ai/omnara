@@ -395,6 +395,7 @@ async def approve_tool(
 
     try:
         # Ask the permission question
+        await asyncio.sleep(1)
         response = await client.send_message(
             agent_instance_id=instance_id,
             content=question_text,
@@ -483,6 +484,11 @@ def main():
         type=str,
         help="Pre-existing agent instance ID to use for this session",
     )
+    parser.add_argument(
+        "--disable-tools",
+        action="store_true",
+        help="Disable all tools except the permission tool",
+    )
 
     args = parser.parse_args()
 
@@ -518,12 +524,20 @@ def main():
         approve_tool.enable()
         logger.info("Claude Code permission tool enabled")
 
+    if args.disable_tools:
+        # Disable all tools except the permission tool
+        log_step_tool.disable()
+        ask_question_tool.disable()
+        end_session_tool.disable()
+        logger.info("All tools disabled except permission tool")
+
     logger.info("Starting Omnara MCP server (stdio)")
     logger.info(f"Using API server: {args.base_url}")
     logger.info(
         f"Claude Code permission tool: {'enabled' if args.permission_tool else 'disabled'}"
     )
     logger.info(f"Git diff capture: {'enabled' if args.git_diff else 'disabled'}")
+    logger.info(f"Tools disabled: {args.disable_tools}")
 
     try:
         # Run with stdio transport (default)
