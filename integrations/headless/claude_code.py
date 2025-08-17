@@ -141,6 +141,7 @@ class HeadlessClaudeRunner:
 
         # Initialize git diff tracker with our logger
         self.git_tracker = GitDiffTracker(enabled=True, logger=self.logger)
+        self.previous_git_diff = None  # Track previous diff to avoid duplicates
 
     async def initialize(self):
         """Initialize the Omnara and Claude clients and create initial session."""
@@ -179,22 +180,31 @@ class HeadlessClaudeRunner:
         self,
         content: str,
         requires_user_input: bool = False,
-        include_git_diff: bool = False,
     ) -> Optional[str]:
         """Send a message to Omnara and optionally wait for user response.
 
         Args:
             content: Message content to send
             requires_user_input: Whether to wait for user input
-            include_git_diff: Whether to include git diff with the message
         """
         if not self.omnara_client or not self.session_id:
             self.logger.error("Omnara client not initialized")
             return None
 
         try:
-            # Get git diff if requested
-            git_diff = self.git_tracker.get_diff() if include_git_diff else None
+            # Get git diff if requested, but only if it changed
+            git_diff = None
+            current_diff = self.git_tracker.get_diff()
+            if current_diff != self.previous_git_diff:
+                git_diff = current_diff
+                self.previous_git_diff = current_diff
+                self.logger.info(
+                    f"Git diff changed, sending {len(git_diff) if git_diff else 0} chars"
+                )
+                if git_diff:
+                    self.logger.debug(f"Git diff preview: {git_diff[:200]}...")
+            else:
+                self.logger.info("Git diff unchanged, not sending")
 
             response = await self.omnara_client.send_message(
                 content=content,
@@ -322,20 +332,9 @@ class HeadlessClaudeRunner:
                 # Format and send all other messages (mainly AssistantMessages) immediately
                 formatted_content = self.format_message_content(message)
                 if formatted_content:
-                    # Check if this message contains tool use
-                    include_diff = False
-                    if isinstance(message, AssistantMessage):
-                        # Check if any blocks are tool use blocks (indicating tool execution)
-                        for block in message.content:
-                            if isinstance(block, ToolUseBlock):
-                                include_diff = True
-                                break
-
-                    # Send with git diff if tool was used
                     await self.send_to_omnara(
                         formatted_content,
                         requires_user_input=False,
-                        include_git_diff=include_diff,
                     )
 
             # After all messages are sent, request user input on the last message
