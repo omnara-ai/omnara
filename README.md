@@ -288,6 +288,6 @@ Omnara is open source software licensed under the [Apache 2.0 License](LICENSE).
 
 **Built with ❤️ by the Omnara team**
 
-[Website](https://omnara.ai) • [Twitter](https://twitter.com/omnara_ai) • [LinkedIn](https://linkedin.com/company/omnara)
+[Website](https://omnara.ai) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
 
 </div>
