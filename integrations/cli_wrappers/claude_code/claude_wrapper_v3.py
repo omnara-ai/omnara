@@ -79,27 +79,32 @@ class MessageProcessor:
 
     def process_user_message_sync(self, content: str, from_web: bool) -> None:
         """Process a user message (sync version for monitor thread)"""
-        if from_web:
-            # Message from web UI - track it to avoid duplicate sends
-            self.web_ui_messages.add(content)
-        else:
-            # Message from CLI - send to Omnara if not already from web
-            if content not in self.web_ui_messages:
-                self.wrapper.log(
-                    f"[INFO] Sending CLI user message to Omnara: {content[:100]}..."
-                )
-                if self.wrapper.agent_instance_id and self.wrapper.omnara_client_sync:
-                    self.wrapper.omnara_client_sync.send_user_message(
-                        agent_instance_id=self.wrapper.agent_instance_id,
-                        content=content,
-                    )
-            else:
-                # Remove from tracking set
-                self.web_ui_messages.discard(content)
 
-        # Reset idle timer and clear pending input
-        self.last_message_time = time.time()
-        self.pending_input_message_id = None
+        with self.wrapper.send_message_lock, self.wrapper.is_idle_lock:
+            if from_web:
+                # Message from web UI - track it to avoid duplicate sends
+                self.web_ui_messages.add(content)
+            else:
+                # Message from CLI - send to Omnara if not already from web
+                if content not in self.web_ui_messages:
+                    self.wrapper.log(
+                        f"[INFO] Sending CLI user message to Omnara: {content[:100]}..."
+                    )
+                    if (
+                        self.wrapper.agent_instance_id
+                        and self.wrapper.omnara_client_sync
+                    ):
+                        self.wrapper.omnara_client_sync.send_user_message(
+                            agent_instance_id=self.wrapper.agent_instance_id,
+                            content=content,
+                        )
+                else:
+                    # Remove from tracking set
+                    self.web_ui_messages.discard(content)
+
+            # Reset idle timer and clear pending input
+            self.last_message_time = time.time()
+            self.pending_input_message_id = None
 
     def process_assistant_message_sync(
         self, content: str, tools_used: list[str]
@@ -109,7 +114,7 @@ class MessageProcessor:
             return
 
         # Use lock to ensure atomic message processing
-        with self.wrapper.send_message_lock:
+        with self.wrapper.send_message_lock, self.wrapper.is_idle_lock:
             # Track if this message uses tools
             self.last_was_tool_use = bool(tools_used)
 
@@ -149,9 +154,6 @@ class MessageProcessor:
             self.last_message_id = response.message_id
             self.last_message_time = time.time()
 
-            # Clear old tracked input requests since we have a new message
-            self.wrapper.requested_input_messages.clear()
-
             # Clear pending permission options since we have a new message
             self.wrapper.pending_permission_options.clear()
 
@@ -165,8 +167,16 @@ class MessageProcessor:
         """Check if we should request input, returns message_id if yes"""
         # Don't request input if we might have a permission prompt
         is_idle = self.wrapper.is_claude_idle()
+
+        self.wrapper.log(
+            f"[DEBUG] should_request_input: last_was_tool_use={self.last_was_tool_use}, is_idle={is_idle}, last_message_id={self.last_message_id}, pending_input_message_id={self.pending_input_message_id}"
+        )
+
         if self.last_was_tool_use and is_idle:
             # We're in a state where a permission prompt might appear
+            self.wrapper.log(
+                "[DEBUG] should_request_input: Skipping - might have permission prompt"
+            )
             return None
 
         # Only request if:
@@ -178,8 +188,12 @@ class MessageProcessor:
             and self.last_message_id != self.pending_input_message_id
             and is_idle
         ):
+            self.wrapper.log(
+                f"[DEBUG] should_request_input: Requesting input for {self.last_message_id}"
+            )
             return self.last_message_id
 
+        self.wrapper.log("[DEBUG] should_request_input: No input needed")
         return None
 
     def mark_input_requested(self, message_id: str) -> None:
@@ -254,6 +268,8 @@ class ClaudeWrapperV3:
             threading.Lock()
         )  # Lock for message sending synchronization
 
+        self.is_idle_lock = threading.Lock()  # Lock for claude idle
+
         # Git diff tracking
         self.git_tracker: Optional[GitDiffTracker] = None
         self._init_git_tracker()
@@ -302,7 +318,13 @@ class ClaudeWrapperV3:
         """Write to debug log file"""
         if self.debug_log_file:
             try:
-                self.debug_log_file.write(f"[{time.strftime('%H:%M:%S')}] {message}\n")
+                # Include milliseconds in timestamp
+                current_time = time.time()
+                timestamp = time.strftime("%H:%M:%S", time.localtime(current_time))
+                milliseconds = int((current_time % 1) * 1000)
+                self.debug_log_file.write(
+                    f"[{timestamp}.{milliseconds:03d}] {message}\n"
+                )
                 self.debug_log_file.flush()
             except Exception:
                 pass
@@ -530,11 +552,48 @@ class ClaudeWrapperV3:
             self.log(f"[ERROR] Error processing Claude log entry: {e}")
 
     def is_claude_idle(self):
-        """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.5+ seconds)"""
-        if self.last_esc_interrupt_seen:
-            time_since_esc = time.time() - self.last_esc_interrupt_seen
-            return time_since_esc >= 0.75
-        return True
+        """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.75+ seconds AND no recent messages)"""
+        with self.is_idle_lock:
+            if self.last_esc_interrupt_seen:
+                time_since_esc = time.time() - self.last_esc_interrupt_seen
+                esc_idle = time_since_esc >= 0.75
+            else:
+                esc_idle = True
+                time_since_esc = -1
+
+            # Also check message timing
+            if self.message_processor.last_message_time:
+                time_since_last_message = (
+                    time.time() - self.message_processor.last_message_time
+                )
+                message_idle = time_since_last_message >= 0.75
+            else:
+                message_idle = True
+                time_since_last_message = -1
+
+            # Both conditions must be true
+            is_idle = esc_idle and message_idle
+
+            self.log(
+                f"[DEBUG] is_claude_idle: time_since_esc={time_since_esc:.2f}s, time_since_message={time_since_last_message:.2f}s, esc_idle={esc_idle}, message_idle={message_idle}, is_idle={is_idle}"
+            )
+
+            # Log buffer content when NOT idle (to see what's happening)
+            if not is_idle and self.terminal_buffer:
+                # Get last 2500 chars of buffer for debugging
+                buffer_preview = (
+                    self.terminal_buffer[-2500:]
+                    if len(self.terminal_buffer) > 2500
+                    else self.terminal_buffer
+                )
+                # Clean it for logging (remove ANSI codes)
+                clean_preview = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", buffer_preview)
+                clean_preview = clean_preview.replace("\n", "\\n").replace("\r", "\\r")
+                self.log(
+                    f"[DEBUG] Terminal buffer (last 2500 chars): {repr(clean_preview)}"
+                )
+
+            return is_idle
 
     def _extract_permission_prompt(
         self, clean_buffer: str
@@ -792,7 +851,7 @@ class ClaudeWrapperV3:
                                 self._permission_handled = True
 
                                 # Use lock to ensure atomic permission prompt handling
-                                with self.send_message_lock:
+                                with self.send_message_lock, self.is_idle_lock:
                                     # Extract prompt components using the shared method
                                     question, options, options_map = (
                                         self._extract_permission_prompt(clean_buffer)
@@ -1170,7 +1229,7 @@ class ClaudeWrapperV3:
             # Check if we should request input
             message_id = self.message_processor.should_request_input()
 
-            if message_id and self.requested_input_messages[message_id] <= 2:
+            if message_id and self.requested_input_messages[message_id] < 2:
                 self.log(
                     f"[INFO] Claude is idle, starting request_user_input for message {message_id}"
                 )
