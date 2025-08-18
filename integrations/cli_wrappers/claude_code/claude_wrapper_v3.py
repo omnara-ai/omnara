@@ -146,12 +146,10 @@ class MessageProcessor:
             self.last_message_time = time.time()
 
             # Clear old tracked input requests since we have a new message
-            if hasattr(self.wrapper, "requested_input_messages"):
-                self.wrapper.requested_input_messages.clear()
+            self.wrapper.requested_input_messages.clear()
 
             # Clear pending permission options since we have a new message
-            if hasattr(self.wrapper, "pending_permission_options"):
-                self.wrapper.pending_permission_options.clear()
+            self.wrapper.pending_permission_options.clear()
 
             # Process any queued user messages
             if response.queued_user_messages:
