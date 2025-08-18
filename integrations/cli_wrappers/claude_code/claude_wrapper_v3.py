@@ -27,6 +27,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any, Dict, Optional
+import queue
 from omnara.sdk.async_client import AsyncOmnaraClient
 from omnara.sdk.client import OmnaraClient
 from omnara.sdk.exceptions import AuthenticationError, APIError
@@ -36,6 +37,7 @@ from integrations.cli_wrappers.claude_code.session_reset_handler import (
 from collections import Counter
 from integrations.cli_wrappers.claude_code.format_utils import format_content_block
 from integrations.utils.git_utils import GitDiffTracker
+from integrations.cli_wrappers.claude_code.esc_detector import EscDetector
 
 
 # Constants
@@ -253,6 +255,13 @@ class ClaudeWrapperV3:
         # Claude status monitoring
         self.terminal_buffer = ""
         self.last_esc_interrupt_seen = None
+
+        # ESC detector process
+        self.esc_detector = EscDetector()
+
+        # Terminal output queue for separating reading from processing
+        self.terminal_output_queue = queue.Queue(maxsize=1000)
+        self.terminal_reader_thread = None
 
         # Message processor
         self.message_processor = MessageProcessor(self)
@@ -554,8 +563,13 @@ class ClaudeWrapperV3:
     def is_claude_idle(self):
         """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.75+ seconds AND no recent messages)"""
         with self.is_idle_lock:
-            if self.last_esc_interrupt_seen:
-                time_since_esc = time.time() - self.last_esc_interrupt_seen
+            # Get ESC timestamp from detector (preferred) or fallback to old method
+            esc_timestamp = (
+                self.esc_detector.last_esc_seen or self.last_esc_interrupt_seen
+            )
+
+            if esc_timestamp:
+                time_since_esc = time.time() - esc_timestamp
                 esc_idle = time_since_esc >= 0.75
             else:
                 esc_idle = True
@@ -749,6 +763,60 @@ class ClaudeWrapperV3:
 
         return question, options, options_map
 
+    def terminal_reader_thread_func(self):
+        """Dedicated thread for reading terminal output without blocking."""
+        self.log("[INFO] Terminal reader thread started")
+
+        # Exit early if master_fd is not set
+        if self.master_fd is None:
+            self.log("[ERROR] master_fd is None in terminal reader thread")
+            return
+
+        try:
+            while self.running:
+                # Use select with very short timeout for responsive reading
+                rlist, _, _ = select.select([self.master_fd], [], [], 0.01)
+
+                if self.master_fd in rlist:
+                    try:
+                        # Read available data
+                        data = os.read(self.master_fd, 65536)
+                        if data:
+                            # Immediately feed to ESC detector (bypasses all processing)
+                            self.esc_detector.feed(data)
+
+                            # Write to stdout immediately
+                            os.write(sys.stdout.fileno(), data)
+                            sys.stdout.flush()
+
+                            # Queue for processing (non-blocking)
+                            try:
+                                self.terminal_output_queue.put_nowait(data)
+                            except queue.Full:
+                                # Drop oldest item if queue is full
+                                try:
+                                    self.terminal_output_queue.get_nowait()
+                                    self.terminal_output_queue.put_nowait(data)
+                                except queue.Empty:
+                                    pass
+                        else:
+                            # Claude process has exited
+                            self.log("[INFO] Claude process exited (reader thread)")
+                            self.running = False
+                            break
+                    except BlockingIOError:
+                        continue
+                    except OSError:
+                        # Claude process has exited
+                        self.log("[INFO] Claude process exited (OSError in reader)")
+                        self.running = False
+                        break
+        except Exception as e:
+            self.log(f"[ERROR] Terminal reader thread error: {e}")
+            self.running = False
+        finally:
+            self.log("[INFO] Terminal reader thread ended")
+
     def run_claude_with_pty(self):
         """Run Claude CLI in a PTY"""
         claude_path = find_claude_cli()
@@ -820,9 +888,52 @@ class ClaudeWrapperV3:
             flags = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
             fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
+            # Start the terminal reader thread
+            self.terminal_reader_thread = threading.Thread(
+                target=self.terminal_reader_thread_func,
+                name="TerminalReader",
+                daemon=True,
+            )
+            self.terminal_reader_thread.start()
+            self.log("[INFO] Started terminal reader thread")
+
             while self.running:
-                # Use select to multiplex I/O
-                rlist, _, _ = select.select([sys.stdin, self.master_fd], [], [], 0.01)
+                # Use select for stdin only (terminal is handled by reader thread)
+                rlist, _, _ = select.select([sys.stdin], [], [], 0.01)
+
+                # Process queued terminal output
+                try:
+                    # Process all available data from queue (non-blocking)
+                    while True:
+                        try:
+                            data = self.terminal_output_queue.get_nowait()
+
+                            # Process the terminal data (heavy operations)
+                            try:
+                                text = data.decode("utf-8", errors="ignore")
+                                self.terminal_buffer += text
+
+                                # Keep buffer large enough for long plans
+                                if len(self.terminal_buffer) > 200000:
+                                    self.terminal_buffer = self.terminal_buffer[
+                                        -200000:
+                                    ]
+
+                                # Keep the old ESC detection as fallback
+                                clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+                                if (
+                                    "esc to interrupt)" in clean_text
+                                    or "ctrl+b to run in background" in clean_text
+                                ):
+                                    self.last_esc_interrupt_seen = time.time()
+
+                            except Exception:
+                                pass
+
+                        except queue.Empty:
+                            break
+                except Exception as e:
+                    self.log(f"[ERROR] Error processing terminal queue: {e}")
 
                 # When expecting permission prompt, check if we need to handle it
                 if self.message_processor.last_was_tool_use and self.is_claude_idle():
@@ -920,54 +1031,15 @@ class ClaudeWrapperV3:
                     if hasattr(self, "_permission_handled"):
                         delattr(self, "_permission_handled")
 
-                # Handle terminal output from Claude
-                if self.master_fd in rlist:
-                    try:
-                        data = os.read(self.master_fd, 65536)
-                        if data:
-                            # Write to stdout
-                            os.write(sys.stdout.fileno(), data)
-                            sys.stdout.flush()
-
-                            # Check for "esc to interrupt" indicator
-                            try:
-                                text = data.decode("utf-8", errors="ignore")
-                                self.terminal_buffer += text
-
-                                # Keep buffer large enough for long plans
-                                if len(self.terminal_buffer) > 200000:
-                                    self.terminal_buffer = self.terminal_buffer[
-                                        -200000:
-                                    ]
-
-                                # Check for the indicator
-                                clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
-
-                                # Check for both "esc to interrupt" and "ctrl+b to run in background"
-                                if (
-                                    "esc to interrupt)" in clean_text
-                                    or "ctrl+b to run in background" in clean_text
-                                ):
-                                    self.last_esc_interrupt_seen = time.time()
-
-                            except Exception:
-                                pass
-                        else:
-                            # Claude process has exited - trigger cleanup
-                            self.log(
-                                "[INFO] Claude process exited, shutting down wrapper"
-                            )
-                            self.running = False
-                            break
-                    except BlockingIOError:
-                        pass
-                    except OSError:
-                        # Claude process has exited - trigger cleanup
-                        self.log(
-                            "[INFO] Claude process exited (OSError), shutting down wrapper"
-                        )
-                        self.running = False
-                        break
+                # Terminal output is now handled by the reader thread
+                # We just need to check if the reader thread is still alive
+                if (
+                    self.terminal_reader_thread
+                    and not self.terminal_reader_thread.is_alive()
+                ):
+                    self.log("[WARNING] Terminal reader thread died, shutting down")
+                    self.running = False
+                    break
 
                 # Handle user input from stdin
                 if sys.stdin in rlist and self.original_tty_attrs:
@@ -1132,6 +1204,20 @@ class ClaudeWrapperV3:
                     os.write(self.master_fd, b"\r")
 
         finally:
+            # Signal shutdown to reader thread
+            self.running = False
+
+            # Stop ESC detector if still running
+            try:
+                if self.esc_detector.is_alive():
+                    self.esc_detector.stop()
+            except Exception:
+                pass
+
+            # Wait for reader thread to finish
+            if self.terminal_reader_thread and self.terminal_reader_thread.is_alive():
+                self.terminal_reader_thread.join(timeout=1.0)
+
             # Restore terminal settings
             if self.original_tty_attrs:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.original_tty_attrs)
@@ -1278,6 +1364,11 @@ class ClaudeWrapperV3:
         self.log("[INFO] Starting run() method")
 
         try:
+            # Start ESC detector process
+            self.log("[INFO] Starting ESC detector process...")
+            self.esc_detector.start()
+            self.log("[INFO] ESC detector started")
+
             # Initialize Omnara clients (sync)
             self.log("[INFO] Initializing Omnara clients...")
             self.init_omnara_clients()
@@ -1392,6 +1483,14 @@ class ClaudeWrapperV3:
             # Clean up
             self.running = False
             self.log("[INFO] Shutting down wrapper...")
+
+            # Stop ESC detector process
+            try:
+                self.log("[INFO] Stopping ESC detector...")
+                self.esc_detector.stop()
+                self.log("[INFO] ESC detector stopped")
+            except Exception as e:
+                self.log(f"[WARNING] Error stopping ESC detector: {e}")
 
             # Print exit message immediately for better UX
             if not sys.exc_info()[0]:
