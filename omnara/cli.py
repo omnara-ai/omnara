@@ -304,57 +304,58 @@ def authenticate_via_browser(auth_url="https://omnara.com"):
         pass
 
     print("After signing in to Omnara:")
-    print("  • Local CLI: Click 'Authenticate Local CLI' button")
+    print("  • Local CLI: Click 'Authenticate Local CLI' button in your browser")
     print("  • Remote/SSH: Copy the API key and paste below")
 
     # Simple blocking input with timeout check in background
     print(
-        "\nPaste API key here (or press Enter if using local authentication): ",
+        "\nPaste API key here (or wait for browser authentication): ",
         end="",
         flush=True,
     )
 
+    import subprocess
+
     api_key = None
-    input_received = threading.Event()
-    user_input = {"value": ""}
-
-    def get_input():
-        try:
-            # Use sys.stdin.readline() for more direct control
-            raw_input = sys.stdin.readline().rstrip("\n\r")
-            user_input["value"] = raw_input.strip()
-            input_received.set()
-        except (KeyboardInterrupt, EOFError):
-            input_received.set()
-
-    input_thread = threading.Thread(target=get_input, daemon=True)
-    input_thread.start()
-
     start_time = time.time()
-    timeout = 300  # 5 minutes
+    timeout = 300
 
-    while True:
-        # Check if server got the token (local users)
+    # Create a subprocess to read input that we can ACTUALLY KILL
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import sys; print(sys.stdin.readline().strip())"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=sys.stdin,
+        text=True,
+    )
+
+    while time.time() - start_time < timeout:
+        # Check if browser authenticated
         if server.api_key:
             print("\n✓ Authentication successful!")
             api_key = server.api_key
+            proc.kill()  # KILL the subprocess - this actually works!
             break
 
-        # Check if user provided input
-        if input_received.is_set():
-            if user_input["value"]:
-                print("✓ Token received!")
-                api_key = user_input["value"]
-            else:
-                print("Waiting for automatic authentication...")
-            break
-
-        # Check for timeout
-        if time.time() - start_time > timeout:
-            print("\n✗ Authentication timed out")
-            break
+        # Check if user pasted token
+        if proc.poll() is not None:  # Process finished
+            if proc.stdout:
+                output = proc.stdout.read().strip()
+                if output:
+                    print("✓ Token received!")
+                    api_key = output
+                    break
 
         time.sleep(0.1)
+
+    # Make sure subprocess is dead
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass  # Process already dead
+
+    if not api_key:
+        print("\n✗ Authentication timed out")
 
     # If we got the API key, wait a bit for the browser to process
     if api_key and server.api_key:
@@ -710,6 +711,20 @@ Examples:
     headless_parser = subparsers.add_parser(
         "headless",
         help="Run Claude Code in headless mode (controlled via web dashboard)",
+    )
+    # Add the same global arguments to headless subcommand
+    headless_parser.add_argument(
+        "--api-key", help="API key for authentication (uses stored key if not provided)"
+    )
+    headless_parser.add_argument(
+        "--base-url",
+        default="https://agent-dashboard-mcp.onrender.com",
+        help="Base URL of the Omnara API server",
+    )
+    headless_parser.add_argument(
+        "--auth-url",
+        default="https://omnara.com",
+        help="Base URL of the Omnara frontend for authentication",
     )
     headless_parser.add_argument(
         "--prompt",
