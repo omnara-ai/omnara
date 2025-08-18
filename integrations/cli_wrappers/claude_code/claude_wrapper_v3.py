@@ -141,10 +141,6 @@ class MessageProcessor:
                 git_diff=git_diff,
             )
 
-            # Store instance ID if first message
-            if not self.wrapper.agent_instance_id:
-                self.wrapper.agent_instance_id = response.agent_instance_id
-
             # Track message for idle detection
             self.last_message_id = response.message_id
             self.last_message_time = time.time()
@@ -197,8 +193,7 @@ class ClaudeWrapperV3:
         dangerously_skip_permissions: bool = False,
     ):
         # Session management
-        self.session_uuid = str(uuid.uuid4())
-        self.agent_instance_id = None
+        self.agent_instance_id = str(uuid.uuid4())
         self.permission_mode = permission_mode
         self.dangerously_skip_permissions = dangerously_skip_permissions
 
@@ -206,7 +201,7 @@ class ClaudeWrapperV3:
         self.debug_log_file = None
         self._init_logging()
 
-        self.log(f"[INFO] Session UUID: {self.session_uuid}")
+        self.log(f"[INFO] Agent Instance ID: {self.agent_instance_id}")
 
         # Omnara SDK setup
         self.api_key = api_key or os.environ.get("OMNARA_API_KEY")
@@ -264,7 +259,7 @@ class ClaudeWrapperV3:
         """Initialize debug logging"""
         try:
             OMNARA_WRAPPER_LOG_DIR.mkdir(exist_ok=True, parents=True)
-            log_file_path = OMNARA_WRAPPER_LOG_DIR / f"{self.session_uuid}.log"
+            log_file_path = OMNARA_WRAPPER_LOG_DIR / f"{self.agent_instance_id}.log"
             self.debug_log_file = open(log_file_path, "w")
             self.log(
                 f"=== Claude Wrapper V3 Debug Log - {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
@@ -344,7 +339,7 @@ class ClaudeWrapperV3:
         while self.running and not self.claude_jsonl_path:
             project_dir = self.get_project_log_dir()
             if project_dir:
-                expected_filename = f"{self.session_uuid}.jsonl"
+                expected_filename = f"{self.agent_instance_id}.jsonl"
                 expected_path = project_dir / expected_filename
                 if expected_path.exists():
                     self.claude_jsonl_path = expected_path
@@ -521,12 +516,12 @@ class ClaudeWrapperV3:
                 summary = data.get("summary", "")
                 if summary and not self.agent_instance_id and self.omnara_client_sync:
                     # Send initial message
-                    response = self.omnara_client_sync.send_message(
+                    self.omnara_client_sync.send_message(
                         content=f"Claude session started: {summary}",
                         agent_type="Claude Code",
+                        agent_instance_id=self.agent_instance_id,
                         requires_user_input=False,
                     )
-                    self.agent_instance_id = response.agent_instance_id
 
         except Exception as e:
             self.log(f"[ERROR] Error processing Claude log entry: {e}")
@@ -768,7 +763,7 @@ class ClaudeWrapperV3:
         self.log(f"[INFO] Found Claude CLI at: {claude_path}")
 
         # Always add session ID for tracking
-        cmd = [claude_path, "--session-id", self.session_uuid]
+        cmd = [claude_path, "--session-id", self.agent_instance_id]
 
         # Add permission-mode flag if specified
         if self.permission_mode:
@@ -1218,10 +1213,9 @@ class ClaudeWrapperV3:
                 response = self.omnara_client_sync.send_message(
                     content="Claude Code session started - waiting for your input...",
                     agent_type="Claude Code",
+                    agent_instance_id=self.agent_instance_id,
                     requires_user_input=False,
                 )
-                self.agent_instance_id = response.agent_instance_id
-                self.log(f"[INFO] Omnara agent instance ID: {self.agent_instance_id}")
 
                 # Initialize message processor with first message
                 if hasattr(self.message_processor, "last_message_id"):
