@@ -7,11 +7,15 @@ from ..config.settings import settings
 
 engine = create_engine(
     settings.database_url,
-    pool_size=35,
-    max_overflow=10,
+    pool_size=20,  # Reduced from 35 - better connection reuse
+    max_overflow=20,  # Increased from 10 - handle traffic bursts
     pool_timeout=30,
-    pool_recycle=3600,
+    pool_recycle=1800,  # Reduced from 3600 - recycle connections every 30 min
     pool_pre_ping=True,
+    connect_args={
+        "connect_timeout": 10,
+        "options": "-c statement_timeout=30000",  # 30 second statement timeout
+    },
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

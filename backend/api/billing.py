@@ -41,7 +41,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 # API Endpoints
 @router.get("/subscription", response_model=SubscriptionResponse)
-async def get_subscription(
+def get_subscription(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Get current user's subscription details."""
@@ -73,7 +73,7 @@ async def get_subscription(
 
 
 @router.get("/usage", response_model=UsageResponse)
-async def get_usage(
+def get_usage(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Get current usage statistics."""
@@ -103,7 +103,7 @@ async def get_usage(
 
 
 @router.post("/checkout", response_model=CheckoutSessionResponse)
-async def create_checkout_session(
+def create_checkout_session(
     request: CreateCheckoutSessionRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -203,7 +203,7 @@ async def create_checkout_session(
 
 
 @router.post("/validate-promo", response_model=PromoCodeValidationResponse)
-async def validate_promo_code(
+def validate_promo_code(
     request: ValidatePromoCodeRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -264,7 +264,7 @@ async def validate_promo_code(
 
 
 @router.post("/cancel")
-async def cancel_subscription(
+def cancel_subscription(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Cancel the current subscription at period end."""

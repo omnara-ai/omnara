@@ -36,7 +36,7 @@ def validate_e164_phone_number(phone: str) -> bool:
 @router.get(
     "/user/notification-settings", response_model=UserNotificationSettingsResponse
 )
-async def get_notification_settings(current_user: User = Depends(get_current_user)):
+def get_notification_settings(current_user: User = Depends(get_current_user)):
     """Get current user's notification settings"""
     return UserNotificationSettingsResponse(
         push_notifications_enabled=current_user.push_notifications_enabled,
@@ -50,7 +50,7 @@ async def get_notification_settings(current_user: User = Depends(get_current_use
 @router.put(
     "/user/notification-settings", response_model=UserNotificationSettingsResponse
 )
-async def update_notification_settings(
+def update_notification_settings(
     request: UserNotificationSettingsRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
