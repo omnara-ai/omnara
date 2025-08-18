@@ -279,20 +279,18 @@ def authenticate_via_browser(auth_url="https://omnara.com"):
     state = secrets.token_urlsafe(32)
 
     # Start local server to receive the callback
-    server = AuthHTTPServer(("localhost", 0), AuthCallbackHandler)
+    server = AuthHTTPServer(("127.0.0.1", 0), AuthCallbackHandler)
     server.state = state
     server.api_key = None
     port = server.server_port
 
     # Construct the auth URL
     auth_base = auth_url.rstrip("/")
-    callback_url = f"http://localhost:{port}"
-    auth_url = f"{auth_base}/cli-auth?callback={urllib.parse.quote(callback_url)}&state={urllib.parse.quote(state)}"
+    auth_url = f"{auth_base}/cli-auth?port={port}&state={urllib.parse.quote(state)}"
 
     print("\nOpening browser for authentication...")
-    print("If your browser doesn't open automatically, please click this link:")
+    print("If your browser doesn't open automatically, visit this link:")
     print(f"\n  {auth_url}\n")
-    print("Waiting for authentication...")
 
     # Run server in a thread
     server_thread = threading.Thread(target=server.serve_forever)
@@ -305,13 +303,62 @@ def authenticate_via_browser(auth_url="https://omnara.com"):
     except Exception:
         pass
 
-    # Wait for authentication (with timeout)
+    print("After signing in to Omnara:")
+    print("  • Local CLI: Click 'Authenticate Local CLI' button in your browser")
+    print("  • Remote/SSH: Copy the API key and paste below")
+
+    # Simple blocking input with timeout check in background
+    print(
+        "\nPaste API key here (or wait for browser authentication): ",
+        end="",
+        flush=True,
+    )
+
+    import subprocess
+
+    api_key = None
     start_time = time.time()
-    while not server.api_key and (time.time() - start_time) < 300:
+    timeout = 300
+
+    # Create a subprocess to read input that we can ACTUALLY KILL
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import sys; print(sys.stdin.readline().strip())"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=sys.stdin,
+        text=True,
+    )
+
+    while time.time() - start_time < timeout:
+        # Check if browser authenticated
+        if server.api_key:
+            print("\n✓ Authentication successful!")
+            api_key = server.api_key
+            proc.kill()  # KILL the subprocess - this actually works!
+            break
+
+        # Check if user pasted token
+        if proc.poll() is not None:  # Process finished
+            if proc.stdout:
+                output = proc.stdout.read().strip()
+                if output:
+                    print("✓ Token received!")
+                    api_key = output
+                    break
+
         time.sleep(0.1)
 
-    # If we got the API key, wait a bit for the browser to process the redirect
-    if server.api_key:
+    # Make sure subprocess is dead
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass  # Process already dead
+
+    if not api_key:
+        print("\n✗ Authentication timed out")
+
+    # If we got the API key, wait a bit for the browser to process
+    if api_key and server.api_key:
         time.sleep(1.5)  # Give browser time to receive response and start redirect
 
     # Shutdown server in a separate thread to avoid deadlock
@@ -324,8 +371,8 @@ def authenticate_via_browser(auth_url="https://omnara.com"):
 
     server.server_close()
 
-    if server.api_key:
-        return server.api_key
+    if api_key:
+        return api_key
     else:
         raise Exception("Authentication failed - no API key received")
 
@@ -664,6 +711,20 @@ Examples:
     headless_parser = subparsers.add_parser(
         "headless",
         help="Run Claude Code in headless mode (controlled via web dashboard)",
+    )
+    # Add the same global arguments to headless subcommand
+    headless_parser.add_argument(
+        "--api-key", help="API key for authentication (uses stored key if not provided)"
+    )
+    headless_parser.add_argument(
+        "--base-url",
+        default="https://agent-dashboard-mcp.onrender.com",
+        help="Base URL of the Omnara API server",
+    )
+    headless_parser.add_argument(
+        "--auth-url",
+        default="https://omnara.com",
+        help="Base URL of the Omnara frontend for authentication",
     )
     headless_parser.add_argument(
         "--prompt",
