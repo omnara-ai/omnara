@@ -33,6 +33,7 @@ from omnara.sdk.exceptions import AuthenticationError, APIError
 from integrations.cli_wrappers.claude_code.session_reset_handler import (
     SessionResetHandler,
 )
+from collections import Counter
 from integrations.cli_wrappers.claude_code.format_utils import format_content_block
 from integrations.utils.git_utils import GitDiffTracker
 
@@ -85,7 +86,7 @@ class MessageProcessor:
             # Message from CLI - send to Omnara if not already from web
             if content not in self.web_ui_messages:
                 self.wrapper.log(
-                    f"[INFO] Sending CLI message to Omnara: {content[:50]}..."
+                    f"[INFO] Sending CLI user message to Omnara: {content[:100]}..."
                 )
                 if self.wrapper.agent_instance_id and self.wrapper.omnara_client_sync:
                     self.wrapper.omnara_client_sync.send_user_message(
@@ -133,6 +134,9 @@ class MessageProcessor:
                 )
 
             # Send to Omnara
+            self.wrapper.log(
+                f"[INFO] Sending CLI agent message to Omnara: {content[:100]}..."
+            )
             response = self.wrapper.omnara_client_sync.send_message(
                 content=sanitized_content,
                 agent_type="Claude Code",
@@ -160,7 +164,8 @@ class MessageProcessor:
     def should_request_input(self) -> Optional[str]:
         """Check if we should request input, returns message_id if yes"""
         # Don't request input if we might have a permission prompt
-        if self.last_was_tool_use and self.wrapper.is_claude_idle():
+        is_idle = self.wrapper.is_claude_idle()
+        if self.last_was_tool_use and is_idle:
             # We're in a state where a permission prompt might appear
             return None
 
@@ -171,7 +176,7 @@ class MessageProcessor:
         if (
             self.last_message_id
             and self.last_message_id != self.pending_input_message_id
-            and self.wrapper.is_claude_idle()
+            and is_idle
         ):
             return self.last_message_id
 
@@ -242,7 +247,7 @@ class ClaudeWrapperV3:
         self.pending_input_task = None
         self.async_loop = None
         self.requested_input_messages = (
-            set()
+            Counter()
         )  # Track messages we've already requested input for
         self.pending_permission_options = {}  # Map option text to number for permission prompts
         self.send_message_lock = (
@@ -530,76 +535,6 @@ class ClaudeWrapperV3:
             time_since_esc = time.time() - self.last_esc_interrupt_seen
             return time_since_esc >= 0.75
         return True
-
-    def cancel_pending_input_request(self):
-        """Cancel any pending input request task"""
-        if self.pending_input_task and not self.pending_input_task.done():
-            self.log("[INFO] Cancelling pending input request due to CLI input")
-            self.pending_input_task.cancel()
-            self.pending_input_task = None
-
-    async def request_user_input_async(self, message_id: str):
-        """Async task to request user input from web UI"""
-        try:
-            self.log(f"[INFO] Starting request_user_input for message {message_id}")
-
-            if not self.omnara_client_async:
-                self.log("[ERROR] Omnara async client not initialized")
-                return
-
-            # Ensure async client session exists
-            await self.omnara_client_async._ensure_session()
-
-            # Long-polling request for user input
-            user_responses = await self.omnara_client_async.request_user_input(
-                message_id=message_id,
-                timeout_minutes=1440,  # 24 hours
-                poll_interval=3.0,
-            )
-
-            # Process responses
-            for response in user_responses:
-                self.log(f"[INFO] Got user response from web UI: {response[:50]}...")
-                self.message_processor.process_user_message_sync(
-                    response, from_web=True
-                )
-                self.input_queue.append(response)
-
-        except asyncio.CancelledError:
-            self.log(f"[INFO] request_user_input cancelled for message {message_id}")
-            raise
-        except Exception as e:
-            self.log(f"[ERROR] Failed to request user input: {e}")
-
-            # If we get a 400 error about message already requiring input,
-            # send a new message instead
-            if "400" in str(e) and "already requires user input" in str(e):
-                self.log("[INFO] Message already requires input, sending new message")
-                try:
-                    if self.omnara_client_async:
-                        response = await self.omnara_client_async.send_message(
-                            content="Waiting for your input...",
-                            agent_type="Claude Code",
-                            agent_instance_id=self.agent_instance_id,
-                            requires_user_input=True,
-                            poll_interval=3.0,
-                        )
-                        self.log(
-                            f"[INFO] Sent new message with requires_user_input=True: {response.message_id}"
-                        )
-
-                        # Process responses
-                        for response in response.queued_user_messages:
-                            self.log(
-                                f"[INFO] Got user response from web UI: {response[:50]}..."
-                            )
-                            self.message_processor.process_user_message_sync(
-                                response, from_web=True
-                            )
-                            self.input_queue.append(response)
-
-                except Exception as send_error:
-                    self.log(f"[ERROR] Failed to send new message: {send_error}")
 
     def _extract_permission_prompt(
         self, clean_buffer: str
@@ -964,10 +899,6 @@ class ClaudeWrapperV3:
                                 "[INFO] Claude process exited, shutting down wrapper"
                             )
                             self.running = False
-                            if self.async_loop and self.async_loop.is_running():
-                                self.async_loop.call_soon_threadsafe(
-                                    self.async_loop.stop
-                                )
                             break
                     except BlockingIOError:
                         pass
@@ -977,8 +908,6 @@ class ClaudeWrapperV3:
                             "[INFO] Claude process exited (OSError), shutting down wrapper"
                         )
                         self.running = False
-                        if self.async_loop and self.async_loop.is_running():
-                            self.async_loop.call_soon_threadsafe(self.async_loop.stop)
                         break
 
                 # Handle user input from stdin
@@ -1156,10 +1085,78 @@ class ClaudeWrapperV3:
                 except Exception:
                     pass
 
-    async def idle_monitor_loop(self):
-        """Async loop to monitor idle state and request input"""
-        self.log("[INFO] Started idle monitor loop")
+    def cancel_pending_input_request(self):
+        """Cancel any pending input request task"""
+        if self.pending_input_task and not self.pending_input_task.done():
+            self.log("[INFO] Cancelling pending input request due to CLI input")
+            self.pending_input_task.cancel()
+            self.pending_input_task = None
 
+    async def request_user_input_async(self, message_id: str):
+        """Async task to request user input from web UI"""
+        try:
+            self.log(f"[INFO] Starting request_user_input for message {message_id}")
+
+            if not self.omnara_client_async:
+                self.log("[ERROR] Omnara async client not initialized")
+                return
+
+            # Ensure async client session exists
+            await self.omnara_client_async._ensure_session()
+
+            # Long-polling request for user input
+            user_responses = await self.omnara_client_async.request_user_input(
+                message_id=message_id,
+                timeout_minutes=1440,  # 24 hours
+                poll_interval=3.0,
+            )
+
+            # Process responses
+            for response in user_responses:
+                self.log(f"[INFO] Got user response from web UI: {response[:50]}...")
+                self.message_processor.process_user_message_sync(
+                    response, from_web=True
+                )
+                self.input_queue.append(response)
+
+        except asyncio.CancelledError:
+            self.log(f"[INFO] request_user_input cancelled for message {message_id}")
+            raise
+        except Exception as e:
+            self.log(f"[ERROR] Failed to request user input: {e}")
+
+            # If we get a 400 error about message already requiring input,
+            # send a new message instead
+            if "400" in str(e) and "already requires user input" in str(e):
+                self.log("[INFO] Message already requires input, sending new message")
+                try:
+                    if self.omnara_client_async:
+                        response = await self.omnara_client_async.send_message(
+                            content="Waiting for your input...",
+                            agent_type="Claude Code",
+                            agent_instance_id=self.agent_instance_id,
+                            requires_user_input=True,
+                            poll_interval=3.0,
+                        )
+                        self.log(
+                            f"[INFO] Sent new message with requires_user_input=True: {response.message_id}"
+                        )
+
+                        # Process responses
+                        for response in response.queued_user_messages:
+                            self.log(
+                                f"[INFO] Got user response from web UI: {response[:50]}..."
+                            )
+                            self.message_processor.process_user_message_sync(
+                                response, from_web=True
+                            )
+                            self.input_queue.append(response)
+
+                except Exception as send_error:
+                    self.log(f"[ERROR] Failed to send new message: {send_error}")
+
+    async def _idle_monitor_async(self):
+        """Async implementation of idle monitoring"""
         if not self.omnara_client_async:
             self.log("[ERROR] Omnara async client not initialized")
             return
@@ -1173,16 +1170,13 @@ class ClaudeWrapperV3:
             # Check if we should request input
             message_id = self.message_processor.should_request_input()
 
-            if message_id and message_id in self.requested_input_messages:
-                await asyncio.sleep(0.5)
-                self.requested_input_messages.clear()
-            elif message_id and message_id not in self.requested_input_messages:
+            if message_id and self.requested_input_messages[message_id] <= 2:
                 self.log(
                     f"[INFO] Claude is idle, starting request_user_input for message {message_id}"
                 )
 
                 # Track that we've requested input for this message
-                self.requested_input_messages.add(message_id)
+                self.requested_input_messages[message_id] += 1
 
                 # Mark as requested
                 self.message_processor.mark_input_requested(message_id)
@@ -1194,6 +1188,31 @@ class ClaudeWrapperV3:
                 self.pending_input_task = asyncio.create_task(
                     self.request_user_input_async(message_id)
                 )
+
+    def monitor_idle_state(self):
+        """Monitor idle state and request input when needed (runs in thread with async loop)"""
+        self.log("[INFO] Started idle monitor thread")
+
+        loop = None
+        try:
+            # Create and set a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self.async_loop = loop
+
+            # Run the async monitoring logic
+            loop.run_until_complete(self._idle_monitor_async())
+        except Exception as e:
+            if "Event loop is closed" not in str(e):
+                self.log(f"[ERROR] Idle monitor error: {e}")
+        finally:
+            # Clean up the loop
+            try:
+                if loop and not loop.is_closed():
+                    loop.close()
+            except Exception:
+                pass  # Ignore errors during cleanup
+            self.async_loop = None
 
     def run(self):
         """Run Claude with Omnara integration (main entry point)"""
@@ -1299,13 +1318,16 @@ class ClaudeWrapperV3:
         self.jsonl_monitor_thread.daemon = True
         self.jsonl_monitor_thread.start()
 
-        # Run async idle monitor in event loop
+        # Start idle monitor thread (with its own async event loop)
+        idle_monitor_thread = threading.Thread(target=self.monitor_idle_state)
+        idle_monitor_thread.daemon = True
+        idle_monitor_thread.start()
+
+        # Main thread just waits for threads to finish
         try:
-            self.async_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.async_loop)
-            self.async_loop.run_until_complete(self.idle_monitor_loop())
-        except (KeyboardInterrupt, RuntimeError):
-            # RuntimeError happens when loop.stop() is called
+            # Wait for Claude thread to exit (main indicator that session is ending)
+            claude_thread.join()
+        except KeyboardInterrupt:
             pass
         finally:
             # Clean up
@@ -1344,10 +1366,16 @@ class ClaudeWrapperV3:
 
                     if self.omnara_client_async:
                         # Close async client synchronously
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        loop.run_until_complete(self.omnara_client_async.close())
-                        loop.close()
+                        try:
+                            cleanup_loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(cleanup_loop)
+                            cleanup_loop.run_until_complete(
+                                self.omnara_client_async.close()
+                            )
+                            cleanup_loop.close()
+                        except Exception as e:
+                            if "Event loop is closed" not in str(e):
+                                self.log(f"[WARNING] Error closing async client: {e}")
 
                     if self.debug_log_file:
                         self.log("=== Claude Wrapper V3 Log Ended ===")
@@ -1430,10 +1458,6 @@ def main():
         # First Ctrl+C - initiate graceful shutdown
         wrapper.running = False
         wrapper.log("[INFO] SIGINT received, initiating shutdown")
-
-        # Stop the async event loop to trigger cleanup
-        if wrapper.async_loop and wrapper.async_loop.is_running():
-            wrapper.async_loop.call_soon_threadsafe(wrapper.async_loop.stop)
 
         if wrapper.child_pid:
             try:
