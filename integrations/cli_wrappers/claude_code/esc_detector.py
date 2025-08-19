@@ -14,8 +14,12 @@ import signal
 class EscDetector:
     """Detects ESC indicators in terminal output using a separate process."""
 
-    def __init__(self):
-        """Initialize the detector with shared memory and process management."""
+    def __init__(self, agent_instance_id: Optional[str] = None):
+        """Initialize the detector with shared memory and process management.
+
+        Args:
+            agent_instance_id: Optional ID for creating log file
+        """
         # Shared memory for timestamp (double precision float)
         self._last_esc_seen = mp.Value("d", 0.0)
 
@@ -25,6 +29,7 @@ class EscDetector:
         # Process management
         self._process: Optional[mp.Process] = None
         self._running = mp.Value("b", False)  # shared boolean
+        self._agent_instance_id = agent_instance_id
 
     def start(self) -> None:
         """Start the detector process."""
@@ -34,7 +39,12 @@ class EscDetector:
         self._running.value = True
         self._process = mp.Process(
             target=self._detector_worker,
-            args=(self._child_conn, self._last_esc_seen, self._running),
+            args=(
+                self._child_conn,
+                self._last_esc_seen,
+                self._running,
+                self._agent_instance_id,
+            ),
             daemon=True,
         )
         self._process.start()
@@ -103,7 +113,7 @@ class EscDetector:
         return bool(self._process and self._process.is_alive())
 
     @staticmethod
-    def _detector_worker(conn, shared_timestamp, running):
+    def _detector_worker(conn, shared_timestamp, running, agent_instance_id):
         """
         Worker process that detects ESC indicators.
 
@@ -112,6 +122,31 @@ class EscDetector:
         # Ignore signals in worker process
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
+        # Set up logging to separate file
+        log_file = None
+        if agent_instance_id:
+            try:
+                from pathlib import Path
+
+                log_dir = Path.home() / ".omnara" / "claude_wrapper"
+                log_dir.mkdir(exist_ok=True, parents=True)
+                log_path = log_dir / f"{agent_instance_id}_esc.log"
+                log_file = open(log_path, "w")
+
+                def log(msg):
+                    timestamp = time.strftime("%H:%M:%S", time.localtime())
+                    ms = int((time.time() % 1) * 1000)
+                    log_file.write(f"[{timestamp}.{ms:03d}] {msg}\n")
+                    log_file.flush()
+            except Exception:
+
+                def log(msg):
+                    pass
+        else:
+
+            def log(msg):
+                pass
+
         # Small buffer for edge cases where indicator spans chunks
         buffer = b""
         MAX_BUFFER_SIZE = 1000
@@ -119,15 +154,31 @@ class EscDetector:
         # Indicators to detect (as bytes for speed)
         INDICATORS = [b"esc to interrupt)", b"ctrl+b to run in background"]
 
+        chunk_count = 0
+
         while running.value:
             try:
                 # Check for new data (timeout allows periodic shutdown check)
                 if conn.poll(timeout=0.05):
                     data = conn.recv()
+                    chunk_count += 1
 
                     # Empty data is shutdown signal
                     if not data:
                         break
+
+                    # Log what we received
+                    preview = (
+                        data[:100]
+                        .decode("utf-8", errors="replace")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r")
+                    )
+                    log(f"Chunk #{chunk_count}: {len(data)} bytes: {preview}...")
+
+                    # Check if ESC is in this chunk
+                    if b"esc to interrupt)" in data:
+                        log(f"*** ESC FOUND IN CHUNK #{chunk_count} ***")
 
                     # Add to buffer
                     buffer += data
@@ -140,6 +191,9 @@ class EscDetector:
                     for indicator in INDICATORS:
                         if indicator in buffer:
                             shared_timestamp.value = time.time()
+                            log(
+                                f"DETECTED '{indicator.decode()}' at {shared_timestamp.value:.3f}"
+                            )
                             # Clear buffer after detection to avoid duplicates
                             buffer = b""
                             break

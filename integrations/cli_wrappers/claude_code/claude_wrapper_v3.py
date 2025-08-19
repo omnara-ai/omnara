@@ -257,7 +257,7 @@ class ClaudeWrapperV3:
         self.last_esc_interrupt_seen = None
 
         # ESC detector process
-        self.esc_detector = EscDetector()
+        self.esc_detector = EscDetector(agent_instance_id=self.agent_instance_id)
 
         # Terminal output queue for separating reading from processing
         self.terminal_output_queue = queue.Queue(maxsize=1000)
