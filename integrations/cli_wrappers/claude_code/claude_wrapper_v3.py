@@ -252,6 +252,7 @@ class ClaudeWrapperV3:
 
         # Claude status monitoring
         self.terminal_buffer = ""
+        self.is_idle_terminal_buffer = ""
         self.last_esc_interrupt_seen = None
 
         # Message processor
@@ -555,9 +556,9 @@ class ClaudeWrapperV3:
         """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.75+ seconds AND no recent messages)"""
         with self.is_idle_lock:
             # Check if ESC is currently in the buffer (reliable check)
-            if self.terminal_buffer:
+            if self.is_idle_terminal_buffer:
                 clean_buffer = re.sub(
-                    r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
+                    r"\x1b\[[0-9;]*[a-zA-Z]", "", self.is_idle_terminal_buffer
                 )
                 if (
                     "esc to interrupt)" in clean_buffer
@@ -591,12 +592,12 @@ class ClaudeWrapperV3:
             )
 
             # Log buffer content when NOT idle (to see what's happening)
-            if not is_idle and self.terminal_buffer:
+            if not is_idle and self.is_idle_terminal_buffer:
                 # Get last 2500 chars of buffer for debugging
                 buffer_preview = (
-                    self.terminal_buffer[-2500:]
-                    if len(self.terminal_buffer) > 2500
-                    else self.terminal_buffer
+                    self.is_idle_terminal_buffer[-2500:]
+                    if len(self.is_idle_terminal_buffer) > 2500
+                    else self.is_idle_terminal_buffer
                 )
                 # Clean it for logging (remove ANSI codes)
                 clean_preview = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", buffer_preview)
@@ -604,6 +605,8 @@ class ClaudeWrapperV3:
                 self.log(
                     f"[DEBUG] Terminal buffer (last 2500 chars): {repr(clean_preview)}"
                 )
+
+            self.is_idle_terminal_buffer = ""
 
             return is_idle
 
@@ -945,6 +948,7 @@ class ClaudeWrapperV3:
                             try:
                                 text = data.decode("utf-8", errors="ignore")
                                 self.terminal_buffer += text
+                                self.is_idle_terminal_buffer += text
 
                                 # Keep buffer large enough for long plans
                                 if len(self.terminal_buffer) > 200000:
