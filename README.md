@@ -133,7 +133,7 @@ See what Claude is doing in real-time:
    pip install omnara
    
    # Using uv (faster)
-   uv pip install omnara
+   uv tool install omnara
    ```
 2. **Start monitoring**:
    ```bash
@@ -141,7 +141,7 @@ See what Claude is doing in real-time:
    omnara
    
    # If installed with uv
-   uv run omnara
+   omnara
    ```
 3. **Authenticate** in your browser (opens automatically)
 4. **See everything** your agent does in the Omnara dashboard!
@@ -157,8 +157,8 @@ Trigger Claude from your phone:
    omnara serve
    
    # Using uv (faster)
-   uv pip install omnara
-   uv run omnara serve
+   uv tool install omnara
+   omnara serve
    ```
 2. **Set up your agent** in the mobile app with the webhook URL shown
 3. **Launch agents** from anywhere - beach, coffee shop, bed!
