@@ -167,14 +167,8 @@ class EscDetector:
                     if not data:
                         break
 
-                    # Log what we received
-                    preview = (
-                        data[:100]
-                        .decode("utf-8", errors="replace")
-                        .replace("\n", "\\n")
-                        .replace("\r", "\\r")
-                    )
-                    log(f"Chunk #{chunk_count}: {len(data)} bytes: {preview}...")
+                    # Log what we received - SHOW RAW DATA
+                    log(f"Chunk #{chunk_count}: {len(data)} bytes: {repr(data)}")
 
                     # Check if ESC is in this chunk
                     if b"esc to interrupt)" in data:
