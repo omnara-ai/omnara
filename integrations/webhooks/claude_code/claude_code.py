@@ -26,9 +26,6 @@ DEFAULT_HOST = "0.0.0.0"
 # Cache for command paths to avoid repeated lookups
 COMMAND_PATHS = {}
 
-# Debug mode flag (set via --debug argument)
-DEBUG_MODE = False
-
 # === DEPENDENCY CHECKING ===
 REQUIRED_COMMANDS = {
     "git": "Git is required for creating worktrees",
@@ -48,22 +45,13 @@ def is_macos() -> bool:
 def get_command_path(command: str) -> Optional[str]:
     """Get the full path to a command, using cache if available"""
     if command in COMMAND_PATHS:
-        if DEBUG_MODE:
-            print(f"[DEBUG] Using cached path for {command}: {COMMAND_PATHS[command]}")
         return COMMAND_PATHS[command]
-
-    if DEBUG_MODE:
-        print(f"[DEBUG] Looking up path for command: {command}")
 
     exists, path = check_command(command)
     if exists and path:
         COMMAND_PATHS[command] = path
-        if DEBUG_MODE:
-            print(f"  - Found at: {path}")
         return path
 
-    if DEBUG_MODE:
-        print("  - Not found")
     return None
 
 
@@ -190,24 +178,13 @@ def is_git_repository(path: str = ".") -> bool:
 def check_worktree_exists(worktree_name: str) -> Tuple[bool, Optional[str]]:
     """Check if a worktree with the given name exists and return its path"""
     try:
-        if DEBUG_MODE:
-            print(f"\n[DEBUG] Checking for existing worktree: {worktree_name}")
-
         git_path = get_command_path("git")
         if not git_path:
-            if DEBUG_MODE:
-                print("  - Git command not found")
             return False, None
 
         result = subprocess.run(
             [git_path, "worktree", "list"], capture_output=True, text=True, check=True
         )
-
-        if DEBUG_MODE:
-            print("  - Worktrees found:")
-            for line in result.stdout.strip().split("\n"):
-                if line:
-                    print(f"    {line}")
 
         # Parse worktree list output
         # Format: /path/to/worktree branch-name [branch-ref]
@@ -219,16 +196,10 @@ def check_worktree_exists(worktree_name: str) -> Tuple[bool, Optional[str]]:
                     # Extract worktree name from path
                     dirname = os.path.basename(path)
                     if dirname == worktree_name:
-                        if DEBUG_MODE:
-                            print(f"  - Match found: {path}")
                         return True, path
 
-        if DEBUG_MODE:
-            print("  - No matching worktree found")
         return False, None
-    except subprocess.CalledProcessError as e:
-        if DEBUG_MODE:
-            print(f"  - Error checking worktree: {e}")
+    except subprocess.CalledProcessError:
         return False, None
 
 
@@ -278,8 +249,6 @@ def start_cloudflare_tunnel(
     port: int = DEFAULT_PORT,
 ) -> Tuple[Optional[subprocess.Popen], Optional[str]]:
     """Start Cloudflare tunnel and return the process and tunnel URL"""
-    if DEBUG_MODE:
-        print(f"\n[DEBUG] Starting Cloudflare tunnel on port {port}")
     if not check_cloudflared_installed():
         # Try to install with brew on macOS
         if is_macos() and try_install_with_brew("cloudflared"):
@@ -588,32 +557,21 @@ When using `ask_question`, use these formats (markers MUST be at the END):
 
 def verify_auth(request: Request, authorization: str = Header(None)) -> bool:
     """Verify the authorization header contains the correct secret"""
-    if DEBUG_MODE:
-        print("\n[DEBUG] Verifying authorization")
-        print(f"  - Auth header present: {authorization is not None}")
 
     if not authorization:
-        if DEBUG_MODE:
-            print("  - Result: No authorization header")
         return False
 
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        if DEBUG_MODE:
-            print(f"  - Result: Invalid auth format (parts: {len(parts)})")
         return False
 
     provided_secret = parts[1]
     expected_secret = getattr(request.app.state, "webhook_secret", None)
 
     if not expected_secret:
-        if DEBUG_MODE:
-            print("  - Result: No expected secret in app state")
         return False
 
     is_valid = secrets.compare_digest(provided_secret, expected_secret)
-    if DEBUG_MODE:
-        print(f"  - Result: {'Valid' if is_valid else 'Invalid'} secret")
     return is_valid
 
 
@@ -625,14 +583,6 @@ async def start_claude(
     x_omnara_api_key: str = Header(None, alias="X-Omnara-Api-Key"),
 ):
     try:
-        if DEBUG_MODE:
-            print("\n[DEBUG] Received webhook request:")
-            print(f"  - Agent instance ID: {webhook_data.agent_instance_id}")
-            print(f"  - Prompt length: {len(webhook_data.prompt)} characters")
-            if webhook_data.worktree_name:
-                print(f"  - Worktree requested: {webhook_data.worktree_name}")
-            print(f"  - Permissions skip: {app.state.dangerously_skip_permissions}")
-
         if not verify_auth(request, authorization):
             print("[ERROR] Invalid or missing authorization")
             raise HTTPException(
@@ -706,10 +656,6 @@ async def start_claude(
             raise HTTPException(status_code=400, detail="Invalid working directory")
 
         # Additional runtime check for git repository
-        if DEBUG_MODE:
-            print("\n[DEBUG] Checking git repository status")
-            print(f"  - Base directory: {base_dir}")
-
         if not is_git_repository(base_dir):
             print(f"[ERROR] Not in a git repository. Current directory: {base_dir}")
             raise HTTPException(
@@ -717,22 +663,13 @@ async def start_claude(
                 detail="Server is not running in a git repository. Please start the webhook from within a git repository.",
             )
 
-        if DEBUG_MODE:
-            print("  - Git repository: Valid")
-
         if create_new_worktree:
             print("\n[INFO] Creating git worktree:")
             print(f"  - Branch: {feature_branch_name}")
             print(f"  - Directory: {work_dir}")
 
             # Get git path
-            if DEBUG_MODE:
-                print("\n[DEBUG] Resolving git command path")
-
             git_path = get_command_path("git")
-
-            if DEBUG_MODE:
-                print(f"  - Git path: {git_path if git_path else 'Not found'}")
 
             if not git_path:
                 print("[ERROR] Git command not found in PATH or as alias")
@@ -742,10 +679,6 @@ async def start_claude(
                 )
 
             # First check if the branch already exists
-            if DEBUG_MODE:
-                print("\n[DEBUG] Checking if branch exists")
-                print(f"  - Branch name: {feature_branch_name}")
-
             branch_check = subprocess.run(
                 [
                     git_path,
@@ -758,23 +691,13 @@ async def start_claude(
                 cwd=base_dir,
             )
 
-            if DEBUG_MODE:
-                print(f"  - Branch exists: {branch_check.returncode == 0}")
-
             if branch_check.returncode == 0:
                 # Branch exists, add worktree without -b flag
                 cmd = [git_path, "worktree", "add", work_dir, feature_branch_name]
-                if DEBUG_MODE:
-                    print("  - Action: Adding worktree for existing branch")
+
             else:
                 # Branch doesn't exist, create it with -b flag
                 cmd = [git_path, "worktree", "add", work_dir, "-b", feature_branch_name]
-                if DEBUG_MODE:
-                    print("  - Action: Creating new branch with worktree")
-
-            if DEBUG_MODE:
-                print(f"  - Command: {' '.join(cmd)}")
-                print("  - Executing git worktree command...")
 
             result = subprocess.run(
                 cmd,
@@ -784,36 +707,12 @@ async def start_claude(
                 cwd=base_dir,
             )
 
-            if DEBUG_MODE:
-                print(
-                    f"  - Result: {'Success' if result.returncode == 0 else 'Failed'}"
-                )
-                if result.stdout:
-                    print(f"  - Output: {result.stdout.strip()}")
-
             if result.returncode != 0:
                 print("\n[ERROR] Git worktree creation failed:")
                 print(f"  - Command: {' '.join(cmd)}")
                 print(f"  - Exit code: {result.returncode}")
                 print(f"  - stdout: {result.stdout}")
                 print(f"  - stderr: {result.stderr}")
-
-                if DEBUG_MODE:
-                    print("\n[DEBUG] Error analysis:")
-                    print(f"  - Working directory: {base_dir}")
-                    print(f"  - Target worktree path: {work_dir}")
-                    print(f"  - Branch name: {feature_branch_name}")
-
-                    # Check current git status
-                    status_result = subprocess.run(
-                        [git_path, "status", "--short"],
-                        capture_output=True,
-                        text=True,
-                        cwd=base_dir,
-                    )
-                    print(
-                        f"  - Git status: {status_result.stdout if status_result.stdout else 'clean'}"
-                    )
 
                 # Provide more helpful error messages
                 error_detail = result.stderr
@@ -842,9 +741,6 @@ async def start_claude(
                     )
 
                 # First check if the branch exists
-                if DEBUG_MODE:
-                    print(f"\n[DEBUG] Checking branch for checkout: {branch_name}")
-
                 branch_check = subprocess.run(
                     [git_path, "rev-parse", "--verify", f"refs/heads/{branch_name}"],
                     capture_output=True,
@@ -852,13 +748,8 @@ async def start_claude(
                     cwd=work_dir,
                 )
 
-                if DEBUG_MODE:
-                    print(f"  - Branch exists: {branch_check.returncode == 0}")
-
                 if branch_check.returncode == 0:
                     # Branch exists, checkout
-                    if DEBUG_MODE:
-                        print("  - Action: Checking out existing branch")
 
                     checkout_result = subprocess.run(
                         [git_path, "checkout", branch_name],
@@ -866,13 +757,6 @@ async def start_claude(
                         text=True,
                         cwd=work_dir,
                     )
-
-                    if DEBUG_MODE:
-                        print(
-                            f"  - Checkout result: {'Success' if checkout_result.returncode == 0 else 'Failed'}"
-                        )
-                        if checkout_result.stderr:
-                            print(f"  - Stderr: {checkout_result.stderr}")
 
                     if checkout_result.returncode != 0:
                         print(
@@ -886,22 +770,12 @@ async def start_claude(
                     # Branch doesn't exist, create and checkout
                     print(f"[INFO] Creating new branch: {branch_name}")
 
-                    if DEBUG_MODE:
-                        print("  - Action: Creating and checking out new branch")
-
                     checkout_result = subprocess.run(
                         [git_path, "checkout", "-b", branch_name],
                         capture_output=True,
                         text=True,
                         cwd=work_dir,
                     )
-
-                    if DEBUG_MODE:
-                        print(
-                            f"  - Create branch result: {'Success' if checkout_result.returncode == 0 else 'Failed'}"
-                        )
-                        if checkout_result.stderr:
-                            print(f"  - Stderr: {checkout_result.stderr}")
 
                     if checkout_result.returncode != 0:
                         print(
@@ -922,13 +796,8 @@ async def start_claude(
         escaped_prompt = shlex.quote(safe_prompt)
 
         # Get claude path (we already checked it exists at startup)
-        if DEBUG_MODE:
-            print("\n[DEBUG] Resolving claude command path")
 
         _, claude_path = check_command("claude")
-
-        if DEBUG_MODE:
-            print(f"  - Claude path: {claude_path if claude_path else 'Not found'}")
 
         if not claude_path:
             print("[ERROR] Claude command not found in PATH or as alias")
@@ -938,12 +807,6 @@ async def start_claude(
             )
 
         # Get Omnara API key from header
-        if DEBUG_MODE:
-            print("\n[DEBUG] Checking Omnara API key")
-            print(f"  - API key present: {x_omnara_api_key is not None}")
-            if x_omnara_api_key:
-                print(f"  - API key length: {len(x_omnara_api_key)} characters")
-
         if not x_omnara_api_key:
             print("[ERROR] Omnara API key missing from X-Omnara-Api-Key header")
             raise HTTPException(
@@ -980,10 +843,6 @@ async def start_claude(
             }
         mcp_config_str = json.dumps(mcp_config)
 
-        if DEBUG_MODE:
-            print("\n[DEBUG] MCP Configuration:")
-            print(f"  - MCP config: {json.dumps(mcp_config, indent=2)}")
-
         # Build claude command with MCP config as string
         claude_args = [
             claude_path,  # Use full path to claude
@@ -1010,13 +869,8 @@ async def start_claude(
         print("  - MCP server: Omnara with API key")
 
         # Get screen path
-        if DEBUG_MODE:
-            print("\n[DEBUG] Resolving screen command path")
 
         screen_path = get_command_path("screen")
-
-        if DEBUG_MODE:
-            print(f"  - Screen path: {screen_path if screen_path else 'Not found'}")
 
         if not screen_path:
             print("[ERROR] GNU Screen not found in PATH or as alias")
@@ -1026,21 +880,8 @@ async def start_claude(
             )
 
         # Start screen directly with the claude command
-        if DEBUG_MODE:
-            # Add -L flag to enable logging when in debug mode
-            screen_cmd = [screen_path, "-L", "-dmS", screen_name] + claude_args
-            print(
-                "\n[DEBUG] Screen logging enabled - output will be saved to screenlog.0"
-            )
-        else:
-            screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
 
-        if DEBUG_MODE:
-            print("\n[DEBUG] Starting screen session:")
-            print(f"  - Session name: {screen_name}")
-            print(f"  - Working directory: {work_dir}")
-            if worktree_name:
-                print(f"  - Worktree: {worktree_name}")
+        screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
 
         screen_result = subprocess.run(
             screen_cmd,
@@ -1049,10 +890,6 @@ async def start_claude(
             text=True,
             timeout=10,
         )
-
-        if DEBUG_MODE and screen_result.returncode == 0:
-            print("\n[DEBUG] Screen session started successfully")
-            print(f"  - Screen log will be saved in: {work_dir}/screenlog.0")
 
         if screen_result.returncode != 0:
             print("\n[ERROR] Failed to start screen session:")
@@ -1067,19 +904,12 @@ async def start_claude(
         # Wait a moment and check if screen is still running
         time.sleep(1)
 
-        if DEBUG_MODE:
-            print("\n[DEBUG] Verifying screen session is running")
-            print(f"  - Session name: {screen_name}")
-
         # Check if the screen session exists
         list_result = subprocess.run(
             [screen_path, "-ls"],
             capture_output=True,
             text=True,
         )
-
-        if DEBUG_MODE:
-            print(f"  - Screen list output:\n{list_result.stdout}")
 
         if (
             "No Sockets found" in list_result.stdout
@@ -1088,33 +918,6 @@ async def start_claude(
             print("\n[ERROR] Screen session exited immediately")
             print(f"  - Session name: {screen_name}")
             print(f"  - Screen list output: {list_result.stdout}")
-
-            if DEBUG_MODE:
-                print("\n[DEBUG] Debugging screen failure:")
-                print(f"  - Working directory: {work_dir}")
-                print(f"  - Claude command: {claude_path}")
-                print(f"  - MCP config: {json.dumps(mcp_config, indent=2)}")
-
-                # Check if screenlog exists (only if debug mode was enabled for screen)
-                screenlog_path = os.path.join(work_dir, "screenlog.0")
-                if os.path.exists(screenlog_path):
-                    print(f"\n[DEBUG] Screenlog contents ({screenlog_path}):")
-                    try:
-                        with open(screenlog_path, "r") as f:
-                            log_contents = f.read()
-                            if log_contents:
-                                # Show last 50 lines or less
-                                lines = log_contents.split("\n")
-                                recent_lines = lines[-50:] if len(lines) > 50 else lines
-                                for line in recent_lines:
-                                    if line:
-                                        print(f"    {line}")
-                            else:
-                                print("    (empty)")
-                    except Exception as e:
-                        print(f"    Error reading screenlog: {e}")
-                else:
-                    print(f"  - Screenlog not found at {screenlog_path}")
 
             print("\n[ERROR] Possible causes:")
             print("  - Claude command failed to start")
@@ -1139,10 +942,8 @@ async def start_claude(
             "work_dir": work_dir,
         }
 
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired:
         print("[ERROR] Git operation timed out")
-        if DEBUG_MODE:
-            print(f"[DEBUG] Timeout details: {e}")
         raise HTTPException(status_code=500, detail="Git operation timed out")
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -1151,18 +952,9 @@ async def start_claude(
         print(f"[ERROR] Failed to start claude: {str(e)}")
         print(f"[ERROR] Exception type: {type(e).__name__}")
 
-        if DEBUG_MODE:
-            print("\n[DEBUG] Exception details:")
-            print(f"  - Message: {str(e)}")
-            print(f"  - Type: {type(e).__name__}")
-            import traceback
+        import traceback
 
-            print("\n[DEBUG] Full traceback:")
-            traceback.print_exc()
-        else:
-            import traceback
-
-            traceback.print_exc()
+        traceback.print_exc()
 
         raise HTTPException(status_code=500, detail=f"Failed to start claude: {str(e)}")
 
@@ -1211,11 +1003,6 @@ It automatically includes Cloudflare tunnel and simplifies the setup.
         help="Start Cloudflare tunnel for external access",
     )
     parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose logging and screen output capture (-L flag)",
-    )
-    parser.add_argument(
         "--port",
         type=int,
         default=DEFAULT_PORT,
@@ -1224,22 +1011,14 @@ It automatically includes Cloudflare tunnel and simplifies the setup.
 
     args = parser.parse_args()
 
-    # Set debug mode (no need for global declaration at module level)
-    DEBUG_MODE = args.debug
-
     # Store the flags in app state for the lifespan to use
     app.state.dangerously_skip_permissions = args.dangerously_skip_permissions
     app.state.cloudflare_tunnel = args.cloudflare_tunnel
     app.state.port = args.port
-    app.state.debug = args.debug
 
     print("[INFO] Starting Claude Code Webhook Server")
     print(f"  - Host: {DEFAULT_HOST}")
     print(f"  - Port: {args.port}")
-    print(f"  - Debug Mode: {'Enabled' if args.debug else 'Disabled'}")
-    if args.debug:
-        print("  - Screen logging: Enabled (-L flag)")
-        print("  - Verbose output: Enabled")
     if args.cloudflare_tunnel:
         print("  - Cloudflare tunnel: Enabled")
     if args.dangerously_skip_permissions:
