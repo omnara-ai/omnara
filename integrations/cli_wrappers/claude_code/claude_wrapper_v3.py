@@ -554,6 +554,18 @@ class ClaudeWrapperV3:
     def is_claude_idle(self):
         """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.75+ seconds AND no recent messages)"""
         with self.is_idle_lock:
+            # Check if ESC is currently in the buffer (reliable check)
+            if self.terminal_buffer:
+                clean_buffer = re.sub(
+                    r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
+                )
+                if (
+                    "esc to interrupt)" in clean_buffer
+                    or "ctrl+b to run in background" in clean_buffer
+                ):
+                    # ESC is in buffer, update timestamp
+                    self.last_esc_interrupt_seen = time.time()
+
             if self.last_esc_interrupt_seen:
                 time_since_esc = time.time() - self.last_esc_interrupt_seen
                 esc_idle = time_since_esc >= 0.75
