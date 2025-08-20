@@ -1176,8 +1176,9 @@ class AmpWrapper:
         if not clean_output.strip():
             return
             
+        # Process with raw output to check ANSI codes
         lines = clean_output.split('\n')
-        for line in lines:
+        for i, line in enumerate(lines):
             stripped = line.strip()
             if not stripped:
                 continue
@@ -1185,28 +1186,82 @@ class AmpWrapper:
             # Skip UI elements
             if self._should_skip_line(stripped):
                 continue
-                
-            # Check for tool markers - these should be sent immediately
-            # Only match actual tool execution lines, not general text mentioning tools
-            is_tool_line = False
-            if "Tools:" in stripped:
-                is_tool_line = True
-            elif stripped.startswith("✓") or stripped.startswith("✔"):
-                is_tool_line = True
-            elif stripped.startswith("╰──") and "Searching" in stripped:
-                is_tool_line = True
             
-            if is_tool_line:
-                # Check if we've already sent this exact tool call
+            # Get the raw line from response buffer if available to check ANSI codes
+            raw_line = ""
+            if hasattr(self, 'response_buffer') and i < len(self.response_buffer):
+                # Try to find corresponding raw line with ANSI codes
+                raw_lines = "".join(self.response_buffer).split('\n')
+                if i < len(raw_lines):
+                    raw_line = raw_lines[i]
+            
+            # Check if this is a transient UI element based on ANSI codes
+            # Transient elements typically use color codes 92-94 for animation
+            # and include "Running" or animation characters
+            is_transient_ui = False
+            if raw_line:
+                # Check for animation color codes (92=green, 94=blue) with animation chars
+                if ('\x1b[92m' in raw_line or '\x1b[94m' in raw_line) and any(
+                    char in raw_line for char in ['∿', '∾', '∽', '≋', '≈', '∼']
+                ):
+                    is_transient_ui = True
+                # Check for dim text (Ctrl+R to expand)
+                elif '\x1b[2m' in raw_line and 'Ctrl+R' in raw_line:
+                    is_transient_ui = True
+            
+            # Also check content patterns for UI elements
+            ui_patterns = ["Tools:", "├──", "╰──", "Running inference", "Running tools"]
+            if any(pattern in stripped for pattern in ui_patterns):
+                is_transient_ui = True
+            
+            # Check for tool completion markers (✓) - these should be sent
+            is_tool_completion = False
+            if stripped.startswith("✓") or stripped.startswith("✔"):
+                # Make sure it's not part of a larger UI element
+                if not any(ui in stripped for ui in ["├──", "╰──"]):
+                    is_tool_completion = True
+            
+            if is_tool_completion:
+                # Send tool completion
                 if stripped not in self._streaming_state['tool_calls_sent']:
                     self._send_tool_call_stream(stripped)
                     self._streaming_state['tool_calls_sent'].append(stripped)
-            else:
+            elif not is_transient_ui:
+                # Regular content - check if it's meaningful text
+                is_meaningful_text = (
+                    len(stripped) > 10 and 
+                    stripped[0].isupper() and
+                    not self._is_thinking_content(stripped)
+                )
+                
                 # Regular content - only accumulate meaningful text, not duplicates
-                if self._is_response_content_line(stripped) and not self._is_thinking_content(stripped):
-                    # Check against all sent lines to avoid any duplicates
-                    if stripped not in self._streaming_state['sent_lines'] and stripped not in self._streaming_state['text_buffer']:
-                        self._streaming_state['text_buffer'].append(stripped)
+                if is_meaningful_text:
+                    # Check if this is a partial line that will be completed later
+                    # or a complete line that replaces a partial one
+                    should_add = True
+                    line_to_replace = None
+                    
+                    # Check against existing buffer for partial/complete duplicates
+                    for i, existing in enumerate(self._streaming_state['text_buffer']):
+                        if existing == stripped:
+                            should_add = False  # Exact duplicate
+                            break
+                        elif existing.startswith(stripped):
+                            should_add = False  # This is a partial of existing
+                            break
+                        elif stripped.startswith(existing):
+                            line_to_replace = i  # This completes/extends existing
+                            break
+                    
+                    # Check against sent lines
+                    if should_add and stripped not in self._streaming_state['sent_lines']:
+                        if line_to_replace is not None:
+                            # Replace the partial line with the complete one
+                            self._streaming_state['text_buffer'][line_to_replace] = stripped
+                            self.log(f"[STREAMING] Replaced partial line with: {stripped[:50]}...")
+                        else:
+                            self._streaming_state['text_buffer'].append(stripped)
+                            self.log(f"[STREAMING] Added new line: {stripped[:50]}...")
                         # Don't auto-send, wait for completion or tool calls
     
     def _send_tool_call_stream(self, tool_line: str) -> None:
@@ -1224,37 +1279,33 @@ class AmpWrapper:
         if not self._streaming_state['text_buffer']:
             return
             
-        # Join accumulated lines
-        text_content = '\n'.join(self._streaming_state['text_buffer'])
+        # Filter out any lines that have already been sent
+        unsent_lines = []
+        for line in self._streaming_state['text_buffer']:
+            # Check if this exact line or a longer version has been sent
+            is_sent = False
+            for sent_line in self._streaming_state['sent_lines']:
+                if line in sent_line or sent_line in line:
+                    is_sent = True
+                    break
+            if not is_sent:
+                unsent_lines.append(line)
         
-        # Check if this is substantially different from what we already sent
-        # (not just a subset or superset)
-        if self._streaming_state['last_sent_content']:
-            # Don't send if new content is contained in what we already sent
-            if text_content in self._streaming_state['last_sent_content']:
-                self.log(f"[STREAMING] Skipping duplicate text that's already been sent")
-                return
-            # Don't send if what we already sent contains all the new content
-            if self._streaming_state['last_sent_content'] in text_content:
-                # Only send the new part
-                new_lines = [line for line in self._streaming_state['text_buffer'] 
-                           if line not in self._streaming_state['last_sent_content']]
-                if not new_lines:
-                    return
-                text_content = '\n'.join(new_lines)
+        if not unsent_lines:
+            self.log(f"[STREAMING] All lines already sent, skipping")
+            return
+            
+        text_content = '\n'.join(unsent_lines)
             
         self.log(f"[STREAMING] Sending text chunk: {len(text_content)} chars")
         self.message_processor.process_assistant_message_sync(text_content)
         
-        # Update tracking - mark all these lines as sent
-        for line in self._streaming_state['text_buffer']:
+        # Update tracking - mark all the unsent lines as sent
+        for line in unsent_lines:
             self._streaming_state['sent_lines'].add(line)
         
         # Update last sent content
-        if self._streaming_state['last_sent_content']:
-            self._streaming_state['last_sent_content'] += '\n' + text_content
-        else:
-            self._streaming_state['last_sent_content'] = text_content
+        self._streaming_state['last_sent_content'] = text_content
         self._streaming_state['has_sent_initial_text'] = True
         # Clear buffer after sending
         self._streaming_state['text_buffer'] = []
