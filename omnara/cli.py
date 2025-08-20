@@ -535,7 +535,11 @@ def cmd_serve(args, unknown_args=None):
     if unknown_args:
         cmd.extend(unknown_args)
 
-    subprocess.run(cmd)
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\n[INFO] Webhook server stopped by user")
+        sys.exit(0)
 
 
 def cmd_mcp(args):
@@ -560,7 +564,11 @@ def cmd_mcp(args):
     if args.disable_tools:
         cmd.append("--disable-tools")
 
-    subprocess.run(cmd)
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\n[INFO] MCP server stopped by user")
+        sys.exit(0)
 
 
 def add_global_arguments(parser):

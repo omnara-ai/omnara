@@ -439,8 +439,8 @@ class HeadlessClaudeRunner:
                     self.logger.info("No more user input, ending session")
                     break
 
-        except KeyboardInterrupt:
-            self.logger.info("Received interrupt signal, shutting down...")
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            self.logger.info("Received interrupt/cancel signal, shutting down...")
             self.running = False
         except Exception as e:
             self.logger.error(f"Fatal error in headless runner: {e}")

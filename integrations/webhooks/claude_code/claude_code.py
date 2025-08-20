@@ -466,18 +466,25 @@ async def lifespan(app: FastAPI):
 
     # Stop all running Claude tasks
     if hasattr(app.state, "running_processes"):
-        for instance_id, process_info in app.state.running_processes.items():
+        # Create a list of tasks to cancel (avoid modifying dict during iteration)
+        tasks_to_cancel = []
+        for instance_id, process_info in list(app.state.running_processes.items()):
             print(f"\n[INFO] Stopping Claude session for instance {instance_id}...")
             if "task" in process_info:
                 task = process_info["task"]
                 if not task.done():
-                    # Cancel the task - this should trigger cleanup in HeadlessClaudeRunner
-                    task.cancel()
-                    # Give it a moment to clean up gracefully
-                    try:
-                        await asyncio.wait_for(task, timeout=5.0)
-                    except (asyncio.CancelledError, asyncio.TimeoutError):
-                        pass
+                    tasks_to_cancel.append((instance_id, task))
+
+        # Cancel all tasks and wait for them to finish
+        for instance_id, task in tasks_to_cancel:
+            task.cancel()
+
+        # Wait for all tasks to complete cleanup
+        if tasks_to_cancel:
+            await asyncio.gather(
+                *[task for _, task in tasks_to_cancel],
+                return_exceptions=True,  # Don't raise exceptions from cancelled tasks
+            )
 
     if hasattr(app.state, "webhook_secret"):
         delattr(app.state, "webhook_secret")
@@ -764,6 +771,9 @@ async def start_claude(
         async def run_claude_in_background():
             try:
                 await runner.run()
+            except asyncio.CancelledError:
+                print(f"[INFO] Claude session {agent_instance_id} was cancelled")
+                raise  # Re-raise to properly handle cancellation
             except Exception as e:
                 print(f"[ERROR] Claude session {agent_instance_id} failed: {e}")
             finally:
