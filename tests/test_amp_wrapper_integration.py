@@ -407,13 +407,13 @@ class TestStreamingWithPTY(unittest.TestCase):
     def setUp(self):
         self.wrapper = AmpWrapper(api_key="test")
         self.wrapper.agent_instance_id = "test_instance"
-        
+
         # Mock omnara client
         self.wrapper.omnara_client_sync = Mock()
         self.wrapper.omnara_client_sync.send_message.return_value = Mock(
             message_id="msg_123",
             agent_instance_id="test_instance",
-            queued_user_messages=[]
+            queued_user_messages=[],
         )
 
     @unittest.skipIf(is_ci_environment(), "PTY operations may not work in CI")
@@ -421,26 +421,26 @@ class TestStreamingWithPTY(unittest.TestCase):
         """Test streaming with actual PTY output"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Simulate PTY output chunks arriving
         outputs = [
             "Running inference...\n",
             "Tools:\n",
-            "╰── Searching \"test query\"\n",
+            '╰── Searching "test query"\n',
             "\x1b[32m✓\x1b[39m Web Search test query\n",
             "Here are the results:\n",
             "1. First result\n",
-            "2. Second result\n"
+            "2. Second result\n",
         ]
-        
+
         # Process outputs as they would arrive from PTY
         for output in outputs:
             clean = self.wrapper.strip_ansi(output)
             self.wrapper._capture_response_output(output, clean)
-        
+
         # Verify streaming state was updated
-        self.assertTrue(hasattr(self.wrapper, '_streaming_state'))
-        
+        self.assertTrue(hasattr(self.wrapper, "_streaming_state"))
+
         # Should have processed tool calls
         if "✓" in self.wrapper.strip_ansi("".join(outputs)):
             # Tool call should have been detected
@@ -450,20 +450,20 @@ class TestStreamingWithPTY(unittest.TestCase):
         """Test handling of terminal redraws"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Simulate terminal redraw sequences
         redraw_sequence = [
             "Line 1\n",
             "\x1b[2K\x1b[1A",  # Clear line, move up
             "Line 1 (redrawn)\n",
             "\x1b[2K\x1b[1A",
-            "Line 1 (final)\n"
+            "Line 1 (final)\n",
         ]
-        
+
         for output in redraw_sequence:
             clean = self.wrapper.strip_ansi(output)
             self.wrapper._capture_response_output(output, clean)
-        
+
         # Should only have final version
         # Note: actual behavior depends on implementation
 
@@ -471,35 +471,35 @@ class TestStreamingWithPTY(unittest.TestCase):
         """Test that streaming messages are sent in correct order"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Track message order
         sent_messages = []
-        
+
         def mock_send(content, **kwargs):
             sent_messages.append(content)
             return Mock(
                 message_id=f"msg_{len(sent_messages)}",
                 agent_instance_id="test_instance",
-                queued_user_messages=[]
+                queued_user_messages=[],
             )
-        
+
         self.wrapper.omnara_client_sync.send_message.side_effect = mock_send
-        
+
         # Process mixed content
         outputs = [
             "Starting analysis...",
             "✓ Web Search query 1",
             "Found results, processing...",
             "✓ Web Search query 2",
-            "Analysis complete."
+            "Analysis complete.",
         ]
-        
+
         for output in outputs:
             self.wrapper._process_streaming_output(output)
-        
+
         # Force send remaining
         self.wrapper._send_accumulated_text_stream()
-        
+
         # Verify order preserved
         # Tool calls should be sent immediately
         # Text should be accumulated and sent in chunks
@@ -508,7 +508,7 @@ class TestStreamingWithPTY(unittest.TestCase):
         """Test streaming with thinking sections"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Thinking block output
         thinking_output = """
 ∴ Thinking
@@ -522,12 +522,12 @@ Based on the search results, here's what I found:
 - Result 1
 - Result 2
 """
-        
+
         # Process the output
-        for line in thinking_output.split('\n'):
+        for line in thinking_output.split("\n"):
             if line.strip():
                 self.wrapper._process_streaming_output(line)
-        
+
         # Should have separated thinking from response
         # Tool calls should be detected
         # Regular response should be sent
@@ -545,11 +545,11 @@ class TestStreamingPerformance(unittest.TestCase):
         """Test that streaming reduces latency"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Track timing
         start_time = time.time()
         first_message_time = None
-        
+
         def mock_send(content, **kwargs):
             nonlocal first_message_time
             if first_message_time is None:
@@ -557,14 +557,14 @@ class TestStreamingPerformance(unittest.TestCase):
             return Mock(
                 message_id="msg_123",
                 agent_instance_id="test_instance",
-                queued_user_messages=[]
+                queued_user_messages=[],
             )
-        
+
         self.wrapper.omnara_client_sync.send_message.side_effect = mock_send
-        
+
         # Process tool call (should be sent immediately)
         self.wrapper._process_streaming_output("✓ Web Search test")
-        
+
         # Verify low latency
         if first_message_time:
             latency = first_message_time - start_time
@@ -574,27 +574,27 @@ class TestStreamingPerformance(unittest.TestCase):
         """Test that streaming doesn't accumulate excessive memory"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Mock send_message to return proper response
         self.wrapper.omnara_client_sync.send_message.return_value = Mock(
             message_id="msg_123",
             agent_instance_id="test_instance",
-            queued_user_messages=[]  # Empty list instead of Mock
+            queued_user_messages=[],  # Empty list instead of Mock
         )
-        
+
         # Process large amount of output
         for i in range(1000):
             output = f"Line {i}: " + "x" * 100
             self.wrapper._process_streaming_output(output)
-            
+
             # Should send periodically and clear buffers
             if i % 100 == 0:
                 # Force send to clear buffers
                 self.wrapper._send_accumulated_text_stream()
-        
+
         # Buffers should be reasonably sized
-        self.assertLess(len(self.wrapper._streaming_state['text_buffer']), 100)
-        self.assertLess(len(self.wrapper._streaming_state['tool_calls_sent']), 1000)
+        self.assertLess(len(self.wrapper._streaming_state["text_buffer"]), 100)
+        self.assertLess(len(self.wrapper._streaming_state["tool_calls_sent"]), 1000)
 
 
 if __name__ == "__main__":

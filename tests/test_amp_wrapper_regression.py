@@ -397,38 +397,38 @@ class TestStreamingRegressions(unittest.TestCase):
     def setUp(self):
         self.wrapper = AmpWrapper(api_key="test")
         self.wrapper.agent_instance_id = "test_instance"
-        
+
         # Mock omnara client
         self.wrapper.omnara_client_sync = Mock()
         self.wrapper.omnara_client_sync.send_message.return_value = Mock(
             message_id="msg_123",
             agent_instance_id="test_instance",
-            queued_user_messages=[]
+            queued_user_messages=[],
         )
 
     def test_no_duplicate_streaming_messages(self):
         """Prevent regression of duplicate message issue during streaming"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Simulate terminal redraw with same content multiple times
         redraw_content = "✓ Web Search test query"
-        
+
         # Process same content 10 times (simulating terminal redraws)
         for _ in range(10):
             self.wrapper._process_streaming_output(redraw_content)
-        
+
         # Should only send once
         self.assertEqual(self.wrapper.omnara_client_sync.send_message.call_count, 1)
-        
+
         # Tool should be in sent list
-        self.assertIn(redraw_content, self.wrapper._streaming_state['tool_calls_sent'])
+        self.assertIn(redraw_content, self.wrapper._streaming_state["tool_calls_sent"])
 
     def test_ui_elements_not_in_output(self):
         """Ensure UI elements don't appear in dashboard messages"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # UI patterns that should be filtered (without ANSI codes)
         ui_patterns = [
             "Tools:",
@@ -436,16 +436,16 @@ class TestStreamingRegressions(unittest.TestCase):
             "╰──────────╯",
             "├── Processing",
             "│ Type your message",
-            "Ctrl+R to expand"
+            "Ctrl+R to expand",
         ]
-        
+
         # Process UI patterns
         for pattern in ui_patterns:
             self.wrapper._process_streaming_output(pattern)
-        
+
         # Should not have sent any messages
         self.wrapper.omnara_client_sync.send_message.assert_not_called()
-        
+
         # Most UI elements should be filtered
         # Note: "Dim UI text" after ANSI stripping becomes regular text
         # and may not be filtered without the ANSI codes to identify it
@@ -454,7 +454,7 @@ class TestStreamingRegressions(unittest.TestCase):
         """Prevent animation characters from appearing in output"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Animation sequences
         animations = [
             "\x1b[92m∿\x1b[39m Running tools...",
@@ -462,14 +462,14 @@ class TestStreamingRegressions(unittest.TestCase):
             "\x1b[92m∽\x1b[39m Running tools...",
             "\x1b[92m≋\x1b[39m Running tools...",
             "\x1b[92m≈\x1b[39m Running tools...",
-            "\x1b[92m∼\x1b[39m Running tools..."
+            "\x1b[92m∼\x1b[39m Running tools...",
         ]
-        
+
         # Process animations
         for anim in animations:
             clean = self.wrapper.strip_ansi(anim)
             self.wrapper._process_streaming_output(clean)
-        
+
         # Should not send any messages (all filtered as transient)
         self.wrapper.omnara_client_sync.send_message.assert_not_called()
 
@@ -477,87 +477,87 @@ class TestStreamingRegressions(unittest.TestCase):
         """Ensure streaming state is properly reset for each response"""
         # First response
         self.wrapper._initialize_response_capture()
-        self.wrapper._streaming_state['tool_calls_sent'].append("old tool")
-        self.wrapper._streaming_state['text_buffer'].append("old text")
-        self.wrapper._streaming_state['has_sent_initial_text'] = True
-        
+        self.wrapper._streaming_state["tool_calls_sent"].append("old tool")
+        self.wrapper._streaming_state["text_buffer"].append("old text")
+        self.wrapper._streaming_state["has_sent_initial_text"] = True
+
         # New response should reset state
         self.wrapper._initialize_response_capture()
-        
+
         # State should be reset
-        self.assertEqual(self.wrapper._streaming_state['tool_calls_sent'], [])
-        self.assertEqual(self.wrapper._streaming_state['text_buffer'], [])
-        self.assertFalse(self.wrapper._streaming_state['has_sent_initial_text'])
+        self.assertEqual(self.wrapper._streaming_state["tool_calls_sent"], [])
+        self.assertEqual(self.wrapper._streaming_state["text_buffer"], [])
+        self.assertFalse(self.wrapper._streaming_state["has_sent_initial_text"])
 
     def test_partial_line_handling(self):
         """Test handling of partial lines from terminal"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Simulate partial lines arriving
-        partials = [
-            "This is a par",
-            "tial line that gets ",
-            "completed eventually.\n"
-        ]
-        
+        partials = ["This is a par", "tial line that gets ", "completed eventually.\n"]
+
         # Process partials
         full_line = ""
         for partial in partials:
             full_line += partial
-            if partial.endswith('\n'):
+            if partial.endswith("\n"):
                 self.wrapper._process_streaming_output(full_line.strip())
                 full_line = ""
-        
+
         # Should have processed the complete line
-        if self.wrapper._streaming_state['text_buffer']:
-            combined = " ".join(self.wrapper._streaming_state['text_buffer'])
-            self.assertIn("This is a partial line that gets completed eventually", combined)
+        if self.wrapper._streaming_state["text_buffer"]:
+            combined = " ".join(self.wrapper._streaming_state["text_buffer"])
+            self.assertIn(
+                "This is a partial line that gets completed eventually", combined
+            )
 
     def test_mixed_ansi_and_content(self):
         """Test that ANSI codes don't break content extraction"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Mixed content with heavy ANSI
         mixed = "\x1b[32m✓\x1b[39m \x1b[1mWeb Search\x1b[22m test query"
         clean = self.wrapper.strip_ansi(mixed)
-        
+
         # Process
         self.wrapper._process_streaming_output(clean)
-        
+
         # Should detect as tool call
         self.wrapper.omnara_client_sync.send_message.assert_called_once()
         call_args = self.wrapper.omnara_client_sync.send_message.call_args[1]
-        self.assertIn("✓", call_args['content'])
-        self.assertIn("Web Search", call_args['content'])
+        self.assertIn("✓", call_args["content"])
+        self.assertIn("Web Search", call_args["content"])
 
     def test_streaming_buffer_overflow_prevention(self):
         """Prevent buffer overflow in streaming state"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Add excessive tool calls
         for i in range(10000):
             tool = f"✓ Tool {i}"
-            self.wrapper._streaming_state['tool_calls_sent'].append(tool)
-        
+            self.wrapper._streaming_state["tool_calls_sent"].append(tool)
+
         # Should handle gracefully (implementation should limit this)
         # In real implementation, old entries might be removed
-        self.assertLessEqual(len(self.wrapper._streaming_state['tool_calls_sent']), 10000)
+        self.assertLessEqual(
+            len(self.wrapper._streaming_state["tool_calls_sent"]), 10000
+        )
 
     def test_streaming_with_empty_output(self):
         """Test that empty output doesn't cause errors"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Process empty strings
         empty_outputs = ["", " ", "\n", "\t", "   \n   "]
-        
+
         for output in empty_outputs:
             # Should not raise exception
             self.wrapper._process_streaming_output(output)
-        
+
         # Should not have sent anything
         self.wrapper.omnara_client_sync.send_message.assert_not_called()
 
@@ -565,13 +565,13 @@ class TestStreamingRegressions(unittest.TestCase):
         """Test completion when no content was streamed"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         # Mock extract method to return empty
         self.wrapper._extract_response_from_buffer = Mock(return_value="")
-        
+
         # Process completion with no streamed content
         self.wrapper._process_complete_response()
-        
+
         # Should handle gracefully without errors
         # May or may not send a message depending on implementation
 
@@ -579,9 +579,9 @@ class TestStreamingRegressions(unittest.TestCase):
         """Test thread safety of streaming operations"""
         # Initialize streaming state
         self.wrapper._initialize_response_capture()
-        
+
         errors = []
-        
+
         def writer():
             try:
                 for i in range(100):
@@ -589,28 +589,25 @@ class TestStreamingRegressions(unittest.TestCase):
                     time.sleep(0.001)
             except Exception as e:
                 errors.append(str(e))
-        
+
         def reader():
             try:
                 for _ in range(100):
-                    _ = len(self.wrapper._streaming_state['text_buffer'])
-                    _ = len(self.wrapper._streaming_state['tool_calls_sent'])
+                    _ = len(self.wrapper._streaming_state["text_buffer"])
+                    _ = len(self.wrapper._streaming_state["tool_calls_sent"])
                     time.sleep(0.001)
             except Exception as e:
                 errors.append(str(e))
-        
+
         # Run concurrently
-        threads = [
-            threading.Thread(target=writer),
-            threading.Thread(target=reader)
-        ]
-        
+        threads = [threading.Thread(target=writer), threading.Thread(target=reader)]
+
         for t in threads:
             t.start()
-        
+
         for t in threads:
             t.join(timeout=5)
-        
+
         # Should complete without errors
         self.assertEqual(len(errors), 0, f"Concurrent errors: {errors}")
 
