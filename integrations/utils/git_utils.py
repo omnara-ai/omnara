@@ -16,15 +16,22 @@ from typing import Optional
 class GitDiffTracker:
     """Tracks git changes from an initial state through a session."""
 
-    def __init__(self, enabled: bool = True, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        enabled: bool = True,
+        logger: Optional[logging.Logger] = None,
+        cwd: Optional[str] = None,
+    ):
         """Initialize the git diff tracker.
 
         Args:
             enabled: Whether to enable git diff tracking (default: True)
             logger: Optional logger instance to use for logging. If not provided,
                     creates a default logger for this module.
+            cwd: Working directory for git commands (default: current directory)
         """
         self.enabled = enabled
+        self.cwd = cwd  # Store the working directory
         self.initial_git_hash: Optional[str] = None
         self.session_start_time = (
             time.time()
@@ -38,7 +45,11 @@ class GitDiffTracker:
         """Capture the initial git commit hash if in a git repository."""
         try:
             result = subprocess.run(
-                ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=self.cwd,
             )
             if result.returncode == 0 and result.stdout.strip():
                 self.initial_git_hash = result.stdout.strip()
@@ -85,7 +96,9 @@ class GitDiffTracker:
                 diff_cmd.extend(["--"] + exclude_patterns)
 
             # Run git diff
-            result = subprocess.run(diff_cmd, capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                diff_cmd, capture_output=True, text=True, timeout=5, cwd=self.cwd
+            )
             if result.returncode == 0 and result.stdout.strip():
                 combined_output = result.stdout.strip()
 
@@ -96,7 +109,10 @@ class GitDiffTracker:
                     combined_output += "\n"
                 combined_output += untracked_output
 
-            return combined_output if combined_output else None
+            # Return empty string if no changes (not None)
+            # This allows the caller to distinguish between "no changes" (empty string)
+            # and "diff tracking disabled" (None)
+            return combined_output
 
         except subprocess.TimeoutExpired:
             self.logger.warning("Git diff command timed out")
@@ -118,20 +134,21 @@ class GitDiffTracker:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                cwd=self.cwd,
             )
             if worktree_result.returncode == 0:
                 # Parse worktree list to get paths to exclude
-                cwd = os.getcwd()
+                current_dir = self.cwd or os.getcwd()
                 for line in worktree_result.stdout.strip().split("\n"):
                     if line.startswith("worktree "):
                         worktree_path = line[9:]  # Remove "worktree " prefix
                         # Only exclude if it's a subdirectory of current directory
-                        if worktree_path != cwd and worktree_path.startswith(
-                            os.path.dirname(cwd)
+                        if worktree_path != current_dir and worktree_path.startswith(
+                            os.path.dirname(current_dir)
                         ):
                             # Get relative path from current directory
                             try:
-                                rel_path = os.path.relpath(worktree_path, cwd)
+                                rel_path = os.path.relpath(worktree_path, current_dir)
                                 if not rel_path.startswith(".."):
                                     exclude_patterns.append(f":(exclude){rel_path}")
                             except ValueError:
@@ -160,7 +177,7 @@ class GitDiffTracker:
                 untracked_cmd.extend(["--"] + exclude_patterns)
 
             result = subprocess.run(
-                untracked_cmd, capture_output=True, text=True, timeout=5
+                untracked_cmd, capture_output=True, text=True, timeout=5, cwd=self.cwd
             )
             if result.returncode == 0 and result.stdout.strip():
                 untracked_files = result.stdout.strip().split("\n")
@@ -169,7 +186,9 @@ class GitDiffTracker:
                 for file_path in untracked_files:
                     # Check if file was created after session started
                     try:
-                        file_creation_time = os.path.getctime(file_path)
+                        # Get absolute path for file operations
+                        abs_file_path = os.path.join(self.cwd or os.getcwd(), file_path)
+                        file_creation_time = os.path.getctime(abs_file_path)
                         if file_creation_time < self.session_start_time:
                             # Skip files that existed before the session started
                             continue
@@ -186,7 +205,7 @@ class GitDiffTracker:
                     # Read file contents and add with + prefix
                     try:
                         with open(
-                            file_path, "r", encoding="utf-8", errors="ignore"
+                            abs_file_path, "r", encoding="utf-8", errors="ignore"
                         ) as f:
                             lines = f.readlines()
                             output += f"@@ -0,0 +1,{len(lines)} @@\n"

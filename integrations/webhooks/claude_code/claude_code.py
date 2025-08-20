@@ -1,25 +1,27 @@
-from fastapi import FastAPI, HTTPException, Header, Request
-from fastapi.responses import JSONResponse
-import subprocess
-import shlex
-from datetime import datetime
-import secrets
+import argparse
+import asyncio
 import os
-import re
-import uuid
-import uvicorn
-import time
-import json
-import sys
 import platform
-from contextlib import asynccontextmanager
-from pydantic import BaseModel, field_validator
-from typing import Optional, Tuple, List, Dict
+import re
+import secrets
 import select
+import subprocess
+import sys
+import time
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
+
+import uvicorn
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, field_validator
+
+from integrations.headless.claude_code import HeadlessClaudeRunner
 
 
 # === CONSTANTS AND CONFIGURATION ===
-MAX_PROMPT_LENGTH = 10000
 DEFAULT_PORT = 6662
 DEFAULT_HOST = "0.0.0.0"
 
@@ -29,9 +31,7 @@ COMMAND_PATHS = {}
 # === DEPENDENCY CHECKING ===
 REQUIRED_COMMANDS = {
     "git": "Git is required for creating worktrees",
-    "screen": "GNU Screen is required for running Claude sessions",
     "claude": "Claude Code CLI is required",
-    "pipx": "pipx is required for running the Omnara MCP server",
 }
 
 OPTIONAL_COMMANDS = {"cloudflared": "Cloudflared is optional for tunnel support"}
@@ -127,22 +127,10 @@ def check_dependencies() -> List[str]:
     for cmd, description in REQUIRED_COMMANDS.items():
         exists, _ = check_command(cmd)
         if not exists:
-            # Try to install with brew on macOS
-            if is_macos() and cmd == "pipx":
-                if try_install_with_brew("pipx"):
-                    # Check again after installation
-                    exists, _ = check_command(cmd)
-                    if exists:
-                        continue
-
             # Add error message with platform-specific hints
             if is_macos():
                 brew_exists, _ = check_command("brew")
-                if brew_exists and cmd == "pipx":
-                    errors.append(
-                        f"{description}. Failed to install with Homebrew. Try running: brew install {cmd}"
-                    )
-                elif brew_exists:
+                if brew_exists:
                     errors.append(
                         f"{description}. You can install it with: brew install {cmd}"
                     )
@@ -337,7 +325,7 @@ def start_cloudflare_tunnel(
 
 class WebhookRequest(BaseModel):
     agent_instance_id: str
-    prompt: str
+    prompt: str  # Initial prompt to pass to Claude
     name: str | None = None  # Branch name
     worktree_name: str | None = None
     agent_type: str | None = None  # Agent type name
@@ -349,12 +337,6 @@ class WebhookRequest(BaseModel):
             return v
         except ValueError:
             raise ValueError("Invalid UUID format for agent_instance_id")
-
-    @field_validator("prompt")
-    def validate_prompt(cls, v):
-        if len(v) > MAX_PROMPT_LENGTH:
-            raise ValueError(f"Prompt too long (max {MAX_PROMPT_LENGTH} characters)")
-        return v
 
     @field_validator("name")
     def validate_name(cls, v):
@@ -406,6 +388,9 @@ async def lifespan(app: FastAPI):
 
     print("\n[INFO] All required checks passed")
 
+    # Initialize storage for running Claude processes
+    app.state.running_processes = {}
+
     # Handle Cloudflare tunnel if requested
     tunnel_url = None
     if hasattr(app.state, "cloudflare_tunnel") and app.state.cloudflare_tunnel:
@@ -422,9 +407,9 @@ async def lifespan(app: FastAPI):
 
     app.state.webhook_secret = secret
 
-    # Initialize the flag if not already set (when run via uvicorn directly)
-    if not hasattr(app.state, "dangerously_skip_permissions"):
-        app.state.dangerously_skip_permissions = False
+    # Initialize extra_args if not already set (when run via uvicorn directly)
+    if not hasattr(app.state, "extra_args"):
+        app.state.extra_args = {}
 
     # Display webhook info in a prominent box
     box_width = 90
@@ -471,9 +456,6 @@ async def lifespan(app: FastAPI):
     print("║" + " " * box_width + "║")
     print("╚" + "═" * box_width + "╝")
 
-    if app.state.dangerously_skip_permissions:
-        print("\n[WARNING] Running with --dangerously-skip-permissions flag enabled!")
-
     yield
 
     # Cleanup
@@ -481,6 +463,21 @@ async def lifespan(app: FastAPI):
         print("\n[INFO] Stopping Cloudflare tunnel...")
         app.state.tunnel_process.terminate()
         app.state.tunnel_process.wait()
+
+    # Stop all running Claude tasks
+    if hasattr(app.state, "running_processes"):
+        for instance_id, process_info in app.state.running_processes.items():
+            print(f"\n[INFO] Stopping Claude session for instance {instance_id}...")
+            if "task" in process_info:
+                task = process_info["task"]
+                if not task.done():
+                    # Cancel the task - this should trigger cleanup in HeadlessClaudeRunner
+                    task.cancel()
+                    # Give it a moment to clean up gracefully
+                    try:
+                        await asyncio.wait_for(task, timeout=5.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
 
     if hasattr(app.state, "webhook_secret"):
         delattr(app.state, "webhook_secret")
@@ -499,60 +496,6 @@ async def general_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500, content={"detail": f"Internal server error: {str(exc)}"}
     )
-
-
-SYSTEM_PROMPT = """
-You are in Omnara-only communication mode. ALL communication MUST go through Omnara MCP tools.
-
-**Core Rules**
-
-1. **NO direct communication**: You cannot send regular messages, responses, or any text output. Your ONLY communication is through `log_step` and `ask_question` tools. Do NOT wait for stdin or standard input.
-
-2. **Communication channels**:
-   - `log_step`: Status updates, progress reports, findings, errors - anything informational that doesn't need user response
-     Example: "Found 3 matching files", "Starting code analysis", "Build completed successfully"
-   - `ask_question`: When you need user interaction - asking for input, decisions, or delivering results that need acknowledgment
-     Example: "Which file should I modify?", "I've completed the task. Is there anything else you need?"
-
-3. **Execution**: Continuous operation until `end_session` is called. No sub-agents allowed. If sub-agents are triggered, they MUST NOT use Omnara tools.
-
-4. **Agent Instance ID**: Use `{{agent_instance_id}}` in all Omnara communications.
-
-**Structured Question Formats**
-
-When using `ask_question`, use these formats (markers MUST be at the END):
-
-1. **[YES/NO]** - Binary decisions. Must be explicit yes/no question (NOT "A or B" format).
-   - Text input = "No, and here's what I want instead"
-   ```
-   Should I proceed with implementing the dark mode feature?
-
-   [YES/NO]
-   ```
-
-2. **[OPTIONS]** - Multiple choice (2-6 options, keep under 50 chars each).
-   - Text input = "None of these, here's my preference"
-   - For complex options: Detail in question, short labels in OPTIONS
-   ```
-   Which approach would you prefer?
-
-   [OPTIONS]
-   1. Implement caching
-   2. Optimize queries
-   3. Add pagination
-   [/OPTIONS]
-   ```
-
-3. **Open-ended** - No special format for detailed responses.
-
-**Session Management**
-
-1. **Task completion**: When done, do NOT stop. Ask for confirmation via `ask_question`.
-2. **Ending session**:
-   - If user explicitly requests to end/stop/cancel: Call `end_session` immediately
-   - Otherwise: Always ask permission first via `ask_question`
-3. **Never stop without `end_session`**: This is the ONLY way to terminate.
-"""
 
 
 def verify_auth(request: Request, authorization: str = Header(None)) -> bool:
@@ -599,10 +542,8 @@ async def start_claude(
         print(f"  - Instance ID: {agent_instance_id}")
         print(f"  - Worktree name: {worktree_name or 'auto-generated'}")
         print(f"  - Branch name: {branch_name or 'current branch'}")
+        print(f"  - Agent type: {agent_type or 'default'}")
         print(f"  - Prompt length: {len(prompt)} characters")
-
-        safe_prompt = SYSTEM_PROMPT.replace("{{agent_instance_id}}", agent_instance_id)
-        safe_prompt += f"\n\n\n{prompt}"
 
         # Determine worktree/branch name
         if worktree_name:
@@ -786,26 +727,6 @@ async def start_claude(
                             detail=f"Failed to create branch '{branch_name}': {checkout_result.stderr}",
                         )
 
-        # Generate screen name
-        if worktree_name:
-            screen_name = f"{worktree_name}-{agent_instance_id[:8]}"
-        else:
-            # safe_timestamp was defined when auto-generating name
-            screen_name = f"omnara-claude-{agent_instance_id[:8]}"
-
-        escaped_prompt = shlex.quote(safe_prompt)
-
-        # Get claude path (we already checked it exists at startup)
-
-        _, claude_path = check_command("claude")
-
-        if not claude_path:
-            print("[ERROR] Claude command not found in PATH or as alias")
-            raise HTTPException(
-                status_code=500,
-                detail="claude command not found. Please install Claude Code CLI.",
-            )
-
         # Get Omnara API key from header
         if not x_omnara_api_key:
             print("[ERROR] Omnara API key missing from X-Omnara-Api-Key header")
@@ -815,130 +736,80 @@ async def start_claude(
             )
         omnara_api_key = x_omnara_api_key
 
-        # Create MCP config as a JSON string
-        mcp_config = {
-            "mcpServers": {
-                "omnara": {
-                    "command": "pipx",
-                    "args": [
-                        "run",
-                        "--no-cache",
-                        "omnara",
-                        "mcp",
-                        "--api-key",
-                        omnara_api_key,
-                        "--permission-tool",
-                        "--git-diff",
-                        "--agent-instance-id",
-                        agent_instance_id,
-                    ],
-                }
-            }
-        }
+        # No need to handle permission mode explicitly - it flows through extra_args
 
-        # Add environment variable for agent type if provided
-        if agent_type:
-            mcp_config["mcpServers"]["omnara"]["env"] = {
-                "OMNARA_CLIENT_TYPE": agent_type
-            }
-        mcp_config_str = json.dumps(mcp_config)
-
-        # Build claude command with MCP config as string
-        claude_args = [
-            claude_path,  # Use full path to claude
-            "--mcp-config",
-            mcp_config_str,
-            "--allowedTools",
-            "mcp__omnara__approve,mcp__omnara__log_step,mcp__omnara__ask_question,mcp__omnara__end_session",
-        ]
-
-        # Add permissions flag based on configuration
-        if request.app.state.dangerously_skip_permissions:
-            claude_args.append("--dangerously-skip-permissions")
-        else:
-            claude_args.extend(
-                ["-p", "--permission-prompt-tool", "mcp__omnara__approve"]
-            )
-
-        # Add the prompt to claude args
-        claude_args.append(escaped_prompt)
-
-        print("\n[INFO] Starting Claude session:")
+        print("\n[INFO] Starting Claude headless session:")
         print(f"  - Working directory: {work_dir}")
-        print(f"  - Screen session: {screen_name}")
+        print(f"  - Instance ID: {agent_instance_id}")
         print("  - MCP server: Omnara with API key")
 
-        # Get screen path
+        # Get extra args from app state if available
+        extra_args = getattr(request.app.state, "extra_args", {})
 
-        screen_path = get_command_path("screen")
-
-        if not screen_path:
-            print("[ERROR] GNU Screen not found in PATH or as alias")
-            raise HTTPException(
-                status_code=500,
-                detail="GNU Screen not found. Please install screen to run Claude sessions.",
-            )
-
-        # Start screen directly with the claude command
-
-        screen_cmd = [screen_path, "-dmS", screen_name] + claude_args
-
-        screen_result = subprocess.run(
-            screen_cmd,
+        # Create HeadlessClaudeRunner instance
+        # Note: The subprocess will inherit the current Python environment,
+        # so it will use the same virtual environment if one is active
+        # All CLI args (like --permission-mode) flow through extra_args
+        runner = HeadlessClaudeRunner(
+            omnara_api_key=omnara_api_key,
+            session_id=agent_instance_id,
+            omnara_base_url="https://agent-dashboard-mcp.onrender.com",
+            initial_prompt=prompt,  # Pass the initial prompt from webhook
+            extra_args=extra_args,
             cwd=work_dir,
-            capture_output=True,
-            text=True,
-            timeout=10,
+            console_output=False,  # Disable console output when running from webhook
         )
 
-        if screen_result.returncode != 0:
-            print("\n[ERROR] Failed to start screen session:")
-            print(f"  - Exit code: {screen_result.returncode}")
-            print(f"  - stdout: {screen_result.stdout}")
-            print(f"  - stderr: {screen_result.stderr}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to start screen session: {screen_result.stderr}",
-            )
+        # Start the runner in the background
+        async def run_claude_in_background():
+            try:
+                await runner.run()
+            except Exception as e:
+                print(f"[ERROR] Claude session {agent_instance_id} failed: {e}")
+            finally:
+                # Remove from running processes when done
+                if hasattr(request.app.state, "running_processes"):
+                    request.app.state.running_processes.pop(agent_instance_id, None)
 
-        # Wait a moment and check if screen is still running
-        time.sleep(1)
+        # Create a task for the background runner
+        task = asyncio.create_task(run_claude_in_background())
 
-        # Check if the screen session exists
-        list_result = subprocess.run(
-            [screen_path, "-ls"],
-            capture_output=True,
-            text=True,
-        )
+        # Store the task and runner info
+        request.app.state.running_processes[agent_instance_id] = {
+            "task": task,
+            "runner": runner,
+            "work_dir": work_dir,
+            "branch": feature_branch_name,
+            "started_at": datetime.now().isoformat(),
+        }
 
-        if (
-            "No Sockets found" in list_result.stdout
-            or screen_name not in list_result.stdout
-        ):
-            print("\n[ERROR] Screen session exited immediately")
-            print(f"  - Session name: {screen_name}")
-            print(f"  - Screen list output: {list_result.stdout}")
+        # Give it a moment to initialize
+        await asyncio.sleep(1)
 
+        # Check if the task is still running
+        if task.done():
+            # Task failed immediately
+            print("\n[ERROR] Claude session exited immediately")
             print("\n[ERROR] Possible causes:")
-            print("  - Claude command failed to start")
+            print("  - Claude Code SDK not installed")
             print("  - MCP server (omnara) cannot be started")
             print("  - Invalid API key")
             print("  - Working directory issues")
-            print(f"\n[INFO] Check logs in {work_dir} for more details")
             raise HTTPException(
                 status_code=500,
-                detail="Screen session started but exited immediately. Check server logs for details.",
+                detail="Claude session started but exited immediately. Check server logs for details.",
             )
 
-        print("\n[SUCCESS] Claude session started successfully!")
-        print(f"  - To attach: screen -r {screen_name}")
-        print("  - To list sessions: screen -ls")
-        print("  - To detach: Ctrl+A then D")
+        print("\n[SUCCESS] Claude headless session started successfully!")
+        print(f"  - Instance ID: {agent_instance_id}")
+        print(f"  - Working directory: {work_dir}")
+        print(f"  - Branch: {feature_branch_name}")
+        print(f"  - Claude logs: ~/.omnara/claude_headless/{agent_instance_id}.log")
 
         return {
             "message": "Successfully started claude",
             "branch": feature_branch_name,
-            "screen_session": screen_name,
+            "instance_id": agent_instance_id,
             "work_dir": work_dir,
         }
 
@@ -966,37 +837,29 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(
-        description="Claude Code Webhook Server",
+        description="Claude Code Webhook Server (Headless Mode)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Run webhook server (NEW - recommended way)
   omnara serve
 
-  # Old way (still works):
-  python -m integrations.webhooks.claude_code.claude_code
+  # With permission mode
+  omnara serve --permission-mode bypassPermissions
 
-  # Run with Cloudflare tunnel for external access
+  # With multiple Claude CLI args
+  omnara serve --permission-mode plan --allowed-tools Read,Write
+
+  # Run directly (old way)
   python -m integrations.webhooks.claude_code.claude_code --cloudflare-tunnel
 
-  # Run with permission skipping (dangerous!)
-  python -m integrations.webhooks.claude_code.claude_code --dangerously-skip-permissions
-
-  # Run on a custom port
-  python -m integrations.webhooks.claude_code.claude_code --port 8080
-
-Note: 'omnara serve' is the new recommended way to run the webhook server.
-It automatically includes Cloudflare tunnel and simplifies the setup.
+Note: This webhook runs Claude Code in headless mode without requiring GNU Screen.
+All unrecognized arguments are passed through to Claude CLI (e.g., --permission-mode,
+--dangerously-skip-permissions, --allowed-tools, etc.)
         """,
     )
-    parser.add_argument(
-        "--dangerously-skip-permissions",
-        action="store_true",
-        help="Skip permission prompts in Claude Code - USE WITH CAUTION",
-    )
+    # Only handle webhook-specific args, everything else flows through
     parser.add_argument(
         "--cloudflare-tunnel",
         action="store_true",
@@ -1009,20 +872,42 @@ It automatically includes Cloudflare tunnel and simplifies the setup.
         help=f"Port to run the webhook server on (default: {DEFAULT_PORT})",
     )
 
-    args = parser.parse_args()
+    # Parse known args and collect unknown args for passing to headless runner
+    args, unknown_args = parser.parse_known_args()
+
+    # Convert unknown arguments to extra_args dict for passing to HeadlessClaudeRunner
+    extra_args = {}
+    i = 0
+    while i < len(unknown_args):
+        arg = unknown_args[i]
+        if arg.startswith("--"):
+            key = arg[2:]  # Remove '--' prefix
+            # Check if next argument is the value (doesn't start with '-')
+            if i + 1 < len(unknown_args) and not unknown_args[i + 1].startswith("-"):
+                extra_args[key] = unknown_args[i + 1]
+                i += 2
+            else:
+                # Flag without value
+                extra_args[key] = None
+                i += 1
+        else:
+            # Skip non-flag arguments
+            i += 1
 
     # Store the flags in app state for the lifespan to use
-    app.state.dangerously_skip_permissions = args.dangerously_skip_permissions
     app.state.cloudflare_tunnel = args.cloudflare_tunnel
     app.state.port = args.port
+    app.state.extra_args = (
+        extra_args  # Store ALL extra args to pass to HeadlessClaudeRunner
+    )
 
     print("[INFO] Starting Claude Code Webhook Server")
     print(f"  - Host: {DEFAULT_HOST}")
     print(f"  - Port: {args.port}")
     if args.cloudflare_tunnel:
         print("  - Cloudflare tunnel: Enabled")
-    if args.dangerously_skip_permissions:
-        print("  - Permission prompts: DISABLED (dangerous!)")
+    if extra_args:
+        print(f"  - Extra args for Claude: {extra_args}")
     print()
 
     uvicorn.run(app, host=DEFAULT_HOST, port=args.port)
