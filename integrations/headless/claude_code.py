@@ -43,8 +43,13 @@ except ImportError as e:
     sys.exit(1)
 
 
-def setup_logging(session_id: str):
-    """Setup logging to both console and file with session-specific log file."""
+def setup_logging(session_id: str, console_output: bool = True):
+    """Setup logging with session-specific log file.
+
+    Args:
+        session_id: Session ID for the log file name
+        console_output: Whether to also log to console (default True for standalone, False for webhook)
+    """
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
 
@@ -63,21 +68,20 @@ def setup_logging(session_id: str):
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-
-    # File handler
+    # File handler (always add)
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
-
-    # Add handlers to logger
-    logger.addHandler(console_handler)
     logger.addHandler(file_handler)
 
-    logger.info(f"Logging to: {log_file}")
+    # Console handler (only if requested)
+    if console_output:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        logger.info(f"Logging to: {log_file}")
+
     return logger
 
 
@@ -89,18 +93,23 @@ class HeadlessClaudeRunner:
         omnara_api_key: str,
         session_id: str,
         omnara_base_url: str = "https://agent-dashboard-mcp.onrender.com",
-        initial_prompt: str = "You are starting a coding session",
+        initial_prompt: Optional[str] = None,
         extra_args: Optional[Dict[str, Optional[str]]] = None,
         permission_mode: Optional[PermissionMode] = None,
         allowed_tools: Optional[List[str]] = None,
         disallowed_tools: Optional[List[str]] = None,
         cwd: Optional[Union[str, Path]] = None,
+        console_output: bool = True,
     ):
         self.omnara_api_key = omnara_api_key
         self.omnara_base_url = omnara_base_url
         self.initial_prompt = initial_prompt
         self.session_id = session_id
         self.last_message_id: Optional[str] = None
+        self.cwd = cwd or os.getcwd()  # Store cwd before using it
+
+        # Setup logging for this session
+        setup_logging(session_id, console_output=console_output)
         self.logger = logging.getLogger(__name__)
 
         # Create default Omnara MCP server config
@@ -129,7 +138,7 @@ class HeadlessClaudeRunner:
             allowed_tools=(allowed_tools or []) + ["mcp__omnara__approve"],
             permission_prompt_tool_name="mcp__omnara__approve",
             disallowed_tools=disallowed_tools or [],
-            cwd=cwd or os.getcwd(),
+            cwd=self.cwd,
             extra_args=extra_args or {},
         )
 
@@ -139,8 +148,10 @@ class HeadlessClaudeRunner:
         self.running = True
         self.conversation_started = False
 
-        # Initialize git diff tracker with our logger
-        self.git_tracker = GitDiffTracker(enabled=True, logger=self.logger)
+        # Initialize git diff tracker with our logger and working directory
+        self.git_tracker = GitDiffTracker(
+            enabled=True, logger=self.logger, cwd=str(self.cwd) if self.cwd else None
+        )
         self.previous_git_diff = None  # Track previous diff to avoid duplicates
 
     async def initialize(self):
@@ -161,18 +172,38 @@ class HeadlessClaudeRunner:
         if not self.omnara_client:
             raise RuntimeError("Omnara client not initialized")
 
-        response = await self.omnara_client.send_message(
-            content=f"Headless Claude Code session started (ID: {self.session_id}) - ready for your instructions",
-            agent_instance_id=self.session_id,
-            agent_type="Claude Code (Headless)",
-            requires_user_input=True,  # Start by asking for user input
-        )
+        # If we have an initial prompt, send it as a USER message to Omnara
+        if self.initial_prompt:
+            self.logger.info("Sending initial prompt as user message to Omnara")
+            # Send agent ready message (not waiting for input since we have the prompt)
+            await self.omnara_client.send_message(
+                content="Claude Code session started - processing your request",
+                agent_instance_id=self.session_id,
+                agent_type="Claude Code (Headless)",
+                requires_user_input=False,
+            )
 
-        # Process any initial queued messages
-        if response.queued_user_messages:
-            return response.queued_user_messages[
-                0
-            ]  # Return first user message to start with
+            # Send the prompt as a USER message so it shows in the dashboard
+            await self.omnara_client.send_user_message(
+                agent_instance_id=self.session_id,
+                content=self.initial_prompt,
+            )
+            # Return the prompt as the first user input
+            return self.initial_prompt
+        else:
+            # No initial prompt, send agent message and wait for user input
+            response = await self.omnara_client.send_message(
+                content="Claude Code session started - ready for your instructions",
+                agent_instance_id=self.session_id,
+                agent_type="Claude Code (Headless)",
+                requires_user_input=True,  # Wait for user input
+            )
+
+            # Process any initial queued messages
+            if response.queued_user_messages:
+                return response.queued_user_messages[
+                    0
+                ]  # Return first user message to start with
 
         return None
 
@@ -294,9 +325,8 @@ class HeadlessClaudeRunner:
         try:
             # Send the user input to the persistent Claude client
             if not self.conversation_started:
-                # For the first message, include the initial prompt
-                full_prompt = f"{self.initial_prompt}\n\nUser request: {user_input}"
-                await self.claude_client.query(full_prompt)
+                # Just use the input directly - it already contains the full prompt
+                await self.claude_client.query(user_input)
                 self.conversation_started = True
             else:
                 # For subsequent messages, just send the user input
@@ -396,7 +426,7 @@ class HeadlessClaudeRunner:
                 self.logger.error("Failed to get initial user input")
                 return
 
-            # Start with the user input (initial prompt will be added in first turn)
+            # Start with the user input
             current_input = initial_user_input
 
             # Main conversation loop
@@ -409,8 +439,8 @@ class HeadlessClaudeRunner:
                     self.logger.info("No more user input, ending session")
                     break
 
-        except KeyboardInterrupt:
-            self.logger.info("Received interrupt signal, shutting down...")
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            self.logger.info("Received interrupt/cancel signal, shutting down...")
             self.running = False
         except Exception as e:
             self.logger.error(f"Fatal error in headless runner: {e}")

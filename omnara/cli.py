@@ -509,7 +509,7 @@ def run_agent_chat(args, unknown_args):
         sys.argv = original_argv
 
 
-def cmd_serve(args):
+def cmd_serve(args, unknown_args=None):
     """Handle the 'serve' subcommand"""
     # Run the webhook server with appropriate tunnel configuration
     cmd = [
@@ -518,13 +518,7 @@ def cmd_serve(args):
         "integrations.webhooks.claude_code.claude_code",
     ]
 
-    if args.skip_permissions:
-        cmd.append("--dangerously-skip-permissions")
-
-    if args.debug:
-        cmd.append("--debug")
-
-    # Handle tunnel configuration
+    # Handle tunnel configuration (webhook-specific)
     if not args.no_tunnel:
         # Default: use Cloudflare tunnel
         cmd.append("--cloudflare-tunnel")
@@ -536,7 +530,16 @@ def cmd_serve(args):
     if args.port is not None:
         cmd.extend(["--port", str(args.port)])
 
-    subprocess.run(cmd)
+    # Pass through ALL unknown arguments (including permission flags)
+    # These will flow through to HeadlessClaudeRunner and then to Claude CLI
+    if unknown_args:
+        cmd.extend(unknown_args)
+
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\n[INFO] Webhook server stopped by user")
+        sys.exit(0)
 
 
 def cmd_mcp(args):
@@ -561,7 +564,11 @@ def cmd_mcp(args):
     if args.disable_tools:
         cmd.append("--disable-tools")
 
-    subprocess.run(cmd)
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\n[INFO] MCP server stopped by user")
+        sys.exit(0)
 
 
 def add_global_arguments(parser):
@@ -668,11 +675,8 @@ Examples:
     serve_parser.add_argument(
         "--port", type=int, help="Port to run the webhook server on (default: 6662)"
     )
-    serve_parser.add_argument(
-        "--skip-permissions",
-        action="store_true",
-        help="Skip permission prompts in Claude Code - USE WITH CAUTION",
-    )
+    # All permission-related args will be passed through as unknown_args
+    # No need to explicitly define them here
     serve_parser.add_argument(
         "--debug",
         action="store_true",
@@ -780,7 +784,7 @@ Examples:
 
     # Handle subcommands
     if args.command == "serve":
-        cmd_serve(args)
+        cmd_serve(args, unknown_args)
     elif args.command == "mcp":
         cmd_mcp(args)
     elif args.command == "headless":
