@@ -853,12 +853,13 @@ class AmpWrapper:
         self.has_response_content = False
         self.log("[DEBUG] Started response capture")
         
-        # Initialize streaming state
+        # Initialize streaming state - reset for each new response
         self._streaming_state = {
             'text_buffer': [],  # Accumulate text lines
             'last_sent_content': '',  # Track what we've already sent
             'tool_calls_sent': [],  # Track sent tool calls to avoid duplicates
             'has_sent_initial_text': False,  # Whether we've sent any text yet
+            'sent_lines': set(),  # Track individual lines that have been sent
         }
 
     def _capture_response_output(self, output: str, clean_output: str) -> None:
@@ -955,14 +956,20 @@ class AmpWrapper:
         self.log("[INFO] AMP returned to prompt - processing buffered response")
         self._reset_response_state()
 
-        # Send any remaining accumulated text first
-        if hasattr(self, '_streaming_state') and self._streaming_state.get('text_buffer'):
-            self._send_accumulated_text_stream()
+        # Check if we have streaming state
+        has_streamed = False
+        if hasattr(self, '_streaming_state'):
+            # Send any remaining accumulated text first
+            if self._streaming_state.get('text_buffer'):
+                self._send_accumulated_text_stream()
+                has_streamed = True
+            
+            # Check if we've already sent content via streaming
+            if self._streaming_state.get('has_sent_initial_text') or self._streaming_state.get('tool_calls_sent'):
+                has_streamed = True
         
         # Only extract and send full response if we haven't sent anything via streaming
-        if not (hasattr(self, '_streaming_state') and 
-                (self._streaming_state.get('has_sent_initial_text') or 
-                 self._streaming_state.get('tool_calls_sent'))):
+        if not has_streamed:
             full_output = "".join(self.response_buffer)
             self.log(f"[DEBUG] Full buffered output ({len(full_output)} chars)")
 
@@ -1180,23 +1187,27 @@ class AmpWrapper:
                 continue
                 
             # Check for tool markers - these should be sent immediately
-            tool_markers = ["✓", "✔", "Tools:", "╰──", "Web Search", "Searching", "Create", "Read Web"]
-            is_tool_line = any(marker in stripped for marker in tool_markers)
+            # Only match actual tool execution lines, not general text mentioning tools
+            is_tool_line = False
+            if "Tools:" in stripped:
+                is_tool_line = True
+            elif stripped.startswith("✓") or stripped.startswith("✔"):
+                is_tool_line = True
+            elif stripped.startswith("╰──") and "Searching" in stripped:
+                is_tool_line = True
             
             if is_tool_line:
-                # Check if we've already sent this tool call
+                # Check if we've already sent this exact tool call
                 if stripped not in self._streaming_state['tool_calls_sent']:
                     self._send_tool_call_stream(stripped)
                     self._streaming_state['tool_calls_sent'].append(stripped)
             else:
-                # Regular content - accumulate for later sending
+                # Regular content - only accumulate meaningful text, not duplicates
                 if self._is_response_content_line(stripped) and not self._is_thinking_content(stripped):
-                    if stripped not in self._streaming_state['text_buffer']:
+                    # Check against all sent lines to avoid any duplicates
+                    if stripped not in self._streaming_state['sent_lines'] and stripped not in self._streaming_state['text_buffer']:
                         self._streaming_state['text_buffer'].append(stripped)
-                        
-                        # Send accumulated text if we have enough content
-                        if len(self._streaming_state['text_buffer']) >= 3:
-                            self._send_accumulated_text_stream()
+                        # Don't auto-send, wait for completion or tool calls
     
     def _send_tool_call_stream(self, tool_line: str) -> None:
         """Send a tool call as a separate message immediately"""
@@ -1216,15 +1227,34 @@ class AmpWrapper:
         # Join accumulated lines
         text_content = '\n'.join(self._streaming_state['text_buffer'])
         
-        # Don't send if it's the same as what we already sent
-        if text_content == self._streaming_state['last_sent_content']:
-            return
+        # Check if this is substantially different from what we already sent
+        # (not just a subset or superset)
+        if self._streaming_state['last_sent_content']:
+            # Don't send if new content is contained in what we already sent
+            if text_content in self._streaming_state['last_sent_content']:
+                self.log(f"[STREAMING] Skipping duplicate text that's already been sent")
+                return
+            # Don't send if what we already sent contains all the new content
+            if self._streaming_state['last_sent_content'] in text_content:
+                # Only send the new part
+                new_lines = [line for line in self._streaming_state['text_buffer'] 
+                           if line not in self._streaming_state['last_sent_content']]
+                if not new_lines:
+                    return
+                text_content = '\n'.join(new_lines)
             
         self.log(f"[STREAMING] Sending text chunk: {len(text_content)} chars")
         self.message_processor.process_assistant_message_sync(text_content)
         
-        # Update tracking
-        self._streaming_state['last_sent_content'] = text_content
+        # Update tracking - mark all these lines as sent
+        for line in self._streaming_state['text_buffer']:
+            self._streaming_state['sent_lines'].add(line)
+        
+        # Update last sent content
+        if self._streaming_state['last_sent_content']:
+            self._streaming_state['last_sent_content'] += '\n' + text_content
+        else:
+            self._streaming_state['last_sent_content'] = text_content
         self._streaming_state['has_sent_initial_text'] = True
         # Clear buffer after sending
         self._streaming_state['text_buffer'] = []
