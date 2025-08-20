@@ -383,3 +383,206 @@ def _process_complete_response(self):
 3. **Reuse existing helpers** - Used established filtering methods
 4. **Simple state tracking** - Just track what's sent, not complex states
 5. **Incremental changes** - Small, focused edits instead of massive rewrites
+
+---
+
+## Test Refactoring Plan (2025-08-20)
+
+### Current Test Status
+After implementing streaming functionality, the existing tests need updates to account for:
+1. New streaming methods added to AmpWrapper
+2. Modified response processing logic
+3. ANSI-based UI filtering
+4. Streaming state management
+
+### Test Files Overview
+- `test_amp_wrapper_unit.py` - Unit tests for individual methods
+- `test_amp_wrapper_mocks.py` - Tests with mocked AMP output
+- `test_amp_wrapper_integration.py` - Integration tests with PTY
+- `test_amp_wrapper_regression.py` - Regression tests for known issues
+
+### Required Test Updates
+
+#### 1. Unit Tests (`test_amp_wrapper_unit.py`)
+
+**New tests needed:**
+```python
+def test_initialize_response_capture_with_streaming():
+    """Test that streaming state is initialized correctly"""
+    # Should initialize _streaming_state dict
+    # Should reset all streaming counters
+    
+def test_process_streaming_output():
+    """Test streaming output processing"""
+    # Should detect tool completions (✓ markers)
+    # Should filter transient UI elements
+    # Should accumulate meaningful text
+    
+def test_ansi_based_transient_detection():
+    """Test ANSI code-based UI filtering"""
+    # Should detect \x1b[92m and \x1b[94m with animation chars
+    # Should filter "Running tools..." with color codes
+    # Should preserve actual content
+```
+
+**Existing tests to modify:**
+- `test_process_complete_response` - Add check for streaming state
+- `test_capture_response_output` - Verify streaming hook is called
+
+#### 2. Mock Tests (`test_amp_wrapper_mocks.py`)
+
+**New mock fixtures needed:**
+```python
+# Add to fixtures directory
+"tool_execution_output.txt": """
+\x1b[32m✓\x1b[39m \x1b[1mWeb Search\x1b[22m gluten free cookies
+\x1b[32m✓\x1b[39m \x1b[1mWeb Search\x1b[22m polar bear diet
+"""
+
+"transient_ui_output.txt": """
+\x1b[94m∿\x1b[39m Running inference...
+Tools:
+╰── Searching "test query"
+\x1b[92m≈\x1b[39m Running tools...
+"""
+```
+
+**New tests:**
+```python
+def test_tool_completion_streaming():
+    """Test that tool completions are sent immediately"""
+    # Mock response buffer with tool markers
+    # Verify _send_tool_call_stream is called
+    # Check tool calls are not duplicated
+    
+def test_transient_ui_filtering():
+    """Test that UI elements are filtered out"""
+    # Process output with "Running tools..."
+    # Verify these are not sent to dashboard
+    # Verify actual content is preserved
+```
+
+#### 3. Integration Tests (`test_amp_wrapper_integration.py`)
+
+**New integration tests:**
+```python
+def test_streaming_with_real_pty():
+    """Test streaming with actual PTY output"""
+    # Create PTY
+    # Send mock AMP output with tool calls
+    # Verify messages are sent in real-time
+    # Check no duplicates
+    
+def test_terminal_redraw_handling():
+    """Test handling of terminal redraws"""
+    # Send partial line
+    # Send complete line (redraw)
+    # Verify only complete line is sent
+```
+
+#### 4. Regression Tests (`test_amp_wrapper_regression.py`)
+
+**New regression tests:**
+```python
+def test_no_duplicate_streaming_messages():
+    """Prevent regression of duplicate message issue"""
+    # Send same content multiple times (terminal redraw)
+    # Verify only sent once
+    
+def test_ui_elements_not_in_output():
+    """Ensure UI elements don't appear in dashboard"""
+    # Process output with various UI patterns
+    # Verify none appear in final messages
+```
+
+### Test Data Requirements
+
+#### Mock Output Samples
+Create new test fixtures in `tests/fixtures/amp_outputs/`:
+1. `streaming_tool_calls.txt` - Output with multiple tool executions
+2. `terminal_redraws.txt` - Same content redrawn multiple times
+3. `mixed_ui_content.txt` - Mix of UI elements and real content
+4. `ansi_animations.txt` - Animation characters with ANSI codes
+
+### Test Execution Strategy
+
+1. **Phase 1: Add New Tests**
+   - Write tests for new streaming methods
+   - Create mock fixtures for streaming scenarios
+   - Test ANSI-based filtering logic
+
+2. **Phase 2: Update Existing Tests**
+   - Modify response processing tests
+   - Update completion detection tests
+   - Fix any broken assertions
+
+3. **Phase 3: Integration Testing**
+   - Test full streaming flow end-to-end
+   - Verify dashboard receives correct messages
+   - Check performance with large outputs
+
+### Expected Test Coverage
+- Unit tests: Cover all new streaming methods
+- Mock tests: Verify filtering and deduplication
+- Integration: Test real PTY interactions
+- Regression: Prevent UI elements in output
+
+---
+
+## Key Implementation Details for Reference
+
+### ANSI Code Patterns Used
+```python
+# Transient UI indicators (should filter):
+\x1b[92m  # Green for running tools animation
+\x1b[94m  # Blue for running inference animation
+\x1b[2m   # Dim text for "Ctrl+R to expand"
+
+# Content indicators (should keep):
+\x1b[32m  # Green for checkmarks (✓)
+\x1b[1m   # Bold for important text
+\x1b[39m  # Default color reset
+```
+
+### Terminal Control Sequences
+```python
+\x1b[2K   # Clear entire line
+\x1b[1A   # Move cursor up one line
+\x1b[G    # Move cursor to beginning of line
+```
+
+### Streaming State Structure
+```python
+_streaming_state = {
+    'text_buffer': [],          # Accumulated text lines
+    'last_sent_content': '',    # Track sent content
+    'tool_calls_sent': [],      # Sent tool calls (dedup)
+    'has_sent_initial_text': False,
+    'sent_lines': set(),        # All sent lines (dedup)
+}
+```
+
+### Critical Methods Added/Modified
+1. `_process_streaming_output()` - Main streaming processor
+2. `_send_tool_call_stream()` - Send tool completions
+3. `_send_accumulated_text_stream()` - Send text chunks
+4. `_initialize_response_capture()` - Init streaming state
+5. `_process_complete_response()` - Check streaming before sending
+
+### UI Patterns to Filter
+- `Tools:` - Section header
+- `├──`, `╰──` - Tree UI elements
+- `Running inference...` - Status message
+- `Running tools...` - Status message
+- `Searching "..."` - Intermediate status
+- Animation chars with color codes: `∿ ∾ ∽ ≋ ≈ ∼`
+
+### Testing Checklist
+- [ ] Tool completions sent immediately
+- [ ] No duplicate messages from redraws
+- [ ] UI elements filtered out
+- [ ] Real content preserved
+- [ ] Partial lines replaced with complete
+- [ ] ANSI codes properly detected
+- [ ] Streaming state properly managed
+- [ ] Fallback to buffering works
