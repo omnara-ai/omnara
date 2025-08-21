@@ -3,6 +3,7 @@
 import logging
 from typing import Annotated
 from uuid import UUID
+import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -27,10 +28,53 @@ from .models import (
     EndSessionResponse,
     GetMessagesResponse,
     MessageResponse,
+    VerifyAuthResponse,
 )
 
 agent_router = APIRouter(tags=["agents"])
 logger = logging.getLogger(__name__)
+
+
+@agent_router.get("/auth/verify", response_model=VerifyAuthResponse)
+def verify_auth_endpoint(
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db),
+) -> VerifyAuthResponse:
+    """Verify API key authentication.
+
+    This endpoint is used by n8n and other integrations to test credentials.
+    Returns basic information about the authenticated user and API key.
+    """
+    from shared.database import User
+
+    try:
+        # Get user information
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+
+        # Get API key information (optional - just to show which key is being used)
+        # Note: We can't identify the specific key from the JWT, but we know it's valid
+        # if we got this far
+
+        return VerifyAuthResponse(
+            success=True,
+            user_id=str(user.id),
+            email=user.email,
+            display_name=user.display_name,
+            message="Authentication successful",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in verify_auth_endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
 
 
 @agent_router.post("/messages/agent", response_model=CreateMessageResponse)
@@ -58,6 +102,7 @@ async def create_agent_message_endpoint(
             agent_type=request.agent_type,
             requires_user_input=request.requires_user_input,
             git_diff=request.git_diff,
+            message_metadata=request.message_metadata,
         )
 
         # Send notifications if requested
@@ -106,7 +151,7 @@ async def create_agent_message_endpoint(
 
 
 @agent_router.post("/messages/user", response_model=CreateUserMessageResponse)
-def create_user_message_endpoint(
+async def create_user_message_endpoint(
     request: CreateUserMessageRequest,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db),
@@ -117,6 +162,7 @@ def create_user_message_endpoint(
     - Creates a user message for an existing agent instance
     - Optionally marks it as read (updates last_read_message_id)
     - Returns the message ID
+    - Triggers any waiting webhooks (e.g., n8n workflows)
     """
 
     try:
@@ -129,8 +175,18 @@ def create_user_message_endpoint(
             mark_as_read=request.mark_as_read,
         )
 
-        # Commit the transaction
+        # Commit the transaction first
         db.commit()
+
+        # After committing, check if we need to trigger any webhooks
+        # Get the last agent message that might have a webhook
+        await _trigger_webhook_if_needed(
+            db=db,
+            agent_instance_id=request.agent_instance_id,
+            user_message_content=request.content,
+            user_message_id=message_id,
+            user_id=user_id,
+        )
 
         return CreateUserMessageResponse(
             success=True,
@@ -343,3 +399,106 @@ def end_session_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
         )
+
+
+async def _trigger_webhook_if_needed(
+    db: Session,
+    agent_instance_id: str,
+    user_message_content: str,
+    user_message_id: str,
+    user_id: str,
+) -> None:
+    """Trigger webhook if the last agent message has a webhook URL in metadata.
+
+    This is used for n8n and other integrations that use webhooks to wait for responses.
+    """
+    from datetime import datetime, timezone
+
+    try:
+        # Get the last agent message with requires_user_input=True
+        last_agent_message = (
+            db.query(Message)
+            .filter(
+                Message.agent_instance_id == UUID(agent_instance_id),
+                Message.sender_type == SenderType.AGENT,
+                Message.requires_user_input.is_(True),
+            )
+            .order_by(Message.created_at.desc())
+            .first()
+        )
+
+        if not last_agent_message:
+            return
+
+        # Check if it has a webhook URL in metadata
+        if not last_agent_message.message_metadata:
+            return
+
+        webhook_url = last_agent_message.message_metadata.get("webhook_url")
+        if not webhook_url:
+            return
+
+        # Check if webhook was already triggered
+        if last_agent_message.message_metadata.get("webhook_triggered"):
+            logger.info(
+                f"Webhook already triggered for message {last_agent_message.id}"
+            )
+            return
+
+        # Prepare webhook payload
+        webhook_payload = {
+            "user_message": user_message_content,
+            "content": user_message_content,
+            "user_id": user_id,
+            "message_id": user_message_id,
+            "agent_instance_id": agent_instance_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "metadata": {
+                "original_message_id": str(last_agent_message.id),
+                "execution_id": last_agent_message.message_metadata.get("execution_id"),
+                "workflow_id": last_agent_message.message_metadata.get("workflow_id"),
+                "node_name": last_agent_message.message_metadata.get("node_name"),
+            },
+        }
+
+        # Trigger the webhook asynchronously
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    webhook_url,
+                    json=webhook_payload,
+                    timeout=10.0,  # 10 second timeout
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Omnara-Webhook": "true",
+                    },
+                )
+
+                if response.status_code >= 200 and response.status_code < 300:
+                    logger.info(
+                        f"Successfully triggered webhook for agent instance {agent_instance_id}"
+                    )
+                    # Mark webhook as triggered to prevent multiple triggers
+                    if not last_agent_message.message_metadata:
+                        last_agent_message.message_metadata = {}
+                    last_agent_message.message_metadata["webhook_triggered"] = True
+                    last_agent_message.message_metadata["webhook_response_status"] = (
+                        response.status_code
+                    )
+                    db.commit()
+                else:
+                    logger.warning(
+                        f"Webhook returned non-success status {response.status_code} for agent instance {agent_instance_id}"
+                    )
+            except httpx.TimeoutException:
+                logger.warning(
+                    f"Webhook timeout for agent instance {agent_instance_id}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error triggering webhook for agent instance {agent_instance_id}: {str(e)}"
+                )
+
+    except Exception as e:
+        logger.error(f"Error in _trigger_webhook_if_needed: {str(e)}")
+        # Don't raise - webhook failures shouldn't break the main flow

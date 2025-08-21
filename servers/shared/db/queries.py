@@ -138,6 +138,7 @@ def create_agent_message(
     instance_id: UUID,
     content: str,
     requires_user_input: bool = False,
+    message_metadata: dict | None = None,
 ) -> Message:
     """Create a new agent message without committing"""
     instance = db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
@@ -152,6 +153,7 @@ def create_agent_message(
         sender_type=SenderType.AGENT,
         content=content,
         requires_user_input=requires_user_input,
+        message_metadata=message_metadata,
     )
     db.add(message)
     db.flush()  # Flush to get the message ID
@@ -298,6 +300,7 @@ async def send_agent_message(
     agent_type: str | None = None,
     requires_user_input: bool = False,
     git_diff: str | None = None,
+    message_metadata: dict | None = None,
 ) -> tuple[str, str, list[Message]]:
     """High-level function to send an agent message and get queued user messages.
 
@@ -341,6 +344,7 @@ async def send_agent_message(
         instance_id=instance.id,
         content=content,
         requires_user_input=requires_user_input,
+        message_metadata=message_metadata,
     )
 
     # Handle the None case (shouldn't happen here since we just created the message)
