@@ -31,11 +31,9 @@ export async function execute(
 	const agentInstanceId = this.getNodeParameter('agentInstanceId', index) as string;
 
 	if (!agentInstanceId) {
-		throw new NodeOperationError(
-			this.getNode(),
-			'Agent Instance ID is required',
-			{ itemIndex: index },
-		);
+		throw new NodeOperationError(this.getNode(), 'Agent Instance ID is required', {
+			itemIndex: index,
+		});
 	}
 
 	const body = {
@@ -43,12 +41,7 @@ export async function execute(
 	};
 
 	try {
-		const response = await omnaraApiRequest.call(
-			this,
-			'POST',
-			'/sessions/end',
-			body,
-		);
+		const response = await omnaraApiRequest.call(this, 'POST', '/sessions/end', body);
 
 		const result = {
 			success: response.success,

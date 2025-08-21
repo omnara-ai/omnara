@@ -3,11 +3,7 @@ import {
 	INodeExecutionData,
 	INodeProperties,
 	NodeOperationError,
-	SEND_AND_WAIT_OPERATION,
 } from 'n8n-workflow';
-
-import { omnaraApiRequest, formatMessageResponse } from '../../../../utils/GenericFunctions';
-import { configureWaitTillDate } from '../../../../utils/sendAndWait/configureWaitTillDate';
 
 // This matches Discord's approach - properties for the sendAndWait message
 export const sendAndWaitDescription: INodeProperties[] = [
@@ -38,7 +34,8 @@ export const sendAndWaitDescription: INodeProperties[] = [
 			},
 		},
 		placeholder: 'e.g. claude_code, cursor',
-		description: 'Type of agent (e.g., "claude_code", "cursor"). Required when creating a new instance.',
+		description:
+			'Type of agent (e.g., "claude_code", "cursor"). Required when creating a new instance.',
 	},
 	{
 		displayName: 'Message',
@@ -76,7 +73,8 @@ export const sendAndWaitDescription: INodeProperties[] = [
 				name: 'syncMode',
 				type: 'boolean',
 				default: false,
-				description: 'Enable synchronous mode for AI Agent compatibility. When enabled, the node will poll for responses instead of using async wait. Required when using this node as an AI Agent tool.',
+				description:
+					'Enable synchronous mode for AI Agent compatibility. When enabled, the node will poll for responses instead of using async wait. Required when using this node as an AI Agent tool.',
 			},
 			{
 				displayName: 'Sync Timeout (seconds)',
@@ -88,7 +86,8 @@ export const sendAndWaitDescription: INodeProperties[] = [
 						syncMode: [true],
 					},
 				},
-				description: 'Maximum time to wait for response in sync mode (in seconds). Default is 5 minutes, max is 2 hours.',
+				description:
+					'Maximum time to wait for response in sync mode (in seconds). Default is 5 minutes, max is 2 hours.',
 				typeOptions: {
 					minValue: 10,
 					maxValue: 7200,
@@ -115,7 +114,8 @@ export const sendAndWaitDescription: INodeProperties[] = [
 				name: 'webhookUrl',
 				type: 'string',
 				default: '',
-				description: 'Webhook URL from Omnara Wait node (use {{$execution.resumeUrl}} from the Wait node)',
+				description:
+					'Webhook URL from Omnara Wait node (use {{$execution.resumeUrl}} from the Wait node)',
 				placeholder: 'e.g. {{$execution.resumeUrl}}',
 			},
 			{
@@ -248,7 +248,7 @@ export const sendAndWaitDescription: INodeProperties[] = [
 // following the Slack pattern
 export async function execute(
 	this: IExecuteFunctions,
-	items: INodeExecutionData[],
+	_items: INodeExecutionData[],
 ): Promise<INodeExecutionData[][]> {
 	// Should not be called - handled in main node
 	throw new NodeOperationError(

@@ -20,7 +20,8 @@ export const sendMessageDescription: INodeProperties[] = [
 				operation: ['send'],
 			},
 		},
-		description: 'The ID of the agent instance to send the message to. Creates a new instance if ID doesn\'t exist.',
+		description:
+			"The ID of the agent instance to send the message to. Creates a new instance if ID doesn't exist.",
 	},
 	{
 		displayName: 'Agent Type',
@@ -35,7 +36,8 @@ export const sendMessageDescription: INodeProperties[] = [
 			},
 		},
 		placeholder: 'e.g. claude_code, cursor',
-		description: 'Type of agent (e.g., "claude_code", "cursor"). Required when creating a new instance.',
+		description:
+			'Type of agent (e.g., "claude_code", "cursor"). Required when creating a new instance.',
 	},
 	{
 		displayName: 'Message',
@@ -113,19 +115,13 @@ export async function execute(
 	const additionalOptions = this.getNodeParameter('additionalOptions', index, {}) as any;
 
 	if (!agentInstanceId) {
-		throw new NodeOperationError(
-			this.getNode(),
-			'Agent Instance ID is required',
-			{ itemIndex: index },
-		);
+		throw new NodeOperationError(this.getNode(), 'Agent Instance ID is required', {
+			itemIndex: index,
+		});
 	}
 
 	if (!message) {
-		throw new NodeOperationError(
-			this.getNode(),
-			'Message is required',
-			{ itemIndex: index },
-		);
+		throw new NodeOperationError(this.getNode(), 'Message is required', { itemIndex: index });
 	}
 
 	const body: any = {
@@ -148,18 +144,13 @@ export async function execute(
 	}
 
 	try {
-		const response = await omnaraApiRequest.call(
-			this,
-			'POST',
-			'/messages/agent',
-			body,
-		);
+		const response = await omnaraApiRequest.call(this, 'POST', '/messages/agent', body);
 
 		const result = {
 			success: response.success,
 			agentInstanceId: response.agent_instance_id,
 			messageId: response.message_id,
-			queuedUserMessages: response.queued_user_messages 
+			queuedUserMessages: response.queued_user_messages
 				? response.queued_user_messages.map(formatMessageResponse)
 				: [],
 		};

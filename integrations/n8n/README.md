@@ -8,7 +8,11 @@ Omnara allows you to communicate with your AI agents from anywhere, enabling rea
 
 ### Community Node (Recommended)
 
-In n8n, go to **Settings** > **Community Nodes** and search for `n8n-nodes-omnara`.
+```bash
+npm install n8n-nodes-omnara
+```
+
+Or in n8n, go to **Settings** > **Community Nodes** and search for `n8n-nodes-omnara`.
 
 ### Manual Installation
 
@@ -68,17 +72,28 @@ Send a message and wait for a user response. Perfect for approval workflows and 
 
 **Parameters:**
 - **Agent Instance ID**: The ID of the agent instance
+- **Agent Type**: Type of agent (e.g., 'claude_code', 'cursor')
 - **Message**: The question or message requiring user input
 - **Wait Options**:
   - Timeout: How long to wait (default 24 hours)
-  - Webhook Suffix: Optional URL suffix for identification
+  - **Sync Mode (For AI Agents)**: Enable synchronous polling mode for AI Agent compatibility
+    - Sync Timeout: Max wait time in sync mode (default 5 min, max 2 hours)
+    - Poll Interval: How often to check for responses (default 5 seconds)
 - **Additional Options**: Same as Send Message
 
 **How it works:**
+
+*Normal Mode (for regular workflows):*
 1. Sends message to Omnara with `requires_user_input: true`
 2. Generates a webhook URL and stores it with the message
 3. Pauses workflow execution
 4. When user responds in Omnara dashboard, workflow resumes with the response
+
+*Sync Mode (for AI Agent tools):*
+1. Sends message to Omnara
+2. Polls for responses every 5 seconds
+3. Returns immediately when response received
+4. Works within AI Agent execution context (avoids async/await issues)
 
 ### Session Resource
 
@@ -101,16 +116,38 @@ End an agent session and mark it as completed.
 }
 ```
 
-### Approval Workflow
+### Approval Workflow (Regular)
 ```javascript
 // Ask for approval and wait for response
 {
   "resource": "message",
   "operation": "sendAndWait",
   "agentInstanceId": "agent-456",
-  "content": "Deploy to production? Please approve or decline.",
-  "sendEmail": true,
-  "sendPush": true
+  "agentType": "claude_code",
+  "message": "Deploy to production? Please approve or decline.",
+  "options": {
+    "sendEmail": true,
+    "sendPush": true
+  }
+}
+```
+
+### AI Agent Tool Usage (Sync Mode)
+```javascript
+// Use sync mode when calling from AI Agent tools
+{
+  "resource": "message",
+  "operation": "sendAndWait",
+  "agentInstanceId": "agent-789",
+  "agentType": "claude_code",
+  "message": "What changes should I make to the database schema?",
+  "options": {
+    "syncMode": true,
+    "syncTimeout": 600,  // Wait up to 10 minutes
+    "pollInterval": 5,   // Check every 5 seconds
+    "sendEmail": true,
+    "sendPush": true
+  }
 }
 ```
 
@@ -126,10 +163,17 @@ End an agent session and mark it as completed.
 
 ## Agent Tool Support
 
-This node is configured with `usableAsTool: true`, making it available as a tool for AI agents in n8n. Agents can:
+This node is configured with `usableAsTool: true`, making it available as a tool for AI agents in n8n. 
+
+**Important**: When using Send and Wait as an AI Agent tool, you MUST enable **Sync Mode** in the options. This solves the async/await limitations of AI Agents in n8n.
+
+AI Agents can:
 - Send status updates
-- Ask for human input and wait for responses
+- Ask for human input and wait for responses (using Sync Mode)
 - Manage agent sessions
+
+### Why Sync Mode?
+Regular Send and Wait uses `putExecutionToWait()` which doesn't work properly in AI Agent context due to n8n's architecture. Sync Mode polls for responses synchronously, allowing AI Agents to wait for human responses without timing out or returning prematurely.
 
 ## Webhook Integration
 

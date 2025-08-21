@@ -34,7 +34,8 @@ export class OmnaraWebhook implements INodeType {
 				name: 'info',
 				type: 'notice',
 				default: '',
-				description: 'This webhook receives user responses from Omnara. When you send a message with "Send and Wait", configure Omnara to send responses to this webhook URL.',
+				description:
+					'This webhook receives user responses from Omnara. When you send a message with "Send and Wait", configure Omnara to send responses to this webhook URL.',
 			},
 		],
 	};

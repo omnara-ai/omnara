@@ -5,9 +5,6 @@ import {
 	INodeTypeDescription,
 	NodeOperationError,
 	NodeConnectionType,
-	IWebhookFunctions,
-	IWebhookResponseData,
-	IDataObject,
 	SEND_AND_WAIT_OPERATION,
 } from 'n8n-workflow';
 
@@ -20,7 +17,7 @@ import { omnaraApiRequest } from '../../utils/GenericFunctions';
 
 export class Omnara implements INodeType {
 	webhook = omnaraSendAndWaitWebhook;
-	
+
 	description: INodeTypeDescription = {
 		displayName: 'Omnara',
 		name: 'omnara',
@@ -86,15 +83,15 @@ export class Omnara implements INodeType {
 						const agentType = this.getNodeParameter('agentType', 0) as string;
 						const messageContent = this.getNodeParameter('message', 0) as string;
 						const options = this.getNodeParameter('options', 0, {}) as any;
-						
+
 						// Check if sync mode is enabled (for AI Agent compatibility)
 						const syncMode = options.syncMode || false;
-						
+
 						if (syncMode) {
 							// In sync mode, we poll for responses instead of using putExecutionToWait
 							const syncTimeout = options.syncTimeout || 300; // Default 5 minutes
 							const pollInterval = options.pollInterval || 5; // Default 5 seconds
-							
+
 							// Send the message first
 							const body: any = {
 								agent_instance_id: agentInstanceId,
@@ -107,7 +104,7 @@ export class Omnara implements INodeType {
 									node_id: this.getNode().id,
 								},
 							};
-							
+
 							if (options.sendEmail !== undefined) {
 								body.send_email = options.sendEmail;
 							}
@@ -117,25 +114,25 @@ export class Omnara implements INodeType {
 							if (options.sendPush !== undefined) {
 								body.send_push = options.sendPush;
 							}
-							
+
 							const sendResponse = await omnaraApiRequest.call(
 								this,
 								'POST',
 								'/messages/agent',
 								body,
 							);
-							
+
 							const messageId = sendResponse.message_id;
-							
+
 							// Now poll for responses
 							const startTime = Date.now();
 							const timeoutMs = syncTimeout * 1000;
-							let lastReadMessageId = messageId;
-							
+							const lastReadMessageId = messageId;
+
 							while (Date.now() - startTime < timeoutMs) {
 								// Wait for poll interval
-								await new Promise(resolve => setTimeout(resolve, pollInterval * 1000));
-								
+								await new Promise((resolve) => setTimeout(resolve, pollInterval * 1000));
+
 								// Check for pending messages
 								try {
 									const pendingResponse = await omnaraApiRequest.call(
@@ -148,30 +145,35 @@ export class Omnara implements INodeType {
 											last_read_message_id: lastReadMessageId,
 										},
 									);
-									
+
 									// Check if we got any user messages
 									if (pendingResponse.messages && pendingResponse.messages.length > 0) {
 										// Return the last user message as the result
-										const lastMessage = pendingResponse.messages[pendingResponse.messages.length - 1];
-										
+										const lastMessage =
+											pendingResponse.messages[pendingResponse.messages.length - 1];
+
 										// Return the response in a format compatible with the workflow
-										return [[{
-											json: {
-												success: true,
-												agent_instance_id: agentInstanceId,
-												user_response: lastMessage.content,
-												message_id: lastMessage.id,
-												response_time: lastMessage.created_at,
-												all_responses: pendingResponse.messages.map((m: any) => ({
-													content: m.content,
-													id: m.id,
-													created_at: m.created_at,
-												})),
-											},
-											pairedItem: i,
-										}]];
+										return [
+											[
+												{
+													json: {
+														success: true,
+														agent_instance_id: agentInstanceId,
+														user_response: lastMessage.content,
+														message_id: lastMessage.id,
+														response_time: lastMessage.created_at,
+														all_responses: pendingResponse.messages.map((m: any) => ({
+															content: m.content,
+															id: m.id,
+															created_at: m.created_at,
+														})),
+													},
+													pairedItem: i,
+												},
+											],
+										];
 									}
-									
+
 									// If status is 'stale', continue polling
 									if (pendingResponse.status === 'stale') {
 										// We might need to re-fetch to get the current state
@@ -181,32 +183,35 @@ export class Omnara implements INodeType {
 									// Continue polling on error
 								}
 							}
-							
+
 							// Timeout reached without response
-							return [[{
-								json: {
-									success: false,
-									agent_instance_id: agentInstanceId,
-									error: 'Timeout waiting for user response',
-									timeout_seconds: syncTimeout,
-								},
-								pairedItem: i,
-							}]];
-							
+							return [
+								[
+									{
+										json: {
+											success: false,
+											agent_instance_id: agentInstanceId,
+											error: 'Timeout waiting for user response',
+											timeout_seconds: syncTimeout,
+										},
+										pairedItem: i,
+									},
+								],
+							];
 						} else {
 							// Original async mode with putExecutionToWait
 							// Get webhook information for resume
 							const executionId = this.getExecutionId();
 							const nodeId = this.getNode().id;
-							
+
 							// Get the base URL for webhooks - this should be your n8n instance URL
 							// For now, we'll use the environment variable or a config option
 							const n8nBaseUrl = process.env.N8N_BASE_URL || 'http://localhost:5678';
-							
+
 							// Build the full webhook URL that Omnara should call
 							// This follows n8n's webhook-waiting pattern
 							const webhookUrl = `${n8nBaseUrl}/webhook-waiting/${executionId}/${nodeId}`;
-							
+
 							const body: any = {
 								agent_instance_id: agentInstanceId,
 								agent_type: agentType,
@@ -214,13 +219,13 @@ export class Omnara implements INodeType {
 								requires_user_input: true,
 								// Send webhook URL in metadata so Omnara knows where to send the response
 								message_metadata: {
-									webhook_url: webhookUrl,  // Full URL that backend expects
+									webhook_url: webhookUrl, // Full URL that backend expects
 									execution_id: executionId,
 									node_id: nodeId,
 									webhook_type: 'n8n_send_and_wait',
 								},
 							};
-							
+
 							if (options.sendEmail !== undefined) {
 								body.send_email = options.sendEmail;
 							}
@@ -230,25 +235,20 @@ export class Omnara implements INodeType {
 							if (options.sendPush !== undefined) {
 								body.send_push = options.sendPush;
 							}
-							
+
 							// Send message to Omnara (like Slack sends to chat.postMessage)
-							const response = await omnaraApiRequest.call(
-								this,
-								'POST',
-								'/messages/agent',
-								body,
-							);
-							
+							await omnaraApiRequest.call(this, 'POST', '/messages/agent', body);
+
 							// Configure wait time
 							const waitTill = configureWaitTillDate(this, 0);
-							
+
 							// Put execution to wait
 							if (waitTill === 'WAIT_INDEFINITELY') {
 								await this.putExecutionToWait(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
 							} else {
 								await this.putExecutionToWait(waitTill as Date);
 							}
-							
+
 							// Return input data
 							return [this.getInputData()];
 						}
@@ -280,8 +280,8 @@ export class Omnara implements INodeType {
 				returnData.push(...responseData);
 			} catch (error) {
 				if (this.continueOnFail()) {
-					returnData.push({ 
-						json: { 
+					returnData.push({
+						json: {
 							error: error instanceof Error ? error.message : String(error),
 							resource,
 							operation,

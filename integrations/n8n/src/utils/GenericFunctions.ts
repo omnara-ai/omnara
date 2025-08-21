@@ -17,7 +17,7 @@ export async function omnaraApiRequest(
 	option: IDataObject = {},
 ): Promise<any> {
 	const credentials = await this.getCredentials('omnaraApi');
-	
+
 	if (!credentials) {
 		throw new NodeApiError(this.getNode(), {
 			message: 'No credentials found',
@@ -49,7 +49,11 @@ export async function omnaraApiRequest(
 	});
 
 	try {
-		const response = await this.helpers.httpRequestWithAuthentication.call(this, 'omnaraApi', options);
+		const response = await this.helpers.httpRequestWithAuthentication.call(
+			this,
+			'omnaraApi',
+			options,
+		);
 		console.log('Omnara API Response:', JSON.stringify(response));
 		return response;
 	} catch (error) {
@@ -64,9 +68,9 @@ export function formatMessageResponse(message: any): IDataObject {
 		content: message.content,
 		senderType: message.sender_type || message.senderType,
 		createdAt: message.created_at || message.createdAt,
-		requiresUserInput: message.requires_user_input !== undefined 
-			? message.requires_user_input 
-			: message.requiresUserInput,
+		requiresUserInput:
+			message.requires_user_input !== undefined
+				? message.requires_user_input
+				: message.requiresUserInput,
 	};
 }
-

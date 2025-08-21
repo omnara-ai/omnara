@@ -16,7 +16,7 @@ export async function omnaraSendAndWaitWebhook(
 	const resp = this.getResponseObject();
 	const headers = this.getHeaderData() as IDataObject;
 	const body = this.getBodyData() as IDataObject;
-	
+
 	// Check if this is a valid Omnara webhook call
 	if (!headers['x-omnara-webhook'] && !body.agent_instance_id) {
 		resp.status(400).json({
