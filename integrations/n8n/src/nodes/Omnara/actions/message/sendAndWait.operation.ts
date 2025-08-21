@@ -72,6 +72,45 @@ export const sendAndWaitDescription: INodeProperties[] = [
 		},
 		options: [
 			{
+				displayName: 'Sync Mode (For AI Agents)',
+				name: 'syncMode',
+				type: 'boolean',
+				default: false,
+				description: 'Enable synchronous mode for AI Agent compatibility. When enabled, the node will poll for responses instead of using async wait. Required when using this node as an AI Agent tool.',
+			},
+			{
+				displayName: 'Sync Timeout (seconds)',
+				name: 'syncTimeout',
+				type: 'number',
+				default: 300,
+				displayOptions: {
+					show: {
+						syncMode: [true],
+					},
+				},
+				description: 'Maximum time to wait for response in sync mode (in seconds). Default is 5 minutes, max is 2 hours.',
+				typeOptions: {
+					minValue: 10,
+					maxValue: 7200,
+				},
+			},
+			{
+				displayName: 'Poll Interval (seconds)',
+				name: 'pollInterval',
+				type: 'number',
+				default: 5,
+				displayOptions: {
+					show: {
+						syncMode: [true],
+					},
+				},
+				description: 'How often to check for responses in sync mode (in seconds)',
+				typeOptions: {
+					minValue: 1,
+					maxValue: 60,
+				},
+			},
+			{
 				displayName: 'Webhook URL',
 				name: 'webhookUrl',
 				type: 'string',
