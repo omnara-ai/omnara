@@ -23,6 +23,21 @@ export const sendMessageDescription: INodeProperties[] = [
 		description: 'The ID of the agent instance to send the message to. Creates a new instance if ID doesn\'t exist.',
 	},
 	{
+		displayName: 'Agent Type',
+		name: 'agentType',
+		type: 'string',
+		default: '',
+		required: true,
+		displayOptions: {
+			show: {
+				resource: ['message'],
+				operation: ['send'],
+			},
+		},
+		placeholder: 'e.g. claude_code, cursor',
+		description: 'Type of agent (e.g., "claude_code", "cursor"). Required when creating a new instance.',
+	},
+	{
 		displayName: 'Message',
 		name: 'message',
 		type: 'string',
@@ -53,13 +68,6 @@ export const sendMessageDescription: INodeProperties[] = [
 			},
 		},
 		options: [
-			{
-				displayName: 'Agent Type',
-				name: 'agentType',
-				type: 'string',
-				default: '',
-				description: 'Type of agent (e.g., "claude_code", "cursor"). Only used when creating a new instance.',
-			},
 			{
 				displayName: 'Git Diff',
 				name: 'gitDiff',
@@ -100,6 +108,7 @@ export async function execute(
 	index: number,
 ): Promise<INodeExecutionData[]> {
 	const agentInstanceId = this.getNodeParameter('agentInstanceId', index) as string;
+	const agentType = this.getNodeParameter('agentType', index) as string;
 	const message = this.getNodeParameter('message', index) as string;
 	const additionalOptions = this.getNodeParameter('additionalOptions', index, {}) as any;
 
@@ -119,16 +128,24 @@ export async function execute(
 		);
 	}
 
-	const body = {
+	const body: any = {
 		agent_instance_id: agentInstanceId,
+		agent_type: agentType,
 		content: message,
 		requires_user_input: false,
-		agent_type: additionalOptions.agentType,
-		git_diff: additionalOptions.gitDiff,
-		send_email: additionalOptions.sendEmail,
-		send_sms: additionalOptions.sendSms,
-		send_push: additionalOptions.sendPush,
 	};
+	if (additionalOptions.gitDiff) {
+		body.git_diff = additionalOptions.gitDiff;
+	}
+	if (additionalOptions.sendEmail !== undefined) {
+		body.send_email = additionalOptions.sendEmail;
+	}
+	if (additionalOptions.sendSms !== undefined) {
+		body.send_sms = additionalOptions.sendSms;
+	}
+	if (additionalOptions.sendPush !== undefined) {
+		body.send_push = additionalOptions.sendPush;
+	}
 
 	try {
 		const response = await omnaraApiRequest.call(

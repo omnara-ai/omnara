@@ -3,7 +3,6 @@
 import logging
 from typing import Annotated
 from uuid import UUID
-import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -412,93 +411,17 @@ async def _trigger_webhook_if_needed(
 
     This is used for n8n and other integrations that use webhooks to wait for responses.
     """
-    from datetime import datetime, timezone
+    from servers.shared.db.queries import trigger_webhook_for_user_response
 
     try:
-        # Get the last agent message with requires_user_input=True
-        last_agent_message = (
-            db.query(Message)
-            .filter(
-                Message.agent_instance_id == UUID(agent_instance_id),
-                Message.sender_type == SenderType.AGENT,
-                Message.requires_user_input.is_(True),
-            )
-            .order_by(Message.created_at.desc())
-            .first()
+        # Use the shared webhook trigger function
+        trigger_webhook_for_user_response(
+            db=db,
+            agent_instance_id=agent_instance_id,
+            user_message_content=user_message_content,
+            user_message_id=user_message_id,
+            user_id=user_id,
         )
-
-        if not last_agent_message:
-            return
-
-        # Check if it has a webhook URL in metadata
-        if not last_agent_message.message_metadata:
-            return
-
-        webhook_url = last_agent_message.message_metadata.get("webhook_url")
-        if not webhook_url:
-            return
-
-        # Check if webhook was already triggered
-        if last_agent_message.message_metadata.get("webhook_triggered"):
-            logger.info(
-                f"Webhook already triggered for message {last_agent_message.id}"
-            )
-            return
-
-        # Prepare webhook payload
-        webhook_payload = {
-            "user_message": user_message_content,
-            "content": user_message_content,
-            "user_id": user_id,
-            "message_id": user_message_id,
-            "agent_instance_id": agent_instance_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "metadata": {
-                "original_message_id": str(last_agent_message.id),
-                "execution_id": last_agent_message.message_metadata.get("execution_id"),
-                "workflow_id": last_agent_message.message_metadata.get("workflow_id"),
-                "node_name": last_agent_message.message_metadata.get("node_name"),
-            },
-        }
-
-        # Trigger the webhook asynchronously
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    webhook_url,
-                    json=webhook_payload,
-                    timeout=10.0,  # 10 second timeout
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Omnara-Webhook": "true",
-                    },
-                )
-
-                if response.status_code >= 200 and response.status_code < 300:
-                    logger.info(
-                        f"Successfully triggered webhook for agent instance {agent_instance_id}"
-                    )
-                    # Mark webhook as triggered to prevent multiple triggers
-                    if not last_agent_message.message_metadata:
-                        last_agent_message.message_metadata = {}
-                    last_agent_message.message_metadata["webhook_triggered"] = True
-                    last_agent_message.message_metadata["webhook_response_status"] = (
-                        response.status_code
-                    )
-                    db.commit()
-                else:
-                    logger.warning(
-                        f"Webhook returned non-success status {response.status_code} for agent instance {agent_instance_id}"
-                    )
-            except httpx.TimeoutException:
-                logger.warning(
-                    f"Webhook timeout for agent instance {agent_instance_id}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Error triggering webhook for agent instance {agent_instance_id}: {str(e)}"
-                )
-
     except Exception as e:
         logger.error(f"Error in _trigger_webhook_if_needed: {str(e)}")
         # Don't raise - webhook failures shouldn't break the main flow

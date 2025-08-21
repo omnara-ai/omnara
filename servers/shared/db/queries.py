@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
+import httpx
 from shared.database import (
     AgentInstance,
     AgentStatus,
@@ -401,3 +402,98 @@ def create_user_message(
         instance.last_read_message_id = message.id
 
     return str(message.id), mark_as_read
+
+
+def trigger_webhook_for_user_response(
+    db: Session,
+    agent_instance_id: UUID | str,
+    user_message_content: str,
+    user_message_id: str,
+    user_id: str,
+) -> None:
+    """Trigger webhook if the last agent message was waiting for user input.
+
+    This function checks if the previous agent message has a webhook URL in its
+    metadata and triggers it with the user's response.
+    """
+    # Convert to UUID if string
+    if isinstance(agent_instance_id, str):
+        agent_instance_id = UUID(agent_instance_id)
+
+    # Find the last agent message that requires user input
+    last_agent_message = (
+        db.query(Message)
+        .filter(
+            Message.agent_instance_id == agent_instance_id,
+            Message.sender_type == SenderType.AGENT,
+            Message.requires_user_input,
+        )
+        .order_by(Message.created_at.desc())
+        .first()
+    )
+
+    if not last_agent_message:
+        return
+
+    # Check if it has a webhook URL in metadata
+    if not last_agent_message.message_metadata:
+        return
+
+    webhook_url = last_agent_message.message_metadata.get("webhook_url")
+    if not webhook_url:
+        return
+
+    # Check if webhook was already triggered
+    if last_agent_message.message_metadata.get("webhook_triggered"):
+        logger.info(f"Webhook already triggered for message {last_agent_message.id}")
+        return
+
+    # Prepare webhook payload
+    webhook_payload = {
+        "user_message": user_message_content,
+        "content": user_message_content,
+        "user_id": user_id,
+        "message_id": user_message_id,
+        "agent_instance_id": str(agent_instance_id),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "metadata": {
+            "original_message_id": str(last_agent_message.id),
+            "execution_id": last_agent_message.message_metadata.get("execution_id"),
+            "node_id": last_agent_message.message_metadata.get("node_id"),
+        },
+    }
+
+    # Trigger the webhook synchronously (could be made async)
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                webhook_url,
+                json=webhook_payload,
+                timeout=10.0,  # 10 second timeout
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Omnara-Webhook": "true",
+                },
+            )
+
+            if response.status_code >= 200 and response.status_code < 300:
+                logger.info(
+                    f"Successfully triggered webhook for agent instance {agent_instance_id}"
+                )
+                # Mark webhook as triggered to prevent multiple triggers
+                if not last_agent_message.message_metadata:
+                    last_agent_message.message_metadata = {}
+                last_agent_message.message_metadata["webhook_triggered"] = True
+                last_agent_message.message_metadata["webhook_response_status"] = (
+                    response.status_code
+                )
+                db.commit()
+            else:
+                logger.warning(
+                    f"Webhook returned non-success status {response.status_code} "
+                    f"for agent instance {agent_instance_id}"
+                )
+    except Exception as e:
+        logger.error(
+            f"Failed to trigger webhook for agent instance {agent_instance_id}: {e}"
+        )

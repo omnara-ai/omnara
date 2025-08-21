@@ -6,8 +6,8 @@ import {
 } from 'n8n-workflow';
 
 export class OmnaraApi implements ICredentialType {
-	name = 'omnaraApiV2';
-	displayName = 'Omnara API v2';
+	name = 'omnaraApi';
+	displayName = 'Omnara API';
 	documentationUrl = 'https://github.com/omnara-ai/omnara';
 	properties: INodeProperties[] = [
 		{
@@ -47,15 +47,5 @@ export class OmnaraApi implements ICredentialType {
 			url: '/api/v1/auth/verify',
 			method: 'GET',
 		},
-		rules: [
-			{
-				type: 'responseSuccessBody',
-				properties: {
-					key: 'success',
-					value: true,
-					message: 'Authentication successful!',
-				},
-			},
-		],
 	};
 }

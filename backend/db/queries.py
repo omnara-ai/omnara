@@ -498,6 +498,18 @@ def submit_user_message(
     db.commit()
     db.refresh(user_message)
 
+    # Trigger webhook if previous agent message was waiting for response
+    # Import and use the shared function
+    from servers.shared.db.queries import trigger_webhook_for_user_response
+
+    trigger_webhook_for_user_response(
+        db=db,
+        agent_instance_id=instance_id,
+        user_message_content=content,
+        user_message_id=str(user_message.id),
+        user_id=str(user_id),
+    )
+
     return UserMessageResponse(
         id=str(user_message.id),
         content=user_message.content,
