@@ -98,7 +98,7 @@ export class Omnara implements INodeType {
 							
 							// In sync mode, we poll for responses instead of using putExecutionToWait
 							const syncTimeout = options.syncTimeout || 300; // Default 5 minutes
-							const pollInterval = options.pollInterval || 2; // Default 2 seconds
+							const pollInterval = options.pollInterval || 5; // Default 5 seconds
 							
 							// Send the message first
 							const body: any = {
