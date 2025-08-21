@@ -20,8 +20,9 @@ export const sendMessageDescription: INodeProperties[] = [
 				operation: ['send'],
 			},
 		},
+		placeholder: 'e.g. 550e8400-e29b-41d4-a716-446655440000',
 		description:
-			"The ID of the agent instance to send the message to. Creates a new instance if ID doesn't exist.",
+			'A unique UUID for this workflow run. Must be the same across all Omnara nodes in this workflow. Use webhook data or generate with {{ $uuid() }}.',
 	},
 	{
 		displayName: 'Agent Type',
@@ -35,9 +36,9 @@ export const sendMessageDescription: INodeProperties[] = [
 				operation: ['send'],
 			},
 		},
-		placeholder: 'e.g. claude_code, cursor',
+		placeholder: 'e.g. customer_support',
 		description:
-			'Type of agent (e.g., "claude_code", "cursor"). Required when creating a new instance.',
+			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes.',
 	},
 	{
 		displayName: 'Message',
@@ -55,7 +56,8 @@ export const sendMessageDescription: INodeProperties[] = [
 			},
 		},
 		placeholder: 'e.g. Build completed successfully',
-		description: 'The message to send to the agent',
+		description:
+			'Status update or informational message to send to the user. This will appear in their Omnara web/mobile app. The workflow will continue immediately without waiting for a response.',
 	},
 	{
 		displayName: 'Additional Options',
@@ -70,16 +72,6 @@ export const sendMessageDescription: INodeProperties[] = [
 			},
 		},
 		options: [
-			{
-				displayName: 'Git Diff',
-				name: 'gitDiff',
-				type: 'string',
-				typeOptions: {
-					rows: 10,
-				},
-				default: '',
-				description: 'Git diff content to store with the instance',
-			},
 			{
 				displayName: 'Send Email Notification',
 				name: 'sendEmail',
@@ -130,9 +122,6 @@ export async function execute(
 		content: message,
 		requires_user_input: false,
 	};
-	if (additionalOptions.gitDiff) {
-		body.git_diff = additionalOptions.gitDiff;
-	}
 	if (additionalOptions.sendEmail !== undefined) {
 		body.send_email = additionalOptions.sendEmail;
 	}

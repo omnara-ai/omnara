@@ -24,12 +24,6 @@ export async function omnaraApiRequest(
 		});
 	}
 
-	// Debug: Log the credentials to see what we're getting
-	console.log('Omnara Credentials:', {
-		serverUrl: credentials.serverUrl,
-		hasApiKey: !!credentials.apiKey,
-	});
-
 	const options: IHttpRequestOptions = {
 		method,
 		body,
@@ -39,25 +33,14 @@ export async function omnaraApiRequest(
 		...option,
 	};
 
-	// Debug logging
-	console.log('Omnara API Request:', {
-		method,
-		url: options.url,
-		body: JSON.stringify(body),
-		endpoint,
-		credentialServerUrl: credentials.serverUrl,
-	});
-
 	try {
 		const response = await this.helpers.httpRequestWithAuthentication.call(
 			this,
 			'omnaraApi',
 			options,
 		);
-		console.log('Omnara API Response:', JSON.stringify(response));
 		return response;
 	} catch (error) {
-		console.error('Omnara API Error:', error);
 		throw new NodeApiError(this.getNode(), error as any);
 	}
 }

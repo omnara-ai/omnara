@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-omnara",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "n8n node for Omnara - communicate with AI agents",
   "keywords": [
     "n8n",
@@ -12,18 +12,20 @@
     "workflow"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/omnara-ai/omnara",
+  "homepage": "https://github.com/omnara-ai/omnara/tree/main/integrations/n8n",
   "author": {
     "name": "Omnara",
     "email": "contact@omnara.com"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/omnara-ai/omnara.git"
+    "url": "git+https://github.com/omnara-ai/omnara.git",
+    "directory": "integrations/n8n"
   },
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "cp src/nodes/Omnara/omnara.png dist/nodes/Omnara/ && cp src/nodes/Omnara/Omnara.node.json dist/nodes/Omnara/",
     "dev": "tsc --watch",
     "format": "prettier --write .",
     "lint": "eslint . --ext .ts",

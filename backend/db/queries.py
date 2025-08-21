@@ -15,6 +15,7 @@ from shared.database import (
 )
 from shared.database.billing_operations import get_or_create_subscription
 from shared.database.subscription_models import BillingEvent, Subscription
+from servers.shared.db.queries import trigger_webhook_for_user_response
 from sqlalchemy import case, desc, func
 from sqlalchemy.orm import Session, joinedload, subqueryload
 
@@ -499,9 +500,6 @@ def submit_user_message(
     db.refresh(user_message)
 
     # Trigger webhook if previous agent message was waiting for response
-    # Import and use the shared function
-    from servers.shared.db.queries import trigger_webhook_for_user_response
-
     trigger_webhook_for_user_response(
         db=db,
         agent_instance_id=instance_id,

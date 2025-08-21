@@ -12,18 +12,19 @@ import {
 export async function omnaraSendAndWaitWebhook(
 	this: IWebhookFunctions,
 ): Promise<IWebhookResponseData> {
-	const req = this.getRequestObject();
-	const resp = this.getResponseObject();
 	const headers = this.getHeaderData() as IDataObject;
 	const body = this.getBodyData() as IDataObject;
 
 	// Check if this is a valid Omnara webhook call
 	if (!headers['x-omnara-webhook'] && !body.agent_instance_id) {
-		resp.status(400).json({
-			error: 'Invalid webhook call - missing Omnara headers',
-		});
 		return {
-			noWebhookResponse: true,
+			webhookResponse: {
+				status: 400,
+				body: {
+					error: 'Invalid webhook call - missing Omnara headers',
+				},
+			},
+			noWebhookResponse: false,
 		};
 	}
 
@@ -37,13 +38,6 @@ export async function omnaraSendAndWaitWebhook(
 		metadata: body.metadata || {},
 	};
 
-	// Send success response back to Omnara
-	resp.status(200).json({
-		success: true,
-		message: 'Webhook received successfully',
-		execution_resumed: true,
-	});
-
 	// Return the data to continue the workflow
 	const returnData: INodeExecutionData[] = [
 		{
@@ -51,7 +45,16 @@ export async function omnaraSendAndWaitWebhook(
 		},
 	];
 
+	// Return both the workflow data and webhook response
 	return {
+		webhookResponse: {
+			status: 200,
+			body: {
+				success: true,
+				message: 'Webhook received successfully',
+				execution_resumed: true,
+			},
+		},
 		workflowData: [returnData],
 	};
 }

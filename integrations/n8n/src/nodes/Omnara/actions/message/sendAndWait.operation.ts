@@ -19,7 +19,9 @@ export const sendAndWaitDescription: INodeProperties[] = [
 				operation: ['sendAndWait'],
 			},
 		},
-		description: 'The ID of the agent instance to send the message to',
+		placeholder: 'e.g. 550e8400-e29b-41d4-a716-446655440000',
+		description:
+			'A unique UUID for this workflow run. Must be the same across all Omnara nodes in this workflow. Use webhook data or generate with {{ $uuid() }}.',
 	},
 	{
 		displayName: 'Agent Type',
@@ -33,9 +35,9 @@ export const sendAndWaitDescription: INodeProperties[] = [
 				operation: ['sendAndWait'],
 			},
 		},
-		placeholder: 'e.g. claude_code, cursor',
+		placeholder: 'e.g. customer_support',
 		description:
-			'Type of agent (e.g., "claude_code", "cursor"). Required when creating a new instance.',
+			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes.',
 	},
 	{
 		displayName: 'Message',
@@ -53,7 +55,8 @@ export const sendAndWaitDescription: INodeProperties[] = [
 			},
 		},
 		placeholder: 'e.g. Please review and approve this deployment',
-		description: 'The message to send to the user for approval or response',
+		description:
+			'Question or request that requires a user response. This will appear in their Omnara web/mobile app and the workflow will PAUSE until they respond. Use this for questions, approvals, or when you need human input to continue.',
 	},
 	{
 		displayName: 'Options',
@@ -80,17 +83,17 @@ export const sendAndWaitDescription: INodeProperties[] = [
 				displayName: 'Sync Timeout (seconds)',
 				name: 'syncTimeout',
 				type: 'number',
-				default: 300,
+				default: 7200,
 				displayOptions: {
 					show: {
 						syncMode: [true],
 					},
 				},
 				description:
-					'Maximum time to wait for response in sync mode (in seconds). Default is 5 minutes, max is 2 hours.',
+					'Maximum time to wait for response in sync mode (in seconds). Default is 2 hours, max is 48 hours.',
 				typeOptions: {
 					minValue: 10,
-					maxValue: 7200,
+					maxValue: 172800,
 				},
 			},
 			{
@@ -105,18 +108,9 @@ export const sendAndWaitDescription: INodeProperties[] = [
 				},
 				description: 'How often to check for responses in sync mode (in seconds)',
 				typeOptions: {
-					minValue: 1,
+					minValue: 5,
 					maxValue: 60,
 				},
-			},
-			{
-				displayName: 'Webhook URL',
-				name: 'webhookUrl',
-				type: 'string',
-				default: '',
-				description:
-					'Webhook URL from Omnara Wait node (use {{$execution.resumeUrl}} from the Wait node)',
-				placeholder: 'e.g. {{$execution.resumeUrl}}',
 			},
 			{
 				displayName: 'Send Email',

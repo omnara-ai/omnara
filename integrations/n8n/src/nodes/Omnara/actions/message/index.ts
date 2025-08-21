@@ -20,14 +20,16 @@ export const descriptions: INodeProperties[] = [
 			{
 				name: 'Send',
 				value: 'send',
-				description: 'Send a message to an Omnara agent',
-				action: 'Send a message',
+				description:
+					'Send a non-blocking message to the user (for status updates, progress reports, or sharing your thought process). Use this when you want to inform the user but do NOT need their response to continue.',
+				action: 'Send a status message',
 			},
 			{
 				name: 'Send and Wait',
 				value: 'sendAndWait',
-				description: 'Send a message and wait for user response',
-				action: 'Send a message and wait for response',
+				description:
+					"Send a message and WAIT for the user's response (for questions, approvals, or conversations). Use this when you NEED the user's input to proceed with your task.",
+				action: 'Ask user a question and wait',
 			},
 		],
 		default: 'send',

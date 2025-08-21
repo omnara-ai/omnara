@@ -21,11 +21,12 @@ export class Omnara implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Omnara',
 		name: 'omnara',
-		icon: 'file:omnara.svg',
+		icon: 'file:omnara.png',
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-		description: 'Interact with Omnara AI agents',
+		description:
+			'Send messages to users via Omnara - a web and mobile platform for human-AI communication',
 		defaults: {
 			name: 'Omnara',
 		},
@@ -89,7 +90,7 @@ export class Omnara implements INodeType {
 
 						if (syncMode) {
 							// In sync mode, we poll for responses instead of using putExecutionToWait
-							const syncTimeout = options.syncTimeout || 300; // Default 5 minutes
+							const syncTimeout = options.syncTimeout || 7200; // Default 2 hours
 							const pollInterval = options.pollInterval || 5; // Default 5 seconds
 
 							// Send the message first

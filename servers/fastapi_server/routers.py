@@ -16,6 +16,7 @@ from servers.shared.db import (
     get_queued_user_messages,
     create_user_message,
 )
+from servers.shared.db.queries import trigger_webhook_for_user_response
 from servers.shared.notification_utils import send_message_notifications
 from .auth import get_current_user_id
 from .models import (
@@ -150,7 +151,7 @@ async def create_agent_message_endpoint(
 
 
 @agent_router.post("/messages/user", response_model=CreateUserMessageResponse)
-async def create_user_message_endpoint(
+def create_user_message_endpoint(
     request: CreateUserMessageRequest,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db),
@@ -177,9 +178,8 @@ async def create_user_message_endpoint(
         # Commit the transaction first
         db.commit()
 
-        # After committing, check if we need to trigger any webhooks
-        # Get the last agent message that might have a webhook
-        await _trigger_webhook_if_needed(
+        # After committing, trigger any waiting webhooks (e.g., n8n workflows)
+        trigger_webhook_for_user_response(
             db=db,
             agent_instance_id=request.agent_instance_id,
             user_message_content=request.content,
@@ -398,30 +398,3 @@ def end_session_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
         )
-
-
-async def _trigger_webhook_if_needed(
-    db: Session,
-    agent_instance_id: str,
-    user_message_content: str,
-    user_message_id: str,
-    user_id: str,
-) -> None:
-    """Trigger webhook if the last agent message has a webhook URL in metadata.
-
-    This is used for n8n and other integrations that use webhooks to wait for responses.
-    """
-    from servers.shared.db.queries import trigger_webhook_for_user_response
-
-    try:
-        # Use the shared webhook trigger function
-        trigger_webhook_for_user_response(
-            db=db,
-            agent_instance_id=agent_instance_id,
-            user_message_content=user_message_content,
-            user_message_id=user_message_id,
-            user_id=user_id,
-        )
-    except Exception as e:
-        logger.error(f"Error in _trigger_webhook_if_needed: {str(e)}")
-        # Don't raise - webhook failures shouldn't break the main flow
