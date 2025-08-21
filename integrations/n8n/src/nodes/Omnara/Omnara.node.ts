@@ -72,9 +72,6 @@ export class Omnara implements INodeType {
 		const returnData: INodeExecutionData[] = [];
 		const resource = this.getNodeParameter('resource', 0) as string;
 		const operation = this.getNodeParameter('operation', 0) as string;
-		
-		console.log('Omnara Node - Resource:', resource, 'Operation:', operation);
-		console.log('SEND_AND_WAIT_OPERATION constant:', SEND_AND_WAIT_OPERATION);
 
 		for (let i = 0; i < items.length; i++) {
 			try {
@@ -94,8 +91,6 @@ export class Omnara implements INodeType {
 						const syncMode = options.syncMode || false;
 						
 						if (syncMode) {
-							console.log('Sync mode enabled - using polling for AI Agent compatibility');
-							
 							// In sync mode, we poll for responses instead of using putExecutionToWait
 							const syncTimeout = options.syncTimeout || 300; // Default 5 minutes
 							const pollInterval = options.pollInterval || 5; // Default 5 seconds
@@ -123,7 +118,6 @@ export class Omnara implements INodeType {
 								body.send_push = options.sendPush;
 							}
 							
-							console.log('Sending message in sync mode...');
 							const sendResponse = await omnaraApiRequest.call(
 								this,
 								'POST',
@@ -132,7 +126,6 @@ export class Omnara implements INodeType {
 							);
 							
 							const messageId = sendResponse.message_id;
-							console.log('Message sent. Message ID:', messageId, 'Agent Instance:', agentInstanceId);
 							
 							// Now poll for responses
 							const startTime = Date.now();
@@ -144,7 +137,6 @@ export class Omnara implements INodeType {
 								await new Promise(resolve => setTimeout(resolve, pollInterval * 1000));
 								
 								// Check for pending messages
-								console.log('Polling for user response...');
 								try {
 									const pendingResponse = await omnaraApiRequest.call(
 										this,
@@ -157,12 +149,8 @@ export class Omnara implements INodeType {
 										},
 									);
 									
-									console.log('Poll response:', pendingResponse);
-									
 									// Check if we got any user messages
 									if (pendingResponse.messages && pendingResponse.messages.length > 0) {
-										console.log('Got user response(s)!', pendingResponse.messages.length);
-										
 										// Return the last user message as the result
 										const lastMessage = pendingResponse.messages[pendingResponse.messages.length - 1];
 										
@@ -184,20 +172,17 @@ export class Omnara implements INodeType {
 										}]];
 									}
 									
-									// If status is 'stale', update our last_read_message_id
+									// If status is 'stale', continue polling
 									if (pendingResponse.status === 'stale') {
-										console.log('Status is stale, updating last_read_message_id');
 										// We might need to re-fetch to get the current state
 										// For now, continue polling
 									}
 								} catch (pollError) {
-									console.error('Error polling for messages:', pollError);
 									// Continue polling on error
 								}
 							}
 							
 							// Timeout reached without response
-							console.log('Sync mode timeout reached without user response');
 							return [[{
 								json: {
 									success: false,
@@ -221,8 +206,6 @@ export class Omnara implements INodeType {
 							// Build the full webhook URL that Omnara should call
 							// This follows n8n's webhook-waiting pattern
 							const webhookUrl = `${n8nBaseUrl}/webhook-waiting/${executionId}/${nodeId}`;
-							
-							console.log('Webhook URL for resume:', webhookUrl);
 							
 							const body: any = {
 								agent_instance_id: agentInstanceId,
@@ -248,8 +231,6 @@ export class Omnara implements INodeType {
 								body.send_push = options.sendPush;
 							}
 							
-							console.log('Sending message to Omnara with metadata:', JSON.stringify(body.message_metadata, null, 2));
-							
 							// Send message to Omnara (like Slack sends to chat.postMessage)
 							const response = await omnaraApiRequest.call(
 								this,
@@ -258,24 +239,15 @@ export class Omnara implements INodeType {
 								body,
 							);
 							
-							console.log('Message sent successfully. Message ID:', response.message_id);
-							
 							// Configure wait time
 							const waitTill = configureWaitTillDate(this, 0);
 							
-							console.log('ABOUT TO WAIT! waitTill:', waitTill);
-							console.log('Calling putExecutionToWait...');
-							
 							// Put execution to wait
 							if (waitTill === 'WAIT_INDEFINITELY') {
-								console.log('Waiting indefinitely (1 year)');
 								await this.putExecutionToWait(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
 							} else {
-								console.log('Waiting until:', waitTill);
 								await this.putExecutionToWait(waitTill as Date);
 							}
-							
-							console.log('After putExecutionToWait - this should not print until webhook is called!');
 							
 							// Return input data
 							return [this.getInputData()];
