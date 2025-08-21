@@ -24,7 +24,7 @@ import threading
 import time
 import tty
 import uuid
-from collections import deque
+from collections import deque, Counter
 from pathlib import Path
 from typing import Any, Dict, Optional
 from omnara.sdk.async_client import AsyncOmnaraClient
@@ -33,7 +33,6 @@ from omnara.sdk.exceptions import AuthenticationError, APIError
 from integrations.cli_wrappers.claude_code.session_reset_handler import (
     SessionResetHandler,
 )
-from collections import Counter
 from integrations.cli_wrappers.claude_code.format_utils import format_content_block
 from integrations.utils.git_utils import GitDiffTracker
 
@@ -253,6 +252,9 @@ class ClaudeWrapperV3:
         # Claude status monitoring
         self.terminal_buffer = ""
         self.last_esc_interrupt_seen = None
+
+        self.idle_buffer_lock = threading.Lock()
+        self.idle_buffer_deque = deque([""])
 
         # Message processor
         self.message_processor = MessageProcessor(self)
@@ -554,6 +556,22 @@ class ClaudeWrapperV3:
     def is_claude_idle(self):
         """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.75+ seconds AND no recent messages)"""
         with self.is_idle_lock:
+            with self.idle_buffer_lock:
+                if self.idle_buffer_deque[-1] == "":
+                    clean_text = self.idle_buffer_deque[-2]
+                else:
+                    clean_text = self.idle_buffer_deque[-1]
+                    self.idle_buffer_deque.append("")
+                    while len(self.idle_buffer_deque) > 2:
+                        self.idle_buffer_deque.popleft()
+
+            # Check for both "esc to interrupt" and "ctrl+b to run in background"
+            if (
+                "esc to interrupt)" in clean_text
+                or "ctrl+b to run in background" in clean_text
+            ):
+                self.last_esc_interrupt_seen = time.time()
+
             if self.last_esc_interrupt_seen:
                 time_since_esc = time.time() - self.last_esc_interrupt_seen
                 esc_idle = time_since_esc >= 0.75
@@ -575,7 +593,7 @@ class ClaudeWrapperV3:
             is_idle = esc_idle and message_idle
 
             self.log(
-                f"[DEBUG] is_claude_idle: time_since_esc={time_since_esc:.2f}s, time_since_message={time_since_last_message:.2f}s, esc_idle={esc_idle}, message_idle={message_idle}, is_idle={is_idle}"
+                f"[DEBUG] is_claude_idle: time_since_esc={time_since_esc:.2f}s, time_since_message={time_since_last_message:.2f}s, esc_idle={esc_idle}, message_idle={message_idle}, is_idle={is_idle}, clean_text={clean_text}"
             )
 
             # Log buffer content when NOT idle (to see what's happening)
@@ -942,6 +960,9 @@ class ClaudeWrapperV3:
 
                                 # Check for the indicator
                                 clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+                                with self.idle_buffer_lock:
+                                    self.idle_buffer_deque[-1] += clean_text
 
                                 # Check for both "esc to interrupt" and "ctrl+b to run in background"
                                 if (
