@@ -20,6 +20,7 @@ export const endSessionDescription: INodeProperties[] = [
 				operation: ['end'],
 			},
 		},
+		placeholder: 'e.g. 550e8400-e29b-41d4-a716-446655440000',
 		description: 'The ID of the agent instance session to end',
 	},
 ];

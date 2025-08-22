@@ -20,7 +20,7 @@ export const descriptions: INodeProperties[] = [
 				name: 'End',
 				value: 'end',
 				description: 'End an agent session',
-				action: 'End an agent session',
+				action: 'End agent session',
 			},
 		],
 		default: 'end',

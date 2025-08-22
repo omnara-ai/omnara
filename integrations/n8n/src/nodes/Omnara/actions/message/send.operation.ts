@@ -36,7 +36,7 @@ export const sendMessageDescription: INodeProperties[] = [
 				operation: ['send'],
 			},
 		},
-		placeholder: 'e.g. customer_support',
+		placeholder: 'e.g. Customer Support',
 		description:
 			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes.',
 	},

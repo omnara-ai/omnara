@@ -21,7 +21,7 @@ export const sendAndWaitDescription: INodeProperties[] = [
 		},
 		placeholder: 'e.g. 550e8400-e29b-41d4-a716-446655440000',
 		description:
-			'A unique UUID for this workflow run. Must be the same across all Omnara nodes in this workflow. Use webhook data or generate with {{ $uuid() }}.',
+			'A unique identifier for this workflow run. Must be the same across all Omnara nodes in this workflow. Use webhook data or generate with {{ $uuid() }}',
 	},
 	{
 		displayName: 'Agent Type',
@@ -35,9 +35,9 @@ export const sendAndWaitDescription: INodeProperties[] = [
 				operation: ['sendAndWait'],
 			},
 		},
-		placeholder: 'e.g. customer_support',
+		placeholder: 'e.g. Customer Support',
 		description:
-			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes.',
+			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes',
 	},
 	{
 		displayName: 'Message',
@@ -56,7 +56,7 @@ export const sendAndWaitDescription: INodeProperties[] = [
 		},
 		placeholder: 'e.g. Please review and approve this deployment',
 		description:
-			'Question or request that requires a user response. This will appear in their Omnara web/mobile app and the workflow will PAUSE until they respond. Use this for questions, approvals, or when you need human input to continue.',
+			'Question or request that requires a user response. This will appear in their Omnara web/mobile app and the workflow will pause until they respond. Use this for questions, approvals, or when you need human input to continue',
 	},
 	{
 		displayName: 'Options',
@@ -77,10 +77,10 @@ export const sendAndWaitDescription: INodeProperties[] = [
 				type: 'boolean',
 				default: false,
 				description:
-					'Enable synchronous mode for AI Agent compatibility. When enabled, the node will poll for responses instead of using async wait. Required when using this node as an AI Agent tool.',
+					'Whether to enable AI Agent compatibility mode. When enabled, the node will wait for a response before continuing. Required when using this node as an AI Agent tool',
 			},
 			{
-				displayName: 'Sync Timeout (seconds)',
+				displayName: 'Sync Timeout (Seconds)',
 				name: 'syncTimeout',
 				type: 'number',
 				default: 7200,
@@ -90,14 +90,14 @@ export const sendAndWaitDescription: INodeProperties[] = [
 					},
 				},
 				description:
-					'Maximum time to wait for response in sync mode (in seconds). Default is 2 hours, max is 48 hours.',
+					'Maximum time to wait for a response in sync mode (in seconds)',
 				typeOptions: {
 					minValue: 10,
 					maxValue: 172800,
 				},
 			},
 			{
-				displayName: 'Poll Interval (seconds)',
+				displayName: 'Poll Interval (Seconds)',
 				name: 'pollInterval',
 				type: 'number',
 				default: 5,
