@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-omnara",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "n8n node for Omnara - communicate with AI agents",
   "keywords": [
     "n8n",
