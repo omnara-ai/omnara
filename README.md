@@ -29,7 +29,7 @@
 # Install Omnara
 pip install omnara
 
-# Start a Claude Code session in the terminal, web app, and mobile app
+# Start a Claude Code session that's synced between terminal, web, and mobile
 omnara
 ```
 
