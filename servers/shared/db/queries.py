@@ -457,6 +457,7 @@ def trigger_webhook_for_user_response(
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
+    # TODO: call this in the background so user message doesn't hang
     try:
         with httpx.Client() as client:
             response = client.post(
