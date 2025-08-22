@@ -1605,6 +1605,7 @@ class ClaudeWrapperV3:
 
                         # Always clear the mapping after handling a permission response
                         self.pending_permission_options = {}
+                        self.terminal_buffer = ""
 
                     self.log(
                         f"[INFO] Sending web UI message to Claude: {content[:50]}..."
