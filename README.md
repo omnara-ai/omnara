@@ -4,8 +4,6 @@
 
 **Your AI workforce, in your pocket.**
 
-`pip install omnara && omnara`
-
 [![PyPI version](https://badge.fury.io/py/omnara.svg)](https://badge.fury.io/py/omnara)
 [![Downloads](https://pepy.tech/badge/omnara)](https://pepy.tech/project/omnara)
 [![Python Versions](https://img.shields.io/pypi/pyversions/omnara.svg)](https://pypi.org/project/omnara/)
@@ -25,7 +23,19 @@
 
 ---
 
-## 🚀 What is Omnara?
+## 🚀 Quick Start
+
+```bash
+# Install Omnara
+pip install omnara
+
+# Start monitoring
+omnara
+```
+
+That's it! Create an account when prompted, then return to your terminal to interact with Claude Code. You can now see and interact with your Claude Code session from the [web dashboard](https://omnara.ai/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
+
+## 💡 What is Omnara?
 
 Omnara transforms your AI agents (Claude Code, Cursor, GitHub Copilot, and more) from silent workers into communicative teammates. Get real-time visibility into what your agents are doing, respond to their questions instantly, and guide them to success - all from your phone.
 
@@ -121,7 +131,7 @@ graph TB
 - **Database**: PostgreSQL with SQLAlchemy ORM
 - **Auth**: Dual JWT system (Supabase for users, custom for agents)
 
-## 🚀 Quick Start
+## 📖 How to Use
 
 ### Option 1: Monitor Your Claude Sessions
 
