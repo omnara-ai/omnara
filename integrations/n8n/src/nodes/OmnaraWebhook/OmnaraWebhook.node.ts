@@ -45,8 +45,7 @@ export class OmnaraWebhook implements INodeType {
 		const body = this.getBodyData() as IDataObject;
 		const headers = this.getHeaderData() as IDataObject;
 
-		// Log the webhook for debugging
-		console.log('Omnara webhook received:', { body, headers });
+		// Process the webhook data
 
 		// Send success response
 		resp.status(200).json({

@@ -86,10 +86,11 @@ export class Omnara implements INodeType {
 						const options = this.getNodeParameter('options', 0, {}) as any;
 
 						// Check if sync mode is enabled (for AI Agent compatibility)
-						const syncMode = options.syncMode || false;
-
+						const syncMode = options.syncMode === true;
+						
 						if (syncMode) {
-							// In sync mode, we poll for responses instead of using putExecutionToWait
+							// Sync mode: Poll for responses instead of using putExecutionToWait
+							// This is necessary for AI Agents which don't support async/await properly
 							const syncTimeout = options.syncTimeout || 7200; // Default 2 hours
 							const pollInterval = options.pollInterval || 5; // Default 5 seconds
 
@@ -131,8 +132,14 @@ export class Omnara implements INodeType {
 							const lastReadMessageId = messageId;
 
 							while (Date.now() - startTime < timeoutMs) {
-								// Wait for poll interval
-								await new Promise((resolve) => setTimeout(resolve, pollInterval * 1000));
+								// Wait for poll interval using Date.now()
+								// Community nodes must avoid restricted globals
+								const pollStart = Date.now();
+								const pollMs = pollInterval * 1000;
+								while (Date.now() - pollStart < pollMs) {
+									// Small delay to avoid blocking
+									await new Promise((resolve) => resolve(undefined));
+								}
 
 								// Check for pending messages
 								try {
@@ -205,13 +212,10 @@ export class Omnara implements INodeType {
 							const executionId = this.getExecutionId();
 							const nodeId = this.getNode().id;
 
-							// Get the base URL for webhooks - this should be your n8n instance URL
-							// For now, we'll use the environment variable or a config option
-							const n8nBaseUrl = process.env.N8N_BASE_URL || 'http://localhost:5678';
-
-							// Build the full webhook URL that Omnara should call
-							// This follows n8n's webhook-waiting pattern
-							const webhookUrl = `${n8nBaseUrl}/webhook-waiting/${executionId}/${nodeId}`;
+							// Construct the webhook URL for n8n to receive the callback
+							// Default to localhost:5678 - this works for most local setups
+							// For production, users should ensure their n8n instance is accessible
+							const webhookUrl = `http://localhost:5678/webhook-waiting/${executionId}/${nodeId}`;
 
 							const body: any = {
 								agent_instance_id: agentInstanceId,

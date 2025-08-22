@@ -33,7 +33,8 @@
     "prepublishOnly": "npm run build"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE"
   ],
   "n8n": {
     "n8nNodesApiVersion": 1,
