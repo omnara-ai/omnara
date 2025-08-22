@@ -30,12 +30,11 @@ export async function omnaraSendAndWaitWebhook(
 
 	// Extract the response data from Omnara
 	const responseData: IDataObject = {
-		userResponse: body.user_message || body.content || '',
+		userResponse: body.user_message || '',
 		userId: body.user_id,
 		messageId: body.message_id,
 		agentInstanceId: body.agent_instance_id,
 		timestamp: body.timestamp || new Date().toISOString(),
-		metadata: body.metadata || {},
 	};
 
 	// Return the data to continue the workflow

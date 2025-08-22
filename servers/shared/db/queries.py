@@ -451,19 +451,12 @@ def trigger_webhook_for_user_response(
     # Prepare webhook payload
     webhook_payload = {
         "user_message": user_message_content,
-        "content": user_message_content,
         "user_id": user_id,
         "message_id": user_message_id,
         "agent_instance_id": str(agent_instance_id),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "metadata": {
-            "original_message_id": str(last_agent_message.id),
-            "execution_id": last_agent_message.message_metadata.get("execution_id"),
-            "node_id": last_agent_message.message_metadata.get("node_id"),
-        },
     }
 
-    # Trigger the webhook synchronously (could be made async)
     try:
         with httpx.Client() as client:
             response = client.post(

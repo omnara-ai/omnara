@@ -59,12 +59,11 @@ export class OmnaraWebhook implements INodeType {
 				[
 					{
 						json: {
-							userResponse: body.user_message || body.content || '',
+							userResponse: body.user_message || '',
 							userId: body.user_id,
 							messageId: body.message_id,
 							agentInstanceId: body.agent_instance_id,
 							timestamp: body.timestamp || new Date().toISOString(),
-							metadata: body.metadata || {},
 							headers,
 						},
 					},
