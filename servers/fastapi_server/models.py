@@ -40,6 +40,10 @@ class CreateMessageRequest(BaseModel):
         None,
         description="Git diff content to store with the instance",
     )
+    message_metadata: dict | None = Field(
+        None,
+        description="Optional metadata to store with the message (e.g., webhook URLs)",
+    )
 
 
 class CreateUserMessageRequest(BaseModel):
@@ -119,3 +123,13 @@ class EndSessionResponse(BaseEndSessionResponse):
     """FastAPI-specific response model for end session endpoint."""
 
     pass
+
+
+class VerifyAuthResponse(BaseModel):
+    """Response model for auth verification endpoint."""
+
+    success: bool = Field(..., description="Whether authentication was successful")
+    user_id: str = Field(..., description="Authenticated user's ID")
+    email: str = Field(..., description="User's email address")
+    display_name: str | None = Field(None, description="User's display name")
+    message: str = Field(..., description="Success or error message")

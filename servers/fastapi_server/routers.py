@@ -16,6 +16,7 @@ from servers.shared.db import (
     get_queued_user_messages,
     create_user_message,
 )
+from servers.shared.db.queries import trigger_webhook_for_user_response
 from servers.shared.notification_utils import send_message_notifications
 from .auth import get_current_user_id
 from .models import (
@@ -27,10 +28,53 @@ from .models import (
     EndSessionResponse,
     GetMessagesResponse,
     MessageResponse,
+    VerifyAuthResponse,
 )
 
 agent_router = APIRouter(tags=["agents"])
 logger = logging.getLogger(__name__)
+
+
+@agent_router.get("/auth/verify", response_model=VerifyAuthResponse)
+def verify_auth_endpoint(
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db),
+) -> VerifyAuthResponse:
+    """Verify API key authentication.
+
+    This endpoint is used by n8n and other integrations to test credentials.
+    Returns basic information about the authenticated user and API key.
+    """
+    from shared.database import User
+
+    try:
+        # Get user information
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+
+        # Get API key information (optional - just to show which key is being used)
+        # Note: We can't identify the specific key from the JWT, but we know it's valid
+        # if we got this far
+
+        return VerifyAuthResponse(
+            success=True,
+            user_id=str(user.id),
+            email=user.email,
+            display_name=user.display_name,
+            message="Authentication successful",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in verify_auth_endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
 
 
 @agent_router.post("/messages/agent", response_model=CreateMessageResponse)
@@ -58,6 +102,7 @@ async def create_agent_message_endpoint(
             agent_type=request.agent_type,
             requires_user_input=request.requires_user_input,
             git_diff=request.git_diff,
+            message_metadata=request.message_metadata,
         )
 
         # Send notifications if requested
@@ -117,6 +162,7 @@ def create_user_message_endpoint(
     - Creates a user message for an existing agent instance
     - Optionally marks it as read (updates last_read_message_id)
     - Returns the message ID
+    - Triggers any waiting webhooks (e.g., n8n workflows)
     """
 
     try:
@@ -129,8 +175,17 @@ def create_user_message_endpoint(
             mark_as_read=request.mark_as_read,
         )
 
-        # Commit the transaction
+        # Commit the transaction first
         db.commit()
+
+        # After committing, trigger any waiting webhooks (e.g., n8n workflows)
+        trigger_webhook_for_user_response(
+            db=db,
+            agent_instance_id=request.agent_instance_id,
+            user_message_content=request.content,
+            user_message_id=message_id,
+            user_id=user_id,
+        )
 
         return CreateUserMessageResponse(
             success=True,
