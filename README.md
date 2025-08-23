@@ -147,11 +147,14 @@ See what Claude is doing in real-time:
    ```
 2. **Start monitoring**:
    ```bash
-   # If installed with pip
+   # If installed with pip or uv
    omnara
-   
-   # If installed with uv
-   omnara
+
+   # Using pipx (no omnara installation required)
+   pipx run omnara
+
+   # Using uvx (no omnara installation required)
+   uvx omnara
    ```
 3. **Authenticate** in your browser (opens automatically)
 4. **See everything** your agent does in the Omnara dashboard!
