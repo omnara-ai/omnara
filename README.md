@@ -4,8 +4,6 @@
 
 **Your AI workforce, in your pocket.**
 
-`pip install omnara && omnara`
-
 [![PyPI version](https://badge.fury.io/py/omnara.svg)](https://badge.fury.io/py/omnara)
 [![Downloads](https://pepy.tech/badge/omnara)](https://pepy.tech/project/omnara)
 [![Python Versions](https://img.shields.io/pypi/pyversions/omnara.svg)](https://pypi.org/project/omnara/)
@@ -25,7 +23,19 @@
 
 ---
 
-## 🚀 What is Omnara?
+## 🚀 Quick Start
+
+```bash
+# Install Omnara
+pip install omnara
+
+# Start a Claude Code session that's synced between terminal, web, and mobile
+omnara
+```
+
+That's it! Create an account when prompted, then return to your terminal to interact with Claude Code. You can now see and interact with your Claude Code session from the [web dashboard](https://omnara.ai/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
+
+## 💡 What is Omnara?
 
 Omnara transforms your AI agents (Claude Code, Cursor, GitHub Copilot, and more) from silent workers into communicative teammates. Get real-time visibility into what your agents are doing, respond to their questions instantly, and guide them to success - all from your phone.
 
@@ -121,7 +131,7 @@ graph TB
 - **Database**: PostgreSQL with SQLAlchemy ORM
 - **Auth**: Dual JWT system (Supabase for users, custom for agents)
 
-## 🚀 Quick Start
+## 📖 How to Use
 
 ### Option 1: Monitor Your Claude Sessions
 
@@ -133,15 +143,18 @@ See what Claude is doing in real-time:
    pip install omnara
    
    # Using uv (faster)
-   uv pip install omnara
+   uv tool install omnara
    ```
 2. **Start monitoring**:
    ```bash
-   # If installed with pip
+   # If installed with pip or uv
    omnara
-   
-   # If installed with uv
-   uv run omnara
+
+   # Using pipx (no omnara installation required)
+   pipx run omnara
+
+   # Using uvx (no omnara installation required)
+   uvx omnara
    ```
 3. **Authenticate** in your browser (opens automatically)
 4. **See everything** your agent does in the Omnara dashboard!
@@ -157,8 +170,8 @@ Trigger Claude from your phone:
    omnara serve
    
    # Using uv (faster)
-   uv pip install omnara
-   uv run omnara serve
+   uv tool install omnara
+   omnara serve
    ```
 2. **Set up your agent** in the mobile app with the webhook URL shown
 3. **Launch agents** from anywhere - beach, coffee shop, bed!
@@ -288,6 +301,6 @@ Omnara is open source software licensed under the [Apache 2.0 License](LICENSE).
 
 **Built with ❤️ by the Omnara team**
 
-[Website](https://omnara.ai) • [Twitter](https://twitter.com/omnara_ai) • [LinkedIn](https://linkedin.com/company/omnara)
+[Website](https://omnara.ai) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
 
 </div>

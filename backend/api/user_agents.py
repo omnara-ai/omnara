@@ -31,7 +31,7 @@ router = APIRouter(tags=["user-agents"])
 
 
 @router.get("/user-agents", response_model=list[UserAgentResponse])
-async def list_user_agents(
+def list_user_agents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -41,7 +41,7 @@ async def list_user_agents(
 
 
 @router.post("/user-agents", response_model=UserAgentResponse)
-async def create_new_user_agent(
+def create_new_user_agent(
     request: UserAgentRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -56,7 +56,7 @@ async def create_new_user_agent(
 
 
 @router.patch("/user-agents/{agent_id}", response_model=UserAgentResponse)
-async def update_existing_user_agent(
+def update_existing_user_agent(
     agent_id: UUID,
     request: UserAgentRequest,
     current_user: User = Depends(get_current_user),
@@ -70,7 +70,7 @@ async def update_existing_user_agent(
 
 
 @router.delete("/user-agents/{agent_id}")
-async def delete_existing_user_agent(
+def delete_existing_user_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -85,7 +85,7 @@ async def delete_existing_user_agent(
 @router.get(
     "/user-agents/{agent_id}/instances", response_model=list[AgentInstanceResponse]
 )
-async def get_user_agent_instances_list(
+def get_user_agent_instances_list(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

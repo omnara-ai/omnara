@@ -39,7 +39,7 @@ router = APIRouter(tags=["agents"])
 
 
 @router.get("/agent-types", response_model=list[AgentTypeOverview])
-async def list_agent_types(
+def list_agent_types(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -49,7 +49,7 @@ async def list_agent_types(
 
 
 @router.get("/agent-instances", response_model=list[AgentInstanceResponse])
-async def list_all_agent_instances(
+def list_all_agent_instances(
     limit: int | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -60,7 +60,7 @@ async def list_all_agent_instances(
 
 
 @router.get("/agent-summary")
-async def get_all_agent_summary(
+def get_all_agent_summary(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -72,7 +72,7 @@ async def get_all_agent_summary(
 @router.get(
     "/agent-types/{type_id}/instances", response_model=list[AgentInstanceResponse]
 )
-async def get_type_instances(
+def get_type_instances(
     type_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -85,7 +85,7 @@ async def get_type_instances(
 
 
 @router.get("/agent-instances/{instance_id}", response_model=AgentInstanceDetail)
-async def get_instance_detail(
+def get_instance_detail(
     instance_id: UUID,
     message_limit: int = 50,
     before_message_id: UUID | None = None,
@@ -106,7 +106,7 @@ async def get_instance_detail(
 
 
 @router.get("/agent-instances/{instance_id}/messages")
-async def get_instance_messages_paginated(
+def get_instance_messages_paginated(
     instance_id: UUID,
     limit: int = 50,
     before_message_id: UUID | None = None,
@@ -130,7 +130,7 @@ async def get_instance_messages_paginated(
 @router.post(
     "/agent-instances/{instance_id}/messages", response_model=UserMessageResponse
 )
-async def create_user_message(
+def create_user_message(
     instance_id: UUID,
     request: UserMessageRequest,
     current_user: User = Depends(get_current_user),
@@ -294,7 +294,7 @@ async def stream_messages(
     "/agent-instances/{instance_id}/status",
     response_model=AgentInstanceResponse,
 )
-async def update_agent_status(
+def update_agent_status(
     instance_id: UUID,
     status_update: dict,
     current_user: User = Depends(get_current_user),
@@ -312,7 +312,7 @@ async def update_agent_status(
 
 
 @router.delete("/agent-instances/{instance_id}")
-async def delete_agent_instance_endpoint(
+def delete_agent_instance_endpoint(
     instance_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -325,7 +325,7 @@ async def delete_agent_instance_endpoint(
 
 
 @router.patch("/agent-instances/{instance_id}", response_model=AgentInstanceResponse)
-async def update_agent_instance_endpoint(
+def update_agent_instance_endpoint(
     instance_id: UUID,
     update_data: dict,
     current_user: User = Depends(get_current_user),

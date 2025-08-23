@@ -1,0 +1,35 @@
+{
+  "node": "n8n-nodes-omnara.omnara",
+  "nodeVersion": "1.0",
+  "codexVersion": "1.0",
+  "categories": [
+    "Communication",
+    "Development"
+  ],
+  "resources": {
+    "credentialDocumentation": [
+      {
+        "url": "https://github.com/omnara-ai/omnara"
+      }
+    ],
+    "primaryDocumentation": [
+      {
+        "url": "https://github.com/omnara-ai/omnara"
+      }
+    ]
+  },
+  "subcategories": {
+    "Communication": [
+      "Chat"
+    ],
+    "Development": [
+      "AI"
+    ]
+  },
+  "alias": [
+    "AI",
+    "Agent",
+    "Claude",
+    "Assistant"
+  ]
+}

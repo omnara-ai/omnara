@@ -1,8 +1,5 @@
 # Servers requirements - includes both MCP and FastAPI dependencies
 
-# MCP Server
-fastmcp==2.9.2
-
 # FastAPI Server
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
