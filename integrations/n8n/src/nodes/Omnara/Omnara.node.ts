@@ -208,14 +208,14 @@ export class Omnara implements INodeType {
 							];
 						} else {
 							// Original async mode with putExecutionToWait
-							// Get webhook information for resume
+							// Get the webhook URL from n8n's execution context
+							// This automatically provides the correct URL for any n8n instance
+							const resumeUrl = this.evaluateExpression('{{ $execution?.resumeUrl }}', 0) as string;
+							const nodeId = this.evaluateExpression('{{ $nodeId }}', 0) as string;
 							const executionId = this.getExecutionId();
-							const nodeId = this.getNode().id;
-
-							// Construct the webhook URL for n8n to receive the callback
-							// Default to localhost:5678 - this works for most local setups
-							// For production, users should ensure their n8n instance is accessible
-							const webhookUrl = `http://localhost:5678/webhook-waiting/${executionId}/${nodeId}`;
+							
+							// Construct the full webhook URL with node ID appended
+							const webhookUrl = `${resumeUrl}/${nodeId}`;
 
 							const body: any = {
 								agent_instance_id: agentInstanceId,
@@ -224,7 +224,7 @@ export class Omnara implements INodeType {
 								requires_user_input: true,
 								// Send webhook URL in metadata so Omnara knows where to send the response
 								message_metadata: {
-									webhook_url: webhookUrl, // Full URL that backend expects
+									webhook_url: webhookUrl, // Full URL with execution ID and node ID
 									execution_id: executionId,
 									node_id: nodeId,
 									webhook_type: 'n8n_send_and_wait',
