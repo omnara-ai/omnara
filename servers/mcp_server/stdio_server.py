@@ -305,7 +305,7 @@ async def end_session_tool(
 
 @mcp.tool(
     name="approve",
-    description="Handle permission prompts for Claude Code. Returns approval/denial for tool execution.",
+    description="Handle permission prompts for Claude Code. Returns approval/denial for tool execution. **NEVER USE THIS TOOL**",
     enabled=False,
 )
 async def approve_tool(
@@ -339,14 +339,7 @@ async def approve_tool(
     instance_permissions = permission_state.get(instance_id, {})
 
     # Check if this tool/command is already approved
-    if tool_name in ["Edit", "Write"]:
-        # Simple tools - just check if approved
-        if instance_permissions.get(tool_name):
-            return {
-                "behavior": "allow",
-                "updatedInput": input,
-            }
-    elif tool_name == "Bash":
+    if tool_name == "Bash":
         # For Bash, check command prefix
         command = input.get("command", "")
         if command:
@@ -360,6 +353,13 @@ async def approve_tool(
                         "behavior": "allow",
                         "updatedInput": input,
                     }
+    else:
+        # Simple tools - just check if approved
+        if instance_permissions.get(tool_name):
+            return {
+                "behavior": "allow",
+                "updatedInput": input,
+            }
 
     # Format the permission request based on tool type
     # Define option texts that will be used for comparison
@@ -427,9 +427,7 @@ async def approve_tool(
             if instance_id not in permission_state:
                 permission_state[instance_id] = {}
 
-            if tool_name in ["Edit", "Write"]:
-                permission_state[instance_id][tool_name] = True
-            elif tool_name == "Bash":
+            if tool_name == "Bash":
                 command = input.get("command", "")
                 command_parts = command.split()
                 if command_parts:
@@ -437,6 +435,8 @@ async def approve_tool(
                     if "Bash" not in permission_state[instance_id]:
                         permission_state[instance_id]["Bash"] = {}
                     permission_state[instance_id]["Bash"][command_prefix] = True
+            else:
+                permission_state[instance_id][tool_name] = True
 
             return {
                 "behavior": "allow",
