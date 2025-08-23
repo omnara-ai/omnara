@@ -11,13 +11,13 @@ Key improvements:
 import argparse
 import asyncio
 import json
+import logging
 import os
 import pty
 import re
 import select
 import shutil
 import signal
-import subprocess
 import sys
 import termios
 import threading
@@ -33,6 +33,8 @@ from omnara.sdk.exceptions import AuthenticationError, APIError
 from integrations.cli_wrappers.claude_code.session_reset_handler import (
     SessionResetHandler,
 )
+from integrations.cli_wrappers.claude_code.format_utils import format_content_block
+from integrations.utils.git_utils import GitDiffTracker
 
 
 # Constants
@@ -118,7 +120,11 @@ class MessageProcessor:
             )
 
             # Get git diff if enabled
-            git_diff = self.wrapper.get_git_diff()
+            git_diff = (
+                self.wrapper.git_tracker.get_diff()
+                if self.wrapper.git_tracker
+                else None
+            )
             # Sanitize git diff as well if present (handles binary files in git diff)
             if git_diff:
                 git_diff = "".join(
@@ -135,21 +141,15 @@ class MessageProcessor:
                 git_diff=git_diff,
             )
 
-            # Store instance ID if first message
-            if not self.wrapper.agent_instance_id:
-                self.wrapper.agent_instance_id = response.agent_instance_id
-
             # Track message for idle detection
             self.last_message_id = response.message_id
             self.last_message_time = time.time()
 
             # Clear old tracked input requests since we have a new message
-            if hasattr(self.wrapper, "requested_input_messages"):
-                self.wrapper.requested_input_messages.clear()
+            self.wrapper.requested_input_messages.clear()
 
             # Clear pending permission options since we have a new message
-            if hasattr(self.wrapper, "pending_permission_options"):
-                self.wrapper.pending_permission_options.clear()
+            self.wrapper.pending_permission_options.clear()
 
             # Process any queued user messages
             if response.queued_user_messages:
@@ -191,11 +191,7 @@ class ClaudeWrapperV3:
         dangerously_skip_permissions: bool = False,
     ):
         # Session management
-        self.session_uuid = str(uuid.uuid4())
-        self.session_start_time = (
-            time.time()
-        )  # Track when session started for file filtering
-        self.agent_instance_id = None
+        self.agent_instance_id = str(uuid.uuid4())
         self.permission_mode = permission_mode
         self.dangerously_skip_permissions = dangerously_skip_permissions
 
@@ -203,7 +199,7 @@ class ClaudeWrapperV3:
         self.debug_log_file = None
         self._init_logging()
 
-        self.log(f"[INFO] Session UUID: {self.session_uuid}")
+        self.log(f"[INFO] Agent Instance ID: {self.agent_instance_id}")
 
         # Omnara SDK setup
         self.api_key = api_key or os.environ.get("OMNARA_API_KEY")
@@ -254,20 +250,48 @@ class ClaudeWrapperV3:
         )  # Lock for message sending synchronization
 
         # Git diff tracking
-        self.git_diff_enabled = False
-        self.initial_git_hash = None
+        self.git_tracker: Optional[GitDiffTracker] = None
+        self._init_git_tracker()
 
     def _init_logging(self):
         """Initialize debug logging"""
         try:
             OMNARA_WRAPPER_LOG_DIR.mkdir(exist_ok=True, parents=True)
-            log_file_path = OMNARA_WRAPPER_LOG_DIR / f"{self.session_uuid}.log"
+            log_file_path = OMNARA_WRAPPER_LOG_DIR / f"{self.agent_instance_id}.log"
             self.debug_log_file = open(log_file_path, "w")
             self.log(
                 f"=== Claude Wrapper V3 Debug Log - {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
             )
         except Exception as e:
             print(f"Failed to create debug log file: {e}", file=sys.stderr)
+
+    def _init_git_tracker(self):
+        """Initialize git diff tracking"""
+        try:
+            # Create a logger that routes to our debug log
+            git_logger = logging.getLogger("ClaudeWrapper.GitTracker")
+            git_logger.setLevel(logging.DEBUG)
+
+            # Add a custom handler that uses our log method
+            class LogHandler(logging.Handler):
+                def __init__(self, log_func):
+                    super().__init__()
+                    self.log_func = log_func
+
+                def emit(self, record):
+                    msg = self.format(record)
+                    level = record.levelname
+                    self.log_func(f"[{level}] {msg}")
+
+            handler = LogHandler(self.log)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            git_logger.addHandler(handler)
+            git_logger.propagate = False  # Don't propagate to root logger
+
+            self.git_tracker = GitDiffTracker(enabled=True, logger=git_logger)
+        except Exception as e:
+            self.log(f"[WARNING] Failed to initialize git tracker: {e}")
+            self.git_tracker = None
 
     def log(self, message: str):
         """Write to debug log file"""
@@ -277,498 +301,6 @@ class ClaudeWrapperV3:
                 self.debug_log_file.flush()
             except Exception:
                 pass
-
-    def _truncate_text(self, text: str, max_length: int = 100) -> str:
-        """Truncate text to max length with ellipsis if needed"""
-        if len(text) <= max_length:
-            return text
-        return text[:max_length] + "..."
-
-    def _format_tool_usage(self, tool_name: str, input_data: Dict[str, Any]) -> str:
-        """Format tool usage information based on tool type with markdown"""
-        # Skip MCP omnara tools - just show tool name
-        if tool_name.startswith("mcp__omnara__"):
-            return f"Using tool: {tool_name}"
-
-        # Write tool - show content in code block
-        if tool_name == "Write":
-            file_path = input_data.get("file_path", "unknown")
-            content = input_data.get("content", "")
-
-            # Detect file type for syntax highlighting
-            file_ext = file_path.split(".")[-1] if "." in file_path else ""
-            lang_map = {
-                "py": "python",
-                "js": "javascript",
-                "ts": "typescript",
-                "jsx": "jsx",
-                "tsx": "tsx",
-                "java": "java",
-                "cpp": "cpp",
-                "c": "c",
-                "cs": "csharp",
-                "rb": "ruby",
-                "go": "go",
-                "rs": "rust",
-                "php": "php",
-                "swift": "swift",
-                "kt": "kotlin",
-                "yaml": "yaml",
-                "yml": "yaml",
-                "json": "json",
-                "xml": "xml",
-                "html": "html",
-                "css": "css",
-                "scss": "scss",
-                "sql": "sql",
-                "sh": "bash",
-                "bash": "bash",
-                "md": "markdown",
-                "txt": "text",
-            }
-            lang = lang_map.get(file_ext, "")
-
-            lines = [f"Using tool: Write - `{file_path}`"]
-            lines.append(f"```{lang}")
-            lines.append(content)
-            lines.append("```")
-            return "\n".join(lines)
-
-        # Other file-related tools
-        elif tool_name in ["Read", "NotebookRead", "NotebookEdit"]:
-            file_path = input_data.get(
-                "file_path", input_data.get("notebook_path", "unknown")
-            )
-            return f"Using tool: {tool_name} - `{file_path}`"
-
-        # Edit tool - show full diff without truncation
-        elif tool_name == "Edit":
-            file_path = input_data.get("file_path", "unknown")
-            old_string = input_data.get("old_string", "")
-            new_string = input_data.get("new_string", "")
-            replace_all = input_data.get("replace_all", False)
-
-            # Create a markdown diff
-            diff_lines = []
-            diff_lines.append(f"Using tool: **Edit** - `{file_path}`")
-
-            if replace_all:
-                diff_lines.append("*Replacing all occurrences*")
-
-            diff_lines.append("")
-
-            # Handle empty old_string (new content)
-            if not old_string and new_string:
-                # Adding new content
-                diff_lines.append("```diff")
-                for line in new_string.splitlines():
-                    diff_lines.append(f"+ {line}")
-                diff_lines.append("```")
-            # Handle empty new_string (deletion)
-            elif old_string and not new_string:
-                # Removing content
-                diff_lines.append("```diff")
-                for line in old_string.splitlines():
-                    diff_lines.append(f"- {line}")
-                diff_lines.append("```")
-            # Handle replacement - try to show as inline diff if possible
-            elif old_string and new_string:
-                old_lines = old_string.splitlines()
-                new_lines = new_string.splitlines()
-
-                # Try to find the actual change within context
-                # Look for common prefix and suffix
-                common_prefix = []
-                common_suffix = []
-
-                # Find common prefix
-                for i in range(min(len(old_lines), len(new_lines))):
-                    if old_lines[i] == new_lines[i]:
-                        common_prefix.append(old_lines[i])
-                    else:
-                        break
-
-                # Find common suffix
-                old_remaining = old_lines[len(common_prefix) :]
-                new_remaining = new_lines[len(common_prefix) :]
-
-                if old_remaining and new_remaining:
-                    for i in range(1, min(len(old_remaining), len(new_remaining)) + 1):
-                        if old_remaining[-i] == new_remaining[-i]:
-                            common_suffix.insert(0, old_remaining[-i])
-                        else:
-                            break
-
-                # Get the actual changed lines
-                changed_old = (
-                    old_remaining[: len(old_remaining) - len(common_suffix)]
-                    if common_suffix
-                    else old_remaining
-                )
-                changed_new = (
-                    new_remaining[: len(new_remaining) - len(common_suffix)]
-                    if common_suffix
-                    else new_remaining
-                )
-
-                # If we have context and a focused change, show it inline style
-                if (common_prefix or common_suffix) and (changed_old or changed_new):
-                    diff_lines.append("```diff")
-
-                    # Show some context before (last 2 lines of prefix)
-                    context_before = (
-                        common_prefix[-2:] if len(common_prefix) > 2 else common_prefix
-                    )
-                    for line in context_before:
-                        diff_lines.append(f"  {line}")
-
-                    # Show removed lines
-                    for line in changed_old:
-                        diff_lines.append(f"- {line}")
-
-                    # Show added lines
-                    for line in changed_new:
-                        diff_lines.append(f"+ {line}")
-
-                    # Show some context after (first 2 lines of suffix)
-                    context_after = (
-                        common_suffix[:2] if len(common_suffix) > 2 else common_suffix
-                    )
-                    for line in context_after:
-                        diff_lines.append(f"  {line}")
-
-                    diff_lines.append("```")
-                else:
-                    # Full replacement - no common context
-                    diff_lines.append("```diff")
-                    for line in old_lines:
-                        diff_lines.append(f"- {line}")
-                    for line in new_lines:
-                        diff_lines.append(f"+ {line}")
-                    diff_lines.append("```")
-
-            return "\n".join(diff_lines)
-
-        # MultiEdit tool - show file path and all edits with full diffs
-        elif tool_name == "MultiEdit":
-            file_path = input_data.get("file_path", "unknown")
-            edits = input_data.get("edits", [])
-
-            lines = [f"Using tool: **MultiEdit** - `{file_path}`"]
-            lines.append(f"*Making {len(edits)} edit{'s' if len(edits) != 1 else ''}:*")
-            lines.append("")
-
-            # Show each edit with full content (no truncation)
-            for i, edit in enumerate(edits, 1):
-                old_string = edit.get("old_string", "")
-                new_string = edit.get("new_string", "")
-                replace_all = edit.get("replace_all", False)
-
-                # Add edit header
-                if replace_all:
-                    lines.append(f"### Edit {i} *(replacing all occurrences)*")
-                else:
-                    lines.append(f"### Edit {i}")
-
-                lines.append("")
-
-                # Create a proper diff display
-                lines.append("```diff")
-
-                # Handle empty old_string (new content)
-                if not old_string and new_string:
-                    # Adding new content
-                    for line in new_string.splitlines():
-                        lines.append(f"+ {line}")
-                # Handle empty new_string (deletion)
-                elif old_string and not new_string:
-                    # Removing content
-                    for line in old_string.splitlines():
-                        lines.append(f"- {line}")
-                # Handle replacement
-                elif old_string and new_string:
-                    # Show the removal first
-                    for line in old_string.splitlines():
-                        lines.append(f"- {line}")
-                    # Then show the addition
-                    for line in new_string.splitlines():
-                        lines.append(f"+ {line}")
-
-                lines.append("```")
-                lines.append("")  # Add spacing between edits
-
-            return "\n".join(lines)
-
-        # Command execution
-        elif tool_name == "Bash":
-            command = input_data.get("command", "")
-            return f"Using tool: Bash - `{command}`"
-
-        # Search tools
-        elif tool_name in ["Grep", "Glob"]:
-            pattern = input_data.get("pattern", "unknown")
-            path = input_data.get("path", "current directory")
-            return f"Using tool: {tool_name} - `{self._truncate_text(pattern, 50)}` in {path}"
-
-        # Directory listing
-        elif tool_name == "LS":
-            path = input_data.get("path", "unknown")
-            return f"Using tool: LS - `{path}`"
-
-        # Todo management
-        elif tool_name == "TodoWrite":
-            todos = input_data.get("todos", [])
-
-            if not todos:
-                return "Using tool: TodoWrite - clearing todo list"
-
-            # Map status to symbols
-            status_symbol = {"pending": "○", "in_progress": "◐", "completed": "●"}
-
-            # Group todos by status for counting
-            status_counts = {"pending": 0, "in_progress": 0, "completed": 0}
-
-            # Build formatted todo list
-            lines = ["Using tool: TodoWrite - Todo List", ""]
-
-            for todo in todos:
-                status = todo.get("status", "pending")
-                content = todo.get("content", "")
-
-                # Count by status
-                if status in status_counts:
-                    status_counts[status] += 1
-
-                # Truncate content if too long
-                max_content_length = 100
-                content_truncated = self._truncate_text(content, max_content_length)
-
-                # Format todo item with symbol
-                symbol = status_symbol.get(status, "•")
-                lines.append(f"{symbol} {content_truncated}")
-
-            return "\n".join(lines)
-
-        # Task delegation
-        elif tool_name == "Task":
-            description = input_data.get("description", "unknown task")
-            subagent_type = input_data.get("subagent_type", "unknown")
-            return f"Using tool: Task - {self._truncate_text(description, 50)} (agent: {subagent_type})"
-
-        # Web operations
-        elif tool_name == "WebFetch":
-            url = input_data.get("url", "unknown")
-            return f"Using tool: WebFetch - `{self._truncate_text(url, 80)}`"
-
-        elif tool_name == "WebSearch":
-            query = input_data.get("query", "unknown")
-            return f"Using tool: WebSearch - {self._truncate_text(query, 80)}"
-
-        # MCP resource listing
-        elif tool_name == "ListMcpResourcesTool":
-            return "Using tool: List MCP Resources"
-
-        # Default case for unknown tools
-        else:
-            # Try to extract meaningful info from input_data
-            if input_data:
-                # Look for common parameter names
-                for key in [
-                    "file",
-                    "path",
-                    "query",
-                    "content",
-                    "message",
-                    "description",
-                    "name",
-                ]:
-                    if key in input_data:
-                        value = str(input_data[key])
-                        return f"Using tool: {tool_name} - {self._truncate_text(value, 50)}"
-
-            return f"Using tool: {tool_name}"
-
-    def _format_content_block(self, block: Dict[str, Any]) -> Optional[str]:
-        """Format different types of content blocks with markdown"""
-        block_type = block.get("type")
-
-        if block_type == "text":
-            text_content = block.get("text", "")
-            if not text_content:
-                return None
-            return text_content
-
-        elif block_type == "tool_use":
-            # Track tool usage
-            tool_name = block.get("name", "unknown")
-            input_data = block.get("input", {})
-            return self._format_tool_usage(tool_name, input_data)
-
-        elif block_type == "tool_result":
-            # Format tool results
-            content = block.get("content", [])
-            if isinstance(content, list):
-                # Extract text from tool result content
-                result_texts = []
-                for item in content:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        result_text = item.get("text", "")
-                        if result_text:
-                            # Try to parse as JSON for cleaner display
-                            try:
-                                import json
-
-                                parsed = json.loads(result_text)
-                                # Just show a compact summary for JSON results
-                                if isinstance(parsed, dict):
-                                    keys = list(parsed.keys())[:3]
-                                    summary = (
-                                        f"JSON object with keys: {', '.join(keys)}"
-                                    )
-                                    if len(parsed) > 3:
-                                        summary += f" and {len(parsed) - 3} more"
-                                    result_texts.append(summary)
-                                else:
-                                    result_texts.append(
-                                        self._truncate_text(result_text, 100)
-                                    )
-                            except (json.JSONDecodeError, ValueError):
-                                # Not JSON, just add as text
-                                result_texts.append(
-                                    self._truncate_text(result_text, 100)
-                                )
-                if result_texts:
-                    combined = " | ".join(result_texts)
-                    return f"Result: {combined}"
-            elif isinstance(content, str):
-                return f"Result: {self._truncate_text(content, 200)}"
-            return "Result: [empty]"
-
-        elif block_type == "thinking":
-            # Include thinking content
-            thinking_text = block.get("text", "")
-            if thinking_text:
-                return f"[Thinking: {self._truncate_text(thinking_text, 200)}]"
-
-        # Unknown block type
-        return None
-
-    def get_git_diff(self) -> Optional[str]:
-        """Get the current git diff if enabled.
-
-        Returns:
-            The git diff output if enabled and there are changes, None otherwise.
-        """
-        # Check if git diff is enabled
-        if not self.git_diff_enabled:
-            return None
-
-        try:
-            combined_output = ""
-
-            # Get list of worktrees to exclude
-            worktree_result = subprocess.run(
-                ["git", "worktree", "list", "--porcelain"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            exclude_patterns = []
-            if worktree_result.returncode == 0:
-                # Parse worktree list to get paths to exclude
-                cwd = os.getcwd()
-                for line in worktree_result.stdout.strip().split("\n"):
-                    if line.startswith("worktree "):
-                        worktree_path = line[9:]  # Remove "worktree " prefix
-                        # Only exclude if it's a subdirectory of current directory
-                        if worktree_path != cwd and worktree_path.startswith(
-                            os.path.dirname(cwd)
-                        ):
-                            # Get relative path from current directory
-                            try:
-                                rel_path = os.path.relpath(worktree_path, cwd)
-                                if not rel_path.startswith(".."):
-                                    exclude_patterns.append(f":(exclude){rel_path}")
-                            except ValueError:
-                                # Can't compute relative path, skip
-                                pass
-
-            # Build git diff command
-            if self.initial_git_hash:
-                # Use git diff from initial hash to current working tree
-                # This shows ALL changes (committed + uncommitted) as one unified diff
-                diff_cmd = ["git", "diff", self.initial_git_hash]
-            else:
-                # No initial hash - just show uncommitted changes
-                diff_cmd = ["git", "diff", "HEAD"]
-
-            if exclude_patterns:
-                diff_cmd.extend(["--"] + exclude_patterns)
-
-            # Run git diff
-            result = subprocess.run(diff_cmd, capture_output=True, text=True, timeout=5)
-            if result.returncode == 0 and result.stdout.strip():
-                combined_output = result.stdout.strip()
-
-            # Get untracked files (with exclusions)
-            untracked_cmd = ["git", "ls-files", "--others", "--exclude-standard"]
-            if exclude_patterns:
-                untracked_cmd.extend(["--"] + exclude_patterns)
-
-            result_untracked = subprocess.run(
-                untracked_cmd, capture_output=True, text=True, timeout=5
-            )
-            if result_untracked.returncode == 0 and result_untracked.stdout.strip():
-                untracked_files = result_untracked.stdout.strip().split("\n")
-                if untracked_files:
-                    if combined_output:
-                        combined_output += "\n"
-
-                    # For each untracked file, show its contents with diff-like format
-                    for file_path in untracked_files:
-                        # Check if file was created after session started
-                        try:
-                            file_creation_time = os.path.getctime(file_path)
-                            if file_creation_time < self.session_start_time:
-                                # Skip files that existed before the session started
-                                continue
-                        except (OSError, IOError):
-                            # If we can't get creation time, skip the file
-                            continue
-
-                        combined_output += f"diff --git a/{file_path} b/{file_path}\n"
-                        combined_output += "new file mode 100644\n"
-                        combined_output += "index 0000000..0000000\n"
-                        combined_output += "--- /dev/null\n"
-                        combined_output += f"+++ b/{file_path}\n"
-
-                        # Read file contents and add with + prefix
-                        try:
-                            with open(
-                                file_path, "r", encoding="utf-8", errors="ignore"
-                            ) as f:
-                                lines = f.readlines()
-                                combined_output += f"@@ -0,0 +1,{len(lines)} @@\n"
-                                for line in lines:
-                                    # Preserve the line exactly as-is, just add + prefix
-                                    if line.endswith("\n"):
-                                        combined_output += f"+{line}"
-                                    else:
-                                        combined_output += f"+{line}\n"
-                                if lines and not lines[-1].endswith("\n"):
-                                    combined_output += "\\ No newline at end of file\n"
-                        except Exception:
-                            combined_output += "@@ -0,0 +1,1 @@\n"
-                            combined_output += "+[Binary or unreadable file]\n"
-
-                        combined_output += "\n"
-
-            return combined_output
-
-        except Exception as e:
-            self.log(f"[WARNING] Failed to get git diff: {e}")
-
-        return None
 
     def init_omnara_clients(self):
         """Initialize both sync and async Omnara SDK clients"""
@@ -799,7 +331,7 @@ class ClaudeWrapperV3:
         while self.running and not self.claude_jsonl_path:
             project_dir = self.get_project_log_dir()
             if project_dir:
-                expected_filename = f"{self.session_uuid}.jsonl"
+                expected_filename = f"{self.agent_instance_id}.jsonl"
                 expected_path = project_dir / expected_filename
                 if expected_path.exists():
                     self.claude_jsonl_path = expected_path
@@ -936,7 +468,7 @@ class ClaudeWrapperV3:
                     formatted_parts = []
                     for block in content:
                         if isinstance(block, dict):
-                            formatted_content = self._format_content_block(block)
+                            formatted_content = format_content_block(block)
                             if formatted_content:
                                 formatted_parts.append(formatted_content)
 
@@ -957,7 +489,7 @@ class ClaudeWrapperV3:
 
                 for block in content_blocks:
                     if isinstance(block, dict):
-                        formatted_content = self._format_content_block(block)
+                        formatted_content = format_content_block(block)
                         if formatted_content:
                             formatted_parts.append(formatted_content)
                             # Track if this was a tool use
@@ -976,12 +508,12 @@ class ClaudeWrapperV3:
                 summary = data.get("summary", "")
                 if summary and not self.agent_instance_id and self.omnara_client_sync:
                     # Send initial message
-                    response = self.omnara_client_sync.send_message(
+                    self.omnara_client_sync.send_message(
                         content=f"Claude session started: {summary}",
                         agent_type="Claude Code",
+                        agent_instance_id=self.agent_instance_id,
                         requires_user_input=False,
                     )
-                    self.agent_instance_id = response.agent_instance_id
 
         except Exception as e:
             self.log(f"[ERROR] Error processing Claude log entry: {e}")
@@ -1223,7 +755,7 @@ class ClaudeWrapperV3:
         self.log(f"[INFO] Found Claude CLI at: {claude_path}")
 
         # Always add session ID for tracking
-        cmd = [claude_path, "--session-id", self.session_uuid]
+        cmd = [claude_path, "--session-id", self.agent_instance_id]
 
         # Add permission-mode flag if specified
         if self.permission_mode:
@@ -1236,20 +768,6 @@ class ClaudeWrapperV3:
         if self.dangerously_skip_permissions:
             cmd.append("--dangerously-skip-permissions")
             self.log("[INFO] Added dangerously-skip-permissions to Claude command")
-
-        # Process any additional command line arguments
-        if len(sys.argv) > 1:
-            i = 1
-            while i < len(sys.argv):
-                arg = sys.argv[i]
-                # Skip wrapper-specific arguments
-                if arg in ["--api-key", "--base-url", "--permission-mode"]:
-                    i += 2  # Skip the argument and its value
-                elif arg == "--dangerously-skip-permissions":
-                    i += 1  # Skip boolean flag (no value)
-                else:
-                    cmd.append(arg)
-                    i += 1
 
         # Log the final command for debugging
         self.log(f"[INFO] Final Claude command: {' '.join(cmd)}")
@@ -1688,38 +1206,14 @@ class ClaudeWrapperV3:
                 response = self.omnara_client_sync.send_message(
                     content="Claude Code session started - waiting for your input...",
                     agent_type="Claude Code",
+                    agent_instance_id=self.agent_instance_id,
                     requires_user_input=False,
                 )
-                self.agent_instance_id = response.agent_instance_id
-                self.log(f"[INFO] Omnara agent instance ID: {self.agent_instance_id}")
 
                 # Initialize message processor with first message
                 if hasattr(self.message_processor, "last_message_id"):
                     self.message_processor.last_message_id = response.message_id
                     self.message_processor.last_message_time = time.time()
-
-                # Auto-detect git repository and enable git diff if available
-                try:
-                    result = subprocess.run(
-                        ["git", "rev-parse", "HEAD"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    if result.returncode == 0 and result.stdout.strip():
-                        self.initial_git_hash = result.stdout.strip()
-                        self.git_diff_enabled = True
-                        self.log(
-                            f"[INFO] Git diff enabled. Initial commit: {self.initial_git_hash[:8]}"
-                        )
-                    else:
-                        self.git_diff_enabled = False
-                        self.log("[INFO] Git diff disabled (not in a git repository)")
-                except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-                    self.git_diff_enabled = False
-                    self.log(
-                        f"[INFO] Git diff disabled (git not available or error: {e})"
-                    )
         except AuthenticationError as e:
             # Log the error
             self.log(f"[ERROR] Authentication failed: {e}")
