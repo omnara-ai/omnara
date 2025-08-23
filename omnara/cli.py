@@ -610,7 +610,7 @@ def add_global_arguments(parser):
     parser.add_argument(
         "--name",
         default=None,
-        help="Name of the omnara agent (defaults to 'Claude Code')",
+        help="Name of the omnara agent (defaults to the name of the underlying agent)",
     )
     parser.add_argument(
         "--permission-mode",
