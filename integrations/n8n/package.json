@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-omnara",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "n8n node for Omnara - communicate with AI agents",
   "keywords": [
     "n8n",
@@ -42,8 +42,7 @@
       "dist/credentials/OmnaraApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/Omnara/Omnara.node.js",
-      "dist/nodes/OmnaraWebhook/OmnaraWebhook.node.js"
+      "dist/nodes/Omnara/Omnara.node.js"
     ]
   },
   "devDependencies": {
