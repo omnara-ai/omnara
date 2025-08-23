@@ -135,7 +135,7 @@ class MessageProcessor:
             # Send to Omnara
             response = self.wrapper.omnara_client_sync.send_message(
                 content=sanitized_content,
-                agent_type="Claude Code",
+                agent_type=self.wrapper.name,
                 agent_instance_id=self.wrapper.agent_instance_id,
                 requires_user_input=False,
                 git_diff=git_diff,
@@ -189,11 +189,13 @@ class ClaudeWrapperV3:
         base_url: Optional[str] = None,
         permission_mode: Optional[str] = None,
         dangerously_skip_permissions: bool = False,
+        name: str = "Claude Code",
     ):
         # Session management
         self.agent_instance_id = str(uuid.uuid4())
         self.permission_mode = permission_mode
         self.dangerously_skip_permissions = dangerously_skip_permissions
+        self.name = name
 
         # Set up logging
         self.debug_log_file = None
@@ -510,7 +512,7 @@ class ClaudeWrapperV3:
                     # Send initial message
                     self.omnara_client_sync.send_message(
                         content=f"Claude session started: {summary}",
-                        agent_type="Claude Code",
+                        agent_type=self.name,
                         agent_instance_id=self.agent_instance_id,
                         requires_user_input=False,
                     )
@@ -573,7 +575,7 @@ class ClaudeWrapperV3:
                     if self.omnara_client_async:
                         response = await self.omnara_client_async.send_message(
                             content="Waiting for your input...",
-                            agent_type="Claude Code",
+                            agent_type=self.name,
                             agent_instance_id=self.agent_instance_id,
                             requires_user_input=True,
                             poll_interval=3.0,
@@ -884,7 +886,7 @@ class ClaudeWrapperV3:
                                     ):
                                         response = self.omnara_client_sync.send_message(
                                             content=permission_msg,
-                                            agent_type="Claude Code",
+                                            agent_type=self.name,
                                             agent_instance_id=self.agent_instance_id,
                                             requires_user_input=False,
                                         )
@@ -903,7 +905,7 @@ class ClaudeWrapperV3:
                             if self.agent_instance_id and self.omnara_client_sync:
                                 response = self.omnara_client_sync.send_message(
                                     content="Waiting for your input...",
-                                    agent_type="Claude Code",
+                                    agent_type=self.name,
                                     agent_instance_id=self.agent_instance_id,
                                     requires_user_input=False,
                                 )
@@ -1204,8 +1206,8 @@ class ClaudeWrapperV3:
             self.log("[INFO] Creating initial Omnara session...")
             if self.omnara_client_sync:
                 response = self.omnara_client_sync.send_message(
-                    content="Claude Code session started - waiting for your input...",
-                    agent_type="Claude Code",
+                    content=f"{self.name} session started - waiting for your input...",
+                    agent_type=self.name,
                     agent_instance_id=self.agent_instance_id,
                     requires_user_input=False,
                 )
@@ -1373,6 +1375,11 @@ def main():
     parser.add_argument("--api-key", help="Omnara API key")
     parser.add_argument("--base-url", help="Omnara base URL")
     parser.add_argument(
+        "--name",
+        default="Claude Code",
+        help="Name of the agent (defaults to 'Claude Code')",
+    )
+    parser.add_argument(
         "--permission-mode",
         choices=["acceptEdits", "bypassPermissions", "default", "plan"],
         help="Permission mode to use for the session",
@@ -1413,6 +1420,7 @@ def main():
         base_url=args.base_url,
         permission_mode=args.permission_mode,
         dangerously_skip_permissions=args.dangerously_skip_permissions,
+        name=args.name,
     )
 
     def signal_handler(sig, frame):
