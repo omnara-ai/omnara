@@ -25,6 +25,7 @@ import secrets
 import requests
 import time
 import threading
+import importlib
 
 
 def get_current_version():
@@ -475,9 +476,6 @@ def run_agent_chat(args, unknown_args):
             f"Unknown agent: {agent}. Supported agents: {', '.join(AGENT_CONFIGS.keys())}"
         )
 
-    # Dynamically import the appropriate wrapper
-    import importlib
-
     module = importlib.import_module(config["module"])
     wrapper_main = getattr(module, config["function"])
 
@@ -487,6 +485,10 @@ def run_agent_chat(args, unknown_args):
 
     if hasattr(args, "base_url") and args.base_url:
         new_argv.extend(["--base-url", args.base_url])
+
+    # Add name flag if provided
+    if hasattr(args, "name") and args.name:
+        new_argv.extend(["--name", args.name])
 
     # Add Claude-specific flags
     if hasattr(args, "permission_mode") and args.permission_mode:
@@ -604,6 +606,11 @@ def add_global_arguments(parser):
         choices=["claude", "amp"],
         default="claude",
         help="Which AI agent to use (default: claude)",
+    )
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Name of the omnara agent (defaults to 'Claude Code')",
     )
     parser.add_argument(
         "--permission-mode",
