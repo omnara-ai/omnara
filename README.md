@@ -102,12 +102,12 @@ graph TB
     W -->|User responses| API
     API -->|Deliver feedback| A
 
-    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style API fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px
-    style NOTIFY fill:#fff59d,stroke:#f57f17,stroke-width:2px
-    style M fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
-    style W fill:#f8bbd0,stroke:#c2185b,stroke-width:3px
+    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
+    style API fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px,color:#000
+    style NOTIFY fill:#fff59d,stroke:#f57f17,stroke-width:2px,color:#000
+    style M fill:#f8bbd0,stroke:#c2185b,stroke-width:3px,color:#000
+    style W fill:#f8bbd0,stroke:#c2185b,stroke-width:3px,color:#000
 ```
 
 ### 🚀 How It Works
