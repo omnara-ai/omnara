@@ -2,7 +2,7 @@
 
 import * as core from "@actions/core";
 import { preparePrompt } from "./prepare-prompt";
-import { runClaude } from "./run-claude";
+import { runOmnara } from "./run-omnara";
 import { setupClaudeCodeSettings } from "./setup-claude-code-settings";
 import { validateEnvironmentVariables } from "./validate-env";
 
@@ -21,7 +21,7 @@ async function run() {
       promptFile: process.env.INPUT_PROMPT_FILE || "",
     });
 
-    await runClaude(promptConfig.path, {
+    await runOmnara(promptConfig.path, {
       allowedTools: process.env.INPUT_ALLOWED_TOOLS,
       disallowedTools: process.env.INPUT_DISALLOWED_TOOLS,
       maxTurns: process.env.INPUT_MAX_TURNS,

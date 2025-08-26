@@ -177,9 +177,38 @@ runs:
         bun install
         echo "Base-action dependencies installed"
         cd -
-        # Install Claude Code globally
+        
+    - name: Install Claude Code and Omnara
+      if: steps.prepare.outputs.contains_trigger == 'true'
+      shell: bash
+      run: |
+        echo "Installing Claude Code CLI..."
+        # Install Claude Code globally (required by omnara headless)
         curl -fsSL https://claude.ai/install.sh | bash -s 1.0.89
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        echo "Claude Code installed"
+        
+        echo "Installing Python dependencies..."
+        # Ensure pip is available
+        python3 -m pip install --upgrade pip
+        # Install omnara package (which wraps Claude Code)
+        echo "Installing Omnara package..."
+        pip install omnara
+        echo "Omnara package installed"
+        
+    - name: Validate Omnara Configuration
+      if: steps.prepare.outputs.contains_trigger == 'true'
+      shell: bash
+      run: |
+        if [ -z "${OMNARA_API_KEY}" ]; then
+          echo "Error: OMNARA_API_KEY environment variable is required"
+          echo "Please ensure your workflow sets OMNARA_API_KEY from the client_payload"
+          exit 1
+        fi
+        if [ -z "${OMNARA_AGENT_INSTANCE_ID}" ]; then
+          echo "Warning: OMNARA_AGENT_INSTANCE_ID not set, will generate a random ID"
+        fi
+        echo "Omnara configuration validated"
 
     - name: Setup Network Restrictions
       if: steps.prepare.outputs.contains_trigger == 'true' && inputs.experimental_allowed_domains != ''
@@ -190,13 +219,13 @@ runs:
       env:
         EXPERIMENTAL_ALLOWED_DOMAINS: ${{ inputs.experimental_allowed_domains }}
 
-    - name: Run Claude Code
+    - name: Run Omnara Headless
       id: claude-code
       if: steps.prepare.outputs.contains_trigger == 'true'
       shell: bash
       run: |
 
-        # Run the base-action
+        # Run the base-action (which will now use omnara headless)
         bun run ${GITHUB_ACTION_PATH}/base-action/src/index.ts
       env:
         # Base-action inputs
@@ -245,6 +274,11 @@ runs:
         VERTEX_REGION_CLAUDE_3_5_HAIKU: ${{ env.VERTEX_REGION_CLAUDE_3_5_HAIKU }}
         VERTEX_REGION_CLAUDE_3_5_SONNET: ${{ env.VERTEX_REGION_CLAUDE_3_5_SONNET }}
         VERTEX_REGION_CLAUDE_3_7_SONNET: ${{ env.VERTEX_REGION_CLAUDE_3_7_SONNET }}
+        
+        # Omnara configuration (passed from repository_dispatch event)
+        OMNARA_API_KEY: ${{ env.OMNARA_API_KEY }}
+        OMNARA_AGENT_INSTANCE_ID: ${{ env.OMNARA_AGENT_INSTANCE_ID }}
+        OMNARA_AGENT_TYPE: ${{ env.OMNARA_AGENT_TYPE }}
 
     - name: Update comment with job link
       if: steps.prepare.outputs.contains_trigger == 'true' && steps.prepare.outputs.omnara_comment_id && always()

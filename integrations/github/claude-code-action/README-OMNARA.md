@@ -8,7 +8,20 @@
 3. Select the repositories you want to use with Omnara
 4. Click "Install & Authorize"
 
-### Step 2: Add the Workflow File
+### Step 2: Add Your Claude Authentication
+Since Omnara uses Claude Code under the hood, you need to provide Claude authentication.
+
+**Option A: Using Anthropic API Key (Most Common)**
+1. Go to your repository's Settings → Secrets and variables → Actions
+2. Click "New repository secret"
+3. Name: `ANTHROPIC_API_KEY`
+4. Value: Your Anthropic API key (starts with `sk-ant-`)
+5. Click "Add secret"
+
+**Option B: Using AWS Bedrock or Google Vertex AI**
+See the [Cloud Providers](#cloud-providers) section below for setup instructions.
+
+### Step 3: Add the Workflow File
 Create `.github/workflows/omnara.yml` in your repository:
 
 ```yaml
@@ -19,7 +32,7 @@ on:
     types: [omnara_trigger]
 
 jobs:
-  omnara-claude:
+  omnara-agent:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -38,22 +51,19 @@ jobs:
         with:
           mode: "agent"
           direct_prompt: "${{ github.event.client_payload.prompt }}"
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Claude authentication (choose one):
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}  # Option A
+          # use_bedrock: true  # Option B - AWS Bedrock
+          # use_vertex: true   # Option C - Google Vertex
           base_branch: ${{ github.event.client_payload.branch_name || github.event.default_branch }}
           branch_prefix: "omnara/"
           allowed_tools: "Edit,MultiEdit,Glob,Grep,LS,Read,Write,Bash(git:*)"
         env:
+          # Omnara configuration (automatically provided by Omnara platform):
           OMNARA_AGENT_INSTANCE_ID: ${{ github.event.client_payload.agent_instance_id }}
           OMNARA_API_KEY: ${{ github.event.client_payload.omnara_api_key }}
           OMNARA_AGENT_TYPE: ${{ github.event.client_payload.agent_type }}
 ```
-
-### Step 3: Add Your Anthropic API Key
-1. Go to your repository's Settings → Secrets and variables → Actions
-2. Click "New repository secret"
-3. Name: `ANTHROPIC_API_KEY`
-4. Value: Your Anthropic API key (starts with `sk-ant-`)
-5. Click "Add secret"
 
 ## That's It! 🎉
 
@@ -78,11 +88,12 @@ After installing the GitHub App, you can find your installation ID:
 ## Features
 
 - ✅ **No hosting required** - Runs entirely on GitHub Actions
-- ✅ **Human-in-the-loop** - Review and approve AI changes before they're applied
+- ✅ **Always Human-in-the-loop** - All actions go through Omnara dashboard for review
+- ✅ **Real-time monitoring** - Watch your AI agent work in the Omnara dashboard
 - ✅ **Branch management** - Automatically creates feature branches
 - ✅ **Full repository access** - Can read, write, and modify any files
 - ✅ **Git operations** - Can commit, push, and create pull requests
-- ✅ **Secure** - Your API keys never leave GitHub's secure environment
+- ✅ **Secure** - API keys are managed through Omnara, not stored in GitHub
 
 ## Customization
 
@@ -106,11 +117,18 @@ You can customize the workflow by modifying the action parameters:
 ```
 
 ### Environment Variables
-The following environment variables are automatically set by Omnara:
 
-- `OMNARA_AGENT_INSTANCE_ID` - Unique session identifier
-- `OMNARA_API_KEY` - For callbacks to Omnara platform
-- `OMNARA_AGENT_TYPE` - The type of agent (debugging, feature, etc.)
+#### Omnara Configuration (Automatically Provided)
+These are passed by the Omnara platform when triggering your workflow:
+- `OMNARA_API_KEY` - **Required**: Connects the action to your Omnara dashboard
+- `OMNARA_AGENT_INSTANCE_ID` - **Required**: Unique session identifier for tracking
+- `OMNARA_AGENT_TYPE` - Optional: The type of agent (defaults to "GitHub Action")
+
+#### Claude Authentication (You Provide)
+Since Omnara uses Claude Code under the hood, you need one of:
+- `ANTHROPIC_API_KEY` - Direct Anthropic API access
+- AWS Bedrock credentials (when `use_bedrock: true`)
+- Google Vertex credentials (when `use_vertex: true`)
 
 ## Troubleshooting
 
@@ -121,12 +139,13 @@ The following environment variables are automatically set by Omnara:
 
 ### Permission Errors
 - Make sure the workflow has the correct permissions (contents: write)
-- Verify your Anthropic API key is set correctly
+- Verify the OMNARA_API_KEY is being passed correctly from the dispatch event
 
 ### No Changes Appearing
 - Check the Actions tab in your repository to see workflow runs
 - Look at the workflow logs for any errors
-- Ensure your Anthropic API key has sufficient credits
+- Check your Omnara dashboard to see if the agent is waiting for approval
+- Ensure your Omnara account has sufficient credits
 
 ## Support
 
@@ -141,10 +160,38 @@ The following environment variables are automatically set by Omnara:
 - All code changes go through GitHub's security model
 - You maintain full control over your repository
 
+## Cloud Providers
+
+### Using AWS Bedrock
+If you prefer to use AWS Bedrock instead of the Anthropic API directly:
+
+```yaml
+with:
+  use_bedrock: true
+  model: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+### Using Google Vertex AI
+For Google Cloud users:
+
+```yaml
+with:
+  use_vertex: true
+  model: "claude-3-5-sonnet-v2@20241022"
+env:
+  ANTHROPIC_VERTEX_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  CLOUD_ML_REGION: ${{ vars.GCP_REGION }}
+  GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+```
+
 ## Pricing
 
 - **GitHub Actions**: Standard GitHub Actions pricing applies
-- **Anthropic API**: You use your own API key and credits
+- **Claude API**: You provide your own credentials (Anthropic, AWS, or GCP)
 - **Omnara Platform**: See [omnara.com/pricing](https://omnara.com/pricing)
 
 ## License
