@@ -1,0 +1,91 @@
+name: Omnara Code Assistant
+
+on:
+  repository_dispatch:
+    types: [omnara_trigger]
+
+jobs:
+  omnara-claude:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Check out the branch specified in the payload, or default to main
+          ref: ${{ github.event.client_payload.branch_name || github.event.default_branch }}
+      
+      - name: Set up environment
+        run: |
+          # Export Omnara parameters from the payload
+          echo "OMNARA_AGENT_INSTANCE_ID=${{ github.event.client_payload.agent_instance_id }}" >> $GITHUB_ENV
+          echo "OMNARA_API_KEY=${{ github.event.client_payload.omnara_api_key }}" >> $GITHUB_ENV
+          echo "OMNARA_AGENT_TYPE=${{ github.event.client_payload.agent_type || 'general' }}" >> $GITHUB_ENV
+          echo "OMNARA_PROMPT=${{ github.event.client_payload.prompt }}" >> $GITHUB_ENV
+          echo "OMNARA_BRANCH=${{ github.event.client_payload.branch_name || 'omnara/automated' }}" >> $GITHUB_ENV
+      
+      - name: Create prompt file
+        run: |
+          # Write the prompt to a file for the action to consume
+          mkdir -p /tmp/omnara
+          echo "${{ github.event.client_payload.prompt }}" > /tmp/omnara/prompt.txt
+      
+      - name: Run Omnara Code Action
+        uses: YOUR_GITHUB_USERNAME/omnara-code-action@main  # Users need to update this
+        with:
+          # Use the base action directly with Omnara parameters
+          mode: "agent"  # Agent mode for automated execution
+          direct_prompt: "${{ github.event.client_payload.prompt }}"
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Branch configuration
+          base_branch: ${{ github.event.client_payload.branch_name || github.event.default_branch }}
+          branch_prefix: "omnara/"
+          # Allow all necessary tools
+          allowed_tools: "Edit,MultiEdit,Glob,Grep,LS,Read,Write,Bash(git:*)"
+        env:
+          # Pass Omnara-specific environment variables
+          OMNARA_AGENT_INSTANCE_ID: ${{ env.OMNARA_AGENT_INSTANCE_ID }}
+          OMNARA_API_KEY: ${{ env.OMNARA_API_KEY }}
+          OMNARA_AGENT_TYPE: ${{ env.OMNARA_AGENT_TYPE }}
+      
+      - name: Commit and push changes
+        if: success()
+        run: |
+          git config --global user.name "omnara[bot]"
+          git config --global user.email "omnara[bot]@users.noreply.github.com"
+          
+          # Check if there are changes
+          if [[ -n $(git status -s) ]]; then
+            git add -A
+            git commit -m "Omnara changes for agent: ${{ env.OMNARA_AGENT_INSTANCE_ID }}
+            
+            Triggered via repository_dispatch
+            Agent type: ${{ env.OMNARA_AGENT_TYPE }}
+            "
+            
+            # Push to the specified branch or create new one
+            if [ "${{ github.event.client_payload.branch_name }}" != "" ]; then
+              git push origin HEAD:${{ github.event.client_payload.branch_name }} || \
+              git push origin HEAD:refs/heads/${{ github.event.client_payload.branch_name }}
+            else
+              # Create a new branch if none specified
+              BRANCH_NAME="omnara/agent-$(date +%Y%m%d-%H%M%S)"
+              git checkout -b $BRANCH_NAME
+              git push origin $BRANCH_NAME
+            fi
+          else
+            echo "No changes to commit"
+          fi
+      
+      - name: Report completion
+        if: always()
+        run: |
+          echo "Omnara execution completed"
+          echo "Agent Instance ID: ${{ env.OMNARA_AGENT_INSTANCE_ID }}"
+          echo "Status: ${{ job.status }}"
+          # Here you could add a webhook callback to Omnara platform if needed
