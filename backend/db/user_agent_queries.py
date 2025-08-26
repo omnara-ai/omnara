@@ -172,6 +172,7 @@ async def trigger_webhook_agent(
         "agent_instance_id": str(agent_instance_id),
         "prompt": prompt,
         "agent_type": user_agent.name,
+        "omnara_api_key": omnara_api_key,
     }
 
     if name is not None:
@@ -189,7 +190,6 @@ async def trigger_webhook_agent(
                     if user_agent.webhook_api_key
                     else "",
                     "Content-Type": "application/json",
-                    "X-Omnara-Api-Key": omnara_api_key,
                 },
             )
             response.raise_for_status()
