@@ -245,8 +245,7 @@ describe("sanitizeContent", () => {
 
 describe("redactGitHubTokens", () => {
   it("should redact personal access tokens (ghp_)", () => {
-    // github-push-protection:ignore - This is a test token for unit tests
-    const token = "ghp_" + "xz7yzju2SZjGPa0dUNMAx0SH4xDOCS31LXQW";
+    const token = "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";
     expect(redactGitHubTokens(`Token: ${token}`)).toBe(
       "Token: [REDACTED_GITHUB_TOKEN]",
     );
@@ -331,8 +330,8 @@ export GITHUB_TOKEN=[REDACTED_GITHUB_TOKEN]
 describe("sanitizeContent with token redaction", () => {
   it("should redact tokens as part of full sanitization", () => {
     const content = `
-      <!-- Hidden comment with token: ghp_${'xz7yzju2SZjGPa0dUNMAx0SH4xDOCS31LXQW'} -->
-      Here's some text with a token: gho_${'16C7e42F292c6912E7710c838347Ae178B4a'}
+      <!-- Hidden comment with token: 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 -->
+      Here's some text with a token: gho_16C7e42F292c6912E7710c838347Ae178B4a
       And invisible chars: test\u200Btoken
     `;
 
