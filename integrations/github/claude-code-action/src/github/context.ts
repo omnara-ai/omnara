@@ -34,6 +34,20 @@ export type ScheduleEvent = {
     };
   };
 };
+
+export type RepositoryDispatchEvent = {
+  action?: string;
+  client_payload?: Record<string, any>;
+  repository: {
+    name: string;
+    owner: {
+      login: string;
+    };
+  };
+  sender?: {
+    login: string;
+  };
+};
 import type { ModeName } from "../modes/types";
 import { DEFAULT_MODE, isValidMode } from "../modes/registry";
 
@@ -46,7 +60,7 @@ const ENTITY_EVENT_NAMES = [
   "pull_request_review_comment",
 ] as const;
 
-const AUTOMATION_EVENT_NAMES = ["workflow_dispatch", "schedule"] as const;
+const AUTOMATION_EVENT_NAMES = ["workflow_dispatch", "schedule", "repository_dispatch"] as const;
 
 // Derive types from constants for better maintainability
 type EntityEventName = (typeof ENTITY_EVENT_NAMES)[number];
@@ -97,7 +111,7 @@ export type ParsedGitHubContext = BaseContext & {
 // Context for automation events (workflow_dispatch, schedule)
 export type AutomationContext = BaseContext & {
   eventName: AutomationEventName;
-  payload: WorkflowDispatchEvent | ScheduleEvent;
+  payload: WorkflowDispatchEvent | ScheduleEvent | RepositoryDispatchEvent;
 };
 
 // Union type for all contexts
@@ -204,6 +218,18 @@ export function parseGitHubContext(): GitHubContext {
         ...commonFields,
         eventName: "schedule",
         payload: context.payload as unknown as ScheduleEvent,
+      };
+    }
+    case "repository_dispatch": {
+      // For repository_dispatch from Omnara, extract prompt from client_payload
+      const payload = context.payload as unknown as RepositoryDispatchEvent;
+      if (payload.client_payload?.prompt) {
+        commonFields.inputs.directPrompt = payload.client_payload.prompt;
+      }
+      return {
+        ...commonFields,
+        eventName: "repository_dispatch",
+        payload,
       };
     }
     default:

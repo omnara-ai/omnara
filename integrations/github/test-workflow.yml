@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Run Omnara Claude Code Action
-        uses: kartiksarangmath/omnara/integrations/github/claude-code-action@main
+        uses: omnara-ai/omnara/integrations/github/claude-code-action@github-action
         with:
           # Trigger configuration
           mode: "tag"
