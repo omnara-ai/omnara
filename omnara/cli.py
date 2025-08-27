@@ -384,6 +384,11 @@ def ensure_api_key(args):
     if hasattr(args, "api_key") and args.api_key:
         return args.api_key
 
+    # Check if API key is in environment variable
+    env_api_key = os.environ.get("OMNARA_API_KEY")
+    if env_api_key:
+        return env_api_key
+
     # Try to load from storage
     api_key = load_stored_api_key()
     if api_key:
