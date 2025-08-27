@@ -15,7 +15,7 @@ import type { FetchDataResult } from "../data/fetcher";
 
 export type BranchInfo = {
   baseBranch: string;
-  omnaraBranch?: string;
+  claudeBranch?: string;
   currentBranch: string;
 };
 
@@ -122,11 +122,11 @@ export async function setupBranch(
       await $`git checkout ${sourceBranch}`;
 
       // Set outputs for GitHub Actions
-      core.setOutput("OMNARA_BRANCH", newBranch);
+      core.setOutput("CLAUDE_BRANCH", newBranch);
       core.setOutput("BASE_BRANCH", sourceBranch);
       return {
         baseBranch: sourceBranch,
-        omnaraBranch: newBranch,
+        claudeBranch: newBranch,
         currentBranch: sourceBranch, // Stay on source branch for now
       };
     }
@@ -149,11 +149,11 @@ export async function setupBranch(
     );
 
     // Set outputs for GitHub Actions
-    core.setOutput("OMNARA_BRANCH", newBranch);
+    core.setOutput("CLAUDE_BRANCH", newBranch);
     core.setOutput("BASE_BRANCH", sourceBranch);
     return {
       baseBranch: sourceBranch,
-      omnaraBranch: newBranch,
+      claudeBranch: newBranch,
       currentBranch: newBranch,
     };
   } catch (error) {

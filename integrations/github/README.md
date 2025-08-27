@@ -2,8 +2,6 @@
 
 This integration allows you to trigger AI agents from GitHub issues, PRs, and the Omnara dashboard to automatically respond to comments and perform code tasks.
 
-> **Note:** This integration is based on Claude Code Action v0.x. The upstream repository has released v1.0 with breaking changes. We'll update to v1.0 in a future release.
-
 ## Quick Setup Guide
 
 ### Prerequisites
@@ -29,7 +27,7 @@ Visit [github.com/apps/claude-code](https://github.com/apps/claude-code) and ins
 ### Step 2: Add the Workflow to Your Repository
 
 1. Create `.github/workflows/omnara.yml` in your repository
-2. Copy the workflow from [test-workflow.yml](test-workflow.yml)
+2. Copy the workflow from [claude-code-action/examples/omnara-repository-dispatch.yml](claude-code-action/examples/omnara-repository-dispatch.yml)
 3. Commit and push the file
 
 ### Step 3: Configure Repository Secrets
@@ -60,11 +58,14 @@ From the Omnara dashboard, you can now:
 1. **From Omnara Dashboard**: 
    - You launch an agent with a prompt
    - Omnara sends a `repository_dispatch` event to GitHub
-   - GitHub Actions workflow runs with the AI agent
+   - GitHub Actions workflow runs with Omnara tracking
 
-2. **From GitHub Comments** (optional):
-   - Comment `@omnara [your request]` on an issue or PR
-   - The workflow detects the mention and responds
+2. **From GitHub Comments**:
+   - **`@omnara [request]`** - Runs with Omnara session tracking (visible in dashboard)
+     - Requires `OMNARA_API_KEY` in secrets, falls back to Claude if missing
+   - **`@claude [request]`** - Runs standard Claude Code (no tracking, faster)
+   
+The action automatically chooses based on the trigger phrase!
 
 ## Webhook Payload Structure
 
@@ -77,7 +78,8 @@ When triggering from Omnara, the webhook sends:
     "prompt": "Your task for the AI agent",
     "omnara_api_key": "YOUR_OMNARA_API_KEY",
     "agent_instance_id": "unique-instance-id",
-    "agent_type": "Claude Code"
+    "agent_type": "Claude Code",
+    "branch_name": "feature/new-feature"  // Optional: target branch
   }
 }
 ```
@@ -97,7 +99,8 @@ curl -X POST \
       "prompt": "Add a README file with project description",
       "omnara_api_key": "YOUR_OMNARA_API_KEY",
       "agent_instance_id": "test-123",
-      "agent_type": "Claude Code"
+      "agent_type": "Claude Code",
+      "branch_name": "docs/add-readme"
     }
   }'
 ```
@@ -111,18 +114,16 @@ curl -X POST \
 
 ## Configuration Options
 
-The workflow supports these inputs:
+The workflow uses Claude Code Action v1.0 with these key inputs:
 
-- `mode`: Set to `agent` for repository_dispatch, `tag` for @omnara mentions
-- `model`: AI model to use (default: `claude-3-5-sonnet-latest`)
-- `max_turns`: Maximum conversation turns (default: 30)
-- `timeout_minutes`: Execution timeout (default: 30)
-- `branch_prefix`: Prefix for created branches (default: `omnara/`)
-- `direct_prompt`: The prompt to execute (for agent mode)
+- `prompt`: Instructions for Claude (auto-detects mode based on presence)
+- `claude_args`: Configuration arguments like `--max-turns 30 --model claude-3-5-sonnet-latest`
+- `trigger_phrase`: Override to use `@omnara` instead of `@claude`
+- `branch_prefix`: Prefix for created branches (default: `claude/`)
 
-**Note:** The workflow automatically uses:
-- `mode: agent` for repository_dispatch events
-- `mode: tag` for comment triggers (@omnara mentions)
+The action automatically detects:
+- **With prompt provided** → Runs in automation mode (for repository_dispatch)
+- **Without prompt** → Waits for @omnara mentions in comments
 
 ## Architecture
 
@@ -140,9 +141,10 @@ AI performs tasks in repository
 
 ## Files in This Integration
 
-- `test-workflow.yml`: Example workflow file for your repository
-- `webhook-server.py`: Server component that handles webhook requests
-- `claude-code-action/`: GitHub Action implementation (used by the workflow)
+- `claude-code-action/`: GitHub Action v1.0 with smart Omnara integration
+  - `examples/omnara-repository-dispatch.yml`: Example workflow for your repository
+  - `README-OMNARA.md`: Detailed documentation about the Omnara integration
+  - Smart detection: Uses Omnara for `@omnara` mentions, standard Claude for `@claude`
 
 ## Troubleshooting
 

@@ -10,8 +10,7 @@ import { setupGitHubToken } from "../github/token";
 import { checkWritePermissions } from "../github/validation/permissions";
 import { createOctokit } from "../github/api/client";
 import { parseGitHubContext, isEntityContext } from "../github/context";
-import { getMode, isValidMode, DEFAULT_MODE } from "../modes/registry";
-import type { ModeName } from "../modes/types";
+import { getMode } from "../modes/registry";
 import { prepare } from "../prepare";
 import { collectActionInputsPresence } from "./collect-inputs";
 
@@ -19,35 +18,15 @@ async function run() {
   try {
     collectActionInputsPresence();
 
-    // Step 1: Get mode first to determine authentication method
-    const modeInput = process.env.MODE || DEFAULT_MODE;
-
-    // Validate mode input
-    if (!isValidMode(modeInput)) {
-      throw new Error(`Invalid mode: ${modeInput}`);
-    }
-    const validatedMode: ModeName = modeInput;
-
-    // Step 2: Setup GitHub token based on mode
-    let githubToken: string;
-    if (validatedMode === "experimental-review") {
-      // For experimental-review mode, use the default GitHub Action token
-      githubToken = process.env.DEFAULT_WORKFLOW_TOKEN || "";
-      if (!githubToken) {
-        throw new Error(
-          "DEFAULT_WORKFLOW_TOKEN not found for experimental-review mode",
-        );
-      }
-      console.log("Using default GitHub Action token for review mode");
-      core.setOutput("GITHUB_TOKEN", githubToken);
-    } else {
-      // For other modes, use the existing token exchange
-      githubToken = await setupGitHubToken();
-    }
-    const octokit = createOctokit(githubToken);
-
-    // Step 2: Parse GitHub context (once for all operations)
+    // Parse GitHub context first to enable mode detection
     const context = parseGitHubContext();
+
+    // Auto-detect mode based on context
+    const mode = getMode(context);
+
+    // Setup GitHub token
+    const githubToken = await setupGitHubToken();
+    const octokit = createOctokit(githubToken);
 
     // Step 3: Check write permissions (only for entity contexts)
     if (isEntityContext(context)) {
@@ -62,15 +41,21 @@ async function run() {
       }
     }
 
-    // Step 4: Get mode and check trigger conditions
-    const mode = getMode(validatedMode, context);
+    // Check trigger conditions
     const containsTrigger = mode.shouldTrigger(context);
+
+    // Debug logging
+    console.log(`Mode: ${mode.name}`);
+    console.log(`Context prompt: ${context.inputs?.prompt || "NO PROMPT"}`);
+    console.log(`Trigger result: ${containsTrigger}`);
 
     // Set output for action.yml to check
     core.setOutput("contains_trigger", containsTrigger.toString());
 
     if (!containsTrigger) {
       console.log("No trigger found, skipping remaining steps");
+      // Still set github_token output even when skipping
+      core.setOutput("github_token", githubToken);
       return;
     }
 
@@ -82,15 +67,17 @@ async function run() {
       githubToken,
     });
 
-    // Set the MCP config output
-    core.setOutput("mcp_config", result.mcpConfig);
+    // MCP config is handled by individual modes (tag/agent) and included in their claude_args output
+
+    // Expose the GitHub token (Claude App token) as an output
+    core.setOutput("github_token", githubToken);
 
     // Step 6: Get system prompt from mode if available
     if (mode.getSystemPrompt) {
       const modeContext = mode.prepareContext(context, {
         commentId: result.commentId,
         baseBranch: result.branchInfo.baseBranch,
-        omnaraBranch: result.branchInfo.omnaraBranch,
+        claudeBranch: result.branchInfo.claudeBranch,
       });
       const systemPrompt = mode.getSystemPrompt(modeContext);
       if (systemPrompt) {

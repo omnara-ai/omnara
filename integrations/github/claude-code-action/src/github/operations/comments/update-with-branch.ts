@@ -15,7 +15,7 @@ import {
   isPullRequestReviewCommentEvent,
   type ParsedGitHubContext,
 } from "../../context";
-import { updateOmnaraComment } from "./update-omnara-comment";
+import { updateClaudeComment } from "./update-claude-comment";
 
 export async function updateTrackingComment(
   octokit: Octokits,
@@ -39,7 +39,7 @@ export async function updateTrackingComment(
   try {
     const isPRReviewComment = isPullRequestReviewCommentEvent(context);
 
-    await updateOmnaraComment(octokit.rest, {
+    await updateClaudeComment(octokit.rest, {
       owner,
       repo,
       commentId,

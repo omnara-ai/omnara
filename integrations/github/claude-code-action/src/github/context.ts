@@ -6,6 +6,7 @@ import type {
   PullRequestEvent,
   PullRequestReviewEvent,
   PullRequestReviewCommentEvent,
+  WorkflowRunEvent,
 } from "@octokit/webhooks-types";
 // Custom types for GitHub Actions events that aren't webhooks
 export type WorkflowDispatchEvent = {
@@ -48,8 +49,6 @@ export type RepositoryDispatchEvent = {
     login: string;
   };
 };
-import type { ModeName } from "../modes/types";
-import { DEFAULT_MODE, isValidMode } from "../modes/registry";
 
 // Event name constants for better maintainability
 const ENTITY_EVENT_NAMES = [
@@ -60,7 +59,12 @@ const ENTITY_EVENT_NAMES = [
   "pull_request_review_comment",
 ] as const;
 
-const AUTOMATION_EVENT_NAMES = ["workflow_dispatch", "schedule", "repository_dispatch"] as const;
+const AUTOMATION_EVENT_NAMES = [
+  "workflow_dispatch",
+  "schedule",
+  "workflow_run",
+  "repository_dispatch",
+] as const;
 
 // Derive types from constants for better maintainability
 type EntityEventName = (typeof ENTITY_EVENT_NAMES)[number];
@@ -77,19 +81,13 @@ type BaseContext = {
   };
   actor: string;
   inputs: {
-    mode: ModeName;
+    prompt: string;
     triggerPhrase: string;
     assigneeTrigger: string;
     labelTrigger: string;
-    allowedTools: string[];
-    disallowedTools: string[];
-    customInstructions: string;
-    directPrompt: string;
-    overridePrompt: string;
     baseBranch?: string;
     branchPrefix: string;
     useStickyComment: boolean;
-    additionalPermissions: Map<string, string>;
     useCommitSigning: boolean;
     allowedBots: string;
   };
@@ -108,10 +106,10 @@ export type ParsedGitHubContext = BaseContext & {
   isPR: boolean;
 };
 
-// Context for automation events (workflow_dispatch, schedule)
+// Context for automation events (workflow_dispatch, schedule, workflow_run, repository_dispatch)
 export type AutomationContext = BaseContext & {
   eventName: AutomationEventName;
-  payload: WorkflowDispatchEvent | ScheduleEvent | RepositoryDispatchEvent;
+  payload: WorkflowDispatchEvent | ScheduleEvent | WorkflowRunEvent | RepositoryDispatchEvent;
 };
 
 // Union type for all contexts
@@ -119,11 +117,6 @@ export type GitHubContext = ParsedGitHubContext | AutomationContext;
 
 export function parseGitHubContext(): GitHubContext {
   const context = github.context;
-
-  const modeInput = process.env.MODE ?? DEFAULT_MODE;
-  if (!isValidMode(modeInput)) {
-    throw new Error(`Invalid mode: ${modeInput}.`);
-  }
 
   const commonFields = {
     runId: process.env.GITHUB_RUN_ID!,
@@ -135,21 +128,13 @@ export function parseGitHubContext(): GitHubContext {
     },
     actor: context.actor,
     inputs: {
-      mode: modeInput as ModeName,
-      triggerPhrase: process.env.TRIGGER_PHRASE ?? "@omnara",
+      prompt: process.env.PROMPT || "",
+      triggerPhrase: process.env.TRIGGER_PHRASE ?? "@claude",
       assigneeTrigger: process.env.ASSIGNEE_TRIGGER ?? "",
       labelTrigger: process.env.LABEL_TRIGGER ?? "",
-      allowedTools: parseMultilineInput(process.env.ALLOWED_TOOLS ?? ""),
-      disallowedTools: parseMultilineInput(process.env.DISALLOWED_TOOLS ?? ""),
-      customInstructions: process.env.CUSTOM_INSTRUCTIONS ?? "",
-      directPrompt: process.env.DIRECT_PROMPT ?? "",
-      overridePrompt: process.env.OVERRIDE_PROMPT ?? "",
       baseBranch: process.env.BASE_BRANCH,
-      branchPrefix: process.env.BRANCH_PREFIX ?? "omnara/",
+      branchPrefix: process.env.BRANCH_PREFIX ?? "claude/",
       useStickyComment: process.env.USE_STICKY_COMMENT === "true",
-      additionalPermissions: parseAdditionalPermissions(
-        process.env.ADDITIONAL_PERMISSIONS ?? "",
-      ),
       useCommitSigning: process.env.USE_COMMIT_SIGNING === "true",
       allowedBots: process.env.ALLOWED_BOTS ?? "",
     },
@@ -220,48 +205,23 @@ export function parseGitHubContext(): GitHubContext {
         payload: context.payload as unknown as ScheduleEvent,
       };
     }
+    case "workflow_run": {
+      return {
+        ...commonFields,
+        eventName: "workflow_run",
+        payload: context.payload as unknown as WorkflowRunEvent,
+      };
+    }
     case "repository_dispatch": {
-      // For repository_dispatch from Omnara, extract prompt from client_payload
-      const payload = context.payload as unknown as RepositoryDispatchEvent;
-      if (payload.client_payload?.prompt) {
-        commonFields.inputs.directPrompt = payload.client_payload.prompt;
-      }
       return {
         ...commonFields,
         eventName: "repository_dispatch",
-        payload,
+        payload: context.payload as unknown as RepositoryDispatchEvent,
       };
     }
     default:
       throw new Error(`Unsupported event type: ${context.eventName}`);
   }
-}
-
-export function parseMultilineInput(s: string): string[] {
-  return s
-    .split(/,|[\n\r]+/)
-    .map((tool) => tool.replace(/#.+$/, ""))
-    .map((tool) => tool.trim())
-    .filter((tool) => tool.length > 0);
-}
-
-export function parseAdditionalPermissions(s: string): Map<string, string> {
-  const permissions = new Map<string, string>();
-  if (!s || !s.trim()) {
-    return permissions;
-  }
-
-  const lines = s.trim().split("\n");
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-    if (trimmedLine) {
-      const [key, value] = trimmedLine.split(":").map((part) => part.trim());
-      if (key && value) {
-        permissions.set(key, value);
-      }
-    }
-  }
-  return permissions;
 }
 
 export function isIssuesEvent(

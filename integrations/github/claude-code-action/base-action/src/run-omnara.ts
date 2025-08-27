@@ -1,10 +1,7 @@
 import * as core from "@actions/core";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { unlink, writeFile, stat, readFile } from "fs/promises";
 import { spawn } from "child_process";
-
-const execAsync = promisify(exec);
+import { unlink, writeFile, stat, readFile } from "fs/promises";
+import { promisify } from "util";
 
 const EXECUTION_FILE = `${process.env.RUNNER_TEMP}/omnara-execution-output.json`;
 

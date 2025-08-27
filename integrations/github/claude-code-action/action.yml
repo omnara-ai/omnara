@@ -1,5 +1,5 @@
-name: "Omnara Code Action"
-description: "General-purpose Claude agent for GitHub PRs and issues. Can answer questions and implement code changes."
+name: "Claude Code Action v1.0"
+description: "Flexible GitHub automation platform with Claude. Auto-detects mode based on event type: PR reviews, @claude mentions, or custom automation."
 branding:
   icon: "at-sign"
   color: "orange"
@@ -8,70 +8,29 @@ inputs:
   trigger_phrase:
     description: "The trigger phrase to look for in comments or issue body"
     required: false
-    default: "@omnara"
+    default: "@claude"
   assignee_trigger:
     description: "The assignee username that triggers the action (e.g. @claude)"
     required: false
   label_trigger:
-    description: "The label that triggers the action (e.g. omnara)"
+    description: "The label that triggers the action (e.g. claude)"
     required: false
-    default: "omnara"
+    default: "claude"
   base_branch:
     description: "The branch to use as the base/source when creating new branches (defaults to repository default branch)"
     required: false
   branch_prefix:
-    description: "The prefix to use for Omnara branches (defaults to 'omnara/', use 'omnara-' for dash format)"
+    description: "The prefix to use for Claude branches (defaults to 'claude/', use 'claude-' for dash format)"
     required: false
-    default: "omnara/"
+    default: "claude/"
   allowed_bots:
     description: "Comma-separated list of allowed bot usernames, or '*' to allow all bots. Empty string (default) allows no bots."
     required: false
     default: ""
 
-  # Mode configuration
-  mode:
-    description: "Execution mode for the action. Valid modes: 'tag' (default - triggered by mentions/assignments), 'agent' (for automation with no trigger checking), 'experimental-review' (experimental mode for code reviews with inline comments and suggestions)"
-    required: false
-    default: "tag"
-
   # Claude Code configuration
-  model:
-    description: "Model to use (provider-specific format required for Bedrock/Vertex)"
-    required: false
-  anthropic_model:
-    description: "DEPRECATED: Use 'model' instead. Model to use (provider-specific format required for Bedrock/Vertex)"
-    required: false
-  fallback_model:
-    description: "Enable automatic fallback to specified model when primary model is unavailable"
-    required: false
-  allowed_tools:
-    description: "Additional tools for Claude to use (the base GitHub tools will always be included)"
-    required: false
-    default: ""
-  disallowed_tools:
-    description: "Tools that Claude should never use"
-    required: false
-    default: ""
-  custom_instructions:
-    description: "Additional custom instructions to include in the prompt for Claude"
-    required: false
-    default: ""
-  direct_prompt:
-    description: "Direct instruction for Claude (bypasses normal trigger detection)"
-    required: false
-    default: ""
-  override_prompt:
-    description: "Complete replacement of Claude's prompt with custom template (supports variable substitution)"
-    required: false
-    default: ""
-  mcp_config:
-    description: "Additional MCP configuration (JSON string) that merges with the built-in GitHub MCP servers"
-  additional_permissions:
-    description: "Additional permissions to enable. Currently supports 'actions: read' for viewing workflow results"
-    required: false
-    default: ""
-  claude_env:
-    description: "Custom environment variables to pass to Claude Code execution (YAML format)"
+  prompt:
+    description: "Instructions for Claude. Can be a direct prompt or custom template."
     required: false
     default: ""
   settings:
@@ -98,14 +57,14 @@ inputs:
     required: false
     default: "false"
 
-  max_turns:
-    description: "Maximum number of conversation turns"
+  claude_args:
+    description: "Additional arguments to pass directly to Claude CLI"
     required: false
     default: ""
-  timeout_minutes:
-    description: "Timeout in minutes for execution"
+  additional_permissions:
+    description: "Additional GitHub permissions to request (e.g., 'actions: read')"
     required: false
-    default: "30"
+    default: ""
   use_sticky_comment:
     description: "Use just one comment to deliver issue/PR comments"
     required: false
@@ -118,6 +77,14 @@ inputs:
     description: "Restrict network access to these domains only (newline-separated). If not set, no restrictions are applied. Provider domains are auto-detected."
     required: false
     default: ""
+  path_to_claude_code_executable:
+    description: "Optional path to a custom Claude Code executable. If provided, skips automatic installation and uses this executable instead. WARNING: Using an older version may cause problems if the action begins taking advantage of new Claude Code features. This input is typically not needed unless you're debugging something specific or have unique needs in your environment."
+    required: false
+    default: ""
+  path_to_bun_executable:
+    description: "Optional path to a custom Bun executable. If provided, skips automatic Bun installation and uses this executable instead. WARNING: Using an incompatible version may cause problems if the action requires specific Bun features. This input is typically not needed unless you're debugging something specific or have unique needs in your environment."
+    required: false
+    default: ""
 
 outputs:
   execution_file:
@@ -125,15 +92,28 @@ outputs:
     value: ${{ steps.claude-code.outputs.execution_file }}
   branch_name:
     description: "The branch created by Claude Code for this execution"
-    value: ${{ steps.prepare.outputs.OMNARA_BRANCH }}
+    value: ${{ steps.prepare.outputs.CLAUDE_BRANCH }}
+  github_token:
+    description: "The GitHub token used by the action (Claude App token if available)"
+    value: ${{ steps.prepare.outputs.github_token }}
 
 runs:
   using: "composite"
   steps:
     - name: Install Bun
+      if: inputs.path_to_bun_executable == ''
       uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # https://github.com/oven-sh/setup-bun/releases/tag/v2.0.2
       with:
         bun-version: 1.2.11
+
+    - name: Setup Custom Bun Path
+      if: inputs.path_to_bun_executable != ''
+      shell: bash
+      run: |
+        echo "Using custom Bun executable: ${{ inputs.path_to_bun_executable }}"
+        # Add the directory containing the custom executable to PATH
+        BUN_DIR=$(dirname "${{ inputs.path_to_bun_executable }}")
+        echo "$BUN_DIR" >> "$GITHUB_PATH"
 
     - name: Install Dependencies
       shell: bash
@@ -148,24 +128,20 @@ runs:
         bun run ${GITHUB_ACTION_PATH}/src/entrypoints/prepare.ts
       env:
         MODE: ${{ inputs.mode }}
+        PROMPT: ${{ inputs.prompt }}
         TRIGGER_PHRASE: ${{ inputs.trigger_phrase }}
         ASSIGNEE_TRIGGER: ${{ inputs.assignee_trigger }}
         LABEL_TRIGGER: ${{ inputs.label_trigger }}
         BASE_BRANCH: ${{ inputs.base_branch }}
         BRANCH_PREFIX: ${{ inputs.branch_prefix }}
-        ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
-        DISALLOWED_TOOLS: ${{ inputs.disallowed_tools }}
-        CUSTOM_INSTRUCTIONS: ${{ inputs.custom_instructions }}
-        DIRECT_PROMPT: ${{ inputs.direct_prompt }}
-        OVERRIDE_PROMPT: ${{ inputs.override_prompt }}
-        MCP_CONFIG: ${{ inputs.mcp_config }}
         OVERRIDE_GITHUB_TOKEN: ${{ inputs.github_token }}
         ALLOWED_BOTS: ${{ inputs.allowed_bots }}
         GITHUB_RUN_ID: ${{ github.run_id }}
         USE_STICKY_COMMENT: ${{ inputs.use_sticky_comment }}
         DEFAULT_WORKFLOW_TOKEN: ${{ github.token }}
-        ADDITIONAL_PERMISSIONS: ${{ inputs.additional_permissions }}
         USE_COMMIT_SIGNING: ${{ inputs.use_commit_signing }}
+        ADDITIONAL_PERMISSIONS: ${{ inputs.additional_permissions }}
+        CLAUDE_ARGS: ${{ inputs.claude_args }}
         ALL_INPUTS: ${{ toJson(inputs) }}
 
     - name: Install Base Action Dependencies
@@ -177,38 +153,26 @@ runs:
         bun install
         echo "Base-action dependencies installed"
         cd -
-        
-    - name: Install Claude Code and Omnara
-      if: steps.prepare.outputs.contains_trigger == 'true'
-      shell: bash
-      run: |
-        echo "Installing Claude Code CLI..."
-        # Install Claude Code globally (required by omnara headless)
-        curl -fsSL https://claude.ai/install.sh | bash -s 1.0.89
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        echo "Claude Code installed"
-        
-        echo "Installing Python dependencies..."
-        # Ensure pip is available
-        python3 -m pip install --upgrade pip
-        # Install omnara package (which wraps Claude Code)
-        echo "Installing Omnara package..."
-        pip install omnara
-        echo "Omnara package installed"
-        
-    - name: Validate Omnara Configuration
-      if: steps.prepare.outputs.contains_trigger == 'true'
-      shell: bash
-      run: |
-        if [ -z "${OMNARA_API_KEY}" ]; then
-          echo "Error: OMNARA_API_KEY environment variable is required"
-          echo "Please ensure your workflow sets OMNARA_API_KEY from the client_payload"
-          exit 1
+
+        # Install Claude Code if no custom executable is provided
+        if [ -z "${{ inputs.path_to_claude_code_executable }}" ]; then
+          echo "Installing Claude Code..."
+          curl -fsSL https://claude.ai/install.sh | bash -s 1.0.93
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        else
+          echo "Using custom Claude Code executable: ${{ inputs.path_to_claude_code_executable }}"
+          # Add the directory containing the custom executable to PATH
+          CLAUDE_DIR=$(dirname "${{ inputs.path_to_claude_code_executable }}")
+          echo "$CLAUDE_DIR" >> "$GITHUB_PATH"
         fi
-        if [ -z "${OMNARA_AGENT_INSTANCE_ID}" ]; then
-          echo "Warning: OMNARA_AGENT_INSTANCE_ID not set, will generate a random ID"
+        
+        # Install Omnara if OMNARA_API_KEY is set
+        if [ -n "${OMNARA_API_KEY}" ]; then
+          echo "Omnara API key detected, installing Omnara package..."
+          python3 -m pip install --upgrade pip
+          pip install omnara
+          echo "Omnara package installed"
         fi
-        echo "Omnara configuration validated"
 
     - name: Setup Network Restrictions
       if: steps.prepare.outputs.contains_trigger == 'true' && inputs.experimental_allowed_domains != ''
@@ -219,33 +183,26 @@ runs:
       env:
         EXPERIMENTAL_ALLOWED_DOMAINS: ${{ inputs.experimental_allowed_domains }}
 
-    - name: Run Omnara Headless
+    - name: Run Claude Code
       id: claude-code
       if: steps.prepare.outputs.contains_trigger == 'true'
       shell: bash
       run: |
 
-        # Run the base-action (which will now use omnara headless)
+        # Run the base-action
         bun run ${GITHUB_ACTION_PATH}/base-action/src/index.ts
       env:
         # Base-action inputs
         CLAUDE_CODE_ACTION: "1"
         INPUT_PROMPT_FILE: ${{ runner.temp }}/claude-prompts/claude-prompt.txt
-        INPUT_ALLOWED_TOOLS: ${{ env.ALLOWED_TOOLS }}
-        INPUT_DISALLOWED_TOOLS: ${{ env.DISALLOWED_TOOLS }}
-        INPUT_MAX_TURNS: ${{ inputs.max_turns }}
-        INPUT_MCP_CONFIG: ${{ steps.prepare.outputs.mcp_config }}
         INPUT_SETTINGS: ${{ inputs.settings }}
-        INPUT_SYSTEM_PROMPT: ""
-        INPUT_APPEND_SYSTEM_PROMPT: ${{ env.APPEND_SYSTEM_PROMPT }}
-        INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
-        INPUT_CLAUDE_ENV: ${{ inputs.claude_env }}
-        INPUT_FALLBACK_MODEL: ${{ inputs.fallback_model }}
+        INPUT_CLAUDE_ARGS: ${{ steps.prepare.outputs.claude_args }}
         INPUT_EXPERIMENTAL_SLASH_COMMANDS_DIR: ${{ github.action_path }}/slash-commands
         INPUT_ACTION_INPUTS_PRESENT: ${{ steps.prepare.outputs.action_inputs_present }}
+        INPUT_PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
+        INPUT_PATH_TO_BUN_EXECUTABLE: ${{ inputs.path_to_bun_executable }}
 
         # Model configuration
-        ANTHROPIC_MODEL: ${{ inputs.model || inputs.anthropic_model }}
         GITHUB_TOKEN: ${{ steps.prepare.outputs.GITHUB_TOKEN }}
         NODE_VERSION: ${{ env.NODE_VERSION }}
         DETAILED_PERMISSION_MESSAGES: "1"
@@ -275,28 +232,32 @@ runs:
         VERTEX_REGION_CLAUDE_3_5_SONNET: ${{ env.VERTEX_REGION_CLAUDE_3_5_SONNET }}
         VERTEX_REGION_CLAUDE_3_7_SONNET: ${{ env.VERTEX_REGION_CLAUDE_3_7_SONNET }}
         
-        # Omnara configuration (passed from repository_dispatch event)
+        # Omnara configuration (dynamically enabled when API key present)
         OMNARA_API_KEY: ${{ env.OMNARA_API_KEY }}
         OMNARA_AGENT_INSTANCE_ID: ${{ env.OMNARA_AGENT_INSTANCE_ID }}
         OMNARA_AGENT_TYPE: ${{ env.OMNARA_AGENT_TYPE }}
+        
+        # Pass context for dynamic Omnara detection
+        TRIGGER_PHRASE: ${{ inputs.trigger_phrase }}
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
 
     - name: Update comment with job link
-      if: steps.prepare.outputs.contains_trigger == 'true' && steps.prepare.outputs.omnara_comment_id && always()
+      if: steps.prepare.outputs.contains_trigger == 'true' && steps.prepare.outputs.claude_comment_id && always()
       shell: bash
       run: |
         bun run ${GITHUB_ACTION_PATH}/src/entrypoints/update-comment-link.ts
       env:
         REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        OMNARA_COMMENT_ID: ${{ steps.prepare.outputs.omnara_comment_id }}
+        CLAUDE_COMMENT_ID: ${{ steps.prepare.outputs.claude_comment_id }}
         GITHUB_RUN_ID: ${{ github.run_id }}
         GITHUB_TOKEN: ${{ steps.prepare.outputs.GITHUB_TOKEN }}
         GITHUB_EVENT_NAME: ${{ github.event_name }}
         TRIGGER_COMMENT_ID: ${{ github.event.comment.id }}
-        OMNARA_BRANCH: ${{ steps.prepare.outputs.OMNARA_BRANCH }}
+        CLAUDE_BRANCH: ${{ steps.prepare.outputs.CLAUDE_BRANCH }}
         IS_PR: ${{ github.event.issue.pull_request != null || github.event_name == 'pull_request_review_comment' }}
         BASE_BRANCH: ${{ steps.prepare.outputs.BASE_BRANCH }}
-        OMNARA_SUCCESS: ${{ steps.claude-code.outputs.conclusion == 'success' }}
+        CLAUDE_SUCCESS: ${{ steps.claude-code.outputs.conclusion == 'success' }}
         OUTPUT_FILE: ${{ steps.claude-code.outputs.execution_file || '' }}
         TRIGGER_USERNAME: ${{ github.event.comment.user.login || github.event.issue.user.login || github.event.pull_request.user.login || github.event.sender.login || github.triggering_actor || github.actor || '' }}
         PREPARE_SUCCESS: ${{ steps.prepare.outcome == 'success' }}

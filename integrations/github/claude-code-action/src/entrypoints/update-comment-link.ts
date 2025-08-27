@@ -13,13 +13,13 @@ import {
 } from "../github/context";
 import { GITHUB_SERVER_URL } from "../github/api/config";
 import { checkAndCommitOrDeleteBranch } from "../github/operations/branch-cleanup";
-import { updateOmnaraComment } from "../github/operations/comments/update-omnara-comment";
+import { updateClaudeComment } from "../github/operations/comments/update-claude-comment";
 
 async function run() {
   try {
-    const commentId = parseInt(process.env.OMNARA_COMMENT_ID!);
+    const commentId = parseInt(process.env.CLAUDE_COMMENT_ID!);
     const githubToken = process.env.GITHUB_TOKEN!;
-    const omnaraBranch = process.env.OMNARA_BRANCH;
+    const claudeBranch = process.env.CLAUDE_BRANCH;
     const baseBranch = process.env.BASE_BRANCH || "main";
     const triggerUsername = process.env.TRIGGER_USERNAME;
 
@@ -102,15 +102,15 @@ async function run() {
         octokit,
         owner,
         repo,
-        omnaraBranch,
+        claudeBranch,
         baseBranch,
         useCommitSigning,
       );
 
     // Check if we need to add PR URL when we have a new branch
     let prLink = "";
-    // If omnaraBranch is set, it means we created a new branch (for issues or closed/merged PRs)
-    if (omnaraBranch && !shouldDeleteBranch) {
+    // If claudeBranch is set, it means we created a new branch (for issues or closed/merged PRs)
+    if (claudeBranch && !shouldDeleteBranch) {
       // Check if comment already contains a PR URL
       const serverUrlPattern = serverUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const prUrlPattern = new RegExp(
@@ -125,7 +125,7 @@ async function run() {
             await octokit.rest.repos.compareCommitsWithBasehead({
               owner,
               repo,
-              basehead: `${baseBranch}...${omnaraBranch}`,
+              basehead: `${baseBranch}...${claudeBranch}`,
             });
 
           // If there are changes (commits or file changes), add the PR URL
@@ -140,7 +140,7 @@ async function run() {
             const prBody = encodeURIComponent(
               `This PR addresses ${entityType.toLowerCase()} #${context.entityNumber}\n\nGenerated with [Claude Code](https://claude.ai/code)`,
             );
-            const prUrl = `${serverUrl}/${owner}/${repo}/compare/${baseBranch}...${omnaraBranch}?quick_pull=1&title=${prTitle}&body=${prBody}`;
+            const prUrl = `${serverUrl}/${owner}/${repo}/compare/${baseBranch}...${claudeBranch}?quick_pull=1&title=${prTitle}&body=${prBody}`;
             prLink = `\n[Create a PR](${prUrl})`;
           }
         } catch (error) {
@@ -191,13 +191,13 @@ async function run() {
           }
         }
 
-        // Check if the Omnara action failed
-        const omnaraSuccess = process.env.OMNARA_SUCCESS !== "false";
-        actionFailed = !omnaraSuccess;
+        // Check if the Claude action failed
+        const claudeSuccess = process.env.CLAUDE_SUCCESS !== "false";
+        actionFailed = !claudeSuccess;
       } catch (error) {
         console.error("Error reading output file:", error);
         // If we can't read the file, check for any failure markers
-        actionFailed = process.env.OMNARA_SUCCESS === "false";
+        actionFailed = process.env.CLAUDE_SUCCESS === "false";
       }
     }
 
@@ -209,7 +209,7 @@ async function run() {
       jobUrl,
       branchLink,
       prLink,
-      branchName: shouldDeleteBranch || !branchLink ? undefined : omnaraBranch,
+      branchName: shouldDeleteBranch || !branchLink ? undefined : claudeBranch,
       triggerUsername,
       errorDetails,
     };
@@ -217,7 +217,7 @@ async function run() {
     const updatedBody = updateCommentBody(commentInput);
 
     try {
-      await updateOmnaraComment(octokit.rest, {
+      await updateClaudeComment(octokit.rest, {
         owner,
         repo,
         commentId,

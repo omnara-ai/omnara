@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: omnara-ai/omnara/integrations/github/claude-code-action-v1@main
+      - uses: omnara-ai/omnara/integrations/github/claude-code-action@github-action
         with:
           prompt: ${{ github.event.client_payload.prompt }}
           claude_args: |
@@ -89,16 +89,38 @@ graph LR
 
 ## Key Features
 
-### Automatic Mode Detection (v1.0 Feature)
+### Smart Detection: @claude vs @omnara
 
-The action automatically detects how to run:
-- **With `prompt` input** → Runs immediately (automation mode)
-- **Without `prompt` but with @claude mention** → Waits for mentions (interactive mode)
-- **With Omnara** → Uses `omnara headless` for session tracking
+The action intelligently chooses between standard Claude and Omnara based on context:
+
+- **`@omnara` mentions** → Uses Omnara headless (with session tracking)
+  - ⚠️ If `OMNARA_API_KEY` is missing, falls back to standard Claude with a warning
+- **`@claude` mentions** → Uses standard Claude Code (no tracking)
+- **`repository_dispatch`** → Uses Omnara headless (when OMNARA_API_KEY present)
+
+This allows you to use both in the same repository:
+```yaml
+trigger_phrase: "@omnara"  # For tracked sessions (requires OMNARA_API_KEY in secrets)
+# or
+trigger_phrase: "@claude"  # For untracked, quick interactions
+```
+
+**Note:** If you use `@omnara` without setting `OMNARA_API_KEY` in your repository secrets, the action will:
+1. Print a warning in the logs
+2. Fall back to standard Claude Code (without tracking)
+3. Still execute your request normally
+
+### Branch Management
+
+When triggered via `repository_dispatch`, you can specify a target branch:
+- If `branch_name` is in the payload:
+  - **Branch exists** → Checks out that branch
+  - **Branch doesn't exist** → Creates a new branch from main/master
+- If no `branch_name` → Uses the default branch
 
 ### Session Tracking
 
-When `OMNARA_API_KEY` is present, the action automatically:
+When triggered with `@omnara` or via repository_dispatch, the action:
 - Installs the Omnara Python package
 - Uses `omnara headless` command instead of `claude-code`
 - Tracks the session in your Omnara dashboard
@@ -122,7 +144,8 @@ The webhook payload from Omnara:
     "prompt": "Add tests for the authentication module",
     "omnara_api_key": "YOUR_API_KEY",
     "agent_instance_id": "unique-session-id",
-    "agent_type": "Claude Code"
+    "agent_type": "Claude Code",
+    "branch_name": "feature/add-auth-tests"  // Optional: specify target branch
   }
 }
 ```
@@ -142,7 +165,8 @@ curl -X POST \
       "prompt": "Add a README file",
       "omnara_api_key": "YOUR_OMNARA_KEY",
       "agent_instance_id": "test-123",
-      "agent_type": "Claude Code"
+      "agent_type": "Claude Code",
+      "branch_name": "feature/add-readme"
     }
   }'
 ```
@@ -155,17 +179,21 @@ This fork adds:
 3. **`base-action/src/index.ts`** - Modified to use `runOmnara` when `OMNARA_API_KEY` is present
 4. **`action.yml`** - Added Omnara installation step and environment variable passing
 
-## Using Without Omnara
+## Using Both @claude and @omnara
 
-This fork is fully backward compatible. To use without Omnara, simply don't set `OMNARA_API_KEY`:
+This fork supports both triggers in the same repository:
 
 ```yaml
-- uses: omnara-ai/omnara/integrations/github/claude-code-action-v1@main
+- uses: omnara-ai/omnara/integrations/github/claude-code-action@github-action
   with:
-    prompt: "Fix the failing tests"
+    trigger_phrase: "@claude"  # Or "@omnara" for tracking
     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-    # No OMNARA_API_KEY = uses standard Claude Code
+  env:
+    OMNARA_API_KEY: ${{ secrets.OMNARA_API_KEY }}  # Optional
 ```
+
+- **@claude** → Standard Claude Code (no tracking)
+- **@omnara** → Omnara headless (with session tracking, requires OMNARA_API_KEY)
 
 ## Support
 

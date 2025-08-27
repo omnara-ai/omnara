@@ -2,11 +2,11 @@ import * as core from "@actions/core";
 
 export function collectActionInputsPresence(): void {
   const inputDefaults: Record<string, string> = {
-    trigger_phrase: "@omnara",
+    trigger_phrase: "@claude",
     assignee_trigger: "",
-    label_trigger: "omnara",
+    label_trigger: "claude",
     base_branch: "",
-    branch_prefix: "omnara/",
+    branch_prefix: "claude/",
     allowed_bots: "",
     mode: "tag",
     model: "",
@@ -17,7 +17,6 @@ export function collectActionInputsPresence(): void {
     custom_instructions: "",
     direct_prompt: "",
     override_prompt: "",
-    mcp_config: "",
     additional_permissions: "",
     claude_env: "",
     settings: "",

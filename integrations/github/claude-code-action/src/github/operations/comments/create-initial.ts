@@ -14,7 +14,7 @@ import {
 } from "../../context";
 import type { Octokit } from "@octokit/rest";
 
-const OMNARA_APP_BOT_ID = 209825114; // TODO: Update with actual Omnara app ID
+const CLAUDE_APP_BOT_ID = 209825114;
 
 export async function createInitialComment(
   octokit: Octokit,
@@ -39,10 +39,10 @@ export async function createInitialComment(
         issue_number: context.entityNumber,
       });
       const existingComment = comments.data.find((comment) => {
-        const idMatch = comment.user?.id === OMNARA_APP_BOT_ID;
+        const idMatch = comment.user?.id === CLAUDE_APP_BOT_ID;
         const botNameMatch =
           comment.user?.type === "Bot" &&
-          comment.user?.login.toLowerCase().includes("omnara");
+          comment.user?.login.toLowerCase().includes("claude");
         const bodyMatch = comment.body === initialBody;
 
         return idMatch || botNameMatch || bodyMatch;
@@ -84,7 +84,7 @@ export async function createInitialComment(
 
     // Output the comment ID for downstream steps using GITHUB_OUTPUT
     const githubOutput = process.env.GITHUB_OUTPUT!;
-    appendFileSync(githubOutput, `omnara_comment_id=${response.data.id}\n`);
+    appendFileSync(githubOutput, `claude_comment_id=${response.data.id}\n`);
     console.log(`✅ Created initial comment with ID: ${response.data.id}`);
     return response.data;
   } catch (error) {
@@ -100,7 +100,7 @@ export async function createInitialComment(
       });
 
       const githubOutput = process.env.GITHUB_OUTPUT!;
-      appendFileSync(githubOutput, `omnara_comment_id=${response.data.id}\n`);
+      appendFileSync(githubOutput, `claude_comment_id=${response.data.id}\n`);
       console.log(`✅ Created fallback comment with ID: ${response.data.id}`);
       return response.data;
     } catch (fallbackError) {

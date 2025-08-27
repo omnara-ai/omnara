@@ -1,23 +1,25 @@
 import * as core from "@actions/core";
 import { mkdir, writeFile } from "fs/promises";
 import type { Mode, ModeOptions, ModeResult } from "../types";
-import { isAutomationContext } from "../../github/context";
 import type { PreparedContext } from "../../create-prompt/types";
+import { prepareMcpConfig } from "../../mcp/install-mcp-server";
+import { parseAllowedTools } from "./parse-tools";
+import { configureGitAuth } from "../../github/operations/git-config";
 
 /**
  * Agent mode implementation.
  *
- * This mode is specifically designed for automation events (workflow_dispatch and schedule).
- * It bypasses the standard trigger checking and comment tracking used by tag mode,
- * making it ideal for scheduled tasks and manual workflow runs.
+ * This mode runs whenever an explicit prompt is provided in the workflow configuration.
+ * It bypasses the standard @claude mention checking and comment tracking used by tag mode,
+ * providing direct access to Claude Code for automation workflows.
  */
 export const agentMode: Mode = {
   name: "agent",
-  description: "Automation mode for workflow_dispatch and schedule events",
+  description: "Direct automation mode for explicit prompts",
 
   shouldTrigger(context) {
-    // Only trigger for automation events
-    return isAutomationContext(context);
+    // Only trigger when an explicit prompt is provided
+    return !!context.inputs?.prompt;
   },
 
   prepareContext(context) {
@@ -40,89 +42,103 @@ export const agentMode: Mode = {
     return false;
   },
 
-  async prepare({ context }: ModeOptions): Promise<ModeResult> {
-    // Agent mode handles automation events (workflow_dispatch, schedule) only
+  async prepare({
+    context,
+    githubToken,
+    octokit,
+  }: ModeOptions): Promise<ModeResult> {
+    // Configure git authentication for agent mode (same as tag mode)
+    if (!context.inputs.useCommitSigning) {
+      try {
+        // Get the authenticated user (will be claude[bot] when using Claude App token)
+        const { data: authenticatedUser } =
+          await octokit.rest.users.getAuthenticated();
+        const user = {
+          login: authenticatedUser.login,
+          id: authenticatedUser.id,
+        };
 
-    // TODO: handle by createPrompt (similar to tag and review modes)
+        // Use the shared git configuration function
+        await configureGitAuth(githubToken, context, user);
+      } catch (error) {
+        console.error("Failed to configure git authentication:", error);
+        // Continue anyway - git operations may still work with default config
+      }
+    }
+
     // Create prompt directory
     await mkdir(`${process.env.RUNNER_TEMP || "/tmp"}/claude-prompts`, {
       recursive: true,
     });
-    // Write the prompt file - the base action requires a prompt_file parameter,
-    // so we must create this file even though agent mode typically uses
-    // override_prompt or direct_prompt. If neither is provided, we write
-    // a minimal prompt with just the repository information.
+
+    // Write the prompt file - use the user's prompt directly
     const promptContent =
-      context.inputs.overridePrompt ||
-      context.inputs.directPrompt ||
+      context.inputs.prompt ||
       `Repository: ${context.repository.owner}/${context.repository.repo}`;
+
     await writeFile(
       `${process.env.RUNNER_TEMP || "/tmp"}/claude-prompts/claude-prompt.txt`,
       promptContent,
     );
 
-    // Export tool environment variables for agent mode
-    const baseTools = [
-      "Edit",
-      "MultiEdit",
-      "Glob",
-      "Grep",
-      "LS",
-      "Read",
-      "Write",
-    ];
+    // Parse allowed tools from user's claude_args
+    const userClaudeArgs = process.env.CLAUDE_ARGS || "";
+    const allowedTools = parseAllowedTools(userClaudeArgs);
 
-    // Add user-specified tools
-    const allowedTools = [...baseTools, ...context.inputs.allowedTools];
-    const disallowedTools = [
-      "WebSearch",
-      "WebFetch",
-      ...context.inputs.disallowedTools,
-    ];
+    // Check for branch info from environment variables (useful for auto-fix workflows)
+    const claudeBranch = process.env.CLAUDE_BRANCH || undefined;
+    const baseBranch =
+      process.env.BASE_BRANCH || context.inputs.baseBranch || "main";
 
-    core.exportVariable("ALLOWED_TOOLS", allowedTools.join(","));
-    core.exportVariable("DISALLOWED_TOOLS", disallowedTools.join(","));
+    // Detect current branch from GitHub environment
+    const currentBranch =
+      claudeBranch ||
+      process.env.GITHUB_HEAD_REF ||
+      process.env.GITHUB_REF_NAME ||
+      "main";
 
-    // Agent mode uses a minimal MCP configuration
-    // We don't need comment servers or PR-specific tools for automation
-    const mcpConfig: any = {
-      mcpServers: {},
-    };
+    // Get our GitHub MCP servers config
+    const ourMcpConfig = await prepareMcpConfig({
+      githubToken,
+      owner: context.repository.owner,
+      repo: context.repository.repo,
+      branch: currentBranch,
+      baseBranch: baseBranch,
+      claudeCommentId: undefined, // No tracking comment in agent mode
+      allowedTools,
+      context,
+    });
 
-    // Add user-provided additional MCP config if any
-    const additionalMcpConfig = process.env.MCP_CONFIG || "";
-    if (additionalMcpConfig.trim()) {
-      try {
-        const additional = JSON.parse(additionalMcpConfig);
-        if (additional && typeof additional === "object") {
-          Object.assign(mcpConfig, additional);
-        }
-      } catch (error) {
-        core.warning(`Failed to parse additional MCP config: ${error}`);
-      }
+    // Build final claude_args with multiple --mcp-config flags
+    let claudeArgs = "";
+
+    // Add our GitHub servers config if we have any
+    const ourConfig = JSON.parse(ourMcpConfig);
+    if (ourConfig.mcpServers && Object.keys(ourConfig.mcpServers).length > 0) {
+      const escapedOurConfig = ourMcpConfig.replace(/'/g, "'\\''");
+      claudeArgs = `--mcp-config '${escapedOurConfig}'`;
     }
 
-    core.setOutput("mcp_config", JSON.stringify(mcpConfig));
+    // Append user's claude_args (which may have more --mcp-config flags)
+    claudeArgs = `${claudeArgs} ${userClaudeArgs}`.trim();
+
+    core.setOutput("claude_args", claudeArgs);
 
     return {
       commentId: undefined,
       branchInfo: {
-        baseBranch: "",
-        currentBranch: "",
-        claudeBranch: undefined,
+        baseBranch: baseBranch,
+        currentBranch: baseBranch, // Use base branch as current when creating new branch
+        claudeBranch: claudeBranch,
       },
-      mcpConfig: JSON.stringify(mcpConfig),
+      mcpConfig: ourMcpConfig,
     };
   },
 
   generatePrompt(context: PreparedContext): string {
-    // Agent mode uses override or direct prompt, no GitHub data needed
-    if (context.overridePrompt) {
-      return context.overridePrompt;
-    }
-
-    if (context.directPrompt) {
-      return context.directPrompt;
+    // Agent mode uses prompt field
+    if (context.prompt) {
+      return context.prompt;
     }
 
     // Minimal fallback - repository is a string in PreparedContext
