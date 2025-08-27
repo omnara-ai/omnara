@@ -216,14 +216,6 @@ WEBHOOK_TYPES: Dict[str, WebhookTypeSchema] = {
                 description="Git branch name for the agent to work on",
                 placeholder="main",
             ),
-            WebhookField(
-                name="worktree_name",
-                label="Worktree Name",
-                type=FieldType.STRING,
-                required=False,
-                description="Git worktree name for isolated development",
-                placeholder="feature-xyz",
-            ),
         ],
         url_template="https://api.github.com/repos/{repository}/dispatches",
         headers_template={
