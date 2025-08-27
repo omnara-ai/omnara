@@ -100,6 +100,7 @@ class HeadlessClaudeRunner:
         disallowed_tools: Optional[List[str]] = None,
         cwd: Optional[Union[str, Path]] = None,
         console_output: bool = True,
+        agent_name: str = "Claude Code",
     ):
         self.omnara_api_key = omnara_api_key
         self.omnara_base_url = omnara_base_url
@@ -107,6 +108,7 @@ class HeadlessClaudeRunner:
         self.session_id = session_id
         self.last_message_id: Optional[str] = None
         self.cwd = cwd or os.getcwd()  # Store cwd before using it
+        self.agent_name = agent_name  # Store the agent name/type
 
         # Setup logging for this session
         setup_logging(session_id, console_output=console_output)
@@ -179,7 +181,7 @@ class HeadlessClaudeRunner:
             await self.omnara_client.send_message(
                 content="Claude Code session started - processing your request",
                 agent_instance_id=self.session_id,
-                agent_type="Claude Code (Headless)",
+                agent_type=self.agent_name,
                 requires_user_input=False,
             )
 
@@ -195,7 +197,7 @@ class HeadlessClaudeRunner:
             response = await self.omnara_client.send_message(
                 content="Claude Code session started - ready for your instructions",
                 agent_instance_id=self.session_id,
-                agent_type="Claude Code (Headless)",
+                agent_type=self.agent_name,
                 requires_user_input=True,  # Wait for user input
             )
 
@@ -239,7 +241,7 @@ class HeadlessClaudeRunner:
 
             response = await self.omnara_client.send_message(
                 content=content,
-                agent_type="Claude Code (Headless)",
+                agent_type=self.agent_name,
                 agent_instance_id=self.session_id,
                 requires_user_input=requires_user_input,
                 git_diff=git_diff,
@@ -484,7 +486,11 @@ def main():
     )
 
     # Omnara configuration
-    parser.add_argument("--api-key", required=True, help="Omnara API key")
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("OMNARA_API_KEY"),
+        help="Omnara API key (defaults to OMNARA_API_KEY env var)",
+    )
     parser.add_argument(
         "--base-url",
         default="https://agent-dashboard-mcp.onrender.com",
@@ -518,10 +524,25 @@ def main():
     parser.add_argument(
         "--session-id",
         type=str,
-        help="Custom session ID for logging (defaults to random UUID)",
+        default=os.environ.get("OMNARA_AGENT_INSTANCE_ID"),
+        help="Custom session ID (defaults to OMNARA_AGENT_INSTANCE_ID env var or random UUID)",
+    )
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=os.environ.get("OMNARA_AGENT_TYPE", "Claude Code"),
+        help="Name/type of the agent (defaults to OMNARA_AGENT_TYPE env var or 'Claude Code')",
     )
 
     args, unknown_args = parser.parse_known_args()
+
+    # Check if API key is provided (either via argument or environment variable)
+    if not args.api_key:
+        logger = logging.getLogger(__name__)
+        logger.error(
+            "Error: Omnara API key is required. Provide via --api-key or set OMNARA_API_KEY environment variable."
+        )
+        sys.exit(1)
 
     # Setup logging with session ID (default to random UUID if not provided)
     session_id = (
@@ -569,6 +590,7 @@ def main():
         allowed_tools=allowed_tools,
         disallowed_tools=disallowed_tools,
         cwd=args.cwd,
+        agent_name=args.name,
     )
 
     logger.info("Starting headless Claude Code session...")

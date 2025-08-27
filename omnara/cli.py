@@ -418,6 +418,9 @@ def cmd_headless(args, unknown_args):
     if hasattr(args, "base_url") and args.base_url:
         new_argv.extend(["--base-url", args.base_url])
 
+    if hasattr(args, "name") and args.name:
+        new_argv.extend(["--name", args.name])
+
     # Add headless-specific flags
     if hasattr(args, "prompt") and args.prompt:
         new_argv.extend(["--prompt", args.prompt])
