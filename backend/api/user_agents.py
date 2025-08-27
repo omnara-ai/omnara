@@ -123,19 +123,25 @@ async def create_agent_instance(
         raise HTTPException(status_code=404, detail="User agent not found")
 
     # Check if this agent has a webhook configured
-    if not user_agent.webhook_url:
+    if user_agent.webhook_type == "DEFAULT" and not user_agent.webhook_config.get(
+        "url"
+    ):
         raise HTTPException(
             status_code=400, detail="Webhook URL is required to create agent instances"
         )
+    elif not user_agent.webhook_config:
+        raise HTTPException(
+            status_code=400,
+            detail="Webhook configuration is required to create agent instances",
+        )
 
-    # Trigger the webhook
+    # Trigger the webhook - pass the entire request as a dict
+    # This allows the webhook system to be completely dynamic
     result = await trigger_webhook_agent(
         db,
         user_agent,
         current_user.id,
-        request.prompt,
-        request.name,
-        request.worktree_name,
+        request.model_dump(exclude_none=False),  # Include all fields, even if None
     )
 
     if not result.success:

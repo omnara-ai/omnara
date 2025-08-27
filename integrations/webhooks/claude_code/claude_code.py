@@ -326,7 +326,6 @@ def start_cloudflare_tunnel(
 class WebhookRequest(BaseModel):
     agent_instance_id: str
     prompt: str  # Initial prompt to pass to Claude
-    omnara_api_key: str  # Omnara API key (now in body instead of header)
     name: str | None = None  # Branch name
     worktree_name: str | None = None
     agent_type: str | None = None  # Agent type name
@@ -531,6 +530,7 @@ async def start_claude(
     request: Request,
     webhook_data: WebhookRequest,
     authorization: str = Header(None),
+    x_omnara_api_key: str = Header(None, alias="X-Omnara-Api-Key"),
 ):
     try:
         if not verify_auth(request, authorization):
@@ -733,15 +733,14 @@ async def start_claude(
                             status_code=500,
                             detail=f"Failed to create branch '{branch_name}': {checkout_result.stderr}",
                         )
-
-        # Get Omnara API key from request body (no longer from header)
-        omnara_api_key = webhook_data.omnara_api_key
-        if not omnara_api_key:
-            print("[ERROR] Omnara API key missing from request body")
+        # Get Omnara API key from header
+        if not x_omnara_api_key:
+            print("[ERROR] Omnara API key missing from X-Omnara-Api-Key header")
             raise HTTPException(
                 status_code=400,
-                detail="Omnara API key required in request body.",
+                detail="Omnara API key required. Provide via X-Omnara-Api-Key header.",
             )
+        omnara_api_key = x_omnara_api_key
 
         # No need to handle permission mode explicitly - it flows through extra_args
 

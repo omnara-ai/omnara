@@ -95,8 +95,8 @@ class UserAgent(Base):
         ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
     )
     name: Mapped[str] = mapped_column(String(255))
-    webhook_url: Mapped[str | None] = mapped_column(Text, default=None)
-    webhook_api_key: Mapped[str | None] = mapped_column(Text, default=None)  # Encrypted
+    webhook_type: Mapped[str] = mapped_column(String(50), default="DEFAULT")
+    webhook_config: Mapped[dict] = mapped_column(JSONB, default=dict)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)  # Soft delete flag
     created_at: Mapped[datetime] = mapped_column(

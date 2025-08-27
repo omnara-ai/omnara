@@ -10,6 +10,7 @@ from shared.config import settings
 from .api import (
     agents,
     user_agents,
+    webhook_types,
     push_notifications,
     billing,
     mobile_billing,
@@ -73,6 +74,7 @@ app.add_middleware(
 app.include_router(auth_routes.router, prefix=settings.api_v1_prefix)
 app.include_router(agents.router, prefix=settings.api_v1_prefix)
 app.include_router(user_agents.router, prefix=settings.api_v1_prefix)
+app.include_router(webhook_types.router)  # Already has prefix in router definition
 app.include_router(push_notifications.router, prefix=settings.api_v1_prefix)
 app.include_router(user_settings.router, prefix=settings.api_v1_prefix)
 

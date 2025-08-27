@@ -9,8 +9,13 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from shared.database.enums import AgentStatus
+from shared.webhook_schemas import (
+    get_webhook_type_schema,
+    validate_webhook_config as validate_webhook_config_func,
+    WEBHOOK_TYPES,
+)
 
 # ============================================================================
 # Message Models
@@ -156,19 +161,44 @@ class AgentInstanceDetail(BaseModel):
 
 class UserAgentRequest(BaseModel):
     name: str = Field(..., description="Name of the user agent")
-    webhook_url: str | None = Field(
-        None, description="Webhook URL for remote agent triggering"
-    )
-    webhook_api_key: str | None = Field(
-        None, description="API key for webhook authentication"
+    webhook_type: str = Field("DEFAULT", description="Type of webhook integration")
+    webhook_config: dict = Field(
+        default_factory=dict, description="Webhook configuration"
     )
     is_active: bool = Field(True, description="Whether the agent is active")
+
+    @field_validator("webhook_type")
+    @classmethod
+    def validate_webhook_type(cls, v: str) -> str:
+        """Validate that the webhook type is supported."""
+        if not get_webhook_type_schema(v):
+            supported = ", ".join(WEBHOOK_TYPES.keys())
+            raise ValueError(
+                f"Unknown webhook type: {v}. Supported types are: {supported}"
+            )
+
+        return v
+
+    @field_validator("webhook_config")
+    @classmethod
+    def validate_webhook_config(cls, v: dict, info) -> dict:
+        """Validate webhook configuration against the webhook type schema."""
+        # Get the webhook_type from the data
+        webhook_type = info.data.get("webhook_type", "DEFAULT")
+
+        # Validate the configuration
+        is_valid, error_msg = validate_webhook_config_func(webhook_type, v)
+        if not is_valid:
+            raise ValueError(f"Invalid webhook configuration: {error_msg}")
+
+        return v
 
 
 class UserAgentResponse(BaseModel):
     id: str
     name: str
-    webhook_url: str | None
+    webhook_type: str
+    webhook_config: dict
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -185,8 +215,13 @@ class UserAgentResponse(BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
-        # Compute has_webhook based on webhook_url presence
-        self.has_webhook = bool(self.webhook_url)
+        # Compute has_webhook based on webhook_config presence
+        # For DEFAULT type, check if URL is configured
+        if self.webhook_type == "DEFAULT":
+            self.has_webhook = bool(self.webhook_config.get("url"))
+        else:
+            # For other types, assume configured if config exists
+            self.has_webhook = bool(self.webhook_config)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -195,7 +230,10 @@ class CreateAgentInstanceRequest(BaseModel):
     prompt: str = Field(..., description="Initial prompt for the agent")
     name: str | None = Field(None, description="Display name for the agent instance")
     worktree_name: str | None = Field(
-        None, description="Git worktree name for the agent"
+        None, description="Git worktree name for isolated development environment"
+    )
+    branch_name: str | None = Field(
+        None, description="Git branch name to checkout in the worktree"
     )
 
 
