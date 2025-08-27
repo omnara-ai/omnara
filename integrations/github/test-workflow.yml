@@ -23,11 +23,43 @@ permissions:
   id-token: write  # Required for OIDC
 
 jobs:
-  omnara:
+  # Job for repository_dispatch events (triggered from Omnara dashboard)
+  omnara-dispatch:
     runs-on: ubuntu-latest
-    # Only run if triggered by repository_dispatch or contains @omnara mention
+    if: github.event_name == 'repository_dispatch'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Run Omnara Claude Code Action
+        uses: omnara-ai/omnara/integrations/github/claude-code-action@github-action
+        with:
+          # Use agent mode for repository_dispatch
+          mode: agent
+          
+          # Get prompt from client_payload
+          direct_prompt: ${{ github.event.client_payload.prompt }}
+          
+          # Model configuration
+          model: "claude-3-5-sonnet-latest"
+          max_turns: 30
+          timeout_minutes: 30
+          
+          # Authentication for Claude
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          
+        env:
+          # Omnara configuration from repository_dispatch payload
+          OMNARA_API_KEY: ${{ github.event.client_payload.omnara_api_key }}
+          OMNARA_AGENT_INSTANCE_ID: ${{ github.event.client_payload.agent_instance_id }}
+          OMNARA_AGENT_TYPE: ${{ github.event.client_payload.agent_type || 'Claude Code' }}
+  
+  # Job for issue/PR comment events (triggered by @omnara mentions)
+  omnara-comment:
+    runs-on: ubuntu-latest
     if: |
-      github.event_name == 'repository_dispatch' ||
+      github.event_name != 'repository_dispatch' &&
       contains(github.event.comment.body || github.event.issue.body || github.event.pull_request.body || '', '@omnara')
     
     steps:
@@ -37,8 +69,8 @@ jobs:
       - name: Run Omnara Claude Code Action
         uses: omnara-ai/omnara/integrations/github/claude-code-action@github-action
         with:
-          # Trigger configuration
-          mode: "tag"
+          # Use tag mode for comment triggers
+          mode: tag
           trigger_phrase: "@omnara"
           
           # Model configuration
@@ -50,7 +82,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           
         env:
-          # Omnara configuration (from repository_dispatch or secrets)
-          OMNARA_API_KEY: ${{ github.event.client_payload.omnara_api_key || secrets.OMNARA_API_KEY }}
-          OMNARA_AGENT_INSTANCE_ID: ${{ github.event.client_payload.agent_instance_id || format('omnara-{0}', github.run_id) }}
-          OMNARA_AGENT_TYPE: ${{ github.event.client_payload.agent_type || 'Claude Code' }}
+          # Omnara configuration from secrets
+          OMNARA_API_KEY: ${{ secrets.OMNARA_API_KEY }}
+          OMNARA_AGENT_INSTANCE_ID: ${{ format('omnara-{0}', github.run_id) }}
+          OMNARA_AGENT_TYPE: 'Claude Code'
