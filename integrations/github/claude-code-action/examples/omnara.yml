@@ -1,0 +1,79 @@
+name: Omnara AI Assistant
+
+on:
+  # Trigger via repository_dispatch (from Omnara dashboard)
+  repository_dispatch:
+    types: [omnara-trigger]
+  
+  # Direct triggers from GitHub events (for @omnara mentions)
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened, edited]
+  pull_request:
+    types: [opened, edited]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+  id-token: write  # Required for OIDC
+
+jobs:
+  omnara-assistant:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for all branches
+      
+      - name: Setup branch from payload
+        if: github.event.client_payload.branch_name
+        run: |
+          BRANCH_NAME="${{ github.event.client_payload.branch_name }}"
+          echo "Branch requested: $BRANCH_NAME"
+          
+          # Check if branch exists remotely
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            echo "Branch exists, checking it out..."
+            git checkout "$BRANCH_NAME"
+          else
+            echo "Branch doesn't exist, creating new branch from main..."
+            # Fetch main branch first
+            git checkout main || git checkout master || git checkout $(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+            git pull origin $(git branch --show-current)
+            # Create and checkout new branch
+            git checkout -b "$BRANCH_NAME"
+            echo "Created new branch: $BRANCH_NAME"
+          fi
+      
+      - name: Run Omnara Claude Code Action
+        uses: omnara-ai/omnara/integrations/github/claude-code-action@github-action
+        with:
+          # The prompt will come from repository_dispatch payload
+          # For @omnara mentions, the action auto-detects from comments
+          prompt: ${{ github.event.client_payload.prompt }}
+          
+          # Claude configuration using new v1.0 claude_args format
+          claude_args: |
+            --max-turns 30
+            --model claude-3-5-sonnet-latest
+          
+          # Override trigger phrase to use @omnara instead of @claude
+          trigger_phrase: "@omnara"
+          
+          # Authentication for Claude
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          
+        env:
+          # Omnara configuration - automatically activates Omnara when:
+          # 1. OMNARA_API_KEY is present AND
+          # 2. Either triggered by repository_dispatch OR @omnara mention
+          OMNARA_API_KEY: ${{ github.event.client_payload.omnara_api_key || secrets.OMNARA_API_KEY }}
+          OMNARA_AGENT_INSTANCE_ID: ${{ github.event.client_payload.agent_instance_id || format('omnara-{0}', github.run_id) }}
+          OMNARA_AGENT_TYPE: ${{ github.event.client_payload.agent_type || 'Claude Code' }}

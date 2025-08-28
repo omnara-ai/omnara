@@ -15,6 +15,12 @@ from shared.database import (
     Message,
 )
 from shared.database.billing_operations import check_agent_limit
+from shared.webhook_schemas import (
+    format_webhook_request,
+    validate_webhook_config,
+    validate_runtime_fields,
+    get_runtime_field_names,
+)
 from sqlalchemy import and_, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, joinedload
@@ -48,8 +54,8 @@ def create_user_agent(
     user_agent = UserAgent(
         user_id=user_id,
         name=request.name,
-        webhook_url=request.webhook_url,
-        webhook_api_key=request.webhook_api_key,
+        webhook_type=request.webhook_type,
+        webhook_config=request.webhook_config,
         is_active=request.is_active,
     )
 
@@ -93,8 +99,8 @@ def update_user_agent(
         return None
 
     user_agent.name = request.name
-    user_agent.webhook_url = request.webhook_url
-    user_agent.webhook_api_key = request.webhook_api_key
+    user_agent.webhook_type = request.webhook_type
+    user_agent.webhook_config = request.webhook_config
     user_agent.is_active = request.is_active
     user_agent.updated_at = datetime.now(timezone.utc)
 
@@ -108,17 +114,33 @@ async def trigger_webhook_agent(
     db: Session,
     user_agent: UserAgent,
     user_id: UUID,
-    prompt: str,
-    name: str | None = None,
-    worktree_name: str | None = None,
+    user_request_data: dict,
 ) -> WebhookTriggerResponse:
     """Trigger a webhook agent by calling the webhook URL"""
 
-    if not user_agent.webhook_url:
+    # Check if webhook is configured
+    if not user_agent.webhook_type or not user_agent.webhook_config:
         return WebhookTriggerResponse(
             success=False,
-            message="Webhook URL not configured",
-            error="No webhook URL found for this agent",
+            message="Webhook not configured",
+            error="No webhook configuration found for this agent",
+        )
+
+    # Validate runtime fields early
+    runtime_field_names = get_runtime_field_names(user_agent.webhook_type)
+    user_request = {
+        field: value
+        for field, value in user_request_data.items()
+        if field in runtime_field_names
+    }
+
+    is_valid, error_msg = validate_runtime_fields(user_agent.webhook_type, user_request)
+    if not is_valid:
+        return WebhookTriggerResponse(
+            success=False,
+            agent_instance_id=None,
+            message="Invalid runtime parameters",
+            error=error_msg,
         )
 
     # Check if user has capacity to create a new instance
@@ -168,29 +190,49 @@ async def trigger_webhook_agent(
 
         omnara_api_key = jwt_token
 
-    payload = {
+    # Prepare backend-generated fields
+    backend_fields = {
         "agent_instance_id": str(agent_instance_id),
-        "prompt": prompt,
         "agent_type": user_agent.name,
+        "omnara_api_key": omnara_api_key,
     }
 
-    if name is not None:
-        payload["name"] = name
-    if worktree_name is not None:
-        payload["worktree_name"] = worktree_name
+    # Get webhook configuration
+    webhook_type = user_agent.webhook_type
+    webhook_config = user_agent.webhook_config
+
+    # Validate configuration
+    is_valid, error_msg = validate_webhook_config(webhook_type, webhook_config)
+    if not is_valid:
+        return WebhookTriggerResponse(
+            success=False,
+            agent_instance_id=None,
+            message="Invalid webhook configuration",
+            error=error_msg,
+        )
+
+    # Format the webhook request
+    try:
+        final_url, headers, formatted_payload = format_webhook_request(
+            webhook_type_id=webhook_type,
+            webhook_config=webhook_config,
+            user_request=user_request,
+            backend_fields=backend_fields,
+        )
+    except ValueError as e:
+        return WebhookTriggerResponse(
+            success=False,
+            agent_instance_id=None,
+            message="Failed to format webhook request",
+            error=str(e),
+        )
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                user_agent.webhook_url,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {user_agent.webhook_api_key}"
-                    if user_agent.webhook_api_key
-                    else "",
-                    "Content-Type": "application/json",
-                    "X-Omnara-Api-Key": omnara_api_key,
-                },
+                final_url,
+                json=formatted_payload,
+                headers=headers,
             )
             response.raise_for_status()
 
@@ -418,7 +460,8 @@ def _format_user_agent(user_agent: UserAgent, db: Session) -> dict:
     return {
         "id": str(user_agent.id),
         "name": user_agent.name,
-        "webhook_url": user_agent.webhook_url,
+        "webhook_type": user_agent.webhook_type,
+        "webhook_config": user_agent.webhook_config,
         "is_active": user_agent.is_active,
         "created_at": user_agent.created_at,
         "updated_at": user_agent.updated_at,
@@ -427,5 +470,4 @@ def _format_user_agent(user_agent: UserAgent, db: Session) -> dict:
         "waiting_instance_count": waiting_instance_count or 0,
         "completed_instance_count": completed_instance_count or 0,
         "error_instance_count": error_instance_count or 0,
-        "has_webhook": bool(user_agent.webhook_url),
     }
