@@ -122,14 +122,7 @@ async def create_agent_instance(
     if not user_agent:
         raise HTTPException(status_code=404, detail="User agent not found")
 
-    # Check if this agent has a webhook configured
-    if user_agent.webhook_type == "DEFAULT" and not user_agent.webhook_config.get(
-        "url"
-    ):
-        raise HTTPException(
-            status_code=400, detail="Webhook URL is required to create agent instances"
-        )
-    elif not user_agent.webhook_config:
+    if not user_agent.webhook_type or not user_agent.webhook_config:
         raise HTTPException(
             status_code=400,
             detail="Webhook configuration is required to create agent instances",

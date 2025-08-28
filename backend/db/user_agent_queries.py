@@ -118,15 +118,7 @@ async def trigger_webhook_agent(
     """Trigger a webhook agent by calling the webhook URL"""
 
     # Check if webhook is configured
-    if user_agent.webhook_type == "DEFAULT" and not user_agent.webhook_config.get(
-        "url"
-    ):
-        return WebhookTriggerResponse(
-            success=False,
-            message="Webhook URL not configured",
-            error="No webhook URL found for this agent",
-        )
-    elif not user_agent.webhook_config:
+    if not user_agent.webhook_type or not user_agent.webhook_config:
         return WebhookTriggerResponse(
             success=False,
             message="Webhook not configured",
