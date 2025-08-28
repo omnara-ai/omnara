@@ -2,11 +2,13 @@
 User Agent API endpoints for managing user-specific agent configurations.
 """
 
+from typing import List, Dict, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from shared.database.models import User, UserAgent
 from shared.database.session import get_db
+from shared.webhook_schemas import get_webhook_types
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
@@ -28,6 +30,18 @@ from ..db import (
 )
 
 router = APIRouter(tags=["user-agents"])
+
+
+@router.get("/user-agents/webhook-types", response_model=List[Dict[str, Any]])
+async def list_webhook_types() -> List[Dict[str, Any]]:
+    """
+    Get all available webhook type schemas.
+
+    This endpoint returns the complete schema for each webhook type,
+    including all fields and their validation rules. The frontend
+    can use this to dynamically generate forms.
+    """
+    return get_webhook_types()
 
 
 @router.get("/user-agents", response_model=list[UserAgentResponse])

@@ -5,6 +5,8 @@ Webhook type schemas for frontend form generation and backend validation.
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
+import re
+import json
 
 
 class FieldType(str, Enum):
@@ -356,8 +358,6 @@ def validate_webhook_config(
 
         # Validate regex if provided
         if field.validation_regex and field.name in config:
-            import re
-
             if not re.match(field.validation_regex, str(config[field.name])):
                 return False, f"Invalid format for {field.label}"
 
@@ -388,8 +388,6 @@ def process_template(
         result = template
 
         # Replace all backend field placeholders
-        import re
-
         backend_pattern = re.compile(r"\{backend\.([^}]+)\}")
         for match in backend_pattern.finditer(template):
             field_name = match.group(1)
@@ -478,8 +476,6 @@ def format_webhook_request(
     # Parse custom_headers JSON for DEFAULT type (preprocessing step)
     if webhook_type_id == "DEFAULT" and "custom_headers" in config_with_defaults:
         try:
-            import json
-
             custom_headers_str = config_with_defaults["custom_headers"]
             if custom_headers_str:
                 custom_headers = json.loads(custom_headers_str)
