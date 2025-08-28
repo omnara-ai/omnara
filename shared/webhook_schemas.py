@@ -364,6 +364,35 @@ def validate_webhook_config(
     return True, None
 
 
+def validate_runtime_fields(
+    webhook_type_id: str, runtime_data: Dict[str, Any]
+) -> tuple[bool, Optional[str]]:
+    """
+    Validate runtime fields against webhook schema.
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    schema = get_webhook_type_schema(webhook_type_id)
+    if not schema:
+        return False, f"Unknown webhook type: {webhook_type_id}"
+
+    # Check required runtime fields
+    for field in schema.runtime_fields:
+        if field.required:
+            value = runtime_data.get(field.name)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                return False, f"Missing required field: {field.label}"
+
+        # Validate regex if provided and field has a value
+        if field.validation_regex and field.name in runtime_data:
+            value = runtime_data.get(field.name)
+            if value and not re.match(field.validation_regex, str(value)):
+                return False, f"Invalid format for {field.label}"
+
+    return True, None
+
+
 def process_template(
     template: Any,
     webhook_config: Dict[str, Any],

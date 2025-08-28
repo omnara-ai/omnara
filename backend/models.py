@@ -224,14 +224,15 @@ class UserAgentResponse(BaseModel):
 
 
 class CreateAgentInstanceRequest(BaseModel):
-    prompt: str = Field(..., description="Initial prompt for the agent")
-    name: str | None = Field(None, description="Display name for the agent instance")
-    worktree_name: str | None = Field(
-        None, description="Git worktree name for isolated development environment"
+    """Request to create a new agent instance with dynamic runtime fields based on webhook type."""
+
+    name: str | None = Field(
+        None, description="Optional display name for the agent instance"
     )
-    branch_name: str | None = Field(
-        None, description="Git branch name to checkout in the worktree"
-    )
+
+    # Accept any additional fields dynamically based on the webhook's runtime_fields
+    # (e.g., prompt, worktree_name, branch_name for OMNARA_SERVE)
+    model_config = ConfigDict(extra="allow")
 
 
 class WebhookTriggerResponse(BaseModel):

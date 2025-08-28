@@ -18,6 +18,7 @@ from shared.database.billing_operations import check_agent_limit
 from shared.webhook_schemas import (
     format_webhook_request,
     validate_webhook_config,
+    validate_runtime_fields,
     get_required_user_fields,
 )
 from sqlalchemy import and_, func
@@ -125,6 +126,23 @@ async def trigger_webhook_agent(
             error="No webhook configuration found for this agent",
         )
 
+    # Validate runtime fields early
+    required_fields = get_required_user_fields(user_agent.webhook_type)
+    user_request = {
+        field: value
+        for field, value in user_request_data.items()
+        if field in required_fields
+    }
+
+    is_valid, error_msg = validate_runtime_fields(user_agent.webhook_type, user_request)
+    if not is_valid:
+        return WebhookTriggerResponse(
+            success=False,
+            agent_instance_id=None,
+            message="Invalid runtime parameters",
+            error=error_msg,
+        )
+
     # Check if user has capacity to create a new instance
     try:
         check_agent_limit(user_id, db, increment=1)
@@ -182,16 +200,6 @@ async def trigger_webhook_agent(
     # Get webhook configuration
     webhook_type = user_agent.webhook_type
     webhook_config = user_agent.webhook_config
-
-    # Get the fields this webhook type actually uses
-    required_fields = get_required_user_fields(webhook_type)
-
-    # Build user_request with only the fields the webhook needs
-    user_request = {
-        field: value
-        for field, value in user_request_data.items()
-        if field in required_fields
-    }
 
     # Validate configuration
     is_valid, error_msg = validate_webhook_config(webhook_type, webhook_config)
