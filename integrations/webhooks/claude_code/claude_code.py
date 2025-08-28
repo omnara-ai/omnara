@@ -733,6 +733,7 @@ async def start_claude(
                             status_code=500,
                             detail=f"Failed to create branch '{branch_name}': {checkout_result.stderr}",
                         )
+
         # Get Omnara API key from header
         if not x_omnara_api_key:
             print("[ERROR] Omnara API key missing from X-Omnara-Api-Key header")
