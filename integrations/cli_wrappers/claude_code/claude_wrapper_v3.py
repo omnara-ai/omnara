@@ -947,7 +947,7 @@ class ClaudeWrapperV3:
 
                                 # Check for both "esc to interrupt" and "ctrl+b to run in background"
                                 if (
-                                    "esc to interrupt)" in clean_text
+                                    "esc to interrupt" in clean_text
                                     or "ctrl+b to run in background" in clean_text
                                 ):
                                     self.last_esc_interrupt_seen = time.time()
