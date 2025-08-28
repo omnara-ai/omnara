@@ -384,6 +384,11 @@ def ensure_api_key(args):
     if hasattr(args, "api_key") and args.api_key:
         return args.api_key
 
+    # Check if API key is in environment variable
+    env_api_key = os.environ.get("OMNARA_API_KEY")
+    if env_api_key:
+        return env_api_key
+
     # Try to load from storage
     api_key = load_stored_api_key()
     if api_key:
@@ -417,6 +422,9 @@ def cmd_headless(args, unknown_args):
 
     if hasattr(args, "base_url") and args.base_url:
         new_argv.extend(["--base-url", args.base_url])
+
+    if hasattr(args, "name") and args.name:
+        new_argv.extend(["--name", args.name])
 
     # Add headless-specific flags
     if hasattr(args, "prompt") and args.prompt:
