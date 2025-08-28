@@ -20,14 +20,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Add new columns
+    # Add new columns as nullable first
     op.add_column(
         "user_agents",
         sa.Column(
             "webhook_type",
             sa.String(length=50),
-            nullable=False,
-            server_default="DEFAULT",
+            nullable=True,
         ),
     )
     op.add_column(
@@ -35,26 +34,31 @@ def upgrade() -> None:
         sa.Column(
             "webhook_config",
             postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default="{}",
+            nullable=True,
         ),
     )
 
     # Migrate existing webhook data to new format
+    # For rows with webhook_url, set type to OMNARA_SERVE and migrate config
     op.execute("""
         UPDATE user_agents
-        SET webhook_config = jsonb_build_object(
-            'url', webhook_url,
-            'api_key', webhook_api_key
-        )
+        SET webhook_type = 'OMNARA_SERVE',
+            webhook_config = jsonb_build_object(
+                'url', webhook_url,
+                'api_key', COALESCE(webhook_api_key, '')
+            )
         WHERE webhook_url IS NOT NULL
     """)
 
-    # Update webhook_config to remove null api_key if not present
+    # For rows without webhook_url, keep webhook_type and webhook_config as NULL
+    # (they're already NULL from the column addition)
+
+    # Remove empty api_key from webhook_config if it's an empty string
     op.execute("""
         UPDATE user_agents
         SET webhook_config = webhook_config - 'api_key'
-        WHERE webhook_config->>'api_key' IS NULL
+        WHERE webhook_config IS NOT NULL
+        AND (webhook_config->>'api_key' = '' OR webhook_config->>'api_key' IS NULL)
     """)
 
     # Drop the old columns
@@ -68,11 +72,14 @@ def downgrade() -> None:
     op.add_column("user_agents", sa.Column("webhook_url", sa.Text(), nullable=True))
 
     # Migrate data back from webhook_config
+    # Only set webhook_url and webhook_api_key for OMNARA_SERVE webhook_type
     op.execute("""
         UPDATE user_agents
         SET webhook_url = webhook_config->>'url',
             webhook_api_key = webhook_config->>'api_key'
-        WHERE webhook_config IS NOT NULL AND webhook_config != '{}'
+        WHERE webhook_type = 'OMNARA_SERVE'
+        AND webhook_config IS NOT NULL
+        AND webhook_config != '{}'
     """)
 
     # Drop new columns

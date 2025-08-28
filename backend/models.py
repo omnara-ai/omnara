@@ -161,16 +161,17 @@ class AgentInstanceDetail(BaseModel):
 
 class UserAgentRequest(BaseModel):
     name: str = Field(..., description="Name of the user agent")
-    webhook_type: str = Field("DEFAULT", description="Type of webhook integration")
-    webhook_config: dict = Field(
-        default_factory=dict, description="Webhook configuration"
-    )
+    webhook_type: str | None = Field(None, description="Type of webhook integration")
+    webhook_config: dict | None = Field(None, description="Webhook configuration")
     is_active: bool = Field(True, description="Whether the agent is active")
 
     @field_validator("webhook_type")
     @classmethod
-    def validate_webhook_type(cls, v: str) -> str:
+    def validate_webhook_type(cls, v: str | None) -> str | None:
         """Validate that the webhook type is supported."""
+        if v is None:
+            return None
+
         if not get_webhook_type_schema(v):
             supported = ", ".join(WEBHOOK_TYPES.keys())
             raise ValueError(
@@ -181,10 +182,17 @@ class UserAgentRequest(BaseModel):
 
     @field_validator("webhook_config")
     @classmethod
-    def validate_webhook_config(cls, v: dict, info) -> dict:
+    def validate_webhook_config(cls, v: dict | None, info) -> dict | None:
         """Validate webhook configuration against the webhook type schema."""
+        if v is None:
+            return None
+
         # Get the webhook_type from the data
-        webhook_type = info.data.get("webhook_type", "DEFAULT")
+        webhook_type = info.data.get("webhook_type")
+
+        # If no webhook_type, can't validate config
+        if not webhook_type:
+            return v
 
         # Validate the configuration
         is_valid, error_msg = validate_webhook_config_func(webhook_type, v)
@@ -197,8 +205,8 @@ class UserAgentRequest(BaseModel):
 class UserAgentResponse(BaseModel):
     id: str
     name: str
-    webhook_type: str
-    webhook_config: dict
+    webhook_type: str | None = None
+    webhook_config: dict | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -207,21 +215,10 @@ class UserAgentResponse(BaseModel):
     waiting_instance_count: int = 0
     completed_instance_count: int = 0
     error_instance_count: int = 0
-    has_webhook: bool = Field(default=False)
 
     @field_serializer("created_at", "updated_at")
     def serialize_datetime(self, dt: datetime, _info):
         return dt.isoformat() + "Z"
-
-    def __init__(self, **data):
-        super().__init__(**data)
-        # Compute has_webhook based on webhook_config presence
-        # For DEFAULT type, check if URL is configured
-        if self.webhook_type == "DEFAULT":
-            self.has_webhook = bool(self.webhook_config.get("url"))
-        else:
-            # For other types, assume configured if config exists
-            self.has_webhook = bool(self.webhook_config)
 
     model_config = ConfigDict(from_attributes=True)
 
