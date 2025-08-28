@@ -320,21 +320,20 @@ def get_webhook_type_schema(webhook_type_id: str) -> Optional[WebhookTypeSchema]
     return WEBHOOK_TYPES.get(webhook_type_id)
 
 
-def get_required_user_fields(webhook_type_id: str) -> set[str]:
+def get_runtime_field_names(webhook_type_id: str) -> set[str]:
     """
-    Get the set of runtime user fields required by a webhook type.
+    Get the names of all runtime fields for a webhook type.
 
     Args:
         webhook_type_id: The webhook type identifier
 
     Returns:
-        Set of user field names required by the webhook at runtime
+        Set of all runtime field names (both required and optional)
     """
     schema = get_webhook_type_schema(webhook_type_id)
     if not schema:
         return set()
 
-    # Return the names of all runtime fields
     return {field.name for field in schema.runtime_fields}
 
 
@@ -342,7 +341,7 @@ def validate_webhook_config(
     webhook_type_id: str, config: Dict[str, Any]
 ) -> tuple[bool, Optional[str]]:
     """
-    Validate a webhook configuration against its schema.
+    Validate webhook configuration (build fields) against its schema.
 
     Returns:
         Tuple of (is_valid, error_message)

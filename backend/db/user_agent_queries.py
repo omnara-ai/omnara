@@ -19,7 +19,7 @@ from shared.webhook_schemas import (
     format_webhook_request,
     validate_webhook_config,
     validate_runtime_fields,
-    get_required_user_fields,
+    get_runtime_field_names,
 )
 from sqlalchemy import and_, func
 from sqlalchemy.dialects.postgresql import insert
@@ -127,11 +127,11 @@ async def trigger_webhook_agent(
         )
 
     # Validate runtime fields early
-    required_fields = get_required_user_fields(user_agent.webhook_type)
+    runtime_field_names = get_runtime_field_names(user_agent.webhook_type)
     user_request = {
         field: value
         for field, value in user_request_data.items()
-        if field in required_fields
+        if field in runtime_field_names
     }
 
     is_valid, error_msg = validate_runtime_fields(user_agent.webhook_type, user_request)
