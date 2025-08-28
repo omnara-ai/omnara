@@ -17,7 +17,7 @@
 
 <div align="center">
 
-[📱 **Download iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🌐 **Try Web Dashboard**](https://omnara.ai) • [🎥 **See a Demo**](https://www.loom.com/share/03d30efcf8e44035af03cbfebf840c73?sid=1c209c04-8a4c-4dd6-8c92-735c399886a6) • [⭐ **Star on GitHub**](https://github.com/omnara-ai/omnara)
+[📱 **Download iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🌐 **Try Web Dashboard**](https://omnara.com) • [🎥 **See a Demo**](https://www.loom.com/share/03d30efcf8e44035af03cbfebf840c73?sid=1c209c04-8a4c-4dd6-8c92-735c399886a6) • [⭐ **Star on GitHub**](https://github.com/omnara-ai/omnara)
 
 </div>
 
@@ -33,7 +33,7 @@ pip install omnara
 omnara
 ```
 
-That's it! Create an account when prompted, then return to your terminal to interact with Claude Code. You can now see and interact with your Claude Code session from the [web dashboard](https://omnara.ai/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
+That's it! Create an account when prompted, then return to your terminal to interact with Claude Code. You can now see and interact with your Claude Code session from the [web dashboard](https://omnara.com/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
 
 ## 💡 What is Omnara?
 
@@ -258,7 +258,7 @@ answer = client.send_message(
 
 ### Method 4: REST API
 ```bash
-curl -X POST https://api.omnara.ai/api/v1/messages/agent \
+curl -X POST https://api.omnara.com/api/v1/messages/agent \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"content": "Starting deployment process", "agent_type": "claude-code", "requires_user_input": false}'
@@ -301,6 +301,6 @@ Omnara is open source software licensed under the [Apache 2.0 License](LICENSE).
 
 **Built with ❤️ by the Omnara team**
 
-[Website](https://omnara.ai) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
+[Website](https://omnara.com) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
 
 </div>

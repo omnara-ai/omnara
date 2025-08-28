@@ -8,6 +8,7 @@ from typing import List, Dict, Any
 from shared.webhook_schemas import (
     get_webhook_types,
     get_webhook_type_schema,
+    validate_webhook_config,
 )
 
 router = APIRouter(prefix="/api/v1/webhook-types", tags=["webhook-types"])
@@ -65,8 +66,6 @@ async def validate_webhook_configuration(
     Returns:
         Validation result with any error messages
     """
-    from shared.webhook_schemas import validate_webhook_config
-
     is_valid, error_message = validate_webhook_config(webhook_type_id, config)
 
     return {"valid": is_valid, "error": error_message}

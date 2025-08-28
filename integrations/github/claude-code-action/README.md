@@ -1,53 +1,164 @@
-![Claude Code Action responding to a comment](https://github.com/user-attachments/assets/1d60c2e9-82ed-4ee5-b749-f9e021c85f4d)
+# Omnara GitHub Integration
 
-# Claude Code Action
+This integration allows you to trigger AI agents from GitHub issues, PRs, and the Omnara dashboard to automatically respond to comments and perform code tasks.
 
-A general-purpose [Claude Code](https://claude.ai/code) action for GitHub PRs and issues that can answer questions and implement code changes. This action intelligently detects when to activate based on your workflow context—whether responding to @claude mentions, issue assignments, or executing automation tasks with explicit prompts. It supports multiple authentication methods including Anthropic direct API, Amazon Bedrock, and Google Vertex AI.
+## Quick Setup Guide
 
-## Features
+### Prerequisites
 
-- 🎯 **Intelligent Mode Detection**: Automatically selects the appropriate execution mode based on your workflow context—no configuration needed
-- 🤖 **Interactive Code Assistant**: Claude can answer questions about code, architecture, and programming
-- 🔍 **Code Review**: Analyzes PR changes and suggests improvements
-- ✨ **Code Implementation**: Can implement simple fixes, refactoring, and even new features
-- 💬 **PR/Issue Integration**: Works seamlessly with GitHub comments and PR reviews
-- 🛠️ **Flexible Tool Access**: Access to GitHub APIs and file operations (additional tools can be enabled via configuration)
-- 📋 **Progress Tracking**: Visual progress indicators with checkboxes that dynamically update as Claude completes tasks
-- 🏃 **Runs on Your Infrastructure**: The action executes entirely on your own GitHub runner (Anthropic API calls go to your chosen provider)
-- ⚙️ **Simplified Configuration**: Unified `prompt` and `claude_args` inputs provide clean, powerful configuration aligned with Claude Code SDK
+1. **GitHub Personal Access Token (PAT)**
+   - Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+   - Click "Generate new token (classic)"
+   - Select scopes: `repo` (full control of private repositories)
+   - Save the token securely
 
-## 📦 Upgrading from v0.x?
+2. **Omnara API Key**
+   - Get your API key from the [Omnara dashboard](https://omnara.com)
+   - You'll need this for webhook configuration
 
-**See our [Migration Guide](./docs/migration-guide.md)** for step-by-step instructions on updating your workflows to v1.0. The new version simplifies configuration while maintaining compatibility with most existing setups.
+3. **Anthropic API Key**
+   - Sign up at [Anthropic](https://console.anthropic.com)
+   - Generate an API key from your account settings
 
-## Quickstart
+### Step 1: Install the Claude Code GitHub App
 
-The easiest way to set up this action is through [Claude Code](https://claude.ai/code) in the terminal. Just open `claude` and run `/install-github-app`.
+Visit [github.com/apps/claude-code](https://github.com/apps/claude-code) and install the app on your repository or organization.
 
-This command will guide you through setting up the GitHub app and required secrets.
+### Step 2: Add the Workflow to Your Repository
 
-**Note**:
+1. Create `.github/workflows/omnara.yml` in your repository
+2. Copy the workflow from [claude-code-action/examples/omnara.yml](claude-code-action/examples/omnara.yml)
+3. Commit and push the file
 
-- You must be a repository admin to install the GitHub app and add secrets
-- This quickstart method is only available for direct Anthropic API users. For AWS Bedrock or Google Vertex AI setup, see [docs/cloud-providers.md](./docs/cloud-providers.md).
+### Step 3: Configure Repository Secrets
 
-## Documentation
+Add these secrets to your repository (Settings → Secrets and variables → Actions):
 
-- **[Migration Guide](./docs/migration-guide.md)** - **⭐ Upgrading from v0.x to v1.0**
-- [Setup Guide](./docs/setup.md) - Manual setup, custom GitHub apps, and security best practices
-- [Usage Guide](./docs/usage.md) - Basic usage, workflow configuration, and input parameters
-- [Custom Automations](./docs/custom-automations.md) - Examples of automated workflows and custom prompts
-- [Configuration](./docs/configuration.md) - MCP servers, permissions, environment variables, and advanced settings
-- [Experimental Features](./docs/experimental.md) - Execution modes and network restrictions
-- [Cloud Providers](./docs/cloud-providers.md) - AWS Bedrock and Google Vertex AI setup
-- [Capabilities & Limitations](./docs/capabilities-and-limitations.md) - What Claude can and cannot do
-- [Security](./docs/security.md) - Access control, permissions, and commit signing
-- [FAQ](./docs/faq.md) - Common questions and troubleshooting
+- `ANTHROPIC_API_KEY`: Your Anthropic API key
+- `OMNARA_API_KEY`: Your Omnara API key (optional if passing via webhook)
 
-## 📚 FAQ
+### Step 4: Set Up Webhook in Omnara Dashboard
 
-Having issues or questions? Check out our [Frequently Asked Questions](./docs/faq.md) for solutions to common problems and detailed explanations of Claude's capabilities and limitations.
+1. Go to the Omnara dashboard
+2. Create a new agent with type "GitHub Webhook"
+3. Fill in the configuration:
+   - **Repository**: `YOUR_ORG/YOUR_REPO`
+   - **PAT Token**: Your GitHub Personal Access Token
+   - **Event Type**: `omnara-trigger` (or custom)
 
-## License
+### Step 5: Launch Your Agent
 
-This project is licensed under the MIT License—see the LICENSE file for details.
+From the Omnara dashboard, you can now:
+1. Click "Launch" on your configured agent
+2. Enter a prompt for the AI to execute
+3. The agent will create a branch, make changes, and optionally create a PR
+
+## How It Works
+
+1. **From Omnara Dashboard**: 
+   - You launch an agent with a prompt
+   - Omnara sends a `repository_dispatch` event to GitHub
+   - GitHub Actions workflow runs with Omnara tracking
+
+2. **From GitHub Comments**:
+   - **`@omnara [request]`** - Runs with Omnara session tracking (visible in dashboard)
+     - Requires `OMNARA_API_KEY` in secrets, falls back to Claude if missing
+   - **`@claude [request]`** - Runs standard Claude Code (no tracking, faster)
+   
+The action automatically chooses based on the trigger phrase!
+
+## Webhook Payload Structure
+
+When triggering from Omnara, the webhook sends:
+
+```json
+{
+  "event_type": "omnara-trigger",
+  "client_payload": {
+    "prompt": "Your task for the AI agent",
+    "omnara_api_key": "YOUR_OMNARA_API_KEY",
+    "agent_instance_id": "unique-instance-id",
+    "agent_type": "Claude Code",
+    "branch_name": "feature/new-feature"  // Optional: target branch
+  }
+}
+```
+
+## Testing Your Setup
+
+### Manual Trigger (using curl)
+
+```bash
+curl -X POST \
+  -H "Authorization: token YOUR_PAT" \
+  -H "Accept: application/vnd.github.v3+json" \
+  https://api.github.com/repos/YOUR_ORG/YOUR_REPO/dispatches \
+  -d '{
+    "event_type": "omnara-trigger",
+    "client_payload": {
+      "prompt": "Add a README file with project description",
+      "omnara_api_key": "YOUR_OMNARA_API_KEY",
+      "agent_instance_id": "test-123",
+      "agent_type": "Claude Code",
+      "branch_name": "docs/add-readme"
+    }
+  }'
+```
+
+### From Omnara Dashboard
+
+1. Navigate to your configured agent
+2. Click "Launch"
+3. Enter your prompt
+4. Monitor progress in GitHub Actions tab
+
+## Configuration Options
+
+The workflow uses Claude Code Action v1.0 with these key inputs:
+
+- `prompt`: Instructions for Claude (auto-detects mode based on presence)
+- `claude_args`: Configuration arguments like `--max-turns 30 --model claude-3-5-sonnet-latest`
+- `trigger_phrase`: Override to use `@omnara` instead of `@claude`
+- `branch_prefix`: Prefix for created branches (default: `claude/`)
+
+The action automatically detects:
+- **With prompt provided** → Runs in automation mode (for repository_dispatch)
+- **Without prompt** → Waits for @omnara mentions in comments
+
+## Architecture
+
+```
+Omnara Dashboard
+    ↓
+GitHub Repository Dispatch API
+    ↓
+GitHub Actions Workflow
+    ↓
+Omnara Headless (wraps Claude Code)
+    ↓
+AI performs tasks in repository
+```
+
+## Files in This Integration
+
+- `claude-code-action/`: GitHub Action v1.0 with smart Omnara integration
+  - `examples/omnara-repository-dispatch.yml`: Example workflow for your repository
+  - `README-OMNARA.md`: Detailed documentation about the Omnara integration
+  - Smart detection: Uses Omnara for `@omnara` mentions, standard Claude for `@claude`
+
+## Troubleshooting
+
+### Workflow Not Triggering
+- Ensure the workflow file is in the default branch
+- Check GitHub Actions is enabled for your repository
+- Verify your PAT has `repo` scope
+
+### Authentication Errors
+- Verify all secrets are properly set in repository settings
+- Ensure PAT token hasn't expired
+- Check Omnara API key is valid
+
+### Agent Not Responding
+- Check GitHub Actions logs for the workflow run
+- Ensure the Claude Code GitHub App is installed
+- Verify webhook payload contains all required fields
