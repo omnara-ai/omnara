@@ -155,16 +155,16 @@ WEBHOOK_TYPES: Dict[str, WebhookTypeSchema] = {
                 placeholder="Describe what you want the agent to do...",
             ),
         ],
-        url_template="{url}",  # URL from config field
+        url_template="{build.url}",  # URL from config field
         headers_template={
             "Content-Type": "application/json",
-            "Authorization": "Bearer {api_key}",  # Will be empty if no api_key
+            "Authorization": "Bearer {build.api_key}",  # Will be empty if no api_key
         },
         payload_template={
             "agent_instance_id": "{backend.agent_instance_id}",
             "agent_type": "{backend.agent_type}",
             "omnara_api_key": "{backend.omnara_api_key}",
-            "prompt": "{user.prompt}",
+            "prompt": "{runtime.prompt}",
         },
     ),
     "GITHUB": WebhookTypeSchema(
@@ -219,22 +219,22 @@ WEBHOOK_TYPES: Dict[str, WebhookTypeSchema] = {
                 placeholder="main",
             ),
         ],
-        url_template="https://api.github.com/repos/{repository}/dispatches",
+        url_template="https://api.github.com/repos/{build.repository}/dispatches",
         headers_template={
             "Content-Type": "application/json",
             "Accept": "application/vnd.github.v3+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "Authorization": "Bearer {github_token}",
+            "Authorization": "Bearer {build.github_token}",
         },
         payload_template={
-            "event_type": "{event_type}",
+            "event_type": "{build.event_type}",
             "client_payload": {
                 "agent_instance_id": "{backend.agent_instance_id}",
-                "prompt": "{user.prompt}",
+                "prompt": "{runtime.prompt}",
                 "agent_type": "{backend.agent_type}",
                 "omnara_api_key": "{backend.omnara_api_key}",
-                "name": "{user.name}",
-                "worktree_name": "{user.worktree_name}",
+                "name": "{runtime.name}",
+                "worktree_name": "{runtime.worktree_name}",
             },
         },
     ),
@@ -288,18 +288,18 @@ WEBHOOK_TYPES: Dict[str, WebhookTypeSchema] = {
                 placeholder="main",
             ),
         ],
-        url_template="{url}",  # URL from config field
+        url_template="{build.url}",  # URL from config field
         headers_template={
             "Content-Type": "application/json",
-            "Authorization": "Bearer {api_key}",
+            "Authorization": "Bearer {build.api_key}",
             "X-Omnara-Api-Key": "{backend.omnara_api_key}",
         },
         payload_template={
             "agent_instance_id": "{backend.agent_instance_id}",
             "agent_type": "{backend.agent_type}",
-            "prompt": "{user.prompt}",
-            "worktree_name": "{user.worktree_name}",
-            "branch_name": "{user.branch_name}",
+            "prompt": "{runtime.prompt}",
+            "worktree_name": "{runtime.worktree_name}",
+            "branch_name": "{runtime.branch_name}",
         },
     ),
 }
@@ -402,14 +402,14 @@ def process_template(
     Recursively process a template, replacing placeholders with actual values.
 
     Placeholders:
-    - {field_name} - replaced with field value from webhook_config (webhook configuration fields)
-    - {user.field_name} - replaced with field value from user_request (prompt, name, worktree_name)
+    - {build.field_name} - replaced with field value from webhook_config (build-time configuration)
+    - {runtime.field_name} - replaced with field value from user_request (runtime input fields)
     - {backend.field_name} - replaced with field value from backend_fields (agent_instance_id, etc.)
 
     Args:
         template: The template structure to process
-        webhook_config: User's webhook configuration fields (repository, api_key, etc.)
-        user_request: User's request fields (prompt, name, worktree_name)
+        webhook_config: Build-time webhook configuration fields (repository, api_key, etc.)
+        user_request: Runtime input fields (prompt, name, worktree_name, etc.)
         backend_fields: Backend-provided fields (agent_instance_id, omnara_api_key, agent_type)
     """
     if isinstance(template, str):
@@ -424,26 +424,23 @@ def process_template(
                 if value is not None:
                     result = result.replace(match.group(0), str(value))
 
-        # Replace all user request field placeholders
-        user_pattern = re.compile(r"\{user\.([^}]+)\}")
-        for match in user_pattern.finditer(result):
+        # Replace all runtime field placeholders
+        runtime_pattern = re.compile(r"\{runtime\.([^}]+)\}")
+        for match in runtime_pattern.finditer(result):
             field_name = match.group(1)
             if field_name in user_request:
                 value = user_request[field_name]
                 if value is not None:
                     result = result.replace(match.group(0), str(value))
 
-        # Replace all webhook config placeholders (no prefix)
-        config_pattern = re.compile(r"\{([^}]+)\}")
-        for match in config_pattern.finditer(result):
+        # Replace all build field placeholders
+        build_pattern = re.compile(r"\{build\.([^}]+)\}")
+        for match in build_pattern.finditer(result):
             field_name = match.group(1)
-            # Skip backend and user fields (already processed)
-            if (
-                not field_name.startswith("backend.")
-                and not field_name.startswith("user.")
-                and field_name in webhook_config
-            ):
-                result = result.replace(match.group(0), str(webhook_config[field_name]))
+            if field_name in webhook_config:
+                value = webhook_config[field_name]
+                if value is not None:
+                    result = result.replace(match.group(0), str(value))
 
         return result
     elif isinstance(template, dict):
@@ -515,7 +512,7 @@ def format_webhook_request(
 
     # Process URL template
     url = process_template(
-        schema.url_template or "{url}",  # Default to {url} if no template
+        schema.url_template or "{build.url}",  # Default to {build.url} if no template
         config_with_defaults,
         user_request,
         backend_fields,

@@ -16,10 +16,3 @@ class AgentStatus(str, Enum):
 class SenderType(str, Enum):
     AGENT = "AGENT"
     USER = "USER"
-
-
-class WebhookType(str, Enum):
-    """Supported webhook integration types"""
-
-    DEFAULT = "DEFAULT"
-    GITHUB = "GITHUB"
