@@ -53,7 +53,7 @@ jobs:
           fi
       
       - name: Run Omnara Claude Code Action
-        uses: omnara-ai/omnara/integrations/github/claude-code-action@github-action
+        uses: omnara-ai/omnara/integrations/github/claude-code-action@main
         with:
           # The prompt will come from repository_dispatch payload
           # For @omnara mentions, the action auto-detects from comments

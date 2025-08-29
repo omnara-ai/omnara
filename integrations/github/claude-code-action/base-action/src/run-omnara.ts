@@ -235,7 +235,7 @@ export async function runOmnara(promptPath: string, options: OmnaraOptions) {
   });
 
   // Wait for Omnara to finish with timeout
-  let timeoutMs = 10 * 60 * 1000; // Default 10 minutes
+  let timeoutMs = 1440 * 60 * 1000; // Default 10 minutes
   if (options.timeoutMinutes) {
     timeoutMs = parseInt(options.timeoutMinutes, 10) * 60 * 1000;
   } else if (process.env.INPUT_TIMEOUT_MINUTES) {
