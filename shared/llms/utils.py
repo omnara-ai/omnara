@@ -1,9 +1,7 @@
 """LLM utility functions for Omnara platform."""
 
 import logging
-
-import anthropic  # type: ignore
-
+import anthropic
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
