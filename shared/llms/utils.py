@@ -36,8 +36,8 @@ User message: "{user_message}"
 Return ONLY the title, no quotes, no punctuation at the end, no explanation. The title should capture the essence of what the user is asking about or trying to do."""
 
         response = client.messages.create(
-            model="claude-3-haiku-20240307",  # Using Haiku for speed and cost efficiency
-            max_tokens=50,
+            model="claude-3-5-haiku-latest",
+            max_tokens=20,
             temperature=0.3,
             messages=[{"role": "user", "content": prompt}],
         )
