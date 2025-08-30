@@ -78,6 +78,9 @@ class Settings(BaseSettings):
 
     # JWT Signing Keys for API Keys
     jwt_private_key: str = ""
+
+    # Anthropic API for LLM features
+    anthropic_api_key: str = ""
     jwt_public_key: str = ""
 
     # Sentry Configuration

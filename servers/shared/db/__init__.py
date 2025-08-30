@@ -11,6 +11,7 @@ from .queries import (
     get_queued_user_messages,
     get_or_create_agent_instance,
     wait_for_answer,
+    update_session_title_if_needed,
     # High-level functions
     send_agent_message,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "get_queued_user_messages",
     "get_or_create_agent_instance",
     "wait_for_answer",
+    "update_session_title_if_needed",
     # High-level functions
     "send_agent_message",
 ]
