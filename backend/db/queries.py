@@ -9,13 +9,11 @@ from shared.database import (
     APIKey,
     Message,
     PushToken,
-    SenderType,
     User,
     UserAgent,
 )
 from shared.database.billing_operations import get_or_create_subscription
 from shared.database.subscription_models import BillingEvent, Subscription
-from servers.shared.db.queries import trigger_webhook_for_user_response
 from sqlalchemy import case, desc, func
 from sqlalchemy.orm import Session, joinedload, subqueryload
 
@@ -24,7 +22,6 @@ from backend.models import (
     AgentInstanceResponse,
     AgentInstanceDetail,
     MessageResponse,
-    UserMessageResponse,
     AgentTypeOverview,
 )
 
@@ -467,53 +464,6 @@ def get_agent_instance_detail(
         last_read_message_id=str(instance.last_read_message_id)
         if instance.last_read_message_id
         else None,
-    )
-
-
-def submit_user_message(
-    db: Session, instance_id: UUID, content: str, user_id: UUID
-) -> UserMessageResponse | None:
-    """Submit a user message to an agent instance"""
-
-    # Check if instance exists and belongs to user
-    instance = (
-        db.query(AgentInstance)
-        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
-        .first()
-    )
-    if not instance:
-        return None
-
-    # Create new user message
-    user_message = Message(
-        agent_instance_id=instance_id,
-        sender_type=SenderType.USER,
-        content=content,
-        requires_user_input=False,
-    )
-    db.add(user_message)
-
-    if instance.status != AgentStatus.COMPLETED:
-        instance.status = AgentStatus.ACTIVE
-
-    db.commit()
-    db.refresh(user_message)
-
-    # Trigger webhook if previous agent message was waiting for response
-    trigger_webhook_for_user_response(
-        db=db,
-        agent_instance_id=instance_id,
-        user_message_content=content,
-        user_message_id=str(user_message.id),
-        user_id=str(user_id),
-    )
-
-    return UserMessageResponse(
-        id=str(user_message.id),
-        content=user_message.content,
-        sender_type=user_message.sender_type.value,
-        created_at=user_message.created_at,
-        requires_user_input=user_message.requires_user_input,
     )
 
 

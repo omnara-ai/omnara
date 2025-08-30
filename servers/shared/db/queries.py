@@ -14,6 +14,7 @@ from shared.database import (
 )
 from shared.database.billing_operations import check_agent_limit
 from shared.database.utils import sanitize_git_diff
+from shared.llms import generate_conversation_title
 from sqlalchemy.orm import Session
 from fastmcp import Context
 
@@ -113,6 +114,60 @@ def get_or_create_agent_instance(
         db.add(instance)
         db.flush()  # Flush to ensure the instance is in the session with its ID
         return instance
+
+
+def update_session_title_if_needed(
+    db: Session,
+    instance_id: UUID,
+    user_message: str,
+) -> None:
+    """
+    Update the session title if it's NULL by generating a title from the user message.
+
+    This function:
+    - Checks if the instance name is NULL
+    - If NULL, generates a title using the LLM
+    - Updates the instance name in the database
+    - Handles errors gracefully
+
+    Args:
+        db: Database session
+        instance_id: Agent instance ID
+        user_message: The user's message content
+    """
+    try:
+        # Get the instance and check if name is already set
+        instance = (
+            db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
+        )
+        if not instance:
+            logger.warning(f"Instance {instance_id} not found for title generation")
+            return
+
+        if instance.name is not None:
+            logger.debug(
+                f"Instance {instance_id} already has a name, skipping title generation"
+            )
+            return
+
+        # Generate the title using the LLM utility
+        title = generate_conversation_title(user_message)
+
+        if title:
+            instance.name = title
+            db.commit()
+            logger.info(f"Updated instance {instance_id} with title: {title}")
+        else:
+            logger.debug(f"No title generated for instance {instance_id}")
+
+    except Exception as e:
+        logger.error(
+            f"Failed to update session title for instance {instance_id}: {str(e)}"
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def end_session(db: Session, agent_instance_id: str, user_id: str) -> tuple[str, str]:
@@ -361,7 +416,7 @@ def create_user_message(
     content: str,
     user_id: str,
     mark_as_read: bool = True,
-) -> tuple[str, bool]:
+) -> dict:
     """Create a user message for an agent instance.
 
     Args:
@@ -372,20 +427,24 @@ def create_user_message(
         mark_as_read: Whether to update last_read_message_id (default: True)
 
     Returns:
-        Tuple of (message_id, marked_as_read)
+        Dictionary with message details:
+        - id: Message ID
+        - content: Message content
+        - sender_type: "user"
+        - created_at: Creation timestamp
+        - requires_user_input: False
+        - marked_as_read: Whether the message was marked as read
+        - instance_id: The agent instance ID
 
     Raises:
         ValueError: If instance not found or user doesn't have access
     """
-    # Get the instance and validate access
     instance = get_agent_instance(db, agent_instance_id)
     if not instance:
         raise ValueError("Agent instance not found")
 
     if str(instance.user_id) != user_id:
-        raise ValueError(
-            "Access denied. Agent instance does not belong to authenticated user."
-        )
+        raise ValueError("Agent instance not found")
 
     # Create the user message
     message = Message(
@@ -396,12 +455,33 @@ def create_user_message(
     )
     db.add(message)
     db.flush()  # Get the message ID
+    db.refresh(message)  # Get database-computed values like created_at
+
+    instance.status = AgentStatus.ACTIVE
 
     # Update last_read_message_id if requested
     if mark_as_read:
         instance.last_read_message_id = message.id
 
-    return str(message.id), mark_as_read
+    # Trigger webhook if previous agent message was waiting for response
+    # TODO: do this in a background task
+    trigger_webhook_for_user_response(
+        db=db,
+        agent_instance_id=agent_instance_id,
+        user_message_content=content,
+        user_message_id=str(message.id),
+        user_id=user_id,
+    )
+
+    return {
+        "id": str(message.id),
+        "content": message.content,
+        "sender_type": message.sender_type.value,
+        "created_at": message.created_at,
+        "requires_user_input": message.requires_user_input,
+        "marked_as_read": mark_as_read,
+        "instance_id": agent_instance_id,
+    }
 
 
 def trigger_webhook_for_user_response(
@@ -481,7 +561,6 @@ def trigger_webhook_for_user_response(
                 last_agent_message.message_metadata["webhook_response_status"] = (
                     response.status_code
                 )
-                db.commit()
             else:
                 logger.warning(
                     f"Webhook returned non-success status {response.status_code} "
