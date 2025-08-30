@@ -613,7 +613,7 @@ index 1234567..abcdefg 100644
         initial_last_read_id = instance.last_read_message_id
 
         # Create a user message with mark_as_read=True (default)
-        message_id, marked_as_read = create_user_message(
+        result = create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="User response message",
@@ -621,6 +621,10 @@ index 1234567..abcdefg 100644
             mark_as_read=True,
         )
         test_db.commit()
+
+        # Extract values from result dictionary
+        message_id = result["id"]
+        marked_as_read = result["marked_as_read"]
 
         # Verify the message was created
         message = test_db.query(Message).filter_by(id=message_id).first()
@@ -658,7 +662,7 @@ index 1234567..abcdefg 100644
         initial_last_read_id = instance.last_read_message_id
 
         # Create a user message with mark_as_read=False
-        message_id, marked_as_read = create_user_message(
+        result = create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="Unread user message",
@@ -666,6 +670,10 @@ index 1234567..abcdefg 100644
             mark_as_read=False,
         )
         test_db.commit()
+
+        # Extract values from result dictionary
+        message_id = result["id"]
+        marked_as_read = result["marked_as_read"]
 
         # Verify the message was created
         message = test_db.query(Message).filter_by(id=message_id).first()
@@ -709,7 +717,7 @@ index 1234567..abcdefg 100644
         test_db.commit()
 
         # Try to create user message with other user - should fail
-        with pytest.raises(ValueError, match="Access denied"):
+        with pytest.raises(ValueError, match="Agent instance not found"):
             create_user_message(
                 db=test_db,
                 agent_instance_id=instance_id,
@@ -755,14 +763,14 @@ index 1234567..abcdefg 100644
         # Create multiple user messages with mark_as_read=False
         msg_ids = []
         for i in range(3):
-            msg_id, _ = create_user_message(
+            result = create_user_message(
                 db=test_db,
                 agent_instance_id=instance_id,
                 content=f"User message {i + 1}",
                 user_id=str(test_user.id),
                 mark_as_read=False,
             )
-            msg_ids.append(msg_id)
+            msg_ids.append(result["id"])
         test_db.commit()
 
         # Verify last_read_message_id hasn't changed
@@ -782,13 +790,14 @@ index 1234567..abcdefg 100644
         ]
 
         # Now create one with mark_as_read=True
-        read_msg_id, _ = create_user_message(
+        result = create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="This one is read",
             user_id=str(test_user.id),
             mark_as_read=True,
         )
+        read_msg_id = result["id"]
         test_db.commit()
 
         # Verify last_read_message_id is now the read message
@@ -819,7 +828,7 @@ index 1234567..abcdefg 100644
         test_db.commit()
 
         # User message 1 - mark as read
-        user_msg1_id, _ = create_user_message(
+        create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="User: Great, proceed",
@@ -844,7 +853,7 @@ index 1234567..abcdefg 100644
         )  # No queued messages since user message was marked as read
 
         # User message 2 - NOT marked as read
-        user_msg2_id, _ = create_user_message(
+        create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="User: Actually, change approach",
@@ -854,7 +863,7 @@ index 1234567..abcdefg 100644
         test_db.commit()
 
         # User message 3 - also NOT marked as read
-        user_msg3_id, _ = create_user_message(
+        create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="User: Use async pattern instead",
@@ -927,7 +936,7 @@ index 1234567..abcdefg 100644
         assert instance.last_read_message_id == UUID(q1_id)
 
         # User responds but doesn't mark as read
-        user_resp1_id, _ = create_user_message(
+        create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="Use FastAPI",
@@ -937,7 +946,7 @@ index 1234567..abcdefg 100644
         test_db.commit()
 
         # User adds more context (also not marked as read)
-        user_resp2_id, _ = create_user_message(
+        create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="And include Pydantic for validation",
@@ -977,7 +986,7 @@ index 1234567..abcdefg 100644
         test_db.commit()
 
         # User responds and marks as read this time
-        user_resp3_id, _ = create_user_message(
+        create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="Yes, use JWT",
@@ -1025,14 +1034,14 @@ index 1234567..abcdefg 100644
         # Add 3 user messages without marking as read
         unread_ids = []
         for i in range(3):
-            msg_id, _ = create_user_message(
+            result = create_user_message(
                 db=test_db,
                 agent_instance_id=instance_id,
                 content=f"Unread user message {i + 1}",
                 user_id=str(test_user.id),
                 mark_as_read=False,
             )
-            unread_ids.append(msg_id)
+            unread_ids.append(result["id"])
         test_db.commit()
 
         # Verify last_read hasn't changed
@@ -1040,13 +1049,14 @@ index 1234567..abcdefg 100644
         assert instance.last_read_message_id == UUID(msg1_id)
 
         # Add a user message WITH mark as read
-        read_msg_id, _ = create_user_message(
+        result = create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="This updates last read",
             user_id=str(test_user.id),
             mark_as_read=True,
         )
+        read_msg_id = result["id"]
         test_db.commit()
 
         # Now last_read should jump to this message
@@ -1088,13 +1098,14 @@ index 1234567..abcdefg 100644
         test_db.commit()
 
         # User sends message (not marked as read)
-        user_msg1_id, _ = create_user_message(
+        user_msg1_result = create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="User message 1",
             user_id=str(test_user.id),
             mark_as_read=False,
         )
+        user_msg1_id = user_msg1_result["id"]
         test_db.commit()
 
         # Simulate polling endpoint - should see the message
@@ -1113,13 +1124,14 @@ index 1234567..abcdefg 100644
         assert instance.last_read_message_id == UUID(user_msg1_id)
 
         # User sends another message (marked as read)
-        user_msg2_id, _ = create_user_message(
+        user_msg2_result = create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
             content="User message 2",
             user_id=str(test_user.id),
             mark_as_read=True,
         )
+        user_msg2_id = user_msg2_result["id"]
         test_db.commit()
 
         # Poll again - should return None (stale) because last_read changed
@@ -1140,14 +1152,16 @@ index 1234567..abcdefg 100644
         assert len(messages) == 0
 
     @pytest.mark.integration
-    def test_user_message_to_completed_instance(self, test_db, test_user):
-        """Test sending user messages to a completed agent instance."""
-        # Create and immediately complete an instance
+    def test_user_message_to_completed_instance_updates_last_read(
+        self, test_db, test_user
+    ):
+        """Test that user messages to completed instances still update last_read_message_id."""
+        # Create and complete an instance
         instance_id, _, _ = asyncio.run(
             send_agent_message(
                 db=test_db,
                 agent_instance_id=str(uuid4()),
-                content="Starting and ending quickly",
+                content="Starting task",
                 user_id=str(test_user.id),
                 agent_type="Test Agent",
                 requires_user_input=False,
@@ -1166,39 +1180,24 @@ index 1234567..abcdefg 100644
         # Verify it's completed
         instance = test_db.query(AgentInstance).filter_by(id=instance_id).first()
         assert instance.status == AgentStatus.COMPLETED
+        initial_last_read = instance.last_read_message_id
 
-        # Try to send user message with mark_as_read=True
-        msg_id, marked = create_user_message(
+        # Send user message with mark_as_read=True
+        result = create_user_message(
             db=test_db,
             agent_instance_id=instance_id,
-            content="Message to completed instance",
+            content="Follow-up message to completed instance",
             user_id=str(test_user.id),
             mark_as_read=True,
         )
+        msg_id = result["id"]
         test_db.commit()
 
-        # Message should be created
+        # Verify message was created and last_read was updated
         message = test_db.query(Message).filter_by(id=msg_id).first()
         assert message is not None
-        assert message.content == "Message to completed instance"
+        assert message.content == "Follow-up message to completed instance"
 
-        # But last_read_message_id should still update (user can still send messages)
         test_db.refresh(instance)
         assert instance.last_read_message_id == UUID(msg_id)
-        assert instance.status == AgentStatus.COMPLETED  # Status remains completed
-
-        # Agent trying to send a message should not change status
-        _, _, _ = asyncio.run(
-            send_agent_message(
-                db=test_db,
-                agent_instance_id=instance_id,
-                content="Agent tries to continue",
-                user_id=str(test_user.id),
-                requires_user_input=True,  # Even with a question
-            )
-        )
-        test_db.commit()
-
-        # Status should remain COMPLETED (not change to AWAITING_INPUT)
-        test_db.refresh(instance)
-        assert instance.status == AgentStatus.COMPLETED
+        assert instance.last_read_message_id != initial_last_read

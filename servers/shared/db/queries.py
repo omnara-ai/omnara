@@ -444,9 +444,7 @@ def create_user_message(
         raise ValueError("Agent instance not found")
 
     if str(instance.user_id) != user_id:
-        raise ValueError(
-            "Access denied. Agent instance does not belong to authenticated user."
-        )
+        raise ValueError("Agent instance not found")
 
     # Create the user message
     message = Message(
