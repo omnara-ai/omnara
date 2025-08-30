@@ -450,14 +450,14 @@ def process_template(
             processed = process_template(
                 v, webhook_config, user_request, backend_fields
             )
-            # Include the processed value (even if None for optional fields)
-            # but skip if it's an unresolved placeholder
+            # Skip fields that couldn't be substituted (still contain template placeholders)
             if not (
                 isinstance(processed, str)
                 and (
-                    processed.startswith("{backend.") or processed.startswith("{user.")
+                    "{backend." in processed
+                    or "{runtime." in processed
+                    or "{build." in processed
                 )
-                and processed.endswith("}")
             ):
                 result[k] = processed
         return result
