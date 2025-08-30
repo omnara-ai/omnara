@@ -13,6 +13,7 @@ from shared.database.session import get_db
 from sqlalchemy.orm import Session
 
 from .supabase_client import get_supabase_client
+from .email_utils import email_service
 
 security = HTTPBearer(auto_error=False)  # Don't auto-error so we can check cookies
 
@@ -114,6 +115,9 @@ async def get_current_user(
                 db.add(user)
                 db.commit()
                 db.refresh(user)
+
+                # Send welcome email to new user
+                email_service.send_welcome_email(user.email, user.display_name)
             else:
                 raise AuthError("User not found")
         except Exception as e:
@@ -171,6 +175,9 @@ async def get_optional_current_user(
             db.add(user)
             db.commit()
             db.refresh(user)
+
+            # Send welcome email to new user
+            email_service.send_welcome_email(user.email, user.display_name)
 
         return user
 
