@@ -4,10 +4,10 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from shared.database.session import get_db
+from shared.database.session import get_db, SessionLocal
 from shared.database import Message, AgentInstance, SenderType, AgentStatus
 from servers.shared.db import (
     send_agent_message,
@@ -15,8 +15,8 @@ from servers.shared.db import (
     get_or_create_agent_instance,
     get_queued_user_messages,
     create_user_message,
+    update_session_title_if_needed,
 )
-from servers.shared.db.queries import trigger_webhook_for_user_response
 from servers.shared.notification_utils import send_message_notifications
 from .auth import get_current_user_id
 from .models import (
@@ -153,6 +153,7 @@ async def create_agent_message_endpoint(
 @agent_router.post("/messages/user", response_model=CreateUserMessageResponse)
 def create_user_message_endpoint(
     request: CreateUserMessageRequest,
+    background_tasks: BackgroundTasks,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db),
 ) -> CreateUserMessageResponse:
@@ -163,11 +164,11 @@ def create_user_message_endpoint(
     - Optionally marks it as read (updates last_read_message_id)
     - Returns the message ID
     - Triggers any waiting webhooks (e.g., n8n workflows)
+    - Generates session title if needed (in background)
     """
 
     try:
-        # Create the user message
-        message_id, marked_as_read = create_user_message(
+        result = create_user_message(
             db=db,
             agent_instance_id=request.agent_instance_id,
             content=request.content,
@@ -175,22 +176,26 @@ def create_user_message_endpoint(
             mark_as_read=request.mark_as_read,
         )
 
-        # Commit the transaction first
         db.commit()
 
-        # After committing, trigger any waiting webhooks (e.g., n8n workflows)
-        trigger_webhook_for_user_response(
-            db=db,
-            agent_instance_id=request.agent_instance_id,
-            user_message_content=request.content,
-            user_message_id=message_id,
-            user_id=user_id,
-        )
+        # Add background task to update session title if needed
+        def update_title_with_session():
+            db_session = SessionLocal()
+            try:
+                update_session_title_if_needed(
+                    db=db_session,
+                    instance_id=UUID(result["instance_id"]),
+                    user_message=request.content,
+                )
+            finally:
+                db_session.close()
+
+        background_tasks.add_task(update_title_with_session)
 
         return CreateUserMessageResponse(
             success=True,
-            message_id=message_id,
-            marked_as_read=marked_as_read,
+            message_id=result["id"],
+            marked_as_read=result["marked_as_read"],
         )
     except ValueError as e:
         db.rollback()

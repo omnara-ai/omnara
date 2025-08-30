@@ -1,9 +1,9 @@
 from uuid import UUID
-import asyncio
 import json
 from typing import AsyncGenerator
+import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from shared.database.models import User
 from shared.database.session import get_db, SessionLocal
@@ -20,7 +20,6 @@ from ..db import (
     get_all_agent_instances,
     get_all_agent_types_with_instances,
     mark_instance_completed,
-    submit_user_message,
     delete_agent_instance,
     update_agent_instance_name,
     get_message_by_id,
@@ -34,6 +33,7 @@ from ..models import (
     UserMessageRequest,
     UserMessageResponse,
 )
+from servers.shared.db import create_user_message, update_session_title_if_needed
 
 router = APIRouter(tags=["agents"])
 
@@ -130,17 +130,54 @@ def get_instance_messages_paginated(
 @router.post(
     "/agent-instances/{instance_id}/messages", response_model=UserMessageResponse
 )
-def create_user_message(
+def create_user_message_endpoint(
     instance_id: UUID,
     request: UserMessageRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Send a message to an agent instance (answers questions or provides feedback)"""
-    result = submit_user_message(db, instance_id, request.content, current_user.id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Agent instance not found")
-    return result
+    try:
+        # Use the unified create_user_message function
+        result = create_user_message(
+            db=db,
+            agent_instance_id=str(instance_id),
+            content=request.content,
+            user_id=str(current_user.id),
+            mark_as_read=False,  # Backend doesn't mark as read
+        )
+
+        # Commit the transaction
+        db.commit()
+
+        # Add background task to update session title if needed
+        # Create a wrapper function to ensure proper session cleanup
+        def update_title_with_session():
+            db_session = SessionLocal()
+            try:
+                update_session_title_if_needed(
+                    db=db_session, instance_id=instance_id, user_message=request.content
+                )
+            finally:
+                db_session.close()
+
+        background_tasks.add_task(update_title_with_session)
+
+        # Convert to UserMessageResponse format
+        return UserMessageResponse(
+            id=result["id"],
+            content=result["content"],
+            sender_type=result["sender_type"],
+            created_at=result["created_at"],
+            requires_user_input=result["requires_user_input"],
+        )
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @router.get("/agent-instances/{instance_id}/messages/stream")
