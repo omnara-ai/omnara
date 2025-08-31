@@ -299,7 +299,11 @@ class ClaudeWrapperV3:
         """Write to debug log file"""
         if self.debug_log_file:
             try:
-                self.debug_log_file.write(f"[{time.strftime('%H:%M:%S')}] {message}\n")
+                # Get current time with milliseconds
+                current_time = time.time()
+                ms = int((current_time % 1) * 1000)
+                timestamp = time.strftime("%H:%M:%S", time.localtime(current_time))
+                self.debug_log_file.write(f"[{timestamp}.{ms:03d}] {message}\n")
                 self.debug_log_file.flush()
             except Exception:
                 pass
@@ -950,6 +954,9 @@ class ClaudeWrapperV3:
                                     "esc to interrupt" in clean_text
                                     or "ctrl+b to run in background" in clean_text
                                 ):
+                                    self.log(
+                                        "[DEBUG] Setting last_esc_interrupt_seen - found interrupt indicator in text"
+                                    )
                                     self.last_esc_interrupt_seen = time.time()
 
                             except Exception:
@@ -1172,6 +1179,7 @@ class ClaudeWrapperV3:
 
             if message_id and message_id in self.requested_input_messages:
                 await asyncio.sleep(0.5)
+                self.log(f"[DEBUG] Already requested {message_id}, clearing now")
                 self.requested_input_messages.clear()
             elif message_id and message_id not in self.requested_input_messages:
                 self.log(
