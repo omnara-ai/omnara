@@ -512,6 +512,10 @@ def run_agent_chat(args, unknown_args):
     ):
         new_argv.append("--dangerously-skip-permissions")
 
+    # Add delay-time flag if provided
+    if hasattr(args, "delay_time") and args.delay_time:
+        new_argv.extend(["--delay-time", str(args.delay_time)])
+
     # Add any additional arguments
     if unknown_args:
         new_argv.extend(unknown_args)
@@ -633,6 +637,12 @@ def add_global_arguments(parser):
         "--dangerously-skip-permissions",
         action="store_true",
         help="Bypass all permission checks. Recommended only for sandboxes with no internet access.",
+    )
+    parser.add_argument(
+        "--delay-time",
+        type=float,
+        default=1.0,
+        help="Delay time in seconds before considering Claude idle (default: 1.0)",
     )
 
 
