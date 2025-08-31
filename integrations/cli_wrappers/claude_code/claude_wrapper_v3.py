@@ -534,7 +534,7 @@ class ClaudeWrapperV3:
             if (
                 self.last_not_esc_interrupt_seen
                 and self.last_esc_interrupt_seen > self.last_not_esc_interrupt_seen
-                and time_since_esc >= 2
+                and time_since_esc < 2
             ):
                 return False
             return time_since_esc >= 0.75
