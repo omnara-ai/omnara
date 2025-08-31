@@ -512,6 +512,10 @@ def run_agent_chat(args, unknown_args):
     ):
         new_argv.append("--dangerously-skip-permissions")
 
+    # Add idle-delay flag if provided
+    if hasattr(args, "idle_delay") and args.idle_delay:
+        new_argv.extend(["--idle-delay", str(args.idle_delay)])
+
     # Add any additional arguments
     if unknown_args:
         new_argv.extend(unknown_args)
@@ -633,6 +637,12 @@ def add_global_arguments(parser):
         "--dangerously-skip-permissions",
         action="store_true",
         help="Bypass all permission checks. Recommended only for sandboxes with no internet access.",
+    )
+    parser.add_argument(
+        "--idle-delay",
+        type=float,
+        default=1.0,
+        help="Delay in seconds before considering Claude idle (default: 1.0)",
     )
 
 
