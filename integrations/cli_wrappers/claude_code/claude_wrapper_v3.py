@@ -965,10 +965,16 @@ class ClaudeWrapperV3:
                                     self.log("[DEBUG] Setting last_esc_interrupt_seen")
                                     self.last_esc_interrupt_seen = time.time()
                                 else:
-                                    self.log(
-                                        "[DEBUG] Setting NOTTTTTT last_esc_interrupt_seen"
-                                    )
-                                    self.last_not_esc_interrupt_seen = time.time()
+                                    # Only set if enough time has passed since last_esc_interrupt_seen
+                                    current_time = time.time()
+                                    if not self.last_esc_interrupt_seen or (
+                                        current_time - self.last_esc_interrupt_seen
+                                        > 0.25
+                                    ):
+                                        self.log(
+                                            "[DEBUG] Setting NOTTTTTT last_esc_interrupt_seen"
+                                        )
+                                        self.last_not_esc_interrupt_seen = current_time
 
                             except Exception:
                                 pass
