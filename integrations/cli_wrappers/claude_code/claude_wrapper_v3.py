@@ -75,6 +75,7 @@ class MessageProcessor:
         self.web_ui_messages = set()  # Track messages from web UI to avoid duplicates
         self.pending_input_message_id = None  # Track if we're waiting for input
         self.last_was_tool_use = False  # Track if last assistant message used tools
+        self.first_message = True
 
     def process_user_message_sync(self, content: str, from_web: bool) -> None:
         """Process a user message (sync version for monitor thread)"""
@@ -538,7 +539,12 @@ class ClaudeWrapperV3:
             ):
                 return False
             return time_since_esc >= 0.75
-        return True
+
+        if self.message_processor.first_message:
+            self.message_processor.first_message = False
+            return True
+        else:
+            return False
 
     def cancel_pending_input_request(self):
         """Cancel any pending input request task"""
@@ -1204,6 +1210,8 @@ class ClaudeWrapperV3:
                     f"[INFO] Claude is idle, starting request_user_input for message {message_id}"
                 )
 
+                self.last_esc_interrupt_seen = None
+
                 # Track that we've requested input for this message
                 self.requested_input_messages.add(message_id)
 
@@ -1238,10 +1246,9 @@ class ClaudeWrapperV3:
                     requires_user_input=False,
                 )
 
-                # Initialize message processor with first message
-                if hasattr(self.message_processor, "last_message_id"):
-                    self.message_processor.last_message_id = response.message_id
-                    self.message_processor.last_message_time = time.time()
+                self.message_processor.last_message_id = response.message_id
+                self.message_processor.last_message_time = time.time()
+
         except AuthenticationError as e:
             # Log the error
             self.log(f"[ERROR] Authentication failed: {e}")
