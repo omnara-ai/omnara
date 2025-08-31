@@ -962,11 +962,12 @@ class ClaudeWrapperV3:
                                     "esc to interrupt" in clean_text
                                     or "ctrl+b to run in background" in clean_text
                                 ):
-                                    self.log(
-                                        "[DEBUG] Setting last_esc_interrupt_seen - found interrupt indicator in text"
-                                    )
+                                    self.log("[DEBUG] Setting last_esc_interrupt_seen")
                                     self.last_esc_interrupt_seen = time.time()
                                 else:
+                                    self.log(
+                                        "[DEBUG] Setting NOTTTTTT last_esc_interrupt_seen"
+                                    )
                                     self.last_not_esc_interrupt_seen = time.time()
 
                             except Exception:
