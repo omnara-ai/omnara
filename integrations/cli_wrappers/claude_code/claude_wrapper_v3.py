@@ -78,6 +78,7 @@ class MessageProcessor:
 
     def process_user_message_sync(self, content: str, from_web: bool) -> None:
         """Process a user message (sync version for monitor thread)"""
+        self.last_esc_interrupt_seen = time.time()
         if from_web:
             # Message from web UI - track it to avoid duplicate sends
             self.web_ui_messages.add(content)
@@ -104,6 +105,7 @@ class MessageProcessor:
         self, content: str, tools_used: list[str]
     ) -> None:
         """Process an assistant message (sync version for monitor thread)"""
+        self.last_esc_interrupt_seen = time.time()
         if not self.wrapper.agent_instance_id or not self.wrapper.omnara_client_sync:
             return
 
@@ -236,6 +238,7 @@ class ClaudeWrapperV3:
         # Claude status monitoring
         self.terminal_buffer = ""
         self.last_esc_interrupt_seen = None
+        self.last_not_esc_interrupt_seen = None
 
         # Message processor
         self.message_processor = MessageProcessor(self)
@@ -528,6 +531,11 @@ class ClaudeWrapperV3:
         """Check if Claude is idle (hasn't shown 'esc to interrupt' for 0.5+ seconds)"""
         if self.last_esc_interrupt_seen:
             time_since_esc = time.time() - self.last_esc_interrupt_seen
+            if (
+                self.last_not_esc_interrupt_seen
+                and self.last_esc_interrupt_seen > self.last_not_esc_interrupt_seen
+            ):
+                return False
             return time_since_esc >= 0.75
         return True
 
@@ -958,6 +966,8 @@ class ClaudeWrapperV3:
                                         "[DEBUG] Setting last_esc_interrupt_seen - found interrupt indicator in text"
                                     )
                                     self.last_esc_interrupt_seen = time.time()
+                                else:
+                                    self.last_not_esc_interrupt_seen = time.time()
 
                             except Exception:
                                 pass
