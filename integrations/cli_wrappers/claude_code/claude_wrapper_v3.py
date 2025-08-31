@@ -190,14 +190,14 @@ class ClaudeWrapperV3:
         permission_mode: Optional[str] = None,
         dangerously_skip_permissions: bool = False,
         name: str = "Claude Code",
-        delay_time: float = 1.0,
+        idle_delay: float = 1.0,
     ):
         # Session management
         self.agent_instance_id = str(uuid.uuid4())
         self.permission_mode = permission_mode
         self.dangerously_skip_permissions = dangerously_skip_permissions
         self.name = name
-        self.delay_time = delay_time
+        self.idle_delay = idle_delay
 
         # Set up logging
         self.debug_log_file = None
@@ -523,10 +523,10 @@ class ClaudeWrapperV3:
             self.log(f"[ERROR] Error processing Claude log entry: {e}")
 
     def is_claude_idle(self):
-        """Check if Claude is idle (hasn't shown 'esc to interrupt' for delay_time seconds)"""
+        """Check if Claude is idle (hasn't shown 'esc to interrupt' for idle_delay seconds)"""
         if self.last_esc_interrupt_seen:
             time_since_esc = time.time() - self.last_esc_interrupt_seen
-            return time_since_esc >= self.delay_time
+            return time_since_esc >= self.idle_delay
         return True
 
     def cancel_pending_input_request(self):
@@ -1392,10 +1392,10 @@ def main():
         help="Bypass all permission checks. Recommended only for sandboxes with no internet access.",
     )
     parser.add_argument(
-        "--delay-time",
+        "--idle-delay",
         type=float,
         default=1.0,
-        help="Delay time in seconds before considering Claude idle (default: 1.0)",
+        help="Delay in seconds before considering Claude idle (default: 1.0)",
     )
 
     # Parse known args and pass the rest to Claude
@@ -1429,7 +1429,7 @@ def main():
         permission_mode=args.permission_mode,
         dangerously_skip_permissions=args.dangerously_skip_permissions,
         name=args.name,
-        delay_time=args.delay_time,
+        idle_delay=args.idle_delay,
     )
 
     def signal_handler(sig, frame):
