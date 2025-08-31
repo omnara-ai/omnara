@@ -8,10 +8,6 @@ on:
   # Direct triggers from GitHub events (for @omnara mentions)
   issue_comment:
     types: [created]
-  issues:
-    types: [opened, edited]
-  pull_request:
-    types: [opened, edited]
   pull_request_review_comment:
     types: [created]
 
