@@ -124,6 +124,7 @@ class MessageResponse(BaseModel):
     sender_type: str
     created_at: datetime
     requires_user_input: bool
+    message_metadata: dict | None = None
 
     @field_serializer("created_at")
     def serialize_datetime(self, dt: datetime, _info):

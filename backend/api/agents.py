@@ -1,15 +1,17 @@
-from uuid import UUID
+import asyncio
 import json
 from typing import AsyncGenerator
-import asyncio
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse
-from shared.database.models import User
-from shared.database.session import get_db, SessionLocal
-from shared.database.enums import AgentStatus
-from sqlalchemy.orm import Session
 import asyncpg
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from shared.config.settings import settings
+from shared.database.enums import AgentStatus
+from shared.database.models import User
+from shared.database.session import SessionLocal, get_db
+from shared.storage import enhance_messages_with_signed_urls, get_storage_client
+from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..auth.supabase_client import get_supabase_anon_client
@@ -102,6 +104,14 @@ def get_instance_detail(
     )
     if not result:
         raise HTTPException(status_code=404, detail="Agent instance not found")
+
+    # Add signed URLs to any attachments in the messages
+    if result.messages:
+        storage_client = get_storage_client()
+        result.messages = enhance_messages_with_signed_urls(
+            result.messages, storage_client
+        )
+
     return result
 
 
@@ -123,6 +133,11 @@ def get_instance_messages_paginated(
     )
     if messages is None:
         raise HTTPException(status_code=404, detail="Agent instance not found")
+
+    # Add signed URLs to any attachments in the messages
+    storage_client = get_storage_client()
+    messages = enhance_messages_with_signed_urls(messages, storage_client)
+
     # Return just the messages array
     return messages
 
@@ -207,9 +222,6 @@ async def stream_messages(
             raise HTTPException(status_code=404, detail="Agent instance not found")
 
     async def message_generator() -> AsyncGenerator[str, None]:
-        # Import settings here to avoid circular imports
-        from shared.config.settings import settings
-
         # Create connection to PostgreSQL for LISTEN/NOTIFY
         conn = await asyncpg.connect(settings.database_url)
         try:
@@ -264,6 +276,18 @@ async def stream_messages(
                             )
                         if message_data:
                             data.update(message_data)
+                            # Add signed URLs if there are attachments
+                            if message_data.get(
+                                "message_metadata"
+                            ) and "attachments" in message_data.get(
+                                "message_metadata", {}
+                            ):
+                                storage_client = get_storage_client()
+                                enhanced = enhance_messages_with_signed_urls(
+                                    [message_data], storage_client
+                                )
+                                if enhanced:
+                                    data.update(enhanced[0])
 
                         yield f"event: message\ndata: {json.dumps(data)}\n\n"
 
@@ -285,6 +309,18 @@ async def stream_messages(
                                 data["old_requires_user_input"] = (
                                     old_requires_user_input
                                 )
+                            # Add signed URLs if there are attachments
+                            if message_data.get(
+                                "message_metadata"
+                            ) and "attachments" in message_data.get(
+                                "message_metadata", {}
+                            ):
+                                storage_client = get_storage_client()
+                                enhanced = enhance_messages_with_signed_urls(
+                                    [message_data], storage_client
+                                )
+                                if enhanced:
+                                    data.update(enhanced[0])
 
                         yield f"event: message_update\ndata: {json.dumps(data)}\n\n"
 

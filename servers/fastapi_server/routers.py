@@ -4,11 +4,28 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
+from shared.config.settings import settings
+from shared.database import AgentInstance, AgentStatus, Message, SenderType, User
+from shared.database.session import SessionLocal, get_db
+from shared.storage import (
+    enhance_messages_with_signed_urls,
+    generate_attachment_path,
+    get_storage_client,
+    prepare_attachment_metadata,
+    upload_image,
+    validate_image_file,
+)
 from sqlalchemy.orm import Session
-
-from shared.database.session import get_db, SessionLocal
-from shared.database import Message, AgentInstance, SenderType, AgentStatus
+from sqlalchemy.orm.attributes import flag_modified
 from servers.shared.db import (
     send_agent_message,
     end_session,
@@ -45,8 +62,6 @@ def verify_auth_endpoint(
     This endpoint is used by n8n and other integrations to test credentials.
     Returns basic information about the authenticated user and API key.
     """
-    from shared.database import User
-
     try:
         # Get user information
         user = db.query(User).filter(User.id == user_id).first()
@@ -125,6 +140,7 @@ async def create_agent_message_endpoint(
                 sender_type=msg.sender_type.value,
                 created_at=msg.created_at.isoformat(),
                 requires_user_input=msg.requires_user_input,
+                message_metadata=msg.message_metadata,
             )
             for msg in queued_messages
         ]
@@ -251,9 +267,17 @@ def get_pending_messages(
                 sender_type=msg.sender_type.value,
                 created_at=msg.created_at.isoformat(),
                 requires_user_input=msg.requires_user_input,
+                message_metadata=msg.message_metadata,
             )
             for msg in messages
         ]
+
+        # Add signed URLs to any attachments in the messages
+        if message_responses:
+            storage_client = get_storage_client()
+            message_responses = enhance_messages_with_signed_urls(
+                message_responses, storage_client
+            )
 
         return GetMessagesResponse(
             agent_instance_id=agent_instance_id,
@@ -344,6 +368,7 @@ async def request_user_input_endpoint(
                 sender_type=msg.sender_type.value,
                 created_at=msg.created_at.isoformat(),
                 requires_user_input=msg.requires_user_input,
+                message_metadata=msg.message_metadata,
             )
             for msg in (queued_messages or [])
         ]
@@ -402,4 +427,107 @@ def end_session_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
+        )
+
+
+@agent_router.post("/messages/{message_id}/attachments")
+async def upload_message_attachment(
+    message_id: UUID,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Upload an image attachment to a message.
+
+    This endpoint:
+    - Validates the image file (size, type)
+    - Uploads to Supabase Storage
+    - Updates the message's metadata with attachment info
+    - Returns the attachment metadata with signed URL
+    """
+    try:
+        # Get the message and verify ownership
+        message = db.query(Message).filter(Message.id == message_id).first()
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        # Verify the message belongs to the user's agent instance
+        instance = (
+            db.query(AgentInstance)
+            .filter(AgentInstance.id == message.agent_instance_id)
+            .first()
+        )
+        if not instance or str(instance.user_id) != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Read file data
+        file_data = await file.read()
+        mime_type = file.content_type or "application/octet-stream"
+
+        # Validate the file
+        is_valid, error_msg = validate_image_file(file_data, mime_type)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        # Generate storage path
+        storage_path = generate_attachment_path(
+            user_id=user_id,
+            instance_id=str(instance.id),
+            message_id=str(message.id),
+            filename=file.filename or "image",
+        )
+
+        # Upload to Supabase
+        storage_client = get_storage_client()
+        upload_result = upload_image(
+            client=storage_client,
+            bucket=settings.storage_bucket,
+            path=storage_path,
+            file_data=file_data,
+            mime_type=mime_type,
+        )
+
+        # Prepare attachment metadata
+        attachment = prepare_attachment_metadata(
+            bucket=upload_result["bucket"],
+            path=upload_result["path"],
+            filename=file.filename or "image",
+            size=len(file_data),
+            mime_type=mime_type,
+        )
+
+        # Update message metadata
+        if message.message_metadata is None:
+            message.message_metadata = {"attachments": []}
+        elif "attachments" not in message.message_metadata:
+            message.message_metadata["attachments"] = []
+
+        message.message_metadata["attachments"].append(attachment)
+
+        # Mark the message_metadata as modified for SQLAlchemy to detect the change
+        flag_modified(message, "message_metadata")
+
+        db.commit()
+
+        # Add signed URL to the attachment before returning
+        attachment["signed_url"] = storage_client.storage.from_(
+            attachment["bucket"]
+        ).create_signed_url(attachment["path"], settings.storage_signed_url_expiry)[
+            "signedURL"
+        ]
+
+        return {
+            "success": True,
+            "attachment": attachment,
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to upload attachment: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload attachment: {str(e)}",
         )
