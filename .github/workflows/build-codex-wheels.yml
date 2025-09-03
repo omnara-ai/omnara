@@ -19,6 +19,24 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          # If the codex submodule is private or in a different org, set a PAT:
+          # token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Init submodules (macOS)
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Verify codex workspace exists
+        run: |
+          if [ ! -d integrations/cli_wrappers/codex/codex-rs ]; then
+            echo "Codex workspace not found at integrations/cli_wrappers/codex/codex-rs"
+            echo "Ensure your release tag includes the codex integration paths."
+            exit 1
+          fi
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -58,6 +76,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          # token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Init submodules (Linux)
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Verify codex workspace exists
+        run: |
+          if [ ! -d integrations/cli_wrappers/codex/codex-rs ]; then
+            echo "Codex workspace not found at integrations/cli_wrappers/codex/codex-rs"
+            echo "Ensure your release tag includes the codex integration paths."
+            exit 1
+          fi
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -93,6 +128,21 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          # token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Verify codex workspace exists
+        shell: bash
+        run: |
+          if [ ! -d integrations/cli_wrappers/codex/codex-rs ]; then
+            echo "Codex workspace not found at integrations/cli_wrappers/codex/codex-rs"
+            echo "Ensure your release tag includes the codex integration paths."
+            exit 1
+          fi
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
