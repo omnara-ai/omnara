@@ -22,6 +22,16 @@ source "$HOME/.cargo/env"
 rustc -V || true
 cargo -V || true
 
+# On manylinux, ensure OpenSSL headers and pkg-config are available
+if [[ "$OS" == "Linux" ]]; then
+  echo "[cibw_before_build] Installing OpenSSL headers and pkg-config on Linux"
+  if command -v yum >/dev/null 2>&1; then
+    yum -y install openssl-devel pkgconfig zlib-devel || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    apt-get update && apt-get install -y libssl-dev pkg-config zlib1g-dev || true
+  fi
+fi
+
 # Build codex-cli (Rust) in release mode
 echo "[cibw_before_build] Building codex-cli"
 pushd integrations/cli_wrappers/codex/codex-rs >/dev/null
@@ -65,4 +75,3 @@ if [[ -z "$BIN_EXT" ]]; then
 fi
 
 echo "[cibw_before_build] Done"
-
