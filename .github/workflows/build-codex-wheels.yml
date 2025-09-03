@@ -1,0 +1,203 @@
+name: Release Codex Wheels
+permissions:
+  contents: read
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-mac:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-13   # x86_64
+            arch_tag: darwin-x64
+          - os: macos-14   # arm64
+            arch_tag: darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          # If the codex submodule is private or in a different org, set a PAT:
+          # token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Init submodules (macOS)
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Verify codex workspace exists
+        run: |
+          if [ ! -d integrations/cli_wrappers/codex/codex-rs ]; then
+            echo "Codex workspace not found at integrations/cli_wrappers/codex/codex-rs"
+            echo "Ensure your release tag includes the codex integration paths."
+            exit 1
+          fi
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build codex binary
+        working-directory: integrations/cli_wrappers/codex/codex-rs
+        run: |
+          cargo build --release -p codex-cli
+
+      - name: Copy binary into Python package
+        run: |
+          mkdir -p omnara/_bin/codex/${{ matrix.arch_tag }}
+          if [[ "${{ matrix.arch_tag }}" == darwin-* ]]; then
+            SRC=integrations/cli_wrappers/codex/codex-rs/target/release/codex
+            cp "$SRC" "omnara/_bin/codex/${{ matrix.arch_tag }}/codex"
+            chmod +x "omnara/_bin/codex/${{ matrix.arch_tag }}/codex"
+          fi
+
+      - name: Build Python wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Smoke test wheel (macOS)
+        run: |
+          python -m pip install dist/*.whl
+          # Verify omnara resolves and launches codex binary with a harmless flag
+          python -m omnara --agent codex --api-key DUMMY -- --version
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.arch_tag }}
+          path: dist/*.whl
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          # token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Init submodules (Linux)
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Verify codex workspace exists
+        run: |
+          if [ ! -d integrations/cli_wrappers/codex/codex-rs ]; then
+            echo "Codex workspace not found at integrations/cli_wrappers/codex/codex-rs"
+            echo "Ensure your release tag includes the codex integration paths."
+            exit 1
+          fi
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build codex binary
+        working-directory: integrations/cli_wrappers/codex/codex-rs
+        run: |
+          cargo build --release -p codex-cli
+
+      - name: Copy binary into Python package
+        run: |
+          mkdir -p omnara/_bin/codex/linux-x64
+          cp integrations/cli_wrappers/codex/codex-rs/target/release/codex omnara/_bin/codex/linux-x64/codex
+          chmod +x omnara/_bin/codex/linux-x64/codex
+
+      - name: Build Python wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Smoke test wheel (Linux)
+        run: |
+          python -m pip install dist/*.whl
+          python -m omnara --agent codex --api-key DUMMY -- --version
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-x64
+          path: dist/*.whl
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          # token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Verify codex workspace exists
+        shell: bash
+        run: |
+          if [ ! -d integrations/cli_wrappers/codex/codex-rs ]; then
+            echo "Codex workspace not found at integrations/cli_wrappers/codex/codex-rs"
+            echo "Ensure your release tag includes the codex integration paths."
+            exit 1
+          fi
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build codex binary
+        working-directory: integrations/cli_wrappers/codex/codex-rs
+        run: |
+          cargo build --release -p codex-cli
+
+      - name: Copy binary into Python package
+        shell: bash
+        run: |
+          mkdir -p omnara/_bin/codex/win-x64
+          cp integrations/cli_wrappers/codex/codex-rs/target/release/codex.exe omnara/_bin/codex/win-x64/codex.exe
+
+      - name: Build Python wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Smoke test wheel (Windows)
+        run: |
+          python -m pip install dist/*.whl
+          python -m omnara --agent codex --api-key DUMMY -- --version
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-win-x64
+          path: dist/*.whl
+
+  publish:
+    needs: [build-mac, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-darwin-x64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-darwin-arm64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-linux-x64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-win-x64
+          path: dist
+      - name: Publish to PyPI
+        if: success()
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages_dir: dist
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
