@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnara"
-version = "1.6.2"
+version = "1.6.3"
 description = "Omnara Agent Dashboard - MCP Server and Python SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,6 +43,9 @@ omnara = "omnara.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["omnara*", "servers.mcp_server*", "servers.shared*", "integrations*"]
+
+[tool.setuptools.package-data]
+omnara = ["_bin/**"]
 
 
 [tool.pytest.ini_options]

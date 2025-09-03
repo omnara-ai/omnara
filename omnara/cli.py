@@ -477,6 +477,12 @@ def run_agent_chat(args, unknown_args):
             "function": "main",
             "argv_name": "amp_wrapper",
         },
+        # 'codex' is implemented as an external binary launcher; handled below
+        "codex": {
+            "module": None,
+            "function": None,
+            "argv_name": "codex",
+        },
     }
 
     # Get agent configuration
@@ -488,8 +494,14 @@ def run_agent_chat(args, unknown_args):
             f"Unknown agent: {agent}. Supported agents: {', '.join(AGENT_CONFIGS.keys())}"
         )
 
-    module = importlib.import_module(config["module"])
-    wrapper_main = getattr(module, config["function"])
+    # Special-case 'codex': spawn the Rust binary with env.
+    if agent == "codex":
+        from omnara.agents.codex import run_codex
+
+        return run_codex(args, unknown_args, api_key)
+
+    module = importlib.import_module(config["module"])  # type: ignore[arg-type]
+    wrapper_main = getattr(module, config["function"])  # type: ignore[index]
 
     # Prepare sys.argv for the wrapper
     original_argv = sys.argv
@@ -619,7 +631,7 @@ def add_global_arguments(parser):
     )
     parser.add_argument(
         "--agent",
-        choices=["claude", "amp"],
+        choices=["claude", "amp", "codex"],
         default="claude",
         help="Which AI agent to use (default: claude)",
     )
