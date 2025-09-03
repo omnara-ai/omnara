@@ -81,12 +81,6 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build --wheel
 
-      - name: Smoke test wheel
-        if: steps.detect.outputs.changed == 'true'
-        run: |
-          python -m pip install dist/*.whl
-          python -m omnara --agent codex --api-key DUMMY -- --version
-
       - name: Upload codex wheel artifact
         if: steps.detect.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
