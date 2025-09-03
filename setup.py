@@ -23,4 +23,3 @@ setup(
     distclass=BinaryDistribution,
     cmdclass={"bdist_wheel": bdist_wheel} if bdist_wheel else {},
 )
-
