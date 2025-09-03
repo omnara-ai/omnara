@@ -1,5 +1,6 @@
 name: Release Codex Wheels
-permissions: {}
+permissions:
+  contents: read
 
 on:
   release:
