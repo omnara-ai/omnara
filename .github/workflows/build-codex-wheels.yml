@@ -44,7 +44,7 @@ jobs:
       - name: Build codex binary
         working-directory: integrations/cli_wrappers/codex/codex-rs
         run: |
-          cargo build --release -p cli
+          cargo build --release -p codex-cli
 
       - name: Copy binary into Python package
         run: |
@@ -64,7 +64,7 @@ jobs:
         run: |
           python -m pip install dist/*.whl
           # Verify omnara resolves and launches codex binary with a harmless flag
-          python -m omnara --agent codex -- --version
+          python -m omnara --agent codex --api-key DUMMY -- --version
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
@@ -100,7 +100,7 @@ jobs:
       - name: Build codex binary
         working-directory: integrations/cli_wrappers/codex/codex-rs
         run: |
-          cargo build --release -p cli
+          cargo build --release -p codex-cli
 
       - name: Copy binary into Python package
         run: |
@@ -116,7 +116,7 @@ jobs:
       - name: Smoke test wheel (Linux)
         run: |
           python -m pip install dist/*.whl
-          python -m omnara --agent codex -- --version
+          python -m omnara --agent codex --api-key DUMMY -- --version
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
@@ -150,7 +150,7 @@ jobs:
       - name: Build codex binary
         working-directory: integrations/cli_wrappers/codex/codex-rs
         run: |
-          cargo build --release -p cli
+          cargo build --release -p codex-cli
 
       - name: Copy binary into Python package
         shell: bash
@@ -166,7 +166,7 @@ jobs:
       - name: Smoke test wheel (Windows)
         run: |
           python -m pip install dist/*.whl
-          python -m omnara --agent codex -- --version
+          python -m omnara --agent codex --api-key DUMMY -- --version
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
