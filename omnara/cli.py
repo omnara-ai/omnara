@@ -48,9 +48,7 @@ def check_for_updates():
         if latest_version != current_version and current_version != "unknown":
             print(f"\n✨ Update available: {current_version} → {latest_version}")
             print("   Run: pip install --upgrade omnara")
-            print(
-                "   Please keep omnara up-to-date for best compatibility with Claude Code"
-            )
+            print("   Please keep omnara up-to-date for the best experience")
             print("   New versions often include important bug fixes\n")
     except Exception:
         pass
