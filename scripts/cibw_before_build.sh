@@ -22,6 +22,10 @@ source "$HOME/.cargo/env"
 rustc -V || true
 cargo -V || true
 
+# Detect OS/ARCH early for conditional setup
+OS="${OS:-$(uname -s)}"
+ARCH="${ARCH:-$(uname -m)}"
+
 # On manylinux, ensure OpenSSL headers and pkg-config are available
 if [[ "$OS" == "Linux" ]]; then
   echo "[cibw_before_build] Installing OpenSSL headers and pkg-config on Linux"
@@ -39,8 +43,6 @@ cargo build --release -p codex-cli
 popd >/dev/null
 
 # Determine platform arch tag for placement
-OS="$(uname -s)"
-ARCH="$(uname -m)"
 ARCH_TAG=""
 BIN_EXT=""
 case "$OS" in
