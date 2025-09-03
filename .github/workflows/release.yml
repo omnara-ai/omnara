@@ -9,39 +9,124 @@ permissions:
   contents: write
 
 jobs:
+  codex_wheels:
+    strategy:
+      matrix:
+        include:
+          - os: macos-13
+            arch_tag: darwin-x64
+            bin_ext: ''
+          - os: macos-14
+            arch_tag: darwin-arm64
+            bin_ext: ''
+          - os: ubuntu-latest
+            arch_tag: linux-x64
+            bin_ext: ''
+          # - os: windows-latest
+          #   arch_tag: win-x64
+          #   bin_ext: '.exe'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Detect Codex changes
+        id: detect
+        shell: bash
+        run: |
+          set -e
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            if git diff --quiet "$LAST_TAG"..HEAD -- integrations/cli_wrappers/codex; then
+              echo "changed=false" >> $GITHUB_OUTPUT
+            else
+              echo "changed=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            # No previous tag; treat as changed
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install Rust
+        if: steps.detect.outputs.changed == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build codex binary
+        if: steps.detect.outputs.changed == 'true'
+        working-directory: integrations/cli_wrappers/codex/codex-rs
+        run: |
+          cargo build --release -p codex-cli
+
+      - name: Copy binary into Python package
+        if: steps.detect.outputs.changed == 'true'
+        shell: bash
+        run: |
+          mkdir -p omnara/_bin/codex/${{ matrix.arch_tag }}
+          SRC=integrations/cli_wrappers/codex/codex-rs/target/release/codex${{ matrix.bin_ext }}
+          DEST=omnara/_bin/codex/${{ matrix.arch_tag }}/codex${{ matrix.bin_ext }}
+          cp "$SRC" "$DEST"
+          if [[ "${{ matrix.bin_ext }}" == "" ]]; then chmod +x "$DEST"; fi
+
+      - name: Set up Python
+        if: steps.detect.outputs.changed == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build Python wheel (platform-specific)
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Smoke test wheel
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          python -m pip install dist/*.whl
+          python -m omnara --agent codex --api-key DUMMY -- --version
+
+      - name: Upload codex wheel artifact
+        if: steps.detect.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.arch_tag }}
+          path: dist/*.whl
+
   release:
+    needs: [codex_wheels]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install build twine
-      
-      - name: Build package
-        run: python -m build
-      
-      - name: Check package
+
+      - name: Build sdist only
+        run: python -m build --sdist
+
+      - name: Check sdist
         run: twine check dist/*
-      
+
       - name: Extract version
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-      
+
       - name: Generate changelog
         id: changelog
         run: |
           echo "# Changelog" > changelog.md
           echo "" >> changelog.md
-          # Get commits since last tag
           if git describe --tags --abbrev=0 HEAD^ 2>/dev/null; then
             LAST_TAG=$(git describe --tags --abbrev=0 HEAD^)
             echo "## Changes since $LAST_TAG" >> changelog.md
@@ -50,7 +135,25 @@ jobs:
             echo "## Initial Release" >> changelog.md
             echo "First release of Omnara!" >> changelog.md
           fi
-      
+
+      - name: Download codex wheel artifacts (if any)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels-darwin-x64
+          path: dist
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-darwin-arm64
+          path: dist
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-linux-x64
+          path: dist
+        continue-on-error: true
+      # Windows wheel disabled for now
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -58,18 +161,18 @@ jobs:
           files: dist/*
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-      
+
       - name: Publish to Test PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
         run: |
           twine upload --repository testpypi dist/*
-      
+
       - name: Publish to PyPI
+        if: ${{ !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc') }}
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           twine upload dist/*
-        if: ${{ !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc') }}
