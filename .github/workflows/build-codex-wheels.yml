@@ -4,8 +4,8 @@ on:
   release:
     types: [published]
 
-  jobs:
-    build-mac:
+jobs:
+  build-mac:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
