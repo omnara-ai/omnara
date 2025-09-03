@@ -64,7 +64,7 @@ jobs:
         run: |
           python -m pip install dist/*.whl
           # Verify omnara resolves and launches codex binary with a harmless flag
-          python -m omnara --agent codex -- --version
+          python -m omnara --agent codex --api-key DUMMY -- --version
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
@@ -116,7 +116,7 @@ jobs:
       - name: Smoke test wheel (Linux)
         run: |
           python -m pip install dist/*.whl
-          python -m omnara --agent codex -- --version
+          python -m omnara --agent codex --api-key DUMMY -- --version
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
@@ -166,7 +166,7 @@ jobs:
       - name: Smoke test wheel (Windows)
         run: |
           python -m pip install dist/*.whl
-          python -m omnara --agent codex -- --version
+          python -m omnara --agent codex --api-key DUMMY -- --version
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
