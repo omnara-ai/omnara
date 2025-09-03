@@ -44,7 +44,7 @@ jobs:
       - name: Build codex binary
         working-directory: integrations/cli_wrappers/codex/codex-rs
         run: |
-          cargo build --release -p cli
+          cargo build --release -p codex-cli
 
       - name: Copy binary into Python package
         run: |
@@ -100,7 +100,7 @@ jobs:
       - name: Build codex binary
         working-directory: integrations/cli_wrappers/codex/codex-rs
         run: |
-          cargo build --release -p cli
+          cargo build --release -p codex-cli
 
       - name: Copy binary into Python package
         run: |
@@ -150,7 +150,7 @@ jobs:
       - name: Build codex binary
         working-directory: integrations/cli_wrappers/codex/codex-rs
         run: |
-          cargo build --release -p cli
+          cargo build --release -p codex-cli
 
       - name: Copy binary into Python package
         shell: bash
