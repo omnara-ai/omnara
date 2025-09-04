@@ -257,6 +257,25 @@ class ClaudeWrapperV3:
         self.git_tracker: Optional[GitDiffTracker] = None
         self._init_git_tracker()
 
+    def _suspend_for_ctrl_z(self):
+        """Handle Ctrl+Z while in raw mode: restore TTY, stop child and self."""
+        try:
+            self.log("[INFO] Ctrl+Z detected: suspending (raw mode)")
+            if self.original_tty_attrs:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.original_tty_attrs)
+            if self.child_pid:
+                try:
+                    os.kill(self.child_pid, signal.SIGTSTP)
+                except Exception as e:
+                    self.log(f"[WARNING] Failed to SIGTSTP child: {e}")
+            # Suspend this wrapper
+            try:
+                os.kill(os.getpid(), signal.SIGTSTP)
+            except Exception as e:
+                self.log(f"[WARNING] Failed to SIGTSTP self: {e}")
+        except Exception as e:
+            self.log(f"[ERROR] Error handling Ctrl+Z: {e}")
+
     def _init_logging(self):
         """Initialize debug logging"""
         try:
@@ -814,7 +833,6 @@ class ClaudeWrapperV3:
 
         # Parent process - handle I/O
         try:
-            # Set stdin to raw mode
             if self.original_tty_attrs:
                 tty.setraw(sys.stdin)
 
@@ -984,6 +1002,15 @@ class ClaudeWrapperV3:
                     try:
                         # Read available data (larger buffer for efficiency)
                         data = os.read(sys.stdin.fileno(), 65536)
+                        if data and b"\x1a" in data:
+                            data = data.replace(b"\x1a", b"")
+                            # Ctrl+Z: suspend child and wrapper
+                            self._suspend_for_ctrl_z()
+                            try:
+                                if self.original_tty_attrs:
+                                    tty.setraw(sys.stdin)
+                            except Exception:
+                                pass
                         if data:
                             # Log user input for debugging
                             try:
@@ -1060,7 +1087,7 @@ class ClaudeWrapperV3:
                             if not hasattr(self, "pending_write_buffer"):
                                 self.pending_write_buffer = b""
 
-                            # Add new data to any pending data
+                            # Add new data to any pending data (post-processed)
                             self.pending_write_buffer += data
 
                             # Try to write as much as possible
