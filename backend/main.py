@@ -64,9 +64,10 @@ else:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    # We authenticate via Authorization header; no cross-site cookies needed
+    allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"],  # includes Authorization
 )
 
 # Include routers with versioned API prefix
