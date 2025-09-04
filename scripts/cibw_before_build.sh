@@ -43,25 +43,20 @@ if [[ -f "$DEST" ]]; then
   exit 0
 fi
 
-# If Codex hasn't changed, try to reuse previous release's wheel to extract the binary
+# If Codex hasn't changed and we're NOT on Linux, reuse previous wheel's binary
 CODEX_CHANGED="${CODEX_CHANGED:-}"
 CODEX_PREV_TAG="${CODEX_PREV_TAG:-}"
-if [[ "$CODEX_CHANGED" == "false" && -n "$CODEX_PREV_TAG" ]]; then
+if [[ "$OS" != "Linux" && "$CODEX_CHANGED" == "false" && -n "$CODEX_PREV_TAG" ]]; then
   echo "[cibw_before_build] Attempting reuse from previous release: ${CODEX_PREV_TAG} (${ARCH_TAG})"
   PREV_VERSION="${CODEX_PREV_TAG#v}"
   mkdir -p prior_wheels "$DEST_DIR"
-  set +e
-  python -m pip download --no-deps --only-binary=:all: --dest prior_wheels "omnara==${PREV_VERSION}"
-  STATUS=$?
-  set -e
-  if [[ $STATUS -eq 0 ]]; then
+  if python -m pip download --no-deps --only-binary=:all: --dest prior_wheels "omnara==${PREV_VERSION}"; then
     WHEEL=$(ls -1 prior_wheels/*.whl 2>/dev/null | head -n1 || true)
     if [[ -n "$WHEEL" ]]; then
       echo "[cibw_before_build] Extracting binary from $WHEEL"
       export WHEEL="$WHEEL"
       export ARCH_TAG="$ARCH_TAG"
       export DEST="$DEST"
-      # Re-run the extractor with env set
       python - <<'PY'
 import os, zipfile, sys, stat
 
@@ -129,9 +124,13 @@ cargo -V || true
 
 # On Linux, ensure OpenSSL headers and pkg-config are available
 if [[ "$OS" == "Linux" ]]; then
-  echo "[cibw_before_build] Installing OpenSSL headers and pkg-config on Linux"
+  echo "[cibw_before_build] Installing OpenSSL runtime+headers and pkg-config on Linux"
   if command -v yum >/dev/null 2>&1; then
-    yum -y install openssl-devel pkgconfig zlib-devel || true
+    yum -y install openssl openssl-libs openssl-devel pkgconfig zlib-devel || true
+  elif command -v microdnf >/dev/null 2>&1; then
+    microdnf -y install openssl openssl-libs openssl-devel pkgconfig zlib-devel || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf -y install openssl openssl-libs openssl-devel pkgconfig zlib-devel || true
   elif command -v apt-get >/dev/null 2>&1; then
     apt-get update && apt-get install -y libssl-dev pkg-config zlib1g-dev || true
   fi
@@ -140,11 +139,15 @@ fi
 # Build codex-cli (Rust) in release mode as a fallback
 echo "[cibw_before_build] Building codex-cli (fallback build)"
 pushd integrations/cli_wrappers/codex/codex-rs >/dev/null
+
 cargo build --release -p codex-cli
+
 popd >/dev/null
 
-# Install built binary into wheel payload
+# Compute path to built binary (absolute or rooted at repo)
 SRC="integrations/cli_wrappers/codex/codex-rs/target/release/codex${BIN_EXT}"
+
+# Install built binary into wheel payload
 echo "[cibw_before_build] Installing Codex binary to ${DEST}"
 mkdir -p "${DEST_DIR}"
 cp "${SRC}" "${DEST}"
