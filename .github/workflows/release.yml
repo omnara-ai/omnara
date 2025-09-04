@@ -60,34 +60,33 @@ jobs:
             # No previous tag; treat as changed
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
+          echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
 
       - name: Set up Python
-        if: steps.detect.outputs.changed == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install cibuildwheel
-        if: steps.detect.outputs.changed == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install cibuildwheel
 
+
       - name: Set MACOSX_DEPLOYMENT_TARGET for Intel wheels
-        if: steps.detect.outputs.changed == 'true' && matrix.arch_tag == 'darwin-x64'
+        if: matrix.arch_tag == 'darwin-x64'
         run: echo "MACOSX_DEPLOYMENT_TARGET=10.12" >> $GITHUB_ENV
 
       - name: Build wheels with cibuildwheel (manylinux on Linux)
-        if: steps.detect.outputs.changed == 'true'
         env:
           CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
           CIBW_BEFORE_BUILD: "bash scripts/cibw_before_build.sh"
           CIBW_SKIP: "pp* *-win32 *-manylinux_i686 *-musllinux_*"
+          CIBW_ENVIRONMENT: "CODEX_CHANGED=${{ steps.detect.outputs.changed }} CODEX_PREV_TAG=${{ steps.detect.outputs.last_tag }}"
         run: |
           cibuildwheel --output-dir wheelhouse
 
       - name: Upload codex wheel artifact
-        if: steps.detect.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.arch_tag }}

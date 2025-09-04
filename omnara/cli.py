@@ -651,8 +651,8 @@ def add_global_arguments(parser):
     parser.add_argument(
         "--idle-delay",
         type=float,
-        default=1.0,
-        help="Delay in seconds before considering Claude idle (default: 1.0)",
+        default=3.5,
+        help="Delay in seconds before considering Claude idle (default: 3.5)",
     )
 
 
