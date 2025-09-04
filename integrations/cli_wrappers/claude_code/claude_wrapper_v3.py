@@ -190,7 +190,7 @@ class ClaudeWrapperV3:
         permission_mode: Optional[str] = None,
         dangerously_skip_permissions: bool = False,
         name: str = "Claude Code",
-        idle_delay: float = 1.0,
+        idle_delay: float = 3.5,
     ):
         # Session management
         self.agent_instance_id = str(uuid.uuid4())
@@ -1394,8 +1394,8 @@ def main():
     parser.add_argument(
         "--idle-delay",
         type=float,
-        default=1.0,
-        help="Delay in seconds before considering Claude idle (default: 1.0)",
+        default=3.5,
+        help="Delay in seconds before considering Claude idle (default: 3.5)",
     )
 
     # Parse known args and pass the rest to Claude
