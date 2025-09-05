@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     twilio_sendgrid_api_key: str = ""  # For email notifications via SendGrid
     twilio_from_email: str = ""  # Sender email address
 
+    # Storage Configuration
+    storage_bucket: str = "message-attachments"
+    storage_max_file_size: int = 10_485_760  # 10MB default
+    storage_signed_url_expiry: int = 3600  # 1 hour default
+    storage_allowed_mime_types: List[str] = [
+        "image/jpeg",
+        "image/png",
+    ]
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

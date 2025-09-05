@@ -76,6 +76,9 @@ class MessageResponse(BaseModel):
     requires_user_input: bool = Field(
         ..., description="Whether this message requires user input"
     )
+    message_metadata: dict | None = Field(
+        None, description="Message metadata including attachments with signed URLs"
+    )
 
 
 class CreateMessageResponse(BaseModel):
