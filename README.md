@@ -26,18 +26,21 @@
 ## 🚀 Quick Start
 
 ```bash
-# Install Omnara
+# Install Omnara (requires python >= 3.10)
 pip install omnara
 
 # Start a Claude Code session that's synced between terminal, web, and mobile
 omnara
+
+# Start a Codex CLI session that's synced between terminal, web, and mobile
+omnara --agent codex
 ```
 
-That's it! Create an account when prompted, then return to your terminal to interact with Claude Code. You can now see and interact with your Claude Code session from the [web dashboard](https://omnara.com/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
+That's it! Create an account when prompted, then return to your terminal to interact with your coding agent. You can now see and interact with your coding agent session from the [web dashboard](https://omnara.com/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
 
 ## 💡 What is Omnara?
 
-Omnara transforms your AI agents (Claude Code, n8n, and more) from silent workers into communicative teammates. Get real-time visibility into what your agents are doing, and respond to their questions instantly from a single dashboard on web and mobile.
+Omnara transforms your AI agents (Claude Code, Codex CLI, n8n, and more) from silent workers into communicative teammates. Get real-time visibility into what your agents are doing, and respond to their questions instantly from a single dashboard on web and mobile.
 
 
 ### 🎬 See It In Action
@@ -48,7 +51,7 @@ Omnara transforms your AI agents (Claude Code, n8n, and more) from silent worker
 
 ### 1. Omnara CLI
 <details>
-<summary>The primary way to use Claude Code with Omnara</summary>
+<summary>The primary way to use CLI coding agents (Claude Code, Codex CLI) with Omnara</summary>
 
 #### Installation
 
@@ -69,11 +72,16 @@ pipx install omnara
 
 Omnara offers three different modes depending on your workflow:
 
-##### **Standard Mode** - Full Claude Code Experience
+##### **Standard Mode** - Full Claude Code/Codex CLI Experience
 ```bash
 omnara
 ```
 Starts Claude Code with the standard CLI interface, fully synced across terminal, web dashboard, and mobile app. You interact with Claude Code in your terminal as usual, while everything is mirrored to the Omnara dashboard.
+
+```bash
+omnara --agent codex
+```
+Starts Codex with the standard CLI interface with the same features as noted above
 
 ##### **Headless Mode** - Dashboard-Only Interaction
 ```bash
