@@ -259,7 +259,13 @@ async def trigger_webhook_agent(
         if "Request URL is missing" in error_str:
             error_msg = error_str.replace("Request URL", "Webhook URL")
         else:
-            error_msg = f"Unable to connect to webhook URL. Check URL is correct and webhook is running: {error_str}"
+            # Clean up common error messages
+            if "Name or service not known" in error_str:
+                error_msg = "Unable to connect to webhook URL. Domain name could not be resolved. Check URL is correct."
+            elif "Connection refused" in error_str:
+                error_msg = "Unable to connect to webhook URL. Connection refused. Check if webhook service is running."
+            else:
+                error_msg = f"Unable to connect to webhook URL. Check URL is correct and webhook is running: {error_str}"
 
         return WebhookTriggerResponse(
             success=False,
