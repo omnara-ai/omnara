@@ -106,6 +106,7 @@ def _format_instance(
         latest_message=latest_message,
         latest_message_at=latest_message_at,
         chat_length=chat_length,
+        last_heartbeat_at=instance.last_heartbeat_at,
     )
 
 
@@ -464,6 +465,7 @@ def get_agent_instance_detail(
         last_read_message_id=str(instance.last_read_message_id)
         if instance.last_read_message_id
         else None,
+        last_heartbeat_at=instance.last_heartbeat_at,
     )
 
 

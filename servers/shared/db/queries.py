@@ -185,6 +185,7 @@ def end_session(db: Session, agent_instance_id: str, user_id: str) -> tuple[str,
 
     instance.status = AgentStatus.COMPLETED
     instance.ended_at = datetime.now(timezone.utc)
+    instance.last_heartbeat_at = datetime.now(timezone.utc)
 
     return str(instance.id), instance.status.value
 
@@ -203,6 +204,8 @@ def create_agent_message(
             instance.status = AgentStatus.AWAITING_INPUT
         else:
             instance.status = AgentStatus.ACTIVE
+        # Stamp heartbeat for any agent activity
+        instance.last_heartbeat_at = datetime.now(timezone.utc)
 
     message = Message(
         agent_instance_id=instance_id,
