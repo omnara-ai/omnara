@@ -246,7 +246,7 @@ def heartbeat_instance(
             channel_name = f"message_channel_{agent_instance_id}"
             payload = json.dumps(
                 {
-                    "event_type": "presence_update",
+                    "event_type": "agent_heartbeat",
                     "instance_id": str(agent_instance_id),
                     "last_heartbeat_at": instance.last_heartbeat_at.isoformat() + "Z",  # pyright: ignore[reportOptionalMemberAccess]
                 }
@@ -256,7 +256,7 @@ def heartbeat_instance(
             db.commit()
         except Exception as notify_err:
             logger.warning(
-                f"Failed to send presence_update NOTIFY for {agent_instance_id}: {notify_err}"
+                f"Failed to send agent_heartbeat NOTIFY for {agent_instance_id}: {notify_err}"
             )
 
         return {

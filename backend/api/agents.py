@@ -302,10 +302,10 @@ async def stream_messages(
 
                         yield f"event: git_diff_update\ndata: {json.dumps(data)}\n\n"
 
-                    elif event_type == "presence_update":
-                        # Forward presence updates (last_heartbeat_at changes)
+                    elif event_type == "agent_heartbeat":
+                        # Forward agent heartbeat updates (last_heartbeat_at changes)
                         # Expect payload to include: instance_id, last_heartbeat_at
-                        yield f"event: presence_update\ndata: {json.dumps(data)}\n\n"
+                        yield f"event: agent_heartbeat\ndata: {json.dumps(data)}\n\n"
 
                 except asyncio.TimeoutError:
                     # Send heartbeat to keep connection alive
