@@ -85,8 +85,11 @@ class AgentInstanceResponse(BaseModel):
     latest_message: str | None = None
     latest_message_at: datetime | None = None  # Timestamp of the latest message
     chat_length: int = 0  # Total message count
+    last_heartbeat_at: datetime | None = None
 
-    @field_serializer("started_at", "ended_at", "latest_message_at")
+    @field_serializer(
+        "started_at", "ended_at", "latest_message_at", "last_heartbeat_at"
+    )
     def serialize_datetime(self, dt: datetime | None, _info):
         if dt is None:
             return None
@@ -144,8 +147,9 @@ class AgentInstanceDetail(BaseModel):
     git_diff: str | None = None
     messages: list[MessageResponse] = []
     last_read_message_id: str | None = None
+    last_heartbeat_at: datetime | None = None
 
-    @field_serializer("started_at", "ended_at")
+    @field_serializer("started_at", "ended_at", "last_heartbeat_at")
     def serialize_datetime(self, dt: datetime | None, _info):
         if dt is None:
             return None

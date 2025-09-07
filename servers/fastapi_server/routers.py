@@ -5,6 +5,8 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy import text
+import json
 from sqlalchemy.orm import Session
 
 from shared.database.session import get_db, SessionLocal
@@ -200,6 +202,69 @@ def create_user_message_endpoint(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}",
+        )
+
+
+@agent_router.post("/agents/instances/{agent_instance_id}/heartbeat")
+def heartbeat_instance(
+    agent_instance_id: UUID,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db),
+) -> dict:
+    """Record a heartbeat for an agent instance.
+
+    - Verifies the instance belongs to the authenticated user
+    - Updates last_heartbeat_at to now()
+    - Returns the updated timestamp
+    """
+    try:
+        instance = (
+            db.query(AgentInstance)
+            .filter(
+                AgentInstance.id == agent_instance_id, AgentInstance.user_id == user_id
+            )
+            .first()
+        )
+        if not instance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Agent instance not found"
+            )
+
+        from datetime import datetime, timezone
+
+        instance.last_heartbeat_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(instance)
+
+        # Send NOTIFY to the per-instance channel so SSE clients can react immediately
+        try:
+            channel_name = f"message_channel_{agent_instance_id}"
+            payload = json.dumps(
+                {
+                    "event_type": "agent_heartbeat",
+                    "instance_id": str(agent_instance_id),
+                    "last_heartbeat_at": instance.last_heartbeat_at.isoformat() + "Z",  # pyright: ignore[reportOptionalMemberAccess]
+                }
+            )
+            # Quote channel due to hyphens in UUID
+            db.execute(text(f'NOTIFY "{channel_name}", :payload'), {"payload": payload})
+            db.commit()
+        except Exception as notify_err:
+            logger.warning(
+                f"Failed to send agent_heartbeat NOTIFY for {agent_instance_id}: {notify_err}"
+            )
+
+        return {
+            "agent_instance_id": str(instance.id),
+            "last_heartbeat_at": instance.last_heartbeat_at.isoformat() + "Z",  # pyright: ignore[reportOptionalMemberAccess]
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(

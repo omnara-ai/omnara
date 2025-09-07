@@ -234,6 +234,9 @@ class ClaudeWrapperV3:
         self.claude_jsonl_path = None
         self.jsonl_monitor_thread = None
         self.running = True
+        # Heartbeat
+        self.heartbeat_thread = None
+        self.heartbeat_interval = 30.0  # seconds
 
         # Claude status monitoring
         self.terminal_buffer = ""
@@ -339,6 +342,38 @@ class ClaudeWrapperV3:
         self.omnara_client_async = AsyncOmnaraClient(
             api_key=self.api_key, base_url=self.base_url
         )
+
+    def _heartbeat_loop(self):
+        """Background loop to POST heartbeat while running"""
+        if not self.omnara_client_sync:
+            return
+        session = self.omnara_client_sync.session
+        url = (
+            self.base_url.rstrip("/")
+            + f"/api/v1/agents/instances/{self.agent_instance_id}/heartbeat"
+        )
+        # Small stagger to avoid herd
+        import random
+
+        jitter = random.uniform(0, 2.0)
+        time.sleep(jitter)
+        while self.running:
+            try:
+                resp = session.post(url, timeout=10)
+                if resp.status_code >= 400:
+                    self.log(
+                        f"[WARN] Heartbeat failed {resp.status_code}: {resp.text[:120]}"
+                    )
+            except Exception as e:
+                self.log(f"[WARN] Heartbeat error: {e}")
+            # Sleep interval with small jitter
+            delay = self.heartbeat_interval + random.uniform(-2.0, 2.0)
+            if delay < 5:
+                delay = 5
+            for _ in range(int(delay * 10)):
+                if not self.running:
+                    break
+                time.sleep(0.1)
 
     def get_project_log_dir(self):
         """Get the Claude project log directory for current working directory"""
@@ -1245,6 +1280,17 @@ class ClaudeWrapperV3:
                 if hasattr(self.message_processor, "last_message_id"):
                     self.message_processor.last_message_id = response.message_id
                     self.message_processor.last_message_time = time.time()
+
+            # Start heartbeat thread
+            try:
+                if not self.heartbeat_thread:
+                    self.heartbeat_thread = threading.Thread(
+                        target=self._heartbeat_loop, daemon=True
+                    )
+                    self.heartbeat_thread.start()
+                    self.log("[INFO] Heartbeat loop started")
+            except Exception as e:
+                self.log(f"[WARN] Failed to start heartbeat loop: {e}")
         except AuthenticationError as e:
             # Log the error
             self.log(f"[ERROR] Authentication failed: {e}")
