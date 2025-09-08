@@ -190,13 +190,17 @@ class ClaudeWrapperV3:
         permission_mode: Optional[str] = None,
         dangerously_skip_permissions: bool = False,
         name: str = "Claude Code",
+        session_name: Optional[str] = None,
         idle_delay: float = 3.5,
     ):
         # Session management
         self.agent_instance_id = str(uuid.uuid4())
         self.permission_mode = permission_mode
         self.dangerously_skip_permissions = dangerously_skip_permissions
-        self.name = name
+        self.name = name  # Agent type name
+        self.session_name = (
+            session_name  # Optional display name override for this session
+        )
         self.idle_delay = idle_delay
 
         # Set up logging
@@ -1276,6 +1280,15 @@ class ClaudeWrapperV3:
                     requires_user_input=False,
                 )
 
+                # If a session display name was provided, update the display name
+                if self.session_name:
+                    try:
+                        self.omnara_client_sync.update_agent_instance_name(
+                            self.agent_instance_id, self.session_name
+                        )
+                    except Exception as e:
+                        self.log(f"[WARN] Failed to set session name: {e}")
+
                 # Initialize message processor with first message
                 if hasattr(self.message_processor, "last_message_id"):
                     self.message_processor.last_message_id = response.message_id
@@ -1452,7 +1465,12 @@ def main():
     parser.add_argument(
         "--name",
         default="Claude Code",
-        help="Name of the agent (defaults to 'Claude Code')",
+        help="Name of the agent type (defaults to 'Claude Code')",
+    )
+    parser.add_argument(
+        "--session-name",
+        default=None,
+        help="Display name for this session (optional)",
     )
     parser.add_argument(
         "--permission-mode",
@@ -1502,6 +1520,7 @@ def main():
         permission_mode=args.permission_mode,
         dangerously_skip_permissions=args.dangerously_skip_permissions,
         name=args.name,
+        session_name=args.session_name,
         idle_delay=args.idle_delay,
     )
 

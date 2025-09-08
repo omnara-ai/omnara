@@ -441,3 +441,14 @@ class AsyncOmnaraClient:
             agent_instance_id=response["agent_instance_id"],
             final_status=response["final_status"],
         )
+
+    async def update_agent_instance_name(
+        self, agent_instance_id: Union[str, uuid.UUID], name: str
+    ) -> Dict[str, Any]:
+        """Update the display name of an agent instance (session)."""
+        agent_instance_id_str = validate_agent_instance_id(agent_instance_id)
+        return await self._make_request(
+            "PATCH",
+            f"/api/v1/agent-instances/{agent_instance_id_str}",
+            json={"name": name},
+        )

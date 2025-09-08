@@ -390,3 +390,22 @@ class OmnaraClient:
     def close(self):
         """Close the session and clean up resources."""
         self.session.close()
+
+    def update_agent_instance_name(
+        self, agent_instance_id: Union[str, uuid.UUID], name: str
+    ) -> Dict[str, Any]:
+        """Update the display name of an agent instance (session).
+
+        Args:
+            agent_instance_id: Agent instance ID to update
+            name: New display name for the session
+
+        Returns:
+            The updated agent instance payload as returned by the API
+        """
+        agent_instance_id_str = validate_agent_instance_id(agent_instance_id)
+        return self._make_request(
+            "PATCH",
+            f"/api/v1/agent-instances/{agent_instance_id_str}",
+            json={"name": name},
+        )

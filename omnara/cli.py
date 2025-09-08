@@ -420,7 +420,8 @@ def cmd_headless(args, unknown_args):
         new_argv.extend(["--base-url", args.base_url])
 
     if hasattr(args, "name") and args.name:
-        new_argv.extend(["--name", args.name])
+        # Pass through as session display name to headless runner
+        new_argv.extend(["--session-name", args.name])
 
     # Add headless-specific flags
     if hasattr(args, "prompt") and args.prompt:
@@ -502,9 +503,9 @@ def run_agent_chat(args, unknown_args):
     if hasattr(args, "base_url") and args.base_url:
         new_argv.extend(["--base-url", args.base_url])
 
-    # Add name flag if provided
+    # If a session display name was provided, pass to wrapper as --session-name
     if hasattr(args, "name") and args.name:
-        new_argv.extend(["--name", args.name])
+        new_argv.extend(["--session-name", args.name])
 
     # Add Claude-specific flags
     if hasattr(args, "permission_mode") and args.permission_mode:
@@ -630,7 +631,7 @@ def add_global_arguments(parser):
     parser.add_argument(
         "--name",
         default=None,
-        help="Name of the omnara agent (defaults to the name of the underlying agent)",
+        help="Display name for this session (defaults to underlying agent name)",
     )
     parser.add_argument(
         "--permission-mode",

@@ -101,6 +101,7 @@ class HeadlessClaudeRunner:
         cwd: Optional[Union[str, Path]] = None,
         console_output: bool = True,
         agent_name: str = "Claude Code",
+        session_name: Optional[str] = None,
     ):
         self.omnara_api_key = omnara_api_key
         self.omnara_base_url = omnara_base_url
@@ -108,7 +109,8 @@ class HeadlessClaudeRunner:
         self.session_id = session_id
         self.last_message_id: Optional[str] = None
         self.cwd = cwd or os.getcwd()  # Store cwd before using it
-        self.agent_name = agent_name  # Store the agent name/type
+        self.agent_name = agent_name  # Agent type name
+        self.session_name = session_name  # Optional display name override
 
         # Setup logging for this session
         setup_logging(session_id, console_output=console_output)
@@ -185,6 +187,15 @@ class HeadlessClaudeRunner:
                 requires_user_input=False,
             )
 
+            # If a session name was explicitly provided, update the display name
+            if self.session_name:
+                try:
+                    await self.omnara_client.update_agent_instance_name(
+                        self.session_id, self.session_name
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Failed to set session name: {e}")
+
             # Send the prompt as a USER message so it shows in the dashboard
             await self.omnara_client.send_user_message(
                 agent_instance_id=self.session_id,
@@ -200,6 +211,15 @@ class HeadlessClaudeRunner:
                 agent_type=self.agent_name,
                 requires_user_input=True,  # Wait for user input
             )
+
+            # If a session name was explicitly provided, update the display name
+            if self.session_name:
+                try:
+                    await self.omnara_client.update_agent_instance_name(
+                        self.session_id, self.session_name
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Failed to set session name: {e}")
 
             # Process any initial queued messages
             if response.queued_user_messages:
@@ -533,6 +553,12 @@ def main():
         default=os.environ.get("OMNARA_AGENT_TYPE", "Claude Code"),
         help="Name/type of the agent (defaults to OMNARA_AGENT_TYPE env var or 'Claude Code')",
     )
+    parser.add_argument(
+        "--session-name",
+        type=str,
+        default=None,
+        help="Display name for this session (optional)",
+    )
 
     args, unknown_args = parser.parse_known_args()
 
@@ -591,6 +617,7 @@ def main():
         disallowed_tools=disallowed_tools,
         cwd=args.cwd,
         agent_name=args.name,
+        session_name=args.session_name,
     )
 
     logger.info("Starting headless Claude Code session...")
