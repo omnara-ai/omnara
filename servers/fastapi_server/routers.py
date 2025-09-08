@@ -8,6 +8,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import text
 import json
 from sqlalchemy.orm import Session
+import base64
+import binascii
 
 from shared.database.session import get_db, SessionLocal
 from shared.database import Message, AgentInstance, SenderType, AgentStatus
@@ -35,6 +37,25 @@ from .models import (
 
 agent_router = APIRouter(tags=["agents"])
 logger = logging.getLogger(__name__)
+
+
+def _maybe_decode_base64(value: str | None) -> str | None:
+    """Decode base64 strings if they look like base64; otherwise return as-is.
+
+    Uses strict validation to avoid mis-detecting plain text. If decoding
+    succeeds, returns the UTF-8 decoded text (with replacement for any invalid
+    sequences). If decoding fails, returns the original value.
+    """
+    if value is None:
+        return None
+    try:
+        decoded = base64.b64decode(value, validate=True)
+        try:
+            return decoded.decode("utf-8")
+        except UnicodeDecodeError:
+            return decoded.decode("utf-8", errors="replace")
+    except (binascii.Error, ValueError):
+        return value
 
 
 @agent_router.get("/auth/verify", response_model=VerifyAuthResponse)
@@ -95,6 +116,8 @@ async def create_agent_message_endpoint(
     """
 
     try:
+        decoded_git_diff = _maybe_decode_base64(request.git_diff)
+
         # Use the unified send_agent_message function
         instance_id, message_id, queued_messages = await send_agent_message(
             db=db,
@@ -103,7 +126,7 @@ async def create_agent_message_endpoint(
             user_id=user_id,
             agent_type=request.agent_type,
             requires_user_input=request.requires_user_input,
-            git_diff=request.git_diff,
+            git_diff=decoded_git_diff,
             message_metadata=request.message_metadata,
         )
 

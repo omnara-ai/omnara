@@ -2,6 +2,7 @@
 
 import uuid
 from typing import Optional, Union, Dict, Any
+import base64
 
 
 def validate_agent_instance_id(
@@ -73,6 +74,10 @@ def build_message_request_data(
     if send_sms is not None:
         data["send_sms"] = send_sms
     if git_diff is not None:
-        data["git_diff"] = git_diff
+        try:
+            encoded = base64.b64encode(git_diff.encode("utf-8")).decode("ascii")
+            data["git_diff"] = encoded
+        except Exception:
+            data["git_diff"] = git_diff
 
     return data

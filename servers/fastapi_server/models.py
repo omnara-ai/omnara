@@ -38,7 +38,10 @@ class CreateMessageRequest(BaseModel):
     )
     git_diff: str | None = Field(
         None,
-        description="Git diff content to store with the instance",
+        description=(
+            "Git diff content to store with the instance. "
+            "Base64-encoded values are automatically detected and decoded."
+        ),
     )
     message_metadata: dict | None = Field(
         None,
