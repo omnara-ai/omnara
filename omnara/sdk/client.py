@@ -66,8 +66,6 @@ class OmnaraClient:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
                 "User-Agent": "omnara-python-sdk",
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Encoding": "gzip, deflate, br",
             }
         )
 
