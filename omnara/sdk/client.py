@@ -62,7 +62,11 @@ class OmnaraClient:
 
         # Set default headers
         self.session.headers.update(
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "omnara-python-sdk",
+            }
         )
 
     def __enter__(self):
