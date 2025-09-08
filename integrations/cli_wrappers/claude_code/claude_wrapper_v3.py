@@ -215,7 +215,7 @@ class ClaudeWrapperV3:
             sys.exit(1)
 
         self.base_url = base_url or os.environ.get(
-            "OMNARA_BASE_URL", "https://agent-dashboard-mcp.onrender.com"
+            "OMNARA_BASE_URL", "https://agent.omnara.com"
         )
         self.omnara_client_async: Optional[AsyncOmnaraClient] = None
         self.omnara_client_sync: Optional[OmnaraClient] = None

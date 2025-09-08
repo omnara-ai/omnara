@@ -92,7 +92,7 @@ class HeadlessClaudeRunner:
         self,
         omnara_api_key: str,
         session_id: str,
-        omnara_base_url: str = "https://agent-dashboard-mcp.onrender.com",
+        omnara_base_url: str = "https://agent.omnara.com",
         initial_prompt: Optional[str] = None,
         extra_args: Optional[Dict[str, Optional[str]]] = None,
         permission_mode: Optional[PermissionMode] = None,
@@ -493,7 +493,7 @@ def main():
     )
     parser.add_argument(
         "--base-url",
-        default="https://agent-dashboard-mcp.onrender.com",
+        default="https://agent.omnara.com",
         help="Omnara base URL",
     )
 

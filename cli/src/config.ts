@@ -48,7 +48,7 @@ export const clientPaths: Record<string, string> = {
 };
 
 const getMCPEndpoint = (customEndpoint?: string) => {
-  return customEndpoint || "https://agent-dashboard-mcp.onrender.com/mcp";
+  return customEndpoint || "https://agent.omnara.com/mcp";
 };
 
 const determineTransport = (client: ValidClient, transportOverride?: TransportType): TransportType => {
