@@ -468,7 +468,7 @@ def main():
     parser.add_argument("--api-key", required=True, help="API key for authentication")
     parser.add_argument(
         "--base-url",
-        default="https://agent-dashboard-mcp.onrender.com",
+        default="https://agent.omnara.com",
         help="Base URL of the Omnara API server",
     )
     parser.add_argument(

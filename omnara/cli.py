@@ -12,12 +12,6 @@ import subprocess
 import json
 import os
 from pathlib import Path
-
-# Add project root to Python path for local development
-if __name__ == "__main__":
-    project_root = Path(__file__).parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
 import webbrowser
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -619,7 +613,7 @@ def add_global_arguments(parser):
     )
     parser.add_argument(
         "--base-url",
-        default="https://agent-dashboard-mcp.onrender.com",
+        default="https://agent.omnara.com",
         help="Base URL of the Omnara API server",
     )
     parser.add_argument(
@@ -761,7 +755,7 @@ Examples:
     )
     headless_parser.add_argument(
         "--base-url",
-        default="https://agent-dashboard-mcp.onrender.com",
+        default="https://agent.omnara.com",
         help="Base URL of the Omnara API server",
     )
     headless_parser.add_argument(
