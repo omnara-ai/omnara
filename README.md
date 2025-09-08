@@ -112,6 +112,21 @@ pipx upgrade omnara
 
 </details>
 
+### Windows Support (Experimental)
+- Works on Windows without requiring WSL. The wrapper automatically uses a Windows‑safe subprocess mode while preserving the POSIX PTY path on macOS/Linux.
+- Limitations: terminal resize and raw TTY features are not supported on Windows; UX may differ slightly from macOS/Linux. For the most robust terminal experience, WSL is still a good option.
+
+Options for installing Claude Code on Windows:
+- WSL 1/2: Install Claude Code inside WSL and run `omnara` from WSL.
+- Native Windows with Git Bash: Install Git for Windows and optionally set `CLAUDE_CODE_GIT_BASH_PATH` to your `bash.exe`, for example:
+  - PowerShell: `$env:CLAUDE_CODE_GIT_BASH_PATH = "C:\\Program Files\\Git\\bin\\bash.exe"`
+  - This makes the wrapper invoke `claude` via Git Bash.
+- Native binary installer (recommended): Use the official installer:
+  - PowerShell: `irm https://claude.ai/install.ps1 | iex`
+  - CMD: `curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd`
+
+If the `claude` CLI isn’t found on PATH, ensure a global install: `npm install -g @anthropic-ai/claude-code` (typically `%USERPROFILE%\AppData\Roaming\npm`).
+
 ### 2. n8n Integration
 <details>
 <summary>Add human-in-the-loop capabilities to your n8n workflows</summary>

@@ -13,20 +13,38 @@ import asyncio
 import json
 import logging
 import os
-import pty
 import re
-import select
 import shutil
 import signal
 import sys
-import termios
 import threading
 import time
-import tty
 import uuid
+from typing import Any, Dict, Optional
+import shlex
+
+# Optional/posix-only modules (guarded for Windows compatibility)
+try:
+    import pty  # type: ignore
+except Exception:  # pragma: no cover - platform specific
+    pty = None  # type: ignore
+
+try:
+    import termios  # type: ignore
+except Exception:  # pragma: no cover - platform specific
+    termios = None  # type: ignore
+
+try:
+    import tty  # type: ignore
+except Exception:  # pragma: no cover - platform specific
+    tty = None  # type: ignore
+
+try:
+    import select  # type: ignore
+except Exception:  # pragma: no cover - platform specific
+    select = None  # type: ignore
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, Optional
 from omnara.sdk.async_client import AsyncOmnaraClient
 from omnara.sdk.client import OmnaraClient
 from omnara.sdk.exceptions import AuthenticationError, APIError
@@ -55,6 +73,15 @@ def find_claude_cli():
         Path.home() / ".yarn/bin/claude",
         Path.home() / ".claude/local/claude",
     ]
+
+    # Windows common npm location (claude.cmd)
+    if os.name == "nt":
+        locations.extend(
+            [
+                Path.home() / "AppData/Roaming/npm/claude.cmd",
+                Path.home() / "AppData/Roaming/npm/claude.exe",
+            ]
+        )
 
     for path in locations:
         if path.exists() and path.is_file():
@@ -119,6 +146,52 @@ class MessageProcessor:
                 for char in content.replace("\x00", "")
             )
 
+            # Further sanitize to avoid triggering upstream WAF rules
+            # - Drop large data: URLs
+            # - Clamp overall payload size
+            # - Avoid sending full HTML documents
+            try:
+                original_len = len(sanitized_content)
+
+                # Remove inlined base64 data URIs which can be very large and look suspicious
+                # Example: data:font/woff2;base64,<very long>
+                sanitized_content = re.sub(
+                    r"data:[^;\s]+;base64,[A-Za-z0-9+/=]+",
+                    "[data-url omitted]",
+                    sanitized_content,
+                    flags=re.IGNORECASE,
+                )
+
+                # If the content looks like a full HTML document, replace the boilerplate
+                if "<!DOCTYPE html" in sanitized_content[:200].lower() or (
+                    "<html" in sanitized_content[:200].lower()
+                    and "<head" in sanitized_content[:200].lower()
+                ):
+                    # Keep a short preview for context and omit the rest
+                    preview = sanitized_content[:2000]
+                    sanitized_content = (
+                        preview
+                        + "\n\n[large HTML content omitted to avoid WAF blocking]"
+                    )
+
+                # Clamp very large payloads to a reasonable size (e.g. 100 KB)
+                MAX_LEN = 100_000
+                if len(sanitized_content) > MAX_LEN:
+                    truncated = len(sanitized_content) - MAX_LEN
+                    sanitized_content = (
+                        sanitized_content[:MAX_LEN]
+                        + f"\n\n[truncated {truncated} characters]"
+                    )
+
+                if len(sanitized_content) != original_len:
+                    delta = original_len - len(sanitized_content)
+                    self.wrapper.log(
+                        f"[INFO] Sanitized assistant content to avoid WAF: reduced by {delta} chars (from {original_len} to {len(sanitized_content)})"
+                    )
+            except Exception as san_err:
+                # Never fail processing due to sanitization
+                self.wrapper.log(f"[WARNING] Content sanitization error: {san_err}")
+
             # Get git diff if enabled
             git_diff = (
                 self.wrapper.git_tracker.get_diff()
@@ -131,15 +204,49 @@ class MessageProcessor:
                     char if ord(char) >= 32 or char in "\n\r\t" else ""
                     for char in git_diff.replace("\x00", "")
                 )
+                # Clamp excessively large diffs as they can also trigger WAF limits
+                MAX_DIFF_LEN = 60_000
+                if len(git_diff) > MAX_DIFF_LEN:
+                    truncated = len(git_diff) - MAX_DIFF_LEN
+                    git_diff = (
+                        git_diff[:MAX_DIFF_LEN]
+                        + f"\n\n[git diff truncated {truncated} characters]"
+                    )
 
             # Send to Omnara
-            response = self.wrapper.omnara_client_sync.send_message(
-                content=sanitized_content,
-                agent_type=self.wrapper.name,
-                agent_instance_id=self.wrapper.agent_instance_id,
-                requires_user_input=False,
-                git_diff=git_diff,
-            )
+            try:
+                response = self.wrapper.omnara_client_sync.send_message(
+                    content=sanitized_content,
+                    agent_type=self.wrapper.name,
+                    agent_instance_id=self.wrapper.agent_instance_id,
+                    requires_user_input=False,
+                    git_diff=git_diff,
+                )
+            except Exception as send_err:
+                # Improve error clarity if an upstream WAF blocked the request
+                err_text = str(send_err)
+                if "403" in err_text and (
+                    "<title>Blocked</title>" in err_text
+                    or "Powered by" in err_text
+                    or "<!DOCTYPE html" in err_text
+                ):
+                    self.wrapper.log(
+                        "[ERROR] Upstream rejected message (likely WAF 403). Sending a shortened placeholder instead."
+                    )
+                    placeholder = (
+                        "[Message delivery blocked by upstream WAF – sending condensed content]\n\n"
+                        + (sanitized_content[:2000] if sanitized_content else "")
+                    )
+                    response = self.wrapper.omnara_client_sync.send_message(
+                        content=placeholder,
+                        agent_type=self.wrapper.name,
+                        agent_instance_id=self.wrapper.agent_instance_id,
+                        requires_user_input=False,
+                        git_diff=None,
+                    )
+                else:
+                    # Re-raise non-WAF errors
+                    raise
 
             # Track message for idle detection
             self.last_message_id = response.message_id
@@ -264,8 +371,10 @@ class ClaudeWrapperV3:
         """Handle Ctrl+Z while in raw mode: restore TTY, stop child and self."""
         try:
             self.log("[INFO] Ctrl+Z detected: suspending (raw mode)")
-            if self.original_tty_attrs:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.original_tty_attrs)
+            if self.original_tty_attrs and termios is not None:
+                termios.tcsetattr(
+                    sys.stdin.fileno(), termios.TCSADRAIN, self.original_tty_attrs
+                )
             if self.child_pid:
                 try:
                     os.kill(self.child_pid, signal.SIGTSTP)
@@ -395,6 +504,20 @@ class ClaudeWrapperV3:
                     self.claude_jsonl_path = expected_path
                     self.log(f"[INFO] Found Claude JSONL log: {expected_path}")
                     break
+            # Fallback: search across all project directories (helps on Windows/Git Bash)
+            try:
+                if CLAUDE_LOG_BASE.exists():
+                    for p in CLAUDE_LOG_BASE.rglob(f"{self.agent_instance_id}.jsonl"):
+                        if p.is_file():
+                            self.claude_jsonl_path = p
+                            self.log(
+                                f"[INFO] Found Claude JSONL log via fallback search: {p}"
+                            )
+                            break
+                    if self.claude_jsonl_path:
+                        break
+            except Exception as e:
+                self.log(f"[WARNING] Error searching for JSONL log: {e}")
             time.sleep(0.5)
 
         if not self.claude_jsonl_path:
@@ -419,7 +542,7 @@ class ClaudeWrapperV3:
                             project_dir = self.get_project_log_dir()
 
                             if project_dir:
-                                # Look for new session file
+                                # Look for new session file in current project
                                 new_jsonl_path = (
                                     self.reset_handler.find_reset_session_file(
                                         project_dir=project_dir,
@@ -429,7 +552,36 @@ class ClaudeWrapperV3:
                                 )
                             else:
                                 new_jsonl_path = None
-                                self.log("[WARNING] Could not get project directory")
+                                self.log(
+                                    "[WARNING] Could not get project directory; falling back to global search"
+                                )
+                                # Fallback: search all projects for a new session file
+                                try:
+                                    if CLAUDE_LOG_BASE.exists():
+                                        candidates = [
+                                            f
+                                            for f in CLAUDE_LOG_BASE.rglob("*.jsonl")
+                                            if f != self.claude_jsonl_path
+                                        ]
+                                        # Prefer newer files
+                                        candidates.sort(
+                                            key=lambda f: f.stat().st_mtime,
+                                            reverse=True,
+                                        )
+                                        for c in candidates:
+                                            if (
+                                                self.reset_handler._file_has_clear_command(
+                                                    c
+                                                )
+                                                and c.stat().st_mtime
+                                                > (self.reset_handler.reset_time or 0)
+                                            ):
+                                                new_jsonl_path = c
+                                                break
+                                except Exception as e:
+                                    self.log(
+                                        f"[WARNING] Error during global search for reset file: {e}"
+                                    )
 
                             if new_jsonl_path:
                                 old_path = self.claude_jsonl_path.name
@@ -809,6 +961,8 @@ class ClaudeWrapperV3:
 
     def run_claude_with_pty(self):
         """Run Claude CLI in a PTY"""
+        if pty is None or termios is None or select is None:
+            raise RuntimeError("PTY mode not available on this platform")
         claude_path = find_claude_cli()
         self.log(f"[INFO] Found Claude CLI at: {claude_path}")
 
@@ -832,7 +986,11 @@ class ClaudeWrapperV3:
 
         # Save original terminal settings
         try:
-            self.original_tty_attrs = termios.tcgetattr(sys.stdin)
+            if termios is not None:
+                # Use file descriptor to avoid type issues on POSIX
+                self.original_tty_attrs = termios.tcgetattr(sys.stdin.fileno())
+            else:
+                self.original_tty_attrs = None
         except Exception:
             self.original_tty_attrs = None
 
@@ -868,8 +1026,9 @@ class ClaudeWrapperV3:
 
         # Parent process - handle I/O
         try:
-            if self.original_tty_attrs:
-                tty.setraw(sys.stdin)
+            if self.original_tty_attrs and tty is not None:
+                # Use file descriptor form for reliability
+                tty.setraw(sys.stdin.fileno())
 
             # Set non-blocking mode on master_fd
             import fcntl
@@ -1042,7 +1201,7 @@ class ClaudeWrapperV3:
                             # Ctrl+Z: suspend child and wrapper
                             self._suspend_for_ctrl_z()
                             try:
-                                if self.original_tty_attrs:
+                                if self.original_tty_attrs and tty is not None:
                                     tty.setraw(sys.stdin)
                             except Exception:
                                 pass
@@ -1206,8 +1365,10 @@ class ClaudeWrapperV3:
 
         finally:
             # Restore terminal settings
-            if self.original_tty_attrs:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.original_tty_attrs)
+            if self.original_tty_attrs and termios is not None:
+                termios.tcsetattr(
+                    sys.stdin.fileno(), termios.TCSADRAIN, self.original_tty_attrs
+                )
 
             # Clean up child process
             if self.child_pid:
@@ -1216,6 +1377,205 @@ class ClaudeWrapperV3:
                     os.waitpid(self.child_pid, 0)
                 except Exception:
                     pass
+
+    def run_claude_with_subprocess(self):
+        """Run Claude CLI using subprocess pipes (Windows-safe fallback)."""
+        import subprocess
+
+        bash_path = os.environ.get("CLAUDE_CODE_GIT_BASH_PATH")
+        use_git_bash = bool(os.name == "nt" and bash_path and Path(bash_path).exists())
+
+        if not use_git_bash:
+            claude_path = find_claude_cli()
+            self.log(f"[INFO] Found Claude CLI at: {claude_path}")
+        else:
+            self.log(f"[INFO] Using Git Bash at: {bash_path}")
+
+        cmd = [
+            ("claude" if use_git_bash else claude_path),
+            "--session-id",
+            self.agent_instance_id,
+        ]
+        if self.permission_mode:
+            cmd.extend(["--permission-mode", self.permission_mode])
+            self.log(
+                f"[INFO] Added permission-mode to Claude command: {self.permission_mode}"
+            )
+        if self.dangerously_skip_permissions:
+            cmd.append("--dangerously-skip-permissions")
+            self.log("[INFO] Added dangerously-skip-permissions to Claude command")
+
+        if use_git_bash:
+            # Build bash -lc command string
+            quoted = " ".join(shlex.quote(p) for p in cmd)
+            full_cmd = [bash_path, "-lc", quoted]
+        else:
+            # On Windows, invoking a .cmd requires going through cmd.exe
+            if (
+                os.name == "nt"
+                and claude_path
+                and str(claude_path).lower().endswith(".cmd")
+            ):
+                full_cmd = ["cmd.exe", "/c"] + cmd
+            else:
+                full_cmd = cmd
+
+        self.log(
+            f"[INFO] Final Claude command (subprocess): {' '.join(full_cmd if not use_git_bash else [bash_path, '-lc', quoted])}"
+        )
+
+        env = os.environ.copy()
+        env["CLAUDE_CODE_ENTRYPOINT"] = "jsonlog-wrapper"
+
+        # Start process with pipes
+        proc = subprocess.Popen(
+            full_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=0,
+            env=env,
+        )
+
+        self.child_pid = proc.pid
+        self.master_fd = None
+
+        # Reader thread: forward output to stdout and monitor buffer
+        def reader():
+            try:
+                assert proc.stdout is not None
+                while self.running:
+                    chunk = proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    try:
+                        os.write(sys.stdout.fileno(), chunk)
+                        sys.stdout.flush()
+                    except Exception:
+                        try:
+                            sys.stdout.buffer.write(chunk)
+                            sys.stdout.flush()
+                        except Exception:
+                            pass
+
+                    try:
+                        text = chunk.decode("utf-8", errors="ignore")
+                        self.terminal_buffer += text
+                        if len(self.terminal_buffer) > 200000:
+                            self.terminal_buffer = self.terminal_buffer[-200000:]
+                        clean_text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+                        if (
+                            "esc to interrupt" in clean_text
+                            or "ctrl+b to run in background" in clean_text
+                        ):
+                            self.last_esc_interrupt_seen = time.time()
+                    except Exception:
+                        pass
+            finally:
+                self.running = False
+
+        # Writer thread: forward stdin to process
+        def writer():
+            try:
+                assert proc.stdin is not None
+                while self.running:
+                    line = sys.stdin.readline()
+                    if not line:
+                        break
+                    try:
+                        proc.stdin.write(line.encode("utf-8"))
+                        proc.stdin.flush()
+                    except Exception:
+                        break
+
+                    try:
+                        clean_line = re.sub(r"\x1b\[[^m]*m", "", line)
+                        clean_line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", clean_line)
+                        clean_line = re.sub(r"\x1b[>=\[\]OPI]", "", clean_line)
+                        clean_line = re.sub(r"\x1b\([AB012]", "", clean_line)
+                        clean_line = re.sub(r"\x1b\].*?\x07", "", clean_line)
+                        clean_line = "".join(
+                            c for c in clean_line if c.isprintable() or c.isspace()
+                        ).strip()
+                        if clean_line.startswith("/"):
+                            if self.reset_handler.check_for_reset_command(clean_line):
+                                self.reset_handler.mark_reset_detected(clean_line)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            finally:
+                try:
+                    if proc.stdin:
+                        proc.stdin.close()
+                except Exception:
+                    pass
+
+        rt = threading.Thread(target=reader, daemon=True)
+        wt = threading.Thread(target=writer, daemon=True)
+        rt.start()
+        wt.start()
+
+        # Queue writer thread: send messages from web UI to Claude
+        def queue_writer():
+            try:
+                assert proc.stdin is not None
+                while self.running:
+                    if self.input_queue:
+                        content = self.input_queue.popleft()
+
+                        # Handle permission responses mapping
+                        if self.pending_permission_options:
+                            if content in self.pending_permission_options:
+                                converted = self.pending_permission_options[content]
+                                self.log(
+                                    f"[INFO] Converting permission response '{content}' to '{converted}'"
+                                )
+                                content = converted
+                            else:
+                                max_option = max(
+                                    self.pending_permission_options.values()
+                                )
+                                self.log(
+                                    f"[INFO] Unmatched permission response '{content}' - defaulting to option {max_option}"
+                                )
+                                content = max_option
+                            self.pending_permission_options = {}
+                            self.terminal_buffer = ""
+
+                        # Check for session reset from web
+                        if self.reset_handler.check_for_reset_command(content.strip()):
+                            self.reset_handler.mark_reset_detected(content.strip())
+
+                        # Send to Claude
+                        try:
+                            proc.stdin.write(content.encode("utf-8"))
+                            proc.stdin.write(b"\r\n")
+                            proc.stdin.flush()
+                        except Exception:
+                            break
+                    else:
+                        time.sleep(0.05)
+            except Exception:
+                pass
+
+        qt = threading.Thread(target=queue_writer, daemon=True)
+        qt.start()
+
+        # Wait for process
+        try:
+            while self.running and proc.poll() is None:
+                time.sleep(0.1)
+        finally:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
 
     async def idle_monitor_loop(self):
         """Async loop to monitor idle state and request input"""
@@ -1358,8 +1718,14 @@ class ClaudeWrapperV3:
                 self.debug_log_file.close()
             sys.exit(1)
 
-        # Start Claude in PTY (in thread)
-        claude_thread = threading.Thread(target=self.run_claude_with_pty)
+        # Start Claude runner in a thread (PTY on POSIX, subprocess fallback on Windows)
+        if os.name == "nt" or pty is None or termios is None or select is None:
+            runner = self.run_claude_with_subprocess
+            self.log("[INFO] Using subprocess fallback (Windows/non-PTY)")
+        else:
+            runner = self.run_claude_with_pty
+
+        claude_thread = threading.Thread(target=runner)
         claude_thread.daemon = True
         claude_thread.start()
 
@@ -1528,8 +1894,8 @@ def main():
                 pass
 
     def handle_resize(sig, frame):
-        """Handle terminal resize signal"""
-        if wrapper.master_fd:
+        """Handle terminal resize signal (POSIX only)"""
+        if os.name != "nt" and wrapper.master_fd:
             try:
                 # Get new terminal size
                 cols, rows = os.get_terminal_size()
@@ -1544,17 +1910,22 @@ def main():
                 pass
 
     signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)  # Handle terminal close
-    signal.signal(signal.SIGHUP, signal_handler)  # Handle terminal disconnect
-    signal.signal(signal.SIGWINCH, handle_resize)  # Handle terminal resize
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, signal_handler)  # Handle terminal close
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, signal_handler)  # Handle terminal disconnect
+    if hasattr(signal, "SIGWINCH"):
+        signal.signal(signal.SIGWINCH, handle_resize)  # Handle terminal resize
 
     try:
         wrapper.run()
     except Exception as e:
         # Fatal errors still go to stderr
         print(f"Fatal error: {e}", file=sys.stderr)
-        if wrapper.original_tty_attrs:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, wrapper.original_tty_attrs)
+        if wrapper.original_tty_attrs and termios is not None:
+            termios.tcsetattr(
+                sys.stdin.fileno(), termios.TCSADRAIN, wrapper.original_tty_attrs
+            )
         if hasattr(wrapper, "debug_log_file") and wrapper.debug_log_file:
             wrapper.log(f"[FATAL] {e}")
             wrapper.debug_log_file.close()
