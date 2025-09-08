@@ -28,14 +28,14 @@ class AsyncOmnaraClient:
 
     Args:
         api_key: JWT API key for authentication
-        base_url: Base URL of the API server (default: https://agent-dashboard-mcp.onrender.com)
+        base_url: Base URL of the API server (default: https://agent.omnara.com)
         timeout: Default timeout for requests in seconds (default: 30)
     """
 
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://agent-dashboard-mcp.onrender.com",
+        base_url: str = "https://agent.omnara.com",
         timeout: int = 30,
     ):
         self.api_key = api_key

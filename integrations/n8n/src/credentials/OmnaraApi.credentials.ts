@@ -25,11 +25,11 @@ export class OmnaraApi implements ICredentialType {
 			displayName: 'API URL',
 			name: 'serverUrl',
 			type: 'string',
-			default: 'https://agent-dashboard-mcp.onrender.com',
+			default: 'https://agent.omnara.com',
 			required: true,
 			description:
 				'The Omnara API URL (without /api/v1). Use the default unless you have a custom deployment.',
-			placeholder: 'https://agent-dashboard-mcp.onrender.com',
+			placeholder: 'https://agent.omnara.com',
 		},
 	];
 

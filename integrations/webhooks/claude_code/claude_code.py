@@ -760,7 +760,7 @@ async def start_claude(
         runner = HeadlessClaudeRunner(
             omnara_api_key=omnara_api_key,
             session_id=agent_instance_id,
-            omnara_base_url="https://agent-dashboard-mcp.onrender.com",
+            omnara_base_url="https://agent.omnara.com",
             initial_prompt=prompt,  # Pass the initial prompt from webhook
             extra_args=extra_args,
             cwd=work_dir,

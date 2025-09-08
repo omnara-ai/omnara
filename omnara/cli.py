@@ -619,7 +619,7 @@ def add_global_arguments(parser):
     )
     parser.add_argument(
         "--base-url",
-        default="https://agent-dashboard-mcp.onrender.com",
+        default="https://agent.omnara.com",
         help="Base URL of the Omnara API server",
     )
     parser.add_argument(
@@ -761,7 +761,7 @@ Examples:
     )
     headless_parser.add_argument(
         "--base-url",
-        default="https://agent-dashboard-mcp.onrender.com",
+        default="https://agent.omnara.com",
         help="Base URL of the Omnara API server",
     )
     headless_parser.add_argument(
