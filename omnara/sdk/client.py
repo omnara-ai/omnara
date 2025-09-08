@@ -152,7 +152,8 @@ class OmnaraClient:
             send_push: Send push notification (default: False for steps, user pref for questions)
             send_email: Send email notification (default: False for steps, user pref for questions)
             send_sms: Send SMS notification (default: False for steps, user pref for questions)
-            git_diff: Git diff content to include (optional)
+            git_diff: Git diff content to include (optional). This SDK encodes
+                the diff in base64 for transmission; the server auto-detects and decodes.
 
         Returns:
             CreateMessageResponse with any queued user messages
