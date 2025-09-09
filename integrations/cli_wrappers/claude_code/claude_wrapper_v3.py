@@ -75,6 +75,7 @@ class MessageProcessor:
         self.web_ui_messages = set()  # Track messages from web UI to avoid duplicates
         self.pending_input_message_id = None  # Track if we're waiting for input
         self.last_was_tool_use = False  # Track if last assistant message used tools
+        self.subtask = False
 
     def process_user_message_sync(self, content: str, from_web: bool) -> None:
         """Process a user message (sync version for monitor thread)"""
@@ -478,6 +479,13 @@ class ClaudeWrapperV3:
         try:
             msg_type = data.get("type")
 
+            # We skip showing messages from subtasks
+            is_subtask = data.get("isSidechain")
+            if is_subtask and (msg_type == "assistant" or msg_type == "user"):
+                return
+            elif not is_subtask and (msg_type == "assistant" or msg_type == "user"):
+                self.message_processor.subtask = False
+
             if msg_type == "user":
                 # Skip meta messages (like "Caveat:" messages)
                 if data.get("isMeta", False):
@@ -553,6 +561,8 @@ class ClaudeWrapperV3:
                             # Track if this was a tool use
                             if block.get("type") == "tool_use":
                                 tools_used.append(formatted_content)
+                            if block.get("name") == "Task":
+                                self.message_processor.subtask = True
 
                 # Process message if we have content
                 if formatted_parts:
@@ -881,6 +891,9 @@ class ClaudeWrapperV3:
                 # Use select to multiplex I/O
                 rlist, _, _ = select.select([sys.stdin, self.master_fd], [], [], 0.01)
 
+                clean_buffer = re.sub(
+                    r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
+                )
                 # When expecting permission prompt, check if we need to handle it
                 if self.message_processor.last_was_tool_use and self.is_claude_idle():
                     # After tool use + idle, assume permission prompt is shown
@@ -889,12 +902,6 @@ class ClaudeWrapperV3:
 
                     # After 0.5 seconds, check if we can parse the prompt from buffer
                     elif time.time() - self._permission_assumed_time > 0.5:
-                        # Clean the buffer to check for content
-
-                        clean_buffer = re.sub(
-                            r"\x1b\[[0-9;]*[a-zA-Z]", "", self.terminal_buffer
-                        )
-
                         # If we see permission/plan prompt, extract it
                         # For plan mode: "Would you like to proceed" without "(esc"
                         # For permission: "Do you want" with "(esc"
@@ -957,19 +964,36 @@ class ClaudeWrapperV3:
                         elif time.time() - self._permission_assumed_time > 1.0:
                             if not hasattr(self, "_permission_handled"):
                                 self._permission_handled = True
-                            if self.agent_instance_id and self.omnara_client_sync:
-                                response = self.omnara_client_sync.send_message(
-                                    content="Waiting for your input...",
-                                    agent_type=self.name,
-                                    agent_instance_id=self.agent_instance_id,
-                                    requires_user_input=False,
-                                )
-                                self.message_processor.last_message_id = (
-                                    response.message_id
-                                )
-                                self.message_processor.last_message_time = time.time()
-                                self.message_processor.last_was_tool_use = False
-
+                                with self.send_message_lock:
+                                    if (
+                                        self.agent_instance_id
+                                        and self.omnara_client_sync
+                                    ):
+                                        response = self.omnara_client_sync.send_message(
+                                            content="Waiting for your input...",
+                                            agent_type=self.name,
+                                            agent_instance_id=self.agent_instance_id,
+                                            requires_user_input=False,
+                                        )
+                                        self.message_processor.last_message_id = (
+                                            response.message_id
+                                        )
+                                        self.message_processor.last_message_time = (
+                                            time.time()
+                                        )
+                                        self.message_processor.last_was_tool_use = False
+                elif (
+                    (
+                        ("Do you want" in clean_buffer and "(esc" in clean_buffer)
+                        or (
+                            "Would you like to proceed" in clean_buffer
+                            and "No, keep planning" in clean_buffer
+                        )
+                    )
+                    and self.message_processor.subtask
+                    and not self.pending_permission_options
+                ):
+                    self.message_processor.last_was_tool_use = True
                 else:
                     # Clear state when conditions change
                     if hasattr(self, "_permission_assumed_time"):
