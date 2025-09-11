@@ -850,7 +850,8 @@ Examples:
     # Handle setting default agent before any further processing
     if getattr(args, "set_default", None) is not None:
         desired: str
-        if args.set_default == "__USE_AGENT__":
+        used_paired_form = args.set_default == "__USE_AGENT__"
+        if used_paired_form:
             desired = getattr(args, "agent", "claude").lower()
         else:
             desired = str(args.set_default).lower()
@@ -861,7 +862,10 @@ Examples:
             sys.exit(2)
         save_user_config({"default_agent": desired})
         print(f"✓ Default agent set to '{desired}'.")
-        sys.exit(0)
+        # Paired form (--agent X --set-default) continues to launch the agent
+        # Standalone form (--set-default X) exits immediately
+        if not used_paired_form:
+            sys.exit(0)
 
     # Handle version flag
     if args.version:
