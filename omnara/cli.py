@@ -20,6 +20,9 @@ import requests
 import time
 import threading
 import importlib
+from typing import Optional
+
+AGENT_CHOICES = ["claude", "amp", "codex"]
 
 
 def get_current_version():
@@ -52,6 +55,41 @@ def get_credentials_path():
     """Get the path to the credentials file"""
     config_dir = Path.home() / ".omnara"
     return config_dir / "credentials.json"
+
+
+def get_user_config_path():
+    """Get the path to the user config file (for non-secret settings)."""
+    config_dir = Path.home() / ".omnara"
+    return config_dir / "config.json"
+
+
+def load_user_config() -> dict:
+    """Load user config from ~/.omnara/config.json if present."""
+    path = get_user_config_path()
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            return {}
+    except Exception:
+        return {}
+
+
+def save_user_config(new_data: dict):
+    """Persist user config to ~/.omnara/config.json, merging with existing."""
+    path = get_user_config_path()
+    path.parent.mkdir(mode=0o700, exist_ok=True)
+    existing = load_user_config()
+    existing.update(new_data)
+    with open(path, "w") as f:
+        json.dump(existing, f, indent=2)
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        pass
 
 
 def load_stored_api_key():
@@ -99,8 +137,8 @@ def save_api_key(api_key):
 class AuthHTTPServer(HTTPServer):
     """Custom HTTP server with attributes for authentication"""
 
-    api_key: str | None
-    state: str | None
+    api_key: Optional[str]
+    state: Optional[str]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -623,9 +661,21 @@ def add_global_arguments(parser):
     )
     parser.add_argument(
         "--agent",
-        choices=["claude", "amp", "codex"],
+        choices=AGENT_CHOICES,
         default="claude",
-        help="Which AI agent to use (default: claude)",
+        help="Which AI agent to use (default: claude code)",
+    )
+    # --set-default can be used two ways:
+    #   - `omnara --set-default codex` (argument form)
+    #   - `omnara --agent codex --set-default` (flag form using current --agent)
+    parser.add_argument(
+        "--set-default",
+        nargs="?",
+        const="__USE_AGENT__",
+        help=(
+            "Set default agent for future runs. Use without a value to use the current --agent, "
+            "or pass an agent name (claude|amp|codex)."
+        ),
     )
     parser.add_argument(
         "--name",
@@ -687,6 +737,11 @@ Examples:
 
   # Show version
   omnara --version
+
+  # Set default agent for future runs
+  omnara --set-default codex
+  # or equivalently
+  omnara --agent codex --set-default
         """,
     )
 
@@ -792,6 +847,22 @@ Examples:
     # Parse arguments
     args, unknown_args = parser.parse_known_args()
 
+    # Handle setting default agent before any further processing
+    if getattr(args, "set_default", None) is not None:
+        desired: str
+        if args.set_default == "__USE_AGENT__":
+            desired = getattr(args, "agent", "claude").lower()
+        else:
+            desired = str(args.set_default).lower()
+        if desired not in AGENT_CHOICES:
+            print(
+                f"Invalid agent '{desired}'. Valid options: {', '.join(AGENT_CHOICES)}"
+            )
+            sys.exit(2)
+        save_user_config({"default_agent": desired})
+        print(f"✓ Default agent set to '{desired}'.")
+        sys.exit(0)
+
     # Handle version flag
     if args.version:
         print(f"omnara version {get_current_version()}")
@@ -811,6 +882,16 @@ Examples:
         except Exception as e:
             print(f"Authentication failed: {str(e)}")
             sys.exit(1)
+
+    # If user did not explicitly specify --agent, honor stored default
+    provided_agent_flag = any(
+        a == "--agent" or a.startswith("--agent=") for a in sys.argv[1:]
+    )
+    if not provided_agent_flag:
+        cfg = load_user_config()
+        default_agent = cfg.get("default_agent")
+        if isinstance(default_agent, str) and default_agent in AGENT_CHOICES:
+            args.agent = default_agent
 
     # Check for updates
     check_for_updates()
