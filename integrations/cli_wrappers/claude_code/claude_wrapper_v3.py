@@ -340,10 +340,11 @@ class ClaudeWrapperV3:
         if not self.api_key:
             raise ValueError("API key is required to initialize Omnara clients")
 
+        # ~24 hours of retries: 6 exponential (63s) + 1438 at 60s each = 1444 total
         self.omnara_client_sync = OmnaraClient(
             api_key=self.api_key,
             base_url=self.base_url,
-            max_retries=200,
+            max_retries=1440,  # ~24 hours with 60s cap
             backoff_factor=1.0,
             backoff_max=60.0,
             log_func=self.log,
@@ -352,7 +353,7 @@ class ClaudeWrapperV3:
         self.omnara_client_async = AsyncOmnaraClient(
             api_key=self.api_key,
             base_url=self.base_url,
-            max_retries=200,
+            max_retries=1440,  # ~24 hours with 60s cap
             backoff_factor=1.0,
             backoff_max=60.0,
             log_func=self.log,
