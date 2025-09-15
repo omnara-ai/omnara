@@ -3,7 +3,7 @@
 import asyncio
 import ssl
 import uuid
-from typing import Optional, Dict, Any, Union, List
+from typing import Optional, Dict, Any, Union, List, Callable
 from urllib.parse import urljoin
 
 import aiohttp
@@ -37,10 +37,18 @@ class AsyncOmnaraClient:
         api_key: str,
         base_url: str = "https://agent.omnara.com",
         timeout: int = 30,
+        max_retries: int = 6,
+        backoff_factor: float = 1.0,
+        backoff_max: float = 60.0,
+        log_func: Optional[Callable[[str], None]] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = ClientTimeout(total=timeout)
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+        self.backoff_max = backoff_max
+        self.log_func = log_func
         self.session: Optional[aiohttp.ClientSession] = None
 
         # Default headers
@@ -62,11 +70,7 @@ class AsyncOmnaraClient:
     async def _ensure_session(self):
         """Ensure aiohttp session exists."""
         if self.session is None or self.session.closed:
-            # Create SSL context using certifi's certificate bundle
-            # This fixes SSL verification issues with aiohttp on some systems
             ssl_context = ssl.create_default_context(cafile=certifi.where())
-
-            # Configure connector
             connector = aiohttp.TCPConnector(
                 ssl=ssl_context,
                 limit=100,
@@ -115,14 +119,10 @@ class AsyncOmnaraClient:
         url = urljoin(self.base_url, endpoint)
         request_timeout = ClientTimeout(total=timeout) if timeout else self.timeout
 
-        # Retry configuration to match urllib3
-        max_retries = 6  # Total attempts (1 initial + 5 retries)
-        backoff_factor = 1.0
         status_forcelist = {429, 500, 502, 503, 504}
-
         last_error = None
 
-        for attempt in range(max_retries):
+        for attempt in range(self.max_retries):
             try:
                 async with self.session.request(
                     method=method,
@@ -145,40 +145,46 @@ class AsyncOmnaraClient:
                         except Exception:
                             error_detail = await response.text()
 
-                        # Check if we should retry this status code
                         if response.status in status_forcelist:
                             last_error = APIError(response.status, error_detail)
-                            # Continue to retry logic below
                         else:
-                            # Don't retry client errors
                             raise APIError(response.status, error_detail)
                     else:
-                        # Success!
                         return await response.json()
 
             except (aiohttp.ClientConnectionError, aiohttp.ClientError) as e:
-                # Connection errors - retry these
                 last_error = APIError(0, f"Request failed: {str(e)}")
+                if self.log_func and attempt < self.max_retries - 1:
+                    error_msg = str(e)[:100] if len(str(e)) > 100 else str(e)
+                    self.log_func(
+                        f"[WARNING] Request failed (attempt {attempt + 1}/{self.max_retries}): {method} {url} - {error_msg}"
+                    )
             except asyncio.TimeoutError:
                 last_error = TimeoutError(
                     f"Request timed out after {timeout or self.timeout.total} seconds"
                 )
+                if self.log_func and attempt < self.max_retries - 1:
+                    self.log_func(
+                        f"[WARNING] Request timeout (attempt {attempt + 1}/{self.max_retries}): {method} {url}"
+                    )
             except (AuthenticationError, APIError) as e:
                 if isinstance(e, APIError) and e.status_code in status_forcelist:
                     last_error = e
+                    if self.log_func and attempt < self.max_retries - 1:
+                        self.log_func(
+                            f"[WARNING] HTTP {e.status_code} error (attempt {attempt + 1}/{self.max_retries}): {method} {url}"
+                        )
                 else:
-                    # Don't retry auth errors or client errors
                     raise
 
-            # If this is not the last attempt, sleep before retrying
-            if attempt < max_retries - 1 and last_error:
-                sleep_time = min(backoff_factor * (2**attempt), 60.0)
+            if attempt < self.max_retries - 1 and last_error:
+                sleep_time = min(self.backoff_factor * (2**attempt), self.backoff_max)
+                if self.log_func:
+                    self.log_func(f"[INFO] Retrying in {sleep_time:.1f}s...")
                 await asyncio.sleep(sleep_time)
             elif last_error:
-                # Last attempt failed, raise the error
                 raise last_error
 
-        # Should never reach here
         raise APIError(0, "Unexpected retry exhaustion")
 
     async def send_message(

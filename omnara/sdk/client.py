@@ -1,8 +1,9 @@
 """Main client for interacting with the Omnara Agent Dashboard API."""
 
+import logging
 import time
 import uuid
-from typing import Optional, Dict, Any, Union, List
+from typing import Optional, Dict, Any, Union, List, Callable
 from urllib.parse import urljoin
 
 import requests
@@ -22,6 +23,40 @@ from .utils import (
 )
 
 
+class LoggingRetry(Retry):
+    """Custom Retry class that logs retry attempts."""
+
+    def __init__(self, *args, log_func=None, **kwargs):
+        self._log_func = log_func
+        super().__init__(*args, **kwargs)
+
+    def new(self, **kw):
+        """Ensure log_func is passed to new instances."""
+        kw["log_func"] = self._log_func
+        return super().new(**kw)
+
+    def increment(
+        self,
+        method=None,
+        url=None,
+        response=None,
+        error=None,
+        _pool=None,
+        _stacktrace=None,
+    ):
+        """Log retry attempts."""
+        if self._log_func and error and self.total:
+            remaining = self.total - 1 if self.total else 0
+            if remaining >= 0:
+                error_msg = str(error)
+                if len(error_msg) > 100:
+                    error_msg = error_msg[:100] + "..."
+                self._log_func(
+                    f"[WARNING] Retry attempt for {method} {url} (remaining: {remaining}) - {error_msg}"
+                )
+        return super().increment(method, url, response, error, _pool, _stacktrace)
+
+
 class OmnaraClient:
     """Client for interacting with the Omnara Agent Dashboard API.
 
@@ -36,26 +71,39 @@ class OmnaraClient:
         api_key: str,
         base_url: str = "https://agent.omnara.com",
         timeout: int = 30,
+        max_retries: int = 5,
+        backoff_factor: float = 1.0,
+        backoff_max: float = 60.0,
+        log_func: Optional[Callable[[str], None]] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+        self.backoff_max = backoff_max
+        self.log_func = log_func
 
-        # Set up session with urllib3 retry strategy
+        if not log_func:
+            logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+
         self.session = requests.Session()
 
-        # Configure retry strategy
-        retry_strategy = Retry(
-            total=5,  # Total number of retries
-            backoff_factor=1.0,  # Exponential backoff: 1s, 2s, 4s, 8s, 16s
-            status_forcelist=[429, 500, 502, 503, 504],  # Retry on these HTTP codes
-            allowed_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-            raise_on_status=False,
-            # Important: retry on connection errors
-            connect=5,  # Number of connection-related errors to retry
-            read=5,  # Number of read errors to retry
-            other=5,  # Number of other errors to retry
-        )
+        retry_class = LoggingRetry if self.log_func else Retry
+        retry_kwargs = {
+            "total": max_retries,
+            "backoff_factor": backoff_factor,
+            "backoff_max": backoff_max,
+            "status_forcelist": [429, 500, 502, 503, 504],
+            "allowed_methods": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            "raise_on_status": False,
+            "connect": max_retries,
+            "read": max_retries,
+            "other": max_retries,
+        }
+        if self.log_func:
+            retry_kwargs["log_func"] = self.log_func
+        retry_strategy = retry_class(**retry_kwargs)
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
