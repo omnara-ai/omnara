@@ -286,8 +286,10 @@ class ClaudeWrapperV3:
             OMNARA_WRAPPER_LOG_DIR.mkdir(exist_ok=True, parents=True)
             log_file_path = OMNARA_WRAPPER_LOG_DIR / f"{self.agent_instance_id}.log"
             self.debug_log_file = open(log_file_path, "w")
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            milliseconds = int((time.time() % 1) * 1000)
             self.log(
-                f"=== Claude Wrapper V3 Debug Log - {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
+                f"=== Claude Wrapper V3 Debug Log - {timestamp}.{milliseconds:03d} ==="
             )
         except Exception as e:
             print(f"Failed to create debug log file: {e}", file=sys.stderr)
@@ -324,7 +326,11 @@ class ClaudeWrapperV3:
         """Write to debug log file"""
         if self.debug_log_file:
             try:
-                self.debug_log_file.write(f"[{time.strftime('%H:%M:%S')}] {message}\n")
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                milliseconds = int((time.time() % 1) * 1000)
+                self.debug_log_file.write(
+                    f"[{timestamp}.{milliseconds:03d}] {message}\n"
+                )
                 self.debug_log_file.flush()
             except Exception:
                 pass
@@ -334,14 +340,23 @@ class ClaudeWrapperV3:
         if not self.api_key:
             raise ValueError("API key is required to initialize Omnara clients")
 
-        # Initialize sync client
+        # ~24 hours of retries: 6 exponential (63s) + 1438 at 60s each = 1444 total
         self.omnara_client_sync = OmnaraClient(
-            api_key=self.api_key, base_url=self.base_url
+            api_key=self.api_key,
+            base_url=self.base_url,
+            max_retries=1440,  # ~24 hours with 60s cap
+            backoff_factor=1.0,
+            backoff_max=60.0,
+            log_func=self.log,
         )
 
-        # Initialize async client (we'll ensure session when needed)
         self.omnara_client_async = AsyncOmnaraClient(
-            api_key=self.api_key, base_url=self.base_url
+            api_key=self.api_key,
+            base_url=self.base_url,
+            max_retries=1440,  # ~24 hours with 60s cap
+            backoff_factor=1.0,
+            backoff_max=60.0,
+            log_func=self.log,
         )
 
     def _heartbeat_loop(self):
