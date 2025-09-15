@@ -191,7 +191,7 @@ answer = client.send_message(
 
 ### Method 3: REST API
 ```bash
-curl -X POST https://api.omnara.com/api/v1/messages/agent \
+curl -X POST https://agent.omnara.com/api/v1/messages/agent \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"content": "Starting deployment process", "agent_type": "claude-code", "requires_user_input": false}'
