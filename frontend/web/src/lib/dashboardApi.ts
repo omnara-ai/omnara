@@ -205,11 +205,11 @@ class ApiClient {
     })
   }
 
-  async interruptAgent(instanceId: string): Promise<void> {
-    await this.request(`/api/v1/agent-instances/${instanceId}/interrupt`, {
-      method: 'POST',
-    })
-  }
+  // async interruptAgent(instanceId: string): Promise<void> {
+  //   await this.request(`/api/v1/agent-instances/${instanceId}/interrupt`, {
+  //     method: 'POST',
+  //   })
+  // }
 
   async deleteAgentInstance(instanceId: string): Promise<{ message: string }> {
     return this.request(`/api/v1/agent-instances/${instanceId}`, {

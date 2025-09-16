@@ -61,7 +61,7 @@ export function ChatWorkingIndicator({ instance }: ChatWorkingIndicatorProps) {
     <div className="bg-surface-panel/80 border border-border-divider rounded-lg px-3 py-2 flex items-center space-x-2 text-green-300">
       <Loader2 className="w-4 h-4 animate-spin" />
       <span className="text-sm font-medium">Agent is working…</span>
-      <span className="text-xs text-text-secondary">• Press Esc to interrupt</span>
+      {/* <span className="text-xs text-text-secondary">• Press Esc to interrupt</span> */}
     </div>
   )
 }

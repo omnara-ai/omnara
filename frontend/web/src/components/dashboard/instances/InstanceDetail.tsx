@@ -290,7 +290,8 @@ export function InstanceDetail() {
     }
   }
 
-  // Esc to interrupt: prompt agent to pause and await instructions
+  // Esc to interrupt feature temporarily disabled
+  /*
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
@@ -328,6 +329,7 @@ export function InstanceDetail() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [instanceId, instance?.status, statusUpdating])
+  */
 
   if (loading) {
     return (
