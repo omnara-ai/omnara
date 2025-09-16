@@ -7,8 +7,9 @@ from shared.database.models import (
     User,
     UserAgent,
     AgentInstance,
+    AgentInstanceAccess,
 )
-from shared.database.enums import AgentStatus
+from shared.database.enums import AgentStatus, InstanceAccessLevel
 
 
 class TestAgentEndpoints:
@@ -114,6 +115,111 @@ class TestAgentEndpoints:
         instance = data[0]
         assert instance["id"] == str(test_agent_instance.id)
         assert instance["status"] == "ACTIVE"
+
+    def test_list_shared_agent_instances(
+        self, authenticated_client, test_db, test_user, test_agent_instance
+    ):
+        """Test listing agent instances shared with the user."""
+        owner = User(
+            id=uuid4(),
+            email="owner@example.com",
+            display_name="Owner User",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(owner)
+
+        owner_agent = UserAgent(
+            id=uuid4(),
+            user_id=owner.id,
+            name="shared agent",
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(owner_agent)
+
+        shared_instance = AgentInstance(
+            id=uuid4(),
+            user_agent_id=owner_agent.id,
+            user_id=owner.id,
+            status=AgentStatus.COMPLETED,
+            started_at=datetime.now(timezone.utc),
+        )
+        test_db.add(shared_instance)
+        test_db.flush()
+
+        access = AgentInstanceAccess(
+            agent_instance_id=shared_instance.id,
+            shared_email=test_user.email,
+            user_id=test_user.id,
+            access=InstanceAccessLevel.READ,
+            granted_by_user_id=owner.id,
+        )
+        test_db.add(access)
+        test_db.commit()
+
+        response = authenticated_client.get("/api/v1/agent-instances?scope=shared")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data) == 1
+        assert data[0]["id"] == str(shared_instance.id)
+
+        # Ensure own instances aren't included when requesting shared scope
+        ids = {item["id"] for item in data}
+        assert str(test_agent_instance.id) not in ids
+
+    def test_list_all_scope_includes_owned_and_shared(
+        self, authenticated_client, test_db, test_user, test_agent_instance
+    ):
+        """Test that the 'all' scope includes both owned and shared instances."""
+        owner = User(
+            id=uuid4(),
+            email="another-owner@example.com",
+            display_name="Another Owner",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(owner)
+
+        owner_agent = UserAgent(
+            id=uuid4(),
+            user_id=owner.id,
+            name="analysis agent",
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(owner_agent)
+
+        shared_instance = AgentInstance(
+            id=uuid4(),
+            user_agent_id=owner_agent.id,
+            user_id=owner.id,
+            status=AgentStatus.ACTIVE,
+            started_at=datetime.now(timezone.utc),
+        )
+        test_db.add(shared_instance)
+        test_db.flush()
+
+        access = AgentInstanceAccess(
+            agent_instance_id=shared_instance.id,
+            shared_email=test_user.email,
+            user_id=test_user.id,
+            access=InstanceAccessLevel.WRITE,
+            granted_by_user_id=owner.id,
+        )
+        test_db.add(access)
+        test_db.commit()
+
+        response = authenticated_client.get("/api/v1/agent-instances?scope=all")
+        assert response.status_code == 200
+        data = response.json()
+
+        ids = {item["id"] for item in data}
+        assert str(test_agent_instance.id) in ids
+        assert str(shared_instance.id) in ids
 
     def test_list_agent_instances_with_limit(
         self, authenticated_client, test_db, test_user, test_user_agent

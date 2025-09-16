@@ -6,24 +6,144 @@ from shared.config import settings
 from shared.database import (
     AgentInstance,
     AgentStatus,
+    AgentInstanceAccess,
     APIKey,
     Message,
     PushToken,
+    Team,
+    TeamInstanceAccess,
+    TeamMembership,
     User,
     UserAgent,
+    InstanceAccessLevel,
+    TeamRole,
+    SenderType,
 )
 from shared.database.billing_operations import get_or_create_subscription
 from shared.database.subscription_models import BillingEvent, Subscription
-from sqlalchemy import case, desc, func
-from sqlalchemy.orm import Session, joinedload, subqueryload
+from sqlalchemy import case, desc, func, or_, select
+from sqlalchemy.orm import Session, joinedload, subqueryload, aliased, selectinload
 
 # Import Pydantic models for type-safe returns
 from backend.models import (
     AgentInstanceResponse,
     AgentInstanceDetail,
-    MessageResponse,
     AgentTypeOverview,
+    MessageResponse,
+    TeamSummary,
+    TeamDetailResponse,
+    TeamMemberResponse,
 )
+
+
+ACCESS_PRIORITY = {
+    InstanceAccessLevel.READ: 1,
+    InstanceAccessLevel.WRITE: 2,
+}
+
+
+def _normalize_email(email: str) -> str:
+    """Normalize email for case-insensitive comparisons while preserving original casing elsewhere."""
+    return email.strip().lower()
+
+
+def _message_to_response(msg: Message) -> MessageResponse:
+    sender = msg.sender_user
+    return MessageResponse(
+        id=str(msg.id),
+        content=msg.content,
+        sender_type=msg.sender_type.value,
+        sender_user_id=str(msg.sender_user_id) if msg.sender_user_id else None,
+        sender_user_email=sender.email if sender else None,
+        sender_user_display_name=sender.display_name if sender else None,
+        created_at=msg.created_at,
+        requires_user_input=msg.requires_user_input,
+    )
+
+
+def _team_member_to_response(member: TeamMembership) -> TeamMemberResponse:
+    user = member.user
+    email = user.email if user else member.invited_email or ""
+    display_name = user.display_name if user else None
+    return TeamMemberResponse(
+        id=str(member.id),
+        role=member.role,
+        user_id=str(member.user_id) if member.user_id else None,
+        email=email,
+        display_name=display_name,
+        invited=member.user_id is None,
+        created_at=member.created_at,
+        updated_at=member.updated_at,
+    )
+
+
+def _get_team_membership(
+    db: Session, team_id: UUID, user_id: UUID
+) -> TeamMembership | None:
+    return (
+        db.query(TeamMembership)
+        .options(joinedload(TeamMembership.user))
+        .filter(TeamMembership.team_id == team_id, TeamMembership.user_id == user_id)
+        .first()
+    )
+
+
+def _get_team(db: Session, team_id: UUID) -> Team | None:
+    return db.query(Team).filter(Team.id == team_id).first()
+
+
+def _get_user_by_email(db: Session, email: str) -> User | None:
+    normalized = _normalize_email(email)
+    return db.query(User).filter(func.lower(User.email) == normalized).first()
+
+
+def _compute_effective_instance_access(
+    db: Session, instance: AgentInstance, user_id: UUID
+) -> InstanceAccessLevel | None:
+    if instance.user_id == user_id:
+        return InstanceAccessLevel.WRITE
+
+    access_levels: list[InstanceAccessLevel] = []
+
+    direct_access = (
+        db.query(AgentInstanceAccess.access)
+        .filter(
+            AgentInstanceAccess.agent_instance_id == instance.id,
+            AgentInstanceAccess.user_id == user_id,
+        )
+        .first()
+    )
+    if direct_access and direct_access.access:
+        access_levels.append(direct_access.access)
+
+    team_access_rows = (
+        db.query(TeamInstanceAccess.access)
+        .join(TeamMembership, TeamMembership.team_id == TeamInstanceAccess.team_id)
+        .filter(
+            TeamInstanceAccess.agent_instance_id == instance.id,
+            TeamMembership.user_id == user_id,
+        )
+        .all()
+    )
+    for row in team_access_rows:
+        if row.access:
+            access_levels.append(row.access)
+
+    if not access_levels:
+        return None
+
+    return max(access_levels, key=lambda level: ACCESS_PRIORITY[level])
+
+
+def get_instance_and_access(
+    db: Session, instance_id: UUID, user_id: UUID
+) -> tuple[AgentInstance | None, InstanceAccessLevel | None]:
+    instance = db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
+    if not instance:
+        return None, None
+
+    access = _compute_effective_instance_access(db, instance, user_id)
+    return instance, access
 
 
 def _get_instance_message_stats(db: Session, instance_ids: list[UUID]) -> dict:
@@ -251,21 +371,50 @@ def get_all_agent_types_with_instances(
 
 
 def get_all_agent_instances(
-    db: Session, user_id: UUID, limit: int | None = None
+    db: Session, user_id: UUID, limit: int | None = None, scope: str = "me"
 ) -> list[AgentInstanceResponse]:
-    """Get all agent instances for a specific user, sorted by most recent activity"""
+    """Get agent instances for a user based on requested visibility scope."""
+
+    scope = (scope or "me").lower()
+    if scope not in {"me", "shared", "all"}:
+        raise ValueError(f"Invalid agent instance scope: {scope}")
 
     query = (
         db.query(AgentInstance)
-        .filter(
-            AgentInstance.user_id == user_id,
-            AgentInstance.status != AgentStatus.DELETED,
-        )
-        .options(
-            joinedload(AgentInstance.user_agent),
-        )
+        .filter(AgentInstance.status != AgentStatus.DELETED)
+        .options(joinedload(AgentInstance.user_agent))
         .order_by(desc(AgentInstance.started_at))
     )
+
+    if scope == "me":
+        query = query.filter(AgentInstance.user_id == user_id)
+    else:
+        direct_access_select = select(AgentInstanceAccess.agent_instance_id).where(
+            AgentInstanceAccess.user_id == user_id
+        )
+        team_access_select = (
+            select(TeamInstanceAccess.agent_instance_id)
+            .select_from(TeamInstanceAccess)
+            .join(
+                TeamMembership,
+                TeamMembership.team_id == TeamInstanceAccess.team_id,
+            )
+            .where(TeamMembership.user_id == user_id)
+        )
+        shared_instances_select = direct_access_select.union(team_access_select)
+
+        if scope == "shared":
+            query = query.filter(
+                AgentInstance.user_id != user_id,
+                AgentInstance.id.in_(shared_instances_select),
+            )
+        else:  # scope == "all"
+            query = query.filter(
+                or_(
+                    AgentInstance.user_id == user_id,
+                    AgentInstance.id.in_(shared_instances_select),
+                )
+            )
 
     if limit is not None:
         query = query.limit(limit)
@@ -418,7 +567,11 @@ def get_agent_instance_detail(
         return None
 
     # Build message query
-    messages_query = db.query(Message).filter(Message.agent_instance_id == instance_id)
+    messages_query = (
+        db.query(Message)
+        .options(joinedload(Message.sender_user))
+        .filter(Message.agent_instance_id == instance_id)
+    )
 
     # If cursor provided, get messages before that message
     if before_message_id:
@@ -441,17 +594,7 @@ def get_agent_instance_detail(
     messages = list(reversed(messages))
 
     # Format messages for chat display
-    formatted_messages = []
-    for msg in messages:
-        formatted_messages.append(
-            MessageResponse(
-                id=str(msg.id),
-                content=msg.content,
-                sender_type=msg.sender_type.value,  # "agent" or "user"
-                created_at=msg.created_at,
-                requires_user_input=msg.requires_user_input,
-            )
-        )
+    formatted_messages = [_message_to_response(msg) for msg in messages]
 
     return AgentInstanceDetail(
         id=str(instance.id),
@@ -696,7 +839,11 @@ def get_instance_messages(
         return None
 
     # Build message query
-    messages_query = db.query(Message).filter(Message.agent_instance_id == instance_id)
+    messages_query = (
+        db.query(Message)
+        .options(joinedload(Message.sender_user))
+        .filter(Message.agent_instance_id == instance_id)
+    )
 
     # If cursor provided, get messages before that message
     if before_message_id:
@@ -715,16 +862,7 @@ def get_instance_messages(
     messages = list(reversed(messages))
 
     # Convert to MessageResponse objects
-    return [
-        MessageResponse(
-            id=str(msg.id),
-            content=msg.content,
-            sender_type=msg.sender_type.value,
-            created_at=msg.created_at,
-            requires_user_input=msg.requires_user_input,
-        )
-        for msg in messages
-    ]
+    return [_message_to_response(msg) for msg in messages]
 
 
 def get_instance_git_diff(db: Session, instance_id: UUID, user_id: UUID) -> dict | None:
@@ -742,3 +880,344 @@ def get_instance_git_diff(db: Session, instance_id: UUID, user_id: UUID) -> dict
         return None
 
     return {"instance_id": str(instance.id), "git_diff": instance.git_diff}
+
+
+def create_user_message_with_access(
+    db: Session,
+    instance_id: UUID,
+    user: User,
+    content: str,
+    mark_as_read: bool = False,
+) -> MessageResponse:
+    """Create a user-authored message after validating write access."""
+
+    instance, access = get_instance_and_access(db, instance_id, user.id)
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if access != InstanceAccessLevel.WRITE:
+        raise ValueError("Agent instance not found")
+
+    message = Message(
+        agent_instance_id=instance.id,
+        sender_type=SenderType.USER,
+        sender_user_id=user.id,
+        content=content,
+        requires_user_input=False,
+    )
+    db.add(message)
+    db.flush()
+    db.refresh(message)
+    message.sender_user = user
+
+    instance.status = AgentStatus.ACTIVE
+    if mark_as_read:
+        instance.last_read_message_id = message.id
+
+    try:
+        from servers.shared.db.queries import trigger_webhook_for_user_response
+
+        trigger_webhook_for_user_response(
+            db=db,
+            agent_instance_id=str(instance.id),
+            user_message_content=content,
+            user_message_id=str(message.id),
+            user_id=str(user.id),
+        )
+    except (
+        Exception
+    ) as exc:  # pragma: no cover - webhook failures shouldn't block messaging
+        logging.getLogger(__name__).exception(
+            "Failed to trigger webhook for user response: %s", exc
+        )
+
+    return _message_to_response(message)
+
+
+# ============================================================================
+# Team queries
+# ============================================================================
+
+
+def get_user_teams(db: Session, user_id: UUID) -> list[TeamSummary]:
+    """Return summary information for teams the user belongs to."""
+
+    membership_alias = aliased(TeamMembership)
+    member_count_subq = (
+        db.query(
+            TeamMembership.team_id.label("team_id"),
+            func.count(TeamMembership.id).label("member_count"),
+        )
+        .group_by(TeamMembership.team_id)
+        .subquery()
+    )
+
+    results = (
+        db.query(
+            Team,
+            membership_alias.role.label("user_role"),
+            member_count_subq.c.member_count,
+        )
+        .join(membership_alias, membership_alias.team_id == Team.id)
+        .join(member_count_subq, member_count_subq.c.team_id == Team.id)
+        .filter(membership_alias.user_id == user_id)
+        .all()
+    )
+
+    summaries: list[TeamSummary] = []
+    for team, user_role, member_count in results:
+        summaries.append(
+            TeamSummary(
+                id=str(team.id),
+                name=team.name,
+                created_at=team.created_at,
+                updated_at=team.updated_at,
+                role=user_role,
+                member_count=member_count or 0,
+            )
+        )
+
+    return summaries
+
+
+def get_team_detail(
+    db: Session, team_id: UUID, user_id: UUID
+) -> TeamDetailResponse | None:
+    """Return detailed team info with membership list if user belongs to the team."""
+
+    membership = _get_team_membership(db, team_id, user_id)
+    if not membership:
+        return None
+
+    team = (
+        db.query(Team)
+        .options(
+            selectinload(Team.memberships).options(joinedload(TeamMembership.user))
+        )
+        .filter(Team.id == team_id)
+        .first()
+    )
+
+    if not team:
+        return None
+
+    members = sorted(team.memberships, key=lambda m: m.created_at)
+    member_responses = [_team_member_to_response(member) for member in members]
+
+    return TeamDetailResponse(
+        id=str(team.id),
+        name=team.name,
+        created_at=team.created_at,
+        updated_at=team.updated_at,
+        role=membership.role,
+        members=member_responses,
+    )
+
+
+def create_team(db: Session, owner: User, name: str) -> TeamDetailResponse:
+    """Create a new team and assign the owner membership."""
+
+    team = Team(name=name)
+    db.add(team)
+    db.flush()
+
+    owner_membership = TeamMembership(
+        team_id=team.id,
+        user_id=owner.id,
+        invited_email=owner.email,
+        role=TeamRole.OWNER,
+    )
+    db.add(owner_membership)
+    db.flush()
+
+    db.refresh(team)
+    db.refresh(owner_membership)
+
+    return get_team_detail(db, team.id, owner.id)  # type: ignore[arg-type]
+
+
+def update_team(
+    db: Session, team_id: UUID, acting_user_id: UUID, name: str
+) -> TeamSummary | None:
+    """Rename a team if the acting user is an owner or admin."""
+
+    membership = _get_team_membership(db, team_id, acting_user_id)
+    if not membership:
+        return None
+
+    if membership.role not in (TeamRole.OWNER, TeamRole.ADMIN):
+        raise PermissionError("Only owners or admins can update team details")
+
+    team = _get_team(db, team_id)
+    if not team:
+        return None
+
+    team.name = name
+    db.flush()
+
+    member_count = (
+        db.query(func.count(TeamMembership.id))
+        .filter(TeamMembership.team_id == team_id)
+        .scalar()
+        or 0
+    )
+
+    return TeamSummary(
+        id=str(team.id),
+        name=team.name,
+        created_at=team.created_at,
+        updated_at=team.updated_at,
+        role=membership.role,
+        member_count=member_count,
+    )
+
+
+def delete_team(db: Session, team_id: UUID, acting_user_id: UUID) -> bool:
+    """Delete a team when the acting user is the owner."""
+
+    membership = _get_team_membership(db, team_id, acting_user_id)
+    if not membership:
+        return False
+
+    if membership.role != TeamRole.OWNER:
+        raise PermissionError("Only the team owner can delete the team")
+
+    team = _get_team(db, team_id)
+    if not team:
+        return False
+
+    db.delete(team)
+    return True
+
+
+def add_team_member(
+    db: Session,
+    team_id: UUID,
+    acting_user_id: UUID,
+    email: str,
+    role: TeamRole | None = None,
+) -> TeamMemberResponse:
+    """Add a member to the team by email. Allows placeholder entries when the user does not exist yet."""
+
+    membership = _get_team_membership(db, team_id, acting_user_id)
+    if not membership:
+        raise PermissionError("Team not found or access denied")
+
+    if membership.role not in (TeamRole.OWNER, TeamRole.ADMIN):
+        raise PermissionError("Only owners or admins can add members")
+
+    desired_role = role or TeamRole.MEMBER
+    if desired_role == TeamRole.OWNER:
+        raise ValueError("Cannot assign OWNER role when adding a member")
+    if desired_role == TeamRole.ADMIN and membership.role != TeamRole.OWNER:
+        raise PermissionError(
+            "Only owners can assign the admin role when inviting members"
+        )
+
+    normalized_email = _normalize_email(email)
+    existing_user = _get_user_by_email(db, email)
+
+    filters = [func.lower(TeamMembership.invited_email) == normalized_email]
+    if existing_user:
+        filters.append(TeamMembership.user_id == existing_user.id)
+
+    existing_membership = (
+        db.query(TeamMembership)
+        .filter(TeamMembership.team_id == team_id)
+        .filter(or_(*filters))
+        .first()
+    )
+    if existing_membership:
+        raise ValueError("Member with this email is already part of the team")
+
+    membership_entry = TeamMembership(
+        team_id=team_id,
+        user_id=existing_user.id if existing_user else None,
+        invited_email=email.strip(),
+        role=desired_role,
+    )
+    db.add(membership_entry)
+    db.flush()
+    db.refresh(membership_entry)
+
+    if existing_user:
+        membership_entry.user = existing_user
+
+    return _team_member_to_response(membership_entry)
+
+
+def update_team_member_role(
+    db: Session,
+    team_id: UUID,
+    membership_id: UUID,
+    acting_user_id: UUID,
+    new_role: TeamRole,
+) -> TeamMemberResponse | None:
+    """Update a member's role. Restricted to team owners."""
+
+    acting_membership = _get_team_membership(db, team_id, acting_user_id)
+    if not acting_membership:
+        return None
+
+    if acting_membership.role != TeamRole.OWNER:
+        raise PermissionError("Only the team owner can change member roles")
+
+    target_membership = (
+        db.query(TeamMembership)
+        .options(joinedload(TeamMembership.user))
+        .filter(TeamMembership.id == membership_id, TeamMembership.team_id == team_id)
+        .first()
+    )
+
+    if not target_membership:
+        return None
+
+    if target_membership.role == TeamRole.OWNER:
+        raise ValueError("Cannot modify the owner role")
+
+    if new_role == TeamRole.OWNER:
+        raise ValueError("Cannot promote another member to owner through this endpoint")
+
+    target_membership.role = new_role
+    db.flush()
+    db.refresh(target_membership)
+
+    return _team_member_to_response(target_membership)
+
+
+def remove_team_member(
+    db: Session,
+    team_id: UUID,
+    membership_id: UUID,
+    acting_user_id: UUID,
+) -> bool:
+    """Remove a member from the team respecting role restrictions."""
+
+    acting_membership = _get_team_membership(db, team_id, acting_user_id)
+    if not acting_membership:
+        raise PermissionError("Team not found or access denied")
+
+    if acting_membership.role not in (TeamRole.OWNER, TeamRole.ADMIN):
+        raise PermissionError("Only owners or admins can remove members")
+
+    target_membership = (
+        db.query(TeamMembership)
+        .filter(TeamMembership.id == membership_id, TeamMembership.team_id == team_id)
+        .first()
+    )
+
+    if not target_membership:
+        return False
+
+    if target_membership.role == TeamRole.OWNER:
+        raise ValueError("Cannot remove the team owner")
+
+    if (
+        acting_membership.role == TeamRole.ADMIN
+        and target_membership.role == TeamRole.ADMIN
+        and target_membership.user_id != acting_user_id
+    ):
+        raise PermissionError("Admins can only remove members or themselves")
+
+    db.delete(target_membership)
+    return True

@@ -10,7 +10,7 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
-from shared.database.enums import AgentStatus
+from shared.database.enums import AgentStatus, TeamRole
 from shared.webhook_schemas import (
     get_webhook_type_schema,
     validate_webhook_config as validate_webhook_config_func,
@@ -22,23 +22,8 @@ from shared.webhook_schemas import (
 # ============================================================================
 
 
-# Unified message models
 class UserMessageRequest(BaseModel):
     content: str = Field(..., description="Message content from the user")
-
-
-class UserMessageResponse(BaseModel):
-    id: str
-    content: str
-    sender_type: str
-    created_at: datetime
-    requires_user_input: bool
-
-    @field_serializer("created_at")
-    def serialize_datetime(self, dt: datetime, _info):
-        return dt.isoformat() + "Z"
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 # ============================================================================
@@ -125,6 +110,9 @@ class MessageResponse(BaseModel):
     id: str
     content: str
     sender_type: str
+    sender_user_id: str | None = None
+    sender_user_email: str | None = None
+    sender_user_display_name: str | None = None
     created_at: datetime
     requires_user_input: bool
 
@@ -153,6 +141,78 @@ class AgentInstanceDetail(BaseModel):
     def serialize_datetime(self, dt: datetime | None, _info):
         if dt is None:
             return None
+        return dt.isoformat() + "Z"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# Team Models
+# ============================================================================
+
+
+class TeamCreateRequest(BaseModel):
+    name: str = Field(..., description="Team name")
+
+
+class TeamUpdateRequest(BaseModel):
+    name: str = Field(..., description="Updated team name")
+
+
+class TeamMemberAddRequest(BaseModel):
+    email: str = Field(..., description="Email address of member to add")
+    role: TeamRole | None = Field(
+        default=None,
+        description="Role for the member (defaults to MEMBER if omitted)",
+    )
+
+
+class TeamMemberRoleUpdateRequest(BaseModel):
+    role: TeamRole
+
+
+class TeamSummary(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    updated_at: datetime
+    role: TeamRole
+    member_count: int
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_datetime(self, dt: datetime, _info):
+        return dt.isoformat() + "Z"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TeamMemberResponse(BaseModel):
+    id: str
+    role: TeamRole
+    user_id: str | None = None
+    email: str
+    display_name: str | None = None
+    invited: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_datetime(self, dt: datetime, _info):
+        return dt.isoformat() + "Z"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TeamDetailResponse(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    updated_at: datetime
+    role: TeamRole
+    members: list[TeamMemberResponse]
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_datetime(self, dt: datetime, _info):
         return dt.isoformat() + "Z"
 
     model_config = ConfigDict(from_attributes=True)

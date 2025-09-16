@@ -1,3 +1,4 @@
+from enum import Enum
 from uuid import UUID
 import json
 from typing import AsyncGenerator
@@ -30,10 +31,11 @@ from ..models import (
     AgentInstanceDetail,
     AgentInstanceResponse,
     AgentTypeOverview,
+    MessageResponse,
     UserMessageRequest,
-    UserMessageResponse,
 )
-from servers.shared.db import create_user_message, update_session_title_if_needed
+from servers.shared.db import update_session_title_if_needed
+from ..db.queries import create_user_message_with_access
 
 router = APIRouter(tags=["agents"])
 
@@ -48,14 +50,23 @@ def list_agent_types(
     return agent_types
 
 
+class AgentInstanceScope(str, Enum):
+    ME = "me"
+    SHARED = "shared"
+    ALL = "all"
+
+
 @router.get("/agent-instances", response_model=list[AgentInstanceResponse])
 def list_all_agent_instances(
     limit: int | None = None,
+    scope: AgentInstanceScope = AgentInstanceScope.ME,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get all agent instances for the current user"""
-    instances = get_all_agent_instances(db, current_user.id, limit=limit)
+    """Get agent instances visible to the current user"""
+    instances = get_all_agent_instances(
+        db, current_user.id, limit=limit, scope=scope.value
+    )
     return instances
 
 
@@ -127,9 +138,7 @@ def get_instance_messages_paginated(
     return messages
 
 
-@router.post(
-    "/agent-instances/{instance_id}/messages", response_model=UserMessageResponse
-)
+@router.post("/agent-instances/{instance_id}/messages", response_model=MessageResponse)
 def create_user_message_endpoint(
     instance_id: UUID,
     request: UserMessageRequest,
@@ -139,45 +148,41 @@ def create_user_message_endpoint(
 ):
     """Send a message to an agent instance (answers questions or provides feedback)"""
     try:
-        # Use the unified create_user_message function
-        result = create_user_message(
+        message = create_user_message_with_access(
             db=db,
-            agent_instance_id=str(instance_id),
+            instance_id=instance_id,
+            user=current_user,
             content=request.content,
-            user_id=str(current_user.id),
-            mark_as_read=False,  # Backend doesn't mark as read
+            mark_as_read=False,
         )
 
-        # Commit the transaction
         db.commit()
 
-        # Add background task to update session title if needed
-        # Create a wrapper function to ensure proper session cleanup
         def update_title_with_session():
             db_session = SessionLocal()
             try:
                 update_session_title_if_needed(
-                    db=db_session, instance_id=instance_id, user_message=request.content
+                    db=db_session,
+                    instance_id=instance_id,
+                    user_message=request.content,
                 )
             finally:
                 db_session.close()
 
         background_tasks.add_task(update_title_with_session)
 
-        # Convert to UserMessageResponse format
-        return UserMessageResponse(
-            id=result["id"],
-            content=result["content"],
-            sender_type=result["sender_type"],
-            created_at=result["created_at"],
-            requires_user_input=result["requires_user_input"],
-        )
+        return message
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except PermissionError as e:
+        db.rollback()
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
 
 
 @router.get("/agent-instances/{instance_id}/messages/stream")

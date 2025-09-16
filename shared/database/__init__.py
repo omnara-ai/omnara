@@ -1,4 +1,4 @@
-from .enums import AgentStatus, SenderType
+from .enums import AgentStatus, SenderType, InstanceAccessLevel, TeamRole
 from .models import (
     AgentInstance,
     APIKey,
@@ -7,6 +7,10 @@ from .models import (
     PushToken,
     User,
     UserAgent,
+    AgentInstanceAccess,
+    Team,
+    TeamMembership,
+    TeamInstanceAccess,
 )
 from .subscription_models import (
     Subscription,
@@ -21,8 +25,14 @@ __all__ = [
     "AgentStatus",
     "APIKey",
     "Message",
+    "AgentInstanceAccess",
     "PushToken",
     "SenderType",
+    "InstanceAccessLevel",
     "Subscription",
     "BillingEvent",
+    "Team",
+    "TeamMembership",
+    "TeamRole",
+    "TeamInstanceAccess",
 ]
