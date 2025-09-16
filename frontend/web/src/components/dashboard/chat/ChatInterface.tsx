@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 import { GitDiffView } from '../git-diff/GitDiffView'
-import { Message, InstanceDetail as IInstanceDetail } from '@/types/dashboard'
+import { Message, InstanceDetail as IInstanceDetail, InstanceAccessLevel } from '@/types/dashboard'
 import { formatAgentTypeName } from '@/utils/statusUtils'
 import { ChatWorkingIndicator } from './ChatWorkingIndicator'
 
@@ -71,6 +71,11 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
   const loadingRef = useRef(false)
+  const normalizedAccessLevel =
+    typeof instance.access_level === 'string'
+      ? instance.access_level.toUpperCase()
+      : instance.access_level
+  const canWrite = normalizedAccessLevel === InstanceAccessLevel.WRITE
 
   // Check if user is at bottom of scroll
   const checkIfAtBottom = () => {
@@ -206,6 +211,9 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
   }, [messageGroups])
 
   const handleSubmitMessage = async (content: string) => {
+    if (!canWrite) {
+      return
+    }
     setIsSubmitting(true)
     try {
       await onMessageSubmit(content)
@@ -303,6 +311,7 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
             onMessageSubmit={handleSubmitMessage}
             isSubmitting={isSubmitting}
             hasGitDiff={!!instance.git_diff}
+            canWrite={canWrite}
           />
         )}
       </div>

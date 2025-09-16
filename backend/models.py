@@ -10,7 +10,7 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
-from shared.database.enums import AgentStatus, TeamRole
+from shared.database.enums import AgentStatus, TeamRole, InstanceAccessLevel
 from shared.webhook_schemas import (
     get_webhook_type_schema,
     validate_webhook_config as validate_webhook_config_func,
@@ -136,6 +136,8 @@ class AgentInstanceDetail(BaseModel):
     messages: list[MessageResponse] = []
     last_read_message_id: str | None = None
     last_heartbeat_at: datetime | None = None
+    access_level: InstanceAccessLevel = InstanceAccessLevel.WRITE
+    is_owner: bool = False
 
     @field_serializer("started_at", "ended_at", "last_heartbeat_at")
     def serialize_datetime(self, dt: datetime | None, _info):
@@ -149,6 +151,32 @@ class AgentInstanceDetail(BaseModel):
 # ============================================================================
 # Team Models
 # ============================================================================
+
+
+class InstanceShareCreateRequest(BaseModel):
+    email: str = Field(..., description="Email address to grant access")
+    access: InstanceAccessLevel = Field(
+        default=InstanceAccessLevel.READ,
+        description="Access level to grant",
+    )
+
+
+class InstanceShareResponse(BaseModel):
+    id: str
+    email: str
+    access: InstanceAccessLevel
+    user_id: str | None = None
+    display_name: str | None = None
+    invited: bool = False
+    is_owner: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_datetime(self, dt: datetime, _info):
+        return dt.isoformat() + "Z"
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TeamCreateRequest(BaseModel):

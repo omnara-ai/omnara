@@ -26,6 +26,9 @@ from ..db import (
     get_message_by_id,
     get_instance_messages,
     get_instance_git_diff,
+    get_instance_shares,
+    add_instance_share,
+    remove_instance_share,
 )
 from ..models import (
     AgentInstanceDetail,
@@ -33,6 +36,8 @@ from ..models import (
     AgentTypeOverview,
     MessageResponse,
     UserMessageRequest,
+    InstanceShareCreateRequest,
+    InstanceShareResponse,
 )
 from servers.shared.db import update_session_title_if_needed
 from ..db.queries import create_user_message_with_access
@@ -136,6 +141,73 @@ def get_instance_messages_paginated(
         raise HTTPException(status_code=404, detail="Agent instance not found")
     # Return just the messages array
     return messages
+
+
+@router.get(
+    "/agent-instances/{instance_id}/access",
+    response_model=list[InstanceShareResponse],
+)
+def list_instance_access(
+    instance_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List users who have access to this agent instance"""
+    try:
+        return get_instance_shares(db, instance_id, current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@router.post(
+    "/agent-instances/{instance_id}/access",
+    response_model=InstanceShareResponse,
+)
+def add_instance_access(
+    instance_id: UUID,
+    request: InstanceShareCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Grant access to an agent instance for another user"""
+    try:
+        share = add_instance_share(
+            db,
+            instance_id=instance_id,
+            user_id=current_user.id,
+            email=request.email,
+            access_level=request.access,
+        )
+        db.commit()
+        return share
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except PermissionError as e:
+        db.rollback()
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+@router.delete("/agent-instances/{instance_id}/access/{access_id}")
+def remove_instance_access(
+    instance_id: UUID,
+    access_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke shared access from a user"""
+    try:
+        remove_instance_share(db, instance_id, current_user.id, access_id)
+        db.commit()
+        return {"status": "success"}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except PermissionError as e:
+        db.rollback()
+        raise HTTPException(status_code=403, detail=str(e)) from e
 
 
 @router.post("/agent-instances/{instance_id}/messages", response_model=MessageResponse)

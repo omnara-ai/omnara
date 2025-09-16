@@ -33,6 +33,7 @@ from backend.models import (
     TeamSummary,
     TeamDetailResponse,
     TeamMemberResponse,
+    InstanceShareResponse,
 )
 
 
@@ -74,6 +75,43 @@ def _team_member_to_response(member: TeamMembership) -> TeamMemberResponse:
         invited=member.user_id is None,
         created_at=member.created_at,
         updated_at=member.updated_at,
+    )
+
+
+def _instance_access_to_response(
+    access_obj: AgentInstanceAccess, *, is_owner: bool = False
+) -> InstanceShareResponse:
+    user = access_obj.user
+    return InstanceShareResponse(
+        id=str(access_obj.id),
+        email=access_obj.shared_email,
+        access=access_obj.access,
+        user_id=str(access_obj.user_id) if access_obj.user_id else None,
+        display_name=user.display_name if user else None,
+        invited=access_obj.user_id is None,
+        is_owner=is_owner,
+        created_at=access_obj.created_at,
+        updated_at=access_obj.updated_at,
+    )
+
+
+def _instance_owner_share_response(instance: AgentInstance) -> InstanceShareResponse:
+    owner_user = instance.user
+    email = owner_user.email if owner_user else ""
+    display_name = owner_user.display_name if owner_user else None
+    created_at = (
+        instance.started_at if instance.started_at else datetime.now(timezone.utc)
+    )
+    return InstanceShareResponse(
+        id=str(instance.id),
+        email=email,
+        access=InstanceAccessLevel.WRITE,
+        user_id=str(instance.user_id),
+        display_name=display_name,
+        invited=False,
+        is_owner=True,
+        created_at=created_at,
+        updated_at=created_at,
     )
 
 
@@ -143,6 +181,22 @@ def get_instance_and_access(
         return None, None
 
     access = _compute_effective_instance_access(db, instance, user_id)
+    return instance, access
+
+
+def _require_instance_access(
+    db: Session,
+    instance_id: UUID,
+    user_id: UUID,
+    required: InstanceAccessLevel,
+) -> tuple[AgentInstance | None, InstanceAccessLevel | None]:
+    instance, access = get_instance_and_access(db, instance_id, user_id)
+    if not instance:
+        return None, None
+
+    if access is None or ACCESS_PRIORITY[access] < ACCESS_PRIORITY[required]:
+        return None, None
+
     return instance, access
 
 
@@ -367,6 +421,32 @@ def get_all_agent_types_with_instances(
             )
         )
 
+    shared_instances = get_all_agent_instances(db, user_id, scope="shared")
+    if shared_instances:
+
+        def shared_sort_key(inst: AgentInstanceResponse):
+            latest = inst.latest_message_at or inst.started_at
+            timestamp = latest.timestamp() if latest else 0
+            priority = 0 if inst.status == AgentStatus.AWAITING_INPUT else 1
+            return (priority, -timestamp)
+
+        sorted_shared = sorted(shared_instances, key=shared_sort_key)
+        total_shared = len(sorted_shared)
+        active_shared = sum(
+            1 for inst in sorted_shared if inst.status == AgentStatus.ACTIVE
+        )
+
+        result.append(
+            AgentTypeOverview(
+                id="shared-with-me",
+                name="Shared with me",
+                created_at=datetime.now(timezone.utc),
+                recent_instances=sorted_shared,
+                total_instances=total_shared,
+                active_instances=active_shared,
+            )
+        )
+
     return result
 
 
@@ -554,12 +634,16 @@ def get_agent_instance_detail(
 ) -> AgentInstanceDetail | None:
     """Get detailed information about a specific agent instance for a specific user with optional message pagination using cursor"""
 
+    instance, access = _require_instance_access(
+        db, instance_id, user_id, InstanceAccessLevel.READ
+    )
+    if not instance or not access:
+        return None
+
     instance = (
         db.query(AgentInstance)
-        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
-        .options(
-            joinedload(AgentInstance.user_agent),
-        )
+        .filter(AgentInstance.id == instance_id)
+        .options(joinedload(AgentInstance.user_agent))
         .first()
     )
 
@@ -609,6 +693,8 @@ def get_agent_instance_detail(
         if instance.last_read_message_id
         else None,
         last_heartbeat_at=instance.last_heartbeat_at,
+        access_level=access,
+        is_owner=str(instance.user_id) == str(user_id),
     )
 
 
@@ -796,14 +882,16 @@ def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | No
     Get a single message by ID with user authorization check.
     Returns the message data if authorized, None if not found or unauthorized.
     """
-    message = (
-        db.query(Message)
-        .join(AgentInstance, Message.agent_instance_id == AgentInstance.id)
-        .filter(Message.id == message_id, AgentInstance.user_id == user_id)
-        .first()
-    )
+    message = db.query(Message).filter(Message.id == message_id).first()
 
     if not message:
+        return None
+
+    instance, access = _require_instance_access(
+        db, message.agent_instance_id, user_id, InstanceAccessLevel.READ
+    )
+
+    if not instance or not access:
         return None
 
     return {
@@ -829,13 +917,11 @@ def get_instance_messages(
     Returns list of messages if authorized, None if not found or unauthorized.
     """
     # Verify instance belongs to user
-    instance = (
-        db.query(AgentInstance)
-        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
-        .first()
+    instance, access = _require_instance_access(
+        db, instance_id, user_id, InstanceAccessLevel.READ
     )
 
-    if not instance:
+    if not instance or not access:
         return None
 
     # Build message query
@@ -870,13 +956,11 @@ def get_instance_git_diff(db: Session, instance_id: UUID, user_id: UUID) -> dict
     Get the git diff for an agent instance with user authorization check.
     Returns the git diff data if authorized, None if not found or unauthorized.
     """
-    instance = (
-        db.query(AgentInstance)
-        .filter(AgentInstance.id == instance_id, AgentInstance.user_id == user_id)
-        .first()
+    instance, access = _require_instance_access(
+        db, instance_id, user_id, InstanceAccessLevel.READ
     )
 
-    if not instance:
+    if not instance or not access:
         return None
 
     return {"instance_id": str(instance.id), "git_diff": instance.git_diff}
@@ -937,6 +1021,119 @@ def create_user_message_with_access(
 # ============================================================================
 # Team queries
 # ============================================================================
+
+
+def get_instance_shares(
+    db: Session, instance_id: UUID, user_id: UUID
+) -> list[InstanceShareResponse]:
+    instance = (
+        db.query(AgentInstance)
+        .options(joinedload(AgentInstance.user))
+        .filter(AgentInstance.id == instance_id)
+        .first()
+    )
+
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if instance.user_id != user_id:
+        raise PermissionError("Only the owner can manage access")
+
+    shares = (
+        db.query(AgentInstanceAccess)
+        .options(joinedload(AgentInstanceAccess.user))
+        .filter(AgentInstanceAccess.agent_instance_id == instance_id)
+        .order_by(AgentInstanceAccess.created_at.asc())
+        .all()
+    )
+
+    results: list[InstanceShareResponse] = []
+    results.append(_instance_owner_share_response(instance))
+
+    for share in shares:
+        results.append(_instance_access_to_response(share))
+
+    return results
+
+
+def add_instance_share(
+    db: Session,
+    instance_id: UUID,
+    user_id: UUID,
+    email: str,
+    access_level: InstanceAccessLevel,
+) -> InstanceShareResponse:
+    instance = (
+        db.query(AgentInstance)
+        .options(joinedload(AgentInstance.user))
+        .filter(AgentInstance.id == instance_id)
+        .first()
+    )
+
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if instance.user_id != user_id:
+        raise PermissionError("Only the owner can manage access")
+
+    normalized_email = _normalize_email(email)
+    owner_email = instance.user.email if instance.user else None
+    if owner_email and _normalize_email(owner_email) == normalized_email:
+        raise ValueError("Owner already has full access")
+
+    existing = (
+        db.query(AgentInstanceAccess)
+        .filter(
+            AgentInstanceAccess.agent_instance_id == instance_id,
+            func.lower(AgentInstanceAccess.shared_email) == normalized_email,
+        )
+        .first()
+    )
+
+    if existing:
+        raise ValueError("This email already has access to the session")
+
+    target_user = _get_user_by_email(db, email)
+
+    share = AgentInstanceAccess(
+        agent_instance_id=instance_id,
+        shared_email=email.strip(),
+        user_id=target_user.id if target_user else None,
+        access=access_level,
+        granted_by_user_id=user_id,
+    )
+    db.add(share)
+    db.flush()
+    if target_user:
+        share.user = target_user
+
+    return _instance_access_to_response(share)
+
+
+def remove_instance_share(
+    db: Session, instance_id: UUID, user_id: UUID, access_id: UUID
+) -> None:
+    instance = db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
+
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if instance.user_id != user_id:
+        raise PermissionError("Only the owner can manage access")
+
+    share = (
+        db.query(AgentInstanceAccess)
+        .filter(
+            AgentInstanceAccess.id == access_id,
+            AgentInstanceAccess.agent_instance_id == instance_id,
+        )
+        .first()
+    )
+
+    if not share:
+        raise ValueError("Share not found")
+
+    db.delete(share)
 
 
 def get_user_teams(db: Session, user_id: UUID) -> list[TeamSummary]:
