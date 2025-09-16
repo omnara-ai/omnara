@@ -1,0 +1,92 @@
+# AI Crawler Directives
+# ChatGPT/OpenAI
+User-agent: GPTBot
+Allow: /
+Allow: /features/
+Allow: /pricing/
+Allow: /about/
+Allow: /blog/
+Allow: /docs/
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login/
+Disallow: /dashboard/
+
+# Claude/Anthropic
+User-agent: ClaudeBot
+Allow: /
+Allow: /features/
+Allow: /pricing/
+Allow: /about/
+Allow: /blog/
+Allow: /docs/
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login/
+Disallow: /dashboard/
+
+# Perplexity
+User-agent: PerplexityBot
+Allow: /
+Allow: /features/
+Allow: /pricing/
+Allow: /about/
+Allow: /blog/
+Allow: /docs/
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login/
+Disallow: /dashboard/
+
+# Cohere
+User-agent: Cohere-Crawler
+Allow: /
+Allow: /features/
+Allow: /pricing/
+Allow: /about/
+Allow: /blog/
+Allow: /docs/
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login/
+Disallow: /dashboard/
+
+# Google Extended (Bard/Gemini)
+User-agent: Google-Extended
+Allow: /
+Allow: /features/
+Allow: /pricing/
+Allow: /about/
+Allow: /blog/
+Allow: /docs/
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login/
+Disallow: /dashboard/
+
+# CCBot (Common Crawl, used by various AI systems)
+User-agent: CCBot
+Allow: /
+Allow: /features/
+Allow: /pricing/
+Allow: /about/
+Allow: /blog/
+Allow: /docs/
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login/
+Disallow: /dashboard/
+
+# General bot rules
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login/
+Disallow: /dashboard/
+
+# Sitemap
+Sitemap: https://omnara.ai/sitemap.xml
+
+# Crawl-delay for respectful crawling
+Crawl-delay: 1
