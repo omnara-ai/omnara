@@ -1,0 +1,85 @@
+{
+  "expo": {
+    "name": "Omnara",
+    "slug": "omnara",
+    "version": "1.4.3",
+    "orientation": "portrait",
+    "icon": "./assets/icon_with_bg.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "scheme": "omnara",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1e1b29"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.omnara.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#1e1b29"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.omnara.app",
+      "versionCode": 1
+    },
+    "web": {
+      "favicon": "./assets/favicons/favicon-32x32.png"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 30000,
+      "url": "https://u.expo.dev/bf57bae5-cddb-429a-8c0b-dd42e3d40536"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#f59e0b",
+          "androidMode": "default",
+          "androidCollapsedTitle": "Agent needs input",
+          "iosDisplayInForeground": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "newArchEnabled": true
+          },
+          "android": {
+            "newArchEnabled": true
+          }
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.50945566095-dr946se40prbi6itu2hfdc321icbui65"
+        }
+      ],
+      "expo-web-browser",
+      "expo-apple-authentication",
+      "expo-updates"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bf57bae5-cddb-429a-8c0b-dd42e3d40536"
+      }
+    },
+    "owner": "omnara"
+  }
+}
