@@ -78,10 +78,10 @@ const FinalCTASection = () => {
       
       {/* Background Image */}
       <picture className="absolute inset-0 w-full h-full">
-        <source type="image/avif" srcSet="/lovable-uploads/backgrounds/phone_bg_1/phone_bg_1.avif" />
-        <source type="image/webp" srcSet="/lovable-uploads/backgrounds/phone_bg_1/phone_bg_1.webp" />
+        <source type="image/avif" srcSet="/uploads/backgrounds/phone_bg_1/phone_bg_1.avif" />
+        <source type="image/webp" srcSet="/uploads/backgrounds/phone_bg_1/phone_bg_1.webp" />
         <img
-          src="/lovable-uploads/backgrounds/phone_bg_1/phone_bg_1.jpg"
+          src="/uploads/backgrounds/phone_bg_1/phone_bg_1.jpg"
           alt="Final CTA background"
           className="absolute inset-0 w-full h-full object-cover"
           decoding="async"

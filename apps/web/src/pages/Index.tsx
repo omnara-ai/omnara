@@ -94,8 +94,8 @@ const Index = () => {
               console.log('Video loaded successfully');
             }}
           >
-            <source src="/lovable-uploads/command-center.mp4" type="video/mp4" />
-            <source src="/lovable-uploads/command-center.webm" type="video/webm" />
+            <source src="/uploads/command-center.mp4" type="video/mp4" />
+            <source src="/uploads/command-center.webm" type="video/webm" />
             Your browser does not support the video tag.
           </video>
         ) : (

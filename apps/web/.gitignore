@@ -29,3 +29,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Static uploads (large, optional)
+public/uploads/*
+!public/uploads/.gitkeep
+!public/uploads/README.md

@@ -68,10 +68,10 @@ const HowItWorksSection = () => {
       
       {/* Fantasy Background Image */}
       <picture className="absolute inset-0 w-full h-full">
-        <source type="image/avif" srcSet="/lovable-uploads/backgrounds/phone_bg_2/phone_bg_2.avif" />
-        <source type="image/webp" srcSet="/lovable-uploads/backgrounds/phone_bg_2/phone_bg_2.webp" />
+        <source type="image/avif" srcSet="/uploads/backgrounds/phone_bg_2/phone_bg_2.avif" />
+        <source type="image/webp" srcSet="/uploads/backgrounds/phone_bg_2/phone_bg_2.webp" />
         <img
-          src="/lovable-uploads/backgrounds/phone_bg_2/phone_bg_2.jpg"
+          src="/uploads/backgrounds/phone_bg_2/phone_bg_2.jpg"
           alt="Fantasy landscape background"
           className="absolute inset-0 w-full h-full object-cover"
           decoding="async"
@@ -124,10 +124,10 @@ const HowItWorksSection = () => {
           <div className="flex flex-col items-center">
             <div className="relative transform hover:scale-105 transition-transform duration-300">
               <picture>
-                <source type="image/avif" srcSet="/lovable-uploads/phone-shots/screen-one/screen-one.avif" />
-                <source type="image/webp" srcSet="/lovable-uploads/phone-shots/screen-one/screen-one.webp" />
+                <source type="image/avif" srcSet="/uploads/phone-shots/screen-one/screen-one.avif" />
+                <source type="image/webp" srcSet="/uploads/phone-shots/screen-one/screen-one.webp" />
                 <img
-                  src="/lovable-uploads/phone-shots/screen-one/screen-one.jpg"
+                  src="/uploads/phone-shots/screen-one/screen-one.jpg"
                   alt="Launch agents from mobile"
                   className="w-full max-w-[275px] sm:max-w-[312px] md:max-w-[350px] lg:max-w-[312px] h-auto"
                   style={{
@@ -147,10 +147,10 @@ const HowItWorksSection = () => {
           <div className="flex flex-col items-center">
             <div className="relative transform hover:scale-105 transition-transform duration-300">
               <picture>
-                <source type="image/avif" srcSet="/lovable-uploads/phone-shots/screen-two/screen-two.avif" />
-                <source type="image/webp" srcSet="/lovable-uploads/phone-shots/screen-two/screen-two.webp" />
+                <source type="image/avif" srcSet="/uploads/phone-shots/screen-two/screen-two.avif" />
+                <source type="image/webp" srcSet="/uploads/phone-shots/screen-two/screen-two.webp" />
                 <img
-                  src="/lovable-uploads/phone-shots/screen-two/screen-two.jpg"
+                  src="/uploads/phone-shots/screen-two/screen-two.jpg"
                   alt="Monitor agent instances"
                   className="w-full max-w-[275px] sm:max-w-[312px] md:max-w-[350px] lg:max-w-[312px] h-auto"
                   style={{
@@ -170,10 +170,10 @@ const HowItWorksSection = () => {
           <div className="flex flex-col items-center">
             <div className="relative transform hover:scale-105 transition-transform duration-300">
               <picture>
-                <source type="image/avif" srcSet="/lovable-uploads/phone-shots/screen-three/screen-three.avif" />
-                <source type="image/webp" srcSet="/lovable-uploads/phone-shots/screen-three/screen-three.webp" />
+                <source type="image/avif" srcSet="/uploads/phone-shots/screen-three/screen-three.avif" />
+                <source type="image/webp" srcSet="/uploads/phone-shots/screen-three/screen-three.webp" />
                 <img
-                  src="/lovable-uploads/phone-shots/screen-three/screen-three.jpg"
+                  src="/uploads/phone-shots/screen-three/screen-three.jpg"
                   alt="Guide agents in real-time"
                   className="w-full max-w-[275px] sm:max-w-[312px] md:max-w-[350px] lg:max-w-[312px] h-auto"
                   style={{
