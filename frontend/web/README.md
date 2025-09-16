@@ -13,7 +13,7 @@ A React + Vite + TypeScript web app for monitoring and managing AI agents. Uses 
 - Node.js 18+ and npm
 
 ## Quick Start
-1. From `apps/web`, copy env and fill publishable values:
+1. From `frontend/web`, copy env and fill publishable values:
    - `cp .env.example .env`
    - Set `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
    - Optionally set `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST`
@@ -37,7 +37,7 @@ A React + Vite + TypeScript web app for monitoring and managing AI agents. Uses 
 Never commit secrets here. Only publishable keys belong in `VITE_` variables. Keep server secrets on the backend.
 
 ## Monorepo Notes
-- Shared package: `apps/packages/shared`
+- Shared package: `frontend/packages/shared`
 - Import shared tokens via: `import { tokens, colors } from '@omnara/shared'`
 - Path aliases:
   - `@` → `./src`

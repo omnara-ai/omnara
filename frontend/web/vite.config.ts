@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => ({
     fs: {
       // allow serving files from the shared package during dev
       allow: [
-        path.resolve(__dirname, '..'), // apps/
+        path.resolve(__dirname, '..'), // frontend/
         path.resolve(__dirname, '../packages/shared'),
       ],
     },

@@ -7,8 +7,7 @@ Shared design system for Omnara.
 Usage examples:
 
 - Web (Tailwind, components):
-  - Import from `apps/web/src/lib/theme/colors` (re-exports shared for Tailwind/Jiti compatibility)
+  - Import from `frontend/web/src/lib/theme/colors` (re-exports shared for Tailwind/Jiti compatibility)
 
 - Mobile (React Native):
   - `import { colors, semanticColors } from '@omnara/shared'`
-
