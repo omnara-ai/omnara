@@ -1,0 +1,47 @@
+name: Autosana App Upload
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          
+      - name: Run iOS Simulator Build
+        run: eas build --platform ios --profile preview-simulator --non-interactive --wait --json > build-info.json
+
+      - name: Download zipped .app file from EAS server
+        run: |
+          BUILD_URL=$(jq -r '.[0].artifacts.buildUrl' build-info.json)
+          echo "Downloading zipped .app from $BUILD_URL"
+          curl -L "$BUILD_URL" -o app.zip
+
+      - name: Run Autosana CI App Upload
+        uses: autosana/autosana-ci@main
+        with:
+          api-key:  ${{ secrets.AUTOSANA_KEY }}
+          bundle-id: com.omnara.app
+          platform: ios
+          build-path: app.zip
