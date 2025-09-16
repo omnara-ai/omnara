@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import * as Updates from 'expo-updates';
+import './src/lib/sentry';
 import RootApp from './src/app/_layout';
 
 export default function App() {
