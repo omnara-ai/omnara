@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { AuthModal } from '../AuthModal';
+import { asset } from '@/lib/assets';
 
 const FinalCTASection = () => {
   const { user } = useAuth();
@@ -78,10 +79,10 @@ const FinalCTASection = () => {
       
       {/* Background Image */}
       <picture className="absolute inset-0 w-full h-full">
-        <source type="image/avif" srcSet="/uploads/backgrounds/phone_bg_1/phone_bg_1.avif" />
-        <source type="image/webp" srcSet="/uploads/backgrounds/phone_bg_1/phone_bg_1.webp" />
+        <source type="image/avif" srcSet={asset('/uploads/backgrounds/phone_bg_1/phone_bg_1.avif')} />
+        <source type="image/webp" srcSet={asset('/uploads/backgrounds/phone_bg_1/phone_bg_1.webp')} />
         <img
-          src="/uploads/backgrounds/phone_bg_1/phone_bg_1.jpg"
+          src={asset('/uploads/backgrounds/phone_bg_1/phone_bg_1.jpg')}
           alt="Final CTA background"
           className="absolute inset-0 w-full h-full object-cover"
           decoding="async"

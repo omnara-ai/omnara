@@ -5,6 +5,7 @@ import HeroSection from '../components/landing/HeroSection';
 import HowItWorksSection from '../components/landing/HowItWorksSection';
 import ThirdSection from '../components/landing/ThirdSection';
 import FinalCTASection from '../components/landing/FinalCTASection';
+import { asset } from '@/lib/assets';
 
 const Index = () => {
   const [starCount, setStarCount] = useState<number | null>(null);
@@ -94,8 +95,8 @@ const Index = () => {
               console.log('Video loaded successfully');
             }}
           >
-            <source src="/uploads/command-center.mp4" type="video/mp4" />
-            <source src="/uploads/command-center.webm" type="video/webm" />
+            <source src={asset('/uploads/command-center.mp4')} type="video/mp4" />
+            <source src={asset('/uploads/command-center.webm')} type="video/webm" />
             Your browser does not support the video tag.
           </video>
         ) : (

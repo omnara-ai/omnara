@@ -16,6 +16,7 @@ A React + Vite + TypeScript web app for monitoring and managing AI agents. Uses 
 1. From `frontend/web`, copy env and fill publishable values:
    - `cp .env.example .env`
    - Set `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+   - Set `VITE_PUBLIC_ASSETS_BASE_URL` for CDN/Storage-hosted assets
    - Optionally set `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST`
 2. Install and run:
    - `npm install`
@@ -31,6 +32,7 @@ A React + Vite + TypeScript web app for monitoring and managing AI agents. Uses 
 - `VITE_API_URL` — Backend base URL
 - `VITE_SUPABASE_URL` — Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` — Supabase anon (publishable) key
+- `VITE_PUBLIC_ASSETS_BASE_URL` — Base URL for public assets (e.g., Supabase Storage public bucket)
 - `VITE_POSTHOG_KEY` — Optional PostHog public key
 - `VITE_POSTHOG_HOST` — Optional PostHog host (defaults to US)
 

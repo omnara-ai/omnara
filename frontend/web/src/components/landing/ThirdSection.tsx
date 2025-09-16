@@ -1,3 +1,5 @@
+import { asset } from '@/lib/assets';
+
 const ThirdSection = () => {
   return (
     <section className="relative min-h-screen bg-black overflow-hidden">
@@ -136,10 +138,10 @@ const ThirdSection = () => {
       
       {/* Background Image */}
       <picture className="absolute inset-0 w-full h-full">
-        <source type="image/avif" srcSet="/uploads/backgrounds/phone_bg_3/phone_bg_3.avif" />
-        <source type="image/webp" srcSet="/uploads/backgrounds/phone_bg_3/phone_bg_3.webp" />
+        <source type="image/avif" srcSet={asset('/uploads/backgrounds/phone_bg_3/phone_bg_3.avif')} />
+        <source type="image/webp" srcSet={asset('/uploads/backgrounds/phone_bg_3/phone_bg_3.webp')} />
         <img
-          src="/uploads/backgrounds/phone_bg_3/phone_bg_3.jpg"
+          src={asset('/uploads/backgrounds/phone_bg_3/phone_bg_3.jpg')}
           alt="Third section background"
           className="absolute inset-0 w-full h-full object-cover"
           decoding="async"
@@ -195,7 +197,7 @@ const ThirdSection = () => {
             {/* Left Side - Phone Video */}
             <div className="flex justify-center lg:justify-end mt-6 md:mt-8 lg:mt-12 -mr-0 lg:-mr-32">
               <video
-                src="/uploads/animations/phone_notifications_H.265.mp4"
+                src={asset('/uploads/animations/phone_notifications_H.265.mp4')}
                 autoPlay
                 loop
                 muted
