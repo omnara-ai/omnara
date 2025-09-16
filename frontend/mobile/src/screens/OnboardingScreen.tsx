@@ -8,8 +8,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { theme } from '@/constants/theme';
 import { Header, BackButton } from '@/components/ui';
-// Use the simplified onboarding by default - swap these imports to use the original
-// import { OnboardingSteps as OnboardingStepsComponent } from '@/components/onboarding';  // Original
 import { DefaultOnboardingSteps as OnboardingStepsComponent } from '@/components/onboarding';  // Simplified
 
 export const OnboardingScreen: React.FC = () => {

@@ -4,7 +4,6 @@ export { Badge, getStatusBadgeVariant, StatusBadge } from './Badge';
 export { Input } from './Input';
 export { Gradient } from './Gradient';
 export { GoogleSignInButton } from './GoogleSignInButton';
-export { DevelopmentNotice } from './DevelopmentNotice';
 export { YesNoQuestion } from './YesNoQuestion';
 export { OptionsQuestion } from './OptionsQuestion';
 export { StructuredQuestion } from './StructuredQuestion';

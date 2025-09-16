@@ -15,8 +15,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { dashboardApi } from '@/services/api';
 import { LaunchAgentModal } from './LaunchAgentModal';
 import { AgentConfigModal } from './AgentConfigModal';
-// Use the simplified onboarding by default - swap these imports to use the original
-// import { OnboardingSteps as OnboardingStepsComponent } from '@/components/onboarding';  // Original
 import { DefaultOnboardingSteps as OnboardingStepsComponent } from '@/components/onboarding';  // Simplified
 
 interface AgentsListProps {}
