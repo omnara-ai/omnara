@@ -5,9 +5,8 @@ A React + Vite + TypeScript web app for monitoring and managing AI agents. Uses 
 ## Features
 - React + Vite (fast dev/build)
 - Tailwind CSS utilities and component primitives
-- Supabase client (publishable anon key) for auth/data
-- Optional PostHog analytics
-- Shared tokens via `@omnara/shared` (monorepo package)
+- Supabase client for auth/data
+- PostHog analytics
 
 ## Requirements
 - Node.js 18+ and npm
@@ -36,21 +35,9 @@ A React + Vite + TypeScript web app for monitoring and managing AI agents. Uses 
 - `VITE_POSTHOG_KEY` — Optional PostHog public key
 - `VITE_POSTHOG_HOST` — Optional PostHog host (defaults to US)
 
-Never commit secrets here. Only publishable keys belong in `VITE_` variables. Keep server secrets on the backend.
-
-## Monorepo Notes
-- Shared package: `frontend/packages/shared`
-- Import shared tokens via: `import { tokens, colors } from '@omnara/shared'`
-- Path aliases:
-  - `@` → `./src`
-  - `@omnara/shared` → `../packages/shared/src`
-
-Hot reloading of `@omnara/shared` works during dev. The Vite config is set to allow reading from the monorepo `packages` path.
-
 ## Build & Deploy
 - Build: `npm run build` (outputs `dist/`)
 - Deploy the `dist/` folder to any static host (Netlify, Vercel, S3, etc.)
-- Security headers are provided in `public/_headers` (clickjacking protection). Ensure equivalent headers in production.
 
 ## License
-See `LICENSE` in the repository.
+See `LICENSE` [here](https://github.com/omnara-ai/omnara/blob/main/frontend/LICENSE).
