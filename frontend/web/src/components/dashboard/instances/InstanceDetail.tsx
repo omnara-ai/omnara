@@ -26,7 +26,7 @@ export function InstanceDetail() {
   const [sharesLoading, setSharesLoading] = useState(false)
   const [sharesLoaded, setSharesLoaded] = useState(false)
   const [shareEmail, setShareEmail] = useState('')
-  const [shareAccess, setShareAccess] = useState<InstanceAccessLevel>(InstanceAccessLevel.READ)
+  const [shareAccess, setShareAccess] = useState<InstanceAccessLevel>(InstanceAccessLevel.WRITE)
   const [shareSubmitting, setShareSubmitting] = useState(false)
   const [shareError, setShareError] = useState<string | null>(null)
   const shareMenuRef = useRef<HTMLDivElement | null>(null)
@@ -263,7 +263,7 @@ export function InstanceDetail() {
     setSharesLoaded(false)
     setShareMenuOpen(false)
     setShareEmail('')
-    setShareAccess(InstanceAccessLevel.READ)
+    setShareAccess(InstanceAccessLevel.WRITE)
     setShareError(null)
   }, [instanceId])
 
@@ -309,7 +309,7 @@ export function InstanceDetail() {
       })
       setShares(prev => sortShares([...prev.filter(s => s.id !== newShare.id), newShare]))
       setShareEmail('')
-      setShareAccess(InstanceAccessLevel.READ)
+      setShareAccess(InstanceAccessLevel.WRITE)
       setShareError(null)
     } catch (err) {
       console.error('Failed to add share:', err)
@@ -551,8 +551,8 @@ export function InstanceDetail() {
                         onChange={e => setShareAccess(e.target.value as InstanceAccessLevel)}
                         className="rounded-md border border-border-divider bg-transparent px-2 py-1 text-sm text-text-primary focus:border-electric-accent focus:outline-none"
                       >
-                        <option value={InstanceAccessLevel.READ}>Read</option>
                         <option value={InstanceAccessLevel.WRITE}>Write</option>
+                        <option value={InstanceAccessLevel.READ}>Read</option>
                       </select>
                     </div>
                     {shareError && (
