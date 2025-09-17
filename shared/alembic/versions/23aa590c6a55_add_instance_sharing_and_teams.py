@@ -43,15 +43,13 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column(
             "created_at",
-            sa.DateTime(timezone=True),
+            sa.DateTime(),
             nullable=False,
-            server_default=sa.text("timezone('utc', now())"),
         ),
         sa.Column(
             "updated_at",
-            sa.DateTime(timezone=True),
+            sa.DateTime(),
             nullable=False,
-            server_default=sa.text("timezone('utc', now())"),
         ),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -65,15 +63,13 @@ def upgrade() -> None:
         sa.Column("role", team_role_enum, nullable=False),
         sa.Column(
             "created_at",
-            sa.DateTime(timezone=True),
+            sa.DateTime(),
             nullable=False,
-            server_default=sa.text("timezone('utc', now())"),
         ),
         sa.Column(
             "updated_at",
-            sa.DateTime(timezone=True),
+            sa.DateTime(),
             nullable=False,
-            server_default=sa.text("timezone('utc', now())"),
         ),
         sa.ForeignKeyConstraint(
             ["team_id"],
@@ -121,15 +117,13 @@ def upgrade() -> None:
         sa.Column("granted_by_user_id", sa.UUID(), nullable=False),
         sa.Column(
             "created_at",
-            sa.DateTime(timezone=True),
+            sa.DateTime(),
             nullable=False,
-            server_default=sa.text("timezone('utc', now())"),
         ),
         sa.Column(
             "updated_at",
-            sa.DateTime(timezone=True),
+            sa.DateTime(),
             nullable=False,
-            server_default=sa.text("timezone('utc', now())"),
         ),
         sa.ForeignKeyConstraint(
             ["agent_instance_id"],
@@ -181,15 +175,13 @@ def upgrade() -> None:
         sa.Column("granted_by_user_id", sa.UUID(), nullable=False),
         sa.Column(
             "created_at",
-            sa.DateTime(timezone=True),
+            sa.DateTime(),
             nullable=False,
-            server_default=sa.text("timezone('utc', now())"),
         ),
         sa.Column(
             "updated_at",
-            sa.DateTime(timezone=True),
+            sa.DateTime(),
             nullable=False,
-            server_default=sa.text("timezone('utc', now())"),
         ),
         sa.ForeignKeyConstraint(
             ["team_id"],

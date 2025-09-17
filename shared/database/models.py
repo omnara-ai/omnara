@@ -102,7 +102,7 @@ class UserAgent(Base):
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("users.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
     )
     name: Mapped[str] = mapped_column(String(255))
     webhook_type: Mapped[str | None] = mapped_column(
@@ -139,10 +139,11 @@ class AgentInstance(Base):
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     user_agent_id: Mapped[UUID] = mapped_column(
-        ForeignKey("user_agents.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("user_agents.id", ondelete="CASCADE"),
+        type_=PostgresUUID(as_uuid=True),
     )
     user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("users.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
     )
     status: Mapped[AgentStatus] = mapped_column(default=AgentStatus.ACTIVE)
     started_at: Mapped[datetime] = mapped_column(
@@ -209,7 +210,7 @@ class APIKey(Base):
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("users.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
     )
     name: Mapped[str] = mapped_column(String(255))
     api_key_hash: Mapped[str] = mapped_column(String(128))
@@ -234,7 +235,7 @@ class PushToken(Base):
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("users.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
     )
     token: Mapped[str] = mapped_column(String(255), unique=True)
     platform: Mapped[str] = mapped_column(String(50))  # 'ios' or 'android'
@@ -262,11 +263,14 @@ class Message(Base):
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     agent_instance_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agent_instances.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("agent_instances.id", ondelete="CASCADE"),
+        type_=PostgresUUID(as_uuid=True),
     )
     sender_type: Mapped[SenderType] = mapped_column()
     sender_user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True), nullable=True
+        ForeignKey("users.id", ondelete="SET NULL"),
+        type_=PostgresUUID(as_uuid=True),
+        nullable=True,
     )
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
@@ -309,15 +313,18 @@ class UserInstanceAccess(Base):
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     agent_instance_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agent_instances.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("agent_instances.id", ondelete="CASCADE"),
+        type_=PostgresUUID(as_uuid=True),
     )
     shared_email: Mapped[str] = mapped_column(String(255))
     user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True), nullable=True
+        ForeignKey("users.id", ondelete="CASCADE"),
+        type_=PostgresUUID(as_uuid=True),
+        nullable=True,
     )
     access: Mapped[InstanceAccessLevel] = mapped_column()
     granted_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("users.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
     )
     created_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc)
@@ -392,10 +399,12 @@ class TeamMembership(Base):
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     team_id: Mapped[UUID] = mapped_column(
-        ForeignKey("teams.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("teams.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
     )
     user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True), nullable=True
+        ForeignKey("users.id", ondelete="CASCADE"),
+        type_=PostgresUUID(as_uuid=True),
+        nullable=True,
     )
     invited_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[TeamRole] = mapped_column(default=TeamRole.MEMBER)
@@ -431,14 +440,15 @@ class TeamInstanceAccess(Base):
         PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     team_id: Mapped[UUID] = mapped_column(
-        ForeignKey("teams.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("teams.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
     )
     agent_instance_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agent_instances.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("agent_instances.id", ondelete="CASCADE"),
+        type_=PostgresUUID(as_uuid=True),
     )
     access: Mapped[InstanceAccessLevel] = mapped_column()
     granted_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id"), type_=PostgresUUID(as_uuid=True)
+        ForeignKey("users.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
     )
     created_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc)
