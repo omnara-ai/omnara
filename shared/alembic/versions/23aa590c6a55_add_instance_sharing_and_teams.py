@@ -22,12 +22,12 @@ depends_on: Union[str, Sequence[str], None] = None
 TEAM_ROLE_ENUM_NAME = "teamrole"
 INSTANCE_ACCESS_ENUM_NAME = "instanceaccesslevel"
 TEAM_MEMBERSHIP_TEAM_ID_INDEX = "ix_team_memberships_team_id"
-AGENT_INSTANCE_ACCESS_INSTANCE_INDEX = "ix_agent_instance_access_instance"
+USER_INSTANCE_ACCESS_INSTANCE_INDEX = "ix_user_instance_access_instance"
 TEAM_INSTANCE_ACCESS_TEAM_INDEX = "ix_team_instance_access_team_id"
 TEAM_MEMBERSHIP_TEAM_EMAIL_UNIQUE = "uq_team_memberships_team_email"
 TEAM_MEMBERSHIP_TEAM_USER_UNIQUE = "uq_team_memberships_team_user"
-AGENT_INSTANCE_ACCESS_EMAIL_UNIQUE = "uq_agent_instance_access_instance_email"
-AGENT_INSTANCE_ACCESS_USER_UNIQUE = "uq_agent_instance_access_instance_user"
+USER_INSTANCE_ACCESS_EMAIL_UNIQUE = "uq_user_instance_access_instance_email"
+USER_INSTANCE_ACCESS_USER_UNIQUE = "uq_user_instance_access_instance_user"
 TEAM_INSTANCE_ACCESS_TEAM_INSTANCE_UNIQUE = "uq_team_instance_access_team_instance"
 MESSAGES_SENDER_USER_FK = "fk_messages_sender_user"
 
@@ -112,7 +112,7 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "agent_instance_access",
+        "user_instance_access",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("agent_instance_id", sa.UUID(), nullable=False),
         sa.Column("shared_email", sa.String(length=255), nullable=False),
@@ -134,39 +134,39 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["agent_instance_id"],
             ["agent_instances.id"],
-            name="fk_agent_instance_access_instance_id",
+            name="fk_user_instance_access_instance_id",
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["granted_by_user_id"],
             ["users.id"],
-            name="fk_agent_instance_access_granted_by",
+            name="fk_user_instance_access_granted_by",
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["users.id"],
-            name="fk_agent_instance_access_user_id",
+            name="fk_user_instance_access_user_id",
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),
     )
 
     op.create_index(
-        AGENT_INSTANCE_ACCESS_INSTANCE_INDEX,
-        "agent_instance_access",
+        USER_INSTANCE_ACCESS_INSTANCE_INDEX,
+        "user_instance_access",
         ["agent_instance_id"],
         unique=False,
     )
     op.create_index(
-        AGENT_INSTANCE_ACCESS_EMAIL_UNIQUE,
-        "agent_instance_access",
+        USER_INSTANCE_ACCESS_EMAIL_UNIQUE,
+        "user_instance_access",
         ["agent_instance_id", "shared_email"],
         unique=True,
     )
     op.create_index(
-        AGENT_INSTANCE_ACCESS_USER_UNIQUE,
-        "agent_instance_access",
+        USER_INSTANCE_ACCESS_USER_UNIQUE,
+        "user_instance_access",
         ["agent_instance_id", "user_id"],
         unique=True,
         postgresql_where=sa.text("user_id IS NOT NULL"),
@@ -267,19 +267,19 @@ def downgrade() -> None:
     op.drop_table("team_instance_access")
 
     op.drop_index(
-        AGENT_INSTANCE_ACCESS_USER_UNIQUE,
-        table_name="agent_instance_access",
+        USER_INSTANCE_ACCESS_USER_UNIQUE,
+        table_name="user_instance_access",
         postgresql_where=sa.text("user_id IS NOT NULL"),
     )
     op.drop_index(
-        AGENT_INSTANCE_ACCESS_EMAIL_UNIQUE,
-        table_name="agent_instance_access",
+        USER_INSTANCE_ACCESS_EMAIL_UNIQUE,
+        table_name="user_instance_access",
     )
     op.drop_index(
-        AGENT_INSTANCE_ACCESS_INSTANCE_INDEX,
-        table_name="agent_instance_access",
+        USER_INSTANCE_ACCESS_INSTANCE_INDEX,
+        table_name="user_instance_access",
     )
-    op.drop_table("agent_instance_access")
+    op.drop_table("user_instance_access")
 
     op.drop_index(
         TEAM_MEMBERSHIP_TEAM_USER_UNIQUE,

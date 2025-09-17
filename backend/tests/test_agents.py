@@ -7,7 +7,7 @@ from shared.database.models import (
     User,
     UserAgent,
     AgentInstance,
-    AgentInstanceAccess,
+    UserInstanceAccess,
 )
 from shared.database.enums import AgentStatus, InstanceAccessLevel
 from backend.main import app
@@ -151,7 +151,7 @@ class TestAgentEndpoints:
         test_db.add(shared_instance)
         test_db.flush()
 
-        access = AgentInstanceAccess(
+        access = UserInstanceAccess(
             agent_instance_id=shared_instance.id,
             shared_email=test_user.email,
             user_id=test_user.id,
@@ -205,7 +205,7 @@ class TestAgentEndpoints:
         test_db.add(shared_instance)
         test_db.flush()
 
-        access = AgentInstanceAccess(
+        access = UserInstanceAccess(
             agent_instance_id=shared_instance.id,
             shared_email=test_user.email,
             user_id=test_user.id,
@@ -237,7 +237,7 @@ class TestAgentEndpoints:
         test_db.add(other_user)
         test_db.flush()
 
-        share = AgentInstanceAccess(
+        share = UserInstanceAccess(
             agent_instance_id=test_agent_instance.id,
             shared_email=other_user.email,
             user_id=other_user.id,
@@ -278,7 +278,7 @@ class TestAgentEndpoints:
         test_db.add(other_user)
         test_db.flush()
 
-        access = AgentInstanceAccess(
+        access = UserInstanceAccess(
             agent_instance_id=test_agent_instance.id,
             shared_email=other_user.email,
             user_id=other_user.id,
@@ -356,8 +356,8 @@ class TestAgentEndpoints:
         assert remaining.status_code == 200
         assert all(entry["id"] != share_id for entry in remaining.json())
         assert (
-            test_db.query(AgentInstanceAccess)
-            .filter(AgentInstanceAccess.agent_instance_id == test_agent_instance.id)
+            test_db.query(UserInstanceAccess)
+            .filter(UserInstanceAccess.agent_instance_id == test_agent_instance.id)
             .count()
             == 0
         )

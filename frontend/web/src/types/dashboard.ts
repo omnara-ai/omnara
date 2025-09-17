@@ -49,6 +49,8 @@ export interface Message {
   sender_type: 'AGENT' | 'USER'
   created_at: string
   requires_user_input: boolean
+  sender_user_email?: string | null
+  sender_user_display_name?: string | null
 }
 
 export interface AgentQuestion {

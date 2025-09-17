@@ -12,6 +12,8 @@ export interface ChatMessageData {
   sender_type: 'AGENT' | 'USER'
   created_at: string
   requires_user_input: boolean
+  sender_user_email?: string | null
+  sender_user_display_name?: string | null
 }
 
 export interface MessageGroup {
@@ -36,7 +38,9 @@ function groupMessages(messages: ChatMessageData[], agentName: string): MessageG
   
   messages.forEach(message => {
     const isFromAgent = message.sender_type === 'AGENT'
-    const sender = isFromAgent ? agentName : 'You'
+    const sender = isFromAgent
+      ? agentName
+      : message.sender_user_display_name?.trim() || message.sender_user_email || 'You'
     
     // Check if we should start a new group
     const shouldStartNewGroup = !currentGroup || 
@@ -124,7 +128,9 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
                   content: m.content,
                   sender_type: m.sender_type,
                   created_at: m.created_at,
-                  requires_user_input: m.requires_user_input
+                  requires_user_input: m.requires_user_input,
+                  sender_user_email: m.sender_user_email,
+                  sender_user_display_name: m.sender_user_display_name,
                 } as ChatMessageData))
               
               // Prepend new messages and sort by created_at
@@ -177,7 +183,9 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
           content: msg.content,
           sender_type: msg.sender_type,
           created_at: msg.created_at,
-          requires_user_input: msg.requires_user_input
+          requires_user_input: msg.requires_user_input,
+          sender_user_email: msg.sender_user_email,
+          sender_user_display_name: msg.sender_user_display_name,
         })
       })
       

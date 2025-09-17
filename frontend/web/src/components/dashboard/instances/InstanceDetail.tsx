@@ -116,7 +116,9 @@ export function InstanceDetail() {
             content: messageData.content,
             sender_type: messageData.sender_type,
             created_at: messageData.created_at,
-            requires_user_input: messageData.requires_user_input
+            requires_user_input: messageData.requires_user_input,
+            sender_user_email: messageData.sender_user_email ?? null,
+            sender_user_display_name: messageData.sender_user_display_name ?? null,
           }
 
           // Update instance with new message

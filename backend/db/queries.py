@@ -6,7 +6,7 @@ from shared.config import settings
 from shared.database import (
     AgentInstance,
     AgentStatus,
-    AgentInstanceAccess,
+    UserInstanceAccess,
     APIKey,
     Message,
     PushToken,
@@ -79,7 +79,7 @@ def _team_member_to_response(member: TeamMembership) -> TeamMemberResponse:
 
 
 def _instance_access_to_response(
-    access_obj: AgentInstanceAccess, *, is_owner: bool = False
+    access_obj: UserInstanceAccess, *, is_owner: bool = False
 ) -> InstanceShareResponse:
     user = access_obj.user
     return InstanceShareResponse(
@@ -144,10 +144,10 @@ def _compute_effective_instance_access(
     access_levels: list[InstanceAccessLevel] = []
 
     direct_access = (
-        db.query(AgentInstanceAccess.access)
+        db.query(UserInstanceAccess.access)
         .filter(
-            AgentInstanceAccess.agent_instance_id == instance.id,
-            AgentInstanceAccess.user_id == user_id,
+            UserInstanceAccess.agent_instance_id == instance.id,
+            UserInstanceAccess.user_id == user_id,
         )
         .first()
     )
@@ -469,8 +469,8 @@ def get_all_agent_instances(
     if scope == "me":
         query = query.filter(AgentInstance.user_id == user_id)
     else:
-        direct_access_select = select(AgentInstanceAccess.agent_instance_id).where(
-            AgentInstanceAccess.user_id == user_id
+        direct_access_select = select(UserInstanceAccess.agent_instance_id).where(
+            UserInstanceAccess.user_id == user_id
         )
         team_access_select = (
             select(TeamInstanceAccess.agent_instance_id)
@@ -1040,10 +1040,10 @@ def get_instance_shares(
         raise PermissionError("Only the owner can manage access")
 
     shares = (
-        db.query(AgentInstanceAccess)
-        .options(joinedload(AgentInstanceAccess.user))
-        .filter(AgentInstanceAccess.agent_instance_id == instance_id)
-        .order_by(AgentInstanceAccess.created_at.asc())
+        db.query(UserInstanceAccess)
+        .options(joinedload(UserInstanceAccess.user))
+        .filter(UserInstanceAccess.agent_instance_id == instance_id)
+        .order_by(UserInstanceAccess.created_at.asc())
         .all()
     )
 
@@ -1082,10 +1082,10 @@ def add_instance_share(
         raise ValueError("Owner already has full access")
 
     existing = (
-        db.query(AgentInstanceAccess)
+        db.query(UserInstanceAccess)
         .filter(
-            AgentInstanceAccess.agent_instance_id == instance_id,
-            func.lower(AgentInstanceAccess.shared_email) == normalized_email,
+            UserInstanceAccess.agent_instance_id == instance_id,
+            func.lower(UserInstanceAccess.shared_email) == normalized_email,
         )
         .first()
     )
@@ -1095,7 +1095,7 @@ def add_instance_share(
 
     target_user = _get_user_by_email(db, email)
 
-    share = AgentInstanceAccess(
+    share = UserInstanceAccess(
         agent_instance_id=instance_id,
         shared_email=email.strip(),
         user_id=target_user.id if target_user else None,
@@ -1122,10 +1122,10 @@ def remove_instance_share(
         raise PermissionError("Only the owner can manage access")
 
     share = (
-        db.query(AgentInstanceAccess)
+        db.query(UserInstanceAccess)
         .filter(
-            AgentInstanceAccess.id == access_id,
-            AgentInstanceAccess.agent_instance_id == instance_id,
+            UserInstanceAccess.id == access_id,
+            UserInstanceAccess.agent_instance_id == instance_id,
         )
         .first()
     )

@@ -64,10 +64,10 @@ class User(Base):
     push_tokens: Mapped[list["PushToken"]] = relationship(
         "PushToken", back_populates="user"
     )
-    agent_instance_accesses: Mapped[list["AgentInstanceAccess"]] = relationship(
-        "AgentInstanceAccess",
+    instance_accesses: Mapped[list["UserInstanceAccess"]] = relationship(
+        "UserInstanceAccess",
         back_populates="user",
-        foreign_keys="AgentInstanceAccess.user_id",
+        foreign_keys="UserInstanceAccess.user_id",
     )
     team_memberships: Mapped[list["TeamMembership"]] = relationship(
         "TeamMembership",
@@ -180,8 +180,8 @@ class AgentInstance(Base):
         post_update=True,
         passive_deletes=True,
     )
-    agent_instance_accesses: Mapped[list["AgentInstanceAccess"]] = relationship(
-        "AgentInstanceAccess", back_populates="agent_instance"
+    user_instance_accesses: Mapped[list["UserInstanceAccess"]] = relationship(
+        "UserInstanceAccess", back_populates="agent_instance"
     )
     team_instance_accesses: Mapped[list["TeamInstanceAccess"]] = relationship(
         "TeamInstanceAccess", back_populates="agent_instance"
@@ -286,18 +286,18 @@ class Message(Base):
     )
 
 
-class AgentInstanceAccess(Base):
-    __tablename__ = "agent_instance_access"
+class UserInstanceAccess(Base):
+    __tablename__ = "user_instance_access"
     __table_args__ = (
-        Index("ix_agent_instance_access_instance", "agent_instance_id"),
+        Index("ix_user_instance_access_instance", "agent_instance_id"),
         Index(
-            "uq_agent_instance_access_instance_email",
+            "uq_user_instance_access_instance_email",
             "agent_instance_id",
             "shared_email",
             unique=True,
         ),
         Index(
-            "uq_agent_instance_access_instance_user",
+            "uq_user_instance_access_instance_user",
             "agent_instance_id",
             "user_id",
             unique=True,
@@ -328,12 +328,12 @@ class AgentInstanceAccess(Base):
     )
 
     agent_instance: Mapped["AgentInstance"] = relationship(
-        "AgentInstance", back_populates="agent_instance_accesses"
+        "AgentInstance", back_populates="user_instance_accesses"
     )
     user: Mapped["User | None"] = relationship(
         "User",
         foreign_keys=[user_id],
-        back_populates="agent_instance_accesses",
+        back_populates="instance_accesses",
     )
     granted_by_user: Mapped["User"] = relationship(
         "User",

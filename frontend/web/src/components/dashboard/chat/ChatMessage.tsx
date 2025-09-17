@@ -98,8 +98,8 @@ export function ChatMessage({ messageGroup, showWaitingIndicator = false }: Chat
       )
     } else {
       return (
-        <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
-          <User className="h-5 w-5 text-white" />
+        <div className="w-8 h-8 bg-gradient-to-br from-surface-panel to-interactive-hover rounded-full flex items-center justify-center shadow-lg">
+          <User className="h-5 w-5 text-text-primary" />
         </div>
       )
     }
@@ -154,6 +154,18 @@ export function ChatMessage({ messageGroup, showWaitingIndicator = false }: Chat
       ) : (
         // User messages: Right-aligned layout (unchanged)
         <div className="flex flex-col items-end max-w-4xl">
+          <div className="flex items-center space-x-3 mb-3 h-6 justify-end">
+            <span className="text-xs text-text-secondary/80 bg-surface-panel/50 px-2 py-1 rounded-full">
+              {timeAgo}
+            </span>
+            <span className="font-semibold text-sm text-text-primary">
+              {messageGroup.agentName}
+            </span>
+            <div className="flex-shrink-0 flex items-center h-8">
+              {getMessageIcon()}
+            </div>
+          </div>
+
           {/* Messages in group */}
           <div>
             {messageGroup.messages.map((message, index) => {
