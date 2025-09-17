@@ -125,7 +125,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           value={message}
           onChangeText={setMessage}
           placeholder={placeholder}
-          placeholderTextColor="rgba(255, 255, 255, 0.4)"
+          placeholderTextColor={theme.colors.textMuted}
           multiline
           maxLength={100000}
           editable={!isSubmitting}
@@ -167,9 +167,9 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: theme.colors.cardSurface,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: theme.colors.border,
     borderRadius: 22,
     paddingRight: theme.spacing.xs,
     minHeight: 42,
@@ -184,7 +184,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.regular,
-    color: theme.colors.white,
+    color: theme.colors.text,
     minHeight: 42,
     maxHeight: 168,
     textAlignVertical: 'center',
@@ -197,18 +197,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: theme.colors.borderLight,
     marginBottom: 5,
   },
   sendButtonDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: theme.colors.glass.white,
+    borderColor: theme.colors.borderDivider,
   },
   sendIcon: {
     fontSize: 18,
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.white,
+    color: theme.colors.text,
     marginTop: Platform.OS === 'ios' ? -2 : 0,
   },
 });

@@ -40,7 +40,7 @@ interface SingleMessageProps {
 // Markdown styling
 const markdownStyles = {
   body: {
-    color: theme.colors.white,
+    color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.regular,
     lineHeight: theme.fontSize.sm * 1.5,
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: theme.colors.cardSurface,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: theme.spacing.sm,
@@ -283,20 +283,20 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
   },
   messageBubble: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: theme.colors.cardSurface,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: theme.colors.border,
     padding: theme.spacing.md,
     overflow: 'hidden',
   },
   userMessage: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: theme.colors.panelSurface,
+    borderColor: theme.colors.borderLight,
     marginLeft: 40, // Indent user messages
   },
   waitingForInput: {
-    backgroundColor: 'rgba(251, 191, 36, 0.15)',
-    borderColor: 'rgba(251, 191, 36, 0.3)',
+    backgroundColor: theme.colors.status.awaiting_input.bg,
+    borderColor: theme.colors.status.awaiting_input.border,
   },
   singleBubble: {
     borderRadius: theme.borderRadius.lg,
@@ -323,9 +323,9 @@ const styles = StyleSheet.create({
   waitingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: theme.colors.status.awaiting_input.bg,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: theme.colors.status.awaiting_input.border,
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.sm,
     marginTop: theme.spacing.sm,

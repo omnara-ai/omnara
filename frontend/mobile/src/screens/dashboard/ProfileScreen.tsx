@@ -142,7 +142,7 @@ export const ProfileScreen: React.FC = () => {
                     <Text style={styles.menuSubtitle}>Manage notification settings</Text>
                   </View>
                 </View>
-                <ChevronRight size={20} color="rgba(255, 255, 255, 0.3)" />
+                <ChevronRight size={20} color={theme.colors.textMuted} />
               </TouchableOpacity>
               
               <View style={styles.menuDivider} />
@@ -161,7 +161,7 @@ export const ProfileScreen: React.FC = () => {
                     <Text style={styles.menuSubtitle}>Manage your API access tokens</Text>
                   </View>
                 </View>
-                <ChevronRight size={20} color="rgba(255, 255, 255, 0.3)" />
+                <ChevronRight size={20} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </LinearGradient>
           </View>
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize['3xl'],
     fontFamily: theme.fontFamily.bold,
     fontWeight: theme.fontWeight.bold as any,
-    color: theme.colors.white,
+    color: theme.colors.text,
     marginBottom: theme.spacing.xs,
   },
   subtitle: {
@@ -304,8 +304,9 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xl,
     borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
-    borderColor: withAlpha(theme.colors.primary, 0.4),
+    borderColor: theme.colors.border,
     overflow: 'hidden',
+    backgroundColor: theme.colors.cardSurface,
   },
   profileCard: {
     alignItems: 'center',
@@ -330,21 +331,22 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize['2xl'],
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.white,
+    color: theme.colors.text,
     marginBottom: theme.spacing.xs,
   },
   email: {
     fontSize: theme.fontSize.base,
     fontFamily: theme.fontFamily.regular,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: theme.colors.textMuted,
   },
   menuCardContainer: {
     marginHorizontal: theme.spacing.lg,
     marginBottom: theme.spacing.xl,
     borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
-    borderColor: withAlpha(theme.colors.primary, 0.4),
+    borderColor: theme.colors.border,
     overflow: 'hidden',
+    backgroundColor: theme.colors.cardSurface,
   },
   menuCard: {
     borderRadius: theme.borderRadius.lg,
@@ -358,7 +360,7 @@ const styles = StyleSheet.create({
   },
   menuDivider: {
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: theme.colors.borderDivider,
     marginVertical: theme.spacing.xs,
   },
   menuLeft: {
@@ -379,21 +381,22 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.base,
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.white,
+    color: theme.colors.text,
     marginBottom: theme.spacing.xs / 2,
   },
   menuSubtitle: {
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.regular,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: theme.colors.textMuted,
   },
   infoCardContainer: {
     marginHorizontal: theme.spacing.lg,
     marginBottom: theme.spacing.xl,
     borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
-    borderColor: withAlpha(theme.colors.primary, 0.4),
+    borderColor: theme.colors.border,
     overflow: 'hidden',
+    backgroundColor: theme.colors.cardSurface,
   },
   infoCard: {
     borderRadius: theme.borderRadius.lg,
@@ -403,7 +406,7 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.lg,
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.white,
+    color: theme.colors.text,
     marginBottom: theme.spacing.md,
   },
   infoRow: {
@@ -411,18 +414,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: theme.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: theme.colors.borderDivider,
   },
   infoLabel: {
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.regular,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: theme.colors.textMuted,
   },
   infoValue: {
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.medium,
     fontWeight: theme.fontWeight.medium as any,
-    color: theme.colors.white,
+    color: theme.colors.text,
     maxWidth: '60%',
   },
   actionButtonsContainer: {

@@ -59,7 +59,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ agentTypes }) => {
               onPress={() => handleInstancePress(instance.id)}
               activeOpacity={0.7}
             >
-              <AlertCircle size={16} color="#FEF08A" strokeWidth={2} />
+              <AlertCircle size={16} color={theme.colors.status.awaiting_input.text} strokeWidth={2} />
               <View style={styles.questionCardContent}>
                 <Text style={styles.instanceNameWarning} numberOfLines={1} ellipsizeMode="tail">
                   {instance.name || formatAgentTypeName(instance.typeName)}
@@ -86,7 +86,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ agentTypes }) => {
     <View style={styles.container}>
       <View style={[styles.statusBar, styles.successBar]}>
         <View style={styles.statusContent}>
-          <Check size={16} color="#BBF7D0" strokeWidth={2} />
+          <Check size={16} color={theme.colors.status.active.text} strokeWidth={2} />
           <Text style={styles.successText}>No agents require your input currently</Text>
         </View>
       </View>
@@ -110,12 +110,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   successBar: {
-    backgroundColor: 'rgba(34, 197, 94, 0.08)',
-    borderColor: 'rgba(34, 197, 94, 0.15)',
+    backgroundColor: theme.colors.status.active.bg,
+    borderColor: theme.colors.status.active.border,
   },
   warningBar: {
-    backgroundColor: 'rgba(234, 179, 8, 0.08)',
-    borderColor: 'rgba(234, 179, 8, 0.15)',
+    backgroundColor: theme.colors.status.awaiting_input.bg,
+    borderColor: theme.colors.status.awaiting_input.border,
   },
   statusContent: {
     flexDirection: 'row',
@@ -126,13 +126,13 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.medium,
     fontWeight: theme.fontWeight.medium as any,
-    color: '#BBF7D0',
+    color: theme.colors.status.active.text,
   },
   warningText: {
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.medium,
     fontWeight: theme.fontWeight.medium as any,
-    color: '#FEF08A',
+    color: theme.colors.status.awaiting_input.text,
   },
   questionsScrollView: {
     // Remove top margin since we don't have the header anymore
@@ -152,8 +152,8 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
   },
   warningCard: {
-    backgroundColor: 'rgba(234, 179, 8, 0.08)',
-    borderColor: 'rgba(234, 179, 8, 0.15)',
+    backgroundColor: theme.colors.status.awaiting_input.bg,
+    borderColor: theme.colors.status.awaiting_input.border,
   },
   questionCardContent: {
     flex: 1,
@@ -162,12 +162,12 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.medium,
     fontWeight: theme.fontWeight.medium as any,
-    color: '#FEF08A',
+    color: theme.colors.status.awaiting_input.text,
     marginBottom: 2,
   },
   instanceStepWarning: {
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.regular,
-    color: 'rgba(254, 240, 138, 0.8)',
+    color: theme.colors.textMuted,
   },
 });

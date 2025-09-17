@@ -231,9 +231,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderRadius: theme.borderRadius.full,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: theme.colors.cardSurface,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: theme.colors.border,
     marginRight: theme.spacing.sm,
   },
   filterPillActive: {
@@ -244,10 +244,10 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.medium,
     fontWeight: theme.fontWeight.medium,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: theme.colors.textMuted,
   },
   filterPillTextActive: {
-    color: theme.colors.white,
+    color: theme.colors.black,
   },
   listContent: {
     paddingTop: theme.spacing.sm,

@@ -11,22 +11,23 @@ export const theme = {
     secondaryLight: sharedColors.brand['dusty-rose'],
     secondaryDark: sharedColors.brand['warm-charcoal'],
     
-    // Base Colors
-    background: semanticColors.background,         // Deep navy (web background)
+    // Base Colors (aligned with web's sophisticated neutral palette)
+    background: sharedColors.neutral[900],         // #171717 - matches web dark theme
     backgroundLight: sharedColors.legacy['off-white'],
-    backgroundDark: semanticColors['background-alt'],
+    backgroundDark: sharedColors.neutral[950],     // #0a0a0a - deeper neutral
     surface: sharedColors.legacy['off-white'],
-    surfaceDark: sharedColors.brand['warm-midnight'],
+    surfaceDark: sharedColors.neutral[800],        // #262626 - elevated surface
+
+    // Auth/Pane Colors (sophisticated neutral grays)
+    authBackground: sharedColors.neutral[900],     // Main background
+    authContainer: sharedColors.neutral[800],      // #262626 - card/panel background
     
-    // Auth/Pane Colors (aligned with web palette)
-    authBackground: semanticColors.background,
-    authContainer: sharedColors.brand['warm-midnight'],
-    
-    // Text Colors
-    text: semanticColors.foreground,
-    textLight: sharedColors.neutral[400],
-    textInverse: sharedColors.neutral[50],
-    textMuted: sharedColors.neutral[500],
+    // Text Colors (improved contrast and readability)
+    text: sharedColors.neutral[50],                // #fafafa - high contrast white
+    textLight: sharedColors.neutral[300],          // #d4d4d4 - lighter secondary text
+    textInverse: sharedColors.neutral[900],        // Dark text on light backgrounds
+    textMuted: sharedColors.neutral[400],          // #a3a3a3 - muted but readable
+    textSecondary: sharedColors.neutral[400],      // Consistent secondary text
     
     // Semantic Colors
     success: sharedColors.semantic.success[500],
@@ -42,42 +43,42 @@ export const theme = {
     infoLight: sharedColors.semantic.info[300],
     infoDark: sharedColors.semantic.info[700],
     
-    // Status Colors for Agents
+    // Status Colors for Agents (subtle, matching web UI)
     status: {
       active: {
-        bg: 'rgba(34, 197, 94, 0.2)',      // green-500/20
-        border: 'rgba(74, 222, 128, 0.3)', // green-400/30
-        text: '#BBF7D0',                    // green-200
+        bg: withAlpha(sharedColors.semantic.success[500], 0.15),  // More subtle
+        border: withAlpha(sharedColors.semantic.success[400], 0.25),
+        text: sharedColors.semantic.success[300],         // #86efac - softer green
       },
       awaiting_input: {
-        bg: 'rgba(234, 179, 8, 0.2)',      // yellow-500/20
-        border: 'rgba(250, 204, 21, 0.3)', // yellow-400/30
-        text: '#FEF08A',                    // yellow-200
+        bg: withAlpha(sharedColors.semantic.warning[500], 0.15),
+        border: withAlpha(sharedColors.semantic.warning[400], 0.25),
+        text: sharedColors.semantic.warning[300],         // #fcd34d - softer yellow
       },
       paused: {
-        bg: withAlpha(sharedColors.semantic.info[500], 0.2),
-        border: withAlpha(sharedColors.semantic.info[500], 0.3),
-        text: sharedColors.semantic.info[200],
+        bg: withAlpha(sharedColors.semantic.info[500], 0.15),
+        border: withAlpha(sharedColors.semantic.info[400], 0.25),
+        text: sharedColors.semantic.info[300],            // #93c5fd - softer blue
       },
       stale: {
-        bg: 'rgba(249, 115, 22, 0.2)',     // orange-500/20
-        border: 'rgba(251, 146, 60, 0.3)', // orange-400/30
-        text: '#FED7AA',                    // orange-200
+        bg: 'rgba(249, 115, 22, 0.15)',     // More subtle orange
+        border: 'rgba(251, 146, 60, 0.25)',
+        text: '#FCD34D',                     // Warmer orange text
       },
       failed: {
-        bg: 'rgba(239, 68, 68, 0.2)',      // red-500/20
-        border: 'rgba(248, 113, 113, 0.3)',// red-400/30
-        text: '#FECACA',                    // red-200
+        bg: withAlpha(sharedColors.semantic.error[500], 0.15),
+        border: withAlpha(sharedColors.semantic.error[400], 0.25),
+        text: sharedColors.semantic.error[300],           // #fca5a5 - softer red
       },
       completed: {
-        bg: 'rgba(107, 114, 128, 0.2)',    // gray-500/20
-        border: 'rgba(156, 163, 175, 0.3)',// gray-400/30
-        text: '#E5E7EB',                    // gray-200
+        bg: withAlpha(sharedColors.neutral[500], 0.15),   // More subtle gray
+        border: withAlpha(sharedColors.neutral[400], 0.25),
+        text: sharedColors.neutral[300],                  // #d4d4d4 - readable gray
       },
       killed: {
-        bg: 'rgba(239, 68, 68, 0.2)',      // red-500/20
-        border: 'rgba(248, 113, 113, 0.3)',// red-400/30
-        text: '#FECACA',                    // red-200
+        bg: withAlpha(sharedColors.semantic.error[500], 0.15),
+        border: withAlpha(sharedColors.semantic.error[400], 0.25),
+        text: sharedColors.semantic.error[300],
       },
     },
     
@@ -89,6 +90,13 @@ export const theme = {
     white: '#FFFFFF',
     black: '#000000',
     transparent: 'transparent',
+
+    // UI Element Colors (matching web UI)
+    border: 'rgba(255, 255, 255, 0.08)',          // Subtle borders like web
+    borderLight: 'rgba(255, 255, 255, 0.12)',     // Slightly more visible
+    borderDivider: 'rgba(255, 255, 255, 0.05)',   // Very subtle dividers
+    cardSurface: sharedColors.neutral[800],        // Card backgrounds
+    panelSurface: 'rgba(38, 38, 38, 0.8)',  // Elevated panels (custom neutral-850)
     
     // Glass Morphism
     glass: {

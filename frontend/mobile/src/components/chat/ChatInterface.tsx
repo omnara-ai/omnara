@@ -361,7 +361,7 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: theme.fontSize.lg,
     fontFamily: theme.fontFamily.regular,
-    color: theme.colors.white,
+    color: theme.colors.text,
     marginBottom: theme.spacing.sm,
   },
   emptySubtext: {

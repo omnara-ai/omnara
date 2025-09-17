@@ -69,7 +69,7 @@ const MenuItem: React.FC<MenuItemProps> = ({
         </Text>
         {subtitle && <Text style={styles.menuSubtitle}>{subtitle}</Text>}
       </View>
-      <ChevronRight size={18} color="rgba(255, 255, 255, 0.3)" />
+      <ChevronRight size={18} color={theme.colors.textMuted} />
     </TouchableOpacity>
   );
 };

@@ -137,20 +137,22 @@ const styles = StyleSheet.create({
   },
   // Variants
   default: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.cardSurface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   glass: {
     backgroundColor: 'transparent',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.3)', // Light translucent border
+    borderColor: theme.colors.borderLight,
   },
   gradient: {
     backgroundColor: 'transparent',
   },
   outlined: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.cardSurface,
     borderWidth: 1,
-    borderColor: theme.colors.textLight,
+    borderColor: theme.colors.border,
     shadowOpacity: 0,
     elevation: 0,
   },

@@ -107,7 +107,7 @@ export const MainScreen: React.FC = () => {
               onPress={openDrawer}
               activeOpacity={0.7}
             >
-              <User size={20} color={theme.colors.white} strokeWidth={1.5} />
+              <User size={20} color={theme.colors.text} strokeWidth={1.5} />
             </TouchableOpacity>
           }
           rightContent={
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.medium,
     fontWeight: theme.fontWeight.medium as any,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: theme.colors.textMuted,
   },
   scrollView: {
     flex: 1,

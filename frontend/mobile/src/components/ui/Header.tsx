@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   },
   headerBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: theme.colors.borderDivider,
   },
   headerSide: {
     width: 32, // Standard width for side elements

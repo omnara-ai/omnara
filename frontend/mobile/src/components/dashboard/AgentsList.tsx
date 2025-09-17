@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.lg,
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.white,
+    color: theme.colors.text,
   },
   manageLink: {
     fontSize: theme.fontSize.sm,
@@ -234,10 +234,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   listContainer: {
-    backgroundColor: theme.colors.authContainer,
+    backgroundColor: theme.colors.cardSurface,
     borderRadius: theme.borderRadius.sm,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: theme.colors.border,
   },
   listContainerScrollable: {
     maxHeight: 240, // Show ~4 items
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   },
   agentRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    borderBottomColor: theme.colors.borderDivider,
   },
   agentInfo: {
     flex: 1,
@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.base,
     fontFamily: theme.fontFamily.medium,
     fontWeight: theme.fontWeight.medium as any,
-    color: theme.colors.white,
+    color: theme.colors.text,
     marginBottom: 2,
   },
   agentMeta: {
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   inactiveCount: {
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.regular,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: theme.colors.textMuted,
   },
   actionButtons: {
     flexDirection: 'row',
@@ -314,10 +314,10 @@ const styles = StyleSheet.create({
   },
   // Empty state styles
   emptyStateContainer: {
-    backgroundColor: theme.colors.authContainer,
+    backgroundColor: theme.colors.cardSurface,
     borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: theme.colors.border,
     padding: theme.spacing.lg,
     alignItems: 'center',
     marginTop: theme.spacing.lg,

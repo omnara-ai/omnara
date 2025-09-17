@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: theme.borderRadius.full,
-    backgroundColor: 'rgba(251, 191, 36, 0.15)',
+    backgroundColor: theme.colors.status.awaiting_input.bg,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: theme.spacing.md,
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: theme.fontSize.base,
     fontFamily: theme.fontFamily.regular,
-    color: 'rgba(251, 191, 36, 0.9)',
+    color: theme.colors.primaryLight,
   },
   scrollContent: {
     paddingHorizontal: theme.spacing.lg,
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.authContainer,
     borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(250, 204, 21, 0.3)',
+    borderColor: theme.colors.status.awaiting_input.border,
     padding: theme.spacing.md,
   },
   fullWidthCard: {
@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.authContainer,
     borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(250, 204, 21, 0.3)',
+    borderColor: theme.colors.status.awaiting_input.border,
     padding: theme.spacing.md,
   },
   questionHeader: {
@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
     color: theme.colors.white,
   },
   questionBadge: {
-    backgroundColor: 'rgba(251, 191, 36, 0.3)',
+    backgroundColor: theme.colors.status.awaiting_input.bg,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs / 2,
     borderRadius: theme.borderRadius.full,
@@ -207,12 +207,12 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold,
-    color: 'rgba(251, 191, 36, 1)',
+    color: theme.colors.primary,
   },
   questionPreview: {
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.regular,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: theme.colors.textMuted,
     marginBottom: theme.spacing.sm,
     lineHeight: theme.fontSize.sm * 1.4,
   },
@@ -220,6 +220,6 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.medium,
     fontWeight: theme.fontWeight.medium,
-    color: 'rgba(251, 191, 36, 0.9)',
+    color: theme.colors.primaryLight,
   },
 });
