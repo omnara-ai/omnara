@@ -19,6 +19,7 @@ import { formatAgentTypeName } from '@/utils/formatters';
 import { getStatusColor } from '@/utils/statusHelpers';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { useSSE } from '@/hooks/useSSE';
+import { reportError, reportMessage } from '@/lib/sentry';
 
 export const InstanceDetailScreen: React.FC = () => {
   const route = useRoute();
@@ -31,6 +32,8 @@ export const InstanceDetailScreen: React.FC = () => {
   const [instance, setInstance] = useState<InstanceDetail | null>(null);
   const [sseEnabled, setSseEnabled] = useState(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+  const sentryTags = { feature: 'mobile-instance-detail', instanceId };
 
   const { data: initialData, isLoading, error, refetch } = useQuery({
     queryKey: ['instance', instanceId],
@@ -51,7 +54,11 @@ export const InstanceDetailScreen: React.FC = () => {
       const messages = await dashboardApi.getInstanceMessages(instanceId, 50, beforeMessageId);
       return messages;
     } catch (err) {
-      console.error('Failed to load more messages:', err);
+      reportError(err, {
+        context: 'Failed to load more messages',
+        extras: { instanceId, beforeMessageId },
+        tags: sentryTags,
+      });
       return [];
     }
   };
@@ -111,13 +118,28 @@ export const InstanceDetailScreen: React.FC = () => {
     console.log('[InstanceDetailScreen] Message update received:', messageId, requiresUserInput);
     setInstance(prev => {
       if (!prev) return prev;
+
+      let matched = false;
+      const messages = (prev.messages || []).map(msg => {
+        if (msg.id === messageId) {
+          matched = true;
+          return { ...msg, requires_user_input: requiresUserInput };
+        }
+        return msg;
+      });
+
+      if (!matched) {
+        reportMessage('Received message_update for unknown message', {
+          context: 'Missing base message for SSE update',
+          extras: { instanceId, messageId },
+          tags: sentryTags,
+        });
+        return prev;
+      }
+
       return {
         ...prev,
-        messages: (prev.messages || []).map(msg =>
-          msg.id === messageId
-            ? { ...msg, requires_user_input: requiresUserInput }
-            : msg
-        ),
+        messages,
       };
     });
   }, []);
@@ -217,7 +239,11 @@ export const InstanceDetailScreen: React.FC = () => {
   }
 
   if (error) {
-    console.error('[InstanceDetailScreen] Error loading instance:', error);
+    reportError(error, {
+      context: '[InstanceDetailScreen] Error loading instance',
+      extras: { instanceId },
+      tags: sentryTags,
+    });
     return (
       <View style={styles.container}>
         <SafeAreaView style={styles.safeArea} >
@@ -260,7 +286,11 @@ export const InstanceDetailScreen: React.FC = () => {
       await dashboardApi.submitUserMessage(instanceId, content);
       // No need to refresh - SSE will push the new message
     } catch (err) {
-      console.error('Failed to submit message:', err);
+      reportError(err, {
+        context: 'Failed to submit user message',
+        extras: { instanceId },
+        tags: sentryTags,
+      });
       throw err; // Re-throw for ChatInterface to handle
     }
   };

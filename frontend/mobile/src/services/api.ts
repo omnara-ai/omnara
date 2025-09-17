@@ -7,6 +7,7 @@ import {
   NewAPIKey,
   UserProfile,
 } from '@/types';
+import { reportError, reportMessage } from '@/lib/sentry';
 
 // Custom error class to pass both title and message
 export class APIError extends Error {
@@ -94,8 +95,13 @@ class DashboardAPI {
           if (response.status >= 400 && response.status < 500) {
             throw new APIError(errorMessage, errorTitle);
           }
-          
+
           // Retry on server errors (500+)
+          reportError(new Error('API request failed'), {
+            context: 'Server error response',
+            extras: { url, status: response.status, errorMessage },
+            tags: { feature: 'mobile-api' },
+          });
           if (attempt < maxRetries) {
             console.warn(`[DashboardAPI] Retrying request (attempt ${attempt + 1}/${maxRetries + 1}): ${errorMessage}`);
             const delay = Math.min(
@@ -132,8 +138,12 @@ class DashboardAPI {
         return data;
       } catch (error) {
         clearTimeout(timeoutId);
-        console.error('[DashboardAPI] Network error for:', url, 'attempt:', attempt + 1, 'error:', error);
-        
+        reportError(error, {
+          context: 'Network error during API request',
+          extras: { url, attempt: attempt + 1 },
+          tags: { feature: 'mobile-api' },
+        });
+
         // Check if this is the last attempt
         if (attempt === maxRetries) {
           // Provide better error messages for common issues
@@ -215,7 +225,11 @@ class DashboardAPI {
   async getMessageStreamUrl(instanceId: string): Promise<string | null> {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      console.error('No auth session available for SSE');
+      reportMessage('No auth session available for SSE', {
+        context: 'Missing auth session for SSE stream',
+        extras: { instanceId },
+        tags: { feature: 'mobile-api' },
+      });
       return null;
     }
 
@@ -310,7 +324,11 @@ class DashboardAPI {
       console.log('API createUserAgent - success:', result);
       return result;
     } catch (error) {
-      console.error('API createUserAgent - error:', error);
+      reportError(error, {
+        context: 'Failed to create user agent',
+        extras: { data },
+        tags: { feature: 'mobile-api' },
+      });
       throw error;
     }
   }

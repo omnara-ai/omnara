@@ -13,6 +13,7 @@ import { theme } from '@/constants/theme';
 import { Message } from '@/types';
 import { StructuredQuestion, StructuredQuestionRef } from '@/components/ui/StructuredQuestion';
 import { parseQuestionFormat } from '@/utils/questionParser';
+import { reportError } from '@/lib/sentry';
 
 interface ChatInputProps {
   isWaitingForInput: boolean;
@@ -69,7 +70,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     } catch (error) {
       // If submission fails, restore the message
       setMessage(messageToSend);
-      console.error('Failed to submit message:', error);
+      reportError(error, {
+        context: 'Failed to submit user message from ChatInput',
+        tags: { feature: 'mobile-chat-input' },
+      });
     }
   };
 
@@ -87,7 +91,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     } catch (error) {
       // If submission fails, restore the message
       setMessage(answer);
-      console.error('Failed to submit message:', error);
+      reportError(error, {
+        context: 'Failed to submit structured answer',
+        tags: { feature: 'mobile-chat-input' },
+      });
     }
   };
 
