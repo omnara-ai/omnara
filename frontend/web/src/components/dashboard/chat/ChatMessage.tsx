@@ -31,7 +31,7 @@ function SingleMessage({
     // Enhanced glassmorphism effect based on sender
     if (message.sender_type === 'USER') {
       // User messages: more prominent, right-aligned feel
-      baseClasses += ' bg-blue-500/10 shadow-xl mr-8 max-w-4xl'
+      baseClasses += ' bg-blue-500/10 shadow-xl max-w-4xl'
     } else {
       // Agent messages: subtle, professional, full width
       baseClasses += ' bg-surface-panel/80 shadow-lg w-full'
@@ -167,7 +167,7 @@ export function ChatMessage({ messageGroup, showWaitingIndicator = false }: Chat
           </div>
 
           {/* Messages in group */}
-          <div>
+          <div className="w-full flex flex-col items-end">
             {messageGroup.messages.map((message, index) => {
               const isFirst = index === 0 && messageGroup.messages.length > 1
               const isLast = index === messageGroup.messages.length - 1 && messageGroup.messages.length > 1
