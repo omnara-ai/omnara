@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import EventSource from 'react-native-sse';
 import { dashboardApi } from '@/services/api';
 import { Message, AgentStatus } from '@/types';
+import { reportError, reportMessage } from '@/lib/sentry';
 
 interface UseSSEProps {
   instanceId: string;
@@ -24,6 +25,7 @@ export function useSSE({
 }: UseSSEProps) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const isConnectingRef = useRef(false);
+  const sentryTags = { feature: 'mobile-sse', instanceId };
 
   useEffect(() => {
     if (!enabled || !instanceId) {
@@ -48,7 +50,11 @@ export function useSSE({
         isConnectingRef.current = true;
         const streamUrl = await dashboardApi.getMessageStreamUrl(instanceId);
         if (!streamUrl) {
-          console.error('[useSSE] No stream URL available');
+          reportMessage('[useSSE] No stream URL available', {
+            context: 'Missing SSE stream URL',
+            extras: { instanceId },
+            tags: sentryTags,
+          });
           return;
         }
 
@@ -73,7 +79,11 @@ export function useSSE({
             };
             onMessage(message);
           } catch (err) {
-            console.error('[useSSE] Failed to parse message:', err);
+            reportError(err, {
+              context: 'Failed to parse SSE message payload',
+              extras: { raw: event.data, instanceId },
+              tags: sentryTags,
+            });
           }
         });
 
@@ -82,7 +92,11 @@ export function useSSE({
             const data = JSON.parse(event.data);
             onStatusUpdate(data.status);
           } catch (err) {
-            console.error('[useSSE] Failed to parse status update:', err);
+            reportError(err, {
+              context: 'Failed to parse SSE status update',
+              extras: { raw: event.data, instanceId },
+              tags: sentryTags,
+            });
           }
         });
 
@@ -91,7 +105,11 @@ export function useSSE({
             const data = JSON.parse(event.data);
             onMessageUpdate(data.id, data.requires_user_input);
           } catch (err) {
-            console.error('[useSSE] Failed to parse message update:', err);
+            reportError(err, {
+              context: 'Failed to parse SSE message update',
+              extras: { raw: event.data, instanceId },
+              tags: sentryTags,
+            });
           }
         });
 
@@ -103,19 +121,31 @@ export function useSSE({
               onGitDiffUpdate(data.git_diff);
             }
           } catch (err) {
-            console.error('[useSSE] Failed to parse git diff update:', err);
+            reportError(err, {
+              context: 'Failed to parse SSE git diff update',
+              extras: { raw: event.data, instanceId },
+              tags: sentryTags,
+            });
           }
         });
 
         eventSource.addEventListener('error', (error: any) => {
-          console.error('[useSSE] Connection error:', error);
+          reportError(error, {
+            context: 'SSE connection error event',
+            extras: { instanceId },
+            tags: sentryTags,
+          });
           isConnectingRef.current = false;
           if (onError) {
             onError(new Error('SSE connection error'));
           }
         });
       } catch (error) {
-        console.error('[useSSE] Failed to connect:', error);
+        reportError(error, {
+          context: 'Failed to establish SSE connection',
+          extras: { instanceId },
+          tags: sentryTags,
+        });
         isConnectingRef.current = false;
         if (onError) {
           onError(error as Error);

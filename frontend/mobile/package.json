@@ -48,7 +48,9 @@
     "react-native-screens": "^4.11.1",
     "react-native-sse": "^1.2.1",
     "react-native-svg": "^15.11.2",
-    "react-native-url-polyfill": "^2.0.0"
+    "react-native-url-polyfill": "^2.0.0",
+    "sentry-expo": "^7.0.0",
+    "tslib": "^2.6.2"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

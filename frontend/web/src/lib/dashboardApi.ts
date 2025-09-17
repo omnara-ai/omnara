@@ -1,8 +1,21 @@
 
-import { AgentType, InstanceDetail, AgentInstance, Message, APIKey, NewAPIKey, AgentStatus, AgentQuestion /*, CostAnalytics*/ } from '../types/dashboard'
+import {
+  AgentType,
+  InstanceDetail,
+  AgentInstance,
+  Message,
+  APIKey,
+  NewAPIKey,
+  AgentStatus,
+  AgentQuestion,
+  InstanceShare,
+  InstanceAccessLevel,
+  /*, CostAnalytics*/
+} from '../types/dashboard'
 import { toast } from '../hooks/use-toast'
 import { supabase } from './supabase'
 import { authClient } from './auth/authClient'
+import { reportError, reportMessage } from '@/integrations/sentry'
 
 // const API_BASE_URL = import.meta.env.VITE_ENVIRONMENT == "production"
 //   ? import.meta.env.VITE_API_URL 
@@ -89,6 +102,11 @@ class ApiClient {
 
         // Show specific error message from server
         if (response.status >= 500) {
+          reportError(new Error('API request failed'), {
+            context: 'Server error response',
+            extras: { endpoint, status: response.status, errorData },
+            tags: { feature: 'dashboard-api' },
+          })
           toast({
             title: "Server Error",
             description: errorMessage || "Something went wrong on our end. Please try again later.",
@@ -127,6 +145,11 @@ class ApiClient {
           description: "Unable to connect to the server. Please check your connection.",
           variant: "destructive",
         })
+        reportError(error, {
+          context: 'Network request failed',
+          extras: { endpoint, attempt },
+          tags: { feature: 'dashboard-api' },
+        })
       }
       throw error
     }
@@ -137,9 +160,14 @@ class ApiClient {
     return await this.request<AgentType[]>(`/api/v1/agent-types`)
   }
 
-  async getAllInstances(limit?: number): Promise<AgentInstance[]> {
-    const queryParam = limit ? `?limit=${limit}` : ''
-    return await this.request<AgentInstance[]>(`/api/v1/agent-instances${queryParam}`)
+  async getAllInstances(limit?: number, scope: 'me' | 'shared' | 'all' = 'me'): Promise<AgentInstance[]> {
+    const params = new URLSearchParams()
+    if (limit !== undefined) {
+      params.append('limit', limit.toString())
+    }
+    params.append('scope', scope)
+    const query = params.toString()
+    return await this.request<AgentInstance[]>(`/api/v1/agent-instances${query ? `?${query}` : ''}`)
   }
 
   async getAgentTypeInstances(typeId: string): Promise<AgentInstance[]> {
@@ -171,7 +199,10 @@ class ApiClient {
   async getMessageStreamUrl(instanceId: string): Promise<string | null> {
     const token = await this.getAuthToken()
     if (!token) {
-      console.error('No auth token available for SSE')
+      reportMessage('No auth token available for SSE', {
+        context: 'SSE token missing',
+        tags: { feature: 'dashboard-api' },
+      })
       return null
     }
 
@@ -213,6 +244,26 @@ class ApiClient {
 
   async deleteAgentInstance(instanceId: string): Promise<{ message: string }> {
     return this.request(`/api/v1/agent-instances/${instanceId}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async getInstanceAccessList(instanceId: string): Promise<InstanceShare[]> {
+    return this.request<InstanceShare[]>(`/api/v1/agent-instances/${instanceId}/access`)
+  }
+
+  async addInstanceShare(
+    instanceId: string,
+    payload: { email: string; access: InstanceAccessLevel }
+  ): Promise<InstanceShare> {
+    return this.request<InstanceShare>(`/api/v1/agent-instances/${instanceId}/access`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async removeInstanceShare(instanceId: string, shareId: string): Promise<void> {
+    await this.request(`/api/v1/agent-instances/${instanceId}/access/${shareId}`, {
       method: 'DELETE',
     })
   }
