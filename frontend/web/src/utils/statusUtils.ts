@@ -66,15 +66,6 @@ export function getTimeSince(dateString: string): string {
     // Ensure we're working with UTC times consistently
     const now = new Date()
     
-    // Debug logging to help identify the issue
-    console.log('getTimeSince debug:', {
-      dateString,
-      parsedDate: date.toISOString(),
-      now: now.toISOString(),
-      dateTime: date.getTime(),
-      nowTime: now.getTime()
-    })
-    
     // Check if date is valid
     if (isNaN(date.getTime())) {
       console.warn('Invalid date string:', dateString)
@@ -84,14 +75,7 @@ export function getTimeSince(dateString: string): string {
     // Calculate difference in milliseconds, then convert to seconds
     const diffInMs = now.getTime() - date.getTime()
     const diffInSeconds = Math.floor(diffInMs / 1000)
-    
-    console.log('getTimeSince time difference:', {
-      diffInMs,
-      diffInSeconds,
-      diffInMinutes: Math.floor(diffInSeconds / 60),
-      diffInHours: Math.floor(diffInSeconds / 3600)
-    })
-    
+
     // Handle negative values (future dates) - could happen with slight clock differences
     if (diffInSeconds < 0) {
       const absDiff = Math.abs(diffInSeconds)
