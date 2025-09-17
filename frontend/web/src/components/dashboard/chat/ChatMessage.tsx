@@ -31,7 +31,7 @@ function SingleMessage({
     // Enhanced glassmorphism effect based on sender
     if (message.sender_type === 'USER') {
       // User messages: more prominent, right-aligned feel
-      baseClasses += ' bg-blue-500/10 shadow-xl mr-8 max-w-4xl'
+      baseClasses += ' bg-blue-500/10 shadow-xl max-w-4xl'
     } else {
       // Agent messages: subtle, professional, full width
       baseClasses += ' bg-surface-panel/80 shadow-lg w-full'
@@ -98,8 +98,8 @@ export function ChatMessage({ messageGroup, showWaitingIndicator = false }: Chat
       )
     } else {
       return (
-        <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
-          <User className="h-5 w-5 text-white" />
+        <div className="w-8 h-8 bg-gradient-to-br from-surface-panel to-interactive-hover rounded-full flex items-center justify-center shadow-lg">
+          <User className="h-5 w-5 text-text-primary" />
         </div>
       )
     }
@@ -154,8 +154,20 @@ export function ChatMessage({ messageGroup, showWaitingIndicator = false }: Chat
       ) : (
         // User messages: Right-aligned layout (unchanged)
         <div className="flex flex-col items-end max-w-4xl">
+          <div className="flex items-center space-x-3 mb-3 h-6 justify-end">
+            <span className="text-xs text-text-secondary/80 bg-surface-panel/50 px-2 py-1 rounded-full">
+              {timeAgo}
+            </span>
+            <span className="font-semibold text-sm text-text-primary">
+              {messageGroup.agentName}
+            </span>
+            <div className="flex-shrink-0 flex items-center h-8">
+              {getMessageIcon()}
+            </div>
+          </div>
+
           {/* Messages in group */}
-          <div>
+          <div className="w-full flex flex-col items-end">
             {messageGroup.messages.map((message, index) => {
               const isFirst = index === 0 && messageGroup.messages.length > 1
               const isLast = index === messageGroup.messages.length - 1 && messageGroup.messages.length > 1

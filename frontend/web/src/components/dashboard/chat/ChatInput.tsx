@@ -10,6 +10,7 @@ interface ChatInputProps {
   onMessageSubmit: (content: string) => Promise<void>
   isSubmitting: boolean
   hasGitDiff?: boolean
+  canWrite: boolean
 }
 
 export function ChatInput({ 
@@ -17,7 +18,8 @@ export function ChatInput({
   currentWaitingMessage,
   onMessageSubmit, 
   isSubmitting,
-  hasGitDiff = false
+  hasGitDiff = false,
+  canWrite,
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const textAreaRef = useRef<HTMLTextAreaElement>(null)
@@ -28,7 +30,7 @@ export function ChatInput({
     parseQuestionFormat(currentWaitingMessage.content).format !== 'open-ended' : false
 
   const handleSubmit = async () => {
-    if (!message.trim() || isSubmitting) return
+    if (!message.trim() || isSubmitting || !canWrite) return
     
     await onMessageSubmit(message)
     
@@ -85,9 +87,15 @@ export function ChatInput({
               e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
             }}
             onKeyDown={handleKeyDown}
-            placeholder={isWaitingForInput ? "Type your response here..." : "Type your response here..."}
+            placeholder={
+              canWrite
+                ? isWaitingForInput
+                  ? 'Type your response here...'
+                  : 'Type your response here...'
+                : 'You have read-only access to this chat'
+            }
             className="resize-none bg-white/10 backdrop-blur-md border border-white/20 text-off-white placeholder:text-off-white/60 focus:border-electric-accent focus:outline-none shadow-lg rounded-xl textarea-custom-scrollbar text-base pr-12 px-4"
-            disabled={isSubmitting}
+            disabled={isSubmitting || !canWrite}
             rows={1}
             style={{ 
               minHeight: '48px',
@@ -102,7 +110,7 @@ export function ChatInput({
           {/* Send button positioned inside textarea */}
           <button
             onClick={handleSubmit}
-            disabled={!message.trim() || isSubmitting}
+            disabled={!message.trim() || isSubmitting || !canWrite}
             className="absolute right-2 w-9 h-9 rounded-lg bg-black text-white flex items-center justify-center hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             aria-label="Send message"
           >

@@ -7,8 +7,11 @@ from shared.database.models import (
     User,
     UserAgent,
     AgentInstance,
+    UserInstanceAccess,
 )
-from shared.database.enums import AgentStatus
+from shared.database.enums import AgentStatus, InstanceAccessLevel
+from backend.main import app
+from backend.auth.dependencies import get_current_user, get_optional_current_user
 
 
 class TestAgentEndpoints:
@@ -114,6 +117,250 @@ class TestAgentEndpoints:
         instance = data[0]
         assert instance["id"] == str(test_agent_instance.id)
         assert instance["status"] == "ACTIVE"
+
+    def test_list_shared_agent_instances(
+        self, authenticated_client, test_db, test_user, test_agent_instance
+    ):
+        """Test listing agent instances shared with the user."""
+        owner = User(
+            id=uuid4(),
+            email="owner@example.com",
+            display_name="Owner User",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(owner)
+
+        owner_agent = UserAgent(
+            id=uuid4(),
+            user_id=owner.id,
+            name="shared agent",
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(owner_agent)
+
+        shared_instance = AgentInstance(
+            id=uuid4(),
+            user_agent_id=owner_agent.id,
+            user_id=owner.id,
+            status=AgentStatus.COMPLETED,
+            started_at=datetime.now(timezone.utc),
+        )
+        test_db.add(shared_instance)
+        test_db.flush()
+
+        access = UserInstanceAccess(
+            agent_instance_id=shared_instance.id,
+            shared_email=test_user.email,
+            user_id=test_user.id,
+            access=InstanceAccessLevel.READ,
+            granted_by_user_id=owner.id,
+        )
+        test_db.add(access)
+        test_db.commit()
+
+        response = authenticated_client.get("/api/v1/agent-instances?scope=shared")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data) == 1
+        assert data[0]["id"] == str(shared_instance.id)
+
+        # Ensure own instances aren't included when requesting shared scope
+        ids = {item["id"] for item in data}
+        assert str(test_agent_instance.id) not in ids
+
+    def test_list_all_scope_includes_owned_and_shared(
+        self, authenticated_client, test_db, test_user, test_agent_instance
+    ):
+        """Test that the 'all' scope includes both owned and shared instances."""
+        owner = User(
+            id=uuid4(),
+            email="another-owner@example.com",
+            display_name="Another Owner",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(owner)
+
+        owner_agent = UserAgent(
+            id=uuid4(),
+            user_id=owner.id,
+            name="analysis agent",
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(owner_agent)
+
+        shared_instance = AgentInstance(
+            id=uuid4(),
+            user_agent_id=owner_agent.id,
+            user_id=owner.id,
+            status=AgentStatus.ACTIVE,
+            started_at=datetime.now(timezone.utc),
+        )
+        test_db.add(shared_instance)
+        test_db.flush()
+
+        access = UserInstanceAccess(
+            agent_instance_id=shared_instance.id,
+            shared_email=test_user.email,
+            user_id=test_user.id,
+            access=InstanceAccessLevel.WRITE,
+            granted_by_user_id=owner.id,
+        )
+        test_db.add(access)
+        test_db.commit()
+
+        response = authenticated_client.get("/api/v1/agent-instances?scope=all")
+        assert response.status_code == 200
+        data = response.json()
+
+        ids = {item["id"] for item in data}
+        assert str(test_agent_instance.id) in ids
+        assert str(shared_instance.id) in ids
+
+    def test_get_instance_detail_shared_access(
+        self, client, test_db, test_agent_instance, test_user
+    ):
+        """Shared users with read access can view instance detail."""
+        other_user = User(
+            id=uuid4(),
+            email="shared@example.com",
+            display_name="Shared User",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(other_user)
+        test_db.flush()
+
+        share = UserInstanceAccess(
+            agent_instance_id=test_agent_instance.id,
+            shared_email=other_user.email,
+            user_id=other_user.id,
+            access=InstanceAccessLevel.READ,
+            granted_by_user_id=test_user.id,
+        )
+        test_db.add(share)
+        test_db.commit()
+
+        def override_user():
+            return other_user
+
+        app.dependency_overrides[get_current_user] = override_user
+        app.dependency_overrides[get_optional_current_user] = override_user
+
+        try:
+            response = client.get(f"/api/v1/agent-instances/{test_agent_instance.id}")
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_optional_current_user, None)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(test_agent_instance.id)
+        assert data["access_level"] == "READ"
+
+    def test_get_instance_messages_shared_access(
+        self, client, test_db, test_agent_instance, test_user
+    ):
+        """Shared users can read messages for an instance."""
+        other_user = User(
+            id=uuid4(),
+            email="shared-messages@example.com",
+            display_name="Shared Messages",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        test_db.add(other_user)
+        test_db.flush()
+
+        access = UserInstanceAccess(
+            agent_instance_id=test_agent_instance.id,
+            shared_email=other_user.email,
+            user_id=other_user.id,
+            access=InstanceAccessLevel.READ,
+            granted_by_user_id=test_user.id,
+        )
+        test_db.add(access)
+        test_db.commit()
+
+        def override_user_messages():
+            return other_user
+
+        app.dependency_overrides[get_current_user] = override_user_messages
+        app.dependency_overrides[get_optional_current_user] = override_user_messages
+
+        try:
+            response = client.get(
+                f"/api/v1/agent-instances/{test_agent_instance.id}/messages"
+            )
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_optional_current_user, None)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_list_instance_access_includes_owner(
+        self, authenticated_client, test_db, test_agent_instance
+    ):
+        """Listing access returns the owner entry."""
+        response = authenticated_client.get(
+            f"/api/v1/agent-instances/{test_agent_instance.id}/access"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        owner_entry = data[0]
+        assert owner_entry["is_owner"] is True
+        assert owner_entry["access"] == "WRITE"
+
+    def test_add_and_remove_instance_share(
+        self, authenticated_client, test_db, test_agent_instance, test_user
+    ):
+        """Owner can add and remove shared users."""
+        payload = {"email": "new-share@example.com", "access": "READ"}
+        response = authenticated_client.post(
+            f"/api/v1/agent-instances/{test_agent_instance.id}/access",
+            json=payload,
+        )
+        assert response.status_code == 200
+        share_data = response.json()
+        assert share_data["email"] == payload["email"]
+        assert share_data["access"] == "READ"
+        assert share_data["is_owner"] is False
+
+        share_id = share_data["id"]
+
+        # Refresh the list and ensure share is present alongside owner
+        list_response = authenticated_client.get(
+            f"/api/v1/agent-instances/{test_agent_instance.id}/access"
+        )
+        assert list_response.status_code == 200
+        entries = list_response.json()
+        assert any(entry["id"] == share_id for entry in entries)
+
+        delete_response = authenticated_client.delete(
+            f"/api/v1/agent-instances/{test_agent_instance.id}/access/{share_id}"
+        )
+        assert delete_response.status_code == 200
+
+        # Ensure share is actually removed
+        remaining = authenticated_client.get(
+            f"/api/v1/agent-instances/{test_agent_instance.id}/access"
+        )
+        assert remaining.status_code == 200
+        assert all(entry["id"] != share_id for entry in remaining.json())
+        assert (
+            test_db.query(UserInstanceAccess)
+            .filter(UserInstanceAccess.agent_instance_id == test_agent_instance.id)
+            .count()
+            == 0
+        )
 
     def test_list_agent_instances_with_limit(
         self, authenticated_client, test_db, test_user, test_user_agent

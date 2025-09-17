@@ -16,3 +16,14 @@ class AgentStatus(str, Enum):
 class SenderType(str, Enum):
     AGENT = "AGENT"
     USER = "USER"
+
+
+class InstanceAccessLevel(str, Enum):
+    READ = "READ"
+    WRITE = "WRITE"
+
+
+class TeamRole(str, Enum):
+    OWNER = "OWNER"
+    ADMIN = "ADMIN"
+    MEMBER = "MEMBER"

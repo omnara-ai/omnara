@@ -7,6 +7,11 @@ export enum AgentStatus {
   KILLED = 'KILLED'
 }
 
+export enum InstanceAccessLevel {
+  READ = 'READ',
+  WRITE = 'WRITE'
+}
+
 export interface UserProfile {
     id: string
     email: string
@@ -44,6 +49,8 @@ export interface Message {
   sender_type: 'AGENT' | 'USER'
   created_at: string
   requires_user_input: boolean
+  sender_user_email?: string | null
+  sender_user_display_name?: string | null
 }
 
 export interface AgentQuestion {
@@ -76,6 +83,20 @@ export interface InstanceDetail extends AgentInstance {
   last_read_message_id?: string | null
   questions?: AgentQuestion[]
   agent_type?: string
+  access_level: InstanceAccessLevel
+  is_owner: boolean
+}
+
+export interface InstanceShare {
+  id: string
+  email: string
+  access: InstanceAccessLevel
+  user_id?: string | null
+  display_name?: string | null
+  invited: boolean
+  is_owner: boolean
+  created_at: string
+  updated_at: string
 }
 
 export interface APIKey {

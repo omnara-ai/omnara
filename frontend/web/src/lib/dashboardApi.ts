@@ -1,5 +1,17 @@
 
-import { AgentType, InstanceDetail, AgentInstance, Message, APIKey, NewAPIKey, AgentStatus, AgentQuestion /*, CostAnalytics*/ } from '../types/dashboard'
+import {
+  AgentType,
+  InstanceDetail,
+  AgentInstance,
+  Message,
+  APIKey,
+  NewAPIKey,
+  AgentStatus,
+  AgentQuestion,
+  InstanceShare,
+  InstanceAccessLevel,
+  /*, CostAnalytics*/
+} from '../types/dashboard'
 import { toast } from '../hooks/use-toast'
 import { supabase } from './supabase'
 import { authClient } from './auth/authClient'
@@ -148,9 +160,14 @@ class ApiClient {
     return await this.request<AgentType[]>(`/api/v1/agent-types`)
   }
 
-  async getAllInstances(limit?: number): Promise<AgentInstance[]> {
-    const queryParam = limit ? `?limit=${limit}` : ''
-    return await this.request<AgentInstance[]>(`/api/v1/agent-instances${queryParam}`)
+  async getAllInstances(limit?: number, scope: 'me' | 'shared' | 'all' = 'me'): Promise<AgentInstance[]> {
+    const params = new URLSearchParams()
+    if (limit !== undefined) {
+      params.append('limit', limit.toString())
+    }
+    params.append('scope', scope)
+    const query = params.toString()
+    return await this.request<AgentInstance[]>(`/api/v1/agent-instances${query ? `?${query}` : ''}`)
   }
 
   async getAgentTypeInstances(typeId: string): Promise<AgentInstance[]> {
@@ -227,6 +244,26 @@ class ApiClient {
 
   async deleteAgentInstance(instanceId: string): Promise<{ message: string }> {
     return this.request(`/api/v1/agent-instances/${instanceId}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async getInstanceAccessList(instanceId: string): Promise<InstanceShare[]> {
+    return this.request<InstanceShare[]>(`/api/v1/agent-instances/${instanceId}/access`)
+  }
+
+  async addInstanceShare(
+    instanceId: string,
+    payload: { email: string; access: InstanceAccessLevel }
+  ): Promise<InstanceShare> {
+    return this.request<InstanceShare>(`/api/v1/agent-instances/${instanceId}/access`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async removeInstanceShare(instanceId: string, shareId: string): Promise<void> {
+    await this.request(`/api/v1/agent-instances/${instanceId}/access/${shareId}`, {
       method: 'DELETE',
     })
   }

@@ -17,7 +17,7 @@ export function InstanceListWithFilters() {
       let allInstances: AgentInstance[] = []
       
       try {
-        allInstances = await apiClient.getAllInstances()
+        allInstances = await apiClient.getAllInstances(undefined, 'all')
       } catch (err) {
         console.log('Fallback to agent types method for instances')
         // Fallback: Get all agent types and their instances
