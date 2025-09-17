@@ -894,10 +894,20 @@ def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | No
     if not instance or not access:
         return None
 
+    # Get sender information if it's a user message
+    sender_user = None
+    if message.sender_user_id:
+        sender_user = db.query(User).filter(User.id == message.sender_user_id).first()
+
     return {
         "id": str(message.id),
         "agent_instance_id": str(message.agent_instance_id),
         "sender_type": message.sender_type.value,
+        "sender_user_id": str(message.sender_user_id)
+        if message.sender_user_id
+        else None,
+        "sender_user_email": sender_user.email if sender_user else None,
+        "sender_user_display_name": sender_user.display_name if sender_user else None,
         "content": message.content,
         "created_at": message.created_at.isoformat() + "Z",
         "requires_user_input": message.requires_user_input,
