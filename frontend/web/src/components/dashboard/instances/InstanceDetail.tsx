@@ -11,6 +11,9 @@ import {
   InstanceAccessLevel,
 } from '@/types/dashboard'
 import { Share } from 'lucide-react'
+import { reportError, reportMessage } from '@/integrations/sentry'
+
+const SENTRY_TAGS = { feature: 'instance-detail' }
 
 export function InstanceDetail() {
   const { instanceId } = useParams<{ instanceId: string }>()
@@ -53,7 +56,11 @@ export function InstanceDetail() {
       const messages = await apiClient.getInstanceMessages(instanceId, 50, beforeMessageId)
       return messages
     } catch (err) {
-      console.error('Failed to load more messages:', err)
+      reportError(err, {
+        context: 'Failed to load additional messages',
+        extras: { instanceId, beforeMessageId },
+        tags: SENTRY_TAGS,
+      })
       return []
     }
   }
@@ -141,7 +148,11 @@ export function InstanceDetail() {
             }
           })
         } catch (err) {
-          console.error('Failed to parse message:', err)
+          reportError(err, {
+            context: 'Failed to parse SSE message payload',
+            extras: { instanceId, raw: event.data },
+            tags: SENTRY_TAGS,
+          })
         }
       })
 
@@ -166,7 +177,11 @@ export function InstanceDetail() {
             }
           })
         } catch (err) {
-          console.error('Failed to parse status update:', err)
+          reportError(err, {
+            context: 'Failed to parse SSE status update',
+            extras: { instanceId, raw: event.data },
+            tags: SENTRY_TAGS,
+          })
         }
       })
 
@@ -179,17 +194,36 @@ export function InstanceDetail() {
           setInstance(prev => {
             if (!prev) return prev
             console.log('Updating message:', messageData.id, 'requires_user_input:', messageData.requires_user_input)
+
+            let matched = false
+            const messages = prev.messages.map(msg => {
+              if (msg.id === messageData.id) {
+                matched = true
+                return { ...msg, requires_user_input: messageData.requires_user_input }
+              }
+              return msg
+            })
+
+            if (!matched) {
+              reportMessage('Received message_update for unknown message', {
+                context: 'Missing base message for SSE update',
+                extras: { instanceId, messageId: messageData.id },
+                tags: SENTRY_TAGS,
+              })
+              return prev
+            }
+
             return {
               ...prev,
-              messages: prev.messages.map(msg => 
-                msg.id === messageData.id 
-                  ? { ...msg, requires_user_input: messageData.requires_user_input }
-                  : msg
-              )
+              messages,
             }
           })
         } catch (err) {
-          console.error('Failed to parse message update:', err)
+          reportError(err, {
+            context: 'Failed to parse SSE message update',
+            extras: { instanceId, raw: event.data },
+            tags: SENTRY_TAGS,
+          })
         }
       })
 
@@ -208,7 +242,11 @@ export function InstanceDetail() {
             }
           })
         } catch (err) {
-          console.error('Failed to parse git_diff update:', err)
+          reportError(err, {
+            context: 'Failed to parse SSE git diff update',
+            extras: { instanceId, raw: event.data?.slice?.(0, 1000) },
+            tags: SENTRY_TAGS,
+          })
         }
       })
 
@@ -226,13 +264,21 @@ export function InstanceDetail() {
             }
           })
         } catch (err) {
-          console.error('Failed to parse agent heartbeat:', err)
+          reportError(err, {
+            context: 'Failed to parse SSE agent heartbeat',
+            extras: { instanceId, raw: event.data },
+            tags: SENTRY_TAGS,
+          })
         }
       })
 
       // Handle errors
       eventSource.addEventListener('error', (event) => {
-        console.error('SSE error event:', event)
+        reportError(new Error('SSE error event'), {
+          context: 'EventSource error received',
+          extras: { instanceId, state: eventSource.readyState },
+          tags: SENTRY_TAGS,
+        })
         if (eventSource.readyState === EventSource.CLOSED) {
           console.log('SSE connection closed, attempting to reconnect...')
           // Browser will automatically reconnect
@@ -241,7 +287,11 @@ export function InstanceDetail() {
 
       // Also add onerror handler
       eventSource.onerror = (error) => {
-        console.error('SSE onerror:', error, 'readyState:', eventSource.readyState)
+        reportError(error, {
+          context: 'EventSource onerror fired',
+          extras: { instanceId, state: eventSource.readyState },
+          tags: SENTRY_TAGS,
+        })
       }
     })
 
@@ -338,7 +388,11 @@ export function InstanceDetail() {
       await apiClient.submitUserMessage(instanceId, content)
       // No need to refresh - SSE will push the new message
     } catch (err) {
-      console.error('Failed to submit message:', err)
+      reportError(err, {
+        context: 'Failed to submit user message',
+        extras: { instanceId },
+        tags: SENTRY_TAGS,
+      })
       throw err // Re-throw for ChatInterface to handle
     }
   }
@@ -351,7 +405,11 @@ export function InstanceDetail() {
       await apiClient.updateInstanceStatus(instanceId, newStatus)
       fetchInstance() // Refresh data
     } catch (err) {
-      console.error('Failed to update status:', err)
+      reportError(err, {
+        context: 'Failed to update instance status',
+        extras: { instanceId, newStatus },
+        tags: SENTRY_TAGS,
+      })
     } finally {
       setStatusUpdating(false)
     }
@@ -369,7 +427,11 @@ export function InstanceDetail() {
       }
       fetchInstance() // Refresh data
     } catch (err) {
-      console.error('Failed to pause/resume agent:', err)
+      reportError(err, {
+        context: 'Failed to pause or resume agent',
+        extras: { instanceId, currentStatus: instance?.status },
+        tags: SENTRY_TAGS,
+      })
     } finally {
       setStatusUpdating(false)
     }
@@ -383,7 +445,11 @@ export function InstanceDetail() {
       await apiClient.killAgent(instanceId)
       fetchInstance() // Refresh data
     } catch (err) {
-      console.error('Failed to kill agent:', err)
+      reportError(err, {
+        context: 'Failed to kill agent',
+        extras: { instanceId },
+        tags: SENTRY_TAGS,
+      })
     } finally {
       setStatusUpdating(false)
     }
@@ -397,7 +463,11 @@ export function InstanceDetail() {
       await apiClient.updateInstanceStatus(instanceId, AgentStatus.COMPLETED)
       fetchInstance() // Refresh data
     } catch (err) {
-      console.error('Failed to mark as completed:', err)
+      reportError(err, {
+        context: 'Failed to mark agent as completed',
+        extras: { instanceId },
+        tags: SENTRY_TAGS,
+      })
     } finally {
       setCompletingInstance(false)
     }

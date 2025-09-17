@@ -1,0 +1,53 @@
+{
+  "cli": {
+    "version": ">= 16.14.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "ios": {
+        "simulator": true,
+        "cocoapods": "1.16.2"
+      },
+      "env": {
+        "RUBY_VERSION": "3.3.6"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "ios": {
+        "cocoapods": "1.16.2"
+      },
+      "env": {
+        "RUBY_VERSION": "3.3.6"
+      }
+    },
+    "preview-simulator": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true,
+        "cocoapods": "1.16.2"
+      },
+      "env": {
+        "RUBY_VERSION": "3.3.6"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "ios": {
+        "cocoapods": "1.16.2"
+      },
+      "env": {
+        "RUBY_VERSION": "3.3.6"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

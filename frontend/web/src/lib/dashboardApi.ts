@@ -15,6 +15,7 @@ import {
 import { toast } from '../hooks/use-toast'
 import { supabase } from './supabase'
 import { authClient } from './auth/authClient'
+import { reportError, reportMessage } from '@/integrations/sentry'
 
 // const API_BASE_URL = import.meta.env.VITE_ENVIRONMENT == "production"
 //   ? import.meta.env.VITE_API_URL 
@@ -101,6 +102,11 @@ class ApiClient {
 
         // Show specific error message from server
         if (response.status >= 500) {
+          reportError(new Error('API request failed'), {
+            context: 'Server error response',
+            extras: { endpoint, status: response.status, errorData },
+            tags: { feature: 'dashboard-api' },
+          })
           toast({
             title: "Server Error",
             description: errorMessage || "Something went wrong on our end. Please try again later.",
@@ -138,6 +144,11 @@ class ApiClient {
           title: "Network Error",
           description: "Unable to connect to the server. Please check your connection.",
           variant: "destructive",
+        })
+        reportError(error, {
+          context: 'Network request failed',
+          extras: { endpoint, attempt },
+          tags: { feature: 'dashboard-api' },
         })
       }
       throw error
@@ -188,7 +199,10 @@ class ApiClient {
   async getMessageStreamUrl(instanceId: string): Promise<string | null> {
     const token = await this.getAuthToken()
     if (!token) {
-      console.error('No auth token available for SSE')
+      reportMessage('No auth token available for SSE', {
+        context: 'SSE token missing',
+        tags: { feature: 'dashboard-api' },
+      })
       return null
     }
 
