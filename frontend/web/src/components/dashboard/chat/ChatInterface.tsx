@@ -5,22 +5,13 @@ import { GitDiffView } from '../git-diff/GitDiffView'
 import { Message, InstanceDetail as IInstanceDetail, InstanceAccessLevel } from '@/types/dashboard'
 import { formatAgentTypeName } from '@/utils/statusUtils'
 import { ChatWorkingIndicator } from './ChatWorkingIndicator'
-
-export interface ChatMessageData {
-  id: string
-  content: string
-  sender_type: 'AGENT' | 'USER'
-  created_at: string
-  requires_user_input: boolean
-  sender_user_email?: string | null
-  sender_user_display_name?: string | null
-}
+import { useAuth } from '@/lib/auth/AuthContext'
 
 export interface MessageGroup {
   id: string
   agentName: string
   timestamp: string
-  messages: ChatMessageData[]
+  messages: Message[]
   isFromAgent: boolean
 }
 
@@ -32,15 +23,22 @@ interface ChatInterfaceProps {
 
 // Messages are already sorted by the backend
 
-function groupMessages(messages: ChatMessageData[], agentName: string): MessageGroup[] {
+function groupMessages(messages: Message[], agentName: string, currentUserId?: string | null): MessageGroup[] {
   const groups: MessageGroup[] = []
   let currentGroup: MessageGroup | null = null
-  
+
   messages.forEach(message => {
     const isFromAgent = message.sender_type === 'AGENT'
+    const isCurrentUser = !isFromAgent &&
+      !!currentUserId &&
+      !!message.sender_user_id &&
+      message.sender_user_id === currentUserId
+
     const sender = isFromAgent
       ? agentName
-      : message.sender_user_display_name?.trim() || message.sender_user_email || 'You'
+      : isCurrentUser
+        ? 'You'
+        : message.sender_user_display_name?.trim() || message.sender_user_email || 'Member'
     
     // Check if we should start a new group
     const shouldStartNewGroup = !currentGroup || 
@@ -67,7 +65,8 @@ function groupMessages(messages: ChatMessageData[], agentName: string): MessageG
 }
 
 export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }: ChatInterfaceProps) {
-  const [allMessages, setAllMessages] = useState<ChatMessageData[]>([])
+  const { user } = useAuth()
+  const [allMessages, setAllMessages] = useState<Message[]>([])
   const [messageGroups, setMessageGroups] = useState<MessageGroup[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -129,9 +128,10 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
                   sender_type: m.sender_type,
                   created_at: m.created_at,
                   requires_user_input: m.requires_user_input,
+                  sender_user_id: m.sender_user_id,
                   sender_user_email: m.sender_user_email,
                   sender_user_display_name: m.sender_user_display_name,
-                } as ChatMessageData))
+                } as Message))
               
               // Prepend new messages and sort by created_at
               const combined = [...uniqueNewMessages, ...prev]
@@ -171,7 +171,7 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
   // Merge instance messages (from SSE or initial load) with existing paginated messages
   useEffect(() => {
     setAllMessages(prev => {
-      const messageMap = new Map<string, ChatMessageData>()
+      const messageMap = new Map<string, Message>()
       
       // Add existing paginated messages first
       prev.forEach(msg => messageMap.set(msg.id, msg))
@@ -184,6 +184,7 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
           sender_type: msg.sender_type,
           created_at: msg.created_at,
           requires_user_input: msg.requires_user_input,
+          sender_user_id: msg.sender_user_id,
           sender_user_email: msg.sender_user_email,
           sender_user_display_name: msg.sender_user_display_name,
         })
@@ -207,9 +208,9 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
   // Group messages whenever allMessages changes
   useEffect(() => {
     const agentDisplayName = formatAgentTypeName(instance.agent_type_name || instance.agent_type || 'Agent')
-    const groups = groupMessages(allMessages, agentDisplayName)
+    const groups = groupMessages(allMessages, agentDisplayName, user?.id)
     setMessageGroups(groups)
-  }, [allMessages, instance.agent_type_name, instance.agent_type])
+  }, [allMessages, instance.agent_type_name, instance.agent_type, user?.id])
 
   // Smart scroll: only scroll to bottom if user was already at bottom
   useEffect(() => {

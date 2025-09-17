@@ -1,5 +1,6 @@
 import { Bot, User, MessageSquare } from 'lucide-react'
-import { ChatMessageData, MessageGroup } from './ChatInterface'
+import { MessageGroup } from './ChatInterface'
+import { Message } from '@/types/dashboard'
 import { formatDistanceToNow } from 'date-fns'
 import ReactMarkdown from 'react-markdown'
 import { preprocessMarkdown, markdownComponents, remarkPlugins } from '../markdownConfig'
@@ -10,17 +11,17 @@ interface ChatMessageProps {
   showWaitingIndicator?: boolean
 }
 
-function SingleMessage({ 
-  message, 
-  isFirst, 
-  isLast, 
+function SingleMessage({
+  message,
+  isFirst,
+  isLast,
   isOnly,
   showWaitingIndicator = false
-}: { 
-  message: ChatMessageData; 
-  isFirst: boolean; 
-  isLast: boolean; 
-  isOnly: boolean; 
+}: {
+  message: Message;
+  isFirst: boolean;
+  isLast: boolean;
+  isOnly: boolean;
   showWaitingIndicator?: boolean;
 }) {
 

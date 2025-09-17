@@ -105,17 +105,16 @@ export function InstanceDetail() {
 
       // Handle connection open
       eventSource.addEventListener('connected', (event) => {
-        console.log('SSE connected:', event.data)
+        // SSE connection established
       })
 
       // Also handle onmessage for debugging
       eventSource.onmessage = (event) => {
-        console.log('SSE onmessage received:', event)
+        // Default message handler
       }
 
       // Handle new messages
       eventSource.addEventListener('message', (event) => {
-        console.log('SSE message event received:', event.data)
         try {
           const messageData = JSON.parse(event.data)
           const newMessage: Message = {
@@ -124,6 +123,7 @@ export function InstanceDetail() {
             sender_type: messageData.sender_type,
             created_at: messageData.created_at,
             requires_user_input: messageData.requires_user_input,
+            sender_user_id: messageData.sender_user_id ?? null,
             sender_user_email: messageData.sender_user_email ?? null,
             sender_user_display_name: messageData.sender_user_display_name ?? null,
           }
@@ -163,14 +163,12 @@ export function InstanceDetail() {
 
       // Handle status updates
       eventSource.addEventListener('status_update', (event) => {
-        console.log('SSE status_update event received:', event.data)
         try {
           const statusData = JSON.parse(event.data)
           
           // Update instance status
           setInstance(prev => {
             if (!prev) return prev
-            console.log('Updating instance status to:', statusData.status)
             return {
               ...prev,
               status: statusData.status as AgentStatus
@@ -186,14 +184,12 @@ export function InstanceDetail() {
       })
 
       eventSource.addEventListener('message_update', (event) => {
-        console.log('SSE message_update event received:', event.data)
         try {
           const messageData = JSON.parse(event.data)
           
           // Update the specific message in the messages array
           setInstance(prev => {
             if (!prev) return prev
-            console.log('Updating message:', messageData.id, 'requires_user_input:', messageData.requires_user_input)
 
             let matched = false
             const messages = prev.messages.map(msg => {
@@ -228,14 +224,12 @@ export function InstanceDetail() {
       })
 
       eventSource.addEventListener('git_diff_update', (event) => {
-        console.log('SSE git_diff_update event received:', event.data)
         try {
           const gitDiffData = JSON.parse(event.data)
           
           // Update instance git_diff
           setInstance(prev => {
             if (!prev) return prev
-            console.log('Updating git_diff for instance:', gitDiffData.instance_id)
             return {
               ...prev,
               git_diff: gitDiffData.git_diff
@@ -252,7 +246,6 @@ export function InstanceDetail() {
 
       // Agent heartbeat updates (presence)
       eventSource.addEventListener('agent_heartbeat', (event) => {
-        console.log('SSE agent_heartbeat event received:', event.data)
         try {
           const presenceData = JSON.parse(event.data)
           if (!presenceData.last_heartbeat_at) return
@@ -280,7 +273,7 @@ export function InstanceDetail() {
           tags: SENTRY_TAGS,
         })
         if (eventSource.readyState === EventSource.CLOSED) {
-          console.log('SSE connection closed, attempting to reconnect...')
+          // SSE connection closed, attempting to reconnect...
           // Browser will automatically reconnect
         }
       })
