@@ -18,7 +18,9 @@
       "bundleIdentifier": "com.omnara.app",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Omnara uses your microphone to transcribe voice messages into text for easier communication with your AI agents.",
+        "NSSpeechRecognitionUsageDescription": "Omnara uses speech recognition to convert your voice into text messages when using voice input."
       }
     },
     "android": {
