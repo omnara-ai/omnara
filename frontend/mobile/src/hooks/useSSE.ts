@@ -76,6 +76,9 @@ export function useSSE({
               sender_type: data.sender_type,
               created_at: data.created_at,
               requires_user_input: data.requires_user_input,
+              sender_user_id: data.sender_user_id ?? null,
+              sender_user_email: data.sender_user_email ?? null,
+              sender_user_display_name: data.sender_user_display_name ?? null,
             };
             onMessage(message);
           } catch (err) {
