@@ -7,12 +7,6 @@ import {
   TouchableOpacity,
   AppState,
   AppStateStatus,
-  Modal,
-  TextInput,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -26,7 +20,8 @@ import { getStatusColor } from '@/utils/statusHelpers';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { useSSE } from '@/hooks/useSSE';
 import { reportError, reportMessage } from '@/lib/sentry';
-import { Share, X, ChevronDown } from 'lucide-react-native';
+import { Share } from 'lucide-react-native';
+import { ShareAccessModal } from '@/components/dashboard/ShareAccessModal';
 
 export const InstanceDetailScreen: React.FC = () => {
   const route = useRoute();
@@ -50,7 +45,6 @@ export const InstanceDetailScreen: React.FC = () => {
   const [shareAccess, setShareAccess] = useState<InstanceAccessLevel>(InstanceAccessLevel.WRITE);
   const [shareSubmitting, setShareSubmitting] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
-  const [shareAccessMenuVisible, setShareAccessMenuVisible] = useState(false);
 
   const { data: initialData, isLoading, error, refetch } = useQuery({
     queryKey: ['instance', instanceId],
@@ -124,7 +118,6 @@ export const InstanceDetailScreen: React.FC = () => {
     setShareEmail('');
     setShareError(null);
     setShareAccess(InstanceAccessLevel.WRITE);
-    setShareAccessMenuVisible(false);
   }, [instance?.id]);
 
   // SSE handlers
@@ -229,7 +222,6 @@ export const InstanceDetailScreen: React.FC = () => {
   const handleCloseShareModal = useCallback(() => {
     setShareModalVisible(false);
     setShareError(null);
-    setShareAccessMenuVisible(false);
   }, []);
 
   const handleAddShare = useCallback(async () => {
@@ -239,7 +231,6 @@ export const InstanceDetailScreen: React.FC = () => {
 
     setShareSubmitting(true);
     setShareError(null);
-    setShareAccessMenuVisible(false);
     try {
       const newShare = await dashboardApi.addInstanceShare(instanceId, {
         email,
@@ -277,30 +268,6 @@ export const InstanceDetailScreen: React.FC = () => {
       setShareError(err instanceof Error ? err.message : 'Failed to remove share');
     }
   }, [instanceId]);
-
-  const renderShareItem = useCallback(({ item }: { item: InstanceShare }) => (
-    <View style={styles.shareItem}>
-      <View style={styles.shareItemText}>
-        <Text style={styles.shareItemEmail} numberOfLines={1} ellipsizeMode="tail">
-          {item.email}
-          {item.is_owner ? ' (Owner)' : ''}
-        </Text>
-        <Text style={styles.shareItemMeta} numberOfLines={1} ellipsizeMode="tail">
-          {item.display_name ? `${item.display_name} • ` : ''}
-          {item.access === InstanceAccessLevel.WRITE ? 'Write access' : 'Read access'}
-          {item.invited ? ' • Pending' : ''}
-        </Text>
-      </View>
-      {!item.is_owner && (
-        <TouchableOpacity
-          onPress={() => handleRemoveShare(item.id)}
-          style={styles.shareRemoveButton}
-        >
-          <Text style={styles.shareRemoveText}>Remove</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  ), [handleRemoveShare]);
 
   // Refresh data and reconnect SSE
   const refreshAndReconnect = useCallback(() => {
@@ -469,127 +436,20 @@ export const InstanceDetailScreen: React.FC = () => {
         />
       </SafeAreaView>
 
-      <Modal
+      <ShareAccessModal
         visible={shareModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={handleCloseShareModal}
-      >
-        <View style={styles.shareModalBackdrop}>
-          <TouchableWithoutFeedback onPress={handleCloseShareModal}>
-            <View style={styles.shareModalBackdropTouchable} />
-          </TouchableWithoutFeedback>
-
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={styles.shareModalWrapper}
-          >
-            <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={styles.shareModalContainer}>
-                <View style={styles.shareModalHeader}>
-                  <Text style={styles.shareModalTitle}>Shared Access</Text>
-                  <TouchableOpacity
-                    onPress={handleCloseShareModal}
-                    style={styles.shareModalCloseButton}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close sharing settings"
-                  >
-                    <X size={16} color={theme.colors.textMuted} />
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.shareModalSubtitle}>
-                  Manage who can view or edit this session.
-                </Text>
-
-                <View style={styles.shareListContainer}>
-                  {sharesLoading ? (
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                  ) : shares.length === 0 ? (
-                    <Text style={styles.shareEmptyText}>No one else has access yet.</Text>
-                  ) : (
-                    <FlatList
-                      data={shares}
-                      keyExtractor={item => item.id}
-                      renderItem={renderShareItem}
-                      contentContainerStyle={styles.shareListContent}
-                      ItemSeparatorComponent={() => <View style={styles.shareItemSeparator} />}
-                      keyboardShouldPersistTaps="handled"
-                    />
-                  )}
-                </View>
-
-                <View style={styles.shareForm}>
-                  <Text style={styles.shareFormLabel}>Invite by email</Text>
-                  <TextInput
-                    value={shareEmail}
-                    onChangeText={setShareEmail}
-                    placeholder="user@example.com"
-                    placeholderTextColor={theme.colors.textMuted}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.shareInput}
-                  />
-
-                  <Text style={styles.shareFormLabel}>Access level</Text>
-                  <View style={styles.shareAccessSelectWrapper}>
-                    <TouchableOpacity
-                      onPress={() => setShareAccessMenuVisible(prev => !prev)}
-                      style={styles.shareAccessSelect}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.shareAccessSelectText}>
-                        {shareAccess === InstanceAccessLevel.WRITE ? 'Write access' : 'Read access'}
-                      </Text>
-                      <ChevronDown size={16} color={theme.colors.textMuted} />
-                    </TouchableOpacity>
-                    {shareAccessMenuVisible && (
-                      <View style={styles.shareAccessDropdown}>
-                        {[InstanceAccessLevel.WRITE, InstanceAccessLevel.READ].map(level => (
-                          <TouchableOpacity
-                            key={level}
-                            onPress={() => {
-                              setShareAccess(level);
-                              setShareAccessMenuVisible(false);
-                            }}
-                            style={[
-                              styles.shareAccessDropdownItem,
-                              shareAccess === level && styles.shareAccessDropdownItemActive,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.shareAccessDropdownText,
-                                shareAccess === level && styles.shareAccessDropdownTextActive,
-                              ]}
-                            >
-                              {level === InstanceAccessLevel.WRITE ? 'Write access' : 'Read access'}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-
-                  {shareError && (
-                    <Text style={styles.shareErrorText}>{shareError}</Text>
-                  )}
-
-                  <TouchableOpacity
-                    onPress={handleAddShare}
-                    style={styles.shareSubmitButton}
-                    disabled={shareSubmitting}
-                  >
-                    <Text style={styles.shareSubmitText}>
-                      {shareSubmitting ? 'Adding…' : 'Add'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+        shares={shares}
+        loading={sharesLoading}
+        shareEmail={shareEmail}
+        shareAccess={shareAccess}
+        shareSubmitting={shareSubmitting}
+        shareError={shareError}
+        onClose={handleCloseShareModal}
+        onEmailChange={setShareEmail}
+        onAccessChange={setShareAccess}
+        onAddShare={handleAddShare}
+        onRemoveShare={handleRemoveShare}
+      />
     </View>
   );
 };
@@ -759,98 +619,5 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.medium,
     color: theme.colors.error,
-  },
-  shareForm: {
-    gap: theme.spacing.sm,
-  },
-  shareFormLabel: {
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.semibold,
-    fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  shareInput: {
-    borderWidth: 1,
-    borderColor: theme.colors.borderDivider,
-    borderRadius: theme.borderRadius.md,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    color: theme.colors.white,
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.regular,
-    backgroundColor: theme.colors.background,
-  },
-  shareAccessSelectWrapper: {
-    position: 'relative',
-    zIndex: 10,
-    marginBottom: theme.spacing.sm,
-  },
-  shareAccessSelect: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: theme.colors.borderDivider,
-    borderRadius: theme.borderRadius.md,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.colors.background,
-  },
-  shareAccessSelectText: {
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.regular,
-    color: theme.colors.white,
-  },
-  shareAccessDropdown: {
-    position: 'absolute',
-    top: '110%',
-    left: 0,
-    right: 0,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.borderDivider,
-    backgroundColor: theme.colors.cardSurface,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 6,
-    zIndex: 20,
-  },
-  shareAccessDropdownItem: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-  },
-  shareAccessDropdownItemActive: {
-    backgroundColor: theme.colors.borderLight,
-  },
-  shareAccessDropdownText: {
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.regular,
-    color: theme.colors.textMuted,
-  },
-  shareAccessDropdownTextActive: {
-    color: theme.colors.white,
-  },
-  shareErrorText: {
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.regular,
-    color: theme.colors.status.failed,
-    marginTop: theme.spacing.xs,
-  },
-  shareSubmitButton: {
-    backgroundColor: '#d97706',
-    borderRadius: theme.borderRadius.md,
-    paddingVertical: theme.spacing.sm,
-    alignItems: 'center',
-    marginTop: theme.spacing.md,
-  },
-  shareSubmitText: {
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.semibold,
-    fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.white,
   },
 });
