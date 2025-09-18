@@ -23,10 +23,8 @@ export const VoiceInputVisualizer: React.FC<VoiceInputVisualizerProps> = ({
   ]).current;
   const animationTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Voice-responsive animation
   useEffect(() => {
     if (!isRecording) {
-      // Clear timer and reset bars
       if (animationTimer.current) {
         clearInterval(animationTimer.current);
         animationTimer.current = null;
@@ -42,18 +40,15 @@ export const VoiceInputVisualizer: React.FC<VoiceInputVisualizerProps> = ({
       return;
     }
 
-    // Clear any existing timer
     if (animationTimer.current) {
       clearInterval(animationTimer.current);
       animationTimer.current = null;
     }
 
-    // If we have actual volume data (not 0), use it for realistic animation
     if (volumeLevel > 0.01) {
       barAnimations.forEach((anim, index) => {
-        // Add natural variation between bars
         const delay = index * 30;
-        const randomFactor = 0.8 + (Math.random() * 0.4); // 0.8 to 1.2
+        const randomFactor = 0.8 + (Math.random() * 0.4);
         const targetHeight = Math.min(1, volumeLevel * randomFactor);
 
         Animated.timing(anim, {
@@ -64,13 +59,12 @@ export const VoiceInputVisualizer: React.FC<VoiceInputVisualizerProps> = ({
         }).start();
       });
     } else {
-      // Fallback: Gentle idle animation when no voice detected
       let step = 0;
       animationTimer.current = setInterval(() => {
         step += 1;
         barAnimations.forEach((anim, index) => {
           const phase = (step / 8) + (index * Math.PI / 3);
-          const targetHeight = 0.2 + Math.sin(phase) * 0.1; // Subtle movement
+          const targetHeight = 0.2 + Math.sin(phase) * 0.1;
 
           Animated.timing(anim, {
             toValue: targetHeight,
@@ -100,7 +94,6 @@ export const VoiceInputVisualizer: React.FC<VoiceInputVisualizerProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.visualizerContainer}>
-        {/* Voice level bars */}
         <View style={styles.barsContainer}>
           {barAnimations.map((anim, index) => (
             <Animated.View
@@ -116,7 +109,6 @@ export const VoiceInputVisualizer: React.FC<VoiceInputVisualizerProps> = ({
           ))}
         </View>
 
-        {/* Show transcript or listening status */}
         <View style={styles.textContainer}>
           {liveTranscript ? (
             <Text style={styles.transcriptText}>

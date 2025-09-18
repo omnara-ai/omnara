@@ -18,7 +18,6 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
   const transcribedTextRef = useRef<string>('');
   const recognitionRef = useRef<any>(null);
 
-  // Check if native speech recognition is available
   useEffect(() => {
     const checkAvailability = async () => {
       try {
@@ -36,12 +35,10 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
   const [onSpeechResult, setOnSpeechResult] = useState<((text: string) => void) | null>(null);
   const [onVolumeChange, setOnVolumeChange] = useState<((volume: number) => void) | null>(null);
 
-  // Handle speech recognition events
   useSpeechRecognitionEvent('result', (event) => {
     const transcript = event.results[0]?.transcript || '';
     transcribedTextRef.current = transcript;
 
-    // Call result callback if provided
     if (onSpeechResult) {
       onSpeechResult(transcript);
     }
@@ -51,7 +48,6 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
     setIsTranscribing(false);
     setVolumeLevel(0);
 
-    // Call end callback if provided
     if (onSpeechEnd) {
       onSpeechEnd();
       setOnSpeechEnd(null);
@@ -59,8 +55,6 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
   });
 
   useSpeechRecognitionEvent('volumechange', (event) => {
-    // Volume is between -2 (quiet) and 10 (loud)
-    // Normalize to 0-1 range
     const normalizedVolume = Math.max(0, Math.min(1, (event.value + 2) / 12));
     setVolumeLevel(normalizedVolume);
 
@@ -70,6 +64,17 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
   });
 
   useSpeechRecognitionEvent('error', (event) => {
+    if (event.error === 'no-speech') {
+      setIsTranscribing(false);
+      setVolumeLevel(0);
+
+      if (onSpeechEnd) {
+        onSpeechEnd();
+        setOnSpeechEnd(null);
+      }
+      return;
+    }
+
     setTranscriptionError(event.error);
     setIsTranscribing(false);
     setVolumeLevel(0);
@@ -79,7 +84,6 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
     });
   });
 
-  // Start native speech recognition with auto-stop
   const startNativeRecognition = async (options?: {
     onEnd?: () => void;
     onResult?: (text: string) => void;
@@ -100,7 +104,6 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
       setTranscriptionError(null);
       transcribedTextRef.current = '';
 
-      // Set up callbacks
       if (options?.onEnd) {
         setOnSpeechEnd(() => options.onEnd);
       }
@@ -113,11 +116,9 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
 
       const recognitionOptions = {
         lang: config?.language || 'en-US',
-        interimResults: true, // This enables live transcription
+        interimResults: true,
         maxAlternatives: 1,
-        continuous: false, // This makes it stop automatically when speech ends
-        // Don't force on-device - let iOS use server for better accuracy
-        // It will automatically fall back to on-device if offline
+        continuous: false,
       };
 
       await ExpoSpeechRecognitionModule.start(recognitionOptions);
@@ -131,7 +132,6 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
     }
   };
 
-  // Stop native speech recognition
   const stopNativeRecognition = async (): Promise<string | null> => {
     try {
       if (recognitionRef.current) {
@@ -150,7 +150,6 @@ export const useAudioTranscription = (config?: TranscriptionConfig) => {
 
 
   return {
-    // Native speech recognition
     isNativeAvailable: isAvailable,
     startNativeRecognition,
     stopNativeRecognition,

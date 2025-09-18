@@ -47,6 +47,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const textInputRef = useRef<TextInput>(null);
   const questionRef = useRef<StructuredQuestionRef>(null);
   const durationTimer = useRef<NodeJS.Timeout | null>(null);
+  const liveTranscriptRef = useRef<string>('');
   const {
     isNativeAvailable,
     startNativeRecognition,
@@ -86,46 +87,34 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
 
   const handleSpeechEnd = async () => {
-    // Speech has ended automatically
     setIsRecording(false);
 
-    // Stop duration timer
     if (durationTimer.current) {
       clearInterval(durationTimer.current);
       durationTimer.current = null;
     }
 
-    // Get the final transcribed text
-    const finalTranscript = await stopNativeRecognition();
-
-    if (finalTranscript) {
-      // Haptic feedback for successful transcription
+    if (liveTranscriptRef.current) {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-      // Set the message with the transcribed text
-      setMessage(prev => {
-        const existingText = prev.trim();
-        return existingText ? `${existingText} ${finalTranscript}` : finalTranscript;
-      });
+      setMessage(liveTranscriptRef.current);
     }
 
     setLiveTranscript('');
+    liveTranscriptRef.current = '';
     setRecordingDuration(0);
   };
 
   const handleSpeechResult = (text: string) => {
-    // Update live transcript as user speaks
     setLiveTranscript(text);
+    liveTranscriptRef.current = text;
   };
 
   const handleVolumeChange = (volume: number) => {
-    // Update volume for animation
     setCurrentVolume(volume);
   };
 
   const startRecording = async () => {
     try {
-      // Check if native speech recognition is available
       if (!isNativeAvailable) {
         Alert.alert(
           'Voice Input Unavailable',
@@ -134,14 +123,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         return;
       }
 
-      // Haptic feedback
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       setIsRecording(true);
       setRecordingDuration(0);
       setLiveTranscript('');
+      liveTranscriptRef.current = '';
 
-      // Start native speech recognition with auto-stop
       await startNativeRecognition({
         onEnd: handleSpeechEnd,
         onResult: handleSpeechResult,
@@ -149,7 +137,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         autoStop: true
       });
 
-      // Start duration timer
       durationTimer.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
@@ -166,8 +153,23 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (!isRecording) return;
 
     try {
-      // Manual stop by user - immediately stop and process
-      await handleSpeechEnd();
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setIsRecording(false);
+
+      if (durationTimer.current) {
+        clearInterval(durationTimer.current);
+        durationTimer.current = null;
+      }
+
+      await stopNativeRecognition();
+
+      if (liveTranscriptRef.current) {
+        setMessage(liveTranscriptRef.current);
+      }
+
+      setLiveTranscript('');
+      liveTranscriptRef.current = '';
+      setRecordingDuration(0);
     } catch (error) {
       setIsRecording(false);
       setLiveTranscript('');
@@ -269,7 +271,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         styles.inputContainer,
         isRecording && styles.inputContainerRecording
       ]}>
-        {/* Show either text input or voice visualizer */}
         {isRecording ? (
           <VoiceInputVisualizer
             volumeLevel={currentVolume}
@@ -294,18 +295,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         )}
 
 
-        {/* Microphone/Send button */}
         <TouchableOpacity
           style={[
             styles.sendButton,
             isRecording && styles.recordingButton,
-            (!canWrite || (message.trim() === '' && !isRecording) || isSubmitting || isTranscribing) && styles.sendButtonDisabled
+            (!canWrite || (message.trim() === '' && !isRecording) || isSubmitting) && styles.sendButtonDisabled
           ]}
           onPress={message.trim() ? handleSubmit : handleMicrophonePress}
-          disabled={!canWrite || isSubmitting || isTranscribing}
+          disabled={!canWrite || isSubmitting}
           activeOpacity={0.7}
         >
-          {isSubmitting || isTranscribing ? (
+          {isSubmitting ? (
             <ActivityIndicator size="small" color={theme.colors.white} />
           ) : isRecording ? (
             <Square
