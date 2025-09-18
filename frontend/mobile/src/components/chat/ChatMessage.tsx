@@ -220,7 +220,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ messageGroup, showWait
           )}
         </View>
         <Text
-          style={styles.senderName}
+          style={[styles.senderName, !messageGroup.isFromAgent && styles.senderNameUser]}
           numberOfLines={1}
           ellipsizeMode="tail"
         >
@@ -284,6 +284,9 @@ const styles = StyleSheet.create({
     marginRight: theme.spacing.sm,
     flexShrink: 1,
     maxWidth: '55%',
+  },
+  senderNameUser: {
+    color: theme.colors.white,
   },
   timestamp: {
     fontSize: theme.fontSize.xs,

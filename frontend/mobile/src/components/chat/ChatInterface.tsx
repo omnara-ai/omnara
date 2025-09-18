@@ -13,7 +13,7 @@ import { ChatMessage, ChatMessageData, MessageGroup } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { GitDiffPanel } from './GitDiffPanel';
 import { BottomSheetDiffViewer } from './BottomSheetDiffViewer';
-import { InstanceDetail, Message } from '@/types';
+import { InstanceDetail, InstanceAccessLevel, Message } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface ChatInterfaceProps {
@@ -88,6 +88,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const loadingRef = useRef(false);
   const previousContentHeight = useRef(0);
   const shouldRestoreScroll = useRef(false);
+
+  const normalizedAccessLevel = typeof instance.access_level === 'string'
+    ? instance.access_level.toUpperCase() as InstanceAccessLevel
+    : instance.access_level;
+  const canWrite = normalizedAccessLevel
+    ? normalizedAccessLevel === InstanceAccessLevel.WRITE
+    : true;
 
   // Merge instance messages (from SSE or initial load) with existing paginated messages
   useEffect(() => {
@@ -220,6 +227,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleSubmitMessage = async (content: string) => {
+    if (!canWrite) {
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onMessageSubmit(content);
@@ -338,6 +348,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 onMessageSubmit={handleSubmitMessage}
                 isSubmitting={isSubmitting}
                 hasGitDiff={!!instance.git_diff}
+                canWrite={canWrite}
               />
             </View>
           </View>
