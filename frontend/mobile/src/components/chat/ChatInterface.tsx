@@ -13,7 +13,8 @@ import { ChatMessage, ChatMessageData, MessageGroup } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { GitDiffPanel } from './GitDiffPanel';
 import { BottomSheetDiffViewer } from './BottomSheetDiffViewer';
-import { InstanceDetail, Message } from '@/types';
+import { InstanceDetail, InstanceAccessLevel, Message } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ChatInterfaceProps {
   instance: InstanceDetail;
@@ -22,13 +23,27 @@ interface ChatInterfaceProps {
 }
 
 
-function groupMessages(messages: Message[], agentName: string): MessageGroup[] {
+function groupMessages(
+  messages: Message[],
+  agentName: string,
+  currentUserId?: string | null
+): MessageGroup[] {
   const groups: MessageGroup[] = [];
   let currentGroup: MessageGroup | null = null;
   
   messages.forEach(message => {
     const isFromAgent = message.sender_type === 'AGENT';
-    const sender = isFromAgent ? agentName : 'You';
+    const trimmedDisplayName = message.sender_user_display_name?.trim();
+    const isCurrentUser = !isFromAgent &&
+      !!currentUserId &&
+      !!message.sender_user_id &&
+      message.sender_user_id === currentUserId;
+
+    const sender = isFromAgent
+      ? agentName
+      : isCurrentUser
+        ? 'You'
+        : trimmedDisplayName || message.sender_user_email || 'Member';
     
     // Check if we should start a new group
     const shouldStartNewGroup = !currentGroup || 
@@ -59,6 +74,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onMessageSubmit,
   onLoadMoreMessages
 }) => {
+  const { user } = useAuth();
   const [allMessages, setAllMessages] = useState<Message[]>([]);
   const [messageGroups, setMessageGroups] = useState<MessageGroup[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -72,6 +88,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const loadingRef = useRef(false);
   const previousContentHeight = useRef(0);
   const shouldRestoreScroll = useRef(false);
+
+  const normalizedAccessLevel = typeof instance.access_level === 'string'
+    ? instance.access_level.toUpperCase() as InstanceAccessLevel
+    : instance.access_level;
+  const canWrite = normalizedAccessLevel
+    ? normalizedAccessLevel === InstanceAccessLevel.WRITE
+    : true;
 
   // Merge instance messages (from SSE or initial load) with existing paginated messages
   useEffect(() => {
@@ -103,9 +126,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   
   // Group messages whenever allMessages changes
   useEffect(() => {
-    const groups = groupMessages(allMessages, instance.agent_type?.name || 'Agent');
+    const groups = groupMessages(
+      allMessages,
+      instance.agent_type?.name || 'Agent',
+      user?.id
+    );
     setMessageGroups(groups);
-  }, [allMessages, instance.agent_type?.name]);
+  }, [allMessages, instance.agent_type?.name, user?.id]);
 
   // Track keyboard visibility
   useEffect(() => {
@@ -200,6 +227,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleSubmitMessage = async (content: string) => {
+    if (!canWrite) {
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onMessageSubmit(content);
@@ -318,6 +348,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 onMessageSubmit={handleSubmitMessage}
                 isSubmitting={isSubmitting}
                 hasGitDiff={!!instance.git_diff}
+                canWrite={canWrite}
               />
             </View>
           </View>

@@ -14,12 +14,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { theme } from '@/constants/theme';
 import { Header } from '@/components/ui';
 import { dashboardApi } from '@/services/api';
-import { InstanceDetail, AgentStatus, Message } from '@/types';
+import { InstanceDetail, AgentStatus, Message, InstanceShare, InstanceAccessLevel } from '@/types';
 import { formatAgentTypeName } from '@/utils/formatters';
 import { getStatusColor } from '@/utils/statusHelpers';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { useSSE } from '@/hooks/useSSE';
 import { reportError, reportMessage } from '@/lib/sentry';
+import { Share } from 'lucide-react-native';
+import { ShareAccessModal } from '@/components/dashboard/ShareAccessModal';
 
 export const InstanceDetailScreen: React.FC = () => {
   const route = useRoute();
@@ -34,6 +36,15 @@ export const InstanceDetailScreen: React.FC = () => {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const sentryTags = { feature: 'mobile-instance-detail', instanceId };
+
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [shares, setShares] = useState<InstanceShare[]>([]);
+  const [sharesLoading, setSharesLoading] = useState(false);
+  const [sharesLoaded, setSharesLoaded] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareAccess, setShareAccess] = useState<InstanceAccessLevel>(InstanceAccessLevel.WRITE);
+  const [shareSubmitting, setShareSubmitting] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   const { data: initialData, isLoading, error, refetch } = useQuery({
     queryKey: ['instance', instanceId],
@@ -63,6 +74,32 @@ export const InstanceDetailScreen: React.FC = () => {
     }
   };
 
+  const sortShares = useCallback((entries: InstanceShare[]) => {
+    const owner = entries.find(entry => entry.is_owner);
+    const others = entries.filter(entry => !entry.is_owner);
+    return owner ? [owner, ...others] : others;
+  }, []);
+
+  const loadInstanceShares = useCallback(async () => {
+    if (!instanceId) return;
+    setSharesLoading(true);
+    try {
+      const data = await dashboardApi.getInstanceAccessList(instanceId);
+      setShares(sortShares(data));
+      setShareError(null);
+      setSharesLoaded(true);
+    } catch (err) {
+      reportError(err, {
+        context: 'Failed to load shared users',
+        extras: { instanceId },
+        tags: sentryTags,
+      });
+      setShareError(err instanceof Error ? err.message : 'Failed to load shared users');
+    } finally {
+      setSharesLoading(false);
+    }
+  }, [instanceId, sortShares]);
+
   // Update local instance state when initial data loads
   useEffect(() => {
     if (initialData) {
@@ -73,6 +110,15 @@ export const InstanceDetailScreen: React.FC = () => {
       });
     }
   }, [initialData]);
+
+  useEffect(() => {
+    setShareModalVisible(false);
+    setShares([]);
+    setSharesLoaded(false);
+    setShareEmail('');
+    setShareError(null);
+    setShareAccess(InstanceAccessLevel.WRITE);
+  }, [instance?.id]);
 
   // SSE handlers
   const handleNewMessage = useCallback((message: Message) => {
@@ -164,6 +210,64 @@ export const InstanceDetailScreen: React.FC = () => {
     onMessageUpdate: handleMessageUpdate,
     onGitDiffUpdate: handleGitDiffUpdate,
   });
+
+  const handleOpenShareModal = useCallback(() => {
+    if (!instance?.is_owner) return;
+    setShareModalVisible(true);
+    if (!sharesLoaded) {
+      loadInstanceShares();
+    }
+  }, [instance?.is_owner, sharesLoaded, loadInstanceShares]);
+
+  const handleCloseShareModal = useCallback(() => {
+    setShareModalVisible(false);
+    setShareError(null);
+  }, []);
+
+  const handleAddShare = useCallback(async () => {
+    if (!instanceId || shareSubmitting) return;
+    const email = shareEmail.trim();
+    if (!email) return;
+
+    setShareSubmitting(true);
+    setShareError(null);
+    try {
+      const newShare = await dashboardApi.addInstanceShare(instanceId, {
+        email,
+        access: shareAccess,
+      });
+      setShares(prev => {
+        const filtered = prev.filter(entry => entry.id !== newShare.id);
+        return sortShares([...filtered, newShare]);
+      });
+      setShareEmail('');
+    } catch (err) {
+      reportError(err, {
+        context: 'Failed to add share',
+        extras: { instanceId, email, access: shareAccess },
+        tags: sentryTags,
+      });
+      setShareError(err instanceof Error ? err.message : 'Failed to add share');
+    } finally {
+      setShareSubmitting(false);
+    }
+  }, [instanceId, shareAccess, shareEmail, shareSubmitting, sortShares]);
+
+  const handleRemoveShare = useCallback(async (shareId: string) => {
+    if (!instanceId) return;
+    setShareError(null);
+    try {
+      await dashboardApi.removeInstanceShare(instanceId, shareId);
+      setShares(prev => prev.filter(entry => entry.id !== shareId));
+    } catch (err) {
+      reportError(err, {
+        context: 'Failed to remove share',
+        extras: { instanceId, shareId },
+        tags: sentryTags,
+      });
+      setShareError(err instanceof Error ? err.message : 'Failed to remove share');
+    }
+  }, [instanceId]);
 
   // Refresh data and reconnect SSE
   const refreshAndReconnect = useCallback(() => {
@@ -295,6 +399,18 @@ export const InstanceDetailScreen: React.FC = () => {
     }
   };
 
+  const shareButton = instance?.is_owner ? (
+    <TouchableOpacity
+      onPress={handleOpenShareModal}
+      style={styles.shareButton}
+      accessibilityRole="button"
+      accessibilityLabel="Manage sharing"
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+    >
+      <Share size={18} color={theme.colors.white} />
+    </TouchableOpacity>
+  ) : null;
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} >
@@ -308,6 +424,7 @@ export const InstanceDetailScreen: React.FC = () => {
               <Text style={styles.title}>{instance.name || formatAgentTypeName(instance.agent_type_name || 'Agent')}</Text>
             </View>
           }
+          rightContent={shareButton}
         />
         
         {/* Chat Interface */}
@@ -318,6 +435,21 @@ export const InstanceDetailScreen: React.FC = () => {
           onLoadMoreMessages={loadMoreMessages}
         />
       </SafeAreaView>
+
+      <ShareAccessModal
+        visible={shareModalVisible}
+        shares={shares}
+        loading={sharesLoading}
+        shareEmail={shareEmail}
+        shareAccess={shareAccess}
+        shareSubmitting={shareSubmitting}
+        shareError={shareError}
+        onClose={handleCloseShareModal}
+        onEmailChange={setShareEmail}
+        onAccessChange={setShareAccess}
+        onAddShare={handleAddShare}
+        onRemoveShare={handleRemoveShare}
+      />
     </View>
   );
 };
@@ -385,8 +517,13 @@ const styles = StyleSheet.create({
   },
   retryText: {
     fontSize: theme.fontSize.base,
-    fontFamily: theme.fontFamily.semibold,
-    fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.white,
+   fontFamily: theme.fontFamily.semibold,
+   fontWeight: theme.fontWeight.semibold as any,
+   color: theme.colors.white,
+  },
+  shareButton: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    backgroundColor: 'transparent',
   },
 });

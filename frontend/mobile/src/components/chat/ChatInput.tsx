@@ -21,6 +21,7 @@ interface ChatInputProps {
   onMessageSubmit: (content: string) => Promise<void>;
   isSubmitting: boolean;
   hasGitDiff?: boolean;
+  canWrite?: boolean;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -29,6 +30,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onMessageSubmit,
   isSubmitting,
   hasGitDiff = false,
+  canWrite = true,
 }) => {
   const [message, setMessage] = useState('');
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -38,6 +40,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // Check if the current message has structured components
   const hasStructuredComponents = currentWaitingMessage ? 
     parseQuestionFormat(currentWaitingMessage.content).format !== 'open-ended' : false;
+  const shouldShowStructuredHelper = canWrite && hasStructuredComponents;
+  const showStructuredHelper = currentWaitingMessage && !isKeyboardVisible && shouldShowStructuredHelper;
 
   useEffect(() => {
     const keyboardWillShowListener = Keyboard.addListener(
@@ -60,7 +64,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, []);
 
   const handleSubmit = async () => {
-    if (!message.trim() || isSubmitting) return;
+    if (!canWrite || !message.trim() || isSubmitting) return;
     
     const messageToSend = message;
     setMessage(''); // Clear input immediately for better UX
@@ -82,6 +86,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleAnswerAndSubmit = async (answer: string) => {
+    if (!canWrite) {
+      return;
+    }
     setMessage(answer);
     // Clear input immediately for better UX
     setMessage('');
@@ -102,18 +109,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     textInputRef.current?.focus();
   };
 
-  const placeholder = isWaitingForInput 
-    ? "Type your response..." 
-    : "Share your thoughts...";
+  const placeholder = !canWrite
+    ? 'You have read-only access to this chat.'
+    : isWaitingForInput
+      ? 'Type your response...'
+      : 'Share your thoughts...';
 
   return (
     <View style={[
       styles.container,
       // Add top margin when no structured components will show
-      (!currentWaitingMessage || !hasStructuredComponents) && !hasGitDiff ? styles.containerWithTopMargin : null
+      (!currentWaitingMessage || !shouldShowStructuredHelper) && !hasGitDiff ? styles.containerWithTopMargin : null
     ]}>
       {/* Structured Question Helper - only show when keyboard is hidden AND has structured components */}
-      {currentWaitingMessage && !isKeyboardVisible && hasStructuredComponents && (
+      {showStructuredHelper && (
         <View style={styles.structuredQuestionWrapper}>
           <StructuredQuestion
             ref={questionRef}
@@ -135,7 +144,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           placeholderTextColor={theme.colors.textMuted}
           multiline
           maxLength={100000}
-          editable={!isSubmitting}
+          editable={canWrite && !isSubmitting}
           onSubmitEditing={handleSubmit}
           blurOnSubmit={false}
         />
@@ -143,10 +152,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         <TouchableOpacity
           style={[
             styles.sendButton,
-            (!message.trim() || isSubmitting) && styles.sendButtonDisabled
+            (!canWrite || !message.trim() || isSubmitting) && styles.sendButtonDisabled
           ]}
           onPress={handleSubmit}
-          disabled={!message.trim() || isSubmitting}
+          disabled={!canWrite || !message.trim() || isSubmitting}
           activeOpacity={0.7}
         >
           {isSubmitting ? (
