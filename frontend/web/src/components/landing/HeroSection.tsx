@@ -86,6 +86,17 @@ const OmnaraLogo = () => {
             <code className="text-base md:text-lg font-mono text-omnara-cream-text text-shadow-sm">pip install omnara && omnara</code>
             <Copy className="w-4 h-4 text-omnara-cream-text/50 group-hover:text-amber-400 transition-colors" />
           </button>
+          <span className="text-omnara-cream-text/60 text-sm text-shadow-md">For macOS:</span>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText('brew install omnara && omnara')
+              toast.success('Command copied to clipboard!')
+            }}
+            className="group flex items-center space-x-3 px-6 py-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg hover:border-amber-500/30 hover:bg-amber-500/10 transition-all duration-200"
+          >
+            <code className="text-base md:text-lg font-mono text-omnara-cream-text text-shadow-sm">brew install omnara && omnara</code>
+            <Copy className="w-4 h-4 text-omnara-cream-text/50 group-hover:text-amber-400 transition-colors" />
+          </button>
         </div>
       </div>
       

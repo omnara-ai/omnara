@@ -198,7 +198,7 @@ const FinalCTASection = () => {
           {/* Contact Email */}
           <div className="mt-12 text-center">
             <p className="text-off-white/80 text-sm">
-              For feedback and inquiries: <a href="mailto:ishaan@omnara.com" className="text-omnara-gold hover:text-omnara-gold-light transition-colors font-medium">ishaan@omnara.com</a>
+              For feedback and inquiries: <a href="mailto:contact@omnara.com" className="text-omnara-gold hover:text-omnara-gold-light transition-colors font-medium">contact@omnara.com</a>
             </p>
           </div>
           
