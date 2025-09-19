@@ -8,4 +8,5 @@ email-validator==2.1.0
 exponent-server-sdk>=2.1.0
 stripe==10.8.0
 asyncpg==0.29.0
+sendgrid>=6.10.0
 -r ../shared/requirements.txt
