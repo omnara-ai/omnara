@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.borderDivider,
   },
   headerSide: {
-    width: 32, // Standard width for side elements
+    minWidth: 32, // Minimum width for side elements
     justifyContent: 'center',
     alignItems: 'center',
   },

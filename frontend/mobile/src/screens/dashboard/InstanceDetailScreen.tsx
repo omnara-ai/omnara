@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,8 @@ import { Header } from '@/components/ui';
 import { dashboardApi } from '@/services/api';
 import { InstanceDetail, AgentStatus, Message } from '@/types';
 import { formatAgentTypeName } from '@/utils/formatters';
-import { getStatusColor } from '@/utils/statusHelpers';
+import { withAlpha } from '@/lib/color';
+import { Pause, AlertTriangle, Power, CheckCircle, AlertCircle } from 'lucide-react-native';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { useSSE } from '@/hooks/useSSE';
 import { reportError, reportMessage } from '@/lib/sentry';
@@ -31,6 +32,7 @@ export const InstanceDetailScreen: React.FC = () => {
 
   const [instance, setInstance] = useState<InstanceDetail | null>(null);
   const [sseEnabled, setSseEnabled] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const sentryTags = { feature: 'mobile-instance-detail', instanceId };
@@ -73,6 +75,15 @@ export const InstanceDetailScreen: React.FC = () => {
       });
     }
   }, [initialData]);
+
+  // Refresh the heartbeat comparison periodically so the status stays in sync
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // SSE handlers
   const handleNewMessage = useCallback((message: Message) => {
@@ -223,6 +234,68 @@ export const InstanceDetailScreen: React.FC = () => {
 
   console.log('[InstanceDetailScreen] Query state - isLoading:', isLoading, 'instance:', !!instance, 'error:', !!error, 'sseEnabled:', sseEnabled);
 
+  const presence = useMemo(() => {
+    if (!instance) {
+      return {
+        label: 'Loading…',
+        dotColor: theme.colors.textMuted,
+        textColor: theme.colors.textMuted,
+      };
+    }
+
+    const ttlSeconds = 60;
+    const lastHeartbeat = instance.last_heartbeat_at ? new Date(instance.last_heartbeat_at).getTime() : null;
+    const secondsSince = lastHeartbeat ? Math.floor((now - lastHeartbeat) / 1000) : null;
+    const isOnline = secondsSince !== null && secondsSince <= ttlSeconds;
+
+    if (!isOnline) {
+      return {
+        label: 'Offline',
+        dotColor: theme.colors.error,
+        textColor: theme.colors.error,
+      };
+    }
+
+    switch (instance.status) {
+      case AgentStatus.AWAITING_INPUT:
+        return {
+          label: 'Waiting',
+          dotColor: theme.colors.warning,
+          textColor: theme.colors.warning,
+        };
+      case AgentStatus.PAUSED:
+        return {
+          label: 'Paused',
+          dotColor: theme.colors.info,
+          textColor: theme.colors.info,
+        };
+      case AgentStatus.FAILED:
+        return {
+          label: 'Error',
+          dotColor: theme.colors.error,
+          textColor: theme.colors.error,
+        };
+      case AgentStatus.KILLED:
+        return {
+          label: 'Stopped',
+          dotColor: theme.colors.error,
+          textColor: theme.colors.error,
+        };
+      case AgentStatus.COMPLETED:
+        return {
+          label: 'Done',
+          dotColor: theme.colors.textMuted,
+          textColor: theme.colors.textMuted,
+        };
+      default:
+        return {
+          label: 'Active',
+          dotColor: theme.colors.success,
+          textColor: theme.colors.success,
+        };
+    }
+  }, [instance, now]);
+
   if (isLoading) {
     console.log('[InstanceDetailScreen] Showing loading state');
     return (
@@ -299,13 +372,15 @@ export const InstanceDetailScreen: React.FC = () => {
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} >
         {/* Header */}
-        <Header 
-          title="" 
+        <Header
+          title={instance.name || formatAgentTypeName(instance.agent_type_name || 'Agent')}
           onBack={() => navigation.goBack()}
-          centerContent={
-            <View style={styles.titleContainer}>
-              <View style={[styles.statusDot, { backgroundColor: getStatusColor(instance.status) }]} />
-              <Text style={styles.title}>{instance.name || formatAgentTypeName(instance.agent_type_name || 'Agent')}</Text>
+          rightContent={
+            <View style={styles.statusIndicator}>
+              <View style={[styles.statusDot, { backgroundColor: presence.dotColor }]} />
+              <Text style={[styles.statusText, { color: presence.textColor }]}>
+                {presence.label}
+              </Text>
             </View>
           }
         />
@@ -330,21 +405,20 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  titleContainer: {
+  statusIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
   },
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginRight: theme.spacing.sm,
   },
-  title: {
-    fontSize: theme.fontSize.lg,
-    fontFamily: theme.fontFamily.semibold,
-    fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.white,
+  statusText: {
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.medium,
+    fontWeight: theme.fontWeight.medium as any,
   },
   loadingContainer: {
     flex: 1,
