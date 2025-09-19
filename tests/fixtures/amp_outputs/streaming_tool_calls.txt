@@ -1,0 +1,27 @@
+╭──────────────────────────────────────────────────────────────╮
+│ What can you help me find today?                            │
+╰──────────────────────────────────────────────────────────────╯
+
+[94m∿[39m Running inference...
+
+Tools:
+╰── Searching "gluten free cookie recipes"
+
+[92m≈[39m Running tools...
+
+[32m✓[39m [1mWeb Search[22m gluten free cookie recipes
+[32m✓[39m [1mRead Web Page[22m https://www.example.com/recipes/gluten-free-cookies
+[32m✓[39m [1mCreate[22m gluten_free_cookies.md
+
+I found some great gluten-free cookie recipes for you! I've searched the web and found a comprehensive recipe that I've saved to a file called `gluten_free_cookies.md`.
+
+The recipe includes:
+- Almond flour chocolate chip cookies
+- Oatmeal raisin cookies (using gluten-free oats)
+- Peanut butter cookies (naturally gluten-free)
+
+Each recipe includes detailed instructions and tips for getting the perfect texture. Would you like me to show you any specific recipe from the file?
+
+╭──────────────────────────────────────────────────────────────╮
+│ Type your next message...                                   │
+╰──────────────────────────────────────────────────────────────╯
