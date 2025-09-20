@@ -6,6 +6,9 @@ import {
   APIKey,
   NewAPIKey,
   UserProfile,
+  Message,
+  InstanceShare,
+  InstanceAccessLevel,
 } from '@/types';
 import { reportError, reportMessage } from '@/lib/sentry';
 
@@ -206,11 +209,31 @@ class DashboardAPI {
     return this.fetchWithAuth(url);
   }
 
-  async getInstanceMessages(instanceId: string, limit: number = 50, beforeMessageId?: string): Promise<any[]> {
+  async getInstanceMessages(instanceId: string, limit: number = 50, beforeMessageId?: string): Promise<Message[]> {
     const params = new URLSearchParams();
     params.append('limit', limit.toString());
     if (beforeMessageId) params.append('before_message_id', beforeMessageId);
     return this.fetchWithAuth(`/api/v1/agent-instances/${instanceId}/messages?${params.toString()}`);
+  }
+
+  async getInstanceAccessList(instanceId: string): Promise<InstanceShare[]> {
+    return this.fetchWithAuth(`/api/v1/agent-instances/${instanceId}/access`);
+  }
+
+  async addInstanceShare(
+    instanceId: string,
+    payload: { email: string; access: InstanceAccessLevel }
+  ): Promise<InstanceShare> {
+    return this.fetchWithAuth(`/api/v1/agent-instances/${instanceId}/access`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async removeInstanceShare(instanceId: string, shareId: string): Promise<void> {
+    await this.fetchWithAuth(`/api/v1/agent-instances/${instanceId}/access/${shareId}`, {
+      method: 'DELETE',
+    });
   }
 
   // Messages - unified system
