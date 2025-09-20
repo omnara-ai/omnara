@@ -291,6 +291,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             editable={canWrite && !isSubmitting && !isTranscribing}
             onSubmitEditing={handleSubmit}
             blurOnSubmit={false}
+            autoCapitalize="none"
           />
         )}
 
