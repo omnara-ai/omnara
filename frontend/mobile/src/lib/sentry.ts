@@ -1,4 +1,5 @@
-import * as Sentry from 'sentry-expo'
+import './tslibInteropFix'
+import * as Sentry from 'sentry-expo/build/sentry'
 
 const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN ?? process.env.SENTRY_DSN
 const sentryEnabled = Boolean(dsn)

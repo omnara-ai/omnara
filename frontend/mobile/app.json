@@ -75,7 +75,8 @@
       ],
       "expo-web-browser",
       "expo-apple-authentication",
-      "expo-updates"
+      "expo-updates",
+      "sentry-expo"
     ],
     "extra": {
       "eas": {
