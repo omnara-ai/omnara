@@ -138,6 +138,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           editable={!isSubmitting}
           onSubmitEditing={handleSubmit}
           blurOnSubmit={false}
+          autoCapitalize="none"
         />
         
         <TouchableOpacity

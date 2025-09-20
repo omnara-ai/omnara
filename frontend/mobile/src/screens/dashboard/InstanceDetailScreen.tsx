@@ -377,7 +377,11 @@ export const InstanceDetailScreen: React.FC = () => {
           onBack={() => navigation.goBack()}
           rightContent={
             <View style={styles.statusIndicator}>
-              <View style={[styles.statusDot, { backgroundColor: presence.dotColor }]} />
+              {presence.label === 'Active' ? (
+                <ActivityIndicator size="small" color={presence.dotColor} />
+              ) : (
+                <View style={[styles.statusDot, { backgroundColor: presence.dotColor }]} />
+              )}
               <Text style={[styles.statusText, { color: presence.textColor }]}>
                 {presence.label}
               </Text>
