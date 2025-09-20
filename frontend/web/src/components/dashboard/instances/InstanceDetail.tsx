@@ -209,9 +209,25 @@ export function InstanceDetail() {
               return prev
             }
 
+            // Keep the instance status in sync with the message-level change 
+            // so the UI updates immediately.
+            let nextStatus = prev.status
+            if (messageData.requires_user_input) {
+              if (
+                prev.status !== AgentStatus.COMPLETED &&
+                prev.status !== AgentStatus.FAILED &&
+                prev.status !== AgentStatus.KILLED
+              ) {
+                nextStatus = AgentStatus.AWAITING_INPUT
+              }
+            } else if (prev.status === AgentStatus.AWAITING_INPUT) {
+              nextStatus = AgentStatus.ACTIVE
+            }
+
             return {
               ...prev,
               messages,
+              status: nextStatus,
             }
           })
         } catch (err) {
