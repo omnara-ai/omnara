@@ -5,9 +5,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  ScrollView,
+  FlatList,
 } from 'react-native';
-import { Plus, MoreVertical, Info } from 'lucide-react-native';
+import { Plus, MoreVertical, Play } from 'lucide-react-native';
 import { theme } from '@/constants/theme';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { formatAgentTypeName } from '@/utils/formatters';
@@ -102,79 +102,73 @@ export const AgentsList: React.FC<AgentsListProps> = () => {
     setIsAddAgentModalVisible(false);
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.sectionTitle}>Agents</Text>
-        <TouchableOpacity
-          onPress={() => setIsAddAgentModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Plus size={20} color={theme.colors.primaryLight} strokeWidth={2} />
-        </TouchableOpacity>
-      </View>
-      
-      <View style={[
-        styles.listContainer,
-        userAgents.length > 4 && styles.listContainerScrollable
-      ]}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          scrollEnabled={userAgents.length > 4}
-          nestedScrollEnabled={true}
-        >
-          {userAgents.map((agent, index) => {
-            const hasWebhook = !!agent.webhook_type;
-            const activeCount = agent.active_instance_count || 0;
-            
-            return (
+  const renderAgentCard = ({ item: agent, index }) => {
+    const hasWebhook = !!agent.webhook_type;
+    const activeCount = agent.active_instance_count || 0;
+
+    return (
+      <TouchableOpacity
+        style={styles.agentCard}
+        onPress={() => handleAgentClick(agent)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.cardContent}>
+          <View style={styles.cardHeader}>
+            <View style={styles.agentTitleContainer}>
+              <Text style={styles.agentName}>{formatAgentTypeName(agent.name)}</Text>
+              {activeCount > 0 && (
+                <View style={styles.statusContainer}>
+                  <View style={styles.activeDot} />
+                  <Text style={styles.activeCount}>{activeCount} active</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.actionButtons}>
+              {hasWebhook && (
+                <TouchableOpacity
+                  onPress={(e) => handleLaunchAgent(agent, e)}
+                  style={styles.launchIconButton}
+                  activeOpacity={0.7}
+                >
+                  <Play size={16} color={theme.colors.white} strokeWidth={2} fill={theme.colors.white} />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
-                key={agent.id}
-                style={[
-                  styles.agentRow,
-                  index < userAgents.length - 1 && styles.agentRowBorder
-                ]}
-                onPress={() => handleAgentClick(agent)}
+                onPress={(e) => handleEditAgent(agent, e)}
+                style={styles.menuButton}
                 activeOpacity={0.7}
               >
-                <View style={styles.agentInfo}>
-                  <Text style={styles.agentName}>{formatAgentTypeName(agent.name)}</Text>
-                  <View style={styles.agentMeta}>
-                    {activeCount > 0 ? (
-                      <>
-                        <View style={styles.activeDot} />
-                        <Text style={styles.activeCount}>{activeCount} active</Text>
-                      </>
-                    ) : (
-                      <Text style={styles.inactiveCount}>Inactive</Text>
-                    )}
-                  </View>
-                </View>
-                
-                <View style={styles.actionButtons}>
-                  {hasWebhook && (
-                    <TouchableOpacity
-                      onPress={(e) => handleLaunchAgent(agent, e)}
-                      style={styles.launchButton}
-                      activeOpacity={0.7}
-                    >
-                      <Plus size={14} color={theme.colors.white} strokeWidth={2.5} />
-                      <Text style={styles.launchButtonText}>Launch</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    onPress={(e) => handleEditAgent(agent, e)}
-                    style={styles.menuButton}
-                    activeOpacity={0.7}
-                  >
-                    <MoreVertical size={16} color={theme.colors.white} strokeWidth={2} />
-                  </TouchableOpacity>
-                </View>
+                <MoreVertical size={18} color={theme.colors.textMuted} strokeWidth={2} />
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={userAgents}
+        keyExtractor={(item) => item.id}
+        renderItem={renderAgentCard}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <TouchableOpacity
+              onPress={() => setIsAddAgentModalVisible(true)}
+              style={styles.addButton}
+              activeOpacity={0.7}
+            >
+              <Plus size={18} color={theme.colors.white} strokeWidth={2.5} />
+              <Text style={styles.addButtonText}>Add New Agent</Text>
+            </TouchableOpacity>
+          </View>
+        }
+      />
 
       <LaunchAgentModal
         visible={isLaunchModalVisible}
@@ -208,65 +202,76 @@ export const AgentsList: React.FC<AgentsListProps> = () => {
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
+    flex: 1,
   },
   header: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
+    backgroundColor: 'rgba(255, 140, 60, 0.25)',
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.md + 2,
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 140, 60, 0.45)',
+    width: '100%',
+    shadowColor: 'rgba(255, 140, 60, 0.5)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  addButtonText: {
+    fontSize: theme.fontSize.base,
+    fontFamily: theme.fontFamily.semibold,
+    fontWeight: theme.fontWeight.semibold as any,
+    color: theme.colors.white,
+  },
+  listContent: {
+    paddingBottom: theme.spacing.xl * 2,
+  },
+  agentCard: {
+    marginHorizontal: theme.spacing.lg,
+    marginBottom: theme.spacing.sm,
+    backgroundColor: theme.colors.authContainer,
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  cardContent: {
+    padding: theme.spacing.lg,
+  },
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
   },
-  sectionTitle: {
+  agentTitleContainer: {
+    flex: 1,
+    marginRight: theme.spacing.md,
+  },
+  agentName: {
     fontSize: theme.fontSize.lg,
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold as any,
-    color: theme.colors.text,
+    color: theme.colors.white,
+    marginBottom: theme.spacing.xs,
   },
-  manageLink: {
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.medium,
-    fontWeight: theme.fontWeight.medium as any,
-    color: theme.colors.primaryLight,
-  },
-  loadingContainer: {
-    paddingVertical: theme.spacing.xl,
-    alignItems: 'center',
-  },
-  listContainer: {
-    backgroundColor: theme.colors.cardSurface,
-    borderRadius: theme.borderRadius.sm,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  listContainerScrollable: {
-    maxHeight: 240, // Show ~4 items
-  },
-  agentRow: {
+  statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.md,
-  },
-  agentRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.borderDivider,
-  },
-  agentInfo: {
-    flex: 1,
-  },
-  agentName: {
-    fontSize: theme.fontSize.base,
-    fontFamily: theme.fontFamily.medium,
-    fontWeight: theme.fontWeight.medium as any,
-    color: theme.colors.text,
-    marginBottom: 2,
-  },
-  agentMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   activeDot: {
     width: 6,
@@ -276,12 +281,14 @@ const styles = StyleSheet.create({
   },
   activeCount: {
     fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.regular,
+    fontFamily: theme.fontFamily.medium,
+    fontWeight: theme.fontWeight.medium as any,
     color: theme.colors.success,
   },
   inactiveCount: {
     fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.regular,
+    fontFamily: theme.fontFamily.medium,
+    fontWeight: theme.fontWeight.medium as any,
     color: theme.colors.textMuted,
   },
   actionButtons: {
@@ -289,28 +296,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: theme.spacing.xs,
   },
-  launchButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    height: 28,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: theme.colors.primary,
+  launchIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.success,
     justifyContent: 'center',
-  },
-  launchButtonText: {
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.medium,
-    fontWeight: theme.fontWeight.medium as any,
-    color: theme.colors.white,
+    alignItems: 'center',
   },
   menuButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+    width: 32,
+    height: 32,
+    borderRadius: theme.borderRadius.sm,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.xl,
   },
   // Empty state styles
   emptyStateContainer: {
@@ -320,6 +325,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: theme.spacing.lg,
     alignItems: 'center',
+    marginHorizontal: theme.spacing.lg,
     marginTop: theme.spacing.lg,
   },
 });

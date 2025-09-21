@@ -13,17 +13,18 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DrawerContentScrollView } from '@react-navigation/drawer';
 import { useNavigation } from '@react-navigation/native';
-import { 
-  User, 
-  Key, 
-  Bell, 
-  Shield, 
-  LogOut, 
-  Trash2, 
+import {
+  User,
+  Key,
+  Bell,
+  Shield,
+  LogOut,
+  Trash2,
   ChevronRight,
   AlertTriangle,
   CreditCard,
-  Terminal 
+  Terminal,
+  Bot
 } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '@/contexts/AuthContext';
@@ -54,10 +55,10 @@ const MenuItem: React.FC<MenuItemProps> = ({
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Icon 
-        size={20} 
-        color={isDestructive ? theme.colors.error : theme.colors.primaryLight} 
-        strokeWidth={1.5} 
+      <Icon
+        size={22}
+        color={isDestructive ? theme.colors.error : theme.colors.primaryLight}
+        strokeWidth={1.5}
         style={styles.menuIcon}
       />
       <View style={styles.menuTextContainer}>
@@ -159,41 +160,42 @@ export const ProfileSidebar: React.FC<any> = (props) => {
         {/* Menu Section */}
         <View style={styles.menuSection}>
           <MenuItem
+            icon={Bot}
+            title="Agents"
+            subtitle="Manage your AI agents"
+            onPress={() => handleNavigate('Agents')}
+          />
+
+          <MenuItem
             icon={Terminal}
             title="Setup Guide"
             subtitle="Review onboarding and setup steps"
             onPress={() => handleNavigate('Onboarding')}
           />
-          <View style={styles.menuDivider} />
-          
+
           <MenuItem
             icon={Key}
             title="API Keys"
             subtitle="Manage your API access tokens"
             onPress={() => handleNavigate('APIKeys')}
           />
-          <View style={styles.menuDivider} />
-          
+
           <MenuItem
             icon={Bell}
             title="Notifications"
             subtitle="Configure notification settings"
             onPress={() => handleNavigate('NotificationSettings')}
           />
-          
+
           {Platform.OS === 'ios' && (
-            <>
-              <View style={styles.menuDivider} />
-              <MenuItem
-                icon={CreditCard}
-                title="Subscription"
-                subtitle="Manage your Pro subscription"
-                onPress={() => handleNavigate('Subscription')}
-              />
-            </>
+            <MenuItem
+              icon={CreditCard}
+              title="Subscription"
+              subtitle="Manage your Pro subscription"
+              onPress={() => handleNavigate('Subscription')}
+            />
           )}
-          
-          <View style={styles.menuDivider} />
+
           <MenuItem
             icon={Shield}
             title="Legal"
@@ -209,9 +211,9 @@ export const ProfileSidebar: React.FC<any> = (props) => {
             title="Sign Out"
             onPress={handleLogout}
           />
-          
-          <View style={styles.buttonSpacer} />
-          
+
+          <View style={styles.deleteAccountSpacer} />
+
           <MenuItem
             icon={Trash2}
             title="Delete Account"
@@ -312,33 +314,38 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.6)',
   },
   menuSection: {
-    paddingTop: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
   },
   accountSection: {
-    marginTop: theme.spacing.xl,
-    marginBottom: theme.spacing.xl,
-    paddingTop: theme.spacing.lg,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    borderTopColor: 'rgba(255, 255, 255, 0.15)',
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm + 2,
+    paddingLeft: theme.spacing.sm,
+    paddingRight: theme.spacing.md,
+    borderRadius: theme.borderRadius.sm,
+    marginVertical: 1,
   },
   menuIcon: {
-    marginRight: theme.spacing.md,
+    marginRight: theme.spacing.sm,
+    width: 20,
+    alignItems: 'center',
   },
   menuTextContainer: {
     flex: 1,
   },
   menuTitle: {
     fontSize: theme.fontSize.base,
-    fontFamily: theme.fontFamily.regular,
-    fontWeight: theme.fontWeight.normal as any,
+    fontFamily: theme.fontFamily.medium,
+    fontWeight: theme.fontWeight.medium as any,
     color: theme.colors.white,
-    marginBottom: 2,
+    marginBottom: 3,
   },
   menuTitleDanger: {
     color: theme.colors.error,
@@ -346,7 +353,11 @@ const styles = StyleSheet.create({
   menuSubtitle: {
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.regular,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: 'rgba(255, 255, 255, 0.6)',
+    lineHeight: theme.fontSize.sm * 1.3,
+  },
+  deleteAccountSpacer: {
+    height: theme.spacing.lg,
   },
   modalOverlay: {
     flex: 1,
@@ -423,13 +434,5 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold as any,
     color: theme.colors.white,
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    marginLeft: 44, // Align with text (icon width + margin)
-  },
-  buttonSpacer: {
-    height: theme.spacing.xl * 2,
   },
 });

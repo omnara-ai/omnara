@@ -235,22 +235,14 @@ export const SwipeableInstanceCard: React.FC<SwipeableInstanceCardProps> = ({
             </View>
             <View style={styles.contentContainer}>
               <View style={styles.headerRow}>
-                <Text style={styles.agentName}>{instance.name || displayAgentTypeName}</Text>
+                <Text style={styles.agentName} numberOfLines={2} ellipsizeMode="tail">
+                  {instance.name || displayAgentTypeName}
+                </Text>
                 <Text style={styles.timestamp}>{formatTimeSince(instance.started_at)}</Text>
               </View>
               <Text style={styles.taskDescription} numberOfLines={2}>
                 {instance.latest_message || 'No activity yet'}
               </Text>
-              <View style={styles.bottomRow}>
-                <Text style={styles.statusText}>{getStatusText(instance.status)}</Text>
-                <View style={styles.metrics}>
-                  {instance.chat_length && instance.chat_length > 0 ? (
-                    <Text style={styles.messageCount}>
-                      {instance.chat_length} message{instance.chat_length !== 1 ? 's' : ''}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
             </View>
           </View>
         </View>
@@ -289,18 +281,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    position: 'relative',
     marginBottom: theme.spacing.xs,
+    minHeight: 20, // Ensure minimum height for single line
   },
   agentName: {
     fontSize: theme.fontSize.base,
     fontFamily: theme.fontFamily.semibold,
     fontWeight: theme.fontWeight.semibold as any,
     color: theme.colors.white,
+    paddingRight: 60, // Leave space for timestamp
+    lineHeight: theme.fontSize.base * 1.2,
   },
   timestamp: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.regular,
     color: 'rgba(255, 255, 255, 0.5)',
