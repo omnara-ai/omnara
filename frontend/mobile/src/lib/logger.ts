@@ -53,14 +53,14 @@ export function reportError(...args: unknown[]): void {
     callArgs = callArgs.slice(0, -1);
   }
 
-  const logArgs: unknown[] = [];
-  if (metadata?.context) {
-    logArgs.push(metadata.context);
-  }
-  logArgs.push(...callArgs);
-  if (metadata?.extras) {
-    logArgs.push(metadata.extras);
-  }
+  const logArgs = metadata
+    ? [
+        ...(metadata.context ? [metadata.context] : []),
+        ...callArgs,
+        ...(metadata.extras ? [metadata.extras] : []),
+      ]
+    : callArgs;
+
   console.error(...logArgs);
 
   const client = getSentryClient();
