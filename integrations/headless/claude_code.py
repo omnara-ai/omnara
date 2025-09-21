@@ -203,9 +203,7 @@ class HeadlessClaudeRunner:
 
             # Process any initial queued messages
             if response.queued_user_messages:
-                return response.queued_user_messages[
-                    0
-                ]  # Return first user message to start with
+                return response.queued_user_messages[0].content
 
         return None
 
@@ -255,7 +253,7 @@ class HeadlessClaudeRunner:
 
             # If we asked for user input, return the first response as string
             if requires_user_input and response.queued_user_messages:
-                return response.queued_user_messages[0]
+                return response.queued_user_messages[0].content
 
             # For intermediate messages, return None (we stored the message_id above)
             return None

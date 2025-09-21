@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from omnara.sdk.models import Message
+
 # Skip all tests in this module when running in CI
 if os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true":
     import pytest
@@ -275,7 +277,15 @@ class TestMessageProcessor(unittest.TestCase):
         mock_response = Mock()
         mock_response.message_id = "msg_123"
         mock_response.agent_instance_id = "instance_123"
-        mock_response.queued_user_messages = ["Queued message"]
+        mock_response.queued_user_messages = [
+            Message(
+                id="queued_msg",
+                content="Queued message",
+                sender_type="user",
+                created_at="",
+                requires_user_input=False,
+            )
+        ]
 
         self.wrapper_mock.omnara_client_sync.send_message.return_value = mock_response
 

@@ -13,6 +13,7 @@ import binascii
 
 from shared.database.session import get_db, SessionLocal
 from shared.database import Message, AgentInstance, SenderType, AgentStatus
+from shared.message_types import parse_message_metadata
 from servers.shared.db import (
     send_agent_message,
     end_session,
@@ -56,6 +57,19 @@ def _maybe_decode_base64(value: str | None) -> str | None:
             return decoded.decode("utf-8", errors="replace")
     except (binascii.Error, ValueError):
         return value
+
+
+def _serialize_message(message: Message) -> MessageResponse:
+    parsed_metadata = parse_message_metadata(message.message_metadata)
+    return MessageResponse(
+        id=str(message.id),
+        content=message.content,
+        sender_type=message.sender_type.value,
+        created_at=message.created_at.isoformat(),
+        requires_user_input=message.requires_user_input,
+        message_metadata=parsed_metadata.raw,
+        message_type=parsed_metadata.message_type,
+    )
 
 
 @agent_router.get("/auth/verify", response_model=VerifyAuthResponse)
@@ -143,16 +157,7 @@ async def create_agent_message_endpoint(
 
         db.commit()
 
-        message_responses = [
-            MessageResponse(
-                id=str(msg.id),
-                content=msg.content,
-                sender_type=msg.sender_type.value,
-                created_at=msg.created_at.isoformat(),
-                requires_user_input=msg.requires_user_input,
-            )
-            for msg in queued_messages
-        ]
+        message_responses = [_serialize_message(msg) for msg in queued_messages]
 
         return CreateMessageResponse(
             success=True,
@@ -332,16 +337,7 @@ def get_pending_messages(
         db.commit()
 
         # Convert to response format
-        message_responses = [
-            MessageResponse(
-                id=str(msg.id),
-                content=msg.content,
-                sender_type=msg.sender_type.value,
-                created_at=msg.created_at.isoformat(),
-                requires_user_input=msg.requires_user_input,
-            )
-            for msg in messages
-        ]
+        message_responses = [_serialize_message(msg) for msg in messages]
 
         return GetMessagesResponse(
             agent_instance_id=agent_instance_id,
@@ -425,16 +421,7 @@ async def request_user_input_endpoint(
 
         db.commit()
 
-        message_responses = [
-            MessageResponse(
-                id=str(msg.id),
-                content=msg.content,
-                sender_type=msg.sender_type.value,
-                created_at=msg.created_at.isoformat(),
-                requires_user_input=msg.requires_user_input,
-            )
-            for msg in (queued_messages or [])
-        ]
+        message_responses = [_serialize_message(msg) for msg in (queued_messages or [])]
 
         return {
             "success": True,

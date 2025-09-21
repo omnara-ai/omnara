@@ -1,3 +1,5 @@
+import { MessageEnvelope, MessageType } from './messages'
+
 export enum AgentStatus {
   ACTIVE = 'ACTIVE',
   AWAITING_INPUT = 'AWAITING_INPUT',
@@ -52,6 +54,8 @@ export interface Message {
   sender_user_id?: string | null
   sender_user_email?: string | null
   sender_user_display_name?: string | null
+  message_type?: MessageType | null
+  message_metadata?: MessageEnvelope | Record<string, unknown> | null
 }
 
 export interface AgentQuestion {

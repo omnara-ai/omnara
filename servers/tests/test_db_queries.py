@@ -214,6 +214,26 @@ class TestMessageIntegration:
         test_db.refresh(instance)
         assert instance.last_read_message_id == question.id
 
+    def test_create_agent_message_invalid_metadata(self, test_db, test_user):
+        """Ensure invalid structured metadata is rejected."""
+
+        instance_id = str(uuid4())
+        instance = get_or_create_agent_instance(
+            test_db, instance_id, str(test_user.id), agent_type="Test Agent"
+        )
+        test_db.commit()
+
+        with pytest.raises(ValueError):
+            create_agent_message(
+                db=test_db,
+                instance_id=instance.id,
+                content="Attempt with bad metadata",
+                message_metadata={
+                    "message_type": "CODE_EDIT",
+                    "payload": {"not_edits": []},
+                },
+            )
+
     @pytest.mark.integration
     def test_multiple_user_messages_queuing(self, test_db, test_user):
         """Test handling multiple queued user messages."""

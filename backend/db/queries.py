@@ -21,6 +21,7 @@ from shared.database import (
 )
 from shared.database.billing_operations import get_or_create_subscription
 from shared.database.subscription_models import BillingEvent, Subscription
+from shared.message_types import parse_message_metadata
 from sqlalchemy import case, desc, func, or_, select
 from sqlalchemy.orm import Session, joinedload, subqueryload, aliased, selectinload
 
@@ -50,6 +51,7 @@ def _normalize_email(email: str) -> str:
 
 def _message_to_response(msg: Message) -> MessageResponse:
     sender = msg.sender_user
+    parsed_metadata = parse_message_metadata(msg.message_metadata)
     return MessageResponse(
         id=str(msg.id),
         content=msg.content,
@@ -59,6 +61,8 @@ def _message_to_response(msg: Message) -> MessageResponse:
         sender_user_display_name=sender.display_name if sender else None,
         created_at=msg.created_at,
         requires_user_input=msg.requires_user_input,
+        message_metadata=parsed_metadata.raw,
+        message_type=parsed_metadata.message_type,
     )
 
 
@@ -899,6 +903,8 @@ def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | No
     if message.sender_user_id:
         sender_user = db.query(User).filter(User.id == message.sender_user_id).first()
 
+    parsed_metadata = parse_message_metadata(message.message_metadata)
+
     return {
         "id": str(message.id),
         "agent_instance_id": str(message.agent_instance_id),
@@ -911,7 +917,8 @@ def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | No
         "content": message.content,
         "created_at": message.created_at.isoformat() + "Z",
         "requires_user_input": message.requires_user_input,
-        "message_metadata": message.message_metadata,
+        "message_metadata": parsed_metadata.raw,
+        "message_type": parsed_metadata.message_type,
     }
 
 

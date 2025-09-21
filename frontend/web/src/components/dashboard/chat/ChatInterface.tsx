@@ -131,6 +131,8 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
                   sender_user_id: m.sender_user_id,
                   sender_user_email: m.sender_user_email,
                   sender_user_display_name: m.sender_user_display_name,
+                  message_type: m.message_type,
+                  message_metadata: m.message_metadata,
                 } as Message))
               
               // Prepend new messages and sort by created_at
@@ -187,6 +189,8 @@ export function ChatInterface({ instance, onMessageSubmit, onLoadMoreMessages }:
           sender_user_id: msg.sender_user_id,
           sender_user_email: msg.sender_user_email,
           sender_user_display_name: msg.sender_user_display_name,
+          message_type: msg.message_type,
+          message_metadata: msg.message_metadata,
         })
       })
       

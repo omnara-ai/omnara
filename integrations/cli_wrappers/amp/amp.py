@@ -297,10 +297,9 @@ class MessageProcessor:
 
         # Process any queued user messages
         if response.queued_user_messages:
-            self.wrapper.log(
-                f"[INFO] Got {len(response.queued_user_messages)} queued user messages"
-            )
-            concatenated = "\n".join(response.queued_user_messages)
+            user_contents = [msg.content for msg in response.queued_user_messages]
+            self.wrapper.log(f"[INFO] Got {len(user_contents)} queued user messages")
+            concatenated = "\n".join(user_contents)
             self.web_ui_messages.add(concatenated)
             self.wrapper.input_queue.append(concatenated)
 
@@ -1410,12 +1409,15 @@ class AmpWrapper:
 
                 # Process any queued messages from initial response
                 if response.queued_user_messages:
+                    initial_contents = [
+                        msg.content for msg in response.queued_user_messages
+                    ]
                     self.log(
-                        f"[INFO] Got {len(response.queued_user_messages)} queued messages from initial response"
+                        f"[INFO] Got {len(initial_contents)} queued messages from initial response"
                     )
-                    for msg in response.queued_user_messages:
-                        self.message_processor.web_ui_messages.add(msg)
-                        self.input_queue.append(msg)
+                    for user_msg in initial_contents:
+                        self.message_processor.web_ui_messages.add(user_msg)
+                        self.input_queue.append(user_msg)
 
         except (AuthenticationError, APIError) as e:
             error_msg = str(e)

@@ -15,6 +15,7 @@ from shared.database import (
 from shared.database.billing_operations import check_agent_limit
 from shared.database.utils import sanitize_git_diff
 from shared.llms import generate_conversation_title
+from shared.message_types import MessageMetadataError, normalize_message_metadata
 from sqlalchemy.orm import Session
 from fastmcp import Context
 
@@ -207,12 +208,21 @@ def create_agent_message(
         # Stamp heartbeat for any agent activity
         instance.last_heartbeat_at = datetime.now(timezone.utc)
 
+    normalized_metadata: dict | None = None
+    if message_metadata is not None:
+        try:
+            normalized_metadata = normalize_message_metadata(message_metadata)
+        except MessageMetadataError as exc:
+            raise ValueError("Invalid message metadata") from exc
+        if normalized_metadata is None:
+            normalized_metadata = dict(message_metadata)
+
     message = Message(
         agent_instance_id=instance_id,
         sender_type=SenderType.AGENT,
         content=content,
         requires_user_input=requires_user_input,
-        message_metadata=message_metadata,
+        message_metadata=normalized_metadata,
     )
     db.add(message)
     db.flush()  # Flush to get the message ID

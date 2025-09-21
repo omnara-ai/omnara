@@ -42,7 +42,13 @@ Issues = "https://github.com/omnara-ai/omnara/issues"
 omnara = "omnara.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["omnara*", "servers.mcp_server*", "servers.shared*", "integrations*"]
+include = [
+    "omnara*",
+    "servers.mcp_server*",
+    "servers.shared*",
+    "integrations*",
+    "shared.message_types*",
+]
 
 [tool.setuptools.package-data]
 omnara = ["_bin/**"]
