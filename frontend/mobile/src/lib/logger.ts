@@ -13,15 +13,6 @@ const isMetadata = (value: unknown): value is ErrorMetadata =>
     'tags' in (value as Record<string, unknown>)
   );
 
-const getSentryClient = () => {
-  try {
-    return Sentry.getCurrentHub().getClient();
-  } catch (error) {
-    console.warn('[logger] Unable to access Sentry client', error);
-    return null;
-  }
-};
-
 const normalizeError = (error: unknown): Error => {
   if (error instanceof Error) {
     return error;
@@ -63,31 +54,30 @@ export function reportError(...args: unknown[]): void {
 
   console.error(...logArgs);
 
-  const client = getSentryClient();
-  if (!client) {
-    return;
-  }
-
   let capturedError = callArgs.find((arg) => arg instanceof Error) as Error | undefined;
   if (!capturedError) {
     const messageArg = callArgs.find((arg) => typeof arg === 'string') as string | undefined;
     capturedError = normalizeError(messageArg ?? 'Unknown error');
   }
 
-  Sentry.withScope((scope) => {
-    if (metadata?.extras) {
-      scope.setExtras(metadata.extras);
-    }
-    if (metadata?.tags) {
-      Object.entries(metadata.tags).forEach(([key, value]) => scope.setTag(key, value));
-    }
-    if (metadata?.context) {
-      scope.setContext('context', { message: metadata.context });
-    }
+  try {
+    Sentry.withScope((scope) => {
+      if (metadata?.extras) {
+        scope.setExtras(metadata.extras);
+      }
+      if (metadata?.tags) {
+        Object.entries(metadata.tags).forEach(([key, value]) => scope.setTag(key, value));
+      }
+      if (metadata?.context) {
+        scope.setContext('context', { message: metadata.context });
+      }
 
-    scope.setLevel('error');
-    Sentry.captureException(capturedError as Error);
-  });
+      scope.setLevel('error');
+      Sentry.captureException(capturedError as Error);
+    });
+  } catch (captureError) {
+    console.warn('[logger] Failed to capture exception with Sentry', captureError);
+  }
 }
 
 export function reportMessage(message: string, metadata?: ErrorMetadata): void {
@@ -97,25 +87,24 @@ export function reportMessage(message: string, metadata?: ErrorMetadata): void {
     console.warn(message, metadata?.extras);
   }
 
-  const client = getSentryClient();
-  if (!client) {
-    return;
+  try {
+    Sentry.withScope((scope) => {
+      if (metadata?.extras) {
+        scope.setExtras(metadata.extras);
+      }
+      if (metadata?.tags) {
+        Object.entries(metadata.tags).forEach(([key, value]) => scope.setTag(key, value));
+      }
+      if (metadata?.context) {
+        scope.setContext('context', { message: metadata.context });
+      }
+
+      scope.setLevel('warning');
+      Sentry.captureMessage(message);
+    });
+  } catch (captureError) {
+    console.warn('[logger] Failed to capture message with Sentry', captureError);
   }
-
-  Sentry.withScope((scope) => {
-    if (metadata?.extras) {
-      scope.setExtras(metadata.extras);
-    }
-    if (metadata?.tags) {
-      Object.entries(metadata.tags).forEach(([key, value]) => scope.setTag(key, value));
-    }
-    if (metadata?.context) {
-      scope.setContext('context', { message: metadata.context });
-    }
-
-    scope.setLevel('warning');
-    Sentry.captureMessage(message);
-  });
 }
 
 export const captureException = reportError;
