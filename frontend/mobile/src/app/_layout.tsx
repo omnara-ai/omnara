@@ -29,6 +29,7 @@ import { NotificationSettingsScreen } from '@/screens/dashboard/NotificationSett
 import { SubscriptionScreen } from '@/screens/dashboard/SubscriptionScreen';
 import { LegalScreen } from '@/screens/LegalScreen';
 import { OnboardingScreen } from '@/screens/OnboardingScreen';
+import { AgentsScreen } from '@/screens/dashboard/AgentsScreen';
 
 // Keep the splash screen visible while we fetch resources
 ExpoSplashScreen.preventAutoHideAsync();
@@ -177,6 +178,13 @@ function RootNavigator() {
           <Stack.Screen
             name="Onboarding"
             component={OnboardingScreen}
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="Agents"
+            component={AgentsScreen}
             options={{
               headerShown: false,
             }}
