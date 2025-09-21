@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { reportError } from '@/lib/logger';
 import {
   AgentType,
   AgentInstance,
@@ -10,7 +11,6 @@ import {
   InstanceShare,
   InstanceAccessLevel,
 } from '@/types';
-import { reportError, reportMessage } from '@/lib/sentry';
 
 // Custom error class to pass both title and message
 export class APIError extends Error {
@@ -248,7 +248,7 @@ class DashboardAPI {
   async getMessageStreamUrl(instanceId: string): Promise<string | null> {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      reportMessage('No auth session available for SSE', {
+      console.warn('No auth session available for SSE', {
         context: 'Missing auth session for SSE stream',
         extras: { instanceId },
         tags: { feature: 'mobile-api' },

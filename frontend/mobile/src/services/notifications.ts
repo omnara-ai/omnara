@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { reportError } from '@/lib/logger';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => {
@@ -84,7 +85,11 @@ class NotificationService {
         return await Promise.race([operation(), timeoutPromise]);
       } catch (error) {
         if (attempt === maxRetries) {
-          console.error(`${operationName} failed after ${maxRetries + 1} attempts:`, error);
+          reportError(error, {
+            context: `${operationName} failed after ${maxRetries + 1} attempts`,
+            extras: { operationName, maxRetries: maxRetries + 1 },
+            tags: { feature: 'mobile-notifications' },
+          });
           throw error;
         }
 
@@ -180,7 +185,10 @@ class NotificationService {
 
       return { success, partialSuccess, state: this.state };
     } catch (error) {
-      console.error('Critical error during notification initialization:', error);
+      reportError(error, {
+        context: 'Critical error during notification initialization',
+        tags: { feature: 'mobile-notifications' },
+      });
       this.state.error = error instanceof Error ? error.message : 'Unknown error';
       this.state.isInitialized = true;
       return { 
@@ -291,7 +299,10 @@ class NotificationService {
             }
           }
         } catch (retryError) {
-          console.error('Failed to generate push token after retries:', retryError);
+          reportError(retryError, {
+            context: 'Failed to generate push token after retries',
+            tags: { feature: 'mobile-notifications' },
+          });
           this.state.error = 'Push token generation failed';
         }
       }, 5000); // Wait 5 seconds before retry
@@ -342,7 +353,10 @@ class NotificationService {
         }
         this.state.tokenGenerated = true;
       } catch (error) {
-        console.error('Failed to generate token:', error);
+        reportError(error, {
+          context: 'Failed to generate token',
+          tags: { feature: 'mobile-notifications' },
+        });
         throw new Error('No push token available to register');
       }
     }
@@ -438,7 +452,10 @@ class NotificationService {
       
       console.log('Push token deactivated');
     } catch (error) {
-      console.error('Failed to deactivate push token:', error);
+      reportError(error, {
+        context: 'Failed to deactivate push token',
+        tags: { feature: 'mobile-notifications' },
+      });
     }
   }
 

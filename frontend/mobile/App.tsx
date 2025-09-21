@@ -1,9 +1,23 @@
 import React, { useEffect } from 'react';
 import * as Updates from 'expo-updates';
-import './src/lib/sentry';
 import RootApp from './src/app/_layout';
+import * as Sentry from '@sentry/react-native';
 
-export default function App() {
+const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
+const sentryEnabled = Boolean(sentryDsn);
+
+if (sentryEnabled) {
+  Sentry.init({
+    dsn: sentryDsn,
+    sendDefaultPii: true,
+    enableLogs: __DEV__,
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1,
+    integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
+  });
+}
+
+const App = () => {
   useEffect(() => {
     async function checkForUpdates() {
       if (__DEV__) {
@@ -26,4 +40,6 @@ export default function App() {
   }, []);
 
   return <RootApp />;
-}
+};
+
+export default sentryEnabled ? Sentry.wrap(App) : App;

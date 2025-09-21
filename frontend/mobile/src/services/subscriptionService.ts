@@ -5,6 +5,7 @@ import Purchases, {
 } from 'react-native-purchases';
 import { Subscription, PRODUCT_ID } from '@/types/subscription';
 import { dashboardApi } from '@/services/api';
+import { reportError } from '@/lib/logger';
 
 class SubscriptionService {
   private initialized = false;
@@ -26,7 +27,10 @@ class SubscriptionService {
       
       this.initialized = true;
     } catch (error) {
-      console.error('Failed to initialize RevenueCat:', error);
+      reportError(error, {
+        context: 'Failed to initialize RevenueCat',
+        tags: { feature: 'mobile-subscription' },
+      });
       throw error;
     }
   }
@@ -40,7 +44,10 @@ class SubscriptionService {
       const offerings = await Purchases.getOfferings();
       return offerings.current;
     } catch (error) {
-      console.error('Failed to get offerings:', error);
+      reportError(error, {
+        context: 'Failed to get offerings',
+        tags: { feature: 'mobile-subscription' },
+      });
       throw error;
     }
   }
@@ -74,7 +81,10 @@ class SubscriptionService {
       if (error.userCancelled) {
         throw new Error('Purchase cancelled');
       }
-      console.error('Purchase failed:', error);
+      reportError(error, {
+        context: 'Purchase failed',
+        tags: { feature: 'mobile-subscription' },
+      });
       throw error;
     }
   }
@@ -90,7 +100,10 @@ class SubscriptionService {
       // No need to sync - webhook will handle it automatically
       return customerInfo;
     } catch (error) {
-      console.error('Restore failed:', error);
+      reportError(error, {
+        context: 'Restore failed',
+        tags: { feature: 'mobile-subscription' },
+      });
       throw error;
     }
   }
@@ -178,7 +191,10 @@ class SubscriptionService {
 
       return defaultSubscription;
     } catch (error) {
-      console.error('Failed to get subscription status:', error);
+      reportError(error, {
+        context: 'Failed to get subscription status',
+        tags: { feature: 'mobile-subscription' },
+      });
       
       // If backend is down, try RevenueCat as fallback
       try {
@@ -210,7 +226,10 @@ class SubscriptionService {
           };
         }
       } catch (revenueCatError) {
-        console.error('RevenueCat fallback also failed:', revenueCatError);
+        reportError(revenueCatError, {
+          context: 'RevenueCat fallback also failed',
+          tags: { feature: 'mobile-subscription' },
+        });
       }
 
       return defaultSubscription;
@@ -231,7 +250,10 @@ class SubscriptionService {
           return true;
         }
       } catch (error) {
-        console.error('Failed to check backend status:', error);
+        reportError(error, {
+          context: 'Failed to check backend status',
+          tags: { feature: 'mobile-subscription' },
+        });
       }
       
       if (i < maxAttempts - 1) {

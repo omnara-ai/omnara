@@ -11,6 +11,7 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { theme } from '@/constants/theme';
 import { dashboardApi } from '@/services/api';
+import { reportError } from '@/lib/logger';
 import { BaseModal } from '../ui/BaseModal';
 import { Button } from '../ui/Button';
 import { Dropdown } from '../ui/Dropdown';
@@ -97,7 +98,10 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
       onSuccess?.();
     },
     onError: (error: any) => {
-      console.error('Create user agent error:', error);
+      reportError(error, {
+        context: 'Create user agent error',
+        tags: { feature: 'mobile-agent-config' },
+      });
       Alert.alert('Error', error.message || 'Failed to create agent configuration');
     },
   });

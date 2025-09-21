@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { reportError } from '@/lib/logger';
 import { UserProfile } from '@/types';
 import { dashboardApi } from '@/services/api';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -92,7 +93,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         }
       } catch (error) {
-        console.error('[AuthProvider] Error during auth initialization:', error);
+        reportError(error, {
+          context: '[AuthProvider] Error during auth initialization',
+          tags: { feature: 'mobile-auth' },
+        });
         setLoading(false);
       }
     };
@@ -143,7 +147,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('[AuthProvider] User profile fetched successfully:', userProfile.email);
       setProfile(userProfile);
     } catch (error) {
-      console.error('[AuthProvider] Error fetching user profile:', error);
+      reportError(error, {
+        context: '[AuthProvider] Error fetching user profile',
+        tags: { feature: 'mobile-auth' },
+      });
       
       const errorMessage = error instanceof Error ? error.message : 'Failed to fetch user profile';
       
@@ -255,7 +262,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         
         if (error) {
-          console.error('Supabase auth error:', error);
+          reportError(error, {
+            context: 'Supabase auth error',
+            tags: { feature: 'mobile-auth' },
+          });
           throw error;
         }
         
@@ -266,7 +276,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('No ID token present!');
       }
     } catch (error: any) {
-      console.error('Native Google Sign-In error:', error);
+      reportError(error, {
+        context: 'Native Google Sign-In error',
+        tags: { feature: 'mobile-auth' },
+      });
       
       if (statusCodes && error.code === statusCodes.SIGN_IN_CANCELLED) {
         throw new Error('Sign-in was cancelled');
@@ -304,7 +317,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         if (error) {
-          console.error('Supabase auth error:', error);
+          reportError(error, {
+            context: 'Supabase auth error',
+            tags: { feature: 'mobile-auth' },
+          });
           throw error;
         }
 
@@ -315,7 +331,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('No identity token received from Apple');
       }
     } catch (error: any) {
-      console.error('Apple Sign-In error:', error);
+      reportError(error, {
+        context: 'Apple Sign-In error',
+        tags: { feature: 'mobile-auth' },
+      });
       
       // Handle specific Apple authentication errors
       if (error.code === 'ERR_REQUEST_CANCELED') {

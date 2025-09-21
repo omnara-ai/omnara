@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Alert } from 'react-native';
 import { theme } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { reportError } from '@/lib/logger';
 
 interface GoogleSignInButtonProps {
   disabled?: boolean;
@@ -27,7 +28,10 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       await signInWithGoogleNative();
       onSuccess?.();
     } catch (error: any) {
-      console.error('Google Sign-In error:', error);
+      reportError(error, {
+        context: 'Google Sign-In error',
+        tags: { feature: 'mobile-auth' },
+      });
       onError?.(error);
       Alert.alert('Sign-In Error', error.message || 'An error occurred during sign-in');
     } finally {

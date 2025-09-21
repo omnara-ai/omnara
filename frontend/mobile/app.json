@@ -75,7 +75,15 @@
       ],
       "expo-web-browser",
       "expo-apple-authentication",
-      "expo-updates"
+      "expo-updates",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "mobile-app",
+          "organization": "omnara"
+        }
+      ]
     ],
     "extra": {
       "eas": {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
+import { reportError } from '@/lib/logger';
 
 interface AuthErrorHandlerProps {
   showRetry?: boolean;
@@ -23,7 +24,10 @@ export const AuthErrorHandler: React.FC<AuthErrorHandlerProps> = ({
     try {
       await retryProfileFetch();
     } catch (error) {
-      console.error('Manual retry failed:', error);
+      reportError(error, {
+        context: 'Manual retry failed',
+        tags: { feature: 'mobile-auth' },
+      });
     }
   };
 
