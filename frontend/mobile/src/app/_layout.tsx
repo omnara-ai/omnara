@@ -15,6 +15,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { ProfileSidebar } from '@/components/navigation/ProfileSidebar';
 import { subscriptionService } from '@/services/subscriptionService';
 import { REVENUECAT_API_KEY } from '@/config/env';
+import { reportError } from '@/lib/logger';
 
 // Import screens
 import { SplashScreen } from '@/screens/SplashScreen';
@@ -102,7 +103,10 @@ function RootNavigator() {
           await subscriptionService.initialize(REVENUECAT_API_KEY, session.user.id);
           console.log('[RootNavigator] RevenueCat initialized successfully for user:', session.user.id);
         } catch (error) {
-          console.error('[RootNavigator] Failed to initialize RevenueCat:', error);
+          reportError(error, {
+            context: '[RootNavigator] Failed to initialize RevenueCat',
+            tags: { feature: 'mobile-root' },
+          });
         }
       }
     };

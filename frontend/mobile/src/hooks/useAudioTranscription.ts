@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Alert, Platform } from 'react-native';
-import { reportError } from '@/lib/sentry';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from 'expo-speech-recognition';
+import { reportError } from '@/lib/logger';
 
 interface TranscriptionConfig {
   language?: string;

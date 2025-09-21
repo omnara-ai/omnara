@@ -1,6 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
+import { reportError } from '@/lib/logger';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
@@ -16,7 +17,11 @@ const ExpoSecureStoreAdapter = {
     try {
       return await SecureStore.getItemAsync(key);
     } catch (error) {
-      console.error('SecureStore getItem error:', error);
+      reportError(error, {
+        context: 'SecureStore getItem error',
+        extras: { key },
+        tags: { feature: 'mobile-supabase' },
+      });
       return null;
     }
   },
@@ -24,14 +29,22 @@ const ExpoSecureStoreAdapter = {
     try {
       await SecureStore.setItemAsync(key, value);
     } catch (error) {
-      console.error('SecureStore setItem error:', error);
+      reportError(error, {
+        context: 'SecureStore setItem error',
+        extras: { key },
+        tags: { feature: 'mobile-supabase' },
+      });
     }
   },
   removeItem: async (key: string) => {
     try {
       await SecureStore.deleteItemAsync(key);
     } catch (error) {
-      console.error('SecureStore removeItem error:', error);
+      reportError(error, {
+        context: 'SecureStore removeItem error',
+        extras: { key },
+        tags: { feature: 'mobile-supabase' },
+      });
     }
   },
 };

@@ -16,10 +16,10 @@ import { theme } from '@/constants/theme';
 import { Message } from '@/types';
 import { StructuredQuestion, StructuredQuestionRef } from '@/components/ui/StructuredQuestion';
 import { parseQuestionFormat } from '@/utils/questionParser';
-import { reportError } from '@/lib/sentry';
 import { Mic, ArrowUp, Square } from 'lucide-react-native';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { VoiceInputVisualizer } from '@/components/ui/VoiceInputVisualizer';
+import { reportError } from '@/lib/logger';
 
 interface ChatInputProps {
   isWaitingForInput: boolean;

@@ -19,9 +19,9 @@ import { formatAgentTypeName } from '@/utils/formatters';
 import { getStatusColor } from '@/utils/statusHelpers';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { useSSE } from '@/hooks/useSSE';
-import { reportError, reportMessage } from '@/lib/sentry';
 import { Share } from 'lucide-react-native';
 import { ShareAccessModal } from '@/components/dashboard/ShareAccessModal';
+import { reportError, reportMessage } from '@/lib/logger';
 
 export const InstanceDetailScreen: React.FC = () => {
   const route = useRoute();

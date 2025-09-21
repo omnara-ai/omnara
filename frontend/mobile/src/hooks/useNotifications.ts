@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { notificationService } from '@/services/notifications';
 import { useAuth } from '@/contexts/AuthContext';
+import { reportError } from '@/lib/logger';
 
 interface NotificationHookReturn {
   permissionStatus: Notifications.PermissionStatus | null;
@@ -63,7 +64,10 @@ export const useNotifications = (): NotificationHookReturn => {
         } else if (result.partialSuccess) {
           console.warn('Notification service partially initialized:', result.error);
         } else {
-          console.error('Notification service initialization failed:', result.error);
+          reportError(result.error ?? 'Notification service initialization failed', {
+            context: 'Notification service initialization failed',
+            tags: { feature: 'mobile-notifications' },
+          });
         }
 
         // Check permission status after initialization
@@ -79,7 +83,10 @@ export const useNotifications = (): NotificationHookReturn => {
           return notificationService.retryTokenRegistration();
         }
       }).catch(error => {
-        console.error('Critical error during notification service initialization:', error);
+        reportError(error, {
+          context: 'Critical error during notification service initialization',
+          tags: { feature: 'mobile-notifications' },
+        });
       }).finally(() => {
         setIsInitializing(false);
       });
@@ -99,7 +106,10 @@ export const useNotifications = (): NotificationHookReturn => {
           }
         );
       } catch (error) {
-        console.error('Error setting up notification listeners:', error);
+        reportError(error, {
+          context: 'Error setting up notification listeners',
+          tags: { feature: 'mobile-notifications' },
+        });
       }
     };
 
@@ -127,7 +137,12 @@ export const useNotifications = (): NotificationHookReturn => {
       
       // Retry initialization
       const timer = setTimeout(() => {
-        retryInitialization().catch(console.error);
+        retryInitialization().catch(error =>
+          reportError(error, {
+            context: 'Automatic notification initialization retry failed',
+            tags: { feature: 'mobile-notifications' },
+          })
+        );
       }, 2000 * initializationAttempts); // Exponential backoff: 2s, 4s, 6s
 
       return () => clearTimeout(timer);
@@ -151,7 +166,10 @@ export const useNotifications = (): NotificationHookReturn => {
         });
         console.log('[useNotifications] Navigation successful');
       } catch (error) {
-        console.error('[useNotifications] Failed to navigate to instance detail:', error);
+        reportError(error, {
+          context: '[useNotifications] Failed to navigate to instance detail',
+          tags: { feature: 'mobile-notifications' },
+        });
       }
     } else {
       console.log('[useNotifications] Notification data does not match expected format for navigation');
@@ -171,7 +189,10 @@ export const useNotifications = (): NotificationHookReturn => {
       
       return false;
     } catch (error) {
-      console.error('Failed to request permissions:', error);
+      reportError(error, {
+        context: 'Failed to request permissions',
+        tags: { feature: 'mobile-notifications' },
+      });
       return false;
     }
   }, []);
@@ -198,7 +219,10 @@ export const useNotifications = (): NotificationHookReturn => {
         return false;
       }
     } catch (error) {
-      console.error('Failed to retry notification initialization:', error);
+      reportError(error, {
+        context: 'Failed to retry notification initialization',
+        tags: { feature: 'mobile-notifications' },
+      });
       return false;
     } finally {
       setIsInitializing(false);
@@ -218,7 +242,10 @@ export const useNotifications = (): NotificationHookReturn => {
       
       return success;
     } catch (error) {
-      console.error('Failed to retry token registration:', error);
+      reportError(error, {
+        context: 'Failed to retry token registration',
+        tags: { feature: 'mobile-notifications' },
+      });
       return false;
     }
   }, []);
@@ -227,7 +254,10 @@ export const useNotifications = (): NotificationHookReturn => {
     try {
       await notificationService.openSettings();
     } catch (error) {
-      console.error('Failed to open settings:', error);
+      reportError(error, {
+        context: 'Failed to open settings',
+        tags: { feature: 'mobile-notifications' },
+      });
     }
   }, []);
 

@@ -12,6 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { ExternalLink, Shield, FileText } from 'lucide-react-native';
 import { theme } from '@/constants/theme';
 import { Header } from '@/components/ui';
+import { reportError } from '@/lib/logger';
 
 const PRIVACY_POLICY_URL = 'https://omnara.com/privacy';
 const TERMS_OF_USE_URL = 'https://omnara.com/terms';
@@ -20,8 +21,12 @@ export const LegalScreen: React.FC = () => {
   const navigation = useNavigation();
 
   const openLink = (url: string) => {
-    Linking.openURL(url).catch(err => {
-      console.error('Failed to open URL:', err);
+    Linking.openURL(url).catch(error => {
+      reportError(error, {
+        context: 'Failed to open URL',
+        extras: { url },
+        tags: { feature: 'mobile-legal' },
+      });
     });
   };
 

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import EventSource from 'react-native-sse';
 import { dashboardApi } from '@/services/api';
 import { Message, AgentStatus } from '@/types';
-import { reportError, reportMessage } from '@/lib/sentry';
+import { reportError, reportMessage } from '@/lib/logger';
 
 interface UseSSEProps {
   instanceId: string;
@@ -50,8 +50,8 @@ export function useSSE({
         isConnectingRef.current = true;
         const streamUrl = await dashboardApi.getMessageStreamUrl(instanceId);
         if (!streamUrl) {
-          reportMessage('[useSSE] No stream URL available', {
-            context: 'Missing SSE stream URL',
+          reportMessage('No stream URL available', {
+            context: '[useSSE]',
             extras: { instanceId },
             tags: sentryTags,
           });
@@ -84,7 +84,6 @@ export function useSSE({
           } catch (err) {
             reportError(err, {
               context: 'Failed to parse SSE message payload',
-              extras: { raw: event.data, instanceId },
               tags: sentryTags,
             });
           }
@@ -97,7 +96,6 @@ export function useSSE({
           } catch (err) {
             reportError(err, {
               context: 'Failed to parse SSE status update',
-              extras: { raw: event.data, instanceId },
               tags: sentryTags,
             });
           }
@@ -110,7 +108,6 @@ export function useSSE({
           } catch (err) {
             reportError(err, {
               context: 'Failed to parse SSE message update',
-              extras: { raw: event.data, instanceId },
               tags: sentryTags,
             });
           }
@@ -126,7 +123,6 @@ export function useSSE({
           } catch (err) {
             reportError(err, {
               context: 'Failed to parse SSE git diff update',
-              extras: { raw: event.data, instanceId },
               tags: sentryTags,
             });
           }
@@ -135,7 +131,6 @@ export function useSSE({
         eventSource.addEventListener('error', (error: any) => {
           reportError(error, {
             context: 'SSE connection error event',
-            extras: { instanceId },
             tags: sentryTags,
           });
           isConnectingRef.current = false;
@@ -146,7 +141,6 @@ export function useSSE({
       } catch (error) {
         reportError(error, {
           context: 'Failed to establish SSE connection',
-          extras: { instanceId },
           tags: sentryTags,
         });
         isConnectingRef.current = false;
