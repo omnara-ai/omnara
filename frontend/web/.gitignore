@@ -34,3 +34,6 @@ dist-ssr
 public/uploads/*
 !public/uploads/.gitkeep
 !public/uploads/README.md
+
+# Sentry Config File
+.env.sentry-build-plugin

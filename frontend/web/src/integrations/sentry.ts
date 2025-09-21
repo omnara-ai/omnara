@@ -1,9 +1,10 @@
 import * as Sentry from '@sentry/react'
 
 const dsn = import.meta.env.VITE_SENTRY_DSN || import.meta.env.SENTRY_DSN
-const sentryEnabled = Boolean(dsn)
 
-if (sentryEnabled) {
+export const isSentryEnabled = Boolean(dsn)
+
+if (isSentryEnabled) {
   Sentry.init({
     dsn,
     environment: import.meta.env.MODE,
@@ -11,13 +12,13 @@ if (sentryEnabled) {
   })
 }
 
-type ErrorMetadata = {
+export type ErrorMetadata = {
   context?: string
   extras?: Record<string, unknown>
   tags?: Record<string, string>
 }
 
-const toError = (error: unknown) => {
+const normalizeError = (error: unknown): Error => {
   if (error instanceof Error) {
     return error
   }
@@ -40,49 +41,61 @@ export const reportError = (error: unknown, metadata?: ErrorMetadata) => {
     console.error(error)
   }
 
-  if (!sentryEnabled) {
+  if (!isSentryEnabled) {
     return
   }
 
-  Sentry.withScope(scope => {
-    if (metadata?.extras) {
-      scope.setExtras(metadata.extras)
-    }
-    if (metadata?.tags) {
-      Object.entries(metadata.tags).forEach(([key, value]) => {
-        scope.setTag(key, value)
-      })
-    }
-    if (metadata?.context) {
-      scope.setContext('context', { message: metadata.context })
-    }
+  const normalizedError = normalizeError(error)
 
-    Sentry.captureException(toError(error))
-  })
+  try {
+    Sentry.withScope(scope => {
+      if (metadata?.extras) {
+        scope.setExtras(metadata.extras)
+      }
+      if (metadata?.tags) {
+        Object.entries(metadata.tags).forEach(([key, value]) => scope.setTag(key, value))
+      }
+      if (metadata?.context) {
+        scope.setContext('context', { message: metadata.context })
+      }
+
+      scope.setLevel('error')
+      Sentry.captureException(normalizedError)
+    })
+  } catch (captureError) {
+    console.warn('[sentry] Failed to capture exception', captureError)
+  }
 }
 
 export const reportMessage = (message: string, metadata?: ErrorMetadata) => {
-  console.warn(message, metadata?.extras)
+  if (metadata?.context) {
+    console.warn(`${metadata.context}: ${message}`, metadata.extras)
+  } else {
+    console.warn(message, metadata?.extras)
+  }
 
-  if (!sentryEnabled) {
+  if (!isSentryEnabled) {
     return
   }
 
-  const captureContext: Record<string, unknown> = {}
+  try {
+    Sentry.withScope(scope => {
+      if (metadata?.extras) {
+        scope.setExtras(metadata.extras)
+      }
+      if (metadata?.tags) {
+        Object.entries(metadata.tags).forEach(([key, value]) => scope.setTag(key, value))
+      }
+      if (metadata?.context) {
+        scope.setContext('context', { message: metadata.context })
+      }
 
-  if (metadata?.extras) {
-    captureContext.extra = metadata.extras
+      scope.setLevel('warning')
+      Sentry.captureMessage(message)
+    })
+  } catch (captureError) {
+    console.warn('[sentry] Failed to capture message', captureError)
   }
-  if (metadata?.tags) {
-    captureContext.tags = metadata.tags
-  }
-  if (metadata?.context) {
-    captureContext.contexts = { context: { message: metadata.context } }
-  }
-
-  Sentry.captureMessage(message, captureContext)
 }
-
-export const isSentryEnabled = sentryEnabled
 
 export { Sentry }
