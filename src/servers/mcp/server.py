@@ -58,7 +58,7 @@ def require_auth(func: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
 if not settings.jwt_public_key:
     raise ValueError(
         "JWT_PUBLIC_KEY environment variable is not set. "
-        "Please generate keys using scripts/generate_jwt_keys.py "
+        "Please generate keys using infrastructure/scripts/generate_jwt_keys.py "
         "and add them to your .env file"
     )
 
