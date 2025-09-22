@@ -248,7 +248,7 @@ graph TB
 git clone https://github.com/omnara-ai/omnara
 cd omnara
 cp .env.example .env
-python scripts/generate_jwt_keys.py
+python infrastructure/scripts/generate_jwt_keys.py
 ./dev-start.sh  # Starts everything automatically
 ```
 

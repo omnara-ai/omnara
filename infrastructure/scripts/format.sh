@@ -4,9 +4,9 @@
 set -e
 
 echo "Running ruff format..."
-ruff format . --exclude integrations/cli_wrappers/codex
+ruff format . --exclude src/integrations/cli_wrappers/codex
 
 echo -e "\nRunning ruff check with auto-fix..."
-ruff check --fix . --exclude integrations/cli_wrappers/codex
+ruff check --fix . --exclude src/integrations/cli_wrappers/codex
 
 echo -e "\nFormatting complete!"

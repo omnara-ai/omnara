@@ -42,7 +42,8 @@ Issues = "https://github.com/omnara-ai/omnara/issues"
 omnara = "omnara.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["omnara*", "servers.mcp_server*", "servers.shared*", "integrations*"]
+where = ["src"]
+include = ["omnara*", "servers*", "shared*", "backend*"]
 
 [tool.setuptools.package-data]
 omnara = ["_bin/**"]
@@ -50,9 +51,9 @@ omnara = ["_bin/**"]
 
 [tool.pytest.ini_options]
 # Test discovery
-testpaths = ["backend/tests", "servers/tests", "tests"]
+testpaths = ["src/backend/tests", "src/servers/tests", "tests"]
 python_files = ["test_*.py"]
-pythonpath = ["."]
+pythonpath = [".", "src"]
 
 # Markers
 markers = [
@@ -70,7 +71,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = ["backend", "servers", "omnara", "shared"]
+source = ["src/backend", "src/servers", "src/omnara", "src/shared"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

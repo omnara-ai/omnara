@@ -4,10 +4,10 @@
 set -e
 
 echo "Running ruff check..."
-ruff check . --exclude integrations/cli_wrappers/codex
+ruff check . --exclude src/integrations/cli_wrappers/codex
 
 echo -e "\nRunning ruff format check..."
-ruff format --check . --exclude integrations/cli_wrappers/codex
+ruff format --check . --exclude src/integrations/cli_wrappers/codex
 
 echo -e "\nRunning pyright..."
 pyright

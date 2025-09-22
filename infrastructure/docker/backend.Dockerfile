@@ -3,15 +3,15 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Copy requirements
-COPY backend/requirements.txt /app/backend/requirements.txt
-COPY shared/requirements.txt /app/shared/requirements.txt
+COPY src/backend/requirements.txt /app/backend/requirements.txt
+COPY src/shared/requirements.txt /app/shared/requirements.txt
 
 # Install dependencies
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy application code
-COPY shared /app/shared
-COPY backend /app/backend
+COPY src/shared /app/shared
+COPY src/backend /app/backend
 
 # Set Python path
 ENV PYTHONPATH=/app

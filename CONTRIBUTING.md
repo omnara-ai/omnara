@@ -27,7 +27,7 @@ The fastest way to get started:
 
 3. **Generate JWT keys**
    ```bash
-   python scripts/generate_jwt_keys.py
+   python infrastructure/scripts/generate_jwt_keys.py
    ```
 
 4. **Start everything with one command**
@@ -65,18 +65,18 @@ If you prefer manual control:
 
 2. Set up PostgreSQL and configure `DATABASE_URL` in `.env`
 
-3. Generate JWT keys: `python scripts/generate_jwt_keys.py`
+3. Generate JWT keys: `python infrastructure/scripts/generate_jwt_keys.py`
 
-4. Run migrations: `cd shared && alembic upgrade head`
+4. Run migrations: `cd src/shared && alembic upgrade head`
 
 5. Start services manually:
    ```bash
    # Set Python path (required for imports)
-   export PYTHONPATH="$(pwd)"
-   
+   export PYTHONPATH="$(pwd)/src"
+
    # Terminal 1: Unified Server
    python -m servers.app
-   
+
    # Terminal 2: Backend API (in project root, not backend/)
    uvicorn backend.main:app --port 8000
    ```
@@ -99,8 +99,8 @@ If you prefer manual control:
 
 When modifying models:
 
-1. Edit models in `shared/database/models.py`
-2. Generate migration: `cd shared && alembic revision --autogenerate -m "description"`
+1. Edit models in `src/shared/database/models.py`
+2. Generate migration: `cd src/shared && alembic revision --autogenerate -m "description"`
 3. Test migration before committing
 
 ## Commit Messages

@@ -608,7 +608,7 @@ def cmd_mcp(args):
     cmd = [
         sys.executable,
         "-m",
-        "servers.mcp_server.stdio_server",
+        "servers.mcp.stdio_server",
     ]
 
     if args.api_key:

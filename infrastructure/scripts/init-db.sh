@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 echo -e "${YELLOW}🗄️  Initializing database with Alembic migrations...${NC}"
 
 # Change to the shared directory where alembic.ini is located
-cd "$(dirname "$0")/../shared"
+cd "$(dirname "$0")/../../src/shared"
 
 # Run alembic upgrade head to apply all pending migrations
 if alembic upgrade head; then
