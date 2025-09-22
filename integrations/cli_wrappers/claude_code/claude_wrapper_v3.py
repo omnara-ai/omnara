@@ -98,9 +98,9 @@ class MessageProcessor:
                 # Remove from tracking set
                 self.web_ui_messages.discard(content)
 
-        # Reset idle timer and clear pending input
-        self.last_message_time = time.time()
-        self.pending_input_message_id = None
+            # Reset idle timer and clear pending input
+            self.last_message_time = time.time()
+            self.pending_input_message_id = None
 
     def process_assistant_message_sync(
         self, content: str, tools_used: list[str]
@@ -1265,7 +1265,9 @@ class ClaudeWrapperV3:
 
                     # Send to Claude
                     self._write_all_to_master(content.encode())
-                    time.sleep(1.0)
+                    time.sleep(0.25)
+                    self.message_processor.last_message_time = time.time()
+                    self.message_processor.pending_input_message_id = None
                     self._write_all_to_master(b"\r")
 
         finally:
