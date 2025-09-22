@@ -16,6 +16,7 @@ import { theme } from '@/constants/theme';
 import { dashboardApi } from '@/services/api';
 import { AgentStatus, AgentType, AgentInstance } from '@/types';
 import { SwipeableInstanceCard } from '@/components/instances/SwipeableInstanceCard';
+import { NoInstancesView } from '@/components/instances/NoInstancesView';
 import { Header } from '@/components/ui';
 import { formatAgentTypeName } from '@/utils/formatters';
 
@@ -159,16 +160,19 @@ export const AllInstancesScreen: React.FC = () => {
           onBack={() => navigation.goBack()} 
         />
         
-        <View style={styles.filterSection}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterContainer}
-            contentContainerStyle={styles.filterContent}
-          >
-            {FILTER_OPTIONS.map(renderFilterPill)}
-          </ScrollView>
-        </View>
+        {/* Filter Section - only show if there are instances */}
+        {allInstances.length > 0 && (
+          <View style={styles.filterSection}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filterContainer}
+              contentContainerStyle={styles.filterContent}
+            >
+              {FILTER_OPTIONS.map(renderFilterPill)}
+            </ScrollView>
+          </View>
+        )}
 
         <FlatList
           data={filteredInstances}
@@ -190,11 +194,15 @@ export const AllInstancesScreen: React.FC = () => {
             />
           }
           ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                No {activeFilter !== 'all' ? activeFilter : ''} instances found
-              </Text>
-            </View>
+            allInstances.length === 0 ? (
+              <NoInstancesView />
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>
+                  No {activeFilter !== 'all' ? activeFilter : ''} instances found
+                </Text>
+              </View>
+            )
           }
         />
       </SafeAreaView>
