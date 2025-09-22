@@ -1,9 +1,10 @@
 {
   "include": [
-    "backend",
-    "servers",
-    "shared",
-    "omnara"
+    "src/backend",
+    "src/servers",
+    "src/shared",
+    "src/omnara",
+    "src/integrations"
   ],
   "exclude": [
     "**/__pycache__",

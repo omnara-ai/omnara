@@ -36,7 +36,7 @@ repos:
     hooks:
       - id: check-migration-needed
         name: Check if migration needed for schema changes
-        entry: python scripts/check-migration-needed.py
+        entry: python infrastructure/scripts/check-migration-needed.py
         language: system
         always_run: true
         pass_filenames: false

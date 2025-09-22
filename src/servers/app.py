@@ -17,10 +17,10 @@ import sentry_sdk
 from shared.config import settings
 
 # Import the pre-configured MCP server
-from servers.mcp_server.server import mcp
+from servers.mcp.server import mcp
 
 # Import FastAPI routers
-from servers.fastapi_server.routers import agent_router
+from servers.api.routers import agent_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

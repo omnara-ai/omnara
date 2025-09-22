@@ -21,7 +21,7 @@ services:
   db-init:
     build:
       context: .
-      dockerfile: ./docker/db-init.Dockerfile
+      dockerfile: ./infrastructure/docker/db-init.Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,7 +34,7 @@ services:
   mcp-server:
     build:
       context: .
-      dockerfile: ./docker/servers.Dockerfile
+      dockerfile: ./infrastructure/docker/servers.Dockerfile
     container_name: agent-dashboard-mcp
     ports:
       - "8080:8080"
@@ -53,7 +53,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: ./docker/backend.Dockerfile
+      dockerfile: ./infrastructure/docker/backend.Dockerfile
     container_name: agent-dashboard-backend
     ports:
       - "8000:8000"

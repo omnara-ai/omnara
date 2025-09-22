@@ -17,15 +17,30 @@ Omnara is a platform that allows users to communicate with their AI agents (like
 
 ```
 omnara/
-├── backend/          # FastAPI - Web dashboard API (read operations)
-├── servers/          # FastAPI + MCP - Agent communication server (write operations)
-├── shared/           # Shared database models and infrastructure
-├── omnara/           # Python package directory
-│   └── sdk/          # Python SDK for agent integration
-├── cli/              # Node.js CLI tool for MCP configuration
-├── scripts/          # Utility scripts (JWT generation, linting, etc.)
-├── tests/            # Integration tests
-└── integrations/     # Integration handlers (webhooks, CLI wrappers, etc.)
+├── src/              # All source code
+│   ├── omnara/      # Main Python package (CLI & SDK)
+│   ├── backend/     # FastAPI - Web dashboard API (read operations)
+│   ├── servers/     # Agent communication servers
+│   │   ├── mcp/     # MCP protocol server
+│   │   ├── api/     # REST API server
+│   │   └── shared/  # Shared server code
+│   ├── shared/      # Shared database models and infrastructure
+│   ├── mcp-installer/  # NPX tool for MCP client configuration
+│   └── integrations/   # Integration connectors (flat structure)
+│       ├── cli_wrappers/  # Agent CLI wrappers
+│       ├── headless/      # Background agents
+│       ├── n8n/           # n8n workflow package
+│       ├── github/        # GitHub Actions
+│       ├── utils/         # Utilities
+│       └── webhooks/      # Webhook handlers
+├── apps/            # User-facing applications
+│   ├── web/         # Next.js web dashboard
+│   └── mobile/      # React Native mobile app
+├── infrastructure/ # DevOps & deployment
+│   ├── docker/     # Dockerfiles
+│   └── scripts/    # Build & utility scripts
+├── tests/          # Test suites
+└── docs/           # Documentation
 ```
 
 ## Key Technical Decisions
@@ -44,7 +59,7 @@ omnara/
 - **Unified messaging system**: All agent interactions (steps, questions, feedback) are now stored in the `messages` table with `sender_type` and `requires_user_input` fields
 
 ### Server Architecture
-- **Unified server** (`servers/app.py`) supports both MCP and REST
+- **Unified server** (`src/servers/app.py`) supports both MCP and REST
 - MCP endpoint: `/mcp/`
 - REST endpoints: `/api/v1/*`
 - Both use the same authentication and business logic
@@ -71,10 +86,10 @@ omnara/
 ### Making Changes
 
 #### Database Changes
-1. Modify models in `shared/models/`
+1. Modify models in `src/shared/models/`
 2. Generate migration:
    ```bash
-   cd shared/
+   cd src/shared/
    alembic revision --autogenerate -m "Descriptive message"
    ```
 3. Review the generated migration file
@@ -116,19 +131,19 @@ The unified messaging system uses a single `messages` table:
 - **Queued messages**: Agent receives unread user messages when sending new messages
 
 ### Adding a New API Endpoint
-1. Add route in `backend/api/` or `servers/fastapi_server/routers.py`
+1. Add route in `src/backend/api/` or `src/servers/api/routers.py`
 2. Create Pydantic models for request/response in `models.py`
 3. Add database queries in appropriate query files
 4. Write tests for the endpoint
 
 ### Adding a New MCP Tool
-1. Add tool definition in `servers/mcp_server/tools.py`
-2. Register tool in `servers/mcp_server/server.py`
+1. Add tool definition in `src/servers/mcp/tools.py`
+2. Register tool in `src/servers/mcp/server.py`
 3. Share logic with REST endpoint if applicable
 4. Update agent documentation
 
 ### Modifying Database Schema
-1. Change models in `shared/models/`
+1. Change models in `src/shared/models/`
 2. Generate and review migration
 3. Update any affected queries
 4. Update Pydantic models if needed
@@ -136,11 +151,11 @@ The unified messaging system uses a single `messages` table:
 
 ## Important Files to Know
 
-- `shared/config.py` - Central configuration using Pydantic settings
-- `shared/models/base.py` - SQLAlchemy base configuration
+- `src/shared/config.py` - Central configuration using Pydantic settings
+- `src/shared/models/base.py` - SQLAlchemy base configuration
 - `servers/app.py` - Unified server entry point
-- `backend/auth/` - Authentication logic for web users
-- `servers/fastapi_server/auth.py` - Agent authentication
+- `src/backend/auth/` - Authentication logic for web users
+- `src/servers/api/auth.py` - Agent authentication
 
 ## Environment Variables
 
