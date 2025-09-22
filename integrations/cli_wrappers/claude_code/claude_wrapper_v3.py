@@ -10,6 +10,7 @@ Key improvements:
 
 import argparse
 import asyncio
+import errno
 import json
 import logging
 import os
@@ -97,9 +98,9 @@ class MessageProcessor:
                 # Remove from tracking set
                 self.web_ui_messages.discard(content)
 
-        # Reset idle timer and clear pending input
-        self.last_message_time = time.time()
-        self.pending_input_message_id = None
+            # Reset idle timer and clear pending input
+            self.last_message_time = time.time()
+            self.pending_input_message_id = None
 
     def process_assistant_message_sync(
         self, content: str, tools_used: list[str]
@@ -321,6 +322,30 @@ class ClaudeWrapperV3:
         except Exception as e:
             self.log(f"[WARNING] Failed to initialize git tracker: {e}")
             self.git_tracker = None
+
+    def _write_all_to_master(self, data: bytes) -> None:
+        """Write data to the PTY master handling partial writes."""
+        if not data:
+            return
+
+        if self.master_fd is None:
+            raise RuntimeError("PTY master file descriptor is not initialized")
+
+        view = memoryview(data)
+        total_written = 0
+
+        while total_written < len(view):
+            try:
+                written = os.write(self.master_fd, view[total_written:])
+                if written == 0:
+                    time.sleep(0.01)
+                    continue
+                total_written += written
+            except OSError as e:
+                if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    time.sleep(0.01)
+                    continue
+                raise
 
     def log(self, message: str):
         """Write to debug log file"""
@@ -1239,9 +1264,11 @@ class ClaudeWrapperV3:
                         self.reset_handler.mark_reset_detected(content.strip())
 
                     # Send to Claude
-                    os.write(self.master_fd, content.encode())
-                    time.sleep(0.1)
-                    os.write(self.master_fd, b"\r")
+                    self._write_all_to_master(content.encode())
+                    time.sleep(0.25)
+                    self.message_processor.last_message_time = time.time()
+                    self.message_processor.pending_input_message_id = None
+                    self._write_all_to_master(b"\r")
 
         finally:
             # Restore terminal settings
