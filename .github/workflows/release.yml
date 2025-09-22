@@ -51,7 +51,7 @@ jobs:
           set -e
           LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [ -n "$LAST_TAG" ]; then
-            if git diff --quiet "$LAST_TAG"..HEAD -- integrations/cli_wrappers/codex; then
+            if git diff --quiet "$LAST_TAG"..HEAD -- src/integrations/cli_wrappers/codex; then
               echo "changed=false" >> $GITHUB_OUTPUT
             else
               echo "changed=true" >> $GITHUB_OUTPUT
@@ -80,7 +80,7 @@ jobs:
       - name: Build wheels with cibuildwheel (manylinux on Linux)
         env:
           CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
-          CIBW_BEFORE_BUILD: "bash scripts/cibw_before_build.sh"
+          CIBW_BEFORE_BUILD: "bash infrastructure/scripts/cibw_before_build.sh"
           CIBW_SKIP: "pp* *-win32 *-manylinux_i686 *-musllinux_*"
           CIBW_ENVIRONMENT: "CODEX_CHANGED=${{ steps.detect.outputs.changed }} CODEX_PREV_TAG=${{ steps.detect.outputs.last_tag }}"
         run: |

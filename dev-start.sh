@@ -110,10 +110,10 @@ export DEVELOPMENT_DB_URL="postgresql://user:password@localhost:5432/agent_dashb
 
 # Start unified server (MCP + FastAPI)
 echo -e "${BLUE}Starting unified server (MCP + FastAPI)...${NC}"
-export PYTHONPATH="$(pwd)"
+export PYTHONPATH="$(pwd)/src"
 export API_PORT=8080
 export MCP_SERVER_PORT=8080
-python -m src.servers.app &
+python -m servers.app &
 APP_PID=$!
 
 # Wait a moment for unified server to start
@@ -121,9 +121,9 @@ sleep 2
 
 # Start Backend API
 echo -e "${BLUE}Starting Backend API...${NC}"
-export PYTHONPATH="$(pwd)"
+export PYTHONPATH="$(pwd)/src"
 export API_PORT=8000
-uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 &
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
 # Wait a moment for backend to start
