@@ -58,7 +58,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: |
-          cd shared && alembic upgrade head
+          cd src/shared && alembic upgrade head
       
       - name: Run tests
         env:

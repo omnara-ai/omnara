@@ -2,8 +2,8 @@
 
 # Install production dependencies
 install:
-	pip install -r backend/requirements.txt
-	pip install -r servers/requirements.txt
+	pip install -r src/backend/requirements.txt
+	pip install -r src/servers/requirements.txt
 
 # Install development dependencies
 dev-install: install
@@ -19,11 +19,11 @@ pre-commit-run:
 
 # Run all linting and type checking
 lint:
-	./scripts/lint.sh
+	./infrastructure/scripts/lint.sh
 
 # Auto-format code
 format:
-	./scripts/format.sh
+	./infrastructure/scripts/format.sh
 
 # Run only type checking
 typecheck:
@@ -51,7 +51,7 @@ test-integration:
 
 # Run tests with coverage
 test-coverage:
-	python -m pytest --cov=backend --cov=servers --cov=omnara --cov=shared --cov-report=term-missing
+	python -m pytest --cov=src/backend --cov=src/servers --cov=src/omnara --cov=src/shared --cov-report=term-missing
 
 # Run specific test file or pattern
 # Usage: make test-k ARGS="test_auth"

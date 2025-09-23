@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnara"
-version = "1.6.16"
+version = "1.6.19"
 description = "Omnara Agent Dashboard - MCP Server and Python SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,13 +42,8 @@ Issues = "https://github.com/omnara-ai/omnara/issues"
 omnara = "omnara.cli:main"
 
 [tool.setuptools.packages.find]
-include = [
-    "omnara*",
-    "servers.mcp_server*",
-    "servers.shared*",
-    "integrations*",
-    "shared.message_types*",
-]
+where = ["src"]
+include = ["omnara*", "servers*", "shared*", "backend*", "integrations*"]
 
 [tool.setuptools.package-data]
 omnara = ["_bin/**"]
@@ -56,9 +51,9 @@ omnara = ["_bin/**"]
 
 [tool.pytest.ini_options]
 # Test discovery
-testpaths = ["backend/tests", "servers/tests", "tests"]
+testpaths = ["src/backend/tests", "src/servers/tests", "tests"]
 python_files = ["test_*.py"]
-pythonpath = ["."]
+pythonpath = [".", "src"]
 
 # Markers
 markers = [
@@ -76,7 +71,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = ["backend", "servers", "omnara", "shared"]
+source = ["src/backend", "src/servers", "src/omnara", "src/shared"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
