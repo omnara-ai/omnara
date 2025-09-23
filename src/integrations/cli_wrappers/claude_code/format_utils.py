@@ -1,13 +1,50 @@
 #!/usr/bin/env python3
-"""
-Formatting utilities for Claude Code wrapper.
-
-This module contains stateless formatting functions used to format tool usage,
-content blocks, and other output for display in the terminal.
-"""
+"""Formatting utilities for Claude Code wrapper."""
 
 import json
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
+
+from shared.message_types import build_code_edit_envelope, build_tool_call_envelope
+
+
+LANGUAGE_EXTENSION_MAP: Dict[str, str] = {
+    "py": "python",
+    "js": "javascript",
+    "ts": "typescript",
+    "jsx": "jsx",
+    "tsx": "tsx",
+    "java": "java",
+    "cpp": "cpp",
+    "c": "c",
+    "cs": "csharp",
+    "rb": "ruby",
+    "go": "go",
+    "rs": "rust",
+    "php": "php",
+    "swift": "swift",
+    "kt": "kotlin",
+    "yaml": "yaml",
+    "yml": "yaml",
+    "json": "json",
+    "xml": "xml",
+    "html": "html",
+    "css": "css",
+    "scss": "scss",
+    "sql": "sql",
+    "sh": "bash",
+    "bash": "bash",
+    "md": "markdown",
+    "txt": "text",
+}
+
+
+@dataclass
+class FormattedBlock:
+    """Container for formatted content and optional metadata envelope."""
+
+    preview: Optional[str]
+    metadata: Optional[Dict[str, Any]] = None
 
 
 def truncate_text(text: str, max_length: int = 100) -> str:
@@ -43,42 +80,10 @@ def format_tool_usage(tool_name: str, input_data: Dict[str, Any]) -> str:
     if tool_name == "Write":
         file_path = input_data.get("file_path", "unknown")
         content = input_data.get("content", "")
-
-        # Detect file type for syntax highlighting
-        file_ext = file_path.split(".")[-1] if "." in file_path else ""
-        lang_map = {
-            "py": "python",
-            "js": "javascript",
-            "ts": "typescript",
-            "jsx": "jsx",
-            "tsx": "tsx",
-            "java": "java",
-            "cpp": "cpp",
-            "c": "c",
-            "cs": "csharp",
-            "rb": "ruby",
-            "go": "go",
-            "rs": "rust",
-            "php": "php",
-            "swift": "swift",
-            "kt": "kotlin",
-            "yaml": "yaml",
-            "yml": "yaml",
-            "json": "json",
-            "xml": "xml",
-            "html": "html",
-            "css": "css",
-            "scss": "scss",
-            "sql": "sql",
-            "sh": "bash",
-            "bash": "bash",
-            "md": "markdown",
-            "txt": "text",
-        }
-        lang = lang_map.get(file_ext, "")
+        language = detect_language(file_path)
 
         lines = [f"Using tool: Write - `{file_path}`"]
-        lines.append(f"```{lang}")
+        lines.append(f"```{language or ''}")
         lines.append(content)
         lines.append("```")
         return "\n".join(lines)
@@ -338,43 +343,91 @@ def format_tool_usage(tool_name: str, input_data: Dict[str, Any]) -> str:
         return f"Using tool: {tool_name}"
 
 
-def format_content_block(block: Dict[str, Any]) -> Optional[str]:
-    """Format different types of content blocks with markdown.
+def detect_language(file_path: str) -> Optional[str]:
+    """Best-effort language detection based on file extension."""
 
-    Args:
-        block: Content block dictionary with type and content
+    if not file_path or "." not in file_path:
+        return None
+    ext = file_path.rsplit(".", 1)[-1].lower()
+    return LANGUAGE_EXTENSION_MAP.get(ext)
 
-    Returns:
-        Formatted string for the content block, or None if it should be skipped
-    """
+
+def build_tool_metadata(
+    tool_name: str, input_data: Dict[str, Any], block: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Create structured metadata for known tool usage patterns."""
+
+    extras: Dict[str, Any] = {}
+    tool_use_id = block.get("id")
+    if tool_use_id:
+        extras["tool_use_id"] = tool_use_id
+
+    if tool_name in {"Write", "Edit"}:
+        file_path = input_data.get("file_path")
+        language = detect_language(file_path or "") if file_path else None
+
+        if tool_name == "Write":
+            edit = {
+                "file_path": file_path or "unknown",
+                "old_content": None,
+                "new_content": input_data.get("content"),
+                "language": language,
+            }
+            try:
+                return build_code_edit_envelope([edit], extras=extras)
+            except Exception:
+                return None
+
+        if tool_name == "Edit":
+            edit = {
+                "file_path": file_path or "unknown",
+                "old_content": input_data.get("old_string"),
+                "new_content": input_data.get("new_string"),
+                "language": language,
+            }
+            try:
+                return build_code_edit_envelope([edit], extras=extras)
+            except Exception:
+                return None
+
+    try:
+        return build_tool_call_envelope(
+            tool_name=tool_name,
+            input=input_data or {},
+            extras=extras or None,
+        )
+    except Exception:
+        return None
+
+
+def format_content_block(block: Dict[str, Any]) -> FormattedBlock:
+    """Format different types of content blocks with markdown and metadata."""
+
     block_type = block.get("type")
 
     if block_type == "text":
         text_content = block.get("text", "")
         if not text_content:
-            return None
-        return text_content
+            return FormattedBlock(None)
+        return FormattedBlock(text_content)
 
-    elif block_type == "tool_use":
-        # Track tool usage
+    if block_type == "tool_use":
         tool_name = block.get("name", "unknown")
-        input_data = block.get("input", {})
-        return format_tool_usage(tool_name, input_data)
+        input_data = block.get("input", {}) or {}
+        preview = format_tool_usage(tool_name, input_data)
+        metadata = build_tool_metadata(tool_name, input_data, block)
+        return FormattedBlock(preview, metadata)
 
-    elif block_type == "tool_result":
-        # Format tool results
+    if block_type == "tool_result":
         content = block.get("content", [])
         if isinstance(content, list):
-            # Extract text from tool result content
             result_texts = []
             for item in content:
                 if isinstance(item, dict) and item.get("type") == "text":
                     result_text = item.get("text", "")
                     if result_text:
-                        # Try to parse as JSON for cleaner display
                         try:
                             parsed = json.loads(result_text)
-                            # Just show a compact summary for JSON results
                             if isinstance(parsed, dict):
                                 keys = list(parsed.keys())[:3]
                                 summary = f"JSON object with keys: {', '.join(keys)}"
@@ -384,20 +437,17 @@ def format_content_block(block: Dict[str, Any]) -> Optional[str]:
                             else:
                                 result_texts.append(truncate_text(result_text, 100))
                         except (json.JSONDecodeError, ValueError):
-                            # Not JSON, just add as text
                             result_texts.append(truncate_text(result_text, 100))
             if result_texts:
                 combined = " | ".join(result_texts)
-                return f"Result: {combined}"
+                return FormattedBlock(f"Result: {combined}")
         elif isinstance(content, str):
-            return f"Result: {truncate_text(content, 200)}"
-        return "Result: [empty]"
+            return FormattedBlock(f"Result: {truncate_text(content, 200)}")
+        return FormattedBlock("Result: [empty]")
 
-    elif block_type == "thinking":
-        # Include thinking content
+    if block_type == "thinking":
         thinking_text = block.get("text", "")
         if thinking_text:
-            return f"[Thinking: {truncate_text(thinking_text, 200)}]"
+            return FormattedBlock(f"[Thinking: {truncate_text(thinking_text, 200)}]")
 
-    # Unknown block type
-    return None
+    return FormattedBlock(None)

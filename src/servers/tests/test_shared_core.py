@@ -3,8 +3,18 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from shared.database.models import Message
+import pytest
+
 from shared.database.enums import AgentStatus, SenderType
+from shared.database.models import Message
+from shared.message_types import (
+    CodeEditChange,
+    CodeEditPayload,
+    MessageMetadataError,
+    build_structured_envelope,
+    normalize_message_metadata,
+    parse_message_metadata,
+)
 
 
 class TestDatabaseModels:
@@ -164,3 +174,95 @@ class TestAgentStatusTransitions:
         test_db.refresh(test_agent_instance)
         assert test_agent_instance.status == AgentStatus.FAILED
         assert test_agent_instance.ended_at is not None
+
+
+class TestMessageMetadataHelpers:
+    """Test structured message metadata helpers."""
+
+    def test_normalize_and_parse_code_edit_metadata(self):
+        metadata = {
+            "message_type": "CODE_EDIT",
+            "payload": {
+                "edits": [
+                    {
+                        "file_path": "src/app.py",
+                        "old_content": "print('old')\n",
+                        "new_content": "print('new')\n",
+                        "language": "python",
+                    }
+                ]
+            },
+            "webhook_url": "https://example.com/hook",
+        }
+
+        normalized = normalize_message_metadata(metadata)
+        assert normalized is not None
+        assert normalized["message_type"] == "CODE_EDIT"
+        assert normalized["payload"]["edits"][0]["file_path"] == "src/app.py"
+        assert normalized["webhook_url"] == "https://example.com/hook"
+
+        parsed = parse_message_metadata(normalized)
+        assert parsed.message_type == "CODE_EDIT"
+        assert isinstance(parsed.payload, CodeEditPayload)
+        assert parsed.payload.edits[0].file_path == "src/app.py"
+        assert not parsed.is_legacy
+
+    def test_parse_legacy_metadata(self):
+        legacy = {"webhook_url": "https://example.com"}
+
+        parsed = parse_message_metadata(legacy)
+        assert parsed.is_legacy
+        assert parsed.message_type is None
+        assert parsed.raw == legacy
+
+    def test_normalize_unknown_kind_preserves_payload(self):
+        metadata = {
+            "message_type": "CUSTOM_WIDGET",
+            "payload": {"foo": "bar"},
+            "extra": "value",
+        }
+
+        normalized = normalize_message_metadata(metadata)
+        assert normalized is not None
+        assert normalized["message_type"] == "CUSTOM_WIDGET"
+        assert normalized["payload"] == {"foo": "bar"}
+        assert normalized["extra"] == "value"
+        assert normalized["version"] == 1
+
+    def test_build_structured_envelope_with_extras(self):
+        envelope = build_structured_envelope(
+            message_type="TOOL_CALL",
+            payload={"tool_name": "say", "input": {"text": "hi"}},
+            extras={"webhook_url": "https://example.com/hook"},
+        )
+
+        assert envelope["message_type"] == "TOOL_CALL"
+        assert envelope["payload"]["tool_name"] == "say"
+        assert envelope["payload"]["input"] == {"text": "hi"}
+        assert envelope["webhook_url"] == "https://example.com/hook"
+
+    def test_build_structured_envelope_accepts_models(self):
+        payload_model = CodeEditPayload(
+            edits=[
+                CodeEditChange(
+                    file_path="src/main.py",
+                    old_content=None,
+                    new_content="print('hi')\n",
+                )
+            ]
+        )
+
+        envelope = build_structured_envelope(
+            message_type="CODE_EDIT", payload=payload_model
+        )
+
+        assert envelope["payload"]["edits"][0]["file_path"] == "src/main.py"
+        assert "old_content" not in envelope["payload"]["edits"][0]
+
+    def test_build_structured_envelope_rejects_conflicting_extras(self):
+        with pytest.raises(MessageMetadataError):
+            build_structured_envelope(
+                message_type="TOOL_CALL",
+                payload={"tool_name": "say", "input": {}},
+                extras={"message_type": "OVERRIDE"},
+            )

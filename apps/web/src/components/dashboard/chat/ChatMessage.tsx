@@ -4,11 +4,28 @@ import { Message } from '@/types/dashboard'
 import { formatDistanceToNow } from 'date-fns'
 import ReactMarkdown from 'react-markdown'
 import { preprocessMarkdown, markdownComponents, remarkPlugins } from '../markdownConfig'
+import { MessageTypeRenderer } from './message-types'
+import { cn } from '@/lib/utils'
 import { scrubQuestionFormatMarkers } from '@/utils/questionScrubber'
 
 interface ChatMessageProps {
   messageGroup: MessageGroup
   showWaitingIndicator?: boolean
+}
+
+function LegacyMessageBody({ content, highlight }: { content: string; highlight: boolean }) {
+  return (
+    <div
+      className={cn(
+        'prose prose-invert prose-pre:whitespace-pre-wrap prose-pre:break-words max-w-full text-text-primary overflow-hidden prose-code:text-text-primary prose-code:bg-background-base prose-code:px-2 prose-code:py-1 prose-code:rounded-md',
+        highlight && 'bg-background-base rounded-lg p-3 mt-3'
+      )}
+    >
+      <ReactMarkdown components={markdownComponents} remarkPlugins={remarkPlugins}>
+        {preprocessMarkdown(content)}
+      </ReactMarkdown>
+    </div>
+  )
 }
 
 function SingleMessage({
@@ -67,14 +84,15 @@ function SingleMessage({
 
   return (
     <div className={getMessageClasses()} data-message-id={message.id}>
-      <div className={`prose prose-invert prose-pre:whitespace-pre-wrap prose-pre:break-words max-w-full text-text-primary overflow-hidden prose-code:text-text-primary prose-code:bg-background-base prose-code:px-2 prose-code:py-1 prose-code:rounded-md ${isToolMessage ? 'bg-background-base rounded-lg p-3 mt-3' : ''}`}>
-        <ReactMarkdown 
-          components={markdownComponents}
-          remarkPlugins={remarkPlugins}
-        >
-          {preprocessMarkdown(displayContent)}
-        </ReactMarkdown>
-      </div>
+      <MessageTypeRenderer
+        message={message}
+        renderDefault={() => (
+          <LegacyMessageBody
+            content={displayContent}
+            highlight={isToolMessage}
+          />
+        )}
+      />
       {showWaitingIndicator && (
         <div className="bg-surface-panel/90 backdrop-blur-lg rounded-xl p-4 shadow-xl mt-4">
           <div className="text-sm text-yellow-400 font-medium flex items-center space-x-2">

@@ -9,7 +9,9 @@ import json
 import os
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
+
+from omnara.sdk.models import Message
 
 # Skip all tests in this module when running in CI
 if os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true":
@@ -56,8 +58,22 @@ class MockOmnaraClient:
         self.messages_sent.append(kwargs)
 
         if self.current_response < len(self.responses):
-            response = self.responses[self.current_response]
+            response = dict(self.responses[self.current_response])
             self.current_response += 1
+            queued = response.get("queued_user_messages")
+            if isinstance(queued, list):
+                response["queued_user_messages"] = [
+                    item
+                    if isinstance(item, Message)
+                    else Message(
+                        id=f"queued_{idx}",
+                        content=str(item),
+                        sender_type="user",
+                        created_at="",
+                        requires_user_input=False,
+                    )
+                    for idx, item in enumerate(queued)
+                ]
             return Mock(**response)
 
         # Default response

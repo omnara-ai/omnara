@@ -227,7 +227,7 @@ async def log_step_tool(
         success=response.success,
         agent_instance_id=response.agent_instance_id,
         step_number=1,  # We don't track step numbers anymore
-        user_feedback=response.queued_user_messages,
+        user_feedback=response.queued_contents,
     )
 
 
@@ -268,7 +268,9 @@ async def ask_question_tool(
 
         # Get the answer from queued_user_messages
         answer = (
-            response.queued_user_messages[0] if response.queued_user_messages else ""
+            response.queued_user_messages[0].content
+            if response.queued_user_messages
+            else ""
         )
 
         return AskQuestionResponse(
@@ -409,7 +411,7 @@ async def approve_tool(
         # Parse the answer to determine approval
         # Get the answer from queued_user_messages
         answer = (
-            response.queued_user_messages[0].strip()
+            response.queued_user_messages[0].content.strip()
             if response.queued_user_messages
             else ""
         )

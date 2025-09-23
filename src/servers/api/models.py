@@ -79,6 +79,16 @@ class MessageResponse(BaseModel):
     requires_user_input: bool = Field(
         ..., description="Whether this message requires user input"
     )
+    message_metadata: dict | None = Field(
+        default=None,
+        description=(
+            "Normalized metadata envelope (or legacy metadata) attached to the message"
+        ),
+    )
+    message_type: str | None = Field(
+        default=None,
+        description="Shortcut to the metadata type when structured metadata is present",
+    )
 
 
 class CreateMessageResponse(BaseModel):

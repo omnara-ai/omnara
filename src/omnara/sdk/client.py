@@ -3,23 +3,25 @@
 import logging
 import time
 import uuid
-from typing import Optional, Dict, Any, Union, List, Callable
+from typing import Any, Callable, Dict, List, Optional, Union
 from urllib.parse import urljoin
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .exceptions import AuthenticationError, TimeoutError, APIError
+from .exceptions import APIError, AuthenticationError, TimeoutError
 from .models import (
-    EndSessionResponse,
     CreateMessageResponse,
-    PendingMessagesResponse,
+    EndSessionResponse,
     Message,
+    PendingMessagesResponse,
 )
 from .utils import (
-    validate_agent_instance_id,
     build_message_request_data,
+    normalize_metadata_for_request,
+    parse_api_message,
+    validate_agent_instance_id,
 )
 
 
@@ -187,6 +189,7 @@ class OmnaraClient:
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
         git_diff: Optional[str] = None,
+        message_metadata: Optional[Dict[str, Any]] = None,
     ) -> CreateMessageResponse:
         """Send a message to the dashboard.
 
@@ -220,6 +223,8 @@ class OmnaraClient:
         agent_instance_id_str = validate_agent_instance_id(agent_instance_id)
 
         # Build request data using shared utility
+        normalized_metadata = normalize_metadata_for_request(message_metadata)
+
         data = build_message_request_data(
             content=content,
             agent_instance_id=agent_instance_id_str,
@@ -229,6 +234,7 @@ class OmnaraClient:
             send_email=send_email,
             send_sms=send_sms,
             git_diff=git_diff,
+            message_metadata=normalized_metadata,
         )
 
         # Send the message
@@ -236,16 +242,26 @@ class OmnaraClient:
         response_agent_instance_id = response["agent_instance_id"]
         message_id = response["message_id"]
 
-        queued_contents = [
-            msg["content"] if isinstance(msg, dict) else msg
-            for msg in response.get("queued_user_messages", [])
-        ]
+        queued_messages: List[Message] = []
+        for msg in response.get("queued_user_messages", []):
+            if isinstance(msg, dict):
+                queued_messages.append(parse_api_message(msg))
+            else:
+                queued_messages.append(
+                    Message(
+                        id=str(uuid.uuid4()),
+                        content=str(msg),
+                        sender_type="user",
+                        created_at="",
+                        requires_user_input=False,
+                    )
+                )
 
         create_response = CreateMessageResponse(
             success=response["success"],
             agent_instance_id=response_agent_instance_id,
             message_id=message_id,
-            queued_user_messages=queued_contents,
+            queued_user_messages=queued_messages,
         )
 
         # If it doesn't require user input, return immediately with any queued messages
@@ -258,7 +274,7 @@ class OmnaraClient:
 
         timeout_seconds = timeout_minutes * 60
         start_time = time.time()
-        all_messages = []
+        all_messages: List[Message] = []
 
         while time.time() - start_time < timeout_seconds:
             # Poll for pending messages
@@ -276,9 +292,7 @@ class OmnaraClient:
                 all_messages.extend(pending_response.messages)
 
                 # Return the response with all collected messages
-                create_response.queued_user_messages = [
-                    msg.content for msg in all_messages
-                ]
+                create_response.queued_user_messages = list(all_messages)
                 return create_response
 
             time.sleep(poll_interval)
@@ -308,10 +322,25 @@ class OmnaraClient:
 
         response = self._make_request("GET", "/api/v1/messages/pending", params=params)
 
+        messages: List[Message] = []
+        for msg in response.get("messages", []):
+            if isinstance(msg, dict):
+                messages.append(parse_api_message(msg))
+            else:
+                messages.append(
+                    Message(
+                        id=str(uuid.uuid4()),
+                        content=str(msg),
+                        sender_type="user",
+                        created_at="",
+                        requires_user_input=False,
+                    )
+                )
+
         return PendingMessagesResponse(
             agent_instance_id=response["agent_instance_id"],
-            messages=[Message(**msg) for msg in response["messages"]],
-            status=response["status"],
+            messages=messages,
+            status=response.get("status", "ok"),
         )
 
     def send_user_message(
@@ -383,9 +412,20 @@ class OmnaraClient:
 
         agent_instance_id = response["agent_instance_id"]
         messages = response.get("messages", [])
-
         if messages:
-            return [msg["content"] for msg in messages]
+            parsed_messages = [
+                parse_api_message(msg)
+                if isinstance(msg, dict)
+                else Message(
+                    id=str(uuid.uuid4()),
+                    content=str(msg),
+                    sender_type="user",
+                    created_at="",
+                    requires_user_input=False,
+                )
+                for msg in messages
+            ]
+            return [msg.content for msg in parsed_messages]
 
         # Otherwise, poll for user response
         timeout_seconds = timeout_minutes * 60

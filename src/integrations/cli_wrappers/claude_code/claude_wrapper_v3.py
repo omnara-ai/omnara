@@ -103,7 +103,10 @@ class MessageProcessor:
             self.pending_input_message_id = None
 
     def process_assistant_message_sync(
-        self, content: str, tools_used: list[str]
+        self,
+        content: str,
+        tools_used: list[str],
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Process an assistant message (sync version for monitor thread)"""
         if not self.wrapper.agent_instance_id or not self.wrapper.omnara_client_sync:
@@ -141,6 +144,7 @@ class MessageProcessor:
                 agent_instance_id=self.wrapper.agent_instance_id,
                 requires_user_input=False,
                 git_diff=git_diff,
+                message_metadata=metadata,
             )
 
             # Track message for idle detection
@@ -155,7 +159,9 @@ class MessageProcessor:
 
             # Process any queued user messages
             if response.queued_user_messages:
-                concatenated = "\n".join(response.queued_user_messages)
+                concatenated = "\n".join(
+                    msg.content for msg in response.queued_user_messages
+                )
                 self.web_ui_messages.add(concatenated)
                 self.wrapper.input_queue.append(concatenated)
 
@@ -574,9 +580,9 @@ class ClaudeWrapperV3:
                     formatted_parts = []
                     for block in content:
                         if isinstance(block, dict):
-                            formatted_content = format_content_block(block)
-                            if formatted_content:
-                                formatted_parts.append(formatted_content)
+                            formatted_block = format_content_block(block)
+                            if formatted_block.preview:
+                                formatted_parts.append(formatted_block.preview)
 
                     if formatted_parts:
                         combined_content = "\n".join(formatted_parts)
@@ -592,23 +598,25 @@ class ClaudeWrapperV3:
                 content_blocks = message.get("content", [])
                 formatted_parts = []
                 tools_used = []
+                metadata_envelope: Optional[Dict[str, Any]] = None
 
                 for block in content_blocks:
                     if isinstance(block, dict):
-                        formatted_content = format_content_block(block)
-                        if formatted_content:
-                            formatted_parts.append(formatted_content)
-                            # Track if this was a tool use
+                        formatted_block = format_content_block(block)
+                        if formatted_block.preview:
+                            formatted_parts.append(formatted_block.preview)
                             if block.get("type") == "tool_use":
-                                tools_used.append(formatted_content)
+                                tools_used.append(formatted_block.preview)
                             if block.get("name") == "Task":
                                 self.message_processor.subtask = True
+                        if formatted_block.metadata and metadata_envelope is None:
+                            metadata_envelope = formatted_block.metadata
 
                 # Process message if we have content
                 if formatted_parts:
                     message_content = "\n".join(formatted_parts)
                     self.message_processor.process_assistant_message_sync(
-                        message_content, tools_used
+                        message_content, tools_used, metadata_envelope
                     )
 
             elif msg_type == "summary":
@@ -691,14 +699,14 @@ class ClaudeWrapperV3:
                         )
 
                         # Process responses
-                        for response in response.queued_user_messages:
+                        for user_msg in response.queued_user_messages:
                             self.log(
-                                f"[INFO] Got user response from web UI: {response[:50]}..."
+                                f"[INFO] Got user response from web UI: {user_msg.content[:50]}..."
                             )
                             self.message_processor.process_user_message_sync(
-                                response, from_web=True
+                                user_msg.content, from_web=True
                             )
-                            self.input_queue.append(response)
+                            self.input_queue.append(user_msg.content)
 
                 except Exception as send_error:
                     self.log(f"[ERROR] Failed to send new message: {send_error}")
