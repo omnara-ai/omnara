@@ -127,7 +127,17 @@
     <!-- DNS Prefetch for External Resources -->
     <link rel="dns-prefetch" href="//fonts.googleapis.com">
     <link rel="dns-prefetch" href="//fonts.gstatic.com">
-    
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-9Y31BL7XE6"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-9Y31BL7XE6');
+    </script>
+
     <!-- Preload module entry correctly (or remove entirely in dev) -->
     <link rel="modulepreload" href="/src/main.tsx" crossorigin>
     
