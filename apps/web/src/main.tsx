@@ -11,7 +11,13 @@ const POSTHOG_HOST = (import.meta.env.VITE_POSTHOG_HOST as string | undefined) |
 const withProviders = (node: React.ReactNode) => {
   if (POSTHOG_KEY) {
     return (
-      <PostHogProvider apiKey={POSTHOG_KEY} options={{ api_host: POSTHOG_HOST }}>
+      <PostHogProvider
+        apiKey={POSTHOG_KEY}
+        options={{
+          api_host: POSTHOG_HOST,
+          debug: import.meta.env.MODE === 'development',
+        }}
+      >
         {node}
       </PostHogProvider>
     )
