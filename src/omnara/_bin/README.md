@@ -14,10 +14,10 @@ is present (e.g., in a development checkout), you can build it locally or specif
 
 To build the codex binary in a local omnara repo:
 ```bash
-cd integrations/cli_wrappers/codex/codex-rs && cargo build --release -p codex-cli
+cd src/integrations/cli_wrappers/codex/codex-rs && cargo build --release -p codex-cli
 ```
 
-The built binary will be at: `integrations/cli_wrappers/codex/codex-rs/target/release/codex`
+The built binary will be at: `src/integrations/cli_wrappers/codex/codex-rs/target/release/codex`
 
 ## Using a Custom Binary
 

@@ -27,7 +27,7 @@ Visit [github.com/apps/claude-code](https://github.com/apps/claude-code) and ins
 ### Step 2: Add the Workflow to Your Repository
 
 1. Create `.github/workflows/omnara.yml` in your repository
-2. Copy the workflow from [integrations/github/claude-code-action/examples/omnara.yml](examples/omnara.yml)
+2. Copy the workflow from [src/integrations/github/claude-code-action/examples/omnara.yml](examples/omnara.yml)
 3. Commit and push the file
 
 ### Step 3: Configure Repository Secrets
