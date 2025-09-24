@@ -143,7 +143,7 @@ The Omnara GitHub Actions integration allows you to trigger Claude Code to run i
 
 #### Installation & Setup
 
-For complete setup instructions including GitHub workflow configuration, see the [GitHub Actions integration guide](./integrations/github/claude-code-action/README.md).
+For complete setup instructions including GitHub workflow configuration, see the [GitHub Actions integration guide](./src/integrations/github/claude-code-action/README.md).
 
 </details>
 
