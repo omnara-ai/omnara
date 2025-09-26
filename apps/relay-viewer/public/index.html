@@ -62,6 +62,7 @@
         width: 100%;
         height: 100%;
         min-height: 0;
+        overflow: hidden;
       }
 
       #terminal .xterm {
@@ -126,6 +127,7 @@
     </footer>
 
     <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
     <script>
       const FRAME_HEADER_SIZE = 5; // 1 byte type + 4 byte length
       const FRAME_TYPE_OUTPUT = 0;
@@ -144,6 +146,9 @@
       let buffer = new Uint8Array();
       let termDisposables = [];
       let pendingResize = null;
+      let suppressResizeNotification = 0;
+      let fitAddon = null;
+      let resizeObserver = null;
 
       function setStatus(message) {
         statusEl.textContent = message ?? '';
@@ -194,8 +199,33 @@
 
       function sendInput(data) {
         if (!socket || socket.readyState !== WebSocket.OPEN) return;
-        const message = JSON.stringify({ type: 'input', data });
-        socket.send(message);
+        const payload = { type: 'input', data };
+        const size = getCurrentSize();
+        if (size) {
+          payload.cols = size.cols;
+          payload.rows = size.rows;
+        }
+        socket.send(JSON.stringify(payload));
+      }
+
+      function sendResizeRequest(cols, rows) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
+        const safeCols = Math.max(1, Math.trunc(cols));
+        const safeRows = Math.max(1, Math.trunc(rows));
+        socket.send(
+          JSON.stringify({ type: 'resize_request', cols: safeCols, rows: safeRows })
+        );
+      }
+
+      function getCurrentSize() {
+        if (!term) return null;
+        const cols = Number(term.cols);
+        const rows = Number(term.rows);
+        if (!Number.isFinite(cols) || !Number.isFinite(rows)) {
+          return null;
+        }
+        return { cols, rows };
       }
 
       function applyResize(cols, rows) {
@@ -213,11 +243,34 @@
           return;
         }
 
-        term.resize(safeCols, safeRows);
+        if (term.cols === safeCols && term.rows === safeRows) {
+          return;
+        }
+
+        suppressResizeNotification++;
+        try {
+          term.resize(safeCols, safeRows);
+        } finally {
+          if (suppressResizeNotification > 0) {
+            suppressResizeNotification--;
+          }
+        }
       }
 
       function disposeTerminal() {
         if (!term) return;
+        if (resizeObserver) {
+          try {
+            resizeObserver.disconnect();
+          } catch (_) {}
+        }
+        resizeObserver = null;
+        if (fitAddon && typeof fitAddon.dispose === 'function') {
+          try {
+            fitAddon.dispose();
+          } catch (_) {}
+        }
+        fitAddon = null;
         for (const disposable of termDisposables) {
           try {
             disposable.dispose();
@@ -241,6 +294,11 @@
           }
         });
 
+        if (window.FitAddon) {
+          fitAddon = new window.FitAddon.FitAddon();
+          term.loadAddon(fitAddon);
+        }
+
         const clearHandler = term.parser.registerCsiHandler({ final: 'J' }, (params) => {
           const code = params.length === 0 ? 0 : params[0];
           if (code === 2) {
@@ -260,9 +318,59 @@
         const dataSubscription = term.onData(data => sendInput(data));
         termDisposables.push(dataSubscription);
 
-        if (pendingResize) {
-          term.resize(pendingResize.cols, pendingResize.rows);
+        const applyFit = () => {
+          if (!fitAddon) {
+            return;
+          }
+          suppressResizeNotification++;
+          try {
+            fitAddon.fit();
+          } finally {
+            if (suppressResizeNotification > 0) {
+              suppressResizeNotification--;
+            }
+          }
+          const size = getCurrentSize();
+          if (size) {
+            pendingResize = size;
+            sendResizeRequest(size.cols, size.rows);
+          }
+        };
+
+        const resizeSubscription = term.onResize(({ cols, rows }) => {
+          pendingResize = { cols, rows };
+          if (suppressResizeNotification > 0) {
+            return;
+          }
+          sendResizeRequest(cols, rows);
+        });
+        termDisposables.push(resizeSubscription);
+
+        if (window.ResizeObserver) {
+          resizeObserver = new ResizeObserver(() => {
+            if (!term) return;
+            applyFit();
+          });
+          resizeObserver.observe(terminalContainer);
         }
+
+        if (pendingResize) {
+          suppressResizeNotification++;
+          try {
+            term.resize(pendingResize.cols, pendingResize.rows);
+          } finally {
+            if (suppressResizeNotification > 0) {
+              suppressResizeNotification--;
+            }
+          }
+        }
+
+        const size = getCurrentSize();
+        if (size) {
+          pendingResize = size;
+        }
+
+        applyFit();
       }
 
       async function loadSessionsList() {
@@ -327,6 +435,10 @@
         socket.onopen = () => {
           setStatus(`Connected to session ${sessionId}`);
           term.focus();
+          const size = getCurrentSize();
+          if (size) {
+            sendResizeRequest(size.cols, size.rows);
+          }
         };
         socket.onclose = ev => {
           const flush = textDecoder.decode();

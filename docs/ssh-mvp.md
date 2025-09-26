@@ -82,7 +82,14 @@ Because our MVP already uses SSH on the server side and stores user identity alo
 ### Test viewer (`apps/relay-viewer`)
 - Express proxy lists sessions and bridges WebSocket traffic to the relay, injecting the `X-API-Key` header.
 - Front-end uses xterm.js with a streaming UTF-8 decoder so Claude’s Ink UI renders correctly and input is echoed back through the relay.
+- Viewer now loads the xterm fit addon and clamps its container so the terminal automatically matches the browser viewport; every local resize triggers a `resize_request` message back to the relay.
 - Viewer listens for PTY resize frames so ink’s full-screen redraws reuse the same canvas footprint, keeping the mirrored output 1:1 with the agent terminal.
+- Proxy logs client JSON payloads (input vs. resize) to `logs/relay-viewer.log` so we can verify who is driving the terminal.
+- When a viewer sends input (or resizes its viewport) the relay now forwards that terminal size back to the PTY, so mobile clients can temporarily “drive” the layout without manual intervention on the host.
+
+### Mobile client considerations
+- Quickest React Native path is to embed the existing viewer inside `react-native-webview`, reuse the same WebSocket + frame protocol, and bridge keystrokes/resize events with `postMessage`. This keeps xterm.js and the fit addon intact so mobile mirrors web behavior.
+- Longer-term native option: pair a headless terminal emulator (e.g., `xterm-headless`) with a custom React Native renderer for tighter UI integration, though this requires reimplementing scrollback, cursor, and resize math.
 
 ## Implementation Checklist (MVP)
 - [x] PTY + SSH wrapper on the local machine (`session_sharing.py`).
@@ -93,7 +100,8 @@ Because our MVP already uses SSH on the server side and stores user identity alo
 - [ ] Tests around session lifecycle, auth failures, and history buffering.
 
 ## Known Issue
-- **Ink repaint duplication**: Claude Code redraws the entire screen on each update. We now stream PTY resize events to web viewers so xterm mirrors the agent’s actual columns/rows, eliminating the duplicated blocks that appeared when the remote terminal wrapped differently than the source.
+- **Ink repaint duplication**: Claude Code redraws the entire screen on each update. We now stream PTY resize events to web viewers so xterm mirrors the agent’s actual columns/rows, eliminating the duplicated blocks that appeared when the remote terminal wrapped differently than the source. Remaining rough edge: when the host terminal is dramatically larger than the viewer’s initial viewport, the viewer needs a manual resize (or a future “fit on connect”) to catch up before a remote keystroke arrives.
+- **Control arbitration**: whichever viewer sends input last now drives the PTY size. This is ideal for mobile typing, but we may eventually want a “take control” toggle if multiple viewers edit simultaneously.
 
 ## Future Considerations
 - Persistent storage (Redis or Postgres) if we need multi-process relay workers or durable session history.

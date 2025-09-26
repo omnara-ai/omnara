@@ -99,6 +99,9 @@ class WebsocketRouter:
                     data = json.loads(msg.data)
                     if data.get("type") == "input":
                         session.forward_input(data.get("data", ""))
+                        session.request_resize(data.get("cols"), data.get("rows"))
+                    elif data.get("type") == "resize_request":
+                        session.request_resize(data.get("cols"), data.get("rows"))
                 elif msg.type in (
                     web.WSMsgType.CLOSE,
                     web.WSMsgType.CLOSED,

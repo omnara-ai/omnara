@@ -92,6 +92,16 @@ wss.on('connection', (socket, request, clientMeta) => {
   });
 
   socket.on('message', (data, isBinary) => {
+    if (!isBinary) {
+      try {
+        const parsed = JSON.parse(data.toString());
+        console.log(
+          `[viewer] client payload type=${parsed.type} cols=${parsed.cols ?? ''} rows=${parsed.rows ?? ''}`
+        );
+      } catch (_) {
+        console.log('[viewer] client payload (raw)', data.toString());
+      }
+    }
     if (upstream.readyState === WebSocket.OPEN) {
       upstream.send(data, { binary: isBinary });
       console.log(`[viewer] client message forwarded bytes=${isBinary ? data.length : Buffer.byteLength(data.toString())}`);

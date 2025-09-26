@@ -157,15 +157,10 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
     tty_state = None
     sigwinch_prev_handler = None
 
-    def _record_window_size(cols: int, rows: int) -> None:
-        nonlocal last_window
-        last_window = (cols, rows)
-
-    def _send_resize_frame() -> None:
-        if channel is None or last_window is None:
+    def _notify_relay_of_resize(cols: int, rows: int) -> None:
+        if channel is None:
             return
 
-        cols, rows = last_window
         payload = RESIZE_PAYLOAD.pack(rows, cols)
         frame = _pack_frame(FRAME_TYPE_RESIZE, payload)
         try:
@@ -178,11 +173,16 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
                 f"[WARN] Relay resize send failed session_id={session_id} exc={exc!r}"
             )
 
-    def _apply_window_size() -> None:
-        try:
-            cols, rows = get_terminal_size(fallback=(80, 24))
-        except OSError:
-            cols, rows = (80, 24)
+    def _set_master_window(cols: int, rows: int, *, notify_relay: bool) -> None:
+        nonlocal last_window
+
+        cols = max(1, int(cols))
+        rows = max(1, int(rows))
+
+        if last_window == (cols, rows):
+            if notify_relay:
+                _notify_relay_of_resize(cols, rows)
+            return
 
         winsize = struct.pack("HHHH", rows, cols, 0, 0)
         try:
@@ -190,8 +190,18 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
         except Exception:
             pass
 
-        _record_window_size(cols, rows)
-        _send_resize_frame()
+        last_window = (cols, rows)
+
+        if notify_relay:
+            _notify_relay_of_resize(cols, rows)
+
+    def _sync_local_terminal_size() -> None:
+        try:
+            cols, rows = get_terminal_size(fallback=(80, 24))
+        except OSError:
+            cols, rows = (80, 24)
+
+        _set_master_window(cols, rows, notify_relay=True)
 
     if sys.stdin and sys.stdin.isatty():
         stdin_fd = sys.stdin.fileno()
@@ -201,20 +211,17 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
         except Exception:
             tty_state = None
 
-        _apply_window_size()
+        _sync_local_terminal_size()
 
         def _on_sigwinch(signum, frame):  # type: ignore[override]
-            _apply_window_size()
+            _sync_local_terminal_size()
 
         try:
             sigwinch_prev_handler = signal.signal(signal.SIGWINCH, _on_sigwinch)
         except Exception:
             sigwinch_prev_handler = None
     else:
-        _apply_window_size()
-
-    if channel is not None:
-        _send_resize_frame()
+        _sync_local_terminal_size()
 
     try:
         flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
@@ -315,6 +322,18 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
                                         select.select([], [master_fd], [], 0.1)
                                     except InterruptedError:
                                         continue
+                        elif frame_type == FRAME_TYPE_RESIZE:
+                            if len(payload) != RESIZE_PAYLOAD.size:
+                                _log(
+                                    f"[WARN] Ignoring invalid resize payload len={len(payload)} (session_id={session_id})"
+                                )
+                                continue
+
+                            rows, cols = RESIZE_PAYLOAD.unpack(payload)
+                            _log(
+                                f"[TRACE] applying remote resize cols={cols} rows={rows} (session_id={session_id})"
+                            )
+                            _set_master_window(cols, rows, notify_relay=False)
                         else:
                             _log(
                                 f"[WARN] Ignoring frame type {frame_type} len={frame_len} (session_id={session_id})"

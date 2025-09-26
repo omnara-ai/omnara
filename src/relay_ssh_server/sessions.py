@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 import time
 import weakref
 from collections import deque
@@ -12,7 +13,9 @@ from typing import Deque, Dict, Iterable, Optional, Tuple
 import asyncssh
 from aiohttp import web
 
-from .protocol import FRAME_TYPE_INPUT, FRAME_TYPE_OUTPUT, pack_frame
+from .protocol import FRAME_TYPE_INPUT, FRAME_TYPE_OUTPUT, FRAME_TYPE_RESIZE, pack_frame
+
+RESIZE_PAYLOAD = struct.Struct("!HH")
 
 
 @dataclass(slots=True)
@@ -107,6 +110,41 @@ class Session:
             self._channel.write(frame)
         except Exception:
             self._channel = None
+
+    def request_resize(self, cols: int | float | None, rows: int | float | None) -> None:
+        """Request a PTY resize originating from a viewer."""
+
+        if self._channel is None:
+            return
+
+        try:
+            int_cols = int(cols) if cols is not None else None
+            int_rows = int(rows) if rows is not None else None
+        except (TypeError, ValueError):
+            return
+
+        if int_cols is None or int_rows is None:
+            return
+
+        if int_cols <= 0 or int_rows <= 0:
+            return
+
+        if self.cols == int_cols and self.rows == int_rows:
+            return
+
+        try:
+            payload = RESIZE_PAYLOAD.pack(int_rows, int_cols)
+            frame = pack_frame(FRAME_TYPE_RESIZE, payload)
+            print(
+                f"[relay] request_resize cols={int_cols} rows={int_rows} session={self.user_id}:{self.session_id}",
+                flush=True,
+            )
+            self._channel.write(frame)
+        except Exception:
+            self._channel = None
+            return
+
+        self.update_size(int_cols, int_rows)
 
     def update_size(self, cols: int, rows: int) -> None:
         """Track the PTY window size and broadcast to viewers."""
