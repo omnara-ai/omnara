@@ -33,8 +33,18 @@ NC='\033[0m' # No Color
 # Function to cleanup on exit
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
-    
+
     # Kill background processes
+    if [[ -n $VIEWER_PID ]]; then
+        echo "Stopping relay viewer..."
+        kill $VIEWER_PID 2>/dev/null || true
+        wait $VIEWER_PID 2>/dev/null || true
+    fi
+    if [[ -n $RELAY_PID ]]; then
+        echo "Stopping SSH relay..."
+        kill $RELAY_PID 2>/dev/null || true
+        wait $RELAY_PID 2>/dev/null || true
+    fi
     if [[ -n $APP_PID ]]; then
         echo "Stopping unified server..."
         kill $APP_PID 2>/dev/null || true
@@ -108,6 +118,24 @@ export ENVIRONMENT="development"
 export DEVELOPMENT_DB_URL="postgresql://user:password@localhost:5432/agent_dashboard"
 ./infrastructure/scripts/init-db.sh
 
+# Prepare log directory
+LOG_DIR="$(pwd)/logs"
+mkdir -p "$LOG_DIR"
+RELAY_LOG="$LOG_DIR/relay.log"
+> "$RELAY_LOG"
+VIEWER_LOG="$LOG_DIR/relay-viewer.log"
+> "$VIEWER_LOG"
+
+# Start SSH relay server
+echo -e "${BLUE}Starting SSH relay server...${NC}"
+export PYTHONPATH="$(pwd)/src"
+export OMNARA_RELAY_SSH_HOST="0.0.0.0"
+export OMNARA_RELAY_HOST="127.0.0.1"
+export OMNARA_RELAY_WS_PORT=8787
+python -m relay_ssh_server.run >> "$RELAY_LOG" 2>&1 &
+RELAY_PID=$!
+sleep 2
+
 # Start unified server (MCP + FastAPI)
 echo -e "${BLUE}Starting unified server (MCP + FastAPI)...${NC}"
 export PYTHONPATH="$(pwd)/src"
@@ -129,11 +157,24 @@ BACKEND_PID=$!
 # Wait a moment for backend to start
 sleep 2
 
+# Start relay viewer (static test client)
+echo -e "${BLUE}Starting relay viewer...${NC}"
+if [ ! -d "apps/relay-viewer/node_modules" ]; then
+    (cd apps/relay-viewer && npm install >/dev/null 2>&1)
+fi
+npm --prefix apps/relay-viewer start >> "$VIEWER_LOG" 2>&1 &
+VIEWER_PID=$!
+sleep 2
+
 echo -e "${GREEN}🎉 All services started successfully!${NC}"
 echo -e "${BLUE}Services:${NC}"
+echo -e "  🔌 SSH Relay:      ssh://localhost:2222  ws://localhost:${OMNARA_RELAY_WS_PORT}"
 echo -e "  🔧 Backend API:     http://localhost:8000"
 echo -e "  🤖 Unified Server:  http://localhost:8080 (MCP + FastAPI)"
+echo -e "  🖥️  Relay Viewer:    http://localhost:4173"
 echo -e "  🗄️  PostgreSQL:      localhost:5432"
+echo -e "  📜 Relay Log:       $RELAY_LOG"
+echo -e "  📜 Viewer Log:      $VIEWER_LOG"
 echo -e "\n${YELLOW}Press Ctrl+C to stop all services${NC}"
 
 # Wait for all background processes

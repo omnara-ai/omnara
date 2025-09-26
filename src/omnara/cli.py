@@ -488,85 +488,22 @@ def cmd_headless(args, unknown_args):
 
 
 def run_agent_chat(args, unknown_args):
-    """Run the agent chat integration (Claude or Amp)"""
+    """Run the agent chat integration, streaming through the relay when possible."""
+
     api_key = ensure_api_key(args)
-
-    # Import and run directly instead of subprocess
-
-    # Prepare sys.argv for the claude wrapper
-
-    # Agent configuration mapping
-    AGENT_CONFIGS = {
-        "claude": {
-            "module": "integrations.cli_wrappers.claude_code.claude_wrapper_v3",
-            "function": "main",
-            "argv_name": "claude_wrapper_v3",
-        },
-        "amp": {
-            "module": "integrations.cli_wrappers.amp.amp",
-            "function": "main",
-            "argv_name": "amp_wrapper",
-        },
-        # 'codex' is implemented as an external binary launcher; handled below
-        "codex": {
-            "module": None,
-            "function": None,
-            "argv_name": "codex",
-        },
-    }
-
-    # Get agent configuration
     agent = getattr(args, "agent", "claude").lower()
-    config = AGENT_CONFIGS.get(agent)
 
-    if not config:
-        raise ValueError(
-            f"Unknown agent: {agent}. Supported agents: {', '.join(AGENT_CONFIGS.keys())}"
-        )
-
-    # Special-case 'codex': spawn the Rust binary with env.
     if agent == "codex":
         from omnara.agents.codex import run_codex
 
         return run_codex(args, unknown_args, api_key)
 
-    module = importlib.import_module(config["module"])  # type: ignore[arg-type]
-    wrapper_main = getattr(module, config["function"])  # type: ignore[index]
+    from omnara.session_sharing import run_agent_with_relay
 
-    # Prepare sys.argv for the wrapper
-    original_argv = sys.argv
-    new_argv = [config["argv_name"], "--api-key", api_key]
-
-    if hasattr(args, "base_url") and args.base_url:
-        new_argv.extend(["--base-url", args.base_url])
-
-    # Add name flag if provided
-    if hasattr(args, "name") and args.name:
-        new_argv.extend(["--name", args.name])
-
-    # Add Claude-specific flags
-    if hasattr(args, "permission_mode") and args.permission_mode:
-        new_argv.extend(["--permission-mode", args.permission_mode])
-
-    if (
-        hasattr(args, "dangerously_skip_permissions")
-        and args.dangerously_skip_permissions
-    ):
-        new_argv.append("--dangerously-skip-permissions")
-
-    # Add idle-delay flag if provided
-    if hasattr(args, "idle_delay") and args.idle_delay:
-        new_argv.extend(["--idle-delay", str(args.idle_delay)])
-
-    # Add any additional arguments
-    if unknown_args:
-        new_argv.extend(unknown_args)
-
-    try:
-        sys.argv = new_argv
-        wrapper_main()
-    finally:
-        sys.argv = original_argv
+    exit_code = run_agent_with_relay(agent, args, unknown_args, api_key)
+    if exit_code != 0:
+        sys.exit(exit_code)
+    return exit_code
 
 
 def cmd_serve(args, unknown_args=None):
@@ -600,8 +537,6 @@ def cmd_serve(args, unknown_args=None):
     except KeyboardInterrupt:
         print("\n[INFO] Webhook server stopped by user")
         sys.exit(0)
-
-
 def cmd_mcp(args):
     """Handle the 'mcp' subcommand"""
 

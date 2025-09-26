@@ -22,4 +22,11 @@ lsof -ti:8000 | xargs kill -9 2>/dev/null || true
 # Kill processes on port 8080 (unified server - MCP + FastAPI)
 lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 
+# Kill processes on relay ports
+lsof -ti:2222 | xargs kill -9 2>/dev/null || true
+lsof -ti:8787 | xargs kill -9 2>/dev/null || true
+
+# Kill relay viewer
+lsof -ti:4173 | xargs kill -9 2>/dev/null || true
+
 echo "✅ All services stopped"
