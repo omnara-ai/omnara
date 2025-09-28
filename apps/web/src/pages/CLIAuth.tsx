@@ -136,6 +136,14 @@ export default function CLIAuth() {
     }
   }, [state, user, apiKey, isGenerating, generateCLIKey]);
 
+  // Auto-authenticate local CLI once we have a key (best effort)
+  useEffect(() => {
+    // If running locally and we have everything we need, attempt local auth automatically
+    if (apiKey && port && state && !localAuthAttempted && !success) {
+      authenticateLocalCLI();
+    }
+  }, [apiKey, port, state, localAuthAttempted, success]);
+
   if (!state) {
     return (
       <div className="min-h-screen relative">
