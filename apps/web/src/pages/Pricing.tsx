@@ -31,6 +31,20 @@ export default function PricingPage() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [selectedPlanForAuth, setSelectedPlanForAuth] = useState<string | null>(null);
 
+  // Auto-detect promo code from URL parameter
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const promoFromUrl = urlParams.get('promo');
+
+    if (promoFromUrl && !promoCode) {
+      setPromoCode(promoFromUrl);
+      // Auto-validate if user is logged in
+      if (user) {
+        validatePromoCodeValue(promoFromUrl);
+      }
+    }
+  }, [user]);
+
   // Handle plan selection after successful authentication
   useEffect(() => {
     const proceedWithSelectedPlan = async () => {
@@ -72,8 +86,8 @@ export default function PricingPage() {
     proceedWithSelectedPlan();
   }, [user, selectedPlanForAuth, navigate, promoValidation, promoCode, toast]);
 
-  const validatePromoCode = async () => {
-    if (!promoCode.trim()) {
+  const validatePromoCodeValue = async (code: string) => {
+    if (!code.trim()) {
       setPromoValidation(null);
       return;
     }
@@ -89,7 +103,7 @@ export default function PricingPage() {
 
     setValidatingPromo(true);
     try {
-      const result = await billingApi.validatePromoCode(promoCode, 'enterprise');
+      const result = await billingApi.validatePromoCode(code, 'enterprise');
       setPromoValidation(result);
     } catch (error) {
       setPromoValidation({
@@ -99,6 +113,10 @@ export default function PricingPage() {
     } finally {
       setValidatingPromo(false);
     }
+  };
+
+  const validatePromoCode = async () => {
+    await validatePromoCodeValue(promoCode);
   };
 
   const handleSelectPlan = async (planId: string) => {
@@ -305,9 +323,17 @@ export default function PricingPage() {
                 <Alert className={`mt-4 ${promoValidation.valid ? 'bg-green-500/20 border-green-400/30' : 'bg-red-500/20 border-red-400/30'}`}>
                   <AlertCircle className={`h-4 w-4 ${promoValidation.valid ? 'text-green-400' : 'text-red-400'}`} />
                   <AlertDescription className={promoValidation.valid ? 'text-green-200' : 'text-red-200'}>
-                    {promoValidation.valid 
+                    {promoValidation.valid
                       ? `✅ ${promoValidation.description}`
                       : promoValidation.error}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {promoCode && !user && (
+                <Alert className="mt-4 bg-blue-500/20 border-blue-400/30">
+                  <AlertCircle className="h-4 w-4 text-blue-400" />
+                  <AlertDescription className="text-blue-200">
+                    Sign in to apply this promo code to your purchase
                   </AlertDescription>
                 </Alert>
               )}
