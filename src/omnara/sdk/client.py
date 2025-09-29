@@ -187,6 +187,8 @@ class OmnaraClient:
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
         git_diff: Optional[str] = None,
+        message_metadata: Optional[Dict[str, Any]] = None,
+        wait_for_response: bool = True,
     ) -> CreateMessageResponse:
         """Send a message to the dashboard.
 
@@ -229,6 +231,7 @@ class OmnaraClient:
             send_email=send_email,
             send_sms=send_sms,
             git_diff=git_diff,
+            message_metadata=message_metadata,
         )
 
         # Send the message
@@ -248,8 +251,8 @@ class OmnaraClient:
             queued_user_messages=queued_contents,
         )
 
-        # If it doesn't require user input, return immediately with any queued messages
-        if not requires_user_input:
+        # If it doesn't require user input or caller opted out of waiting, return immediately
+        if not requires_user_input or not wait_for_response:
             return create_response
 
         # Otherwise, we need to poll for user response
@@ -303,8 +306,12 @@ class OmnaraClient:
         agent_instance_id_str = validate_agent_instance_id(agent_instance_id)
 
         params = {"agent_instance_id": agent_instance_id_str}
+        # Some server versions require the parameter to be present even when empty.
+        # Send an empty string on first poll to satisfy validation while signaling "no last read".
         if last_read_message_id:
             params["last_read_message_id"] = last_read_message_id
+        else:
+            params["last_read_message_id"] = ""
 
         response = self._make_request("GET", "/api/v1/messages/pending", params=params)
 

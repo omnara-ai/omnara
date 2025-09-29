@@ -193,6 +193,9 @@ def create_user_message_endpoint(
     """
 
     try:
+        logger.info(
+            f"/messages/user: instance={request.agent_instance_id} mark_as_read={request.mark_as_read} user={user_id}"
+        )
         result = create_user_message(
             db=db,
             agent_instance_id=request.agent_instance_id,
@@ -202,6 +205,19 @@ def create_user_message_endpoint(
         )
 
         db.commit()
+
+        try:
+            # Log resulting instance last_read state
+            instance = (
+                db.query(AgentInstance)
+                .filter(AgentInstance.id == request.agent_instance_id)
+                .first()
+            )
+            logger.info(
+                f"/messages/user: created id={result['id']} last_read={(instance and instance.last_read_message_id)}"
+            )
+        except Exception:
+            pass
 
         # Add background task to update session title if needed
         def update_title_with_session():
@@ -299,7 +315,7 @@ def heartbeat_instance(
 @agent_router.get("/messages/pending", response_model=GetMessagesResponse)
 def get_pending_messages(
     agent_instance_id: str,
-    last_read_message_id: str | None,
+    last_read_message_id: str | None = None,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db),
 ) -> GetMessagesResponse:
@@ -312,6 +328,9 @@ def get_pending_messages(
     """
 
     try:
+        logger.info(
+            f"/messages/pending: instance={agent_instance_id} last_read={last_read_message_id} user={user_id}"
+        )
         # Validate access (agent_instance_id is required here)
         instance = get_or_create_agent_instance(db, agent_instance_id, user_id)
 
@@ -323,6 +342,9 @@ def get_pending_messages(
 
         # If messages is None, another process has read the messages
         if messages is None:
+            logger.info(
+                f"/messages/pending: STALE (instance.last_read={instance.last_read_message_id})"
+            )
             return GetMessagesResponse(
                 agent_instance_id=agent_instance_id,
                 messages=[],
@@ -343,11 +365,15 @@ def get_pending_messages(
             for msg in messages
         ]
 
-        return GetMessagesResponse(
+        resp = GetMessagesResponse(
             agent_instance_id=agent_instance_id,
             messages=message_responses,
             status="ok",
         )
+        logger.info(
+            f"/messages/pending: OK count={len(resp.messages)} last_read={(instance and instance.last_read_message_id)}"
+        )
+        return resp
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

@@ -22,7 +22,7 @@ import threading
 import importlib
 from typing import Optional
 
-AGENT_CHOICES = ["claude", "amp", "codex"]
+AGENT_CHOICES = ["claude", "amp", "codex", "gemini"]
 
 
 def get_current_version():
@@ -513,6 +513,11 @@ def run_agent_chat(args, unknown_args):
             "function": None,
             "argv_name": "codex",
         },
+        "gemini": {
+            "module": "integrations.cli_wrappers.gemini.gemini_wrapper",
+            "function": "main",
+            "argv_name": "gemini",
+        },
     }
 
     # Get agent configuration
@@ -674,7 +679,7 @@ def add_global_arguments(parser):
         const="__USE_AGENT__",
         help=(
             "Set default agent for future runs. Use without a value to use the current --agent, "
-            "or pass an agent name (claude|amp|codex)."
+            "or pass an agent name (claude|amp|codex|gemini)."
         ),
     )
     parser.add_argument(

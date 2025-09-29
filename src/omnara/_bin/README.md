@@ -25,4 +25,3 @@ Set the `OMNARA_CODEX_PATH` environment variable to specify a custom binary path
 This can be either:
 - A direct path to the binary file
 - A directory containing the binary (will look for `codex` or `codex.exe` based on platform)
-
