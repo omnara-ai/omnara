@@ -6,6 +6,7 @@ import { AgentType } from '../types/dashboard'
 import { useState } from 'react'
 import { useMobile } from '../hooks/use-mobile'
 import { useNavigate } from 'react-router-dom'
+import { useAnalytics } from '@/lib/analytics'
 import { Button } from '../components/ui/button'
 import { Bot, Plus, Key, List, RotateCcw, AlertCircle, ArrowRight, Copy, Edit2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog'
@@ -54,6 +55,7 @@ export default function CommandCenter() {
   const isMobile = useMobile()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { track } = useAnalytics()
   const [onboardingSkipped, setOnboardingSkipped] = useState(() => {
     // Check if onboarding was previously completed
     return localStorage.getItem('omnara_onboarding_completed') === 'true'
@@ -101,6 +103,16 @@ export default function CommandCenter() {
     onSuccess: (data) => {
       if (data.success) {
         toast.success('Agent instance created successfully')
+
+        // Track agent launch
+        track('agent_launched', {
+          agent_type: selectedAgent?.name,
+          source: 'command_center',
+          has_custom_name: !!name.trim(),
+          has_worktree: !!worktreeName.trim(),
+          prompt_length: prompt.length
+        })
+
         queryClient.invalidateQueries({ queryKey: ['user-agents'] })
         queryClient.invalidateQueries({ queryKey: ['agent-types'] })
         setIsPromptOpen(false)
@@ -108,7 +120,7 @@ export default function CommandCenter() {
         setName('')
         setWorktreeName('')
         setSelectedAgent(null)
-        
+
         if (data.agent_instance_id) {
           navigate(`/dashboard/instances/${data.agent_instance_id}`)
         }
@@ -159,6 +171,15 @@ export default function CommandCenter() {
     },
     onSuccess: () => {
       toast.success('Webhook updated successfully')
+
+      // Track webhook configuration
+      track('webhook_configured', {
+        agent_type: selectedAgentForWebhook?.name,
+        has_url: !!webhookUrl.trim(),
+        has_api_key: !!webhookApiKey.trim(),
+        source: 'command_center'
+      })
+
       queryClient.invalidateQueries({ queryKey: ['user-agents'] })
       setWebhookDialogOpen(false)
       setSelectedAgentForWebhook(null)
@@ -222,6 +243,12 @@ export default function CommandCenter() {
   const handleOnboardingComplete = () => {
     setOnboardingSkipped(true)
     setForceShowOnboarding(false)
+
+    // Track onboarding completion
+    track('onboarding_completed', {
+      source: 'command_center'
+    })
+
     // Store onboarding completion in localStorage and clear restart flag
     localStorage.setItem('omnara_onboarding_completed', 'true')
     localStorage.removeItem('omnara_restart_onboarding')

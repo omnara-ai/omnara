@@ -12,11 +12,13 @@ import {
 } from '@/types/dashboard'
 import { Share } from 'lucide-react'
 import { reportError, reportMessage } from '@/integrations/sentry'
+import { useAnalytics } from '@/lib/analytics'
 
 const SENTRY_TAGS = { feature: 'instance-detail' }
 
 export function InstanceDetail() {
   const { instanceId } = useParams<{ instanceId: string }>()
+  const { track } = useAnalytics()
   const [instance, setInstance] = useState<IInstanceDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -36,18 +38,28 @@ export function InstanceDetail() {
 
   const fetchInstance = useCallback(async () => {
     if (!instanceId) return
-    
+
     try {
       // Initially load only 50 most recent messages
       const instanceDetail = await apiClient.getInstanceDetail(instanceId, 50)
       setInstance(instanceDetail)
+
+      // Track instance view
+      track('instance_viewed', {
+        instance_id: instanceId,
+        agent_type: instanceDetail.agent_type,
+        instance_status: instanceDetail.status,
+        has_messages: instanceDetail.messages.length > 0,
+        source: 'instance_detail'
+      })
+
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch instance')
     } finally {
       setLoading(false)
     }
-  }, [instanceId])
+  }, [instanceId, track])
 
   const loadMoreMessages = async (beforeMessageId: string): Promise<Message[]> => {
     if (!instanceId) return []
@@ -392,9 +404,19 @@ export function InstanceDetail() {
 
   const handleMessageSubmit = async (content: string) => {
     if (!instanceId) return
-    
+
     try {
       await apiClient.submitUserMessage(instanceId, content)
+
+      // Track message sent
+      track('message_sent', {
+        instance_id: instanceId,
+        agent_type: instance?.agent_type,
+        message_length: content.length,
+        instance_status: instance?.status,
+        source: 'chat_interface'
+      })
+
       // No need to refresh - SSE will push the new message
     } catch (err) {
       reportError(err, {

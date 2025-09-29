@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./lib/auth/AuthContext";
 import { ProtectedRoute } from "./lib/auth/ProtectedRoute";
 import { ThemeProvider } from "./lib/theme/ThemeProvider";
+import { AnalyticsProvider } from "./components/AnalyticsProvider";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Privacy from "./pages/Privacy";
@@ -36,6 +37,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+        <AnalyticsProvider>
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/pricing" element={<LazyRoute component={Pricing} />} />
@@ -68,6 +70,7 @@ const App = () => (
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </AnalyticsProvider>
         </BrowserRouter>
         </TooltipProvider>
       </AuthProvider>

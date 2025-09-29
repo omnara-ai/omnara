@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { UserProfile } from '@/types/dashboard'
 import { authClient, SignUpData, SignInData } from './authClient'
 import { supabase } from '../supabase'
+import { analytics, getDeviceType, useAnalytics } from '../analytics'
 
 interface AuthContextType {
   user: UserProfile | null
@@ -18,6 +19,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // Initialize analytics early so identify/track calls work
+  useAnalytics()
   const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -35,11 +38,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (data: SignUpData) => {
     const response = await authClient.signUp(data)
     setUser(response.user)
+
+    // Track sign up event
+    if (response.user) {
+      analytics.track('user_signed_up', {
+        auth_method: 'email',
+        source: window.location.pathname
+      })
+    }
   }
 
   const signIn = async (data: SignInData) => {
     const response = await authClient.signIn(data)
     setUser(response.user)
+
+    // Track sign in event
+    if (response.user) {
+      analytics.track('user_signed_in', {
+        auth_method: 'email',
+        source: window.location.pathname
+      })
+    }
   }
 
   const signInWithGoogle = async (redirectTo?: string) => {
@@ -58,6 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
+    // Track sign out before clearing state
+    analytics.track('user_signed_out', {
+      source: window.location.pathname
+    })
+    analytics.reset()
+
     try {
       await authClient.signOut()
       setUser(null)
@@ -76,13 +101,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!mounted) return
 
         if (session?.user) {
-          setUser({
+          const userProfile = {
             id: session.user.id,
             email: session.user.email || '',
             display_name: session.user.user_metadata?.display_name || null,
             created_at: session.user.created_at || new Date().toISOString(),
+          }
+          setUser(userProfile)
+
+          // Identify user for analytics
+          analytics.identify(session.user.id, {
+            email: userProfile.email,
+            created_at: userProfile.created_at,
+            is_mobile: getDeviceType() === 'mobile'
           })
-          
+
+          // Track OAuth sign-ins (when event is triggered by OAuth)
+          if (event === 'SIGNED_IN' && session.user.app_metadata?.provider !== 'email') {
+            analytics.track('user_signed_in', {
+              auth_method: session.user.app_metadata?.provider || 'oauth',
+              source: window.location.pathname
+            })
+          }
+
           // Check for CLI auth redirect
           const cliAuthRedirect = localStorage.getItem('cli-auth-redirect')
           if (cliAuthRedirect && window.location.pathname !== '/cli-auth') {
@@ -112,11 +153,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return // Don't set user state since we're redirecting
           }
           
-          setUser({
+          const userProfile = {
             id: session.user.id,
             email: session.user.email || '',
             display_name: session.user.user_metadata?.display_name || null,
             created_at: session.user.created_at || new Date().toISOString(),
+          }
+          setUser(userProfile)
+
+          // Identify user for analytics on initial load
+          analytics.identify(session.user.id, {
+            email: userProfile.email,
+            created_at: userProfile.created_at,
+            is_mobile: getDeviceType() === 'mobile'
           })
           // Also sync with backend if we have a session
           try {

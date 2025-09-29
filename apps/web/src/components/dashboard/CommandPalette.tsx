@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Search, Home, Bot, Plus, Key, List, Settings, CreditCard, RotateCcw, Command, MessageSquare } from 'lucide-react'
@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/lib/dashboardApi'
 import { AgentInstance, AgentStatus } from '@/types/dashboard'
 import { formatAgentTypeName } from '@/utils/statusUtils'
+import { useAnalytics } from '@/lib/analytics'
 
 interface CommandItem {
   id: string
@@ -26,10 +27,26 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ isOpen, onClose, onLaunchAgent }: CommandPaletteProps) {
   const navigate = useNavigate()
+  const { track } = useAnalytics()
   const [search, setSearch] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const itemsRef = useRef<(HTMLButtonElement | null)[]>([])
+
+  // Helper function to execute command with analytics
+  const executeCommand = useCallback((command: CommandItem, source: 'keyboard' | 'click') => {
+    // Track command palette usage
+    track('command_palette_opened', {
+      command_id: command.id,
+      command_type: command.type,
+      command_title: command.title,
+      source: source,
+      search_query: search.trim() || null
+    })
+
+    // Execute the actual command
+    command.action()
+  }, [track, search])
 
   // Fetch data for dynamic commands
   const { data: agentTypes } = useQuery({
@@ -227,7 +244,7 @@ export function CommandPalette({ isOpen, onClose, onLaunchAgent }: CommandPalett
         case 'Enter':
           e.preventDefault()
           if (flatCommands[selectedIndex]) {
-            flatCommands[selectedIndex].action()
+            executeCommand(flatCommands[selectedIndex], 'keyboard')
           }
           break
         case 'Escape':
@@ -239,7 +256,7 @@ export function CommandPalette({ isOpen, onClose, onLaunchAgent }: CommandPalett
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, selectedIndex, flatCommands, onClose])
+  }, [isOpen, selectedIndex, flatCommands, onClose, executeCommand])
 
   // Scroll selected item into view
   useEffect(() => {
@@ -297,7 +314,7 @@ export function CommandPalette({ isOpen, onClose, onLaunchAgent }: CommandPalett
                     <button
                       key={command.id}
                       ref={el => itemsRef.current[globalIndex] = el}
-                      onClick={command.action}
+                      onClick={() => executeCommand(command, 'click')}
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-lg flex items-start space-x-3 transition-colors mb-1",
                         globalIndex === selectedIndex

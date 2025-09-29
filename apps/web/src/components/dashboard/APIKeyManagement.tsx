@@ -9,8 +9,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { apiClient } from '@/lib/dashboardApi'
 import { APIKey, NewAPIKey } from '@/types/dashboard'
 import { Copy, Trash2, Plus, Eye, EyeOff } from 'lucide-react'
+import { useAnalytics } from '@/lib/analytics'
 
 export function APIKeyManagement() {
+  const { track } = useAnalytics()
   const [apiKeys, setApiKeys] = useState<APIKey[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +58,14 @@ export function APIKeyManagement() {
       setCreatedKey(response)
       setShowCreatedKey(true)
       setShowCreateDialog(false)
+
+      // Track API key generation
+      track('api_key_generated', {
+        has_expiration: expirationDays !== '',
+        expiration_days: expirationDays === '' ? null : expirationDays,
+        source: 'api_keys_page'
+      })
+
       setNewKeyName('')
       setExpirationDays('')
       await fetchAPIKeys()

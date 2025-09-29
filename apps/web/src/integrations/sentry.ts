@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react'
+import { trackError } from '../lib/analytics'
 
 const dsn = import.meta.env.VITE_SENTRY_DSN || import.meta.env.SENTRY_DSN
 
@@ -41,11 +42,18 @@ export const reportError = (error: unknown, metadata?: ErrorMetadata) => {
     console.error(error)
   }
 
+  const normalizedError = normalizeError(error)
+
+  // Always send to analytics for error metrics
+  try {
+    trackError(normalizedError, metadata?.context, metadata?.extras)
+  } catch (captureError) {
+    console.warn('[analytics] Failed to track error', captureError)
+  }
+
   if (!isSentryEnabled) {
     return
   }
-
-  const normalizedError = normalizeError(error)
 
   try {
     Sentry.withScope(scope => {
