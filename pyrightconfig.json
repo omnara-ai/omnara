@@ -13,7 +13,8 @@
     "test-venv/**",
     "**/dist",
     "**/build",
-    "**/*.egg-info"
+    "**/*.egg-info",
+    "src/integrations/cli_wrappers/codex"
   ],
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,

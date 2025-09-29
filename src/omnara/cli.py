@@ -19,7 +19,6 @@ import secrets
 import requests
 import time
 import threading
-import importlib
 from typing import Optional
 
 AGENT_CHOICES = ["claude", "amp", "codex"]
@@ -537,6 +536,8 @@ def cmd_serve(args, unknown_args=None):
     except KeyboardInterrupt:
         print("\n[INFO] Webhook server stopped by user")
         sys.exit(0)
+
+
 def cmd_mcp(args):
     """Handle the 'mcp' subcommand"""
 

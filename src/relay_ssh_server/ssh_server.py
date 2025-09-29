@@ -10,13 +10,7 @@ import asyncssh
 
 from .auth import RelayAuthError, decode_api_key, hash_api_key
 from .sessions import Session, SessionManager
-from .protocol import (
-    FRAME_TYPE_INPUT,
-    FRAME_TYPE_OUTPUT,
-    FRAME_TYPE_RESIZE,
-    iter_frames,
-    pack_frame,
-)
+from .protocol import FRAME_TYPE_OUTPUT, FRAME_TYPE_RESIZE, iter_frames
 
 
 class RelaySSHServer(asyncssh.SSHServer):
@@ -127,7 +121,10 @@ class RelaySSHSession(asyncssh.SSHServerSession):
         return True
 
     def auth_success(self) -> None:
-        print(f"[relay] auth_success user={self._user_id} session={self._session_id}", flush=True)
+        print(
+            f"[relay] auth_success user={self._user_id} session={self._session_id}",
+            flush=True,
+        )
 
     def shell_requested(self) -> bool:
         print(
@@ -168,14 +165,16 @@ class RelaySSHSession(asyncssh.SSHServerSession):
                 f"[relay] session setup failed user={self._user_id} session={self._session_id} exc={exc}",
                 flush=True,
             )
-        
 
     def connection_made(self, chan: asyncssh.SSHServerChannel) -> None:
         self._chan = chan
         if self._session:
             self._session.attach_channel(chan)
-        
-        print(f"[relay] connection_made user={self._user_id} session={self._session_id}", flush=True)
+
+        print(
+            f"[relay] connection_made user={self._user_id} session={self._session_id}",
+            flush=True,
+        )
 
     def data_received(self, data: str, datatype: asyncssh.DataType) -> None:
         if isinstance(data, str):
@@ -229,5 +228,8 @@ class RelaySSHSession(asyncssh.SSHServerSession):
                     self._session.session_id,
                 )
             )
-        print(f"[relay] connection_lost user={self._user_id} session={self._session_id} exc={exc}", flush=True)
+        print(
+            f"[relay] connection_lost user={self._user_id} session={self._session_id} exc={exc}",
+            flush=True,
+        )
         self._chan = None

@@ -36,9 +36,7 @@ class RelaySettings:
         return cls(
             ssh_host=os.getenv("OMNARA_RELAY_SSH_HOST", defaults.ssh_host),
             ssh_port=_int("OMNARA_RELAY_SSH_PORT", defaults.ssh_port),
-            websocket_host=os.getenv(
-                "OMNARA_RELAY_WS_HOST", defaults.websocket_host
-            ),
+            websocket_host=os.getenv("OMNARA_RELAY_WS_HOST", defaults.websocket_host),
             websocket_port=_int("OMNARA_RELAY_WS_PORT", defaults.websocket_port),
             history_size_bytes=_int(
                 "OMNARA_RELAY_HISTORY_BYTES", defaults.history_size_bytes

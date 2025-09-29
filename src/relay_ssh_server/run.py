@@ -14,6 +14,27 @@ from .ssh_server import RelaySSHServer
 from .websocket import WebsocketRouter
 
 
+@web.middleware
+async def _cors_middleware(request: web.Request, handler):  # type: ignore[override]
+    """Add permissive CORS headers for dashboard fetches."""
+
+    if request.method == "OPTIONS":
+        response = web.Response(status=204)
+    else:
+        response = await handler(request)
+
+    origin = request.headers.get("Origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-API-Key"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
+
+
 async def run_async(settings: Optional[RelaySettings] = None) -> None:
     """Run the SSH relay server until cancelled."""
 
@@ -39,7 +60,7 @@ async def run_async(settings: Optional[RelaySettings] = None) -> None:
         line_editor=False,
     )
 
-    app = web.Application()
+    app = web.Application(middlewares=[_cors_middleware])
     ws_router = WebsocketRouter(manager)
     app.router.add_get("/terminal", ws_router.handle)
     app.router.add_get("/api/v1/sessions", ws_router.list_sessions)

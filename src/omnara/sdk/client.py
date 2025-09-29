@@ -16,6 +16,7 @@ from .models import (
     CreateMessageResponse,
     PendingMessagesResponse,
     Message,
+    RegisterAgentInstanceResponse,
 )
 from .utils import (
     validate_agent_instance_id,
@@ -285,6 +286,63 @@ class OmnaraClient:
 
         raise TimeoutError(f"Question timed out after {timeout_minutes} minutes")
 
+    def register_agent_instance(
+        self,
+        *,
+        agent_type: str,
+        transport: str = "ssh",
+        agent_instance_id: Optional[Union[str, uuid.UUID]] = None,
+        name: Optional[str] = None,
+    ) -> RegisterAgentInstanceResponse:
+        """Register or update an agent instance for SSH relay sessions."""
+
+        payload: Dict[str, Any] = {
+            "agent_type": agent_type,
+            "transport": transport,
+        }
+
+        target_instance_id: Optional[str] = None
+        if agent_instance_id:
+            target_instance_id = validate_agent_instance_id(agent_instance_id)
+            payload["agent_instance_id"] = target_instance_id
+
+        if name is not None:
+            payload["name"] = name
+
+        try:
+            response = self._make_request(
+                "POST", "/api/v1/agent-instances", json=payload
+            )
+        except APIError as err:
+            if err.status_code == 409 and target_instance_id:
+                detail = self._make_request(
+                    "GET",
+                    f"/api/v1/agent-instances/{target_instance_id}",
+                    params={"message_limit": 0},
+                )
+                return RegisterAgentInstanceResponse(
+                    agent_instance_id=detail["id"],
+                    agent_type_id=detail.get("agent_type_id"),
+                    agent_type_name=detail.get("agent_type_name"),
+                    status=detail.get("status", ""),
+                    name=None,
+                    instance_metadata=detail.get("instance_metadata"),
+                )
+            raise
+
+        instance_id = response.get("agent_instance_id") or response.get("id")
+        if instance_id is None:
+            raise KeyError("agent_instance_id")
+
+        return RegisterAgentInstanceResponse(
+            agent_instance_id=instance_id,
+            agent_type_id=response.get("agent_type_id"),
+            agent_type_name=response.get("agent_type_name"),
+            status=response.get("status", ""),
+            name=response.get("name"),
+            instance_metadata=response.get("instance_metadata"),
+        )
+
     def get_pending_messages(
         self,
         agent_instance_id: Union[str, uuid.UUID],
@@ -411,6 +469,15 @@ class OmnaraClient:
             time.sleep(poll_interval)
 
         raise TimeoutError(f"No user response received after {timeout_minutes} minutes")
+
+    def update_agent_instance_status(
+        self, agent_instance_id: Union[str, uuid.UUID], status: str
+    ) -> Dict[str, Any]:
+        """Update the status of an existing agent instance."""
+
+        agent_instance_id_str = validate_agent_instance_id(agent_instance_id)
+        endpoint = f"/api/v1/agent-instances/{agent_instance_id_str}/status"
+        return self._make_request("PUT", endpoint, json={"status": status})
 
     def end_session(
         self, agent_instance_id: Union[str, uuid.UUID]

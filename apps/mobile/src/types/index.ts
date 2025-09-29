@@ -39,6 +39,7 @@ export interface AgentInstance {
   total_cost_usd?: number;
   agent_type_name?: string;
   name?: string;
+  instance_metadata?: Record<string, unknown> | null;
 }
 
 export interface Message {

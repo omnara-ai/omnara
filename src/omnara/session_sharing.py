@@ -12,7 +12,6 @@ import struct
 import sys
 import termios
 import tty
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +19,9 @@ from shutil import get_terminal_size, which
 from typing import Iterable, List, Optional
 
 import paramiko
+
+from omnara.sdk.client import OmnaraClient
+from omnara.sdk.exceptions import APIError, AuthenticationError, TimeoutError
 
 
 LOG_FILE = Path(__file__).resolve().parents[1] / "logs" / "session_sharing.log"
@@ -57,9 +59,7 @@ class RelayClientSettings:
     port: int = field(
         default_factory=lambda: int(os.getenv("OMNARA_RELAY_PORT", "2222"))
     )
-    term: str = field(
-        default_factory=lambda: os.environ.get("TERM", "xterm-256color")
-    )
+    term: str = field(default_factory=lambda: os.environ.get("TERM", "xterm-256color"))
     enabled: bool = field(
         default_factory=lambda: os.getenv("OMNARA_RELAY_DISABLED", "0")
         not in {"1", "true", "TRUE"}
@@ -94,27 +94,88 @@ def build_agent_command(
     return command
 
 
-def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]], api_key: str) -> int:
+def run_agent_with_relay(
+    agent: str, args, unknown_args: Optional[Iterable[str]], api_key: str
+) -> int:
     """Launch the agent CLI and mirror its terminal through the relay."""
 
     settings = RelayClientSettings()
     command = build_agent_command(agent, args, unknown_args, api_key)
 
-    session_id = str(uuid.uuid4())[:8]
-    relay_username = session_id
+    provided_instance_id = getattr(args, "agent_instance_id", None)
+    agent_instance_id: Optional[str] = provided_instance_id or os.environ.get(
+        "OMNARA_AGENT_INSTANCE_ID"
+    )
+    api_client: Optional[OmnaraClient] = None
+
+    relay_username: Optional[str] = None
+
+    base_url = getattr(args, "base_url", None) or os.environ.get("OMNARA_API_URL")
+    base_url = base_url or "https://agent.omnara.com"
+
+    if settings.enabled:
+        temp_client: Optional[OmnaraClient] = None
+        try:
+            temp_client = OmnaraClient(
+                api_key=api_key,
+                base_url=base_url,
+                log_func=_log,
+            )
+            registration = temp_client.register_agent_instance(
+                agent_type=agent,
+                transport="ssh",
+                agent_instance_id=agent_instance_id,
+                name=getattr(args, "name", None),
+            )
+            agent_instance_id = registration.agent_instance_id
+            relay_username = agent_instance_id
+            api_client = temp_client
+            temp_client = None
+            _log(
+                f"[DEBUG] Registered agent instance {agent_instance_id} for relay streaming"
+            )
+            if agent_instance_id:
+                try:
+                    api_client.send_message(
+                        content="Started SSH session",
+                        agent_instance_id=agent_instance_id,
+                        agent_type=agent,
+                    )
+                    _log(
+                        f"[DEBUG] Posted session start marker for instance {agent_instance_id}"
+                    )
+                except Exception as exc:  # pragma: no cover - defensive path
+                    _log(
+                        "[WARN] Unable to post session start marker: "
+                        f"{exc!r} (instance_id={agent_instance_id})"
+                    )
+        except (AuthenticationError, APIError, TimeoutError) as exc:
+            _log(
+                f"[WARN] Failed to register agent instance {agent_instance_id or ''}: {exc}"
+            )
+        except Exception as exc:  # pragma: no cover - defensive path
+            _log(
+                f"[WARN] Unexpected error registering agent instance {agent_instance_id or ''}: {exc!r}"
+            )
+        finally:
+            if temp_client is not None:
+                temp_client.close()
+
+    if relay_username is None:
+        relay_username = agent_instance_id
 
     ssh_client: Optional[paramiko.SSHClient] = None
     channel = None
     last_window: Optional[tuple[int, int]] = None  # (cols, rows)
 
-    if settings.enabled:
+    relay_log_id = relay_username or "offline"
+
+    if settings.enabled and relay_username:
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         try:
-            _log(
-                f"[DEBUG] Connecting to relay ssh://{settings.host}:{settings.port}"
-            )
+            _log(f"[DEBUG] Connecting to relay ssh://{settings.host}:{settings.port}")
             ssh_client.connect(
                 hostname=settings.host,
                 port=settings.port,
@@ -126,7 +187,7 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
             )
             channel = ssh_client.invoke_shell(term=settings.term)
             channel.settimeout(0.0)
-            _log(f"[DEBUG] Relay channel established session_id={session_id}")
+            _log(f"[DEBUG] Relay channel established instance_id={relay_log_id}")
         except Exception as exc:
             _log(
                 f"[WARN] Unable to reach relay at {settings.host}:{settings.port}: {exc!r}"
@@ -138,10 +199,12 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
                 ssh_client = None
 
     child_env = os.environ.copy()
-    child_env.setdefault("OMNARA_SESSION_ID", session_id)
     child_env.setdefault("OMNARA_API_KEY", api_key)
     if getattr(args, "base_url", None):
         child_env.setdefault("OMNARA_API_URL", args.base_url)
+    if agent_instance_id:
+        child_env["OMNARA_AGENT_INSTANCE_ID"] = agent_instance_id
+        child_env.setdefault("OMNARA_SESSION_ID", agent_instance_id)
 
     child_pid, master_fd = pty.fork()
 
@@ -166,11 +229,11 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
         try:
             channel.sendall(frame)
             _log(
-                f"[TRACE] sent resize cols={cols} rows={rows} (session_id={session_id})"
+                f"[TRACE] sent resize cols={cols} rows={rows} (instance_id={relay_log_id})"
             )
         except Exception as exc:
             _log(
-                f"[WARN] Relay resize send failed session_id={session_id} exc={exc!r}"
+                f"[WARN] Relay resize send failed instance_id={relay_log_id} exc={exc!r}"
             )
 
     def _set_master_window(cols: int, rows: int, *, notify_relay: bool) -> None:
@@ -247,12 +310,10 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
         try:
             channel.sendall(frame)
             _log(
-                f"[TRACE] upstream chunk len={len(data)} sample={data[:32]!r} (session_id={session_id})"
+                f"[TRACE] upstream chunk len={len(data)} sample={data[:32]!r} (instance_id={relay_log_id})"
             )
         except Exception as exc:
-            _log(
-                f"[WARN] Relay send failed session_id={session_id} exc={exc!r}"
-            )
+            _log(f"[WARN] Relay send failed instance_id={relay_log_id} exc={exc!r}")
 
     try:
         while True:
@@ -271,14 +332,14 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
                 os.write(sys.stdout.fileno(), data)
                 _send_to_channel(data)
 
-            if channel_fd is not None and channel_fd in ready:
+            if channel is not None and channel_fd is not None and channel_fd in ready:
                 try:
                     data = channel.recv(8192)
                 except socket.timeout:
                     data = b""
                 except Exception as exc:
                     _log(
-                        f"[WARN] Relay receive failed session_id={session_id} exc={exc!r}"
+                        f"[WARN] Relay receive failed instance_id={relay_log_id} exc={exc!r}"
                     )
                     channel_fd = None
                     channel = None
@@ -291,7 +352,7 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
                         chunk_bytes = data
                     channel_buffer.extend(chunk_bytes)
                     _log(
-                        f"[TRACE] raw downstream len={len(chunk_bytes)} sample={chunk_bytes[:32]!r} (session_id={session_id})"
+                        f"[TRACE] raw downstream len={len(chunk_bytes)} sample={chunk_bytes[:32]!r} (instance_id={relay_log_id})"
                     )
 
                     while True:
@@ -305,12 +366,12 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
                         if len(channel_buffer) < total_len:
                             break
 
-                        payload = bytes(channel_buffer[FRAME_HEADER.size:total_len])
+                        payload = bytes(channel_buffer[FRAME_HEADER.size : total_len])
                         del channel_buffer[:total_len]
 
                         if frame_type == FRAME_TYPE_INPUT:
                             _log(
-                                f"[TRACE] decoded downstream len={len(payload)} sample={payload[:32]!r} (session_id={session_id})"
+                                f"[TRACE] decoded downstream len={len(payload)} sample={payload[:32]!r} (instance_id={relay_log_id})"
                             )
                             for offset in range(0, len(payload), 1024):
                                 chunk = payload[offset : offset + 1024]
@@ -325,18 +386,18 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
                         elif frame_type == FRAME_TYPE_RESIZE:
                             if len(payload) != RESIZE_PAYLOAD.size:
                                 _log(
-                                    f"[WARN] Ignoring invalid resize payload len={len(payload)} (session_id={session_id})"
+                                    f"[WARN] Ignoring invalid resize payload len={len(payload)} (instance_id={relay_log_id})"
                                 )
                                 continue
 
                             rows, cols = RESIZE_PAYLOAD.unpack(payload)
                             _log(
-                                f"[TRACE] applying remote resize cols={cols} rows={rows} (session_id={session_id})"
+                                f"[TRACE] applying remote resize cols={cols} rows={rows} (instance_id={relay_log_id})"
                             )
                             _set_master_window(cols, rows, notify_relay=False)
                         else:
                             _log(
-                                f"[WARN] Ignoring frame type {frame_type} len={frame_len} (session_id={session_id})"
+                                f"[WARN] Ignoring frame type {frame_type} len={frame_len} (instance_id={relay_log_id})"
                             )
 
             if stdin_fd is not None and stdin_fd in ready:
@@ -365,11 +426,9 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
 
             if finished_pid == child_pid:
                 exit_status = status
-                exit_code = (
-                    os.WEXITSTATUS(status) if os.WIFEXITED(status) else 1
-                )
+                exit_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else 1
                 _log(
-                    f"[INFO] Agent process exited with code {exit_code} (session_id={session_id})"
+                    f"[INFO] Agent process exited with code {exit_code} (instance_id={relay_log_id})"
                 )
                 break
 
@@ -410,9 +469,21 @@ def run_agent_with_relay(agent: str, args, unknown_args: Optional[Iterable[str]]
                 exit_status = 0
 
     if exit_status is None:
-        return 0
+        final_exit_code = 0
+    elif os.WIFEXITED(exit_status):
+        final_exit_code = os.WEXITSTATUS(exit_status)
+    else:
+        final_exit_code = 1
 
-    if os.WIFEXITED(exit_status):
-        return os.WEXITSTATUS(exit_status)
+    if api_client is not None:
+        try:
+            if agent_instance_id and final_exit_code == 0:
+                api_client.update_agent_instance_status(agent_instance_id, "COMPLETED")
+        except Exception as exc:  # pragma: no cover - best effort logging
+            _log(
+                f"[WARN] Failed to update agent instance status id={agent_instance_id} exc={exc!r}"
+            )
+        finally:
+            api_client.close()
 
-    return 1
+    return final_exit_code

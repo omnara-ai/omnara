@@ -3,11 +3,64 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+
 from aiohttp import WSCloseCode, web
 
-from .auth import RelayAuthError, decode_api_key, hash_api_key
+from .auth import (
+    RelayAuthError,
+    RelayCredentials,
+    build_credentials_from_api_key,
+    build_credentials_from_supabase,
+)
 from .protocol import FRAME_TYPE_OUTPUT, pack_frame
 from .sessions import SessionManager
+
+
+API_KEY_PROTOCOL_PREFIX = "omnara-key."
+SUPABASE_PROTOCOL_PREFIX = "omnara-supabase."
+
+
+@dataclass(slots=True)
+class CredentialBundle:
+    """Container for parsed credentials and optional subprotocol."""
+
+    credentials: RelayCredentials
+    negotiated_protocol: str | None = None
+
+
+def _extract_credentials(request: web.Request) -> CredentialBundle:
+    """Parse incoming request headers/subprotocols for relay auth."""
+
+    # Allow explicit API key header (legacy observers).
+    header_key = request.headers.get("X-API-Key")
+    if header_key:
+        credentials = build_credentials_from_api_key(header_key)
+        return CredentialBundle(credentials)
+
+    # Use Supabase bearer token if provided.
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+        if token:
+            credentials = build_credentials_from_supabase(token)
+            return CredentialBundle(credentials)
+
+    # Fall back to WebSocket subprotocol negotiation. We support both API keys
+    # and Supabase tokens to cover browsers which cannot set custom headers.
+    protocol_header = request.headers.get("Sec-WebSocket-Protocol", "")
+    if protocol_header:
+        for candidate in (part.strip() for part in protocol_header.split(",")):
+            if candidate.startswith(API_KEY_PROTOCOL_PREFIX):
+                api_key = candidate[len(API_KEY_PROTOCOL_PREFIX) :]
+                credentials = build_credentials_from_api_key(api_key)
+                return CredentialBundle(credentials, candidate)
+            if candidate.startswith(SUPABASE_PROTOCOL_PREFIX):
+                token = candidate[len(SUPABASE_PROTOCOL_PREFIX) :]
+                credentials = build_credentials_from_supabase(token)
+                return CredentialBundle(credentials, candidate)
+
+    raise RelayAuthError("Missing authentication credentials")
 
 
 class WebsocketRouter:
@@ -17,19 +70,26 @@ class WebsocketRouter:
         self._manager = manager
 
     async def handle(self, request: web.Request) -> web.WebSocketResponse:
-        ws = web.WebSocketResponse()
-        await ws.prepare(request)
-
-        api_key = request.headers.get("X-API-Key", "")
         try:
-            user_id = decode_api_key(api_key)
-            api_key_hash = hash_api_key(api_key)
-        except RelayAuthError:
-            await ws.send_json({"error": "Authentication failed"})
+            bundle = _extract_credentials(request)
+        except RelayAuthError as exc:
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            await ws.send_json({"error": str(exc)})
             await ws.close(code=WSCloseCode.POLICY_VIOLATION, message="auth")
             return ws
 
-        sessions = await self._manager.sessions_for_user(user_id, api_key_hash)
+        ws_kwargs: dict[str, object] = {}
+        if bundle.negotiated_protocol:
+            ws_kwargs["protocols"] = [bundle.negotiated_protocol]
+
+        ws = web.WebSocketResponse(**ws_kwargs)
+        await ws.prepare(request)
+
+        credentials = bundle.credentials
+        sessions = await self._manager.sessions_for_user(
+            credentials.user_id, credentials.api_key_hash
+        )
         await ws.send_json(
             {
                 "type": "sessions",
@@ -53,8 +113,7 @@ class WebsocketRouter:
                 if payload.get("type") == "join_session":
                     await self._handle_join(
                         ws,
-                        user_id,
-                        api_key_hash,
+                        credentials,
                         payload.get("session_id"),
                     )
             elif msg.type == web.WSMsgType.ERROR:
@@ -66,15 +125,16 @@ class WebsocketRouter:
     async def _handle_join(
         self,
         ws: web.WebSocketResponse,
-        user_id: str,
-        api_key_hash: str,
+        credentials: RelayCredentials,
         session_id: str | None,
     ) -> None:
         if not session_id:
             await ws.send_json({"error": "Missing session_id"})
             return
 
-        session = await self._manager.get_session(user_id, session_id, api_key_hash)
+        session = await self._manager.get_session(
+            credentials.user_id, session_id, credentials.api_key_hash
+        )
         if not session:
             await ws.send_json({"error": "Session not found"})
             return
@@ -112,16 +172,17 @@ class WebsocketRouter:
             session.unregister_websocket(ws)
 
     async def list_sessions(self, request: web.Request) -> web.Response:
-        api_key = request.headers.get("X-API-Key", "")
         try:
-            user_id = decode_api_key(api_key)
-            api_key_hash = hash_api_key(api_key)
-        except RelayAuthError:
+            bundle = _extract_credentials(request)
+        except RelayAuthError as exc:
             return web.json_response(
-                {"error": "Authentication failed"}, status=web.HTTPUnauthorized.status_code
+                {"error": str(exc)},
+                status=web.HTTPUnauthorized.status_code,
             )
 
-        sessions = await self._manager.sessions_for_user(user_id, api_key_hash)
+        sessions = await self._manager.sessions_for_user(
+            bundle.credentials.user_id, bundle.credentials.api_key_hash
+        )
         return web.json_response(
             {
                 "sessions": [
@@ -137,3 +198,4 @@ class WebsocketRouter:
                 ]
             }
         )
+

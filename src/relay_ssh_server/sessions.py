@@ -111,7 +111,9 @@ class Session:
         except Exception:
             self._channel = None
 
-    def request_resize(self, cols: int | float | None, rows: int | float | None) -> None:
+    def request_resize(
+        self, cols: int | float | None, rows: int | float | None
+    ) -> None:
         """Request a PTY resize originating from a viewer."""
 
         if self._channel is None:
@@ -191,7 +193,9 @@ class Session:
 
         for ws in list(self._websockets):
             asyncio.create_task(
-                self._send_json(ws, {"type": "session_ended", "session_id": self.session_id})
+                self._send_json(
+                    ws, {"type": "session_ended", "session_id": self.session_id}
+                )
             )
 
     async def _send_json(self, ws: web.WebSocketResponse, payload: dict) -> None:
@@ -235,20 +239,25 @@ class SessionManager:
             return session
 
     async def get_session(
-        self, user_id: str, session_id: str, api_key_hash: str
+        self, user_id: str, session_id: str, api_key_hash: str | None
     ) -> Optional[Session]:
         async with self._lock:
             session = self._sessions.get((user_id, session_id))
-            if session and session.api_key_hash == api_key_hash:
+            if session and (
+                api_key_hash is None or session.api_key_hash == api_key_hash
+            ):
                 return session
             return None
 
-    async def sessions_for_user(self, user_id: str, api_key_hash: str) -> Tuple[Session, ...]:
+    async def sessions_for_user(
+        self, user_id: str, api_key_hash: str | None
+    ) -> Tuple[Session, ...]:
         async with self._lock:
             return tuple(
                 session
                 for (uid, _), session in self._sessions.items()
-                if uid == user_id and session.api_key_hash == api_key_hash
+                if uid == user_id
+                and (api_key_hash is None or session.api_key_hash == api_key_hash)
             )
 
     async def end_session(self, user_id: str, session_id: str) -> None:

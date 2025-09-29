@@ -30,7 +30,12 @@ case "$OS" in
     ;;
 esac
 
-DEST_DIR="omnara/_bin/codex/${ARCH_TAG}"
+PACKAGE_ROOT="omnara"
+if [[ -d "src/omnara" ]]; then
+  PACKAGE_ROOT="src/omnara"
+fi
+
+DEST_DIR="${PACKAGE_ROOT}/_bin/codex/${ARCH_TAG}"
 DEST="${DEST_DIR}/codex${BIN_EXT}"
 
 # If a binary is already present (e.g., fetched from a previous release), reuse it

@@ -84,3 +84,8 @@ omit = [
 [tool.coverage.report]
 skip_covered = true
 show_missing = true 
+
+[tool.ruff]
+exclude = [
+    "src/integrations/cli_wrappers/codex",
+]

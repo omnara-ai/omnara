@@ -13,6 +13,7 @@ import binascii
 
 from shared.database.session import get_db, SessionLocal
 from shared.database import Message, AgentInstance, SenderType, AgentStatus
+from shared.database.agent_instances import create_agent_instance
 from servers.shared.db import (
     send_agent_message,
     end_session,
@@ -32,6 +33,8 @@ from .models import (
     EndSessionResponse,
     GetMessagesResponse,
     MessageResponse,
+    RegisterAgentInstanceRequest,
+    RegisterAgentInstanceResponse,
     VerifyAuthResponse,
 )
 
@@ -56,6 +59,127 @@ def _maybe_decode_base64(value: str | None) -> str | None:
             return decoded.decode("utf-8", errors="replace")
     except (binascii.Error, ValueError):
         return value
+
+
+
+def _set_transport_metadata(instance: AgentInstance, transport: str | None) -> None:
+    """Ensure instance metadata only includes transport details when provided."""
+    if transport:
+        metadata = (
+            dict(instance.instance_metadata)
+            if isinstance(instance.instance_metadata, dict)
+            else {}
+        )
+        metadata["transport"] = transport
+        instance.instance_metadata = metadata
+        return
+
+    if isinstance(instance.instance_metadata, dict):
+        metadata = dict(instance.instance_metadata)
+        metadata.pop("transport", None)
+        instance.instance_metadata = metadata or None
+    else:
+        instance.instance_metadata = None
+
+
+def _format_agent_instance(instance: AgentInstance) -> RegisterAgentInstanceResponse:
+    metadata = (
+        dict(instance.instance_metadata)
+        if isinstance(instance.instance_metadata, dict)
+        else None
+    )
+    status_value = (
+        instance.status.value if hasattr(instance.status, "value") else str(instance.status)
+    )
+    agent_type_id = str(instance.user_agent_id) if instance.user_agent_id else None
+    agent_type_name = (
+        instance.user_agent.name if getattr(instance, "user_agent", None) else None
+    )
+    return RegisterAgentInstanceResponse(
+        agent_instance_id=str(instance.id),
+        agent_type_id=agent_type_id,
+        agent_type_name=agent_type_name,
+        status=status_value,
+        name=instance.name,
+        instance_metadata=metadata,
+    )
+
+
+@agent_router.post(
+    "/agent-instances",
+    response_model=RegisterAgentInstanceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_agent_instance_endpoint(
+    request: RegisterAgentInstanceRequest,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db),
+) -> RegisterAgentInstanceResponse:
+    """Create a dedicated agent instance for relay-backed sessions."""
+
+    instance_uuid: UUID | None = None
+    if request.agent_instance_id:
+        try:
+            instance_uuid = UUID(request.agent_instance_id)
+        except ValueError as exc:  # pragma: no cover - defensive validation
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid agent_instance_id",
+            ) from exc
+
+        existing = (
+            db.query(AgentInstance)
+            .filter(
+                AgentInstance.id == instance_uuid,
+                AgentInstance.status != AgentStatus.DELETED,
+            )
+            .first()
+        )
+
+        if existing and str(existing.user_id) != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Agent instance belongs to another user",
+            )
+
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Agent instance already exists",
+            )
+
+    instance_metadata = {"transport": request.transport} if request.transport else None
+
+    try:
+        instance = create_agent_instance(
+            db,
+            UUID(user_id),
+            agent_name=request.agent_type,
+            instance_id=instance_uuid,
+            name=request.name,
+            instance_metadata=instance_metadata,
+        )
+        _set_transport_metadata(instance, request.transport)
+        db.commit()
+        db.refresh(instance)
+        if instance.user_agent_id and getattr(instance, "user_agent", None) is None:
+            db.refresh(instance, attribute_names=["user_agent"])
+        return _format_agent_instance(instance)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # pragma: no cover - unexpected failure
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create agent instance",
+        ) from exc
 
 
 @agent_router.get("/auth/verify", response_model=VerifyAuthResponse)

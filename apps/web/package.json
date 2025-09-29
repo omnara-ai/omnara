@@ -71,6 +71,8 @@
     "tailwind-merge": "^2.5.2",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.3",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

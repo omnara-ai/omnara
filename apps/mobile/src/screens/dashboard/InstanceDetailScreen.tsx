@@ -18,10 +18,19 @@ import { InstanceDetail, AgentStatus, Message, InstanceShare, InstanceAccessLeve
 import { formatAgentTypeName } from '@/utils/formatters';
 import { getStatusColor } from '@/utils/statusHelpers';
 import { ChatInterface } from '@/components/chat/ChatInterface';
+import { SSHInstancePanel } from '@/components/ssh';
 import { useSSE } from '@/hooks/useSSE';
 import { Share } from 'lucide-react-native';
 import { ShareAccessModal } from '@/components/dashboard/ShareAccessModal';
 import { reportError, reportMessage } from '@/lib/logger';
+
+const resolveTransport = (metadata?: Record<string, unknown> | null): string | undefined => {
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+  const value = (metadata as Record<string, unknown>)['transport'];
+  return typeof value === 'string' ? value : undefined;
+};
 
 export const InstanceDetailScreen: React.FC = () => {
   const route = useRoute();
@@ -46,6 +55,10 @@ export const InstanceDetailScreen: React.FC = () => {
   const [shareSubmitting, setShareSubmitting] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
 
+  const metadata = instance?.instance_metadata;
+  const transport = resolveTransport(metadata);
+  const isSSHInstance = transport === 'ssh';
+
   const { data: initialData, isLoading, error, refetch } = useQuery({
     queryKey: ['instance', instanceId],
     queryFn: () => {
@@ -60,7 +73,10 @@ export const InstanceDetailScreen: React.FC = () => {
 
   const loadMoreMessages = async (beforeMessageId: string): Promise<Message[]> => {
     if (!instanceId) return [];
-    
+    if (isSSHInstance) {
+      return [];
+    }
+
     try {
       const messages = await dashboardApi.getInstanceMessages(instanceId, 50, beforeMessageId);
       return messages;
@@ -204,7 +220,7 @@ export const InstanceDetailScreen: React.FC = () => {
   // Set up SSE connection
   useSSE({
     instanceId,
-    enabled: sseEnabled,
+    enabled: !isSSHInstance && sseEnabled,
     onMessage: handleNewMessage,
     onStatusUpdate: handleStatusUpdate,
     onMessageUpdate: handleMessageUpdate,
@@ -282,8 +298,13 @@ export const InstanceDetailScreen: React.FC = () => {
       
       // Use the fresh data from refetch result
       const freshData = result.data;
-      if (freshData && freshData.status !== AgentStatus.COMPLETED) {
-        console.log('[InstanceDetailScreen] Enabling SSE for active instance');
+      const transport = resolveTransport(freshData?.instance_metadata);
+      if (
+        freshData &&
+        freshData.status !== AgentStatus.COMPLETED &&
+        transport !== 'ssh'
+      ) {
+        console.log('[InstanceDetailScreen] Enabling SSE for active non-SSH instance');
         setSseEnabled(true);
       }
     });
@@ -324,6 +345,12 @@ export const InstanceDetailScreen: React.FC = () => {
       };
     }, [refreshAndReconnect])
   );
+
+  useEffect(() => {
+    if (isSSHInstance) {
+      setSseEnabled(false);
+    }
+  }, [isSSHInstance]);
 
   console.log('[InstanceDetailScreen] Query state - isLoading:', isLoading, 'instance:', !!instance, 'error:', !!error, 'sseEnabled:', sseEnabled);
 
@@ -427,13 +454,16 @@ export const InstanceDetailScreen: React.FC = () => {
           rightContent={shareButton}
         />
         
-        {/* Chat Interface */}
-        <ChatInterface
-          key={instance.id} // Force React to create a new component instance for each chat
-          instance={instance}
-          onMessageSubmit={handleMessageSubmit}
-          onLoadMoreMessages={loadMoreMessages}
-        />
+        {isSSHInstance ? (
+          <SSHInstancePanel instanceId={instance.id} />
+        ) : (
+          <ChatInterface
+            key={instance.id} // Force React to create a new component instance for each chat
+            instance={instance}
+            onMessageSubmit={handleMessageSubmit}
+            onLoadMoreMessages={loadMoreMessages}
+          />
+        )}
       </SafeAreaView>
 
       <ShareAccessModal

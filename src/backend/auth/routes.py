@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from ..db.queries import delete_user_account as delete_user_db
 from .dependencies import get_current_user, get_optional_current_user
 from .jwt_utils import create_api_key_jwt, get_token_hash
-from .supabase_client import get_supabase_client
+from shared.auth import get_supabase_service_client
 from .utils import update_user_profile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -300,7 +300,7 @@ async def delete_user_account(
 
     # Delete from Supabase auth
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase_service_client()
         supabase.auth.admin.delete_user(str(user_id))
         logger.info(f"Successfully deleted user {user_id} from Supabase auth")
     except Exception as e:

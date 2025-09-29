@@ -8,12 +8,12 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from shared.database.models import User
 from sqlalchemy.orm import Session
 
-from .supabase_client import get_supabase_client
+from shared.auth import get_supabase_service_client
 
 
 def sync_user_from_supabase(user_id: UUID, db: Session) -> User:
     """Sync user data from Supabase to our database"""
-    supabase = get_supabase_client()
+    supabase = get_supabase_service_client()
 
     # Get user from Supabase
     auth_user = supabase.auth.admin.get_user_by_id(str(user_id))
@@ -60,7 +60,7 @@ def update_user_profile(user_id: UUID, display_name: str | None, db: Session) ->
     db.refresh(user)
 
     # Also update in Supabase metadata
-    supabase = get_supabase_client()
+    supabase = get_supabase_service_client()
     supabase.auth.admin.update_user_by_id(
         str(user_id), {"user_metadata": {"display_name": display_name}}
     )

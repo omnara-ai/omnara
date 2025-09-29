@@ -84,7 +84,8 @@
           "project": "mobile-app",
           "organization": "omnara"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

@@ -34,7 +34,7 @@ class TestAuthEndpoints:
         assert data["email"] == test_user.email
         assert data["display_name"] == test_user.display_name
 
-    @patch("backend.auth.utils.get_supabase_client")
+    @patch("backend.auth.utils.get_supabase_service_client")
     def test_update_user_profile(
         self, mock_supabase, authenticated_client, test_user, test_db
     ):

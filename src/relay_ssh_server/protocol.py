@@ -29,6 +29,6 @@ def iter_frames(buffer: bytearray) -> Iterator[Tuple[int, bytes]]:
         if len(buffer) < total_len:
             return
 
-        payload = bytes(buffer[FRAME_HEADER.size:total_len])
+        payload = bytes(buffer[FRAME_HEADER.size : total_len])
         del buffer[:total_len]
         yield frame_type, payload

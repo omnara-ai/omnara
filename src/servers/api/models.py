@@ -9,6 +9,22 @@ from servers.shared.models import (
 
 
 # Request models
+class RegisterAgentInstanceRequest(BaseModel):
+    """Request model for registering an agent instance."""
+
+    agent_type: str = Field(
+        ..., description="Name of the agent type to associate the instance with"
+    )
+    agent_instance_id: str | None = Field(
+        default=None,
+        description="Optional existing instance id to reuse for reconnect scenarios",
+    )
+    name: str | None = Field(default=None, description="Friendly name for the instance")
+    transport: str | None = Field(
+        default=None, description="Transport mode for the instance (e.g. 'ssh')"
+    )
+
+
 class CreateMessageRequest(BaseModel):
     """Request model for creating a new message."""
 
@@ -69,6 +85,25 @@ class EndSessionRequest(BaseEndSessionRequest):
 
 
 # Response models
+class RegisterAgentInstanceResponse(BaseModel):
+    """Response payload for registering an agent instance."""
+
+    agent_instance_id: str = Field(..., description="Identifier of the agent instance")
+    agent_type_id: str | None = Field(
+        default=None, description="Database identifier of the agent type"
+    )
+    agent_type_name: str | None = Field(
+        default=None, description="Human-readable agent type name"
+    )
+    status: str = Field(..., description="Current status of the agent instance")
+    name: str | None = Field(
+        default=None, description="Friendly name stored on the instance"
+    )
+    instance_metadata: dict | None = Field(
+        default=None, description="Arbitrary metadata associated with the instance"
+    )
+
+
 class MessageResponse(BaseModel):
     """Response model for individual messages."""
 
