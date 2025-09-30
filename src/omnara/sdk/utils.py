@@ -44,6 +44,7 @@ def build_message_request_data(
     send_email: Optional[bool] = None,
     send_sms: Optional[bool] = None,
     git_diff: Optional[str] = None,
+    message_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build request data for creating a message.
 
@@ -79,5 +80,8 @@ def build_message_request_data(
             data["git_diff"] = encoded
         except Exception:
             data["git_diff"] = git_diff
+
+    if message_metadata is not None:
+        data["message_metadata"] = message_metadata
 
     return data

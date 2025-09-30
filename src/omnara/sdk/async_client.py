@@ -199,6 +199,7 @@ class AsyncOmnaraClient:
         send_email: Optional[bool] = None,
         send_sms: Optional[bool] = None,
         git_diff: Optional[str] = None,
+        message_metadata: Optional[Dict[str, Any]] = None,
     ) -> CreateMessageResponse:
         """Send a message to the dashboard.
 
@@ -241,6 +242,7 @@ class AsyncOmnaraClient:
             send_email=send_email,
             send_sms=send_sms,
             git_diff=git_diff,
+            message_metadata=message_metadata,
         )
 
         # Send the message
@@ -316,6 +318,8 @@ class AsyncOmnaraClient:
         params = {"agent_instance_id": agent_instance_id_str}
         if last_read_message_id:
             params["last_read_message_id"] = last_read_message_id
+        else:
+            params["last_read_message_id"] = ""
 
         response = await self._make_request(
             "GET", "/api/v1/messages/pending", params=params
