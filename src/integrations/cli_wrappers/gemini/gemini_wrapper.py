@@ -332,11 +332,19 @@ class MessageProcessor:
     def __init__(self, wrapper: "GeminiWrapper"):
         self.wrapper = wrapper
         self.web_ui_messages: set[str] = set()
+        # Normalized fingerprints of web-sent user messages to suppress echo-mirroring
+        self.web_ui_messages_norm: set[str] = set()
         self.last_message_id: Optional[str] = None
 
     def process_user_message_sync(self, content: str, from_web: bool) -> None:
         if from_web:
             self.web_ui_messages.add(content)
+            try:
+                fp = re.sub(r"\s+", " ", strip_ansi(content)).strip().lower()
+                if fp:
+                    self.web_ui_messages_norm.add(fp)
+            except Exception:
+                pass
             return
         # For unit-testability and simple integrations, allow direct user message send
         try:
@@ -386,7 +394,34 @@ class MessageProcessor:
                             rest = sanitized[len(li) + 1 :]
             except Exception:
                 pass
-        # Mirror the echoed user message exactly once per turn (preferred path)
+        # Mirror the echoed user message once per turn, unless it originated from web UI or was just sent locally
+        if user_echo and not self.wrapper._echo_mirrored_turn:
+            # Suppress if this echo matches a recent web-sent message
+            try:
+                fp_user = re.sub(r"\s+", " ", strip_ansi(user_echo)).strip().lower()
+                # Suppress if it was injected from web or sent locally moments ago
+                if fp_user and (
+                    fp_user in getattr(self, "web_ui_messages_norm", set())
+                    or fp_user in getattr(self.wrapper, "_recent_local_user_norm", set())
+                ):
+                    # Consume this fingerprint to avoid repeated suppression
+                    try:
+                        self.web_ui_messages_norm.discard(fp_user)
+                    except Exception:
+                        pass
+                    try:
+                        self.wrapper._recent_local_user_norm.discard(fp_user)
+                    except Exception:
+                        pass
+                    # Mark echo handled for this turn and skip sending
+                    try:
+                        self.wrapper._echo_mirrored_turn = True
+                        self.wrapper._last_local_input_line = None
+                    except Exception:
+                        pass
+                    user_echo = None  # ensure we don't send below
+            except Exception:
+                pass
         if user_echo and not self.wrapper._echo_mirrored_turn:
             try:
                 # Prefer the exact submitted line length to avoid trailing UI noise
@@ -553,12 +588,14 @@ class GeminiWrapper:
         self.post_auth_nudge_sent: bool = False
         self._esc_buf: str = ""
         self._last_local_input_line: Optional[str] = None
+        self._recent_local_user_norm: set[str] = set()
         self._echo_mirrored_turn: bool = False
         self._status_buf: str = ""  # rolling window of plain text for status detection
         self._spawn_time: float = 0.0
         self._tui_ready: bool = False
         self._require_user_input_flag: bool = False
         self._terminal_buffer: str = ""
+        self._bracketed_paste_enabled: bool = False
         self.pending_permission_options: dict[str, str] = {}
         self._permission_handled_at: float = 0.0
         self._permission_cooldown_until: float = 0.0
@@ -1017,10 +1054,24 @@ class GeminiWrapper:
                             if ("\n" in txt) or ("\r" in txt):
                                 line = strip_ansi("".join(self._user_line_buffer))
                                 self._user_line_buffer.clear()
-                                # Record the submitted line (do not mirror here)
+                                # Record and immediately send the submitted user line
                                 try:
-                                    self._last_local_input_line = line.strip()
-                                    self._echo_mirrored_turn = False
+                                    submitted = line.strip()
+                                    self._last_local_input_line = submitted
+                                    if submitted:
+                                        try:
+                                            # Normalize and remember to suppress echo mirroring
+                                            norm = re.sub(r"\s+", " ", strip_ansi(submitted)).strip().lower()
+                                            if norm:
+                                                self._recent_local_user_norm.add(norm)
+                                            self.omnara_client.send_user_message(
+                                                agent_instance_id=self.agent_instance_id,
+                                                content=submitted,
+                                            )
+                                        except Exception:
+                                            pass
+                                        # Prevent later echo-based mirror from duplicating
+                                        self._echo_mirrored_turn = True
                                 except Exception:
                                     pass
                                 # We mirror once when first assistant output arrives
@@ -1038,6 +1089,15 @@ class GeminiWrapper:
                             self._flush_assistant_if_idle()
                             self.running = False
                             break
+
+                        # Track bracketed paste enable/disable sequences in raw bytes
+                        try:
+                            if b"\x1b[?2004h" in out:
+                                self._bracketed_paste_enabled = True
+                            if b"\x1b[?2004l" in out:
+                                self._bracketed_paste_enabled = False
+                        except Exception:
+                            pass
 
                         # Intercept common terminal queries and respond to child
                         printable_bytes, replies = self._handle_terminal_queries(out)
@@ -1303,7 +1363,8 @@ class GeminiWrapper:
                             try:
                                 # Respect ENTER mode for injected messages too
                                 enter_mode = os.environ.get("OMNARA_GEMINI_ENTER_MODE")
-                                # Default to CRLF for broad TUI compatibility. Options: lf | cr | crlf
+                                # Default to CRLF for broad TUI compatibility (this may cause a brief flicker)
+                                # Options: lf | cr | crlf
                                 if enter_mode == "lf":
                                     suffix = "\n"
                                 elif enter_mode == "cr":
@@ -1333,12 +1394,14 @@ class GeminiWrapper:
                                             self._terminal_buffer = ""
                                         except Exception:
                                             pass
+                                # Write content + Enter together (prior behavior that ensured submit)
                                 payload = (to_send + suffix).encode()
                                 with self.write_lock:
                                     self._write_child(payload)
-                                # Optional extra Enter for TUIs that need it; default to 'same' but only for non-empty messages
+                                # Optional extra Enter (default 'same') — enables reliable submit but can flicker
+                                extra_mode_env = os.environ.get("OMNARA_GEMINI_EXTRA_ENTER")
                                 extra_mode = (
-                                    os.environ.get("OMNARA_GEMINI_EXTRA_ENTER", "same").strip().lower()
+                                    extra_mode_env.strip().lower() if extra_mode_env else "same"
                                 )
                                 if msg.content.strip() and extra_mode and extra_mode not in ("0", "none", "false"):
                                     if extra_mode == "same":
@@ -1354,12 +1417,14 @@ class GeminiWrapper:
                                         extra_suffix = suffix + suffix
                                     else:
                                         extra_suffix = suffix  # fallback to same
+                                    # Small inter-write gap from prior behavior helped some TUIs draw; harmless flicker acceptable
                                     try:
                                         time.sleep(0.02)
                                     except Exception:
                                         pass
                                     with self.write_lock:
                                         self._write_child(extra_suffix.encode())
+                                # No timing-based fallbacks or delays.
                                 if os.environ.get("OMNARA_GEMINI_LOG_POLL"):
                                     preview = msg.content[:80].replace("\n", "\\n")
                                     # Avoid backslashes inside f-string expression (Python 3.10 quirk)
@@ -1674,8 +1739,20 @@ class GeminiWrapper:
                                 line = strip_ansi("".join(self._user_line_buffer))
                                 self._user_line_buffer.clear()
                                 try:
-                                    self._last_local_input_line = line.strip()
-                                    self._echo_mirrored_turn = False
+                                    submitted = line.strip()
+                                    self._last_local_input_line = submitted
+                                    if submitted:
+                                        try:
+                                            norm = re.sub(r"\s+", " ", strip_ansi(submitted)).strip().lower()
+                                            if norm:
+                                                self._recent_local_user_norm.add(norm)
+                                            self.omnara_client.send_user_message(
+                                                agent_instance_id=self.agent_instance_id,
+                                                content=submitted,
+                                            )
+                                        except Exception:
+                                            pass
+                                        self._echo_mirrored_turn = True
                                 except Exception:
                                     pass
                         except Exception:

@@ -507,15 +507,15 @@ def run_agent_chat(args, unknown_args):
             "function": "main",
             "argv_name": "amp_wrapper",
         },
-        # 'codex' is implemented as an external binary launcher; handled below
+        # 'codex' and 'gemini' are implemented as external binary launchers; handled below
         "codex": {
             "module": None,
             "function": None,
             "argv_name": "codex",
         },
         "gemini": {
-            "module": "integrations.cli_wrappers.gemini.gemini_wrapper",
-            "function": "main",
+            "module": None,
+            "function": None,
             "argv_name": "gemini",
         },
     }
@@ -529,11 +529,15 @@ def run_agent_chat(args, unknown_args):
             f"Unknown agent: {agent}. Supported agents: {', '.join(AGENT_CONFIGS.keys())}"
         )
 
-    # Special-case 'codex': spawn the Rust binary with env.
+    # Special-case 'codex' and 'gemini': spawn binaries with env + heartbeat.
     if agent == "codex":
         from omnara.agents.codex import run_codex
 
         return run_codex(args, unknown_args, api_key)
+    if agent == "gemini":
+        from omnara.agents.gemini import run_gemini
+
+        return run_gemini(args, unknown_args, api_key)
 
     module = importlib.import_module(config["module"])  # type: ignore[arg-type]
     wrapper_main = getattr(module, config["function"])  # type: ignore[index]
