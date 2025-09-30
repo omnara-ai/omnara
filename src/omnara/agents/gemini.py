@@ -107,6 +107,39 @@ def run_gemini(args, unknown_args, api_key: str):
     Preferred: delegate to the Python wrapper (captures messages and syncs to Omnara).
     Fallback: run the raw `gemini` binary with minimal env + heartbeat.
     """
+    # Dev-first: if the Node CLI build exists, run it directly so Omnara integration in the CLI is active.
+    try:
+        src_root = Path(__file__).resolve().parents[2]
+        node_entry = (
+            src_root
+            / "integrations"
+            / "cli_wrappers"
+            / "gemini"
+            / "gemini-cli"
+            / "packages"
+            / "cli"
+            / "dist"
+            / "index.js"
+        )
+        if node_entry.exists():
+            env = os.environ.copy()
+            env["OMNARA_API_KEY"] = api_key
+            base_url = getattr(args, "base_url", None) or env.get("OMNARA_API_URL")
+            if base_url:
+                env["OMNARA_API_URL"] = base_url
+            session_id = env.setdefault("OMNARA_SESSION_ID", str(uuid.uuid4()))
+            env["OMNARA_AGENT_INSTANCE_ID"] = session_id
+            cmd = [shutil.which("node") or "node", str(node_entry)]
+            if unknown_args:
+                cmd.extend(unknown_args)
+            print(f"[omnara][gemini] Launching Node CLI: {node_entry}")
+            try:
+                subprocess.run(cmd, env=env, check=False)
+            except KeyboardInterrupt:
+                sys.exit(130)
+            return
+    except Exception:
+        pass
     # First try the full-featured Python wrapper which handles message syncing
     try:
         import importlib

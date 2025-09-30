@@ -1,3 +1,6 @@
 [submodule "src/integrations/cli_wrappers/codex"]
 	path = src/integrations/cli_wrappers/codex
 	url = https://github.com/omnara-ai/codex
+[submodule "src/integrations/cli_wrappers/gemini/gemini-cli"]
+	path = src/integrations/cli_wrappers/gemini/gemini-cli
+	url = https://github.com/google-gemini/gemini-cli.git

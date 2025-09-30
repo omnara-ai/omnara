@@ -353,7 +353,7 @@ def get_pending_messages(
 
         db.commit()
 
-        # Convert to response format
+        # Convert to response format (no mapping)
         message_responses = [
             MessageResponse(
                 id=str(msg.id),
