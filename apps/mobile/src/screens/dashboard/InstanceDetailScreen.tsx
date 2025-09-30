@@ -18,7 +18,7 @@ import { InstanceDetail, AgentStatus, Message, InstanceShare, InstanceAccessLeve
 import { formatAgentTypeName } from '@/utils/formatters';
 import { getStatusColor } from '@/utils/statusHelpers';
 import { ChatInterface } from '@/components/chat/ChatInterface';
-import { SSHInstancePanel } from '@/components/ssh';
+import { TerminalInstancePanel } from '@/components/terminal';
 import { useSSE } from '@/hooks/useSSE';
 import { Share } from 'lucide-react-native';
 import { ShareAccessModal } from '@/components/dashboard/ShareAccessModal';
@@ -57,7 +57,7 @@ export const InstanceDetailScreen: React.FC = () => {
 
   const metadata = instance?.instance_metadata;
   const transport = resolveTransport(metadata);
-  const isSSHInstance = transport === 'ssh';
+  const isTerminalInstance = transport === 'ws';
 
   const { data: initialData, isLoading, error, refetch } = useQuery({
     queryKey: ['instance', instanceId],
@@ -73,7 +73,7 @@ export const InstanceDetailScreen: React.FC = () => {
 
   const loadMoreMessages = async (beforeMessageId: string): Promise<Message[]> => {
     if (!instanceId) return [];
-    if (isSSHInstance) {
+    if (isTerminalInstance) {
       return [];
     }
 
@@ -220,7 +220,7 @@ export const InstanceDetailScreen: React.FC = () => {
   // Set up SSE connection
   useSSE({
     instanceId,
-    enabled: !isSSHInstance && sseEnabled,
+    enabled: !isTerminalInstance && sseEnabled,
     onMessage: handleNewMessage,
     onStatusUpdate: handleStatusUpdate,
     onMessageUpdate: handleMessageUpdate,
@@ -302,9 +302,9 @@ export const InstanceDetailScreen: React.FC = () => {
       if (
         freshData &&
         freshData.status !== AgentStatus.COMPLETED &&
-        transport !== 'ssh'
+        transport !== 'ws'
       ) {
-        console.log('[InstanceDetailScreen] Enabling SSE for active non-SSH instance');
+        console.log('[InstanceDetailScreen] Enabling SSE for active non-terminal instance');
         setSseEnabled(true);
       }
     });
@@ -347,10 +347,10 @@ export const InstanceDetailScreen: React.FC = () => {
   );
 
   useEffect(() => {
-    if (isSSHInstance) {
+    if (isTerminalInstance) {
       setSseEnabled(false);
     }
-  }, [isSSHInstance]);
+  }, [isTerminalInstance]);
 
   console.log('[InstanceDetailScreen] Query state - isLoading:', isLoading, 'instance:', !!instance, 'error:', !!error, 'sseEnabled:', sseEnabled);
 
@@ -440,10 +440,10 @@ export const InstanceDetailScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea} >
+      <SafeAreaView style={styles.safeArea} edges={isTerminalInstance ? ['top'] : ['top', 'bottom']}>
         {/* Header */}
-        <Header 
-          title="" 
+        <Header
+          title=""
           onBack={() => navigation.goBack()}
           centerContent={
             <View style={styles.titleContainer}>
@@ -453,9 +453,9 @@ export const InstanceDetailScreen: React.FC = () => {
           }
           rightContent={shareButton}
         />
-        
-        {isSSHInstance ? (
-          <SSHInstancePanel instanceId={instance.id} />
+
+        {isTerminalInstance ? (
+          <TerminalInstancePanel instanceId={instance.id} />
         ) : (
           <ChatInterface
             key={instance.id} // Force React to create a new component instance for each chat

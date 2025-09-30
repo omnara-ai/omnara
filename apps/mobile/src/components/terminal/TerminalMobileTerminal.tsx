@@ -334,19 +334,18 @@ function buildTerminalHtml(): string {
             return;
           }
 
-          if (!Number.isFinite(cols) || !Number.isFinite(rows)) {
+          if (!Number.isFinite(cols)) {
             return;
           }
 
           const safeCols = Math.max(1, Math.trunc(cols));
-          const safeRows = Math.max(1, Math.trunc(rows));
 
           try {
+            // Only send width - height stays constant
             socket.send(
               JSON.stringify({
                 type: 'resize_request',
-                cols: safeCols,
-                rows: safeRows
+                cols: safeCols
               })
             );
           } catch (err) {}
@@ -397,6 +396,10 @@ function buildTerminalHtml(): string {
               const text = decoder.decode(payload, { stream: true });
               if (text) {
                 term.write(text);
+                // Auto-scroll to bottom when new data arrives
+                setTimeout(function () {
+                  term.scrollToBottom();
+                }, 0);
               }
             }
           }
@@ -663,6 +666,12 @@ function buildTerminalHtml(): string {
             startSession(payload.payload);
           } else if (payload.type === 'reset') {
             resetTerminal();
+          } else if (payload.type === 'keySequence') {
+            sendInput(payload.data);
+          } else if (payload.type === 'blur') {
+            if (term && term.textarea) {
+              term.textarea.blur();
+            }
           }
         }
 
@@ -678,6 +687,13 @@ function buildTerminalHtml(): string {
             pendingInit = null;
             startSession(next);
           }
+
+          // Scroll to bottom on load
+          setTimeout(function () {
+            if (term) {
+              term.scrollToBottom();
+            }
+          }, 100);
         });
       })();
     </script>
@@ -709,11 +725,19 @@ function statusToMessage(status: TerminalStatus, error: string | null): string |
   }
 }
 
-interface SSHMobileTerminalProps {
+interface TerminalMobileTerminalProps {
   instanceId: string;
 }
 
-export const SSHMobileTerminal: React.FC<SSHMobileTerminalProps> = ({ instanceId }) => {
+export interface TerminalMobileTerminalRef {
+  sendKeySequence: (sequence: string) => void;
+  blurTerminal: () => void;
+}
+
+export const TerminalMobileTerminal = React.forwardRef<
+  TerminalMobileTerminalRef,
+  TerminalMobileTerminalProps
+>(({ instanceId }, ref) => {
   const webViewRef = useRef<WebViewType | null>(null);
   const activeInstanceRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
@@ -724,6 +748,45 @@ export const SSHMobileTerminal: React.FC<SSHMobileTerminalProps> = ({ instanceId
 
   const relayConfig = useMemo(() => buildRelayConfig(), []);
   const terminalHtml = useMemo(() => buildTerminalHtml(), []);
+
+  const sendKeySequence = useCallback((sequence: string) => {
+    if (!webViewReady) {
+      return;
+    }
+    try {
+      webViewRef.current?.postMessage(
+        JSON.stringify({ type: 'keySequence', data: sequence })
+      );
+    } catch (err) {
+      reportError(err, {
+        context: 'Failed to send key sequence',
+        extras: { instanceId, sequence },
+        tags: { feature: 'mobile-terminal-keys' },
+      });
+    }
+  }, [instanceId, webViewReady]);
+
+  const blurTerminal = useCallback(() => {
+    if (!webViewReady) {
+      return;
+    }
+    try {
+      webViewRef.current?.postMessage(
+        JSON.stringify({ type: 'blur' })
+      );
+    } catch (err) {
+      reportError(err, {
+        context: 'Failed to blur terminal',
+        extras: { instanceId },
+        tags: { feature: 'mobile-terminal-keys' },
+      });
+    }
+  }, [instanceId, webViewReady]);
+
+  React.useImperativeHandle(ref, () => ({
+    sendKeySequence,
+    blurTerminal,
+  }), [sendKeySequence, blurTerminal]);
 
   useEffect(() => {
     return () => {
@@ -776,9 +839,9 @@ export const SSHMobileTerminal: React.FC<SSHMobileTerminalProps> = ({ instanceId
       );
     } catch (err) {
       reportError(err, {
-        context: 'Failed to initialise SSH terminal',
+        context: 'Failed to initialise terminal',
         extras: { instanceId },
-        tags: { feature: 'mobile-ssh-terminal' },
+        tags: { feature: 'mobile-terminal' },
       });
       if (!isMountedRef.current) {
         return;
@@ -862,6 +925,7 @@ export const SSHMobileTerminal: React.FC<SSHMobileTerminalProps> = ({ instanceId
         allowUniversalAccessFromFileURLs={true}
         mixedContentMode="always"
         style={styles.webview}
+        autoManageStatusBarEnabled={false}
       />
       {showOverlay && (
         <View style={styles.overlay} pointerEvents="none">
@@ -882,7 +946,9 @@ export const SSHMobileTerminal: React.FC<SSHMobileTerminalProps> = ({ instanceId
       )}
     </View>
   );
-};
+});
+
+TerminalMobileTerminal.displayName = 'TerminalMobileTerminal';
 
 const styles = StyleSheet.create({
   container: {

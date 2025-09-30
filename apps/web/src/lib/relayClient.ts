@@ -68,7 +68,7 @@ export async function fetchRelaySessions(
     reportError(error, {
       context: 'relay-session-fetch',
       extras: { status: response.status },
-      tags: { feature: 'ssh-terminal' },
+      tags: { feature: 'terminal' },
     })
     throw error
   }
@@ -91,4 +91,3 @@ export function createRelayWebSocket(
   socket.binaryType = 'arraybuffer'
   return socket
 }
-

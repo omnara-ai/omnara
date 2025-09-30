@@ -61,7 +61,6 @@ def _maybe_decode_base64(value: str | None) -> str | None:
         return value
 
 
-
 def _set_transport_metadata(instance: AgentInstance, transport: str | None) -> None:
     """Ensure instance metadata only includes transport details when provided."""
     if transport:
@@ -89,7 +88,9 @@ def _format_agent_instance(instance: AgentInstance) -> RegisterAgentInstanceResp
         else None
     )
     status_value = (
-        instance.status.value if hasattr(instance.status, "value") else str(instance.status)
+        instance.status.value
+        if hasattr(instance.status, "value")
+        else str(instance.status)
     )
     agent_type_id = str(instance.user_agent_id) if instance.user_agent_id else None
     agent_type_name = (

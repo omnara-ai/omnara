@@ -205,8 +205,6 @@ class TeamMemberRoleUpdateRequest(BaseModel):
     role: TeamRole
 
 
-
-
 class TeamSummary(BaseModel):
     id: str
     name: str

@@ -1,8 +1,9 @@
-"""WebSocket broadcasting for omnara SSH relay."""
+"""WebSocket broadcasting for the omnara terminal relay."""
 
 from __future__ import annotations
 
 import json
+import struct
 from dataclasses import dataclass
 
 from aiohttp import WSCloseCode, web
@@ -13,12 +14,19 @@ from .auth import (
     build_credentials_from_api_key,
     build_credentials_from_supabase,
 )
-from .protocol import FRAME_TYPE_OUTPUT, pack_frame
+from .protocol import (
+    FRAME_TYPE_INPUT,
+    FRAME_TYPE_OUTPUT,
+    FRAME_TYPE_RESIZE,
+    iter_frames,
+    pack_frame,
+)
 from .sessions import SessionManager
 
 
 API_KEY_PROTOCOL_PREFIX = "omnara-key."
 SUPABASE_PROTOCOL_PREFIX = "omnara-supabase."
+RESIZE_STRUCT = struct.Struct("!HH")
 
 
 @dataclass(slots=True)
@@ -199,3 +207,81 @@ class WebsocketRouter:
             }
         )
 
+
+class AgentWebsocketHandler:
+    """Handles agent-side websocket connections used as transport."""
+
+    def __init__(self, manager: SessionManager):
+        self._manager = manager
+
+    async def handle(self, request: web.Request) -> web.WebSocketResponse:
+        try:
+            bundle = _extract_credentials(request)
+        except RelayAuthError as exc:
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            await ws.send_json({"error": str(exc)})
+            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message="auth")
+            return ws
+
+        credentials = bundle.credentials
+        if credentials.api_key_hash is None:
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            await ws.send_json({"error": "API key credentials required"})
+            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message="auth")
+            return ws
+
+        session_id = request.query.get("session_id") or request.match_info.get(
+            "session_id"
+        )
+        if not session_id:
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            await ws.send_json({"error": "Missing session_id"})
+            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message="session_id")
+            return ws
+
+        ws_kwargs: dict[str, object] = {}
+        if bundle.negotiated_protocol:
+            ws_kwargs["protocols"] = [bundle.negotiated_protocol]
+
+        ws = web.WebSocketResponse(**ws_kwargs)
+        await ws.prepare(request)
+
+        session = await self._manager.create_session(
+            credentials.user_id, session_id, credentials.api_key_hash
+        )
+        session.attach_agent_socket(ws)
+
+        await ws.send_json({"type": "ready", "session_id": session_id})
+
+        try:
+            async for msg in ws:
+                if msg.type == web.WSMsgType.BINARY:
+                    buffer = bytearray(msg.data)
+                    for frame_type, payload in iter_frames(buffer):
+                        if frame_type == FRAME_TYPE_OUTPUT:
+                            session.append_output(payload)
+                        elif frame_type == FRAME_TYPE_RESIZE:
+                            if len(payload) == RESIZE_STRUCT.size:
+                                rows, cols = RESIZE_STRUCT.unpack(payload)
+                                if rows > 0 and cols > 0:
+                                    session.update_size(cols, rows)
+                        elif frame_type == FRAME_TYPE_INPUT:
+                            # Upstream should not send input frames, ignore.
+                            continue
+                elif msg.type == web.WSMsgType.TEXT:
+                    # Reserved for future metadata exchange.
+                    continue
+                elif msg.type in (
+                    web.WSMsgType.CLOSE,
+                    web.WSMsgType.CLOSED,
+                    web.WSMsgType.ERROR,
+                ):
+                    break
+        finally:
+            session.detach_agent_socket()
+            await self._manager.end_session(credentials.user_id, session_id)
+
+        return ws

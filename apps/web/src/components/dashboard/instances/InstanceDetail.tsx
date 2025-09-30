@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { InstanceHeader } from './InstanceHeader'
 import { ChatInterface } from './../chat/ChatInterface'
-import { SSHInstancePanel } from './SSHInstancePanel'
+import { TerminalInstancePanel } from './TerminalInstancePanel'
 import { apiClient } from '@/lib/dashboardApi'
 import {
   InstanceDetail as IInstanceDetail,
@@ -547,7 +547,7 @@ export function InstanceDetail() {
       ? (instance.instance_metadata as Record<string, unknown>)
       : null
   const transport = typeof metadata?.transport === 'string' ? (metadata.transport as string) : undefined
-  const isSSHInstance = transport === 'ssh'
+  const isTerminalInstance = transport === 'ws'
 
   return (
     <div className="animate-fade-in h-full flex flex-col">
@@ -660,8 +660,8 @@ export function InstanceDetail() {
       </div>
 
       <div className="relative flex-1 min-h-0 px-6 pb-6">
-        {isSSHInstance ? (
-          <SSHInstancePanel instanceId={instance.id} />
+        {isTerminalInstance ? (
+          <TerminalInstancePanel instanceId={instance.id} />
         ) : (
           <ChatInterface
             key={instance.id} // Force React to create a new component instance for each chat

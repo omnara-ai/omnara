@@ -6,7 +6,7 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from shared.database.models import AgentInstance, User
+from shared.database.models import User
 from shared.database.session import get_db, SessionLocal
 from shared.database.enums import AgentStatus
 from sqlalchemy.orm import Session
@@ -21,7 +21,6 @@ from ..db import (
     get_all_agent_instances,
     get_all_agent_types_with_instances,
     mark_instance_completed,
-    format_agent_instance,
     delete_agent_instance,
     update_agent_instance_name,
     get_message_by_id,

@@ -1,4 +1,4 @@
-"""Framing helpers for SSH relay communication."""
+"""Framing helpers for terminal relay communication."""
 
 from __future__ import annotations
 

@@ -21,7 +21,7 @@ class RegisterAgentInstanceRequest(BaseModel):
     )
     name: str | None = Field(default=None, description="Friendly name for the instance")
     transport: str | None = Field(
-        default=None, description="Transport mode for the instance (e.g. 'ssh')"
+        default=None, description="Transport mode for the instance (e.g. 'ws')"
     )
 
 

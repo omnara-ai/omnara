@@ -290,11 +290,11 @@ class OmnaraClient:
         self,
         *,
         agent_type: str,
-        transport: str = "ssh",
+        transport: str = "ws",
         agent_instance_id: Optional[Union[str, uuid.UUID]] = None,
         name: Optional[str] = None,
     ) -> RegisterAgentInstanceResponse:
-        """Register or update an agent instance for SSH relay sessions."""
+        """Register or update an agent instance for terminal relay sessions."""
 
         payload: Dict[str, Any] = {
             "agent_type": agent_type,

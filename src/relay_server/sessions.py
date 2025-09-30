@@ -1,4 +1,4 @@
-"""In-memory session management for the omnara SSH relay."""
+"""In-memory session management for the omnara terminal relay."""
 
 from __future__ import annotations
 
@@ -8,10 +8,7 @@ import time
 import weakref
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Dict, Iterable, Optional, Tuple
-
-import asyncssh
-from aiohttp import web
+from typing import Any, Deque, Dict, Iterable, Optional, Tuple
 
 from .protocol import FRAME_TYPE_INPUT, FRAME_TYPE_OUTPUT, FRAME_TYPE_RESIZE, pack_frame
 
@@ -36,27 +33,27 @@ class Session:
 
     _history: Deque[bytes] = field(default_factory=deque, init=False)
     _history_size: int = 0
-    _websockets: "weakref.WeakSet[web.WebSocketResponse]" = field(
+    _websockets: "weakref.WeakSet[Any]" = field(
         default_factory=weakref.WeakSet, init=False
     )
-    _channel: Optional[asyncssh.SSHServerChannel] = None
+    _agent_socket: Optional[Any] = None
 
-    def attach_channel(self, channel: asyncssh.SSHServerChannel) -> None:
-        """Associate the live SSH channel so we can forward input."""
+    def attach_agent_socket(self, ws: Any) -> None:
+        """Associate an agent WebSocket connection as the upstream."""
 
-        self._channel = channel
+        self._agent_socket = ws
 
-    def detach_channel(self) -> None:
-        """Drop references to the SSH channel when it disconnects."""
+    def detach_agent_socket(self) -> None:
+        """Detach the agent WebSocket connection."""
 
-        self._channel = None
+        self._agent_socket = None
 
-    def register_websocket(self, ws: web.WebSocketResponse) -> None:
+    def register_websocket(self, ws: Any) -> None:
         """Track a websocket client to broadcast live output."""
 
         self._websockets.add(ws)
 
-    def unregister_websocket(self, ws: web.WebSocketResponse) -> None:
+    def unregister_websocket(self, ws: Any) -> None:
         """Remove a websocket client from the broadcast set."""
 
         self._websockets.discard(ws)
@@ -80,43 +77,48 @@ class Session:
             dropped = self._history.popleft()
             self._history_size -= len(dropped)
 
-        # Broadcast asynchronously so we never block the SSH stream
+        # Broadcast asynchronously so we never block the upstream stream
         frame = pack_frame(FRAME_TYPE_OUTPUT, chunk)
         for ws in list(self._websockets):
             asyncio.create_task(self._send_bytes(ws, frame))
 
-    async def _send_bytes(self, ws: web.WebSocketResponse, frame: bytes) -> None:
+    async def _send_bytes(self, ws: Any, frame: bytes) -> None:
         try:
             await ws.send_bytes(frame)
             print(
                 f"[relay] send_bytes len={len(frame)} session={self.user_id}:{self.session_id}",
                 flush=True,
             )
-        except Exception:
+        except Exception as exc:
+            print(
+                f"[relay] send_bytes FAILED session={self.user_id}:{self.session_id} error={exc!r}",
+                flush=True,
+            )
             self._websockets.discard(ws)
 
     def forward_input(self, data: str) -> None:
         """Ship input from clients back to the CLI."""
 
-        if not data or not self._channel:
+        if not data or self._agent_socket is None:
             return
-        try:
-            payload = data.encode()
-            frame = pack_frame(FRAME_TYPE_INPUT, payload)
-            print(
-                f"[relay] forward_input len={len(payload)} session={self.user_id}:{self.session_id}",
-                flush=True,
-            )
-            self._channel.write(frame)
-        except Exception:
-            self._channel = None
+
+        payload = data.encode()
+        frame = pack_frame(FRAME_TYPE_INPUT, payload)
+        print(
+            f"[relay] forward_input len={len(payload)} session={self.user_id}:{self.session_id}",
+            flush=True,
+        )
+        asyncio.create_task(self._send_to_agent(frame))
 
     def request_resize(
         self, cols: int | float | None, rows: int | float | None
     ) -> None:
-        """Request a PTY resize originating from a viewer."""
+        """Request a PTY resize originating from a viewer.
 
-        if self._channel is None:
+        If rows is not provided, keeps current height and only resizes width.
+        """
+
+        if self._agent_socket is None:
             return
 
         try:
@@ -125,26 +127,30 @@ class Session:
         except (TypeError, ValueError):
             return
 
+        # Use current dimensions if not provided
+        if int_cols is None:
+            int_cols = self.cols
+        if int_rows is None:
+            int_rows = self.rows
+
+        # Need at least one valid dimension
         if int_cols is None or int_rows is None:
             return
 
         if int_cols <= 0 or int_rows <= 0:
             return
 
+        # No change needed
         if self.cols == int_cols and self.rows == int_rows:
             return
 
-        try:
-            payload = RESIZE_PAYLOAD.pack(int_rows, int_cols)
-            frame = pack_frame(FRAME_TYPE_RESIZE, payload)
-            print(
-                f"[relay] request_resize cols={int_cols} rows={int_rows} session={self.user_id}:{self.session_id}",
-                flush=True,
-            )
-            self._channel.write(frame)
-        except Exception:
-            self._channel = None
-            return
+        payload = RESIZE_PAYLOAD.pack(int_rows, int_cols)
+        frame = pack_frame(FRAME_TYPE_RESIZE, payload)
+        print(
+            f"[relay] request_resize cols={int_cols} rows={int_rows} session={self.user_id}:{self.session_id}",
+            flush=True,
+        )
+        asyncio.create_task(self._send_to_agent(frame))
 
         self.update_size(int_cols, int_rows)
 
@@ -189,7 +195,7 @@ class Session:
 
         self.is_active = False
         self.ended_at = time.time()
-        self.detach_channel()
+        self.detach_agent_socket()
 
         for ws in list(self._websockets):
             asyncio.create_task(
@@ -198,11 +204,28 @@ class Session:
                 )
             )
 
-    async def _send_json(self, ws: web.WebSocketResponse, payload: dict) -> None:
+    async def _send_json(self, ws: Any, payload: dict) -> None:
         try:
             await ws.send_json(payload)
-        except Exception:
+        except Exception as exc:
+            print(
+                f"[relay] send_json FAILED session={self.user_id}:{self.session_id} error={exc!r}",
+                flush=True,
+            )
             self._websockets.discard(ws)
+
+    async def _send_to_agent(self, frame: bytes) -> None:
+        if self._agent_socket is None:
+            return
+
+        try:
+            await self._agent_socket.send_bytes(frame)
+        except Exception as exc:
+            print(
+                f"[relay] send_to_agent FAILED session={self.user_id}:{self.session_id} error={exc!r}",
+                flush=True,
+            )
+            self._agent_socket = None
 
 
 class SessionManager:
@@ -229,13 +252,20 @@ class SessionManager:
 
         async with self._lock:
             key = (user_id, session_id)
-            session = Session(
-                user_id=user_id,
-                session_id=session_id,
-                history_limit=self._history_limit,
-                api_key_hash=api_key_hash,
-            )
-            self._sessions[key] = session
+            session = self._sessions.get(key)
+            if session is None:
+                session = Session(
+                    user_id=user_id,
+                    session_id=session_id,
+                    history_limit=self._history_limit,
+                    api_key_hash=api_key_hash,
+                )
+                self._sessions[key] = session
+            else:
+                session.api_key_hash = api_key_hash
+                session.is_active = True
+                session.ended_at = None
+                session.detach_agent_socket()
             return session
 
     async def get_session(

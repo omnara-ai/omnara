@@ -41,7 +41,7 @@ cleanup() {
         wait $VIEWER_PID 2>/dev/null || true
     fi
     if [[ -n $RELAY_PID ]]; then
-        echo "Stopping SSH relay..."
+        echo "Stopping relay server..."
         kill $RELAY_PID 2>/dev/null || true
         wait $RELAY_PID 2>/dev/null || true
     fi
@@ -49,7 +49,7 @@ cleanup() {
         echo "Stopping unified server..."
         kill $APP_PID 2>/dev/null || true
     fi
-    
+
     if [[ -n $BACKEND_PID ]]; then
         echo "Stopping backend..."
         kill $BACKEND_PID 2>/dev/null || true
@@ -126,13 +126,10 @@ RELAY_LOG="$LOG_DIR/relay.log"
 VIEWER_LOG="$LOG_DIR/relay-viewer.log"
 > "$VIEWER_LOG"
 
-# Start SSH relay server
-echo -e "${BLUE}Starting SSH relay server...${NC}"
+# Start relay server (FastAPI WebSocket)
+echo -e "${BLUE}Starting relay WebSocket server...${NC}"
 export PYTHONPATH="$(pwd)/src"
-export OMNARA_RELAY_SSH_HOST="0.0.0.0"
-export OMNARA_RELAY_HOST="127.0.0.1"
-export OMNARA_RELAY_WS_PORT=8787
-python -m relay_ssh_server.run >> "$RELAY_LOG" 2>&1 &
+python -m relay_server.app >> "$RELAY_LOG" 2>&1 &
 RELAY_PID=$!
 sleep 2
 
@@ -168,9 +165,11 @@ sleep 2
 
 echo -e "${GREEN}🎉 All services started successfully!${NC}"
 echo -e "${BLUE}Services:${NC}"
-echo -e "  🔌 SSH Relay:      ssh://localhost:2222  ws://localhost:${OMNARA_RELAY_WS_PORT}"
-echo -e "  🔧 Backend API:     http://localhost:8000"
+echo -e "  🔌 Relay Server:    http://localhost:8787 (FastAPI WebSocket)"
+echo -e "     - WebSocket agent: ws://localhost:8787/agent"
+echo -e "     - WebSocket viewer: ws://localhost:8787/terminal"
 echo -e "  🤖 Unified Server:  http://localhost:8080 (MCP + FastAPI)"
+echo -e "  🔧 Backend API:     http://localhost:8000"
 echo -e "  🖥️  Relay Viewer:    http://localhost:4173"
 echo -e "  🗄️  PostgreSQL:      localhost:5432"
 echo -e "  📜 Relay Log:       $RELAY_LOG"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch a local omnara session and mirror it through the SSH relay."""
+"""Launch a local omnara session and mirror it through the WebSocket relay."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from omnara.session_sharing import run_agent_with_relay  # type: ignore  # pylin
 
 def parse_args() -> tuple[argparse.Namespace, Iterable[str]]:
     parser = argparse.ArgumentParser(
-        description="Run a claude/amp session with omnara's SSH relay",
+        description="Run a claude/amp session with omnara's WebSocket relay",
     )
     parser.add_argument(
         "--agent",
@@ -64,8 +64,8 @@ def parse_args() -> tuple[argparse.Namespace, Iterable[str]]:
     parser.add_argument(
         "--relay-port",
         type=int,
-        default=2222,
-        help="Relay SSH port (default: 2222)",
+        default=8787,
+        help="Relay WebSocket port (default: 8787)",
     )
     parser.add_argument(
         "--no-relay",
@@ -84,7 +84,7 @@ def main() -> None:
     if args.relay_host:
         os.environ["OMNARA_RELAY_HOST"] = args.relay_host
     if args.relay_port:
-        os.environ["OMNARA_RELAY_PORT"] = str(args.relay_port)
+        os.environ["OMNARA_RELAY_WS_PORT"] = str(args.relay_port)
 
     api_key = ensure_api_key(args)
 

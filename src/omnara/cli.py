@@ -339,7 +339,7 @@ def authenticate_via_browser(auth_url="https://omnara.com"):
 
     print("After signing in to Omnara:")
     print("  • Local CLI: Click 'Authenticate Local CLI' button in your browser")
-    print("  • Remote/SSH: Copy the API key and paste below")
+    print("  • Remote session: Copy the API key and paste below")
 
     # Simple blocking input with timeout check in background
     print(
@@ -488,21 +488,22 @@ def cmd_headless(args, unknown_args):
 
 def run_agent_chat(args, unknown_args):
     """Run the agent chat integration, streaming through the relay when possible."""
+    from omnara.commands.run import run_agent_with_terminal_relay
 
     api_key = ensure_api_key(args)
-    agent = getattr(args, "agent", "claude").lower()
-
-    if agent == "codex":
-        from omnara.agents.codex import run_codex
-
-        return run_codex(args, unknown_args, api_key)
-
-    from omnara.session_sharing import run_agent_with_relay
-
-    exit_code = run_agent_with_relay(agent, args, unknown_args, api_key)
+    exit_code = run_agent_with_terminal_relay(args, unknown_args, api_key)
     if exit_code != 0:
         sys.exit(exit_code)
     return exit_code
+
+
+def cmd_legacy(args, unknown_args):
+    """Handle the 'legacy' subcommand - direct agent execution without relay."""
+    from omnara.commands.legacy import run_agent_direct
+
+    api_key = ensure_api_key(args)
+    exit_code = run_agent_direct(args, unknown_args, api_key)
+    sys.exit(exit_code)
 
 
 def cmd_serve(args, unknown_args=None):
@@ -619,20 +620,14 @@ def add_global_arguments(parser):
         help="Name of the omnara agent (defaults to the name of the underlying agent)",
     )
     parser.add_argument(
-        "--permission-mode",
-        choices=["acceptEdits", "bypassPermissions", "default", "plan"],
-        help="Permission mode to use for the session",
-    )
-    parser.add_argument(
-        "--dangerously-skip-permissions",
+        "--no-relay",
         action="store_true",
-        help="Bypass all permission checks. Recommended only for sandboxes with no internet access.",
+        help="Disable WebSocket relay streaming (run local-only session)",
     )
     parser.add_argument(
-        "--idle-delay",
-        type=float,
-        default=3.5,
-        help="Delay in seconds before considering Claude idle (default: 3.5)",
+        "--relay-url",
+        default=None,
+        help="Relay WebSocket URL (default: wss://relay.omnara.com/agent for prod, ws://localhost:8080/agent for local)",
     )
 
 
@@ -644,13 +639,18 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Start Claude chat (default)
+  # Start Claude with WebSocket terminal relay (default)
   omnara
   omnara --api-key YOUR_API_KEY
+  omnara --no-relay                    # Run local-only without relay
 
-  # Start Amp chat
+  # Start Amp with terminal relay
   omnara --agent=amp
   omnara --agent=amp --api-key YOUR_API_KEY
+
+  # Run agent directly without relay (legacy)
+  omnara legacy
+  omnara legacy --agent=amp
 
   # Start headless Claude (controlled via web dashboard)
   omnara headless
@@ -733,6 +733,17 @@ Examples:
         "--disable-tools",
         action="store_true",
         help="Disable all tools except the permission tool",
+    )
+
+    # 'legacy' subcommand
+    legacy_parser = subparsers.add_parser(
+        "legacy",
+        help="Run agent directly without WebSocket relay (legacy behavior)",
+    )
+    legacy_parser.add_argument(
+        "--agent-instance-id",
+        type=str,
+        help="Pre-existing agent instance ID to use for this session",
     )
 
     # 'headless' subcommand
@@ -843,8 +854,10 @@ Examples:
         cmd_mcp(args)
     elif args.command == "headless":
         cmd_headless(args, unknown_args)
+    elif args.command == "legacy":
+        cmd_legacy(args, unknown_args)
     else:
-        # Default behavior: run agent chat (Claude or Amp based on --agent flag)
+        # Default behavior: run agent chat with WebSocket relay
         run_agent_chat(args, unknown_args)
 
 

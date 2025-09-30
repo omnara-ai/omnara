@@ -1,4 +1,4 @@
-"""Configuration helpers for the relay SSH server."""
+"""Configuration helpers for the relay WebSocket server."""
 
 from __future__ import annotations
 
@@ -10,15 +10,12 @@ import os
 class RelaySettings:
     """Runtime configuration sourced from environment variables."""
 
-    ssh_host: str = "0.0.0.0"
-    ssh_port: int = 2222
     websocket_host: str = "0.0.0.0"
     websocket_port: int = 8787
     history_size_bytes: int = 1024 * 1024
     heartbeat_interval_seconds: int = 10
     heartbeat_miss_limit: int = 3
     ended_retention_seconds: int = 15 * 60
-    host_key_path: str | None = None
 
     @classmethod
     def from_env(cls) -> "RelaySettings":
@@ -34,8 +31,6 @@ class RelaySettings:
         defaults = cls()
 
         return cls(
-            ssh_host=os.getenv("OMNARA_RELAY_SSH_HOST", defaults.ssh_host),
-            ssh_port=_int("OMNARA_RELAY_SSH_PORT", defaults.ssh_port),
             websocket_host=os.getenv("OMNARA_RELAY_WS_HOST", defaults.websocket_host),
             websocket_port=_int("OMNARA_RELAY_WS_PORT", defaults.websocket_port),
             history_size_bytes=_int(
@@ -50,5 +45,4 @@ class RelaySettings:
             ended_retention_seconds=_int(
                 "OMNARA_RELAY_ENDED_RETENTION", defaults.ended_retention_seconds
             ),
-            host_key_path=os.getenv("OMNARA_RELAY_HOST_KEY", defaults.host_key_path),
         )

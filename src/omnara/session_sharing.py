@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import pty
 import select
 import signal
 import socket
+import ssl
 import struct
 import sys
 import termios
@@ -17,8 +19,13 @@ from datetime import datetime
 from pathlib import Path
 from shutil import get_terminal_size, which
 from typing import Iterable, List, Optional
+from urllib.parse import urlencode
 
-import paramiko
+import websocket  # type: ignore[import-untyped]
+from websocket import (  # type: ignore[import-untyped]
+    WebSocketConnectionClosedException,
+    WebSocketTimeoutException,
+)
 
 from omnara.sdk.client import OmnaraClient
 from omnara.sdk.exceptions import APIError, AuthenticationError, TimeoutError
@@ -31,6 +38,48 @@ FRAME_TYPE_OUTPUT = 0
 FRAME_TYPE_INPUT = 1
 FRAME_TYPE_RESIZE = 2
 RESIZE_PAYLOAD = struct.Struct("!HH")
+
+
+def _is_truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+class WebSocketChannelAdapter:
+    """Adapter exposing websocket operations with a Paramiko-like API."""
+
+    def __init__(self, ws: "websocket.WebSocket") -> None:  # type: ignore[name-defined]
+        self._ws = ws
+
+    def fileno(self) -> int:
+        return self._ws.sock.fileno()
+
+    def settimeout(self, timeout: float) -> None:
+        self._ws.settimeout(timeout)
+
+    def sendall(self, data: bytes) -> None:
+        self._ws.send_binary(data)
+
+    def recv(self, _bufsize: int) -> bytes:
+        try:
+            data = self._ws.recv()
+        except WebSocketTimeoutException as exc:  # type: ignore[misc]
+            raise socket.timeout() from exc
+        except WebSocketConnectionClosedException as exc:  # type: ignore[misc]
+            raise OSError("websocket closed") from exc
+
+        if data is None:
+            return b""
+        if isinstance(data, str):
+            return data.encode()
+        return data
+
+    def close(self) -> None:
+        try:
+            self._ws.close()
+        except Exception:
+            pass
 
 
 def _pack_frame(frame_type: int, payload: bytes) -> bytes:
@@ -53,22 +102,23 @@ def _log(message: str) -> None:
 class RelayClientSettings:
     """Configuration for the client-side relay connection."""
 
-    host: str = field(
-        default_factory=lambda: os.getenv("OMNARA_RELAY_HOST", "relay.omnara.com")
+    relay_url: str = field(
+        default_factory=lambda: os.getenv(
+            "OMNARA_RELAY_URL", "wss://relay.omnara.com/agent"
+        )
     )
-    port: int = field(
-        default_factory=lambda: int(os.getenv("OMNARA_RELAY_PORT", "2222"))
-    )
-    term: str = field(default_factory=lambda: os.environ.get("TERM", "xterm-256color"))
     enabled: bool = field(
-        default_factory=lambda: os.getenv("OMNARA_RELAY_DISABLED", "0")
-        not in {"1", "true", "TRUE"}
+        default_factory=lambda: not _is_truthy(os.getenv("OMNARA_RELAY_DISABLED"))
+    )
+    ws_skip_verify: bool = field(
+        default_factory=lambda: _is_truthy(os.getenv("OMNARA_RELAY_WS_SKIP_VERIFY"))
     )
 
 
 AGENT_EXECUTABLE = {
     "claude": "claude",
     "amp": "amp",
+    "codex": "codex",
 }
 
 
@@ -92,6 +142,76 @@ def build_agent_command(
         command.extend(list(unknown_args))
 
     return command
+
+
+def _connect_websocket_channel(
+    settings: RelayClientSettings,
+    session_id: str,
+    api_key: str,
+    relay_log_id: str,
+) -> Optional[WebSocketChannelAdapter]:
+    """Establish a websocket connection to the relay agent endpoint."""
+
+    # Parse the relay URL and add session_id query parameter
+    from urllib.parse import urlparse, urlunparse, parse_qs
+
+    parsed = urlparse(settings.relay_url)
+    query_params = parse_qs(parsed.query)
+    query_params["session_id"] = [session_id]
+    query = urlencode(query_params, doseq=True)
+
+    url = urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            query,
+            parsed.fragment,
+        )
+    )
+
+    headers = [f"X-API-Key: {api_key}"]
+    connect_kwargs: dict[str, object] = {
+        "header": headers,
+        "enable_multithread": True,
+    }
+    if parsed.scheme == "wss" and settings.ws_skip_verify:
+        connect_kwargs["sslopt"] = {"cert_reqs": ssl.CERT_NONE}
+
+    _log(f"[DEBUG] Connecting to relay websocket {url} (instance_id={relay_log_id})")
+
+    try:
+        ws = websocket.create_connection(url, **connect_kwargs)
+    except Exception as exc:
+        _log(
+            f"[WARN] Unable to reach relay websocket {url}: {exc!r}\n"
+            "       Continuing locally without session sharing."
+        )
+        return None
+
+    try:
+        ready = ws.recv()
+        if isinstance(ready, bytes):
+            ready_text = ready.decode("utf-8", "ignore")
+        else:
+            ready_text = ready
+        payload = json.loads(ready_text)
+        if payload.get("type") != "ready":
+            raise ValueError(f"unexpected response: {payload}")
+    except Exception as exc:
+        _log(
+            f"[WARN] Relay websocket handshake failed instance_id={relay_log_id}: {exc!r}"
+        )
+        try:
+            ws.close()
+        except Exception:
+            pass
+        return None
+
+    ws.settimeout(0.0)
+    _log(f"[DEBUG] Relay websocket established instance_id={relay_log_id}")
+    return WebSocketChannelAdapter(ws)
 
 
 def run_agent_with_relay(
@@ -123,7 +243,7 @@ def run_agent_with_relay(
             )
             registration = temp_client.register_agent_instance(
                 agent_type=agent,
-                transport="ssh",
+                transport="ws",
                 agent_instance_id=agent_instance_id,
                 name=getattr(args, "name", None),
             )
@@ -137,7 +257,7 @@ def run_agent_with_relay(
             if agent_instance_id:
                 try:
                     api_client.send_message(
-                        content="Started SSH session",
+                        content="Started Terminal Session",
                         agent_instance_id=agent_instance_id,
                         agent_type=agent,
                     )
@@ -164,39 +284,16 @@ def run_agent_with_relay(
     if relay_username is None:
         relay_username = agent_instance_id
 
-    ssh_client: Optional[paramiko.SSHClient] = None
-    channel = None
-    last_window: Optional[tuple[int, int]] = None  # (cols, rows)
-
     relay_log_id = relay_username or "offline"
 
-    if settings.enabled and relay_username:
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    channel = None
+    if settings.enabled:
+        session_id = relay_username or agent_instance_id or "default"
+        channel = _connect_websocket_channel(
+            settings, session_id, api_key, relay_log_id
+        )
 
-        try:
-            _log(f"[DEBUG] Connecting to relay ssh://{settings.host}:{settings.port}")
-            ssh_client.connect(
-                hostname=settings.host,
-                port=settings.port,
-                username=relay_username,
-                password=api_key,
-                allow_agent=False,
-                look_for_keys=False,
-                timeout=10,
-            )
-            channel = ssh_client.invoke_shell(term=settings.term)
-            channel.settimeout(0.0)
-            _log(f"[DEBUG] Relay channel established instance_id={relay_log_id}")
-        except Exception as exc:
-            _log(
-                f"[WARN] Unable to reach relay at {settings.host}:{settings.port}: {exc!r}"
-                "\n       Continuing locally without session sharing."
-            )
-            channel = None
-            if ssh_client:
-                ssh_client.close()
-                ssh_client = None
+    last_window: Optional[tuple[int, int]] = None  # (cols, rows)
 
     child_env = os.environ.copy()
     child_env.setdefault("OMNARA_API_KEY", api_key)
@@ -301,6 +398,8 @@ def run_agent_with_relay(
         channel_fd = None
 
     channel_buffer = bytearray()
+    last_reconnect_attempt = 0.0
+    reconnect_interval = 5.0  # Try reconnecting every 5 seconds
 
     def _send_to_channel(data: bytes) -> None:
         if channel is None:
@@ -317,6 +416,36 @@ def run_agent_with_relay(
 
     try:
         while True:
+            # Attempt reconnection if channel is disconnected
+            if channel is None and settings.enabled:
+                import time
+
+                current_time = time.time()
+                if current_time - last_reconnect_attempt >= reconnect_interval:
+                    last_reconnect_attempt = current_time
+                    _log(
+                        f"[INFO] Attempting to reconnect to relay (instance_id={relay_log_id})"
+                    )
+                    try:
+                        # Reconstruct session_id from relay_username
+                        reconnect_session_id = (
+                            relay_username or agent_instance_id or "default"
+                        )
+                        new_channel = _connect_websocket_channel(
+                            settings, reconnect_session_id, api_key, relay_log_id
+                        )
+                        if new_channel is not None:
+                            channel = new_channel
+                            channel_fd = channel.fileno()
+                            channel_buffer.clear()
+                            _log(
+                                f"[INFO] Successfully reconnected to relay (instance_id={relay_log_id})"
+                            )
+                    except Exception as exc:
+                        _log(
+                            f"[WARN] Reconnection failed instance_id={relay_log_id}: {exc!r}"
+                        )
+
             fds = [master_fd]
             if channel_fd is not None:
                 fds.append(channel_fd)
@@ -341,6 +470,11 @@ def run_agent_with_relay(
                     _log(
                         f"[WARN] Relay receive failed instance_id={relay_log_id} exc={exc!r}"
                     )
+                    if channel is not None:
+                        try:
+                            channel.close()
+                        except Exception:
+                            pass
                     channel_fd = None
                     channel = None
                     data = b""
@@ -451,9 +585,6 @@ def run_agent_with_relay(
             except Exception:
                 pass
 
-        if ssh_client is not None:
-            ssh_client.close()
-
         # Ensure the child is terminated if it's still running.
         if exit_status is None:
             try:
@@ -477,11 +608,13 @@ def run_agent_with_relay(
 
     if api_client is not None:
         try:
-            if agent_instance_id and final_exit_code == 0:
-                api_client.update_agent_instance_status(agent_instance_id, "COMPLETED")
+            if agent_instance_id:
+                # End the session in the Omnara dashboard
+                api_client.end_session(agent_instance_id)
+                _log(f"[INFO] Ended session in Omnara dashboard id={agent_instance_id}")
         except Exception as exc:  # pragma: no cover - best effort logging
             _log(
-                f"[WARN] Failed to update agent instance status id={agent_instance_id} exc={exc!r}"
+                f"[WARN] Failed to end session in Omnara dashboard id={agent_instance_id} exc={exc!r}"
             )
         finally:
             api_client.close()

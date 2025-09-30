@@ -25,12 +25,12 @@ type ConnectionStatus =
   | 'disconnected'
   | 'error'
 
-interface SSHLiveTerminalProps {
+interface TerminalLiveTerminalProps {
   instanceId: string
   className?: string
 }
 
-export function SSHLiveTerminal({ instanceId, className }: SSHLiveTerminalProps) {
+export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -42,6 +42,7 @@ export function SSHLiveTerminal({ instanceId, className }: SSHLiveTerminalProps)
   const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const suppressResizeRef = useRef(0)
   const accessTokenRef = useRef<string | null>(null)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const [status, setStatus] = useState<ConnectionStatus>('idle')
   const statusRef = useRef<ConnectionStatus>('idle')
@@ -153,6 +154,10 @@ export function SSHLiveTerminal({ instanceId, className }: SSHLiveTerminalProps)
   }
 
   function disposeSocket(): void {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
     if (socketRef.current) {
       try {
         socketRef.current.close()
@@ -288,17 +293,16 @@ export function SSHLiveTerminal({ instanceId, className }: SSHLiveTerminalProps)
     const socket = socketRef.current
     if (!socket || socket.readyState !== WebSocket.OPEN) return
 
-    if (!Number.isFinite(cols ?? NaN) || !Number.isFinite(rows ?? NaN)) {
+    if (!Number.isFinite(cols ?? NaN)) {
       return
     }
 
     const safeCols = Math.max(1, Math.trunc(cols!))
-    const safeRows = Math.max(1, Math.trunc(rows!))
+    // Only send width - height stays constant
     socket.send(
       JSON.stringify({
         type: 'resize_request',
         cols: safeCols,
-        rows: safeRows,
       }),
     )
   }
@@ -344,6 +348,18 @@ export function SSHLiveTerminal({ instanceId, className }: SSHLiveTerminalProps)
 
       if (event.code === 1008) {
         setError('Relay rejected authentication credentials.')
+      } else if (statusRef.current === 'connected' || statusRef.current === 'disconnected') {
+        // Unexpected disconnect, attempt to reconnect after 5 seconds
+        setError('Connection lost. Reconnecting...')
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (statusRef.current === 'disconnected') {
+            const token = accessTokenRef.current
+            if (token) {
+              // This will trigger onclose again if it fails, creating a retry loop
+              connectSocket(token)
+            }
+          }
+        }, 5000)
       }
 
       socketRef.current = null

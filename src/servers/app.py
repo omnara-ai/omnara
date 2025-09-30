@@ -3,6 +3,7 @@
 This server provides:
 - MCP tools at /mcp/ endpoint (log_step, ask_question, end_session)
 - REST API endpoints at /api/v1/*
+- Terminal relay WebSocket at /terminal and /agent
 - Shared JWT authentication for both interfaces
 """
 
@@ -21,6 +22,7 @@ from servers.mcp.server import mcp
 
 # Import FastAPI routers
 from servers.api.routers import agent_router
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
