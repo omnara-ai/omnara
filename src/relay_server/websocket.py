@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import struct
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 from aiohttp import WSCloseCode, web
 
@@ -18,6 +21,9 @@ from .protocol import (
     FRAME_TYPE_INPUT,
     FRAME_TYPE_OUTPUT,
     FRAME_TYPE_RESIZE,
+    FRAME_TYPE_SWITCH_TO_TMUX,
+    FRAME_TYPE_SWITCH_TO_AGENT,
+    FRAME_TYPE_MODE_CHANGED,
     iter_frames,
     pack_frame,
 )
@@ -27,6 +33,21 @@ from .sessions import SessionManager
 API_KEY_PROTOCOL_PREFIX = "omnara-key."
 SUPABASE_PROTOCOL_PREFIX = "omnara-supabase."
 RESIZE_STRUCT = struct.Struct("!HH")
+
+# Setup logging for handoff debugging
+HANDOFF_LOG_FILE = Path.home() / ".omnara" / "logs" / "terminal_handoff.log"
+
+def _log_handoff(message: str) -> None:
+    """Log handoff events to a dedicated file for debugging."""
+    try:
+        HANDOFF_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # Clear log file on first write if it's a new session
+        timestamp = datetime.utcnow().isoformat()
+        with HANDOFF_LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] [RELAY] {message}\n")
+            f.flush()
+    except Exception as e:
+        print(f"[RELAY] Failed to log: {e}", flush=True)
 
 
 @dataclass(slots=True)
@@ -136,18 +157,31 @@ class WebsocketRouter:
         credentials: RelayCredentials,
         session_id: str | None,
     ) -> None:
+        _log_handoff(f"[ENTRY] _handle_join called with session_id={session_id}")
         if not session_id:
+            _log_handoff(f"[ERROR] Missing session_id")
             await ws.send_json({"error": "Missing session_id"})
             return
 
+        _log_handoff(f"[LOOKUP] Getting session {session_id} for user {credentials.user_id}")
         session = await self._manager.get_session(
             credentials.user_id, session_id, credentials.api_key_hash
         )
         if not session:
+            _log_handoff(f"[ERROR] Session {session_id} not found")
             await ws.send_json({"error": "Session not found"})
             return
 
+        _log_handoff(f"[SUCCESS] Found session {session_id}, registering websocket")
         session.register_websocket(ws)
+
+        # Automatically switch to tmux when web/mobile connects (if not already in tmux mode)
+        _log_handoff(f"Web/mobile client connected to session {session_id}, current mode: {session.mode}")
+        if session.mode == "agent":
+            _log_handoff(f"Requesting switch to tmux for session {session_id}")
+            session.request_switch_to_tmux()
+        else:
+            _log_handoff(f"Session {session_id} already in mode {session.mode}, not switching")
 
         try:
             await ws.send_json(
@@ -170,6 +204,12 @@ class WebsocketRouter:
                         session.request_resize(data.get("cols"), data.get("rows"))
                     elif data.get("type") == "resize_request":
                         session.request_resize(data.get("cols"), data.get("rows"))
+                    elif data.get("type") == "switch_to_tmux":
+                        _log_handoff(f"Manual switch_to_tmux request for session {session_id}")
+                        session.request_switch_to_tmux()
+                    elif data.get("type") == "switch_to_agent":
+                        _log_handoff(f"Manual switch_to_agent request for session {session_id}")
+                        session.request_switch_to_agent()
                 elif msg.type in (
                     web.WSMsgType.CLOSE,
                     web.WSMsgType.CLOSED,
@@ -268,6 +308,16 @@ class AgentWebsocketHandler:
                                 rows, cols = RESIZE_STRUCT.unpack(payload)
                                 if rows > 0 and cols > 0:
                                     session.update_size(cols, rows)
+                        elif frame_type == FRAME_TYPE_MODE_CHANGED:
+                            # Agent is reporting a mode change
+                            if len(payload) >= 9:  # 1 byte mode + 4 bytes cols + 4 bytes rows
+                                mode_byte = payload[0]
+                                mode_map = {0: "agent", 1: "tmux"}
+                                mode = mode_map.get(mode_byte, "agent")
+                                cols = int.from_bytes(payload[1:5], "big")
+                                rows = int.from_bytes(payload[5:9], "big")
+                                _log_handoff(f"Agent reported mode change to {mode} ({cols}x{rows}) for session {session_id}")
+                                session.broadcast_mode_change(mode, cols, rows)
                         elif frame_type == FRAME_TYPE_INPUT:
                             # Upstream should not send input frames, ignore.
                             continue

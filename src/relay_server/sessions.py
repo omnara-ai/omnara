@@ -8,11 +8,35 @@ import time
 import weakref
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, Iterable, Optional, Tuple
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Deque, Dict, Iterable, Literal, Optional, Tuple
 
-from .protocol import FRAME_TYPE_INPUT, FRAME_TYPE_OUTPUT, FRAME_TYPE_RESIZE, pack_frame
+from .protocol import (
+    FRAME_TYPE_INPUT,
+    FRAME_TYPE_OUTPUT,
+    FRAME_TYPE_RESIZE,
+    FRAME_TYPE_SWITCH_TO_TMUX,
+    FRAME_TYPE_SWITCH_TO_AGENT,
+    FRAME_TYPE_MODE_CHANGED,
+    pack_frame,
+)
 
 RESIZE_PAYLOAD = struct.Struct("!HH")
+
+# Setup logging for handoff debugging
+HANDOFF_LOG_FILE = Path.home() / ".omnara" / "logs" / "terminal_handoff.log"
+
+def _log_handoff(message: str) -> None:
+    """Log handoff events to a dedicated file for debugging."""
+    try:
+        HANDOFF_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().isoformat()
+        with HANDOFF_LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] [SESSION] {message}\n")
+            f.flush()
+    except Exception:
+        pass
 
 
 @dataclass(slots=True)
@@ -30,6 +54,7 @@ class Session:
     metadata: Dict[str, str] = field(default_factory=dict)
     cols: int = 80
     rows: int = 24
+    mode: Literal["agent", "tmux", "transitioning"] = "agent"
 
     _history: Deque[bytes] = field(default_factory=deque, init=False)
     _history_size: int = 0
@@ -226,6 +251,63 @@ class Session:
                 flush=True,
             )
             self._agent_socket = None
+
+    def request_switch_to_tmux(self) -> None:
+        """Request agent to switch from agent mode to tmux mode."""
+        _log_handoff(f"request_switch_to_tmux called for session {self.session_id}, agent_socket={'connected' if self._agent_socket else 'None'}")
+        if self._agent_socket is None:
+            _log_handoff(f"Cannot switch to tmux: no agent socket for session {self.session_id}")
+            return
+
+        self.mode = "transitioning"
+        frame = pack_frame(FRAME_TYPE_SWITCH_TO_TMUX, b"")
+        _log_handoff(f"Sending SWITCH_TO_TMUX frame to agent for session {self.session_id}")
+        print(
+            f"[relay] request_switch_to_tmux session={self.user_id}:{self.session_id}",
+            flush=True,
+        )
+        asyncio.create_task(self._send_to_agent(frame))
+
+    def request_switch_to_agent(self) -> None:
+        """Request agent to switch from tmux mode to agent mode."""
+        _log_handoff(f"request_switch_to_agent called for session {self.session_id}")
+        if self._agent_socket is None:
+            _log_handoff(f"Cannot switch to agent: no agent socket for session {self.session_id}")
+            return
+
+        self.mode = "transitioning"
+        frame = pack_frame(FRAME_TYPE_SWITCH_TO_AGENT, b"")
+        _log_handoff(f"Sending SWITCH_TO_AGENT frame to agent for session {self.session_id}")
+        print(
+            f"[relay] request_switch_to_agent session={self.user_id}:{self.session_id}",
+            flush=True,
+        )
+        asyncio.create_task(self._send_to_agent(frame))
+
+    def broadcast_mode_change(
+        self, mode: Literal["agent", "tmux"], cols: int, rows: int
+    ) -> None:
+        """Broadcast mode change to all connected websockets."""
+        self.mode = mode
+        self.cols = cols
+        self.rows = rows
+
+        payload = {
+            "type": "mode_changed",
+            "session_id": self.session_id,
+            "mode": mode,
+            "cols": cols,
+            "rows": rows,
+        }
+
+        _log_handoff(f"Broadcasting mode change to {mode} ({cols}x{rows}) to {len(self._websockets)} viewers for session {self.session_id}")
+        print(
+            f"[relay] broadcast_mode_change mode={mode} cols={cols} rows={rows} session={self.user_id}:{self.session_id}",
+            flush=True,
+        )
+
+        for ws in list(self._websockets):
+            asyncio.create_task(self._send_json(ws, payload))
 
 
 class SessionManager:

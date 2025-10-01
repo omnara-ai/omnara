@@ -9,6 +9,9 @@ FRAME_HEADER = struct.Struct("!BI")
 FRAME_TYPE_OUTPUT = 0
 FRAME_TYPE_INPUT = 1
 FRAME_TYPE_RESIZE = 2
+FRAME_TYPE_SWITCH_TO_TMUX = 3
+FRAME_TYPE_SWITCH_TO_AGENT = 4
+FRAME_TYPE_MODE_CHANGED = 5
 
 
 def pack_frame(frame_type: int, payload: bytes) -> bytes:

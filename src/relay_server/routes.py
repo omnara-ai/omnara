@@ -155,6 +155,14 @@ def create_relay_router(manager: SessionManager) -> APIRouter:
 
         session.register_websocket(websocket)
 
+        # Automatically switch to tmux when web/mobile connects (if not already in tmux mode)
+        print(
+            f"[relay] Web/mobile client connected to session {session_id}, current mode: {session.mode}",
+            flush=True,
+        )
+        # Wait for first resize message to get client dimensions before switching
+        # The switch will happen after we receive the first input/resize from the client
+
         try:
             await websocket.send_json(
                 {
@@ -171,6 +179,7 @@ def create_relay_router(manager: SessionManager) -> APIRouter:
                 await websocket.send_bytes(frame)
 
             # Listen for input
+            first_message = True
             while True:
                 message = await websocket.receive()
                 print(
@@ -185,6 +194,27 @@ def create_relay_router(manager: SessionManager) -> APIRouter:
                     break
                 if message["type"] == "websocket.receive" and "text" in message:
                     msg = json.loads(message["text"])
+
+                    print(f"[relay] Received message: {msg}", flush=True)
+
+                    # On first message with dimensions, trigger switch to tmux
+                    if first_message and session.mode == "agent":
+                        first_message = False
+                        # Get dimensions from the message
+                        cols = msg.get("cols")
+                        rows = msg.get("rows")
+
+                        # If no dimensions in this message, use session dimensions
+                        if not cols or not rows:
+                            cols = session.cols
+                            rows = session.rows
+
+                        print(f"[relay] First message received, requesting switch to tmux with dimensions {cols}x{rows} for session {session_id}", flush=True)
+                        # Update session dimensions first
+                        session.request_resize(cols, rows)
+                        # Then request switch
+                        session.request_switch_to_tmux()
+
                     if msg.get("type") == "input":
                         session.forward_input(msg.get("data", ""))
                         session.request_resize(msg.get("cols"), msg.get("rows"))
