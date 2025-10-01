@@ -1,11 +1,11 @@
 import {
-	IExecuteFunctions,
-	INodeExecutionData,
-	INodeType,
-	INodeTypeDescription,
-	NodeOperationError,
-	NodeConnectionType,
-	SEND_AND_WAIT_OPERATION,
+    IExecuteFunctions,
+    INodeExecutionData,
+    INodeType,
+    INodeTypeDescription,
+    NodeConnectionTypes,
+    NodeOperationError,
+    SEND_AND_WAIT_OPERATION
 } from 'n8n-workflow';
 
 import * as message from './actions/message';
@@ -13,7 +13,8 @@ import * as session from './actions/session';
 import { omnaraSendAndWaitWebhook } from '../../utils/sendAndWaitWebhook';
 import { sendAndWaitWebhooksDescription } from '../../utils/sendAndWait/descriptions';
 import { configureWaitTillDate } from '../../utils/sendAndWait/configureWaitTillDate';
-import { omnaraApiRequest } from '../../utils/GenericFunctions';
+import { omnaraApiRequest, generateAgentInstanceId, getAgentType } from '../../utils/GenericFunctions';
+
 
 export class Omnara implements INodeType {
 	webhook = omnaraSendAndWaitWebhook;
@@ -30,8 +31,8 @@ export class Omnara implements INodeType {
 		defaults: {
 			name: 'Omnara',
 		},
-		inputs: [NodeConnectionType.Main],
-		outputs: [NodeConnectionType.Main],
+        inputs: [NodeConnectionTypes.Main],
+        outputs: [NodeConnectionTypes.Main],
 		webhooks: sendAndWaitWebhooksDescription,
 		credentials: [
 			{
@@ -70,23 +71,21 @@ export class Omnara implements INodeType {
 		const returnData: INodeExecutionData[] = [];
 		const resource = this.getNodeParameter('resource', 0) as string;
 		const operation = this.getNodeParameter('operation', 0) as string;
-
 		for (let i = 0; i < items.length; i++) {
 			try {
 				let responseData: INodeExecutionData[] = [];
-
 				if (resource === 'message') {
 					if (operation === 'send') {
 						responseData = await message.send.execute.call(this, i);
 					} else if (operation === SEND_AND_WAIT_OPERATION || operation === 'sendAndWait') {
-						// FOLLOWING SLACK PATTERN EXACTLY
-						const agentInstanceId = this.getNodeParameter('agentInstanceId', 0) as string;
-						const agentType = this.getNodeParameter('agentType', 0) as string;
+						// FOLLOWING SLACK PATTERN EXACTLY		
+						const agentType = getAgentType.call(this, 0);				
+						const agentInstanceId = generateAgentInstanceId.call(this, 0, agentType);
 						const messageContent = this.getNodeParameter('message', 0) as string;
 						const options = this.getNodeParameter('options', 0, {}) as any;
 
-						// Check if sync mode is enabled (for AI Agent compatibility)
-						const syncMode = options.syncMode === true;
+                        // Check if sync mode is enabled (for AI Agent compatibility)
+                        const syncMode = options.syncMode === true;
 						
 						if (syncMode) {
 							// Sync mode: Poll for responses instead of using putExecutionToWait

@@ -64,8 +64,8 @@ npm link n8n-nodes-omnara
 ### 3. Important: Agent Instance ID and Agent Type
 
 **Every Omnara node in your workflow needs:**
-- **Agent Instance ID**: A unique UUID for each workflow run (same across all nodes in one run)
-- **Agent Type**: The name of your agent on the Omnara dashboard (same across all nodes)
+- **Agent Instance ID**: A unique UUID for each workflow run (default same across all nodes in a workflow in one run)
+- **Agent Type**: The name of your agent on the Omnara dashboard (default same across all nodes in a workflow)
 
 ⚠️ **Critical**: Use the SAME agent instance ID and agent type across ALL Omnara nodes in a single workflow run!
 
@@ -99,11 +99,13 @@ The webhook also provides:
 
 For workflows triggered by other events (cron, manual, other apps).
 
-**Requirements:**
-1. Generate a unique UUID for Agent Instance ID (use Expression: `{{ $uuid() }}`)
+**Requirements (for custom agent ids and types):**
+1. Generate or define an Agent Instance ID
 2. Choose an agent type name (e.g., "customer_support", "code_reviewer")
 3. Store these in Set node variables
 4. Use the SAME values across all Omnara nodes in the workflow
+
+
 
 **Example Setup:**
 ```
@@ -111,7 +113,7 @@ Trigger → Set Node (store UUID & agent type) → Your Workflow → Omnara Node
 ```
 
 In Set node:
-- `agent_instance_id`: `{{ $uuid() }}`
+- `agent_instance_id`: <unique_id>
 - `agent_type`: "your_agent_name"
 
 Then reference in all Omnara nodes:
@@ -126,8 +128,8 @@ Then reference in all Omnara nodes:
 Send status updates and progress reports to users without waiting for a response. Perfect for AI agents to share their thought process, progress updates, or informational messages while continuing to work.
 
 **Parameters:**
-- **Agent Instance ID**: The ID of the agent instance (creates new if doesn't exist)
-- **Agent Type**: Type of agent (e.g., 'claude_code', 'cursor')
+- **Agent Instance ID**: The ID of the agent instance; creates new if doesn't exist
+- **Agent Type**: Type of agent (e.g., 'claude_code', 'cursor'); uses the workflow name if doesn't exist
 - **Message**: Status update or informational message (workflow continues immediately)
 - **Additional Options**:
   - Send Email/SMS/Push: Notification preferences
