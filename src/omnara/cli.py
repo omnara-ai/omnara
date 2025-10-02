@@ -497,13 +497,58 @@ def run_agent_chat(args, unknown_args):
     return exit_code
 
 
-def cmd_legacy(args, unknown_args):
-    """Handle the 'legacy' subcommand - direct agent execution without relay."""
-    from omnara.commands.legacy import run_agent_direct
+def run_agent_default(args, unknown_args):
+    """Run the agent locally without the relay (legacy behaviour)."""
+    agent = getattr(args, "agent", "claude").lower()
 
     api_key = ensure_api_key(args)
-    exit_code = run_agent_direct(args, unknown_args, api_key)
-    sys.exit(exit_code)
+
+    env = os.environ.copy()
+    env["OMNARA_API_KEY"] = api_key
+
+    base_url = getattr(args, "base_url", None)
+    if base_url:
+        env["OMNARA_API_URL"] = base_url
+        env["OMNARA_BASE_URL"] = base_url
+
+    agent_instance_id = getattr(args, "agent_instance_id", None)
+    if agent_instance_id:
+        env["OMNARA_AGENT_INSTANCE_ID"] = agent_instance_id
+
+    if getattr(args, "name", None):
+        env["OMNARA_AGENT_DISPLAY_NAME"] = args.name
+
+    if agent == "codex":
+        from omnara.agents.codex import run_codex
+
+        exit_code = run_codex(args, unknown_args, api_key)
+        if exit_code is None:
+            exit_code = 0
+        if exit_code != 0:
+            sys.exit(exit_code)
+        return
+
+    module = None
+    if agent == "claude":
+        module = "integrations.cli_wrappers.claude_code.claude_wrapper_v3"
+    elif agent == "amp":
+        module = "integrations.cli_wrappers.amp.amp"
+    else:
+        print(f"Error: Unknown agent '{agent}'", file=sys.stderr)
+        sys.exit(1)
+
+    command = [sys.executable, "-m", module]
+    if unknown_args:
+        command.extend(list(unknown_args))
+
+    try:
+        result = subprocess.run(command, env=env)
+    except FileNotFoundError as exc:
+        print(f"Error launching agent: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if result.returncode != 0:
+        sys.exit(result.returncode)
 
 
 def cmd_serve(args, unknown_args=None):
@@ -568,21 +613,9 @@ def cmd_mcp(args):
         sys.exit(0)
 
 
-def add_global_arguments(parser):
-    """Add global arguments that work across all subcommands"""
-    parser.add_argument(
-        "--auth",
-        action="store_true",
-        help="Authenticate or re-authenticate with Omnara",
-    )
-    parser.add_argument(
-        "--reauth",
-        action="store_true",
-        help="Force re-authentication even if API key exists",
-    )
-    parser.add_argument(
-        "--version", action="store_true", help="Show version information"
-    )
+def add_runner_arguments(parser: argparse.ArgumentParser) -> None:
+    """Arguments shared by both default and terminal subcommands."""
+
     parser.add_argument(
         "--api-key", help="API key for authentication (uses stored key if not provided)"
     )
@@ -602,22 +635,15 @@ def add_global_arguments(parser):
         default="claude",
         help="Which AI agent to use (default: claude code)",
     )
-    # --set-default can be used two ways:
-    #   - `omnara --set-default codex` (argument form)
-    #   - `omnara --agent codex --set-default` (flag form using current --agent)
-    parser.add_argument(
-        "--set-default",
-        nargs="?",
-        const="__USE_AGENT__",
-        help=(
-            "Set default agent for future runs. Use without a value to use the current --agent, "
-            "or pass an agent name (claude|amp|codex)."
-        ),
-    )
     parser.add_argument(
         "--name",
         default=None,
         help="Name of the omnara agent (defaults to the name of the underlying agent)",
+    )
+    parser.add_argument(
+        "--agent-instance-id",
+        type=str,
+        help="Pre-existing agent instance ID to use for this session",
     )
     parser.add_argument(
         "--no-relay",
@@ -629,6 +655,34 @@ def add_global_arguments(parser):
         default=None,
         help="Relay WebSocket URL (default: wss://relay.omnara.com/agent for prod, ws://localhost:8080/agent for local)",
     )
+
+
+def add_global_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add global arguments that work across all subcommands."""
+
+    parser.add_argument(
+        "--auth",
+        action="store_true",
+        help="Authenticate or re-authenticate with Omnara",
+    )
+    parser.add_argument(
+        "--reauth",
+        action="store_true",
+        help="Force re-authentication even if API key exists",
+    )
+    parser.add_argument(
+        "--version", action="store_true", help="Show version information"
+    )
+    parser.add_argument(
+        "--set-default",
+        nargs="?",
+        const="__USE_AGENT__",
+        help=(
+            "Set default agent for future runs. Use without a value to use the current --agent, "
+            "or pass an agent name (claude|amp|codex)."
+        ),
+    )
+    add_runner_arguments(parser)
 
 
 def main():
@@ -735,16 +789,12 @@ Examples:
         help="Disable all tools except the permission tool",
     )
 
-    # 'legacy' subcommand
-    legacy_parser = subparsers.add_parser(
-        "legacy",
-        help="Run agent directly without WebSocket relay (legacy behavior)",
+    # 'terminal' subcommand
+    terminal_parser = subparsers.add_parser(
+        "terminal",
+        help="Run agent with WebSocket relay streaming",
     )
-    legacy_parser.add_argument(
-        "--agent-instance-id",
-        type=str,
-        help="Pre-existing agent instance ID to use for this session",
-    )
+    add_runner_arguments(terminal_parser)
 
     # 'headless' subcommand
     headless_parser = subparsers.add_parser(
@@ -854,11 +904,11 @@ Examples:
         cmd_mcp(args)
     elif args.command == "headless":
         cmd_headless(args, unknown_args)
-    elif args.command == "legacy":
-        cmd_legacy(args, unknown_args)
-    else:
-        # Default behavior: run agent chat with WebSocket relay
+    elif args.command == "terminal":
         run_agent_chat(args, unknown_args)
+    else:
+        # Default behavior: run agent locally without relay
+        run_agent_default(args, unknown_args)
 
 
 if __name__ == "__main__":

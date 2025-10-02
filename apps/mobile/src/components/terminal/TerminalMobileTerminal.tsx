@@ -48,23 +48,39 @@ interface WebViewMessage {
 const SUPABASE_SUBPROTOCOL_PREFIX = 'omnara-supabase.';
 
 function buildRelayConfig(): RelayConfig {
-  const host = process.env.EXPO_PUBLIC_RELAY_HOST || '127.0.0.1';
-  const portRaw = process.env.EXPO_PUBLIC_RELAY_PORT || '8787';
-  const secure =
-    (process.env.EXPO_PUBLIC_RELAY_SECURE || 'false').toLowerCase() === 'true';
+  const fallbackUrl = 'ws://localhost:8787/terminal';
+  const rawUrl = process.env.EXPO_PUBLIC_RELAY_SERVER_URL || fallbackUrl;
 
-  const parsedPort = Number.parseInt(portRaw, 10);
-  const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 0;
-  const httpScheme = secure ? 'https' : 'http';
-  const wsScheme = secure ? 'wss' : 'ws';
-  const baseHost = port > 0 ? `${host}:${port}` : host;
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch (err) {
+    if (__DEV__) {
+      console.warn(
+        'Invalid EXPO_PUBLIC_RELAY_SERVER_URL; falling back to ws://localhost:8787/terminal.',
+        err,
+      );
+    }
+    parsed = new URL(fallbackUrl);
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  const isSecure = protocol === 'wss:' || protocol === 'https:';
+  const host = parsed.hostname || 'localhost';
+  const portString = parsed.port;
+  const port = portString ? Number.parseInt(portString, 10) : isSecure ? 443 : 80;
+  const baseHost = portString ? `${host}:${portString}` : host;
+  const rawPath = parsed.pathname.replace(/\/$/, '');
+  const viewerPath = rawPath === '/terminal' ? '' : rawPath;
+  const httpScheme = isSecure ? 'https' : 'http';
+  const wsScheme = isSecure ? 'wss' : 'ws';
 
   return {
     host,
     port,
-    secure,
+    secure: isSecure,
     baseHttpUrl: `${httpScheme}://${baseHost}`,
-    baseWsUrl: `${wsScheme}://${baseHost}`,
+    baseWsUrl: `${wsScheme}://${baseHost}${viewerPath}`,
   };
 }
 

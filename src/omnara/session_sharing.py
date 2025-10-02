@@ -64,7 +64,10 @@ class WebSocketChannelAdapter:
         self._ws = ws
 
     def fileno(self) -> int:
-        return self._ws.sock.fileno()
+        sock = getattr(self._ws, "sock", None)
+        if sock is None:
+            raise RuntimeError("WebSocket socket is not available")
+        return sock.fileno()
 
     def settimeout(self, timeout: float) -> None:
         self._ws.settimeout(timeout)
@@ -191,7 +194,7 @@ def _connect_websocket_channel(
     )
 
     headers = [f"X-API-Key: {api_key}"]
-    connect_kwargs: dict[str, object] = {
+    connect_kwargs: dict[str, Any] = {
         "header": headers,
         "enable_multithread": True,
     }
@@ -340,7 +343,10 @@ def run_agent_with_relay(
         )
         if channel:
             _log(f"[INIT] Relay connection successful (instance_id={relay_log_id})")
-            metadata_payload: Dict[str, Any] = {"agent": agent.lower(), "app": agent.lower()}
+            metadata_payload: Dict[str, Any] = {
+                "agent": agent.lower(),
+                "app": agent.lower(),
+            }
             if getattr(args, "name", None):
                 metadata_payload["agent_display_name"] = getattr(args, "name")
             # Codex requires history sanitization to avoid destructive clears during replay.
@@ -358,9 +364,10 @@ def run_agent_with_relay(
     last_cursor_report: Optional[tuple[int, int]] = None
 
     child_env = os.environ.copy()
-    child_env.setdefault("OMNARA_API_KEY", api_key)
+    child_env["OMNARA_API_KEY"] = api_key
     if getattr(args, "base_url", None):
-        child_env.setdefault("OMNARA_API_URL", args.base_url)
+        child_env["OMNARA_API_URL"] = args.base_url
+        child_env["OMNARA_BASE_URL"] = args.base_url
     if agent_instance_id:
         child_env["OMNARA_AGENT_INSTANCE_ID"] = agent_instance_id
         child_env.setdefault("OMNARA_SESSION_ID", agent_instance_id)
@@ -392,9 +399,7 @@ def run_agent_with_relay(
                 f"[WARN] Relay resize send failed instance_id={relay_log_id} exc={exc!r}"
             )
         else:
-            _log(
-                f"[RESIZE] applied resize {cols}x{rows} (instance_id={relay_log_id})"
-            )
+            _log(f"[RESIZE] applied resize {cols}x{rows} (instance_id={relay_log_id})")
 
     def _log_cursor_reports(data: bytes) -> None:
         nonlocal last_cursor_report
@@ -447,9 +452,7 @@ def run_agent_with_relay(
                 f"[RESIZE] TIOCSWINSZ succeeded: {cols}x{rows} (instance_id={relay_log_id})"
             )
         except Exception as exc:
-            _log(
-                f"[RESIZE] TIOCSWINSZ failed: {exc!r} (instance_id={relay_log_id})"
-            )
+            _log(f"[RESIZE] TIOCSWINSZ failed: {exc!r} (instance_id={relay_log_id})")
 
         last_window = (cols, rows)
 
@@ -512,29 +515,6 @@ def run_agent_with_relay(
         except Exception as exc:
             _log(f"[WARN] Relay send failed instance_id={relay_log_id} exc={exc!r}")
 
-    def _send_metadata_frame(metadata: Dict[str, Any]) -> None:
-        if channel is None:
-            return
-
-        try:
-            payload = json.dumps(metadata).encode("utf-8")
-        except (TypeError, ValueError) as exc:
-            _log(
-                f"[WARN] Failed to encode metadata frame metadata={metadata!r} error={exc!r}"
-            )
-            return
-
-        frame = _pack_frame(FRAME_TYPE_METADATA, payload)
-        try:
-            channel.sendall(frame)
-            _log(
-                f"[DEBUG] Sent metadata frame metadata={metadata!r} (instance_id={relay_log_id})"
-            )
-        except Exception as exc:
-            _log(
-                f"[WARN] Relay metadata send failed instance_id={relay_log_id} exc={exc!r}"
-            )
-
     try:
         while True:
             # Attempt reconnection if channel is disconnected
@@ -562,9 +542,14 @@ def run_agent_with_relay(
                             _log(
                                 f"[INFO] Successfully reconnected to relay (instance_id={relay_log_id})"
                             )
-                            metadata_payload: Dict[str, Any] = {"agent": agent.lower(), "app": agent.lower()}
+                            metadata_payload: Dict[str, Any] = {
+                                "agent": agent.lower(),
+                                "app": agent.lower(),
+                            }
                             if getattr(args, "name", None):
-                                metadata_payload["agent_display_name"] = getattr(args, "name")
+                                metadata_payload["agent_display_name"] = getattr(
+                                    args, "name"
+                                )
                             if agent.lower() == "codex":
                                 metadata_payload["history_policy"] = "strip_esc_j"
                             _send_metadata_frame(metadata_payload)
@@ -587,7 +572,7 @@ def run_agent_with_relay(
                     break
 
                 # Log if we see clear screen sequences after resize
-                if b'\x1b[2J' in data or b'\x1b[H\x1b[2J' in data or b'\x1b[3J' in data:
+                if b"\x1b[2J" in data or b"\x1b[H\x1b[2J" in data or b"\x1b[3J" in data:
                     _log(
                         f"[RESIZE] Codex sent clear screen sequence after resize (instance_id={relay_log_id})"
                     )
@@ -636,7 +621,9 @@ def run_agent_with_relay(
                         payload = bytes(channel_buffer[FRAME_HEADER.size : total_len])
                         del channel_buffer[:total_len]
 
-                        _log(f"[FRAME] type={frame_type} len={frame_len} (instance_id={relay_log_id})")
+                        _log(
+                            f"[FRAME] type={frame_type} len={frame_len} (instance_id={relay_log_id})"
+                        )
 
                         if frame_type == FRAME_TYPE_INPUT:
 
@@ -669,7 +656,9 @@ def run_agent_with_relay(
                                         if last_cursor_report[0] > 1:
                                             new_row, new_col = last_cursor_report
                                             changed = True
-                                            parts.append(f"\x1b[{new_row};{new_col}R".encode())
+                                            parts.append(
+                                                f"\x1b[{new_row};{new_col}R".encode()
+                                            )
                                             _log(
                                                 f"[RESIZE] Adjusted cursor report from row={row} col={col} to row={new_row} col={new_col} (instance_id={relay_log_id})"
                                             )
@@ -761,6 +750,7 @@ def run_agent_with_relay(
 
             # Apply pending resize after debounce period (500ms)
             import time
+
             current_time = time.time()
             if pending_resize is not None and (current_time - last_resize_time) > 0.5:
                 cols, rows = pending_resize
@@ -769,7 +759,7 @@ def run_agent_with_relay(
                 diff_rows = abs(rows - old_rows)
 
                 _log(
-                    f"[RESIZE] Applying debounced resize OLD={old_cols}x{old_rows} NEW={cols}x{rows} diff_cols={cols-old_cols} diff_rows={rows-old_rows} (instance_id={relay_log_id})"
+                    f"[RESIZE] Applying debounced resize OLD={old_cols}x{old_rows} NEW={cols}x{rows} diff_cols={cols - old_cols} diff_rows={rows - old_rows} (instance_id={relay_log_id})"
                 )
 
                 # Gradual resize - wait for codex to actually process each step
@@ -802,7 +792,9 @@ def run_agent_with_relay(
                     )
                 else:
                     _set_master_window(cols, rows, notify_relay=False)
-                    _log(f"[RESIZE] Direct resize {cols}x{rows} (instance_id={relay_log_id})")
+                    _log(
+                        f"[RESIZE] Direct resize {cols}x{rows} (instance_id={relay_log_id})"
+                    )
 
                 pending_resize = None
                 last_resize_time = current_time

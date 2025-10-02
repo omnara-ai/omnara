@@ -4,7 +4,8 @@
     "src/servers",
     "src/shared",
     "src/omnara",
-    "src/integrations"
+    "src/integrations",
+    "src/relay_server"
   ],
   "exclude": [
     "**/__pycache__",

@@ -52,7 +52,7 @@ omnara = ["_bin/**"]
 
 [tool.pytest.ini_options]
 # Test discovery
-testpaths = ["src/backend/tests", "src/servers/tests", "tests"]
+testpaths = ["src/backend/tests", "src/servers/tests", "src/relay_server/tests", "tests"]
 python_files = ["test_*.py"]
 pythonpath = [".", "src"]
 
@@ -72,7 +72,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = ["src/backend", "src/servers", "src/omnara", "src/shared"]
+source = ["src/backend", "src/servers", "src/omnara", "src/shared", "src/relay_server"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

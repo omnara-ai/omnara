@@ -221,14 +221,15 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
     fitAddonRef.current = fitAddon
     terminalRef.current = term
 
-    runFit()
-    const size = getCurrentSize()
-    if (size) {
-      pendingResizeRef.current = size
-      sendResizeRequest(size.cols, size.rows)
-    }
-
-    term.focus()
+    requestAnimationFrame(() => {
+      runFit()
+      const size = getCurrentSize()
+      if (size) {
+        pendingResizeRef.current = size
+        sendResizeRequest(size.cols, size.rows)
+      }
+      term.focus()
+    })
 
     const resizeObserver = new ResizeObserver(() => {
       runFit()

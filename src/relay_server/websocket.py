@@ -6,6 +6,7 @@ import json
 import re
 import struct
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import WSCloseCode, web
 
@@ -87,10 +88,10 @@ class WebsocketRouter:
             ws = web.WebSocketResponse()
             await ws.prepare(request)
             await ws.send_json({"error": str(exc)})
-            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message="auth")
+            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message=b"auth")
             return ws
 
-        ws_kwargs: dict[str, object] = {}
+        ws_kwargs: dict[str, Any] = {}
         if bundle.negotiated_protocol:
             ws_kwargs["protocols"] = [bundle.negotiated_protocol]
 
@@ -182,7 +183,9 @@ class WebsocketRouter:
                 app_name = session.metadata.get("app")
                 if (
                     history_policy == "strip_esc_j"
-                    or (agent_name is not None and agent_name in SANITIZE_HISTORY_AGENTS)
+                    or (
+                        agent_name is not None and agent_name in SANITIZE_HISTORY_AGENTS
+                    )
                     or app_name == "codex"
                 ):
                     sanitized = re.sub(rb"\x1b\[[0-3]?J", b"", chunk)
@@ -254,7 +257,7 @@ class AgentWebsocketHandler:
             ws = web.WebSocketResponse()
             await ws.prepare(request)
             await ws.send_json({"error": str(exc)})
-            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message="auth")
+            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message=b"auth")
             return ws
 
         credentials = bundle.credentials
@@ -262,7 +265,7 @@ class AgentWebsocketHandler:
             ws = web.WebSocketResponse()
             await ws.prepare(request)
             await ws.send_json({"error": "API key credentials required"})
-            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message="auth")
+            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message=b"auth")
             return ws
 
         session_id = request.query.get("session_id") or request.match_info.get(
@@ -272,10 +275,10 @@ class AgentWebsocketHandler:
             ws = web.WebSocketResponse()
             await ws.prepare(request)
             await ws.send_json({"error": "Missing session_id"})
-            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message="session_id")
+            await ws.close(code=WSCloseCode.POLICY_VIOLATION, message=b"session_id")
             return ws
 
-        ws_kwargs: dict[str, object] = {}
+        ws_kwargs: dict[str, Any] = {}
         if bundle.negotiated_protocol:
             ws_kwargs["protocols"] = [bundle.negotiated_protocol]
 

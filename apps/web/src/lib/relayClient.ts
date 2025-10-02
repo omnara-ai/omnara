@@ -11,36 +11,39 @@ export interface RelaySessionSummary {
 }
 
 export interface RelayConfig {
-  host: string
-  port: number
-  secure: boolean
-  httpScheme: 'http' | 'https'
-  wsScheme: 'ws' | 'wss'
-  baseHttpUrl: string
-  baseWsUrl: string
+  httpUrl: string
+  wsUrl: string
 }
 
-const RELAY_HOST = (import.meta.env.VITE_RELAY_HOST as string | undefined) ?? '127.0.0.1'
-const RELAY_PORT_RAW = (import.meta.env.VITE_RELAY_PORT as string | undefined) ?? '8787'
-const RELAY_SECURE = ((import.meta.env.VITE_RELAY_SECURE as string | undefined) ?? 'false').toLowerCase() === 'true'
+const RELAY_URL = import.meta.env.VITE_RELAY_URL as string | undefined
 
 export const SUPABASE_SUBPROTOCOL_PREFIX = 'omnara-supabase.'
 
 export function getRelayConfig(): RelayConfig {
-  const port = Number.parseInt(RELAY_PORT_RAW, 10)
-  const httpScheme: RelayConfig['httpScheme'] = RELAY_SECURE ? 'https' : 'http'
-  const wsScheme: RelayConfig['wsScheme'] = RELAY_SECURE ? 'wss' : 'ws'
+  if (!RELAY_URL) {
+    throw new Error(
+      'Missing VITE_RELAY_URL. Set it to the relay websocket endpoint, e.g. ws://localhost:8787/terminal',
+    )
+  }
 
-  const baseHost = Number.isFinite(port) && port > 0 ? `${RELAY_HOST}:${port}` : RELAY_HOST
+  let relay: URL
+  try {
+    relay = new URL(RELAY_URL)
+  } catch (error) {
+    throw new Error(
+      `Invalid VITE_RELAY_URL "${RELAY_URL}". Expected a websocket URL such as ws://localhost:8787/terminal`,
+    )
+  }
+
+  if (relay.protocol !== 'ws:' && relay.protocol !== 'wss:') {
+    throw new Error(
+      `Unsupported VITE_RELAY_URL protocol "${relay.protocol}". Use ws:// or wss://`,
+    )
+  }
 
   return {
-    host: RELAY_HOST,
-    port: Number.isFinite(port) ? port : 0,
-    secure: RELAY_SECURE,
-    httpScheme,
-    wsScheme,
-    baseHttpUrl: `${httpScheme}://${baseHost}`,
-    baseWsUrl: `${wsScheme}://${baseHost}`,
+    httpUrl: relay.protocol === 'wss:' ? `https://${relay.host}` : `http://${relay.host}`,
+    wsUrl: relay.toString().replace(/\/$/, ''),
   }
 }
 
@@ -54,7 +57,7 @@ export async function fetchRelaySessions(
   signal?: AbortSignal,
 ): Promise<RelaySessionSummary[]> {
   const config = getRelayConfig()
-  const response = await fetch(`${config.baseHttpUrl}/api/v1/sessions`, {
+  const response = await fetch(`${config.httpUrl}/api/v1/sessions`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -84,7 +87,7 @@ export function createRelayWebSocket(
 ): WebSocket {
   const runtimeConfig = config ?? getRelayConfig()
   const socket = new WebSocket(
-    `${runtimeConfig.baseWsUrl}/terminal`,
+    runtimeConfig.wsUrl,
     `${SUPABASE_SUBPROTOCOL_PREFIX}${accessToken}`,
   )
   socket.binaryType = 'arraybuffer'
