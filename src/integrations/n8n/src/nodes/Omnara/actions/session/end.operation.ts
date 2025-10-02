@@ -5,7 +5,7 @@ import {
 	NodeOperationError,
 } from 'n8n-workflow';
 
-import { omnaraApiRequest } from '../../../../utils/GenericFunctions';
+import { omnaraApiRequest, generateAgentInstanceId, getAgentType } from '../../../../utils/GenericFunctions';
 
 export const endSessionDescription: INodeProperties[] = [
 	{
@@ -13,7 +13,7 @@ export const endSessionDescription: INodeProperties[] = [
 		name: 'agentInstanceId',
 		type: 'string',
 		default: '',
-		required: true,
+		required: false,
 		displayOptions: {
 			show: {
 				resource: ['session'],
@@ -21,7 +21,7 @@ export const endSessionDescription: INodeProperties[] = [
 			},
 		},
 		placeholder: 'e.g. 550e8400-e29b-41d4-a716-446655440000',
-		description: 'The ID of the agent instance session to end',
+		description: 'The ID of the agent instance session to end. If left empty, a default value will be generated.',
 	},
 ];
 
@@ -29,14 +29,8 @@ export async function execute(
 	this: IExecuteFunctions,
 	index: number,
 ): Promise<INodeExecutionData[]> {
-	const agentInstanceId = this.getNodeParameter('agentInstanceId', index) as string;
-
-	if (!agentInstanceId) {
-		throw new NodeOperationError(this.getNode(), 'Agent Instance ID is required', {
-			itemIndex: index,
-		});
-	}
-
+	const agentType = getAgentType.call(this, 0);
+	const agentInstanceId = generateAgentInstanceId.call(this, 0, agentType);
 	const body = {
 		agent_instance_id: agentInstanceId,
 	};

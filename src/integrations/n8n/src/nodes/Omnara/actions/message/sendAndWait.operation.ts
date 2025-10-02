@@ -12,7 +12,7 @@ export const sendAndWaitDescription: INodeProperties[] = [
 		name: 'agentInstanceId',
 		type: 'string',
 		default: '',
-		required: true,
+		required: false,
 		displayOptions: {
 			show: {
 				resource: ['message'],
@@ -21,14 +21,14 @@ export const sendAndWaitDescription: INodeProperties[] = [
 		},
 		placeholder: 'e.g. 550e8400-e29b-41d4-a716-446655440000',
 		description:
-			'A unique identifier for this workflow run. Must be the same across all Omnara nodes in this workflow. Use webhook data or generate with {{ $uuid() }}',
+			'A unique identifier for this workflow run. Must be the same across all Omnara nodes in this workflow. Use webhook data or generate with {{ $uuid() }}. If left empty, a default value will be generated.',
 	},
 	{
 		displayName: 'Agent Type',
 		name: 'agentType',
 		type: 'string',
 		default: '',
-		required: true,
+		required: false,
 		displayOptions: {
 			show: {
 				resource: ['message'],
@@ -37,7 +37,7 @@ export const sendAndWaitDescription: INodeProperties[] = [
 		},
 		placeholder: 'e.g. Customer Support',
 		description:
-			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes',
+			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes. If left empty, the workflow name will be used as the default.',
 	},
 	{
 		displayName: 'Message',

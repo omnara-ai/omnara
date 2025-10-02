@@ -5,7 +5,7 @@ import {
 	NodeOperationError,
 } from 'n8n-workflow';
 
-import { omnaraApiRequest, formatMessageResponse } from '../../../../utils/GenericFunctions';
+import { omnaraApiRequest, formatMessageResponse, generateAgentInstanceId, getAgentType } from '../../../../utils/GenericFunctions';
 
 export const sendMessageDescription: INodeProperties[] = [
 	{
@@ -13,7 +13,7 @@ export const sendMessageDescription: INodeProperties[] = [
 		name: 'agentInstanceId',
 		type: 'string',
 		default: '',
-		required: true,
+		required: false,
 		displayOptions: {
 			show: {
 				resource: ['message'],
@@ -22,14 +22,14 @@ export const sendMessageDescription: INodeProperties[] = [
 		},
 		placeholder: 'e.g. 550e8400-e29b-41d4-a716-446655440000',
 		description:
-			'A unique UUID for this workflow run. Must be the same across all Omnara nodes in this workflow. Use webhook data or generate with {{ $uuid() }}.',
+			'A unique UUID for this workflow run. Must be the same across all Omnara nodes in this workflow. Use webhook data or generate with {{ $uuid() }}. If left empty, a default value will be generated.',
 	},
 	{
 		displayName: 'Agent Type',
 		name: 'agentType',
 		type: 'string',
 		default: '',
-		required: true,
+		required: false,
 		displayOptions: {
 			show: {
 				resource: ['message'],
@@ -38,7 +38,7 @@ export const sendMessageDescription: INodeProperties[] = [
 		},
 		placeholder: 'e.g. Customer Support',
 		description:
-			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes.',
+			'The name of your agent on Omnara dashboard. Must be the same across all Omnara nodes. If left empty, the workflow name will be used as the default.',
 	},
 	{
 		displayName: 'Message',
@@ -101,16 +101,12 @@ export async function execute(
 	this: IExecuteFunctions,
 	index: number,
 ): Promise<INodeExecutionData[]> {
-	const agentInstanceId = this.getNodeParameter('agentInstanceId', index) as string;
-	const agentType = this.getNodeParameter('agentType', index) as string;
+
+	const agentType = getAgentType.call(this, 0);
+	const agentInstanceId = generateAgentInstanceId.call(this, 0, agentType);
+
 	const message = this.getNodeParameter('message', index) as string;
 	const additionalOptions = this.getNodeParameter('additionalOptions', index, {}) as any;
-
-	if (!agentInstanceId) {
-		throw new NodeOperationError(this.getNode(), 'Agent Instance ID is required', {
-			itemIndex: index,
-		});
-	}
 
 	if (!message) {
 		throw new NodeOperationError(this.getNode(), 'Message is required', { itemIndex: index });
