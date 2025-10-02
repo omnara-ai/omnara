@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 
 
@@ -16,6 +16,15 @@ class RelaySettings:
     heartbeat_interval_seconds: int = 10
     heartbeat_miss_limit: int = 3
     ended_retention_seconds: int = 15 * 60
+    allowed_origins: list[str] = field(
+        default_factory=lambda: [
+            "https://omnara.com",
+            "https://omnara.ai",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "null"
+        ]
+    )
 
     @classmethod
     def from_env(cls) -> "RelaySettings":
@@ -29,6 +38,13 @@ class RelaySettings:
                 return default
 
         defaults = cls()
+
+        def _list(name: str, default: list[str]) -> list[str]:
+            raw = os.getenv(name)
+            if raw is None:
+                return list(default)
+            items = [item.strip() for item in raw.split(",") if item.strip()]
+            return items if items else list(default)
 
         return cls(
             websocket_host=os.getenv("OMNARA_RELAY_WS_HOST", defaults.websocket_host),
@@ -44,5 +60,8 @@ class RelaySettings:
             ),
             ended_retention_seconds=_int(
                 "OMNARA_RELAY_ENDED_RETENTION", defaults.ended_retention_seconds
+            ),
+            allowed_origins=_list(
+                "OMNARA_RELAY_ALLOWED_ORIGINS", defaults.allowed_origins
             ),
         )

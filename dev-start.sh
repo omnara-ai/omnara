@@ -154,15 +154,6 @@ BACKEND_PID=$!
 # Wait a moment for backend to start
 sleep 2
 
-# Start relay viewer (static test client)
-echo -e "${BLUE}Starting relay viewer...${NC}"
-if [ ! -d "apps/relay-viewer/node_modules" ]; then
-    (cd apps/relay-viewer && npm install >/dev/null 2>&1)
-fi
-npm --prefix apps/relay-viewer start >> "$VIEWER_LOG" 2>&1 &
-VIEWER_PID=$!
-sleep 2
-
 echo -e "${GREEN}🎉 All services started successfully!${NC}"
 echo -e "${BLUE}Services:${NC}"
 echo -e "  🔌 Relay Server:    http://localhost:8787 (FastAPI WebSocket)"
@@ -170,10 +161,8 @@ echo -e "     - WebSocket agent: ws://localhost:8787/agent"
 echo -e "     - WebSocket viewer: ws://localhost:8787/terminal"
 echo -e "  🤖 Unified Server:  http://localhost:8080 (MCP + FastAPI)"
 echo -e "  🔧 Backend API:     http://localhost:8000"
-echo -e "  🖥️  Relay Viewer:    http://localhost:4173"
 echo -e "  🗄️  PostgreSQL:      localhost:5432"
 echo -e "  📜 Relay Log:       $RELAY_LOG"
-echo -e "  📜 Viewer Log:      $VIEWER_LOG"
 echo -e "\n${YELLOW}Press Ctrl+C to stop all services${NC}"
 
 # Wait for all background processes
