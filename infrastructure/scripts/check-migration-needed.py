@@ -27,7 +27,7 @@ def get_staged_files():
 
 def has_schema_changes(staged_files):
     """Check if any staged files contain database schema changes."""
-    schema_files = ["shared/database/models.py", "shared/database/enums.py"]
+    schema_files = ["src/shared/database/models.py", "src/shared/database/enums.py"]
 
     return any(file_path in staged_files for file_path in schema_files)
 
@@ -37,14 +37,14 @@ def has_new_migration(staged_files):
     migration_files = [
         f
         for f in staged_files
-        if f.startswith("shared/alembic/versions/") and f.endswith(".py")
+        if f.startswith("src/shared/alembic/versions/") and f.endswith(".py")
     ]
     return len(migration_files) > 0
 
 
 def get_migration_files():
     """Get list of existing migration files."""
-    migrations_dir = Path("shared/alembic/versions")
+    migrations_dir = Path("src/shared/alembic/versions")
     if not migrations_dir.exists():
         return []
 
@@ -67,11 +67,14 @@ def main():
         print()
         print("You have modified database schema files:")
         for file_path in staged_files:
-            if file_path in ["shared/database/models.py", "shared/database/enums.py"]:
+            if file_path in [
+                "src/shared/database/models.py",
+                "src/shared/database/enums.py",
+            ]:
                 print(f"  - {file_path}")
         print()
         print("You must create an Alembic migration before committing:")
-        print("  1. cd shared/")
+        print("  1. cd src/shared/")
         print("  2. alembic revision --autogenerate -m 'Describe your changes'")
         print("  3. Review the generated migration file")
         print("  4. git add the new migration file")

@@ -75,9 +75,9 @@ def _resolve_codex_binary() -> Path:
         "Set OMNARA_CODEX_PATH to specify the binary path.\n"
         f"Otherwise, expected a packaged binary in the wheel at: {_packaged_binary_path()}\n\n"
         "To build in local omnara repo:\n"
-        "  cd integrations/cli_wrappers/codex/codex-rs && cargo build --release -p codex-cli\n"
+        "  cd src/integrations/cli_wrappers/codex/codex-rs && cargo build --release -p codex-cli\n"
         "The built binary will be at:\n"
-        "  integrations/cli_wrappers/codex/codex-rs/target/release/codex\n"
+        "  src/integrations/cli_wrappers/codex/codex-rs/target/release/codex\n"
         "Then set OMNARA_CODEX_PATH to either the binary file or its directory."
     )
 

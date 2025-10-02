@@ -16,6 +16,8 @@ const withProviders = (node: React.ReactNode) => {
         options={{
           api_host: POSTHOG_HOST,
           debug: import.meta.env.MODE === 'development',
+          persistence: 'localStorage',
+          disable_session_recording: import.meta.env.MODE === 'development',
         }}
       >
         {node}

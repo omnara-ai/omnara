@@ -31,7 +31,7 @@ const OmnaraLogo = () => {
         
         <div className="space-y-4 mb-8">
           <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold text-omnara-cream-text mb-3 text-shadow-lg">
-            Launch & Control Claude Code from Anywhere
+            Launch & Control Claude Code & Codex from Anywhere
           </h2>
           <p className="text-base sm:text-lg md:text-xl text-omnara-cream-text/70 font-light max-w-2xl mx-auto leading-relaxed px-4 sm:px-0 text-shadow-md">
             Stop being chained to your desk. The real-time command center to monitor, debug, and guide your agent—right from your phone.

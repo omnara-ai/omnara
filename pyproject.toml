@@ -44,7 +44,7 @@ omnara = "omnara.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["omnara*", "servers*", "shared*", "backend*"]
+include = ["omnara*", "servers.mcp*", "servers.shared*", "integrations*"]
 
 [tool.setuptools.package-data]
 omnara = ["_bin/**"]
