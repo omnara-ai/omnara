@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import struct
 import time
 import weakref
@@ -110,14 +111,58 @@ class Session:
         )
         asyncio.create_task(self._send_to_agent(frame))
 
+    def apply_metadata(self, metadata: Dict[str, Any]) -> None:
+        """Merge metadata provided by the upstream agent and broadcast changes."""
+
+        changed = False
+
+        for key, value in metadata.items():
+            if not isinstance(key, str):
+                continue
+
+            serialized: Optional[str] = None
+
+            if key == "agent":
+                serialized = str(value).lower()
+            elif key == "app":
+                serialized = str(value).lower()
+            elif key == "history_policy":
+                serialized = str(value)
+            elif value is None:
+                continue
+            elif isinstance(value, (str, int, float, bool)):
+                serialized = str(value) if not isinstance(value, str) else value
+            else:
+                try:
+                    serialized = json.dumps(value)
+                except TypeError:
+                    serialized = str(value)
+
+            if serialized is None:
+                continue
+
+            if self.metadata.get(key) == serialized:
+                continue
+
+            self.metadata[key] = serialized
+            changed = True
+
+        if changed:
+            payload = {
+                "type": "agent_metadata",
+                "session_id": self.session_id,
+                "metadata": dict(self.metadata),
+            }
+            for ws in list(self._websockets):
+                asyncio.create_task(self._send_json(ws, payload))
+
     def request_resize(
         self, cols: int | float | None, rows: int | float | None
     ) -> None:
         """Request a PTY resize originating from a viewer.
 
-        If rows is not provided, keeps current height and only resizes width.
+        Require both dimensions so viewers always send an explicit width and height.
         """
-
         if self._agent_socket is None:
             return
 
@@ -127,13 +172,7 @@ class Session:
         except (TypeError, ValueError):
             return
 
-        # Use current dimensions if not provided
-        if int_cols is None:
-            int_cols = self.cols
-        if int_rows is None:
-            int_rows = self.rows
-
-        # Need at least one valid dimension
+        # Require both dimensions to be provided
         if int_cols is None or int_rows is None:
             return
 
@@ -146,12 +185,7 @@ class Session:
 
         payload = RESIZE_PAYLOAD.pack(int_rows, int_cols)
         frame = pack_frame(FRAME_TYPE_RESIZE, payload)
-        print(
-            f"[relay] request_resize cols={int_cols} rows={int_rows} session={self.user_id}:{self.session_id}",
-            flush=True,
-        )
         asyncio.create_task(self._send_to_agent(frame))
-
         self.update_size(int_cols, int_rows)
 
     def update_size(self, cols: int, rows: int) -> None:

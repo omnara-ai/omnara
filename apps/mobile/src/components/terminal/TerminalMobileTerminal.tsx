@@ -164,6 +164,9 @@ function buildTerminalHtml(): string {
         let pendingResize = null;
         let activeInstanceId = null;
         let lastStatus = 'idle';
+        let historyLoaded = false;
+        let historyTimer = null;
+        let suppressFullClears = false;
 
         const statusBanner = document.getElementById('status-banner');
         const errorBanner = document.getElementById('error-banner');
@@ -223,6 +226,12 @@ function buildTerminalHtml(): string {
           setStatus('idle');
           setError(null);
           activeInstanceId = null;
+          historyLoaded = false;
+          if (historyTimer) {
+            clearTimeout(historyTimer);
+            historyTimer = null;
+          }
+          suppressFullClears = false;
         }
 
         function createTerminal() {
@@ -257,9 +266,8 @@ function buildTerminalHtml(): string {
 
           const clearHandler = term.parser.registerCsiHandler({ final: 'J' }, function (params) {
             const code = params.length === 0 ? 0 : params[0];
-            if (code === 2) {
-              term.clear();
-              term.scrollToTop();
+            if (code === 2 && suppressFullClears && !historyLoaded) {
+              return true;
             }
             return false;
           });
@@ -334,18 +342,19 @@ function buildTerminalHtml(): string {
             return;
           }
 
-          if (!Number.isFinite(cols)) {
+          if (!Number.isFinite(cols) || !Number.isFinite(rows)) {
             return;
           }
 
           const safeCols = Math.max(1, Math.trunc(cols));
+          const safeRows = Math.max(1, Math.trunc(rows));
 
           try {
-            // Only send width - height stays constant
             socket.send(
               JSON.stringify({
                 type: 'resize_request',
-                cols: safeCols
+                cols: safeCols,
+                rows: safeRows
               })
             );
           } catch (err) {}
@@ -444,6 +453,11 @@ function buildTerminalHtml(): string {
             } catch (err) {}
             socket = null;
           }
+          historyLoaded = false;
+          if (historyTimer) {
+            clearTimeout(historyTimer);
+            historyTimer = null;
+          }
         }
 
         function flushDecoder() {
@@ -469,6 +483,35 @@ function buildTerminalHtml(): string {
           const kind = payload && payload.type;
           if (kind === 'resize') {
             applyResize(payload.cols, payload.rows);
+          } else if (kind === 'agent_metadata') {
+            const metadata = payload.metadata || {};
+            const historyPolicy = metadata.history_policy;
+            const agentName = metadata.agent;
+            const appName = metadata.app;
+            suppressFullClears =
+              historyPolicy === 'strip_esc_j' || agentName === 'codex' || appName === 'codex';
+
+            if (suppressFullClears) {
+              historyLoaded = false;
+              if (!historyTimer) {
+                historyTimer = setTimeout(function () {
+                  historyLoaded = true;
+                  historyTimer = null;
+                }, 2000);
+              }
+            } else {
+              historyLoaded = true;
+              if (historyTimer) {
+                clearTimeout(historyTimer);
+                historyTimer = null;
+              }
+            }
+          } else if (kind === 'history_complete') {
+            historyLoaded = true;
+            if (historyTimer) {
+              clearTimeout(historyTimer);
+              historyTimer = null;
+            }
           } else if (kind === 'error') {
             setStatus('error');
             setError(payload.message || 'Relay reported an error');
@@ -487,6 +530,16 @@ function buildTerminalHtml(): string {
 
           setStatus('connecting');
           setError(null);
+
+          historyLoaded = false;
+          if (historyTimer) {
+            clearTimeout(historyTimer);
+          }
+          historyTimer = setTimeout(function () {
+            historyLoaded = true;
+            historyTimer = null;
+          }, 2000);
+          suppressFullClears = false;
 
           let wsUrl = relayConfig.baseWsUrl;
           if (!wsUrl.endsWith('/terminal')) {
@@ -530,6 +583,12 @@ function buildTerminalHtml(): string {
               setError('Relay rejected authentication credentials.');
             }
             socket = null;
+            historyLoaded = false;
+            if (historyTimer) {
+              clearTimeout(historyTimer);
+              historyTimer = null;
+            }
+            suppressFullClears = false;
           };
 
           socket.onerror = function () {

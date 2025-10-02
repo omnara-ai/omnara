@@ -43,6 +43,9 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
   const suppressResizeRef = useRef(0)
   const accessTokenRef = useRef<string | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const historyLoadedRef = useRef(false)
+  const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const suppressFullClearsRef = useRef(false)
 
   const [status, setStatus] = useState<ConnectionStatus>('idle')
   const statusRef = useRef<ConnectionStatus>('idle')
@@ -164,6 +167,12 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
       } catch (_) {}
       socketRef.current = null
     }
+    historyLoadedRef.current = false
+    if (historyTimerRef.current) {
+      clearTimeout(historyTimerRef.current)
+      historyTimerRef.current = null
+    }
+    suppressFullClearsRef.current = false
   }
 
   function resetDecoder(): void {
@@ -193,9 +202,8 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
 
     const clearHandler = term.parser.registerCsiHandler({ final: 'J' }, params => {
       const code = params.length === 0 ? 0 : params[0]
-      if (code === 2) {
-        term.clear()
-        term.scrollToTop()
+      if (code === 2 && suppressFullClearsRef.current && !historyLoadedRef.current) {
+        return true
       }
       return false
     })
@@ -293,16 +301,17 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
     const socket = socketRef.current
     if (!socket || socket.readyState !== WebSocket.OPEN) return
 
-    if (!Number.isFinite(cols ?? NaN)) {
+    if (!Number.isFinite(cols ?? NaN) || !Number.isFinite(rows ?? NaN)) {
       return
     }
 
     const safeCols = Math.max(1, Math.trunc(cols!))
-    // Only send width - height stays constant
+    const safeRows = Math.max(1, Math.trunc(rows!))
     socket.send(
       JSON.stringify({
         type: 'resize_request',
         cols: safeCols,
+        rows: safeRows,
       }),
     )
   }
@@ -311,6 +320,16 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
     disposeSocket()
     resetDecoder()
     updateStatus('connecting')
+
+    historyLoadedRef.current = false
+    if (historyTimerRef.current) {
+      clearTimeout(historyTimerRef.current)
+    }
+    historyTimerRef.current = setTimeout(() => {
+      historyLoadedRef.current = true
+      historyTimerRef.current = null
+    }, 2000)
+    suppressFullClearsRef.current = false
 
     const socket = createRelayWebSocket(instanceId, accessToken, relayConfig)
     socketRef.current = socket
@@ -363,6 +382,12 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
       }
 
       socketRef.current = null
+      historyLoadedRef.current = false
+      if (historyTimerRef.current) {
+        clearTimeout(historyTimerRef.current)
+        historyTimerRef.current = null
+      }
+      suppressFullClearsRef.current = false
     }
 
     socket.onerror = () => {
@@ -419,6 +444,38 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
     switch (payload?.type) {
       case 'resize':
         applyResize(payload?.cols, payload?.rows)
+        break
+      case 'agent_metadata': {
+        const metadata = payload?.metadata ?? {}
+        const historyPolicy = metadata.history_policy
+        const agentName = metadata.agent
+        const appName = metadata.app
+        suppressFullClearsRef.current =
+          historyPolicy === 'strip_esc_j' || agentName === 'codex' || appName === 'codex'
+
+        if (suppressFullClearsRef.current) {
+          historyLoadedRef.current = false
+          if (!historyTimerRef.current) {
+            historyTimerRef.current = setTimeout(() => {
+              historyLoadedRef.current = true
+              historyTimerRef.current = null
+            }, 2000)
+          }
+        } else {
+          historyLoadedRef.current = true
+          if (historyTimerRef.current) {
+            clearTimeout(historyTimerRef.current)
+            historyTimerRef.current = null
+          }
+        }
+        break
+      }
+      case 'history_complete':
+        historyLoadedRef.current = true
+        if (historyTimerRef.current) {
+          clearTimeout(historyTimerRef.current)
+          historyTimerRef.current = null
+        }
         break
       case 'error':
         setError(payload?.message ?? 'Relay reported an error')

@@ -187,7 +187,6 @@ def create_relay_router(manager: SessionManager) -> APIRouter:
                     msg = json.loads(message["text"])
                     if msg.get("type") == "input":
                         session.forward_input(msg.get("data", ""))
-                        session.request_resize(msg.get("cols"), msg.get("rows"))
                     elif msg.get("type") == "resize_request":
                         session.request_resize(msg.get("cols"), msg.get("rows"))
         except WebSocketDisconnect as exc:

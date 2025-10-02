@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 from dataclasses import dataclass
 
@@ -16,6 +17,7 @@ from .auth import (
 )
 from .protocol import (
     FRAME_TYPE_INPUT,
+    FRAME_TYPE_METADATA,
     FRAME_TYPE_OUTPUT,
     FRAME_TYPE_RESIZE,
     iter_frames,
@@ -27,6 +29,7 @@ from .sessions import SessionManager
 API_KEY_PROTOCOL_PREFIX = "omnara-key."
 SUPABASE_PROTOCOL_PREFIX = "omnara-supabase."
 RESIZE_STRUCT = struct.Struct("!HH")
+SANITIZE_HISTORY_AGENTS: set[str] = {"codex"}
 
 
 @dataclass(slots=True)
@@ -158,16 +161,46 @@ class WebsocketRouter:
                     "rows": session.rows,
                 }
             )
+            await ws.send_json(
+                {
+                    "type": "agent_metadata",
+                    "session_id": session.session_id,
+                    "metadata": dict(session.metadata),
+                }
+            )
+            # Stream buffered history. Some TUI agents (e.g., Codex) emit destructive clears as part
+            # of their redraw loop; we strip those while replaying history to avoid wiping the freshly
+            # reconstructed scrollback, but only for agents that opt-in via metadata or known
+            # defaults.
             for chunk in session.iter_history():
-                frame = pack_frame(FRAME_TYPE_OUTPUT, chunk)
+                if not chunk:
+                    continue
+
+                sanitized = chunk
+                history_policy = session.metadata.get("history_policy")
+                agent_name = session.metadata.get("agent")
+                app_name = session.metadata.get("app")
+                if (
+                    history_policy == "strip_esc_j"
+                    or (agent_name is not None and agent_name in SANITIZE_HISTORY_AGENTS)
+                    or app_name == "codex"
+                ):
+                    sanitized = re.sub(rb"\x1b\[[0-3]?J", b"", chunk)
+                    if not sanitized:
+                        continue
+
+                frame = pack_frame(FRAME_TYPE_OUTPUT, sanitized)
                 await ws.send_bytes(frame)
+
+            await ws.send_json(
+                {"type": "history_complete", "session_id": session.session_id}
+            )
 
             async for msg in ws:
                 if msg.type == web.WSMsgType.TEXT:
                     data = json.loads(msg.data)
                     if data.get("type") == "input":
                         session.forward_input(data.get("data", ""))
-                        session.request_resize(data.get("cols"), data.get("rows"))
                     elif data.get("type") == "resize_request":
                         session.request_resize(data.get("cols"), data.get("rows"))
                 elif msg.type in (
@@ -268,6 +301,18 @@ class AgentWebsocketHandler:
                                 rows, cols = RESIZE_STRUCT.unpack(payload)
                                 if rows > 0 and cols > 0:
                                     session.update_size(cols, rows)
+                        elif frame_type == FRAME_TYPE_METADATA:
+                            try:
+                                metadata = json.loads(payload.decode("utf-8"))
+                            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                                print(
+                                    f"[relay] metadata decode FAILED session={credentials.user_id}:{session_id} error={exc!r}",
+                                    flush=True,
+                                )
+                                continue
+
+                            if isinstance(metadata, dict):
+                                session.apply_metadata(metadata)
                         elif frame_type == FRAME_TYPE_INPUT:
                             # Upstream should not send input frames, ignore.
                             continue
