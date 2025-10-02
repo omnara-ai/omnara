@@ -153,6 +153,7 @@ class AgentInstance(Base):
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(default=None)
     git_diff: Mapped[str | None] = mapped_column(Text, default=None)
     name: Mapped[str | None] = mapped_column(String(255), default=None)
+    instance_metadata: Mapped[dict | None] = mapped_column(JSONB, default=dict)
     last_read_message_id: Mapped[UUID | None] = mapped_column(
         ForeignKey(
             "messages.id",

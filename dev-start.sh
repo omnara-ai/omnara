@@ -33,13 +33,23 @@ NC='\033[0m' # No Color
 # Function to cleanup on exit
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
-    
+
     # Kill background processes
+    if [[ -n $VIEWER_PID ]]; then
+        echo "Stopping relay viewer..."
+        kill $VIEWER_PID 2>/dev/null || true
+        wait $VIEWER_PID 2>/dev/null || true
+    fi
+    if [[ -n $RELAY_PID ]]; then
+        echo "Stopping relay server..."
+        kill $RELAY_PID 2>/dev/null || true
+        wait $RELAY_PID 2>/dev/null || true
+    fi
     if [[ -n $APP_PID ]]; then
         echo "Stopping unified server..."
         kill $APP_PID 2>/dev/null || true
     fi
-    
+
     if [[ -n $BACKEND_PID ]]; then
         echo "Stopping backend..."
         kill $BACKEND_PID 2>/dev/null || true
@@ -108,6 +118,21 @@ export ENVIRONMENT="development"
 export DEVELOPMENT_DB_URL="postgresql://user:password@localhost:5432/agent_dashboard"
 ./infrastructure/scripts/init-db.sh
 
+# Prepare log directory
+LOG_DIR="$(pwd)/logs"
+mkdir -p "$LOG_DIR"
+RELAY_LOG="$LOG_DIR/relay.log"
+> "$RELAY_LOG"
+VIEWER_LOG="$LOG_DIR/relay-viewer.log"
+> "$VIEWER_LOG"
+
+# Start relay server (FastAPI WebSocket)
+echo -e "${BLUE}Starting relay WebSocket server...${NC}"
+export PYTHONPATH="$(pwd)/src"
+python -m relay_server.app >> "$RELAY_LOG" 2>&1 &
+RELAY_PID=$!
+sleep 2
+
 # Start unified server (MCP + FastAPI)
 echo -e "${BLUE}Starting unified server (MCP + FastAPI)...${NC}"
 export PYTHONPATH="$(pwd)/src"
@@ -131,9 +156,13 @@ sleep 2
 
 echo -e "${GREEN}🎉 All services started successfully!${NC}"
 echo -e "${BLUE}Services:${NC}"
-echo -e "  🔧 Backend API:     http://localhost:8000"
+echo -e "  🔌 Relay Server:    http://localhost:8787 (FastAPI WebSocket)"
+echo -e "     - WebSocket agent: ws://localhost:8787/agent"
+echo -e "     - WebSocket viewer: ws://localhost:8787/terminal"
 echo -e "  🤖 Unified Server:  http://localhost:8080 (MCP + FastAPI)"
+echo -e "  🔧 Backend API:     http://localhost:8000"
 echo -e "  🗄️  PostgreSQL:      localhost:5432"
+echo -e "  📜 Relay Log:       $RELAY_LOG"
 echo -e "\n${YELLOW}Press Ctrl+C to stop all services${NC}"
 
 # Wait for all background processes

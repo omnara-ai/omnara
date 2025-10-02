@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnara"
-version = "1.6.20"
+version = "1.6.21"
 description = "Omnara Agent Dashboard - MCP Server and Python SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,6 +26,7 @@ dependencies = [
     "urllib3>=1.26.0",
     "aiohttp>=3.8.0",
     "certifi>=2020.6.20",
+    "websocket-client>=1.6.0",
     "fastmcp>=2.9.2",
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
@@ -51,7 +52,7 @@ omnara = ["_bin/**"]
 
 [tool.pytest.ini_options]
 # Test discovery
-testpaths = ["src/backend/tests", "src/servers/tests", "tests"]
+testpaths = ["src/backend/tests", "src/servers/tests", "src/relay_server/tests", "tests"]
 python_files = ["test_*.py"]
 pythonpath = [".", "src"]
 
@@ -71,7 +72,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = ["src/backend", "src/servers", "src/omnara", "src/shared"]
+source = ["src/backend", "src/servers", "src/omnara", "src/shared", "src/relay_server"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
@@ -82,3 +83,8 @@ omit = [
 [tool.coverage.report]
 skip_covered = true
 show_missing = true 
+
+[tool.ruff]
+exclude = [
+    "src/integrations/cli_wrappers/codex",
+]

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { InstanceHeader } from './InstanceHeader'
 import { ChatInterface } from './../chat/ChatInterface'
+import { TerminalInstancePanel } from './TerminalInstancePanel'
 import { apiClient } from '@/lib/dashboardApi'
 import {
   InstanceDetail as IInstanceDetail,
@@ -541,6 +542,12 @@ export function InstanceDetail() {
 
   const isWaitingForInput = instance.status === AgentStatus.AWAITING_INPUT
   const canManageSharing = Boolean(instance.is_owner)
+  const metadata =
+    instance.instance_metadata && typeof instance.instance_metadata === 'object'
+      ? (instance.instance_metadata as Record<string, unknown>)
+      : null
+  const transport = typeof metadata?.transport === 'string' ? (metadata.transport as string) : undefined
+  const isTerminalInstance = transport === 'ws'
 
   return (
     <div className="animate-fade-in h-full flex flex-col">
@@ -653,12 +660,16 @@ export function InstanceDetail() {
       </div>
 
       <div className="relative flex-1 min-h-0 px-6 pb-6">
-        <ChatInterface
-          key={instance.id} // Force React to create a new component instance for each chat
-          instance={instance}
-          onMessageSubmit={handleMessageSubmit}
-          onLoadMoreMessages={loadMoreMessages}
-        />
+        {isTerminalInstance ? (
+          <TerminalInstancePanel instanceId={instance.id} />
+        ) : (
+          <ChatInterface
+            key={instance.id} // Force React to create a new component instance for each chat
+            instance={instance}
+            onMessageSubmit={handleMessageSubmit}
+            onLoadMoreMessages={loadMoreMessages}
+          />
+        )}
       </div>
     </div>
   )

@@ -10,7 +10,11 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
-from shared.database.enums import AgentStatus, TeamRole, InstanceAccessLevel
+from shared.database.enums import (
+    AgentStatus,
+    TeamRole,
+    InstanceAccessLevel,
+)
 from shared.webhook_schemas import (
     get_webhook_type_schema,
     validate_webhook_config as validate_webhook_config_func,
@@ -71,6 +75,7 @@ class AgentInstanceResponse(BaseModel):
     latest_message_at: datetime | None = None  # Timestamp of the latest message
     chat_length: int = 0  # Total message count
     last_heartbeat_at: datetime | None = None
+    instance_metadata: dict | None = None
 
     @field_serializer(
         "started_at", "ended_at", "latest_message_at", "last_heartbeat_at"
@@ -138,6 +143,7 @@ class AgentInstanceDetail(BaseModel):
     last_heartbeat_at: datetime | None = None
     access_level: InstanceAccessLevel = InstanceAccessLevel.WRITE
     is_owner: bool = False
+    instance_metadata: dict | None = None
 
     @field_serializer("started_at", "ended_at", "last_heartbeat_at")
     def serialize_datetime(self, dt: datetime | None, _info):

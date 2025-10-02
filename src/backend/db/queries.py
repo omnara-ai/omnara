@@ -252,36 +252,48 @@ def _get_instance_message_stats(db: Session, instance_ids: list[UUID]) -> dict:
     return stats
 
 
-def _format_instance(
-    instance: AgentInstance, message_stats: dict
+def format_agent_instance(
+    instance: AgentInstance, message_stats: dict | None = None
 ) -> AgentInstanceResponse:
     """
     Helper function to format an agent instance consistently.
 
     Args:
         instance: The AgentInstance to format
-        message_stats: Pre-computed message statistics dict mapping instance_id to stats.
-                      Each stat should contain 'latest_message', 'latest_message_at', 'message_count'
+        message_stats: Optional pre-computed message statistics mapping instance_id to
+            metadata with 'latest_message', 'latest_message_at', and 'message_count'.
     """
     # Get stats for this instance, defaulting to empty values if not found
-    stats = message_stats.get(instance.id, {})
+    stats_map = message_stats or {}
+    stats = stats_map.get(instance.id, {})
     latest_message = stats.get("latest_message")
     latest_message_at = stats.get("latest_message_at")
     chat_length = stats.get("message_count", 0)
 
-    return AgentInstanceResponse(
-        id=str(instance.id),
-        agent_type_id=str(instance.user_agent_id) if instance.user_agent_id else "",
-        agent_type_name=instance.user_agent.name if instance.user_agent else "Unknown",
-        name=instance.name,
-        status=instance.status,
-        started_at=instance.started_at,
-        ended_at=instance.ended_at,
-        latest_message=latest_message,
-        latest_message_at=latest_message_at,
-        chat_length=chat_length,
-        last_heartbeat_at=instance.last_heartbeat_at,
+    metadata = (
+        dict(instance.instance_metadata)
+        if isinstance(instance.instance_metadata, dict)
+        else None
     )
+
+    payload = {
+        "instance_metadata": metadata,
+        "id": str(instance.id),
+        "agent_type_id": str(instance.user_agent_id) if instance.user_agent_id else "",
+        "agent_type_name": instance.user_agent.name
+        if instance.user_agent
+        else "Unknown",
+        "name": instance.name,
+        "status": instance.status,
+        "started_at": instance.started_at,
+        "ended_at": instance.ended_at,
+        "latest_message": latest_message,
+        "latest_message_at": latest_message_at,
+        "chat_length": chat_length,
+        "last_heartbeat_at": instance.last_heartbeat_at,
+    }
+
+    return AgentInstanceResponse.model_validate(payload)
 
 
 def get_all_agent_types_with_instances(
@@ -389,24 +401,30 @@ def get_all_agent_types_with_instances(
         formatted_instances = []
         for item in sorted_items:
             instance = item["instance"]
-            formatted_instances.append(
-                AgentInstanceResponse(
-                    id=str(instance.id),
-                    agent_type_id=str(instance.user_agent_id)
-                    if instance.user_agent_id
-                    else "",
-                    agent_type_name=instance.user_agent.name
-                    if instance.user_agent
-                    else "Unknown",
-                    name=instance.name,
-                    status=instance.status,
-                    started_at=instance.started_at,
-                    ended_at=instance.ended_at,
-                    latest_message=item["latest_message"],
-                    latest_message_at=item["latest_message_at"],
-                    chat_length=item["message_count"],
-                )
+            metadata = (
+                instance.instance_metadata
+                if isinstance(instance.instance_metadata, dict)
+                else {}
             )
+            payload = {
+                "instance_metadata": metadata,
+                "id": str(instance.id),
+                "agent_type_id": str(instance.user_agent_id)
+                if instance.user_agent_id
+                else "",
+                "agent_type_name": instance.user_agent.name
+                if instance.user_agent
+                else "Unknown",
+                "name": instance.name,
+                "status": instance.status,
+                "started_at": instance.started_at,
+                "ended_at": instance.ended_at,
+                "latest_message": item["latest_message"],
+                "latest_message_at": item["latest_message_at"],
+                "chat_length": item["message_count"],
+                "last_heartbeat_at": instance.last_heartbeat_at,
+            }
+            formatted_instances.append(AgentInstanceResponse.model_validate(payload))
 
         result.append(
             AgentTypeOverview(
@@ -508,7 +526,7 @@ def get_all_agent_instances(
     message_stats = _get_instance_message_stats(db, instance_ids)
 
     # Format instances using helper function with pre-computed stats
-    return [_format_instance(instance, message_stats) for instance in instances]
+    return [format_agent_instance(instance, message_stats) for instance in instances]
 
 
 def get_agent_summary(db: Session, user_id: UUID) -> dict:
@@ -622,7 +640,7 @@ def get_agent_type_instances(
     message_stats = _get_instance_message_stats(db, instance_ids)
 
     # Format instances using helper function with pre-computed stats
-    return [_format_instance(instance, message_stats) for instance in instances]
+    return [format_agent_instance(instance, message_stats) for instance in instances]
 
 
 def get_agent_instance_detail(
@@ -680,6 +698,12 @@ def get_agent_instance_detail(
     # Format messages for chat display
     formatted_messages = [_message_to_response(msg) for msg in messages]
 
+    metadata = (
+        instance.instance_metadata
+        if isinstance(instance.instance_metadata, dict)
+        else None
+    )
+
     return AgentInstanceDetail(
         id=str(instance.id),
         agent_type_id=str(instance.user_agent_id) if instance.user_agent_id else "",
@@ -695,6 +719,7 @@ def get_agent_instance_detail(
         last_heartbeat_at=instance.last_heartbeat_at,
         access_level=access,
         is_owner=str(instance.user_id) == str(user_id),
+        instance_metadata=metadata,
     )
 
 
@@ -720,7 +745,7 @@ def mark_instance_completed(
 
     db.commit()
 
-    # Re-query with relationships to ensure they're loaded for _format_instance
+    # Re-query with relationships to ensure they're loaded for format_agent_instance
     instance = (
         db.query(AgentInstance)
         .filter(AgentInstance.id == instance_id)
@@ -736,7 +761,7 @@ def mark_instance_completed(
     # Get message stats for this single instance
     message_stats = _get_instance_message_stats(db, [instance.id])
 
-    return _format_instance(instance, message_stats)
+    return format_agent_instance(instance, message_stats)
 
 
 def delete_user_account(db: Session, user_id: UUID) -> None:
@@ -874,7 +899,7 @@ def update_agent_instance_name(
     message_stats = _get_instance_message_stats(db, [instance.id])
 
     # Return the updated instance in the standard format
-    return _format_instance(instance, message_stats)
+    return format_agent_instance(instance, message_stats)
 
 
 def get_message_by_id(db: Session, message_id: UUID, user_id: UUID) -> dict | None:

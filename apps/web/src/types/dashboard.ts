@@ -41,6 +41,7 @@ export interface AgentInstance {
   agent_type_name?: string
   name?: string
   created_at?: string
+  instance_metadata?: Record<string, unknown> | null
 }
 
 export interface Message {
@@ -86,6 +87,7 @@ export interface InstanceDetail extends AgentInstance {
   agent_type?: string
   access_level: InstanceAccessLevel
   is_owner: boolean
+  instance_metadata?: Record<string, unknown> | null
 }
 
 export interface InstanceShare {

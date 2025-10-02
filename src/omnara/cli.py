@@ -19,7 +19,6 @@ import secrets
 import requests
 import time
 import threading
-import importlib
 from typing import Optional
 
 AGENT_CHOICES = ["claude", "amp", "codex"]
@@ -340,7 +339,7 @@ def authenticate_via_browser(auth_url="https://omnara.com"):
 
     print("After signing in to Omnara:")
     print("  • Local CLI: Click 'Authenticate Local CLI' button in your browser")
-    print("  • Remote/SSH: Copy the API key and paste below")
+    print("  • Remote session: Copy the API key and paste below")
 
     # Simple blocking input with timeout check in background
     print(
@@ -488,85 +487,68 @@ def cmd_headless(args, unknown_args):
 
 
 def run_agent_chat(args, unknown_args):
-    """Run the agent chat integration (Claude or Amp)"""
+    """Run the agent chat integration, streaming through the relay when possible."""
+    from omnara.commands.run import run_agent_with_terminal_relay
+
+    api_key = ensure_api_key(args)
+    exit_code = run_agent_with_terminal_relay(args, unknown_args, api_key)
+    if exit_code != 0:
+        sys.exit(exit_code)
+    return exit_code
+
+
+def run_agent_default(args, unknown_args):
+    """Run the agent locally without the relay (legacy behaviour)."""
+    agent = getattr(args, "agent", "claude").lower()
+
     api_key = ensure_api_key(args)
 
-    # Import and run directly instead of subprocess
+    env = os.environ.copy()
+    env["OMNARA_API_KEY"] = api_key
 
-    # Prepare sys.argv for the claude wrapper
+    base_url = getattr(args, "base_url", None)
+    if base_url:
+        env["OMNARA_API_URL"] = base_url
+        env["OMNARA_BASE_URL"] = base_url
 
-    # Agent configuration mapping
-    AGENT_CONFIGS = {
-        "claude": {
-            "module": "integrations.cli_wrappers.claude_code.claude_wrapper_v3",
-            "function": "main",
-            "argv_name": "claude_wrapper_v3",
-        },
-        "amp": {
-            "module": "integrations.cli_wrappers.amp.amp",
-            "function": "main",
-            "argv_name": "amp_wrapper",
-        },
-        # 'codex' is implemented as an external binary launcher; handled below
-        "codex": {
-            "module": None,
-            "function": None,
-            "argv_name": "codex",
-        },
-    }
+    agent_instance_id = getattr(args, "agent_instance_id", None)
+    if agent_instance_id:
+        env["OMNARA_AGENT_INSTANCE_ID"] = agent_instance_id
 
-    # Get agent configuration
-    agent = getattr(args, "agent", "claude").lower()
-    config = AGENT_CONFIGS.get(agent)
+    if getattr(args, "name", None):
+        env["OMNARA_AGENT_DISPLAY_NAME"] = args.name
 
-    if not config:
-        raise ValueError(
-            f"Unknown agent: {agent}. Supported agents: {', '.join(AGENT_CONFIGS.keys())}"
-        )
-
-    # Special-case 'codex': spawn the Rust binary with env.
     if agent == "codex":
         from omnara.agents.codex import run_codex
 
-        return run_codex(args, unknown_args, api_key)
+        exit_code = run_codex(args, unknown_args, api_key)
+        if exit_code is None:
+            exit_code = 0
+        if exit_code != 0:
+            sys.exit(exit_code)
+        return
 
-    module = importlib.import_module(config["module"])  # type: ignore[arg-type]
-    wrapper_main = getattr(module, config["function"])  # type: ignore[index]
+    module = None
+    if agent == "claude":
+        module = "integrations.cli_wrappers.claude_code.claude_wrapper_v3"
+    elif agent == "amp":
+        module = "integrations.cli_wrappers.amp.amp"
+    else:
+        print(f"Error: Unknown agent '{agent}'", file=sys.stderr)
+        sys.exit(1)
 
-    # Prepare sys.argv for the wrapper
-    original_argv = sys.argv
-    new_argv = [config["argv_name"], "--api-key", api_key]
-
-    if hasattr(args, "base_url") and args.base_url:
-        new_argv.extend(["--base-url", args.base_url])
-
-    # Add name flag if provided
-    if hasattr(args, "name") and args.name:
-        new_argv.extend(["--name", args.name])
-
-    # Add Claude-specific flags
-    if hasattr(args, "permission_mode") and args.permission_mode:
-        new_argv.extend(["--permission-mode", args.permission_mode])
-
-    if (
-        hasattr(args, "dangerously_skip_permissions")
-        and args.dangerously_skip_permissions
-    ):
-        new_argv.append("--dangerously-skip-permissions")
-
-    # Add idle-delay flag if provided
-    if hasattr(args, "idle_delay") and args.idle_delay:
-        new_argv.extend(["--idle-delay", str(args.idle_delay)])
-
-    # Add any additional arguments
+    command = [sys.executable, "-m", module]
     if unknown_args:
-        new_argv.extend(unknown_args)
+        command.extend(list(unknown_args))
 
     try:
-        sys.argv = new_argv
-        wrapper_main()
-    finally:
-        sys.argv = original_argv
+        result = subprocess.run(command, env=env)
+    except FileNotFoundError as exc:
+        print(f"Error launching agent: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if result.returncode != 0:
+        sys.exit(result.returncode)
 
 
 def cmd_serve(args, unknown_args=None):
@@ -631,21 +613,9 @@ def cmd_mcp(args):
         sys.exit(0)
 
 
-def add_global_arguments(parser):
-    """Add global arguments that work across all subcommands"""
-    parser.add_argument(
-        "--auth",
-        action="store_true",
-        help="Authenticate or re-authenticate with Omnara",
-    )
-    parser.add_argument(
-        "--reauth",
-        action="store_true",
-        help="Force re-authentication even if API key exists",
-    )
-    parser.add_argument(
-        "--version", action="store_true", help="Show version information"
-    )
+def add_runner_arguments(parser: argparse.ArgumentParser) -> None:
+    """Arguments shared by both default and terminal subcommands."""
+
     parser.add_argument(
         "--api-key", help="API key for authentication (uses stored key if not provided)"
     )
@@ -665,9 +635,44 @@ def add_global_arguments(parser):
         default="claude",
         help="Which AI agent to use (default: claude code)",
     )
-    # --set-default can be used two ways:
-    #   - `omnara --set-default codex` (argument form)
-    #   - `omnara --agent codex --set-default` (flag form using current --agent)
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Name of the omnara agent (defaults to the name of the underlying agent)",
+    )
+    parser.add_argument(
+        "--agent-instance-id",
+        type=str,
+        help="Pre-existing agent instance ID to use for this session",
+    )
+    parser.add_argument(
+        "--no-relay",
+        action="store_true",
+        help="Disable WebSocket relay streaming (run local-only session)",
+    )
+    parser.add_argument(
+        "--relay-url",
+        default=None,
+        help="Relay WebSocket URL (default: wss://relay.omnara.com/agent for prod, ws://localhost:8080/agent for local)",
+    )
+
+
+def add_global_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add global arguments that work across all subcommands."""
+
+    parser.add_argument(
+        "--auth",
+        action="store_true",
+        help="Authenticate or re-authenticate with Omnara",
+    )
+    parser.add_argument(
+        "--reauth",
+        action="store_true",
+        help="Force re-authentication even if API key exists",
+    )
+    parser.add_argument(
+        "--version", action="store_true", help="Show version information"
+    )
     parser.add_argument(
         "--set-default",
         nargs="?",
@@ -677,27 +682,7 @@ def add_global_arguments(parser):
             "or pass an agent name (claude|amp|codex)."
         ),
     )
-    parser.add_argument(
-        "--name",
-        default=None,
-        help="Name of the omnara agent (defaults to the name of the underlying agent)",
-    )
-    parser.add_argument(
-        "--permission-mode",
-        choices=["acceptEdits", "bypassPermissions", "default", "plan"],
-        help="Permission mode to use for the session",
-    )
-    parser.add_argument(
-        "--dangerously-skip-permissions",
-        action="store_true",
-        help="Bypass all permission checks. Recommended only for sandboxes with no internet access.",
-    )
-    parser.add_argument(
-        "--idle-delay",
-        type=float,
-        default=3.5,
-        help="Delay in seconds before considering Claude idle (default: 3.5)",
-    )
+    add_runner_arguments(parser)
 
 
 def main():
@@ -708,13 +693,18 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Start Claude chat (default)
+  # Start Claude with WebSocket terminal relay (default)
   omnara
   omnara --api-key YOUR_API_KEY
+  omnara --no-relay                    # Run local-only without relay
 
-  # Start Amp chat
+  # Start Amp with terminal relay
   omnara --agent=amp
   omnara --agent=amp --api-key YOUR_API_KEY
+
+  # Run agent directly without relay (legacy)
+  omnara legacy
+  omnara legacy --agent=amp
 
   # Start headless Claude (controlled via web dashboard)
   omnara headless
@@ -798,6 +788,13 @@ Examples:
         action="store_true",
         help="Disable all tools except the permission tool",
     )
+
+    # 'terminal' subcommand
+    terminal_parser = subparsers.add_parser(
+        "terminal",
+        help="Run agent with WebSocket relay streaming",
+    )
+    add_runner_arguments(terminal_parser)
 
     # 'headless' subcommand
     headless_parser = subparsers.add_parser(
@@ -907,9 +904,11 @@ Examples:
         cmd_mcp(args)
     elif args.command == "headless":
         cmd_headless(args, unknown_args)
-    else:
-        # Default behavior: run agent chat (Claude or Amp based on --agent flag)
+    elif args.command == "terminal":
         run_agent_chat(args, unknown_args)
+    else:
+        # Default behavior: run agent locally without relay
+        run_agent_default(args, unknown_args)
 
 
 if __name__ == "__main__":

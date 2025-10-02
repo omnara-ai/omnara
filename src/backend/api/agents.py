@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 import asyncpg
 
 from ..auth.dependencies import get_current_user
-from ..auth.supabase_client import get_supabase_anon_client
+from shared.auth import get_supabase_anon_client
 from ..db import (
     get_agent_instance_detail,
     get_agent_type_instances,

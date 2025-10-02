@@ -4,7 +4,8 @@
     "src/servers",
     "src/shared",
     "src/omnara",
-    "src/integrations"
+    "src/integrations",
+    "src/relay_server"
   ],
   "exclude": [
     "**/__pycache__",
@@ -13,7 +14,8 @@
     "test-venv/**",
     "**/dist",
     "**/build",
-    "**/*.egg-info"
+    "**/*.egg-info",
+    "src/integrations/cli_wrappers/codex"
   ],
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,

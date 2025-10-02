@@ -34,6 +34,18 @@ class CreateMessageResponse:
 
 
 @dataclass
+class RegisterAgentInstanceResponse:
+    """Response payload from registering an agent instance."""
+
+    agent_instance_id: str
+    agent_type_id: str | None
+    agent_type_name: str | None
+    status: str
+    name: str | None
+    instance_metadata: dict | None = None
+
+
+@dataclass
 class Message:
     """A message in the conversation."""
 

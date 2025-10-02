@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import UserAgentRequest, WebhookTriggerResponse
-from .queries import _format_instance, _get_instance_message_stats
+from .queries import format_agent_instance, _get_instance_message_stats
 from ..auth.jwt_utils import create_api_key_jwt
 
 
@@ -358,7 +358,7 @@ def get_user_agent_instances(db: Session, agent_id: UUID, user_id: UUID) -> list
     message_stats = _get_instance_message_stats(db, instance_ids)
 
     # Format instances using the same helper function used by other endpoints
-    return [_format_instance(instance, message_stats) for instance in instances]
+    return [format_agent_instance(instance, message_stats) for instance in instances]
 
 
 def delete_user_agent(db: Session, agent_id: UUID, user_id: UUID) -> bool:
