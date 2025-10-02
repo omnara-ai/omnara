@@ -14,6 +14,7 @@ import binascii
 from shared.database.session import get_db, SessionLocal
 from shared.database import Message, AgentInstance, SenderType, AgentStatus
 from shared.database.agent_instances import create_agent_instance
+from shared.database.billing_operations import check_agent_limit
 from servers.shared.db import (
     send_agent_message,
     end_session,

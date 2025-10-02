@@ -369,6 +369,7 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
         setError('Relay rejected authentication credentials.')
       } else if (statusRef.current === 'connected' || statusRef.current === 'disconnected') {
         // Unexpected disconnect, attempt to reconnect after 5 seconds
+        setStatus('disconnected')
         setError('Connection lost. Reconnecting...')
         reconnectTimeoutRef.current = setTimeout(() => {
           if (statusRef.current === 'disconnected') {
@@ -379,6 +380,8 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
             }
           }
         }, 5000)
+      } else {
+        setError(null)
       }
 
       socketRef.current = null
@@ -482,8 +485,8 @@ export function TerminalLiveTerminal({ instanceId, className }: TerminalLiveTerm
         updateStatus('error')
         break
       case 'session_ended':
+        setError(null)
         updateStatus('ended')
-        setError('Session has finished running.')
         break
       default:
         break

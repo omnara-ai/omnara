@@ -516,8 +516,8 @@ function buildTerminalHtml(): string {
             setStatus('error');
             setError(payload.message || 'Relay reported an error');
           } else if (kind === 'session_ended') {
-            setStatus('ended');
-            setError('Session has finished running.');
+            setError(null);
+            setStatus('ended', 'Session has finished running.');
           }
         }
 
