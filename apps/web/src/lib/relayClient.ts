@@ -24,7 +24,6 @@ const RELAY_HOST = (import.meta.env.VITE_RELAY_HOST as string | undefined) ?? '1
 const RELAY_PORT_RAW = (import.meta.env.VITE_RELAY_PORT as string | undefined) ?? '8787'
 const RELAY_SECURE = ((import.meta.env.VITE_RELAY_SECURE as string | undefined) ?? 'false').toLowerCase() === 'true'
 
-export const API_KEY_SUBPROTOCOL_PREFIX = 'omnara-key.'
 export const SUPABASE_SUBPROTOCOL_PREFIX = 'omnara-supabase.'
 
 export function getRelayConfig(): RelayConfig {

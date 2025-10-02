@@ -21,6 +21,7 @@ from pathlib import Path
 from shutil import get_terminal_size, which
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlencode
+from uuid import uuid4
 
 import websocket  # type: ignore[import-untyped]
 from websocket import (  # type: ignore[import-untyped]
@@ -32,21 +33,15 @@ from omnara.sdk.client import OmnaraClient
 from omnara.sdk.exceptions import APIError, AuthenticationError, TimeoutError
 
 
-# Always log to /tmp so we don't have to deal with path issues
-LOG_FILE = Path("/tmp/omnara_session_sharing.log")
-
-# Ensure log directory exists and create file marker
-import time as _time
-LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-timestamp_local = _time.strftime("%Y-%m-%d %H:%M:%S")
+# Create a per-session log under ~/.omnara/terminal_wrapper
+_LOG_ROOT = Path.home() / ".omnara" / "terminal_wrapper"
 try:
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"\n{'='*80}\n")
-        f.write(f"[SESSION_SHARING] Module loaded at {timestamp_local} (local time)\n")
-        f.write(f"[SESSION_SHARING] LOG_FILE={LOG_FILE}\n")
-        f.write(f"{'='*80}\n")
+    _LOG_ROOT.mkdir(parents=True, exist_ok=True)
 except Exception:
-    pass
+    _LOG_ROOT = Path("/tmp") / "omnara_terminal_wrapper"
+    _LOG_ROOT.mkdir(parents=True, exist_ok=True)
+
+LOG_FILE = _LOG_ROOT / f"{uuid4()}.log"
 
 FRAME_HEADER = struct.Struct("!BI")
 FRAME_TYPE_OUTPUT = 0
@@ -116,6 +111,10 @@ def _log(message: str) -> None:
     except Exception:
         # Failing to write logs should never break the session wrapper
         pass
+
+
+print(f"[SESSION_SHARING] logging to {LOG_FILE}")
+_log("[SESSION_SHARING] session wrapper initialised")
 
 
 @dataclass(slots=True)
@@ -388,12 +387,13 @@ def run_agent_with_relay(
         frame = _pack_frame(FRAME_TYPE_RESIZE, payload)
         try:
             channel.sendall(frame)
-            _log(
-                f"[TRACE] sent resize cols={cols} rows={rows} (instance_id={relay_log_id})"
-            )
         except Exception as exc:
             _log(
                 f"[WARN] Relay resize send failed instance_id={relay_log_id} exc={exc!r}"
+            )
+        else:
+            _log(
+                f"[RESIZE] applied resize {cols}x{rows} (instance_id={relay_log_id})"
             )
 
     def _log_cursor_reports(data: bytes) -> None:
@@ -509,9 +509,6 @@ def run_agent_with_relay(
         frame = _pack_frame(FRAME_TYPE_OUTPUT, data)
         try:
             channel.sendall(frame)
-            _log(
-                f"[TRACE] upstream chunk len={len(data)} sample={data[:32]!r} (instance_id={relay_log_id})"
-            )
         except Exception as exc:
             _log(f"[WARN] Relay send failed instance_id={relay_log_id} exc={exc!r}")
 
@@ -592,7 +589,7 @@ def run_agent_with_relay(
                 # Log if we see clear screen sequences after resize
                 if b'\x1b[2J' in data or b'\x1b[H\x1b[2J' in data or b'\x1b[3J' in data:
                     _log(
-                        f"[RESIZE] Codex sent clear screen sequence after resize! data_sample={data[:100]!r} (instance_id={relay_log_id})"
+                        f"[RESIZE] Codex sent clear screen sequence after resize (instance_id={relay_log_id})"
                     )
 
                 _log_cursor_reports(data)
@@ -624,9 +621,6 @@ def run_agent_with_relay(
                     else:
                         chunk_bytes = data
                     channel_buffer.extend(chunk_bytes)
-                    _log(
-                        f"[TRACE] raw downstream len={len(chunk_bytes)} sample={chunk_bytes[:32]!r} (instance_id={relay_log_id})"
-                    )
 
                     while True:
                         if len(channel_buffer) < FRAME_HEADER.size:
@@ -645,9 +639,6 @@ def run_agent_with_relay(
                         _log(f"[FRAME] type={frame_type} len={frame_len} (instance_id={relay_log_id})")
 
                         if frame_type == FRAME_TYPE_INPUT:
-                            _log(
-                                f"[TRACE] decoded downstream len={len(payload)} sample={payload[:32]!r} (instance_id={relay_log_id})"
-                            )
 
                             def _adjust_cursor_reports(data: bytes) -> bytes:
                                 if last_cursor_report is None:
