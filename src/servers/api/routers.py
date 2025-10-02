@@ -153,6 +153,7 @@ def register_agent_instance_endpoint(
     instance_metadata = {"transport": request.transport} if request.transport else None
 
     try:
+        check_agent_limit(UUID(user_id), db)
         instance = create_agent_instance(
             db,
             UUID(user_id),

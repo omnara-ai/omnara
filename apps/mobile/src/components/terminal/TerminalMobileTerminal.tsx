@@ -5,12 +5,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 import type { WebView as WebViewType } from 'react-native-webview';
 
@@ -123,9 +118,6 @@ function buildTerminalHtml(): string {
       .banner.visible {
         opacity: 1;
       }
-      #status-banner {
-        top: 16px;
-      }
       #error-banner {
         bottom: 16px;
         background-color: rgba(239, 68, 68, 0.85);
@@ -135,7 +127,6 @@ function buildTerminalHtml(): string {
   <body>
     <div id="app">
       <div id="terminal"></div>
-      <div id="status-banner" class="banner"></div>
       <div id="error-banner" class="banner"></div>
     </div>
 
@@ -145,14 +136,6 @@ function buildTerminalHtml(): string {
       (function () {
         const FRAME_HEADER_SIZE = 5;
         const FRAME_TYPE_OUTPUT = 0;
-        const STATUS_MESSAGES = {
-          'checking-session': 'Verifying session...',
-          'session-missing': 'Session not registered with relay.',
-          connecting: 'Connecting to relay...',
-          disconnected: 'Disconnected from relay.',
-          ended: 'Session finished.',
-          preparing: 'Preparing terminal...'
-        };
 
         let term = null;
         let fitAddon = null;
@@ -168,7 +151,6 @@ function buildTerminalHtml(): string {
         let historyTimer = null;
         let suppressFullClears = false;
 
-        const statusBanner = document.getElementById('status-banner');
         const errorBanner = document.getElementById('error-banner');
         const terminalContainer = document.getElementById('terminal');
 
@@ -183,16 +165,7 @@ function buildTerminalHtml(): string {
 
         function setStatus(nextStatus, messageOverride) {
           lastStatus = nextStatus;
-          post({ type: 'status', status: nextStatus });
-
-          const bannerMessage =
-            messageOverride || STATUS_MESSAGES[nextStatus] || '';
-          if (bannerMessage) {
-            statusBanner.textContent = bannerMessage;
-            statusBanner.classList.add('visible');
-          } else {
-            statusBanner.classList.remove('visible');
-          }
+          post({ type: 'status', status: nextStatus, message: messageOverride ?? null });
         }
 
         function setError(message, statusOverride) {
@@ -517,7 +490,7 @@ function buildTerminalHtml(): string {
             setError(payload.message || 'Relay reported an error');
           } else if (kind === 'session_ended') {
             setError(null);
-            setStatus('ended', 'Session has finished running.');
+            setStatus('ended', '');
           }
         }
 
@@ -760,30 +733,6 @@ function buildTerminalHtml(): string {
 </html>`;
 }
 
-function statusToMessage(status: TerminalStatus, error: string | null): string | null {
-  if (status === 'connected') {
-    return null;
-  }
-  if (status === 'error' || status === 'session-missing') {
-    return error || 'Unable to load terminal.';
-  }
-  switch (status) {
-    case 'idle':
-    case 'preparing':
-      return 'Preparing terminal...';
-    case 'checking-session':
-      return 'Verifying session...';
-    case 'connecting':
-      return 'Connecting to relay...';
-    case 'disconnected':
-      return 'Disconnected from live session.';
-    case 'ended':
-      return 'Session has finished running.';
-    default:
-      return null;
-  }
-}
-
 interface TerminalMobileTerminalProps {
   instanceId: string;
 }
@@ -801,9 +750,7 @@ export const TerminalMobileTerminal = React.forwardRef<
   const activeInstanceRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
   const [webViewReady, setWebViewReady] = useState(false);
-  const [status, setStatus] = useState<TerminalStatus>('idle');
-  const [error, setErrorState] = useState<string | null>(null);
-  const [initializing, setInitializing] = useState(false);
+  const [, setStatus] = useState<TerminalStatus>('idle');
 
   const relayConfig = useMemo(() => buildRelayConfig(), []);
   const terminalHtml = useMemo(() => buildTerminalHtml(), []);
@@ -863,16 +810,13 @@ export const TerminalMobileTerminal = React.forwardRef<
       return;
     }
 
-    setInitializing(true);
     setStatus('preparing');
-    setErrorState(null);
 
     try {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
       if (!token) {
         setStatus('error');
-        setErrorState('Sign in to view the live terminal stream.');
         return;
       }
 
@@ -906,11 +850,6 @@ export const TerminalMobileTerminal = React.forwardRef<
         return;
       }
       setStatus('error');
-      setErrorState(err instanceof Error ? err.message : 'Unable to start terminal session.');
-    } finally {
-      if (isMountedRef.current) {
-        setInitializing(false);
-      }
     }
   }, [instanceId, relayConfig, webViewReady]);
 
@@ -943,18 +882,12 @@ export const TerminalMobileTerminal = React.forwardRef<
         case 'status':
           if (payload.status) {
             setStatus(payload.status);
-            if (payload.status === 'connected') {
-              setErrorState(null);
-            }
           }
           break;
         case 'error':
-          if (typeof payload.message === 'string') {
-            setErrorState(payload.message);
-          }
           if (payload.status) {
             setStatus(payload.status);
-          } else if (payload.message) {
+          } else {
             setStatus('error');
           }
           break;
@@ -964,9 +897,6 @@ export const TerminalMobileTerminal = React.forwardRef<
     },
     []
   );
-
-  const overlayMessage = statusToMessage(status, error);
-  const showOverlay = Boolean(overlayMessage) || initializing;
 
   return (
     <View style={styles.container}>
@@ -986,23 +916,6 @@ export const TerminalMobileTerminal = React.forwardRef<
         style={styles.webview}
         autoManageStatusBarEnabled={false}
       />
-      {showOverlay && (
-        <View style={styles.overlay} pointerEvents="none">
-          {initializing ? (
-            <ActivityIndicator size="small" color={theme.colors.white} />
-          ) : null}
-          {overlayMessage ? (
-            <Text
-              style={[
-                styles.overlayText,
-                initializing ? styles.overlayTextWithIndicator : null,
-              ]}
-            >
-              {overlayMessage}
-            </Text>
-          ) : null}
-        </View>
-      )}
     </View>
   );
 });
@@ -1021,25 +934,5 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: '#000',
-  },
-  overlay: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    right: 12,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: 'rgba(15, 118, 255, 0.16)',
-    alignItems: 'center',
-  },
-  overlayText: {
-    color: theme.colors.white,
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.semibold,
-    textAlign: 'center',
-  },
-  overlayTextWithIndicator: {
-    marginTop: theme.spacing.xs,
   },
 });
