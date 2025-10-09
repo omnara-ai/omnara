@@ -6,12 +6,12 @@ description: 'Launch interactive terminal sessions with WebSocket relay streamin
 ## Usage
 
 ```bash
-omnara terminal [OPTIONS] [CLAUDE_FLAGS]
+omnara terminal [OPTIONS] [AGENT_FLAGS]
 ```
 
 Starts an AI coding agent with WebSocket relay streaming enabled.
 
-When using `--agent claude` (default), any Claude Code CLI flags can be appended and will be passed through to Claude.
+**Agent Flag Pass-through**: Any flags specific to your chosen agent (Claude Code, Codex, Amp) are automatically passed to the underlying agent CLI. This allows you to use native agent features while maintaining Omnara integration.
 
 ## Options
 
@@ -46,7 +46,12 @@ All options from the default command are supported:
 </ParamField>
 
 <Note>
-**Claude Code Compatibility**: All Claude Code CLI flags are supported and passed through when using `--agent claude`. This includes permission modes, tool filtering, and any other Claude-specific flags.
+**Agent Flag Compatibility**: All agent-specific CLI flags are passed through to the underlying agent:
+- **Claude Code**: `--continue`, `--permission-mode`, `--allowed-tools`, `--dangerously-skip-permissions`, etc.
+- **Codex**: Any Codex-specific flags
+- **Amp**: Any Amp-specific flags
+
+This preserves full agent functionality while adding Omnara's dashboard integration.
 </Note>
 
 ## Examples
@@ -73,21 +78,36 @@ omnara terminal --relay-url wss://relay.mycompany.com/agent
 omnara terminal --agent-instance-id abc-123-def
 ```
 
-```bash With Claude Flags
+```bash Claude Code Flags
 # Use any Claude Code flags
 omnara terminal --permission-mode plan --allowed-tools Read,Write,Bash
 
-# Continue previous session
+# Continue previous Claude session
 omnara terminal --continue
 
 # Combine Omnara and Claude flags
 omnara terminal --name "Code Review" --permission-mode acceptEdits
 ```
 
+```bash Codex Flags
+# Use Codex with its native flags
+omnara terminal --agent codex [CODEX_FLAGS]
+```
+
+```bash Amp Flags
+# Use Amp with its native flags
+omnara terminal --agent amp [AMP_FLAGS]
+```
+
 </CodeGroup>
 
 <Tip>
-When using `--agent claude` (default), you can pass any Claude Code CLI flags like `--continue`, `--permission-mode`, `--allowed-tools`, `--dangerously-skip-permissions`, etc. They are passed through to Claude Code.
+**Examples of agent flags:**
+- **Claude Code**: `--continue`, `--permission-mode`, `--allowed-tools`, `--disallowed-tools`, `--dangerously-skip-permissions`
+- **Codex**: Any Codex-specific configuration flags
+- **Amp**: Any Amp-specific configuration flags
+
+All agent flags are automatically passed through to maintain full native functionality.
 </Tip>
 
 ## What is WebSocket Relay?
