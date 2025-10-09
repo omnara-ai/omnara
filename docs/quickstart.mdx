@@ -26,19 +26,6 @@ description: 'Get started with Omnara in under 5 minutes'
     </CodeGroup>
   </Step>
 
-  <Step title="Authenticate">
-    Run the CLI to trigger browser authentication:
-
-    ```bash
-    omnara --auth
-    ```
-
-    This opens your browser where you'll:
-    1. Sign in to Omnara (or create an account)
-    2. Authorize the CLI
-    3. API key automatically saved to `~/.omnara/credentials.json`
-  </Step>
-
   <Step title="Start Your Agent">
     Launch Claude Code with dashboard integration:
 
@@ -46,7 +33,16 @@ description: 'Get started with Omnara in under 5 minutes'
     omnara
     ```
 
+    On first run, this will:
+    1. Open your browser for authentication
+    2. Prompt you to sign in to Omnara (or create an account)
+    3. Automatically save your API key to `~/.omnara/credentials.json`
+
     Everything you do in the terminal is now synced to your [dashboard](https://omnara.com/dashboard) and mobile app.
+
+    <Tip>
+    Authentication happens automatically on first run. You can also explicitly authenticate with `omnara --auth` if needed.
+    </Tip>
   </Step>
 
   <Step title="Try Other Modes">

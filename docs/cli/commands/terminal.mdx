@@ -6,14 +6,12 @@ description: 'Launch interactive terminal sessions with WebSocket relay streamin
 ## Usage
 
 ```bash
-omnara terminal [OPTIONS]
+omnara terminal [OPTIONS] [CLAUDE_FLAGS]
 ```
 
-Starts an AI coding agent with WebSocket relay streaming enabled. This is the explicit command for the relay-enabled mode that's also available via the default `omnara` command.
+Starts an AI coding agent with WebSocket relay streaming enabled.
 
-<Note>
-`omnara terminal` is equivalent to running `omnara` (without subcommand). Both launch agents with WebSocket relay streaming by default.
-</Note>
+When using `--agent claude` (default), any Claude Code CLI flags can be appended and will be passed through to Claude.
 
 ## Options
 
@@ -47,6 +45,10 @@ All options from the default command are supported:
   Omnara API server URL
 </ParamField>
 
+<Note>
+**Claude Code Compatibility**: All Claude Code CLI flags are supported and passed through when using `--agent claude`. This includes permission modes, tool filtering, and any other Claude-specific flags.
+</Note>
+
 ## Examples
 
 <CodeGroup>
@@ -71,7 +73,22 @@ omnara terminal --relay-url wss://relay.mycompany.com/agent
 omnara terminal --agent-instance-id abc-123-def
 ```
 
+```bash With Claude Flags
+# Use any Claude Code flags
+omnara terminal --permission-mode plan --allowed-tools Read,Write,Bash
+
+# Continue previous session
+omnara terminal --continue
+
+# Combine Omnara and Claude flags
+omnara terminal --name "Code Review" --permission-mode acceptEdits
+```
+
 </CodeGroup>
+
+<Tip>
+When using `--agent claude` (default), you can pass any Claude Code CLI flags like `--continue`, `--permission-mode`, `--allowed-tools`, `--dangerously-skip-permissions`, etc. They are passed through to Claude Code.
+</Tip>
 
 ## What is WebSocket Relay?
 
