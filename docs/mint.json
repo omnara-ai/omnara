@@ -1,0 +1,108 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Omnara Documentation",
+
+  "favicon": "/assets/favicon.png",
+  "colors": {
+    "primary": "#f59e0b",
+    "light": "#fbbf24",
+    "dark": "#d97706",
+    "anchors": {
+      "from": "#f59e0b",
+      "to": "#d97706"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Website",
+      "url": "https://omnara.com"
+    },
+    {
+      "name": "Dashboard",
+      "url": "https://omnara.com/dashboard"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "https://omnara.com"
+  },
+  "tabs": [
+    {
+      "name": "CLI Reference",
+      "url": "cli"
+    },
+    {
+      "name": "Integrations",
+      "url": "integrations"
+    },
+    {
+      "name": "API Reference",
+      "url": "api"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/omnara-ai/omnara"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "authentication"
+      ]
+    },
+    {
+      "group": "CLI Commands",
+      "pages": [
+        "cli/overview",
+        "cli/commands/default",
+        "cli/commands/terminal",
+        "cli/commands/headless",
+        "cli/commands/serve",
+        "cli/commands/mcp"
+      ]
+    },
+    {
+      "group": "CLI Configuration",
+      "pages": [
+        "cli/agents",
+        "cli/environment-variables",
+        "cli/config-files"
+      ]
+    },
+    {
+      "group": "Integrations",
+      "pages": [
+        "integrations/n8n",
+        "integrations/github-actions",
+        "integrations/mcp-clients"
+      ]
+    },
+    {
+      "group": "API Documentation",
+      "pages": [
+        "api/overview",
+        "api/authentication",
+        "api/sdk"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/omnara-ai/omnara",
+    "twitter": "https://twitter.com/omnaraai",
+    "linkedin": "https://linkedin.com/company/omnara"
+  },
+  "analytics": {
+    "posthog": {
+      "apiKey": "phc_YOUR_POSTHOG_KEY"
+    }
+  },
+  "search": {
+    "prompt": "Search Omnara documentation..."
+  }
+}

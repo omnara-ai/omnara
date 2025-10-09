@@ -1,0 +1,237 @@
+---
+title: omnara serve
+description: 'Start webhook server for remote triggering of Claude Code sessions'
+---
+
+## Usage
+
+```bash
+omnara serve [OPTIONS]
+```
+
+Starts a webhook server that allows remote triggering of Claude Code sessions from the Omnara dashboard or other integrations. Perfect for starting AI coding sessions from your phone or automating agent launches.
+
+## Options
+
+<ParamField path="--no-tunnel" type="boolean">
+  Run locally without Cloudflare tunnel (default: tunnel enabled)
+</ParamField>
+
+<ParamField path="--port" type="number" default="6662">
+  Server port
+</ParamField>
+
+<ParamField path="--permission-mode" type="string">
+  Permission mode passed to Claude instances (same options as `omnara headless`)
+</ParamField>
+
+Additional permission flags from `omnara headless` are also supported and passed through to Claude instances.
+
+## Examples
+
+<CodeGroup>
+
+```bash Default (with tunnel)
+# Start with Cloudflare tunnel (public URL)
+omnara serve
+
+# Output shows webhook URL:
+# ╔══════════════════════════════╗
+# ║  Webhook URL: https://abc123.trycloudflare.com ║
+# ║  API Key: xyz789...                            ║
+# ╚══════════════════════════════╝
+```
+
+```bash Local Only
+# Local-only server without tunnel
+omnara serve --no-tunnel --port 8080
+```
+
+```bash With Permissions
+# Set default permission mode for all instances
+omnara serve --permission-mode acceptEdits
+```
+
+</CodeGroup>
+
+## Setup Guide
+
+### 1. Start the Server
+
+```bash
+omnara serve
+```
+
+The server will start and display:
+- **Webhook URL**: Public URL for triggering (if tunnel enabled)
+- **API Key**: Secret for authenticating requests
+
+### 2. Configure in Dashboard
+
+1. Navigate to **Dashboard → New Session** in your [dashboard](https://omnara.com/dashboard)
+2. Add a new webhook integration
+3. Paste the webhook URL
+4. Save the API key
+
+### 3. Trigger from Dashboard
+
+Click "Launch Agent" in the dashboard to trigger a new Claude Code session on your machine.
+
+## How It Works
+
+<Steps>
+  <Step title="Webhook Server Starts">
+    Listens for HTTP POST requests on the specified port
+  </Step>
+  <Step title="Cloudflare Tunnel (Optional)">
+    If `--no-tunnel` is not set, starts a Cloudflare tunnel to provide a public HTTPS URL
+  </Step>
+  <Step title="Dashboard Sends Request">
+    When you trigger from dashboard, it sends a POST request with:
+    - Agent instance ID
+    - Initial prompt
+    - Branch/worktree name (optional)
+  </Step>
+  <Step title="Git Worktree Created">
+    Server creates an isolated git worktree for the session (if specified)
+  </Step>
+  <Step title="Claude Launched">
+    Starts a headless Claude Code instance in the worktree
+  </Step>
+  <Step title="Background Execution">
+    Claude runs as a background task, communicating via dashboard
+  </Step>
+</Steps>
+
+## Cloudflare Tunnel
+
+By default, `omnara serve` uses Cloudflare tunnels to expose a public HTTPS URL without port forwarding or firewall configuration.
+
+### With Tunnel (Default)
+```bash
+omnara serve
+# → Accessible from anywhere via https://xxx.trycloudflare.com
+```
+
+**Advantages:**
+- No port forwarding needed
+- HTTPS encryption
+- Works behind corporate firewalls
+- Free (using Cloudflare's free tier)
+
+### Without Tunnel (Local)
+```bash
+omnara serve --no-tunnel --port 8080
+# → Only accessible from local network at http://localhost:8080
+```
+
+**When to use:**
+- Self-hosted environments with existing reverse proxy
+- Local development/testing
+- Security policies prevent external tunnels
+
+<Tip>
+Cloudflare tunnel requires `cloudflared` to be installed. On macOS, it's automatically installed via Homebrew if missing.
+</Tip>
+
+## Git Worktree Isolation
+
+The webhook server creates isolated git worktrees for each session, allowing multiple Claude instances to work on different branches simultaneously without conflicts.
+
+```bash
+# Trigger creates worktree:
+git worktree add ./feature-auth -b feature-auth
+
+# Claude works in isolated directory:
+./feature-auth/
+
+# Main worktree remains clean:
+./
+```
+
+**Worktree Modes:**
+- **Main**: Use current directory (no isolation)
+- **Existing**: Reuse existing worktree if found
+- **New**: Create fresh worktree with new branch
+
+## Security
+
+### Authentication
+- Webhook secret generated at startup
+- Included in webhook URL or sent separately
+- Validated on every request
+
+### API Key Handling
+- Each triggered instance gets a unique Omnara API key
+- Keys are hashed (SHA256) before storage
+- Scoped to authenticated user only
+
+### Network Security
+- Cloudflare tunnel provides HTTPS encryption
+- Local mode requires manual SSL configuration
+- Webhook secret prevents unauthorized access
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Mobile Development" icon="mobile">
+    Start coding sessions from your phone while away from your computer
+  </Card>
+  <Card title="Automated Workflows" icon="gears">
+    Trigger Claude Code from CI/CD pipelines or other automation
+  </Card>
+  <Card title="Team Collaboration" icon="users">
+    Allow teammates to trigger Claude on shared development machines
+  </Card>
+  <Card title="Scheduled Tasks" icon="clock">
+    Combine with cron/scheduling to run Claude at specific times
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Tunnel fails to start">
+    Ensure `cloudflared` is installed:
+    ```bash
+    brew install cloudflared  # macOS
+    ```
+
+    Or use local mode:
+    ```bash
+    omnara serve --no-tunnel
+    ```
+  </Accordion>
+
+  <Accordion title="Webhook triggers but Claude doesn't start">
+    Check logs at:
+    ```
+    ~/.omnara/claude_headless/<session-id>.log
+    ```
+
+    Verify Claude Code CLI is installed:
+    ```bash
+    claude --version
+    ```
+  </Accordion>
+
+  <Accordion title="Git worktree errors">
+    Ensure you're in a git repository:
+    ```bash
+    git status
+    ```
+
+    Or specify main worktree in request to skip isolation
+  </Accordion>
+</AccordionGroup>
+
+## Related Commands
+
+<CardGroup cols={2}>
+  <Card title="omnara headless" href="/cli/commands/headless">
+    Run Claude without webhook server
+  </Card>
+  <Card title="GitHub Actions" href="/integrations/github-actions">
+    Integrate with GitHub workflows
+  </Card>
+</CardGroup>

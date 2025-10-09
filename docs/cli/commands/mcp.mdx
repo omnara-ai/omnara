@@ -1,0 +1,275 @@
+---
+title: omnara mcp
+description: 'Run MCP stdio server for protocol integrations'
+---
+
+## Usage
+
+```bash
+omnara mcp [OPTIONS]
+```
+
+Runs the MCP (Model Context Protocol) stdio server for integration with MCP-compatible clients like Claude Desktop, Cursor, Cline, and other AI coding assistants.
+
+## Options
+
+<ParamField path="--api-key" type="string" required>
+  API key for authentication
+</ParamField>
+
+<ParamField path="--permission-tool" type="boolean">
+  Enable Claude Code permission prompt tool
+</ParamField>
+
+<ParamField path="--git-diff" type="boolean">
+  Enable automatic git diff capture for all messages
+</ParamField>
+
+<ParamField path="--agent-instance-id" type="string">
+  Use existing agent instance instead of creating new one
+</ParamField>
+
+<ParamField path="--disable-tools" type="boolean">
+  Disable all tools except the permission tool
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash Basic
+# Start MCP server
+omnara mcp --api-key YOUR_KEY
+```
+
+```bash Full Features
+# Enable git diff tracking and permission prompts
+omnara mcp --api-key YOUR_KEY --git-diff --permission-tool
+```
+
+```bash Permission Only
+# Run only permission prompt tool
+omnara mcp --api-key YOUR_KEY --permission-tool --disable-tools
+```
+
+</CodeGroup>
+
+## MCP Client Configuration
+
+### Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+
+```json claude_desktop_config.json
+{
+  "mcpServers": {
+    "omnara": {
+      "command": "omnara",
+      "args": ["mcp", "--api-key", "YOUR_API_KEY"]
+    }
+  }
+}
+```
+
+### Cursor
+
+Edit `.cursorrules` or Cursor settings:
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "type": "stdio",
+      "command": "omnara",
+      "args": ["mcp", "--api-key", "YOUR_API_KEY", "--git-diff"]
+    }
+  }
+}
+```
+
+### Using pipx
+
+For pipx installations:
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "command": "pipx",
+      "args": ["run", "--no-cache", "omnara", "mcp", "--api-key", "YOUR_API_KEY"]
+    }
+  }
+}
+```
+
+## Available Tools
+
+The MCP server provides these tools to AI agents:
+
+<Tabs>
+  <Tab title="log_step">
+    **Purpose**: Log high-level steps the agent is performing
+
+    **Parameters:**
+    - `step_description` (required): What the agent is doing
+    - `agent_instance_id` (optional): Instance ID
+
+    **Returns:**
+    - `agent_instance_id`: Session identifier
+    - `step_number`: Sequential step count
+    - `user_feedback`: List of queued user messages
+
+    **Key Feature**: Returns pending user feedback with every step
+  </Tab>
+
+  <Tab title="ask_question">
+    **Purpose**: Ask user a question and block until answer received
+
+    **Parameters:**
+    - `agent_instance_id` (required): Current session
+    - `question_text` (required): Question to ask
+
+    **Returns:**
+    - `answer`: User's response text
+    - `question_id`: Message ID
+
+    **Behavior**: Polls for response (default 24-hour timeout, 10-second interval)
+  </Tab>
+
+  <Tab title="end_session">
+    **Purpose**: Mark agent session as completed
+
+    **Parameters:**
+    - `agent_instance_id` (required): Session to end
+
+    **Returns:**
+    - `success`: Boolean
+    - `final_status`: Should be "completed"
+
+    **Effect**: Sets status to COMPLETED, timestamps end time
+  </Tab>
+
+  <Tab title="approve (optional)">
+    **Purpose**: Claude Code permission prompt handler
+
+    **Enabled by**: `--permission-tool` flag
+
+    **Parameters:**
+    - `tool_name`: Tool requesting permission
+    - `input`: Tool parameters
+
+    **Features:**
+    - Presents options: Yes (once), Yes (for session), No
+    - Caches permissions in memory per instance
+    - Formats prompts as markdown
+
+    **Returns**: `{"behavior": "allow"|"deny"}`
+  </Tab>
+</Tabs>
+
+## Git Diff Capture
+
+When `--git-diff` is enabled:
+
+<Steps>
+  <Step title="Initialization">
+    Captures initial git commit hash at startup
+  </Step>
+  <Step title="Diff Generation">
+    On every `log_step` and `ask_question` call, generates diff showing all changes from initial commit to current state
+  </Step>
+  <Step title="Worktree Exclusion">
+    Automatically excludes other git worktrees from the diff
+  </Step>
+  <Step title="Untracked Files">
+    Includes untracked files in diff-like format
+  </Step>
+</Steps>
+
+**Use case**: Automatically track code changes without manual git commands. The diff is attached to every message sent to the dashboard.
+
+## Permission Tool
+
+Enable with `--permission-tool` to route Claude Code permission prompts through the Omnara dashboard:
+
+```bash
+omnara mcp --api-key YOUR_KEY --permission-tool
+```
+
+**How it works:**
+1. Claude Code asks for permission (e.g., "Run this bash command?")
+2. Request is sent to Omnara MCP server via `approve` tool
+3. Dashboard shows permission prompt to user
+4. User approves/denies via dashboard
+5. Response sent back to Claude Code
+6. Permission decision cached for session
+
+**Benefits:**
+- Approve Claude Code actions remotely
+- Review permission requests before approval
+- Session-wide permission caching
+
+## Tool Disabling
+
+Use `--disable-tools` to disable all tools except the permission tool:
+
+```bash
+omnara mcp --api-key YOUR_KEY --permission-tool --disable-tools
+```
+
+**Use case**: When using Omnara purely for permission prompts with Claude Code, reduce overhead by disabling logging/question tools.
+
+## How It Works
+
+1. **Stdio Server**: Communicates via stdin/stdout using MCP protocol
+2. **Tool Registration**: Registers available tools with the MCP client
+3. **Request Handling**: Processes tool calls from AI agents
+4. **API Integration**: Forwards messages to Omnara API for storage/dashboard sync
+5. **Response Delivery**: Returns results to AI agent via stdio
+
+## Supported Clients
+
+<CardGroup cols={3}>
+  <Card title="Claude Desktop" icon="desktop">
+    Stdio transport
+  </Card>
+  <Card title="Claude Code" icon="terminal">
+    Stdio transport
+  </Card>
+  <Card title="Cursor" icon="code">
+    HTTP/Stdio transport
+  </Card>
+  <Card title="Cline" icon="robot">
+    Stdio transport
+  </Card>
+  <Card title="Windsurf" icon="wave">
+    SSE transport
+  </Card>
+  <Card title="Custom Clients" icon="plug">
+    Any MCP-compatible client
+  </Card>
+</CardGroup>
+
+## Authentication
+
+Uses JWT-based authentication with custom RSA keys:
+
+- API key is a JWT token with `user_id` claim
+- Weaker RSA keys used for shorter API keys (design tradeoff)
+- All operations scoped to authenticated user
+- Keys should be kept secure despite weaker crypto
+
+<Warning>
+Store API keys securely. While the MCP server uses weaker RSA for shorter keys, they still provide user-level access to your Omnara account.
+</Warning>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="MCP Clients Integration" href="/integrations/mcp-clients">
+    Detailed client configuration examples
+  </Card>
+  <Card title="Python SDK" href="/api/sdk">
+    Programmatic access to same functionality
+  </Card>
+</CardGroup>

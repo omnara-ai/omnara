@@ -1,0 +1,298 @@
+---
+title: Configuration Files
+description: 'Omnara CLI configuration file locations and formats'
+---
+
+## Configuration Directory
+
+All Omnara configuration files are stored in:
+
+```
+~/.omnara/
+```
+
+This directory is created automatically on first run with secure permissions (`0o700` - owner only).
+
+## credentials.json
+
+**Location:** `~/.omnara/credentials.json`
+
+**Purpose:** Stores authentication credentials (API keys)
+
+**Format:**
+```json
+{
+  "write_key": "xxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+**Permissions:** `0o600` (read/write for owner only)
+
+### How It's Created
+
+The API key is automatically saved when you authenticate:
+
+```bash
+omnara --auth
+```
+
+The browser authentication flow saves the key to this file.
+
+### Manual Management
+
+You can also set the API key manually:
+
+```bash
+# Using jq
+echo '{"write_key": "YOUR_KEY_HERE"}' | jq > ~/.omnara/credentials.json
+
+# Or edit directly
+nano ~/.omnara/credentials.json
+```
+
+<Warning>
+Keep this file secure! It contains your authentication credentials. Never commit it to version control.
+</Warning>
+
+## config.json
+
+**Location:** `~/.omnara/config.json`
+
+**Purpose:** Stores user preferences (non-sensitive settings)
+
+**Format:**
+```json
+{
+  "default_agent": "claude"
+}
+```
+
+**Permissions:** `0o600` (same as credentials for consistency)
+
+### How It's Created
+
+Configuration is saved when you set preferences:
+
+```bash
+# Set default agent
+omnara --set-default codex
+```
+
+This creates/updates `config.json` with your preference.
+
+### Available Settings
+
+Currently supported settings:
+
+<ParamField path="default_agent" type="string">
+  Default agent to use: `claude`, `codex`, or `amp`
+
+  ```json
+  {
+    "default_agent": "codex"
+  }
+  ```
+</ParamField>
+
+More settings may be added in future versions.
+
+### Manual Editing
+
+You can edit config.json directly:
+
+```bash
+nano ~/.omnara/config.json
+```
+
+The CLI merges new settings with existing ones, preserving other values.
+
+## Log Files
+
+Agent sessions create log files in subdirectories of `~/.omnara/`:
+
+### Location Pattern
+
+```
+~/.omnara/<agent-type>/<session-id>.log
+```
+
+### Examples
+
+<CodeGroup>
+
+```plaintext Claude Code
+~/.omnara/claude_wrapper/abc-123-def-456.log
+```
+
+```plaintext Codex
+~/.omnara/codex_wrapper/abc-123-def-456.log
+```
+
+```plaintext Amp
+~/.omnara/amp_wrapper/abc-123-def-456.log
+```
+
+```plaintext Headless
+~/.omnara/claude_headless/abc-123-def-456.log
+```
+
+</CodeGroup>
+
+### Viewing Logs
+
+```bash
+# Find your session ID from dashboard or CLI output
+export SESSION_ID="abc-123-def-456"
+
+# Tail the log file
+tail -f ~/.omnara/claude_wrapper/$SESSION_ID.log
+
+# Or search for latest
+ls -t ~/.omnara/claude_wrapper/*.log | head -1 | xargs tail -f
+```
+
+## File Separation
+
+<Tabs>
+  <Tab title="credentials.json">
+    **Contains:**
+    - API keys
+    - Authentication tokens
+    - Sensitive secrets
+
+    **Why separate:**
+    - Can be excluded from backups
+    - Different access control
+    - Never shared or version controlled
+  </Tab>
+
+  <Tab title="config.json">
+    **Contains:**
+    - User preferences
+    - Default settings
+    - Non-sensitive configuration
+
+    **Why separate:**
+    - Can be synced across machines
+    - Safe to backup
+    - Can be version controlled (if desired)
+  </Tab>
+</Tabs>
+
+## Backup and Migration
+
+### Backup
+
+```bash
+# Backup configuration directory
+cp -r ~/.omnara ~/.omnara.backup
+
+# Or just credentials
+cp ~/.omnara/credentials.json ~/.omnara/credentials.json.backup
+```
+
+### Migration to New Machine
+
+```bash
+# On old machine
+tar -czf omnara-config.tar.gz ~/.omnara/credentials.json ~/.omnara/config.json
+
+# Transfer file to new machine
+
+# On new machine
+tar -xzf omnara-config.tar.gz -C ~/
+```
+
+<Tip>
+Only migrate `credentials.json` and `config.json`. Log files are session-specific and don't need to be transferred.
+</Tip>
+
+## Troubleshooting
+
+### Corrupted credentials.json
+
+If you see authentication errors:
+
+```bash
+# Check file contents
+cat ~/.omnara/credentials.json
+
+# Validate JSON syntax
+python -m json.tool ~/.omnara/credentials.json
+
+# If corrupt, re-authenticate
+omnara --reauth
+```
+
+### Wrong Permissions
+
+If you see permission errors:
+
+```bash
+# Fix directory permissions
+chmod 700 ~/.omnara
+
+# Fix file permissions
+chmod 600 ~/.omnara/credentials.json
+chmod 600 ~/.omnara/config.json
+```
+
+### Reset Configuration
+
+To start fresh:
+
+```bash
+# Backup first (optional)
+mv ~/.omnara ~/.omnara.backup
+
+# Delete configuration
+rm -rf ~/.omnara
+
+# Re-authenticate
+omnara --auth
+```
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Never commit credentials" icon="git">
+    Add to your `.gitignore`:
+    ```
+    .omnara/
+    **/credentials.json
+    ```
+  </Accordion>
+
+  <Accordion title="Use environment variables in CI/CD" icon="server">
+    Don't store `credentials.json` in CI/CD systems. Use secrets:
+    ```bash
+    export OMNARA_API_KEY="${{ secrets.OMNARA_API_KEY }}"
+    ```
+  </Accordion>
+
+  <Accordion title="Secure backups" icon="shield">
+    If backing up credentials:
+    ```bash
+    # Encrypt before backing up
+    tar -czf - ~/.omnara | gpg -c > omnara-backup.tar.gz.gpg
+    ```
+  </Accordion>
+
+  <Accordion title="Rotate keys regularly" icon="rotate">
+    Generate new API keys periodically from the dashboard and update credentials:
+    ```bash
+    omnara --reauth
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" href="/cli/environment-variables">
+    Configure Omnara with environment variables
+  </Card>
+  <Card title="Authentication" href="/authentication">
+    Learn about authentication methods
+  </Card>
+</CardGroup>

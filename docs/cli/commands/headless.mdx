@@ -1,0 +1,190 @@
+---
+title: omnara headless
+description: 'Run Claude Code in background mode without terminal UI'
+---
+
+## Usage
+
+```bash
+omnara headless [OPTIONS]
+```
+
+Runs Claude Code in the background without a terminal UI. Perfect for dashboard-only interaction, automation, or when you want to control Claude exclusively through the web/mobile app.
+
+## Options
+
+<ParamField path="--prompt" type="string" default="You are starting a coding session">
+  Initial prompt to send to Claude when the session starts
+</ParamField>
+
+<ParamField path="--permission-mode" type="string">
+  Permission handling mode:
+  - `acceptEdits` - Automatically accept all edit operations
+  - `bypassPermissions` - Bypass all permission checks entirely
+  - `plan` - Planning mode (Claude creates plans before executing)
+  - `default` - Normal permission prompting behavior
+</ParamField>
+
+<ParamField path="--allowed-tools" type="string">
+  Comma-separated whitelist of allowed tools (e.g., `Read,Write,Bash`)
+</ParamField>
+
+<ParamField path="--disallowed-tools" type="string">
+  Comma-separated blacklist of disallowed tools
+</ParamField>
+
+<ParamField path="--cwd" type="string">
+  Working directory for Claude (defaults to current directory)
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash Basic
+# Run headless with default settings
+omnara headless
+```
+
+```bash Auto-accept
+# Auto-accept all edits with specific tools
+omnara headless --permission-mode acceptEdits --allowed-tools Read,Write,Bash
+```
+
+```bash Custom Prompt
+# Start with a specific task
+omnara headless \
+  --prompt "Review all files in src/ for security issues" \
+  --cwd /path/to/project
+```
+
+```bash Planning Mode
+# Use planning mode for complex tasks
+omnara headless \
+  --permission-mode plan \
+  --prompt "Refactor the authentication module"
+```
+
+</CodeGroup>
+
+## Permission Modes
+
+<Tabs>
+  <Tab title="acceptEdits">
+    Automatically accepts all file edit operations. Claude can still ask questions via the dashboard, but file changes happen without prompts.
+
+    **Use case**: Trusted environments where you want speed over control
+  </Tab>
+  <Tab title="bypassPermissions">
+    Bypasses all permission checks entirely. Claude operates with full autonomy.
+
+    **Use case**: Fully automated workflows, CI/CD pipelines
+  </Tab>
+  <Tab title="plan">
+    Claude creates detailed plans before executing. You can review and approve plans via dashboard.
+
+    **Use case**: Complex refactoring, architecture changes
+  </Tab>
+  <Tab title="default">
+    Standard permission prompts. Claude asks before executing tools that require approval.
+
+    **Use case**: Interactive sessions with human oversight
+  </Tab>
+</Tabs>
+
+## Tool Filtering
+
+Control which tools Claude can use:
+
+### Whitelist (allowed-tools)
+```bash
+omnara headless --allowed-tools Read,Write,Bash
+```
+Only these tools (plus `mcp__omnara__approve`) can be used. All others are blocked.
+
+### Blacklist (disallowed-tools)
+```bash
+omnara headless --disallowed-tools Bash,Edit
+```
+All tools except these can be used.
+
+### Combined
+```bash
+omnara headless \
+  --allowed-tools Read,Write,Bash,Grep \
+  --disallowed-tools Edit
+```
+Allowed tools takes precedence. Useful for fine-grained control.
+
+<Tip>
+The `mcp__omnara__approve` tool is always allowed, enabling dashboard interaction even with strict tool filtering.
+</Tip>
+
+## How It Works
+
+1. **Initialization**: Creates an agent instance and connects to Omnara MCP server
+2. **Initial Prompt**: Sends your specified prompt to Claude
+3. **Background Processing**: Claude processes the request and streams responses to dashboard
+4. **Message Queuing**: When you respond via dashboard, messages are queued and delivered to Claude
+5. **Session Persistence**: Session continues until completed or explicitly ended
+
+## Dashboard Interaction
+
+While Claude runs headless, you can interact via dashboard:
+
+- **Monitor Progress**: See Claude's actions in real-time
+- **Answer Questions**: Respond when Claude asks for input
+- **View Changes**: See git diffs of file modifications
+- **Control Session**: End session or provide new instructions
+
+## Logs
+
+Logs are stored at:
+```
+~/.omnara/claude_headless/<session-id>.log
+```
+
+View logs in real-time:
+```bash
+tail -f ~/.omnara/claude_headless/<session-id>.log
+```
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Automated Code Review" icon="magnifying-glass">
+    ```bash
+    omnara headless \
+      --prompt "Review all files for security issues" \
+      --allowed-tools Read,Grep
+    ```
+  </Card>
+  <Card title="Background Refactoring" icon="wrench">
+    ```bash
+    omnara headless \
+      --permission-mode acceptEdits \
+      --prompt "Refactor auth module"
+    ```
+  </Card>
+  <Card title="CI/CD Integration" icon="gears">
+    ```bash
+    omnara headless \
+      --permission-mode bypassPermissions \
+      --prompt "Fix linting errors"
+    ```
+  </Card>
+  <Card title="Mobile-controlled Development" icon="mobile">
+    Start from your computer, control from your phone while commuting
+  </Card>
+</CardGroup>
+
+## Related Commands
+
+<CardGroup cols={2}>
+  <Card title="omnara serve" href="/cli/commands/serve">
+    Remote triggering via webhook
+  </Card>
+  <Card title="omnara mcp" href="/cli/commands/mcp">
+    MCP server for custom integrations
+  </Card>
+</CardGroup>

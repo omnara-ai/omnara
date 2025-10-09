@@ -1,0 +1,291 @@
+---
+title: MCP Client Integration
+description: 'Connect Omnara with MCP-compatible AI clients'
+---
+
+## Overview
+
+Omnara provides an MCP (Model Context Protocol) server that integrates with various AI coding assistants including Claude Desktop, Cursor, Cline, Windsurf, and more.
+
+## Supported Clients
+
+<CardGroup cols={3}>
+  <Card title="Claude Desktop" icon="desktop">
+    Stdio transport
+  </Card>
+  <Card title="Claude Code" icon="terminal">
+    Stdio transport
+  </Card>
+  <Card title="Cursor" icon="code">
+    HTTP/Stdio transport
+  </Card>
+  <Card title="Cline" icon="robot">
+    Stdio transport
+  </Card>
+  <Card title="Windsurf" icon="wind">
+    SSE transport
+  </Card>
+  <Card title="Custom" icon="plug">
+    Any MCP client
+  </Card>
+</CardGroup>
+
+## Quick Setup
+
+### Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "command": "omnara",
+      "args": ["mcp", "--api-key", "YOUR_API_KEY"]
+    }
+  }
+}
+```
+
+### Cursor
+
+Add to your Cursor settings or `.cursorrules`:
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "type": "stdio",
+      "command": "omnara",
+      "args": ["mcp", "--api-key", "YOUR_API_KEY", "--git-diff"]
+    }
+  }
+}
+```
+
+### Using pipx
+
+If you installed Omnara with pipx:
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "command": "pipx",
+      "args": ["run", "--no-cache", "omnara", "mcp", "--api-key", "YOUR_API_KEY"]
+    }
+  }
+}
+```
+
+## Available Tools
+
+When you add Omnara as an MCP server, AI agents get access to these tools:
+
+<Tabs>
+  <Tab title="log_step">
+    **Purpose**: Log progress updates
+
+    **Use case**: Track what the agent is doing
+    - "Analyzing codebase structure..."
+    - "Found 5 files to review"
+    - "Making changes to authentication.py"
+  </Tab>
+
+  <Tab title="ask_question">
+    **Purpose**: Ask user questions
+
+    **Use case**: Get human input when needed
+    - "Should I proceed with this refactor?"
+    - "Which approach do you prefer?"
+    - "Can I delete this deprecated file?"
+  </Tab>
+
+  <Tab title="end_session">
+    **Purpose**: Mark work complete
+
+    **Use case**: Clean session tracking
+    - Marks session as COMPLETED
+    - Appears in dashboard history
+  </Tab>
+
+  <Tab title="approve (optional)">
+    **Purpose**: Permission prompts
+
+    **Use case**: Remote approval for Claude Code
+    - Enable with `--permission-tool`
+    - Route permission prompts through dashboard
+    - Approve actions from anywhere
+  </Tab>
+</Tabs>
+
+## Advanced Configuration
+
+### Enable Git Diff Tracking
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "command": "omnara",
+      "args": ["mcp", "--api-key", "YOUR_API_KEY", "--git-diff"]
+    }
+  }
+}
+```
+
+Automatically captures code changes with every message.
+
+### Permission Tool Mode
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "command": "omnara",
+      "args": [
+        "mcp",
+        "--api-key", "YOUR_API_KEY",
+        "--permission-tool",
+        "--disable-tools"
+      ]
+    }
+  }
+}
+```
+
+Use Omnara purely for permission prompts, disabling other tools to reduce overhead.
+
+### Resume Existing Session
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "command": "omnara",
+      "args": [
+        "mcp",
+        "--api-key", "YOUR_API_KEY",
+        "--agent-instance-id", "abc-123-def-456"
+      ]
+    }
+  }
+}
+```
+
+Continue an existing session instead of creating a new one.
+
+## How It Works
+
+<Steps>
+  <Step title="Client Starts MCP Server">
+    Your AI client (Claude Desktop, Cursor, etc.) launches `omnara mcp` as a subprocess
+  </Step>
+
+  <Step title="Tools Registered">
+    Omnara registers available tools with the MCP client via stdio protocol
+  </Step>
+
+  <Step title="Agent Uses Tools">
+    AI agent calls tools as needed:
+    - `log_step("Analyzing code...")`
+    - `ask_question("Proceed with changes?")`
+  </Step>
+
+  <Step title="Synced to Dashboard">
+    All messages and questions appear in real-time on your Omnara dashboard
+  </Step>
+
+  <Step title="User Responds">
+    You can respond to questions from:
+    - Web dashboard
+    - Mobile app
+    - Any device with Omnara access
+  </Step>
+
+  <Step title="Response Delivered">
+    Your response is sent back to the AI agent via the MCP server
+  </Step>
+</Steps>
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Mobile Oversight" icon="mobile">
+    Monitor what Claude Desktop is doing from your phone. Respond to questions while away from your computer.
+  </Accordion>
+
+  <Accordion title="Session History" icon="clock-rotate-left">
+    All Claude Desktop conversations are logged to your Omnara dashboard. Review what agents did, even after closing the app.
+  </Accordion>
+
+  <Accordion title="Multi-Device Control" icon="devices">
+    Start work in Cursor on your laptop, continue monitoring on your phone, respond from your tablet.
+  </Accordion>
+
+  <Accordion title="Team Visibility" icon="users">
+    Share agent session links with teammates. Collaborate on AI-assisted development.
+  </Accordion>
+
+  <Accordion title="Remote Permissions" icon="shield">
+    Approve Claude Code actions remotely through dashboard instead of local terminal prompts.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="MCP server not connecting">
+    **Check:**
+    1. Omnara is installed: `omnara --version`
+    2. API key is valid: `omnara mcp --api-key YOUR_KEY` (test manually)
+    3. Config file syntax is correct (valid JSON)
+    4. No typos in command or args
+
+    **Debug:**
+    ```bash
+    # Test MCP server manually
+    omnara mcp --api-key YOUR_KEY
+
+    # Check logs
+    # Claude Desktop: ~/Library/Logs/Claude/mcp.log
+    ```
+  </Accordion>
+
+  <Accordion title="Tools not appearing">
+    **Causes:**
+    - Client doesn't support MCP tools
+    - Configuration not reloaded
+    - Wrong transport type for client
+
+    **Fix:**
+    1. Restart your AI client
+    2. Check client supports MCP stdio
+    3. Verify tool registration in client logs
+  </Accordion>
+
+  <Accordion title="Messages not in dashboard">
+    **Causes:**
+    - Wrong API key
+    - Network/firewall blocking
+    - Wrong base URL (for self-hosted)
+
+    **Fix:**
+    ```bash
+    # Test API key manually
+    curl -H "Authorization: Bearer YOUR_KEY" \
+      https://agent.omnara.com/api/v1/auth/verify
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="omnara mcp Command" href="/cli/commands/mcp">
+    Complete MCP server documentation
+  </Card>
+  <Card title="Python SDK" href="/api/sdk">
+    Build custom MCP integrations
+  </Card>
+</CardGroup>

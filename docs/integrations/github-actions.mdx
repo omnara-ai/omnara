@@ -1,0 +1,189 @@
+---
+title: GitHub Actions Integration
+description: 'Run Claude Code in GitHub Actions with Omnara monitoring'
+---
+
+## Overview
+
+The Omnara GitHub Actions integration allows you to trigger Claude Code to run in your GitHub Actions workflows, while monitoring and interacting with it through the Omnara dashboard.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Remote Launch" icon="rocket">
+    Start GitHub Actions from your phone or web dashboard
+  </Card>
+  <Card title="Automatic PR Creation" icon="git-alt">
+    Claude creates branches, commits changes, and opens PRs
+  </Card>
+  <Card title="Real-time Monitoring" icon="eye">
+    Track progress and provide guidance through Omnara
+  </Card>
+  <Card title="Two-way Communication" icon="comments">
+    Respond to Claude's questions from anywhere
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+<Steps>
+  <Step title="Add GitHub Action">
+    Create `.github/workflows/omnara.yml`:
+
+    ```yaml
+    name: Omnara Claude Code
+    on:
+      repository_dispatch:
+        types: [omnara-trigger]
+
+    jobs:
+      claude:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v3
+
+          - name: Run Claude Code
+            uses: omnara-ai/claude-code-action@v1
+            with:
+              api-key: ${{ secrets.OMNARA_API_KEY }}
+              prompt: ${{ github.event.client_payload.prompt }}
+              permission-mode: acceptEdits
+    ```
+  </Step>
+
+  <Step title="Configure Dashboard">
+    1. Go to **Settings → Integrations** in your [dashboard](https://omnara.com/dashboard)
+    2. Add GitHub Actions integration
+    3. Enter repository name (e.g., `owner/repo`)
+    4. Add GitHub token with `repo` scope
+  </Step>
+
+  <Step title="Trigger from Dashboard">
+    Click "Launch Agent" and select GitHub Actions to trigger Claude Code in your repository
+  </Step>
+</Steps>
+
+## Configuration
+
+### Action Inputs
+
+<ParamField path="api-key" type="string" required>
+  Omnara API key for authentication
+</ParamField>
+
+<ParamField path="prompt" type="string">
+  Initial prompt for Claude Code
+</ParamField>
+
+<ParamField path="permission-mode" type="string">
+  Permission handling: `acceptEdits`, `bypassPermissions`, `plan`, `default`
+</ParamField>
+
+<ParamField path="allowed-tools" type="string">
+  Comma-separated list of allowed tools
+</ParamField>
+
+<ParamField path="branch" type="string">
+  Branch to work on (default: creates new branch)
+</ParamField>
+
+### Required Secrets
+
+Add these to your repository secrets:
+
+```bash
+OMNARA_API_KEY  # From omnara.com/dashboard
+GITHUB_TOKEN    # Automatically provided by GitHub Actions
+```
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Automated Code Reviews" icon="magnifying-glass">
+    Trigger Claude to review PRs and suggest improvements
+  </Card>
+  <Card title="Bug Fixes" icon="bug">
+    Have Claude investigate and fix reported issues
+  </Card>
+  <Card title="Refactoring" icon="code">
+    Request code refactoring or modernization
+  </Card>
+  <Card title="Documentation" icon="book">
+    Generate or update documentation automatically
+  </Card>
+</CardGroup>
+
+## Example Workflows
+
+### On Issue Comment
+
+```yaml
+name: Claude Code on Demand
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude:
+    if: contains(github.event.comment.body, '/claude')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Extract Command
+        id: command
+        run: |
+          COMMAND=$(echo "${{ github.event.comment.body }}" | sed 's/\/claude //')
+          echo "prompt=$COMMAND" >> $GITHUB_OUTPUT
+
+      - name: Run Claude
+        uses: omnara-ai/claude-code-action@v1
+        with:
+          api-key: ${{ secrets.OMNARA_API_KEY }}
+          prompt: ${{ steps.command.outputs.prompt }}
+```
+
+### Scheduled Code Maintenance
+
+```yaml
+name: Weekly Maintenance
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Every Sunday
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run Maintenance
+        uses: omnara-ai/claude-code-action@v1
+        with:
+          api-key: ${{ secrets.OMNARA_API_KEY }}
+          prompt: "Update dependencies and fix any linting issues"
+          permission-mode: acceptEdits
+```
+
+## Documentation
+
+For complete setup instructions and advanced configuration, see the GitHub Actions integration guide in the repository:
+
+<Card
+  title="View GitHub Actions Integration Guide"
+  icon="github"
+  href="https://github.com/omnara-ai/omnara/tree/main/src/integrations/github"
+>
+  Detailed setup, examples, and troubleshooting
+</Card>
+
+## Related Integrations
+
+<CardGroup cols={2}>
+  <Card title="CLI Integration" href="/cli/overview">
+    Run agents locally with CLI
+  </Card>
+  <Card title="n8n Workflows" href="/integrations/n8n">
+    Add human-in-the-loop to automations
+  </Card>
+</CardGroup>
