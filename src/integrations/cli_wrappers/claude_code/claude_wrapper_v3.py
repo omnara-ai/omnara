@@ -198,7 +198,7 @@ class ClaudeWrapperV3:
         self.agent_instance_id = str(uuid.uuid4())
         self.permission_mode = permission_mode
         self.dangerously_skip_permissions = dangerously_skip_permissions
-        self.name = name
+        self.name = os.environ.get("OMNARA_AGENT_DISPLAY_NAME") or name
         self.idle_delay = idle_delay
 
         # Set up logging
