@@ -1,0 +1,184 @@
+---
+title: Quickstart
+description: 'Get started with Omnara in under 5 minutes'
+---
+
+<Steps>
+  <Step title="Install Omnara">
+    Choose your preferred package manager:
+
+    <CodeGroup>
+    ```bash pip
+    pip install omnara
+    ```
+
+    ```bash homebrew
+    brew install omnara
+    ```
+
+    ```bash uv
+    uv tool install omnara
+    ```
+
+    ```bash pipx
+    pipx install omnara
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Authenticate">
+    Run the CLI to trigger browser authentication:
+
+    ```bash
+    omnara --auth
+    ```
+
+    This opens your browser where you'll:
+    1. Sign in to Omnara (or create an account)
+    2. Authorize the CLI
+    3. API key automatically saved to `~/.omnara/credentials.json`
+  </Step>
+
+  <Step title="Start Your Agent">
+    Launch Claude Code with dashboard integration:
+
+    ```bash
+    omnara
+    ```
+
+    Everything you do in the terminal is now synced to your [dashboard](https://omnara.com/dashboard) and mobile app.
+  </Step>
+
+  <Step title="Try Other Modes">
+    Explore different usage patterns:
+
+    <CodeGroup>
+    ```bash Headless
+    # Run in background without terminal UI
+    omnara headless --prompt "Review this codebase"
+    ```
+
+    ```bash Webhook Server
+    # Enable remote triggering
+    omnara serve
+    ```
+
+    ```bash Different Agent
+    # Use Codex instead of Claude Code
+    omnara --agent codex
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="CLI Commands"
+    icon="terminal"
+    href="/cli/overview"
+  >
+    Explore all available commands
+  </Card>
+  <Card
+    title="n8n Integration"
+    icon="workflow"
+    href="/integrations/n8n"
+  >
+    Add human-in-the-loop to workflows
+  </Card>
+  <Card
+    title="Python SDK"
+    icon="python"
+    href="/api/sdk"
+  >
+    Build custom integrations
+  </Card>
+  <Card
+    title="Environment Variables"
+    icon="gear"
+    href="/cli/environment-variables"
+  >
+    Configure with env vars
+  </Card>
+</CardGroup>
+
+## Common Workflows
+
+<AccordionGroup>
+  <Accordion title="Development with Claude Code" icon="code">
+    ```bash
+    # Set Claude as default
+    omnara --set-default claude
+
+    # Start a named session
+    omnara --name "Feature Development"
+
+    # Work in terminal as usual
+    # Everything syncs to dashboard automatically
+    ```
+  </Accordion>
+
+  <Accordion title="Background Code Review" icon="magnifying-glass">
+    ```bash
+    # Start headless review
+    omnara headless \
+      --prompt "Review all files in src/ for security issues" \
+      --allowed-tools Read,Grep \
+      --cwd /path/to/project
+
+    # Check dashboard for results
+    # Respond to any questions Claude asks
+    ```
+  </Accordion>
+
+  <Accordion title="Remote Mobile Development" icon="mobile">
+    ```bash
+    # On your computer, start webhook server
+    omnara serve
+
+    # From your phone:
+    # 1. Open Omnara app
+    # 2. Go to Settings → Integrations
+    # 3. Add webhook configuration
+    # 4. Tap "Launch Agent" to trigger Claude on your computer
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Authentication fails">
+    ```bash
+    # Try re-authenticating
+    omnara --reauth
+
+    # Or set API key manually
+    export OMNARA_API_KEY="your-key-here"
+    omnara
+    ```
+  </Accordion>
+
+  <Accordion title="Agent not found">
+    Ensure the agent CLI is installed:
+
+    ```bash
+    # Claude Code
+    claude --version
+
+    # Codex (packaged with Omnara)
+    # Should work out of the box
+
+    # Amp
+    amp --version
+    ```
+  </Accordion>
+
+  <Accordion title="Dashboard not updating">
+    1. Check you're not using `--no-relay`
+    2. Verify internet connection
+    3. Check logs: `~/.omnara/<agent>_wrapper/<session-id>.log`
+  </Accordion>
+</AccordionGroup>

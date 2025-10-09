@@ -1,0 +1,321 @@
+---
+title: Authentication
+description: 'Set up authentication for Omnara CLI'
+---
+
+## Overview
+
+Omnara uses API keys for authentication. You can obtain an API key through browser-based OAuth or by manually copying it from your dashboard.
+
+## First-Time Setup
+
+### Option 1: Browser Authentication (Recommended)
+
+```bash
+omnara --auth
+```
+
+This command:
+1. Starts a local HTTP server on a random port
+2. Opens your browser to `https://omnara.com/cli-auth`
+3. Prompts you to sign in (or create an account)
+4. Automatically receives the API key via callback
+5. Saves the key to `~/.omnara/credentials.json`
+
+<Tip>
+The local server only listens on `127.0.0.1` and shuts down after authentication for security.
+</Tip>
+
+### Option 2: Manual API Key
+
+If browser authentication doesn't work (e.g., remote SSH session):
+
+<Steps>
+  <Step title="Get Your API Key">
+    1. Visit [omnara.com/cli-auth](https://omnara.com/cli-auth)
+    2. Sign in to your account
+    3. Click "Copy API Key"
+  </Step>
+
+  <Step title="Set the API Key">
+    Choose one method:
+
+    <CodeGroup>
+    ```bash Environment Variable
+    export OMNARA_API_KEY="omr_xxxxxxxxxxxxxxxxxxxx"
+    omnara
+    ```
+
+    ```bash Command Flag
+    omnara --api-key "omr_xxxxxxxxxxxxxxxxxxxx"
+    ```
+
+    ```bash Manual File
+    # Create credentials file
+    mkdir -p ~/.omnara
+    echo '{"write_key": "omr_xxxxxxxxxxxxxxxxxxxx"}' > ~/.omnara/credentials.json
+    chmod 600 ~/.omnara/credentials.json
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Re-authentication
+
+If your API key expires or you need to switch accounts:
+
+```bash
+omnara --reauth
+```
+
+This forces a new authentication flow even if credentials already exist.
+
+## How It Works
+
+### Browser Authentication Flow
+
+<Steps>
+  <Step title="CLI Starts Local Server">
+    Generates a secure random `state` parameter and starts HTTP server on `127.0.0.1:random_port`
+  </Step>
+
+  <Step title="Browser Opens">
+    URL includes port and state: `https://omnara.com/cli-auth?port=12345&state=abc123...`
+  </Step>
+
+  <Step title="User Authenticates">
+    Signs in with Omnara account (creates account if first time)
+  </Step>
+
+  <Step title="Backend Generates API Key">
+    Server generates a JWT token with your `user_id` and returns it to the web page
+  </Step>
+
+  <Step title="Callback to CLI">
+    Web page sends API key back to local CLI via:
+    - **Local sessions**: Hidden iframe to `http://127.0.0.1:{port}/?api_key={key}&state={state}`
+    - **Remote sessions**: User copies key manually
+  </Step>
+
+  <Step title="Key Saved">
+    CLI validates state parameter, saves key to `~/.omnara/credentials.json` with `0o600` permissions
+  </Step>
+</Steps>
+
+## Authentication Priority
+
+When you run a command, Omnara looks for credentials in this order:
+
+1. **`--api-key` flag** (highest priority)
+2. **`OMNARA_API_KEY` environment variable**
+3. **`~/.omnara/credentials.json` file**
+4. **Triggers authentication** if none found
+
+### Example
+
+```bash
+# All three set different keys
+export OMNARA_API_KEY="env_key"
+# credentials.json contains "file_key"
+omnara --api-key "flag_key"
+
+# Uses "flag_key" because flags have highest priority
+```
+
+## Storage Locations
+
+### Credentials File
+
+**Path:** `~/.omnara/credentials.json`
+
+**Format:**
+```json
+{
+  "write_key": "omr_xxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+**Permissions:** `0o600` (owner read/write only)
+
+<Warning>
+Never commit this file to version control! Add `~/.omnara/` to your `.gitignore`.
+</Warning>
+
+### Configuration File
+
+**Path:** `~/.omnara/config.json`
+
+**Format:**
+```json
+{
+  "default_agent": "claude"
+}
+```
+
+**Purpose:** Non-sensitive settings (default agent, preferences)
+
+## API Key Format
+
+Omnara API keys are JWT tokens with this structure:
+
+- **Prefix:** `omr_` (for easy identification)
+- **Encoding:** Base64-encoded JWT
+- **Algorithm:** RS256 (RSA with SHA-256)
+- **Claims:**
+  - `sub`: Your user ID
+  - `iat`: Issued at timestamp
+  - No expiration (valid indefinitely)
+
+<Note>
+Omnara uses weaker RSA keys intentionally to keep API keys shorter. Keep your keys secure despite this tradeoff.
+</Note>
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use environment variables in CI/CD" icon="server">
+    Don't store credentials in CI/CD configuration files:
+
+    ```yaml
+    # GitHub Actions
+    - name: Run Omnara
+      env:
+        OMNARA_API_KEY: ${{ secrets.OMNARA_API_KEY }}
+      run: omnara headless --prompt "Run tests"
+    ```
+  </Accordion>
+
+  <Accordion title="Rotate keys periodically" icon="rotate">
+    Generate new API keys from your dashboard every few months:
+
+    ```bash
+    # Get new key from dashboard, then:
+    omnara --reauth
+    ```
+  </Accordion>
+
+  <Accordion title="Use separate keys for different environments" icon="layer-group">
+    Create multiple API keys in your dashboard:
+    - Development key
+    - Production key
+    - CI/CD key
+
+    This allows you to revoke specific keys without affecting others.
+  </Accordion>
+
+  <Accordion title="Never log API keys" icon="eye-slash">
+    Ensure your scripts don't accidentally log credentials:
+
+    ```bash
+    # Bad: logs API key
+    echo "Using key: $OMNARA_API_KEY"
+
+    # Good: logs without revealing key
+    echo "Using key: ${OMNARA_API_KEY:0:10}..."
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Browser doesn't open">
+    If `webbrowser.open()` fails:
+
+    ```bash
+    omnara --auth
+    # Copy the URL from terminal output
+    # Manually open it in your browser
+    ```
+  </Accordion>
+
+  <Accordion title="Callback timeout">
+    If authentication times out after 5 minutes:
+
+    ```bash
+    # Try again
+    omnara --auth
+
+    # Or use manual method
+    # 1. Visit https://omnara.com/cli-auth
+    # 2. Copy API key
+    # 3. Paste when CLI prompts
+    ```
+  </Accordion>
+
+  <Accordion title="Corrupted credentials">
+    If you see JSON parsing errors:
+
+    ```bash
+    # Check file contents
+    cat ~/.omnara/credentials.json
+
+    # If corrupt, re-authenticate
+    rm ~/.omnara/credentials.json
+    omnara --auth
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied">
+    If you can't read credentials:
+
+    ```bash
+    # Fix permissions
+    chmod 600 ~/.omnara/credentials.json
+
+    # Fix directory
+    chmod 700 ~/.omnara
+    ```
+  </Accordion>
+
+  <Accordion title="API key invalid">
+    If authentication fails with valid-looking key:
+
+    ```bash
+    # Key may be revoked or expired
+    # Generate new key from dashboard
+    omnara --reauth
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Usage
+
+### Self-Hosted Instances
+
+Point to your own Omnara instance:
+
+```bash
+omnara --auth --auth-url https://omnara.mycompany.com
+```
+
+This uses your custom authentication URL while keeping the same flow.
+
+### Programmatic API Key Management
+
+For automation, you can manage credentials programmatically:
+
+```python
+import json
+from pathlib import Path
+
+# Read API key
+creds_path = Path.home() / ".omnara" / "credentials.json"
+with open(creds_path) as f:
+    api_key = json.load(f)["write_key"]
+
+# Use in your scripts
+import os
+os.environ["OMNARA_API_KEY"] = api_key
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" href="/cli/environment-variables">
+    Configure Omnara with environment variables
+  </Card>
+  <Card title="Configuration Files" href="/cli/config-files">
+    Learn about all configuration files
+  </Card>
+</CardGroup>

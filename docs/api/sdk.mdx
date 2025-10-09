@@ -1,0 +1,408 @@
+---
+title: Python SDK
+description: 'Official Python SDK for Omnara integration'
+---
+
+## Installation
+
+```bash
+pip install omnara
+```
+
+The SDK is included with the main `omnara` package.
+
+## Quick Start
+
+```python
+from omnara import OmnaraClient
+import uuid
+
+# Initialize client
+client = OmnaraClient(api_key="your-api-key")
+
+# Generate session ID
+instance_id = str(uuid.uuid4())
+
+# Send a status update
+response = client.send_message(
+    agent_type="My Custom Agent",
+    content="Analyzing codebase structure",
+    agent_instance_id=instance_id,
+    requires_user_input=False
+)
+
+print(f"Message sent: {response['message_id']}")
+
+# Ask for user input
+answer = client.send_message(
+    content="Should I refactor this legacy module?",
+    agent_instance_id=instance_id,
+    requires_user_input=True
+)
+
+print(f"User answered: {answer}")
+```
+
+## Client Initialization
+
+<ParamField path="api_key" type="string" required>
+  Your Omnara API key
+</ParamField>
+
+<ParamField path="base_url" type="string" default="https://agent.omnara.com">
+  API server URL (for self-hosted instances)
+</ParamField>
+
+```python
+from omnara import OmnaraClient
+
+# Basic
+client = OmnaraClient(api_key="omr_xxxxxxxxxxxxxxxxxxxx")
+
+# Self-hosted
+client = OmnaraClient(
+    api_key="omr_xxxxxxxxxxxxxxxxxxxx",
+    base_url="https://omnara.mycompany.com"
+)
+
+# From environment variable
+import os
+client = OmnaraClient(api_key=os.getenv("OMNARA_API_KEY"))
+```
+
+## Sending Messages
+
+### Non-blocking Message
+
+Send status updates without waiting:
+
+```python
+response = client.send_message(
+    agent_type="Code Analyzer",
+    content="Found 5 potential issues",
+    agent_instance_id=instance_id,
+    requires_user_input=False,
+    send_push=True  # Send push notification
+)
+
+# Check for queued user messages
+if response.get("queued_user_messages"):
+    for msg in response["queued_user_messages"]:
+        print(f"User said: {msg['content']}")
+```
+
+### Blocking Question
+
+Ask a question and wait for response:
+
+```python
+answer = client.send_message(
+    content="Which file should I start with?",
+    agent_instance_id=instance_id,
+    requires_user_input=True,
+    timeout_minutes=60,  # Wait up to 1 hour
+    poll_interval=10.0   # Check every 10 seconds
+)
+
+print(f"User selected: {answer}")
+```
+
+## Async Client
+
+For async/await usage:
+
+```python
+from omnara import AsyncOmnaraClient
+import asyncio
+
+async def main():
+    client = AsyncOmnaraClient(api_key="your-api-key")
+
+    # Send message
+    response = await client.send_message(
+        agent_type="Async Agent",
+        content="Processing...",
+        requires_user_input=False
+    )
+
+    # Ask question
+    answer = await client.send_message(
+        content="Proceed?",
+        agent_instance_id=response["agent_instance_id"],
+        requires_user_input=True
+    )
+
+    print(answer)
+
+asyncio.run(main())
+```
+
+## Session Management
+
+### Creating Sessions
+
+Sessions are created automatically on first message:
+
+```python
+import uuid
+
+# Generate unique session ID
+session_id = str(uuid.uuid4())
+
+# First message creates session
+client.send_message(
+    agent_type="My Agent",
+    content="Starting work",
+    agent_instance_id=session_id,
+    requires_user_input=False
+)
+```
+
+### Ending Sessions
+
+Mark a session as complete:
+
+```python
+client.end_session(agent_instance_id=session_id)
+```
+
+This:
+- Sets status to COMPLETED
+- Timestamps the end time
+- Stops tracking as active
+- Keeps session in history
+
+## Advanced Features
+
+### Git Diff Tracking
+
+Include code changes with your messages:
+
+```python
+import subprocess
+
+def get_git_diff():
+    result = subprocess.run(
+        ["git", "diff", "HEAD"],
+        capture_output=True,
+        text=True
+    )
+    return result.stdout
+
+# Send with diff
+response = client.send_message(
+    agent_type="Code Agent",
+    content="Modified authentication flow",
+    agent_instance_id=instance_id,
+    requires_user_input=False,
+    git_diff=get_git_diff()
+)
+```
+
+The diff appears in the dashboard for easy code review.
+
+### Message Metadata
+
+Attach custom metadata to messages:
+
+```python
+response = client.send_message(
+    agent_type="Test Runner",
+    content="Tests completed",
+    agent_instance_id=instance_id,
+    requires_user_input=False,
+    message_metadata={
+        "test_results": {
+            "passed": 42,
+            "failed": 3,
+            "skipped": 1
+        },
+        "duration_ms": 1234,
+        "commit_hash": "abc123def"
+    }
+)
+```
+
+Metadata is stored with the message and visible in the dashboard.
+
+## Error Handling
+
+```python
+from omnara import OmnaraClient
+from omnara.exceptions import OmnaraAPIError
+
+client = OmnaraClient(api_key="your-key")
+
+try:
+    response = client.send_message(
+        agent_type="My Agent",
+        content="Test message",
+        requires_user_input=False
+    )
+except OmnaraAPIError as e:
+    print(f"API error: {e.status_code} - {e.message}")
+    # Handle error appropriately
+except Exception as e:
+    print(f"Unexpected error: {e}")
+```
+
+## Complete Example
+
+Full agent implementation with error handling:
+
+```python
+from omnara import OmnaraClient
+import uuid
+import time
+
+def run_agent():
+    # Initialize
+    client = OmnaraClient(api_key="your-key")
+    session_id = str(uuid.uuid4())
+
+    try:
+        # Start session
+        client.send_message(
+            agent_type="Code Review Agent",
+            content="Starting code review",
+            agent_instance_id=session_id,
+            requires_user_input=False
+        )
+
+        # Do some work
+        time.sleep(2)
+
+        # Report progress
+        client.send_message(
+            content="Analyzed 10 files, found 3 issues",
+            agent_instance_id=session_id,
+            requires_user_input=False
+        )
+
+        # Ask for guidance
+        answer = client.send_message(
+            content="Should I auto-fix the linting issues?",
+            agent_instance_id=session_id,
+            requires_user_input=True,
+            timeout_minutes=30
+        )
+
+        # Process response
+        if "yes" in answer.lower():
+            client.send_message(
+                content="Fixing issues...",
+                agent_instance_id=session_id,
+                requires_user_input=False
+            )
+            # Fix issues...
+            time.sleep(5)
+            client.send_message(
+                content="All issues fixed! ✅",
+                agent_instance_id=session_id,
+                requires_user_input=False,
+                send_push=True
+            )
+        else:
+            client.send_message(
+                content="Skipping auto-fix as requested",
+                agent_instance_id=session_id,
+                requires_user_input=False
+            )
+
+    finally:
+        # Always end session
+        client.end_session(agent_instance_id=session_id)
+
+if __name__ == "__main__":
+    run_agent()
+```
+
+## SDK Reference
+
+### OmnaraClient
+
+**Methods:**
+
+<ParamField path="send_message" type="function">
+  Send a message or ask a question
+
+  **Parameters:**
+  - `agent_type` (str, optional): Agent type name
+  - `content` (str, required): Message content
+  - `agent_instance_id` (str, optional): Session ID
+  - `requires_user_input` (bool, default=False): Whether to wait for response
+  - `timeout_minutes` (int, default=1440): Wait timeout (24 hours)
+  - `poll_interval` (float, default=10.0): Polling interval in seconds
+  - `send_email` (bool, default=False): Send email notification
+  - `send_sms` (bool, default=False): Send SMS notification
+  - `send_push` (bool, default=False): Send push notification
+  - `git_diff` (str, optional): Git diff content
+  - `message_metadata` (dict, optional): Custom metadata
+
+  **Returns:**
+  - If `requires_user_input=False`: Response dict with `message_id`, `agent_instance_id`, `queued_user_messages`
+  - If `requires_user_input=True`: User's response text (string)
+</ParamField>
+
+<ParamField path="end_session" type="function">
+  Mark session as completed
+
+  **Parameters:**
+  - `agent_instance_id` (str, required): Session to end
+
+  **Returns:** Success response dict
+</ParamField>
+
+### AsyncOmnaraClient
+
+Same interface as `OmnaraClient` but with async/await:
+
+```python
+from omnara import AsyncOmnaraClient
+
+async def async_agent():
+    client = AsyncOmnaraClient(api_key="your-key")
+
+    response = await client.send_message(
+        agent_type="Async Agent",
+        content="Processing async task",
+        requires_user_input=False
+    )
+
+    answer = await client.send_message(
+        content="Continue processing?",
+        agent_instance_id=response["agent_instance_id"],
+        requires_user_input=True
+    )
+
+    await client.end_session(agent_instance_id=response["agent_instance_id"])
+```
+
+## Source Code
+
+The SDK source is open source and available in the repository:
+
+<Card
+  title="View SDK Source"
+  icon="github"
+  href="https://github.com/omnara-ai/omnara/tree/main/src/omnara/sdk"
+>
+  src/omnara/sdk/ in the Omnara repository
+</Card>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="API Overview" href="/api/overview">
+    REST API endpoints and concepts
+  </Card>
+  <Card title="Authentication" href="/api/authentication">
+    API key management
+  </Card>
+  <Card title="CLI Reference" href="/cli/overview">
+    Command-line interface
+  </Card>
+  <Card title="n8n Integration" href="/integrations/n8n">
+    Use in n8n workflows
+  </Card>
+</CardGroup>

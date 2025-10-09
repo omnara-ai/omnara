@@ -1,0 +1,474 @@
+---
+title: n8n Integration
+description: 'Add human-in-the-loop capabilities to your n8n workflows'
+---
+
+## Overview
+
+The Omnara n8n integration (`n8n-nodes-omnara`) enables workflows to communicate with users in real-time through the Omnara platform. Perfect for approval workflows, agent conversations, and guided automation.
+
+**Key Capabilities:**
+- Send non-blocking status updates
+- Ask questions and wait for responses
+- AI Agent compatibility
+- Multi-channel notifications (email, SMS, push)
+- Session management
+
+## Installation
+
+Install the community node in your n8n instance:
+
+```bash
+npm install n8n-nodes-omnara
+```
+
+Or via the n8n UI:
+1. Go to **Settings** → **Community Nodes**
+2. Search for `n8n-nodes-omnara`
+3. Click **Install**
+
+<Card title="View on npm" icon="npm" href="https://www.npmjs.com/package/n8n-nodes-omnara">
+  Full package documentation and changelog
+</Card>
+
+## Quick Start
+
+<Steps>
+  <Step title="Add Credentials">
+    1. In n8n, go to **Credentials** → **New**
+    2. Select **Omnara API**
+    3. Enter your API key from [omnara.com/dashboard](https://omnara.com/dashboard)
+    4. Optionally set custom server URL for self-hosted instances
+  </Step>
+
+  <Step title="Add Omnara Node">
+    Drag the **Omnara** node into your workflow
+  </Step>
+
+  <Step title="Configure Operation">
+    Choose an operation:
+    - **Send Message**: Non-blocking status update
+    - **Send and Wait**: Ask question and pause workflow
+    - **End Session**: Mark agent session as complete
+  </Step>
+
+  <Step title="Test It">
+    Execute your workflow and check the [Omnara dashboard](https://omnara.com/dashboard) for messages
+  </Step>
+</Steps>
+
+## Operations
+
+### Send Message (Non-blocking)
+
+Send informational messages without waiting for response.
+
+**When to use:**
+- Progress updates
+- Status notifications
+- Logging agent actions
+
+**Example:**
+```javascript
+{
+  "operation": "send",
+  "agentType": "Deployment Agent",
+  "message": "Build completed successfully ✅",
+  "options": {
+    "sendPush": true
+  }
+}
+```
+
+**Returns:**
+- `message_id`: ID of created message
+- `agent_instance_id`: Session identifier
+- `queued_user_messages`: Any pending user responses
+
+<Tip>
+Check `queued_user_messages` on every send to catch user responses sent between operations.
+</Tip>
+
+### Send and Wait (Blocking)
+
+Ask questions and pause workflow until user responds.
+
+**When to use:**
+- Approval workflows
+- User input required
+- Decision points
+
+**Two Modes:**
+
+<Tabs>
+  <Tab title="Webhook Mode (Default)">
+    **For regular workflows**
+
+    - Uses n8n's webhook system
+    - Efficient, event-driven
+    - Resumes workflow when user responds
+    - Max wait: 7 days
+
+    ```javascript
+    {
+      "operation": "sendAndWait",
+      "message": "Approve deployment to production?",
+      "limitWaitTime": true,
+      "limitType": "afterTimeInterval",
+      "resumeAmount": 1,
+      "resumeUnit": "hours"
+    }
+    ```
+  </Tab>
+
+  <Tab title="Sync Mode (AI Agents)">
+    **For AI Agent tools**
+
+    - Synchronous polling
+    - Works in AI Agent context
+    - Required for n8n AI Agents
+    - Max wait: 48 hours
+
+    ```javascript
+    {
+      "operation": "sendAndWait",
+      "message": "Should I proceed with this change?",
+      "options": {
+        "syncMode": true,
+        "syncTimeout": 600,  // 10 minutes
+        "pollInterval": 5     // Check every 5 seconds
+      }
+    }
+    ```
+
+    <Warning>
+    **Must use `syncMode: true` for AI Agents**. Regular webhook mode doesn't work in AI Agent context.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### End Session
+
+Mark agent session as completed.
+
+```javascript
+{
+  "operation": "endSession",
+  "agentInstanceId": "{{ $json.agent_instance_id }}"
+}
+```
+
+## Configuration Examples
+
+### Simple Approval Workflow
+
+```javascript
+{
+  "nodes": [
+    {
+      "name": "Build App",
+      "type": "n8n-nodes-base.executeCommand",
+      "parameters": {
+        "command": "npm run build"
+      }
+    },
+    {
+      "name": "Request Approval",
+      "type": "n8n-nodes-omnara.omnara",
+      "parameters": {
+        "operation": "sendAndWait",
+        "agentType": "Deployment Bot",
+        "message": "Build complete. Deploy to production?",
+        "options": {
+          "sendEmail": true,
+          "sendPush": true
+        },
+        "limitWaitTime": true,
+        "resumeAmount": 1,
+        "resumeUnit": "hours"
+      }
+    },
+    {
+      "name": "Deploy",
+      "type": "n8n-nodes-base.executeCommand",
+      "parameters": {
+        "command": "npm run deploy"
+      }
+    }
+  ]
+}
+```
+
+### AI Agent Integration
+
+```javascript
+{
+  "nodes": [
+    {
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "parameters": {
+        "tools": ["omnara"],
+        "prompt": "You can ask the user questions using the omnara tool."
+      }
+    },
+    {
+      "name": "Omnara Tool",
+      "type": "n8n-nodes-omnara.omnara",
+      "parameters": {
+        "operation": "sendAndWait",
+        "message": "{{ $json.question }}",
+        "options": {
+          "syncMode": true,        // Required for AI Agents
+          "syncTimeout": 600,
+          "pollInterval": 5,
+          "sendEmail": true
+        }
+      }
+    }
+  ]
+}
+```
+
+## Agent Instance Management
+
+### Session Tracking
+
+Each workflow execution should use a consistent `agent_instance_id`:
+
+**Pattern 1: Webhook-triggered (Recommended)**
+```javascript
+// Omnara dashboard triggers workflow with pre-generated ID
+{
+  "agent_instance_id": "{{ $json.agent_instance_id }}", // From webhook
+  "agent_type": "{{ $json.agent_type }}"
+}
+```
+
+**Pattern 2: Self-generated**
+```javascript
+// Generate UUID in Set node
+{
+  "agent_instance_id": "{{ $uuid() }}",
+  "agent_type": "My Workflow"
+}
+// Reference in all subsequent Omnara nodes
+```
+
+### Queued Messages
+
+Omnara returns queued user messages with every agent message:
+
+```javascript
+const response = await omnaraNode.execute();
+// response.queued_user_messages contains any user responses since last check
+```
+
+This ensures you never miss user input, even if timing is off.
+
+## Notifications
+
+Control how users are notified:
+
+<ParamField path="sendEmail" type="boolean" default="false">
+  Send email notification
+</ParamField>
+
+<ParamField path="sendSMS" type="boolean" default="false">
+  Send SMS notification (requires phone verification)
+</ParamField>
+
+<ParamField path="sendPush" type="boolean" default="false">
+  Send push notification (via mobile app or web push)
+</ParamField>
+
+**Priority:**
+1. Message-level override (in request)
+2. User preferences (in dashboard)
+3. Default: no notifications
+
+## Error Handling
+
+```javascript
+{
+  "nodes": [
+    {
+      "name": "Omnara",
+      "type": "n8n-nodes-omnara.omnara",
+      "continueOnFail": true,
+      "parameters": {
+        "operation": "send",
+        "message": "Status update"
+      }
+    }
+  ]
+}
+```
+
+With `continueOnFail: true`, errors are returned as data:
+
+```javascript
+{
+  "error": "Failed to send message: Connection timeout",
+  "resource": "message",
+  "operation": "send",
+  "itemIndex": 0
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Webhook not resuming workflow">
+    **Causes:**
+    - Using sync mode in regular workflow (use webhook mode)
+    - Webhook URL incorrect in message metadata
+    - Workflow execution already timed out
+
+    **Fix:**
+    ```javascript
+    // Ensure sync mode is false (or omitted) for regular workflows
+    {
+      "options": {
+        "syncMode": false  // or omit entirely
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="AI Agent tool not working">
+    **Causes:**
+    - Missing `syncMode: true`
+    - Using webhook mode in AI Agent context
+
+    **Fix:**
+    ```javascript
+    // MUST use sync mode for AI Agents
+    {
+      "options": {
+        "syncMode": true,
+        "syncTimeout": 600,
+        "pollInterval": 5
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Messages not appearing in dashboard">
+    **Causes:**
+    - Incorrect API key
+    - Wrong server URL
+    - Network/firewall issues
+
+    **Fix:**
+    1. Test credentials: Check credential test passes
+    2. Verify server URL (default: `https://agent.omnara.com`)
+    3. Check n8n logs for error details
+  </Accordion>
+
+  <Accordion title="Timeout waiting for response">
+    **Causes:**
+    - User didn't respond in time
+    - Poll interval too long
+    - Sync timeout too short
+
+    **Fix:**
+    ```javascript
+    // Adjust timeouts
+    {
+      "limitWaitTime": true,
+      "resumeAmount": 2,       // 2 hours instead of 1
+      "resumeUnit": "hours",
+      "options": {
+        "syncTimeout": 1200,   // 20 minutes
+        "pollInterval": 3      // Check every 3 seconds
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## API Endpoints
+
+The n8n node uses these Omnara API endpoints:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/messages/agent` | POST | Send message (both send & sendAndWait) |
+| `/api/v1/messages/pending` | GET | Poll for user responses (sync mode) |
+| `/api/v1/sessions/end` | POST | End agent session |
+| `/api/v1/auth/verify` | GET | Validate credentials |
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use descriptive agent types" icon="tag">
+    ```javascript
+    // Good
+    agentType: "Deployment Bot - Production"
+
+    // Bad
+    agentType: "Bot"
+    ```
+
+    Helps identify sessions in dashboard when running multiple workflows.
+  </Accordion>
+
+  <Accordion title="Set appropriate timeouts" icon="clock">
+    ```javascript
+    // For urgent approvals
+    resumeAmount: 30
+    resumeUnit: "minutes"
+
+    // For non-urgent requests
+    resumeAmount: 24
+    resumeUnit: "hours"
+    ```
+
+    Balance between user convenience and workflow efficiency.
+  </Accordion>
+
+  <Accordion title="Always end sessions" icon="check">
+    ```javascript
+    // Add at end of workflow
+    {
+      "name": "End Session",
+      "operation": "endSession",
+      "agentInstanceId": "{{ $('Request Approval').item.json.agent_instance_id }}"
+    }
+    ```
+
+    Keeps dashboard clean and marks sessions as complete.
+  </Accordion>
+
+  <Accordion title="Handle queued messages" icon="inbox">
+    ```javascript
+    // Check for user responses on every send
+    const response = await omnaraNode.send(message);
+    if (response.queued_user_messages.length > 0) {
+      // Process user feedback
+      const userMessage = response.queued_user_messages[0];
+      console.log('User said:', userMessage.content);
+    }
+    ```
+
+    Ensures you don't miss user input sent between operations.
+  </Accordion>
+</AccordionGroup>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="GitHub Actions" href="/integrations/github-actions">
+    Integrate with GitHub workflows
+  </Card>
+  <Card title="Python SDK" href="/api/sdk">
+    Build custom integrations
+  </Card>
+  <Card title="REST API" href="/api/overview">
+    Direct API access
+  </Card>
+  <Card title="MCP Integration" href="/integrations/mcp-clients">
+    Connect with MCP clients
+  </Card>
+</CardGroup>

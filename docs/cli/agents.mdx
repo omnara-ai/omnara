@@ -1,0 +1,161 @@
+---
+title: Agent Configuration
+description: 'Configure and manage AI coding agents'
+---
+
+## Available Agents
+
+Omnara supports three AI coding agents:
+
+<CardGroup cols={3}>
+  <Card title="Claude Code" icon="terminal">
+    **Default agent**
+
+    Anthropic's Claude Code CLI with full integration support
+  </Card>
+  <Card title="Codex" icon="code">
+    **Rust-based**
+
+    Fast, native Omnara integration built in Rust
+  </Card>
+  <Card title="Amp" icon="wand-magic-sparkles">
+    **Advanced parsing**
+
+    Sophisticated terminal output parsing
+  </Card>
+</CardGroup>
+
+## Setting Default Agent
+
+Save your preferred agent to avoid specifying `--agent` every time:
+
+<CodeGroup>
+
+```bash Set and Exit
+# Set default agent and exit
+omnara --set-default codex
+```
+
+```bash Set and Launch
+# Set default and launch immediately
+omnara --agent amp --set-default
+```
+
+</CodeGroup>
+
+The default is stored in `~/.omnara/config.json` and used for all future sessions.
+
+## Switching Agents
+
+Override the default agent temporarily:
+
+```bash
+# Use Claude Code (even if codex is default)
+omnara --agent claude
+
+# Use Codex with custom name
+omnara --agent codex --name "Backend Work"
+```
+
+## Agent-Specific Features
+
+<Tabs>
+  <Tab title="Claude Code">
+    ### Features
+    - Permission prompt forwarding to dashboard
+    - Git diff tracking per message
+    - Session log parsing (JSONL format)
+    - JSONL message streaming
+    - Plan mode support
+
+    ### Requirements
+    ```bash
+    # Verify Claude Code is installed
+    claude --version
+    ```
+
+    ### Configuration
+    All standard Claude Code flags are supported when using Omnara.
+  </Tab>
+
+  <Tab title="Codex">
+    ### Features
+    - Native Omnara integration (built-in)
+    - Terminal streaming
+    - Session management
+    - Heartbeat tracking
+    - Fast Rust-based implementation
+
+    ### Requirements
+    Packaged with Omnara - no separate installation needed.
+
+    ### Binary Location
+    You can override the binary path:
+    ```bash
+    export OMNARA_CODEX_PATH=/path/to/custom/codex
+    ```
+  </Tab>
+
+  <Tab title="Amp">
+    ### Features
+    - Thinking vs response detection
+    - ANSI code parsing
+    - TUI interaction support
+    - Advanced output filtering
+
+    ### Requirements
+    ```bash
+    # Verify Amp is installed
+    amp --version
+    ```
+
+    ### Configuration
+    Amp automatically bypasses permissions when running through Omnara using `--dangerously-allow-all`.
+  </Tab>
+</Tabs>
+
+## Configuration File
+
+Your default agent preference is stored in `~/.omnara/config.json`:
+
+```json
+{
+  "default_agent": "codex"
+}
+```
+
+You can manually edit this file or use the `--set-default` flag.
+
+## Agent Selection Priority
+
+When you run `omnara`, the agent is selected in this order:
+
+1. **Explicit `--agent` flag** (highest priority)
+2. **Default from `~/.omnara/config.json`**
+3. **Hardcoded default: `claude`** (if no config exists)
+
+## Agent Display Names
+
+Customize how your agent appears in the dashboard:
+
+```bash
+# Set a descriptive name
+omnara --agent codex --name "Feature Development"
+
+# Use environment variable
+export OMNARA_AGENT_DISPLAY_NAME="Code Review Bot"
+omnara
+```
+
+Display names help you identify sessions when running multiple agents simultaneously.
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" href="/cli/environment-variables">
+    Configure agents with environment variables
+  </Card>
+  <Card title="Configuration Files" href="/cli/config-files">
+    Learn about all configuration files
+  </Card>
+</CardGroup>

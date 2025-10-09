@@ -1,0 +1,224 @@
+---
+title: API Overview
+description: 'REST API for Omnara agent integration'
+---
+
+## Overview
+
+The Omnara REST API provides programmatic access to all platform features. Use it to build custom agent integrations, dashboards, or automation workflows.
+
+**Base URL:** `https://agent.omnara.com/api/v1`
+
+## Authentication
+
+All API requests require authentication via Bearer token:
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  https://agent.omnara.com/api/v1/messages/agent
+```
+
+<Card title="Get Your API Key" icon="key" href="/authentication">
+  Learn how to obtain and manage API keys
+</Card>
+
+## Quick Start
+
+Send a message from your agent:
+
+```bash
+curl -X POST https://agent.omnara.com/api/v1/messages/agent \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_type": "My Custom Agent",
+    "content": "Starting analysis of codebase",
+    "requires_user_input": false
+  }'
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message_id": "msg_abc123",
+  "agent_instance_id": "inst_xyz789",
+  "queued_user_messages": []
+}
+```
+
+## Core Endpoints
+
+<CardGroup cols={2}>
+  <Card title="Send Message" icon="paper-plane">
+    **POST** `/messages/agent`
+
+    Send status updates or ask questions
+  </Card>
+
+  <Card title="Get Pending Messages" icon="inbox">
+    **GET** `/messages/pending`
+
+    Retrieve user responses
+  </Card>
+
+  <Card title="End Session" icon="circle-stop">
+    **POST** `/sessions/end`
+
+    Mark agent session as complete
+  </Card>
+
+  <Card title="Verify Auth" icon="shield-check">
+    **GET** `/auth/verify`
+
+    Validate API key
+  </Card>
+</CardGroup>
+
+## Python SDK
+
+For Python applications, use the official SDK:
+
+```bash
+pip install omnara
+```
+
+```python
+from omnara import OmnaraClient
+import uuid
+
+client = OmnaraClient(api_key="your-api-key")
+instance_id = str(uuid.uuid4())
+
+# Send a message
+response = client.send_message(
+    agent_type="My Agent",
+    content="Processing data...",
+    agent_instance_id=instance_id,
+    requires_user_input=False
+)
+
+# Ask a question
+answer = client.send_message(
+    content="Should I proceed with deployment?",
+    agent_instance_id=instance_id,
+    requires_user_input=True
+)
+print(f"User said: {answer}")
+```
+
+<Card title="Python SDK Documentation" icon="python" href="/api/sdk">
+  Complete SDK reference and examples
+</Card>
+
+## Rate Limits
+
+Current rate limits (subject to change):
+
+| Tier | Requests/minute | Requests/hour |
+|------|----------------|---------------|
+| Free | 60 | 1,000 |
+| Pro | 300 | 10,000 |
+| Enterprise | Custom | Custom |
+
+Rate limit headers are included in responses:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 45
+X-RateLimit-Reset: 1640000000
+```
+
+## Error Handling
+
+The API uses standard HTTP status codes:
+
+| Code | Meaning |
+|------|---------|
+| 200 | Success |
+| 400 | Bad Request - Invalid parameters |
+| 401 | Unauthorized - Invalid or missing API key |
+| 403 | Forbidden - Insufficient permissions |
+| 404 | Not Found - Resource doesn't exist |
+| 429 | Too Many Requests - Rate limit exceeded |
+| 500 | Internal Server Error |
+
+Error response format:
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "Missing required field: agent_type",
+    "details": {
+      "field": "agent_type"
+    }
+  }
+}
+```
+
+## Webhooks
+
+Configure webhooks to receive real-time notifications when users respond:
+
+1. Set up webhook URL in dashboard
+2. Include webhook URL in message metadata:
+
+```json
+{
+  "agent_type": "My Agent",
+  "content": "Approve deployment?",
+  "requires_user_input": true,
+  "message_metadata": {
+    "webhook_url": "https://your-app.com/webhook",
+    "webhook_type": "custom"
+  }
+}
+```
+
+3. Receive POST request when user responds:
+
+```json
+{
+  "user_message": "Yes, approved",
+  "user_id": "user_abc123",
+  "message_id": "msg_xyz789",
+  "agent_instance_id": "inst_def456",
+  "timestamp": "2025-10-08T12:00:00Z"
+}
+```
+
+## Self-Hosted Instances
+
+Point to your own Omnara instance:
+
+```bash
+export OMNARA_API_URL="https://omnara.mycompany.com"
+```
+
+Or in API calls:
+
+```python
+client = OmnaraClient(
+    api_key="your-key",
+    base_url="https://omnara.mycompany.com"
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" href="/api/authentication">
+    API key management and security
+  </Card>
+  <Card title="Python SDK" href="/api/sdk">
+    Official Python SDK documentation
+  </Card>
+  <Card title="CLI Reference" href="/cli/overview">
+    Use CLI for quick testing
+  </Card>
+  <Card title="Integrations" href="/integrations/n8n">
+    Pre-built integrations
+  </Card>
+</CardGroup>

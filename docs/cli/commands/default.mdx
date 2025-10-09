@@ -1,0 +1,149 @@
+---
+title: omnara (Default Command)
+description: 'Start an interactive AI coding agent session'
+---
+
+## Usage
+
+```bash
+omnara [OPTIONS]
+```
+
+Starts an AI coding agent with full terminal integration and dashboard sync. Everything you do in the terminal is streamed to your web and mobile dashboard in real-time.
+
+## Options
+
+<ParamField path="--agent" type="string" default="claude">
+  Choose which agent to use: `claude`, `codex`, or `amp`
+</ParamField>
+
+<ParamField path="--name" type="string">
+  Custom display name for the dashboard
+</ParamField>
+
+<ParamField path="--api-key" type="string">
+  API key for authentication (can also use `OMNARA_API_KEY` environment variable)
+</ParamField>
+
+<ParamField path="--no-relay" type="boolean">
+  Disable WebSocket streaming (local-only session without dashboard sync)
+</ParamField>
+
+<ParamField path="--agent-instance-id" type="string">
+  Resume an existing session by providing its instance ID
+</ParamField>
+
+<ParamField path="--base-url" type="string" default="https://agent.omnara.com">
+  Omnara API server URL (for self-hosted instances)
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash Default
+# Start Claude Code (default agent)
+omnara
+```
+
+```bash Codex
+# Start Codex with custom name
+omnara --agent codex --name "Backend Refactor"
+```
+
+```bash Local Only
+# Run without dashboard streaming
+omnara --no-relay
+```
+
+```bash Resume Session
+# Continue an existing session
+omnara --agent-instance-id abc-123-def
+```
+
+</CodeGroup>
+
+## How It Works
+
+1. **Authentication**: On first run, opens browser for authentication. API key saved to `~/.omnara/credentials.json`
+2. **Agent Launch**: Starts the selected agent (Claude Code, Codex, or Amp) with environment configuration
+3. **Terminal Integration**: Captures all terminal I/O using a PTY (pseudo-terminal)
+4. **WebSocket Streaming**: Streams terminal content to relay server for real-time dashboard sync
+5. **Two-way Communication**: Messages from dashboard are sent back to the agent
+
+## Supported Agents
+
+<Tabs>
+  <Tab title="Claude Code">
+    Anthropic's Claude Code CLI with full integration:
+    - Permission prompt forwarding to dashboard
+    - Git diff tracking
+    - Session log parsing
+    - JSONL message streaming
+  </Tab>
+  <Tab title="Codex">
+    Codex CLI (Rust-based binary):
+    - Native Omnara integration
+    - Terminal streaming
+    - Session management
+    - Heartbeat tracking
+  </Tab>
+  <Tab title="Amp">
+    Amp CLI with advanced parsing:
+    - Thinking vs response detection
+    - ANSI code parsing
+    - TUI interaction support
+  </Tab>
+</Tabs>
+
+## Configuration
+
+Set a default agent to avoid specifying `--agent` every time:
+
+```bash
+omnara --set-default codex
+```
+
+This saves your preference to `~/.omnara/config.json`.
+
+<Card
+  title="Agent Configuration"
+  icon="gear"
+  href="/cli/agents"
+>
+  Learn more about agent configuration
+</Card>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Authentication fails">
+    Try re-authenticating:
+    ```bash
+    omnara --reauth
+    ```
+  </Accordion>
+  <Accordion title="Agent not found">
+    Ensure the agent CLI is installed:
+    - Claude Code: `claude --version`
+    - Codex: Packaged with Omnara
+    - Amp: `amp --version`
+  </Accordion>
+  <Accordion title="Dashboard not syncing">
+    Check WebSocket connection:
+    - Verify `--no-relay` is not set
+    - Check firewall/proxy settings
+    - Try `--relay-url wss://relay.omnara.com/agent`
+  </Accordion>
+</AccordionGroup>
+
+## Related Commands
+
+<CardGroup cols={2}>
+  <Card title="omnara headless" href="/cli/commands/headless">
+    Run without terminal UI
+  </Card>
+  <Card title="omnara serve" href="/cli/commands/serve">
+    Remote triggering via webhook
+  </Card>
+</CardGroup>

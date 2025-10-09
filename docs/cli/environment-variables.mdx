@@ -1,0 +1,188 @@
+---
+title: Environment Variables
+description: 'Configure Omnara CLI with environment variables'
+---
+
+## Authentication
+
+<ParamField path="OMNARA_API_KEY" type="string">
+  API key for authentication. Alternative to `--api-key` flag or stored credentials.
+
+  ```bash
+  export OMNARA_API_KEY="omr_xxxxxxxxxxxxxxxxxxxx"
+  omnara
+  ```
+</ParamField>
+
+## API Configuration
+
+<ParamField path="OMNARA_API_URL" type="string" default="https://agent.omnara.com">
+  API server URL. Use for self-hosted instances.
+
+  ```bash
+  export OMNARA_API_URL="https://api.mycompany.com"
+  omnara
+  ```
+</ParamField>
+
+<ParamField path="OMNARA_BASE_URL" type="string" default="https://agent.omnara.com">
+  Alias for `OMNARA_API_URL`. Both work interchangeably.
+</ParamField>
+
+## Session Management
+
+<ParamField path="OMNARA_AGENT_INSTANCE_ID" type="string">
+  Pre-existing session ID to resume. Alternative to `--agent-instance-id` flag.
+
+  ```bash
+  export OMNARA_AGENT_INSTANCE_ID="abc-123-def-456"
+  omnara
+  ```
+</ParamField>
+
+<ParamField path="OMNARA_SESSION_ID" type="string">
+  Alias for `OMNARA_AGENT_INSTANCE_ID`. Used by some integrations.
+</ParamField>
+
+<ParamField path="OMNARA_AGENT_DISPLAY_NAME" type="string">
+  Display name for the agent in dashboard. Alternative to `--name` flag.
+
+  ```bash
+  export OMNARA_AGENT_DISPLAY_NAME="Code Review Bot"
+  omnara
+  ```
+</ParamField>
+
+<ParamField path="OMNARA_AGENT_TYPE" type="string">
+  Default agent type name. Used for tracking in dashboard.
+</ParamField>
+
+## Relay Configuration
+
+<ParamField path="OMNARA_RELAY_DISABLED" type="boolean">
+  Disable WebSocket relay streaming. Set to `1` or `true`.
+
+  ```bash
+  export OMNARA_RELAY_DISABLED=1
+  omnara  # Runs in local-only mode
+  ```
+</ParamField>
+
+<ParamField path="OMNARA_RELAY_URL" type="string">
+  Custom relay WebSocket URL.
+
+  **Defaults:**
+  - Production: `wss://relay.omnara.com/agent`
+  - Local dev: `ws://localhost:8080/agent`
+
+  ```bash
+  export OMNARA_RELAY_URL="wss://relay.mycompany.com/agent"
+  omnara
+  ```
+</ParamField>
+
+<ParamField path="OMNARA_RELAY_WS_SKIP_VERIFY" type="boolean">
+  Skip SSL verification for relay WebSocket. Use for self-signed certificates.
+
+  ```bash
+  export OMNARA_RELAY_WS_SKIP_VERIFY=1
+  omnara
+  ```
+</ParamField>
+
+## Agent-Specific
+
+<ParamField path="OMNARA_CODEX_PATH" type="string">
+  Path to Codex binary. Overrides packaged binary.
+
+  ```bash
+  export OMNARA_CODEX_PATH="/usr/local/bin/codex"
+  omnara --agent codex
+  ```
+</ParamField>
+
+## Priority Order
+
+Environment variables are evaluated in this priority:
+
+1. **Command-line flags** (highest priority)
+2. **Environment variables**
+3. **Configuration files** (`~/.omnara/credentials.json`, `~/.omnara/config.json`)
+4. **Defaults**
+
+### Example Priority
+
+```bash
+# All three methods set the API key:
+export OMNARA_API_KEY="env_key"           # Priority 2
+# credentials.json contains "file_key"    # Priority 3
+omnara --api-key "flag_key"               # Priority 1 (wins)
+```
+
+The `flag_key` is used because command-line flags have highest priority.
+
+## Common Patterns
+
+### Development Environment
+
+```bash .env
+# Development environment
+export OMNARA_API_URL="http://localhost:8000"
+export OMNARA_RELAY_URL="ws://localhost:8080/agent"
+export OMNARA_RELAY_WS_SKIP_VERIFY=1
+```
+
+### CI/CD Pipeline
+
+```bash
+# GitHub Actions, GitLab CI, etc.
+export OMNARA_API_KEY="${{ secrets.OMNARA_API_KEY }}"
+export OMNARA_AGENT_DISPLAY_NAME="CI Bot - PR #${PR_NUMBER}"
+export OMNARA_RELAY_DISABLED=1  # No terminal streaming needed
+
+omnara headless --permission-mode bypassPermissions --prompt "Fix linting errors"
+```
+
+### Multi-Agent Setup
+
+```bash
+# Terminal 1: Code Review Agent
+export OMNARA_AGENT_DISPLAY_NAME="Code Reviewer"
+omnara --agent codex
+
+# Terminal 2: Testing Agent
+export OMNARA_AGENT_DISPLAY_NAME="Test Runner"
+omnara --agent claude
+```
+
+### Self-Hosted Instance
+
+```bash
+# Point to self-hosted Omnara
+export OMNARA_API_URL="https://omnara.mycompany.com"
+export OMNARA_RELAY_URL="wss://relay.mycompany.com/agent"
+omnara
+```
+
+## Verification
+
+Check which environment variables are set:
+
+```bash
+# Check all Omnara env vars
+env | grep OMNARA
+
+# Check specific var
+echo $OMNARA_API_KEY
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Configuration Files" href="/cli/config-files">
+    Learn about configuration file locations and formats
+  </Card>
+  <Card title="Authentication" href="/authentication">
+    Set up API keys and authentication
+  </Card>
+</CardGroup>

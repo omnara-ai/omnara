@@ -1,0 +1,289 @@
+---
+title: omnara terminal
+description: 'Launch interactive terminal sessions with WebSocket relay streaming'
+---
+
+## Usage
+
+```bash
+omnara terminal [OPTIONS]
+```
+
+Starts an AI coding agent with WebSocket relay streaming enabled. This is the explicit command for the relay-enabled mode that's also available via the default `omnara` command.
+
+<Note>
+`omnara terminal` is equivalent to running `omnara` (without subcommand). Both launch agents with WebSocket relay streaming by default.
+</Note>
+
+## Options
+
+All options from the default command are supported:
+
+<ParamField path="--agent" type="string" default="claude">
+  Choose which agent to use: `claude`, `codex`, or `amp`
+</ParamField>
+
+<ParamField path="--name" type="string">
+  Custom display name for the dashboard
+</ParamField>
+
+<ParamField path="--api-key" type="string">
+  API key for authentication
+</ParamField>
+
+<ParamField path="--agent-instance-id" type="string">
+  Resume an existing session
+</ParamField>
+
+<ParamField path="--relay-url" type="string">
+  Custom relay WebSocket URL
+
+  **Defaults:**
+  - Production: `wss://relay.omnara.com/agent`
+  - Local dev: `ws://localhost:8080/agent`
+</ParamField>
+
+<ParamField path="--base-url" type="string" default="https://agent.omnara.com">
+  Omnara API server URL
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash Basic
+# Start with relay streaming (explicit)
+omnara terminal
+```
+
+```bash Named Session
+# Launch Codex with custom name
+omnara terminal --agent codex --name "Feature Development"
+```
+
+```bash Custom Relay
+# Use custom relay server
+omnara terminal --relay-url wss://relay.mycompany.com/agent
+```
+
+```bash Resume Session
+# Continue existing session
+omnara terminal --agent-instance-id abc-123-def
+```
+
+</CodeGroup>
+
+## What is WebSocket Relay?
+
+The relay system streams your terminal I/O in real-time to the Omnara dashboard, enabling:
+
+- **Live Terminal Viewing**: See exactly what's happening in the terminal from web/mobile
+- **Remote Input**: Type messages from the dashboard that appear in the terminal
+- **Session Sharing**: Share terminal sessions with teammates
+- **Multi-device Access**: Monitor from phone, control from laptop
+
+## How It Works
+
+<Steps>
+  <Step title="Agent Registration">
+    CLI registers the agent instance with Omnara API
+  </Step>
+
+  <Step title="WebSocket Connection">
+    Connects to relay server at configured URL with API key authentication
+  </Step>
+
+  <Step title="PTY Creation">
+    Creates a pseudo-terminal (PTY) and launches the agent
+  </Step>
+
+  <Step title="Bidirectional Streaming">
+    Streams terminal I/O over WebSocket:
+    - **Terminal → Dashboard**: Real-time output display
+    - **Dashboard → Terminal**: User input from web/mobile
+  </Step>
+
+  <Step title="Session Persistence">
+    Terminal history buffered and replayed when viewing from new devices
+  </Step>
+</Steps>
+
+## Relay vs Local-Only
+
+<Tabs>
+  <Tab title="With Relay (terminal)">
+    ```bash
+    omnara terminal
+    # or simply: omnara
+    ```
+
+    **Features:**
+    - ✓ Real-time terminal streaming
+    - ✓ Dashboard shows live terminal output
+    - ✓ Input from web/mobile
+    - ✓ Session sharing
+    - ✓ Multi-device monitoring
+    - ✓ Message API active
+  </Tab>
+
+  <Tab title="Without Relay (--no-relay)">
+    ```bash
+    omnara --no-relay
+    ```
+
+    **Features:**
+    - ✗ No terminal streaming
+    - ✗ Dashboard shows messages only
+    - ✗ No input from web/mobile
+    - ✗ No session sharing
+    - ✗ Terminal-only access
+    - ✓ Message API still active
+
+    **When to use:**
+    - Sensitive codebases (no terminal streaming)
+    - Offline development
+    - Reduce bandwidth usage
+  </Tab>
+</Tabs>
+
+## Terminal Frame Protocol
+
+The relay uses a binary frame protocol for efficient streaming:
+
+| Frame Type | ID | Purpose |
+|------------|-----|---------|
+| OUTPUT | 0 | Terminal output to dashboard |
+| INPUT | 1 | User input from dashboard |
+| RESIZE | 2 | Window resize events |
+| METADATA | 3 | Agent metadata (type, name) |
+
+**Frame Structure:**
+```
+[Type: 1 byte][Length: 4 bytes][Payload: variable]
+```
+
+This protocol ensures efficient, low-latency terminal streaming.
+
+## Special Features
+
+### History Replay
+
+When you open the dashboard:
+- Buffered terminal history is replayed
+- Special handling for Codex (strips clear screen sequences)
+- Seamless catch-up to current state
+
+### Resize Handling
+
+Terminal resizes are handled intelligently:
+- **Debouncing**: Waits 500ms before applying resize
+- **Gradual Resizing**: Step-by-step changes for large differences
+- **Cursor Tracking**: Detects and adjusts cursor position reports
+
+Prevents display corruption in TUI applications.
+
+### Reconnection
+
+If the WebSocket connection drops:
+- Automatic reconnection every 5 seconds
+- Session persists across reconnections
+- No data loss during disconnection
+
+## Relay Server Architecture
+
+The relay server (`relay.omnara.com`):
+- Runs independently from API server
+- Handles WebSocket connections
+- Buffers terminal history
+- Routes messages between terminal and dashboard clients
+- Supports multiple simultaneous viewers
+
+## Security
+
+### Authentication
+
+WebSocket connections authenticated via:
+- `X-API-Key` header
+- `Authorization: Bearer {token}` header
+- WebSocket subprotocol: `omnara-key.{key}` or `omnara-supabase.{token}`
+
+### Encryption
+
+- Production: WSS (WebSocket Secure) over TLS
+- All terminal data encrypted in transit
+- No terminal data stored long-term (only buffered in memory)
+
+### Access Control
+
+- Only authenticated users can view their own sessions
+- Session ownership validated on join
+- No cross-user session access
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Remote Monitoring" icon="eye">
+    Monitor agent progress from your phone while away from desk
+  </Card>
+  <Card title="Pair Programming" icon="users">
+    Share terminal session with teammate for collaboration
+  </Card>
+  <Card title="Debugging" icon="bug">
+    Review terminal history to debug agent behavior
+  </Card>
+  <Card title="Multi-device Workflow" icon="devices">
+    Start on laptop, monitor from phone, resume on desktop
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Relay connection fails">
+    **Check:**
+    - Network/firewall allows WebSocket connections
+    - API key is valid: `omnara --auth`
+    - Relay URL is correct
+
+    **Test manually:**
+    ```bash
+    # Try with custom relay URL
+    omnara terminal --relay-url wss://relay.omnara.com/agent
+    ```
+  </Accordion>
+
+  <Accordion title="Terminal not appearing in dashboard">
+    **Causes:**
+    - Using `--no-relay` flag
+    - WebSocket connection dropped
+    - Dashboard not refreshed
+
+    **Fix:**
+    1. Ensure not using `--no-relay`
+    2. Check logs: `~/.omnara/<agent>_wrapper/<session-id>.log`
+    3. Refresh dashboard
+  </Accordion>
+
+  <Accordion title="Input from dashboard not working">
+    **Causes:**
+    - One-way connection only
+    - Agent has exited or crashed
+    - Relay server issues
+
+    **Fix:**
+    - Check agent is still running in terminal
+    - Try restarting the session
+    - Check relay server status
+  </Accordion>
+</AccordionGroup>
+
+## Related Commands
+
+<CardGroup cols={2}>
+  <Card title="omnara (default)" href="/cli/commands/default">
+    Same functionality, shorter command
+  </Card>
+  <Card title="omnara headless" href="/cli/commands/headless">
+    Background mode without terminal
+  </Card>
+</CardGroup>

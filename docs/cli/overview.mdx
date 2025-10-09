@@ -1,0 +1,123 @@
+---
+title: CLI Overview
+description: 'Command-line interface for Omnara agent integration'
+---
+
+## Installation
+
+<CodeGroup>
+
+```bash pip
+pip install omnara
+```
+
+```bash uv
+uv tool install omnara
+```
+
+```bash pipx
+pipx install omnara
+```
+
+```bash homebrew
+brew install omnara
+```
+
+</CodeGroup>
+
+## Available Commands
+
+<CardGroup cols={2}>
+  <Card
+    title="omnara"
+    icon="terminal"
+    href="/cli/commands/default"
+  >
+    Start an interactive AI coding agent session
+  </Card>
+  <Card
+    title="omnara terminal"
+    icon="desktop"
+    href="/cli/commands/terminal"
+  >
+    Launch with WebSocket relay streaming (explicit)
+  </Card>
+  <Card
+    title="omnara headless"
+    icon="ghost"
+    href="/cli/commands/headless"
+  >
+    Run Claude Code in background mode
+  </Card>
+  <Card
+    title="omnara serve"
+    icon="server"
+    href="/cli/commands/serve"
+  >
+    Start webhook server for remote triggering
+  </Card>
+  <Card
+    title="omnara mcp"
+    icon="plug"
+    href="/cli/commands/mcp"
+  >
+    Run MCP stdio server for protocol integrations
+  </Card>
+</CardGroup>
+
+## Quick Examples
+
+<CodeGroup>
+
+```bash Claude Code
+# Start Claude Code with dashboard integration
+omnara
+```
+
+```bash Codex
+# Start Codex with custom name
+omnara --agent codex --name "Backend Refactor"
+```
+
+```bash Headless
+# Run Claude Code in background with auto-accept
+omnara headless --permission-mode acceptEdits
+```
+
+```bash Webhook Server
+# Start webhook server with public URL
+omnara serve
+```
+
+</CodeGroup>
+
+## Global Options
+
+These options work across all commands:
+
+| Option | Description |
+|--------|-------------|
+| `--api-key <key>` | API key for authentication |
+| `--auth` | Authenticate or re-authenticate |
+| `--reauth` | Force re-authentication |
+| `--version` | Show version information |
+| `--base-url <url>` | Custom API server URL |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Authentication"
+    icon="key"
+    href="/authentication"
+  >
+    Set up your API key and credentials
+  </Card>
+  <Card
+    title="Agent Configuration"
+    icon="gear"
+    href="/cli/agents"
+  >
+    Configure default agents and preferences
+  </Card>
+</CardGroup>

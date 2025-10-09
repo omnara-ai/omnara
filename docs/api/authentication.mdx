@@ -1,0 +1,277 @@
+---
+title: API Authentication
+description: 'Authentication methods for Omnara API'
+---
+
+## Overview
+
+The Omnara API uses JWT-based Bearer token authentication. All API requests must include a valid API key in the Authorization header.
+
+## Getting an API Key
+
+### Via CLI
+
+```bash
+omnara --auth
+```
+
+Your API key is automatically saved to `~/.omnara/credentials.json`.
+
+### Via Dashboard
+
+1. Visit [omnara.com/dashboard](https://omnara.com/dashboard)
+2. Go to **Settings** → **API Keys**
+3. Click **Generate New Key**
+4. Copy the key (it's only shown once)
+
+<Warning>
+Store your API keys securely. They provide full access to your Omnara account.
+</Warning>
+
+## Using API Keys
+
+### HTTP Header
+
+Include the API key in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer omr_xxxxxxxxxxxxxxxxxxxx" \
+  https://agent.omnara.com/api/v1/messages/agent
+```
+
+### Python SDK
+
+```python
+from omnara import OmnaraClient
+
+client = OmnaraClient(api_key="omr_xxxxxxxxxxxxxxxxxxxx")
+```
+
+The SDK automatically adds the Authorization header to all requests.
+
+### Environment Variable
+
+Set `OMNARA_API_KEY` to avoid hardcoding keys:
+
+```bash
+export OMNARA_API_KEY="omr_xxxxxxxxxxxxxxxxxxxx"
+```
+
+```python
+import os
+from omnara import OmnaraClient
+
+# Automatically reads from OMNARA_API_KEY
+client = OmnaraClient(api_key=os.getenv("OMNARA_API_KEY"))
+```
+
+## API Key Format
+
+Omnara API keys are JWT tokens with this structure:
+
+- **Prefix:** `omr_` for easy identification
+- **Algorithm:** RS256 (RSA with SHA-256)
+- **Claims:**
+  - `sub`: Your user ID
+  - `iat`: Issued at timestamp
+  - No expiration (valid indefinitely)
+
+Example decoded JWT payload:
+
+```json
+{
+  "sub": "user_abc123xyz",
+  "iat": 1640000000
+}
+```
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Never commit keys to version control" icon="git">
+    ```bash
+    # Add to .gitignore
+    .env
+    .omnara/
+    **/credentials.json
+    ```
+
+    Use environment variables or secret management tools instead.
+  </Accordion>
+
+  <Accordion title="Use environment-specific keys" icon="layer-group">
+    Create separate API keys for:
+    - Development
+    - Staging
+    - Production
+    - CI/CD pipelines
+
+    This allows you to revoke specific keys without affecting other environments.
+  </Accordion>
+
+  <Accordion title="Rotate keys regularly" icon="rotate">
+    ```bash
+    # Generate new key
+    omnara --reauth
+
+    # Or via dashboard: Settings → API Keys → Generate New Key
+    ```
+
+    Rotate keys every 3-6 months or immediately if compromised.
+  </Accordion>
+
+  <Accordion title="Restrict key permissions" icon="lock">
+    When available, use scoped keys with limited permissions:
+    - Read-only keys for monitoring
+    - Write-only keys for agents
+    - Admin keys only where necessary
+  </Accordion>
+
+  <Accordion title="Monitor key usage" icon="chart-line">
+    Check API key usage in your dashboard:
+    - Last used timestamp
+    - Request count
+    - Unusual activity patterns
+  </Accordion>
+</AccordionGroup>
+
+## Key Management
+
+### Listing Keys
+
+View all your API keys in the dashboard:
+
+**Settings** → **API Keys**
+
+Each key shows:
+- Name/description
+- Created date
+- Last used
+- Status (active/revoked)
+
+### Revoking Keys
+
+Immediately invalidate a key:
+
+1. Go to **Settings** → **API Keys**
+2. Find the key to revoke
+3. Click **Revoke**
+
+All requests with that key will immediately fail with 401 Unauthorized.
+
+### Key Rotation
+
+Safe key rotation process:
+
+<Steps>
+  <Step title="Generate New Key">
+    Create a new API key in the dashboard
+  </Step>
+
+  <Step title="Update Applications">
+    Update your applications to use the new key:
+    - Environment variables
+    - Secret management systems
+    - Configuration files
+  </Step>
+
+  <Step title="Verify">
+    Test that applications work with new key
+  </Step>
+
+  <Step title="Revoke Old Key">
+    Once verified, revoke the old key
+  </Step>
+</Steps>
+
+## Error Responses
+
+### 401 Unauthorized
+
+Missing or invalid API key:
+
+```json
+{
+  "error": {
+    "code": "unauthorized",
+    "message": "Invalid or missing API key"
+  }
+}
+```
+
+**Causes:**
+- Missing Authorization header
+- Invalid key format
+- Revoked key
+- Expired key (if expiration enabled)
+
+**Fix:**
+```bash
+# Verify key is correct
+curl -H "Authorization: Bearer YOUR_KEY" \
+  https://agent.omnara.com/api/v1/auth/verify
+```
+
+### 403 Forbidden
+
+Valid key but insufficient permissions:
+
+```json
+{
+  "error": {
+    "code": "forbidden",
+    "message": "Insufficient permissions for this operation"
+  }
+}
+```
+
+**Causes:**
+- Scoped key without required permissions
+- Accessing another user's resources
+
+## Testing Authentication
+
+Verify your API key works:
+
+```bash
+curl -H "Authorization: Bearer YOUR_KEY" \
+  https://agent.omnara.com/api/v1/auth/verify
+```
+
+Success response:
+
+```json
+{
+  "valid": true,
+  "user_id": "user_abc123xyz",
+  "scopes": ["read", "write"]
+}
+```
+
+## Self-Hosted Instances
+
+For self-hosted Omnara:
+
+```bash
+export OMNARA_API_URL="https://omnara.mycompany.com"
+```
+
+```python
+from omnara import OmnaraClient
+
+client = OmnaraClient(
+    api_key="your-key",
+    base_url="https://omnara.mycompany.com"
+)
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="CLI Authentication" href="/authentication">
+    Browser-based authentication flow
+  </Card>
+  <Card title="API Overview" href="/api/overview">
+    REST API documentation
+  </Card>
+</CardGroup>
