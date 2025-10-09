@@ -32,9 +32,10 @@ If browser authentication doesn't work (e.g., remote SSH session):
 
 <Steps>
   <Step title="Get Your API Key">
-    1. Visit [omnara.com/cli-auth](https://omnara.com/cli-auth)
-    2. Sign in to your account
-    3. Click "Copy API Key"
+    1. Sign in to your account at [omnara.com](https://omnara.com)
+    2. Navigate to **Account → API Keys** (bottom left of dashboard)
+    3. Or visit directly: [omnara.com/dashboard/api-keys](https://omnara.com/dashboard/api-keys)
+    4. Click **Create API Key** or copy an existing key
   </Step>
 
   <Step title="Set the API Key">
@@ -42,18 +43,18 @@ If browser authentication doesn't work (e.g., remote SSH session):
 
     <CodeGroup>
     ```bash Environment Variable
-    export OMNARA_API_KEY="omr_xxxxxxxxxxxxxxxxxxxx"
+    export OMNARA_API_KEY="xxxxxxxxxxxxxxxxxxxx"
     omnara
     ```
 
     ```bash Command Flag
-    omnara --api-key "omr_xxxxxxxxxxxxxxxxxxxx"
+    omnara --api-key "xxxxxxxxxxxxxxxxxxxx"
     ```
 
     ```bash Manual File
     # Create credentials file
     mkdir -p ~/.omnara
-    echo '{"write_key": "omr_xxxxxxxxxxxxxxxxxxxx"}' > ~/.omnara/credentials.json
+    echo '{"write_key": "xxxxxxxxxxxxxxxxxxxx"}' > ~/.omnara/credentials.json
     chmod 600 ~/.omnara/credentials.json
     ```
     </CodeGroup>
@@ -131,7 +132,7 @@ omnara --api-key "flag_key"
 **Format:**
 ```json
 {
-  "write_key": "omr_xxxxxxxxxxxxxxxxxxxx"
+  "write_key": "xxxxxxxxxxxxxxxxxxxx"
 }
 ```
 
@@ -158,8 +159,7 @@ Never commit this file to version control! Add `~/.omnara/` to your `.gitignore`
 
 Omnara API keys are JWT tokens with this structure:
 
-- **Prefix:** `omr_` (for easy identification)
-- **Encoding:** Base64-encoded JWT
+- **Format:** Base64-encoded JWT (no prefix)
 - **Algorithm:** RS256 (RSA with SHA-256)
 - **Claims:**
   - `sub`: Your user ID

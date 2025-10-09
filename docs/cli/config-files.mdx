@@ -22,7 +22,7 @@ This directory is created automatically on first run with secure permissions (`0
 **Format:**
 ```json
 {
-  "write_key": "omr_xxxxxxxxxxxxxxxxxxxx"
+  "write_key": "xxxxxxxxxxxxxxxxxxxx"
 }
 ```
 
@@ -44,7 +44,7 @@ You can also set the API key manually:
 
 ```bash
 # Using jq
-echo '{"write_key": "omr_YOUR_KEY_HERE"}' | jq > ~/.omnara/credentials.json
+echo '{"write_key": "YOUR_KEY_HERE"}' | jq > ~/.omnara/credentials.json
 
 # Or edit directly
 nano ~/.omnara/credentials.json

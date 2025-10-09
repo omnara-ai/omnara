@@ -35,7 +35,7 @@ Store your API keys securely. They provide full access to your Omnara account.
 Include the API key in the `Authorization` header:
 
 ```bash
-curl -H "Authorization: Bearer omr_xxxxxxxxxxxxxxxxxxxx" \
+curl -H "Authorization: Bearer xxxxxxxxxxxxxxxxxxxx" \
   https://agent.omnara.com/api/v1/messages/agent
 ```
 
@@ -44,7 +44,7 @@ curl -H "Authorization: Bearer omr_xxxxxxxxxxxxxxxxxxxx" \
 ```python
 from omnara import OmnaraClient
 
-client = OmnaraClient(api_key="omr_xxxxxxxxxxxxxxxxxxxx")
+client = OmnaraClient(api_key="xxxxxxxxxxxxxxxxxxxx")
 ```
 
 The SDK automatically adds the Authorization header to all requests.
@@ -54,7 +54,7 @@ The SDK automatically adds the Authorization header to all requests.
 Set `OMNARA_API_KEY` to avoid hardcoding keys:
 
 ```bash
-export OMNARA_API_KEY="omr_xxxxxxxxxxxxxxxxxxxx"
+export OMNARA_API_KEY="xxxxxxxxxxxxxxxxxxxx"
 ```
 
 ```python
@@ -69,7 +69,7 @@ client = OmnaraClient(api_key=os.getenv("OMNARA_API_KEY"))
 
 Omnara API keys are JWT tokens with this structure:
 
-- **Prefix:** `omr_` for easy identification
+- **Format:** Base64-encoded JWT (no prefix)
 - **Algorithm:** RS256 (RSA with SHA-256)
 - **Claims:**
   - `sub`: Your user ID
