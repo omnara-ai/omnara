@@ -283,7 +283,7 @@ make test       # Run test suite
 - 💬 [GitHub Discussions](https://github.com/omnara-ai/omnara/discussions)
 - 🐛 [Report Issues](https://github.com/omnara-ai/omnara/issues)
 - 📧 [Email Support](mailto:ishaan@omnara.com)
-- 📖 Documentation (coming soon)
+- 📖 [Documentation](https://omnara.mintlify.dev/)
 
 ## 📜 License
 
@@ -295,6 +295,6 @@ Omnara is open source software licensed under the [Apache 2.0 License](LICENSE).
 
 **Built with ❤️ by the Omnara team**
 
-[Website](https://omnara.com) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
+[Website](https://omnara.com) • [Docs](https://omnara.mintlify.dev/) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
 
 </div>

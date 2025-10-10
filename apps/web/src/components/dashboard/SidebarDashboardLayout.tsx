@@ -10,11 +10,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { 
-  User, 
-  LogOut, 
-  Settings, 
-  CreditCard, 
+import {
+  User,
+  LogOut,
+  Settings,
+  CreditCard,
   ChevronRight,
   ChevronDown,
   Plus,
@@ -33,7 +33,8 @@ import {
   Trash2,
   Copy,
   Link2,
-  Archive
+  Archive,
+  BookOpen
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GhibliBackground } from './GhibliBackground'
@@ -705,6 +706,12 @@ export function SidebarDashboardLayout() {
                 <Key className="w-4 h-4 mr-2" />
                 API Keys
               </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild className="text-text-primary hover:bg-interactive-hover focus:bg-interactive-hover cursor-pointer">
+              <a href="https://omnara.mintlify.dev/" target="_blank" rel="noopener noreferrer">
+                <BookOpen className="w-4 h-4 mr-2" />
+                Documentation
+              </a>
             </DropdownMenuItem>
             <DropdownMenuItem asChild className="text-text-primary hover:bg-interactive-hover focus:bg-interactive-hover cursor-pointer">
               <Link to="/dashboard/billing">

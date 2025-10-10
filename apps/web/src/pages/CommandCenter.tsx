@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { useMobile } from '../hooks/use-mobile'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/button'
-import { Bot, Plus, Key, List, RotateCcw, AlertCircle, ArrowRight, Copy, Edit2 } from 'lucide-react'
+import { Bot, Plus, Key, List, RotateCcw, AlertCircle, ArrowRight, Copy, Edit2, BookOpen } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog'
 import { Label } from '../components/ui/label'
 import { Textarea } from '../components/ui/textarea'
@@ -237,7 +237,7 @@ export default function CommandCenter() {
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-12">
       {/* Welcome Section */}
-      <div className="text-center py-8">
+      <div className="text-center pt-8 pb-4">
         <h1 className="retro-header text-4xl sm:text-5xl lg:text-6xl text-cream mb-4 glow-text">
           OMNARA <span style={{marginLeft:'-0.6em'}}>COMMAND</span> CENTER
         </h1>
@@ -257,7 +257,7 @@ export default function CommandCenter() {
             <Copy className="w-4 h-4 text-cream/50 group-hover:text-cozy-amber transition-colors" />
           </button>
           <div className="text-cream/50 text-xs">
-            or with uv: 
+            or with uv:
             <button
               onClick={() => {
                 navigator.clipboard.writeText('uv pip install omnara && uv run omnara')
@@ -268,6 +268,17 @@ export default function CommandCenter() {
               <code className="font-mono">uv pip install omnara && uv run omnara</code>
               <Copy className="w-3 h-3 inline ml-1 mb-0.5" />
             </button>
+          </div>
+          <div className="mt-3">
+            <a
+              href="https://omnara.mintlify.dev/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-cream/60 hover:text-cozy-amber transition-colors inline-flex items-center space-x-1"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>See full documentation</span>
+            </a>
           </div>
         </div>
       </div>
