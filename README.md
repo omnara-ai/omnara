@@ -17,7 +17,7 @@
 
 <div align="center">
 
-[📱 **Download iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🌐 **Try Web Dashboard**](https://omnara.com) • [🎥 **See a Demo**](https://www.loom.com/share/03d30efcf8e44035af03cbfebf840c73?sid=1c209c04-8a4c-4dd6-8c92-735c399886a6) • [⭐ **Star on GitHub**](https://github.com/omnara-ai/omnara)
+[📱 **iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🤖 **Android App**](https://play.google.com/store/apps/details?id=com.omnara.app) • [🌐 **Web Dashboard**](https://omnara.com) • [📖 **Docs**](https://omnara.mintlify.dev/) • [🎥 **Demo**](https://www.loom.com/share/03d30efcf8e44035af03cbfebf840c73?sid=1c209c04-8a4c-4dd6-8c92-735c399886a6) • [⭐ **GitHub**](https://github.com/omnara-ai/omnara)
 
 </div>
 
