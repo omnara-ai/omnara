@@ -39,7 +39,9 @@ from integrations.utils.git_utils import GitDiffTracker
 
 
 # Constants
-CLAUDE_LOG_BASE = Path.home() / ".claude" / "projects"
+# Respect CLAUDE_CONFIG_DIR environment variable for multiple profiles
+claude_config_dir = os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))
+CLAUDE_LOG_BASE = Path(claude_config_dir) / "projects"
 OMNARA_WRAPPER_LOG_DIR = Path.home() / ".omnara" / "claude_wrapper"
 
 
