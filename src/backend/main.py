@@ -103,12 +103,6 @@ async def health_check():
     return {"status": "healthy"}
 
 
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=settings.api_port, reload=True)
-
-
 def main():
     """Entry point for module execution"""
     import uvicorn

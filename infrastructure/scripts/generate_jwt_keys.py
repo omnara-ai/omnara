@@ -14,9 +14,8 @@ def generate_rsa_key_pair():
     # Generate private key
     private_key = rsa.generate_private_key(
         public_exponent=65537,
-        # Ultra-small keys = ultra-short signatures (~75% reduction from 2048-bit,
-        # but insecure if public key is compromised)
-        key_size=512,
+        # Using 2048-bit keys for secure JWT signing (industry standard)
+        key_size=2048,
     )
 
     # Get public key

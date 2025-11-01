@@ -39,7 +39,7 @@ from ..models import (
     InstanceShareCreateRequest,
     InstanceShareResponse,
 )
-from servers.shared.db import update_session_title_if_needed
+from shared.database.utils import update_session_title_if_needed
 from ..db.queries import create_user_message_with_access
 
 router = APIRouter(tags=["agents"])

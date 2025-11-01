@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 # Copy application code
 COPY src/shared /app/shared
 COPY src/backend /app/backend
+COPY src/servers /app/servers
 
 # Set Python path
 ENV PYTHONPATH=/app

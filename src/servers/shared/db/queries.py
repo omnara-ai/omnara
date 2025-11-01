@@ -13,8 +13,7 @@ from shared.database import (
     UserAgent,
 )
 from shared.database.billing_operations import check_agent_limit
-from shared.database.utils import sanitize_git_diff
-from shared.llms import generate_conversation_title
+from shared.database.utils import sanitize_git_diff, update_session_title_if_needed
 from sqlalchemy.orm import Session
 from fastmcp import Context
 
@@ -114,60 +113,6 @@ def get_or_create_agent_instance(
         db.add(instance)
         db.flush()  # Flush to ensure the instance is in the session with its ID
         return instance
-
-
-def update_session_title_if_needed(
-    db: Session,
-    instance_id: UUID,
-    user_message: str,
-) -> None:
-    """
-    Update the session title if it's NULL by generating a title from the user message.
-
-    This function:
-    - Checks if the instance name is NULL
-    - If NULL, generates a title using the LLM
-    - Updates the instance name in the database
-    - Handles errors gracefully
-
-    Args:
-        db: Database session
-        instance_id: Agent instance ID
-        user_message: The user's message content
-    """
-    try:
-        # Get the instance and check if name is already set
-        instance = (
-            db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
-        )
-        if not instance:
-            logger.warning(f"Instance {instance_id} not found for title generation")
-            return
-
-        if instance.name is not None:
-            logger.debug(
-                f"Instance {instance_id} already has a name, skipping title generation"
-            )
-            return
-
-        # Generate the title using the LLM utility
-        title = generate_conversation_title(user_message)
-
-        if title:
-            instance.name = title
-            db.commit()
-            logger.info(f"Updated instance {instance_id} with title: {title}")
-        else:
-            logger.debug(f"No title generated for instance {instance_id}")
-
-    except Exception as e:
-        logger.error(
-            f"Failed to update session title for instance {instance_id}: {str(e)}"
-        )
-        try:
-            db.rollback()
-        except Exception:
-            pass
 
 
 def end_session(db: Session, agent_instance_id: str, user_id: str) -> tuple[str, str]:

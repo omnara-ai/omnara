@@ -16,5 +16,5 @@ COPY src/servers /app/servers
 # Set Python path
 ENV PYTHONPATH=/app
 
-# Run the MCP server from root directory to access shared
-CMD ["python", "-m", "servers.mcp.server"]
+# Run the unified server (combines MCP + REST API)
+CMD ["python", "-m", "servers.app"]
