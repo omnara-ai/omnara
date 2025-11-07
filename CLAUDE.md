@@ -255,3 +255,22 @@ Omnara is published to PyPI as `omnara`:
 - CLI entry point: `omnara.cli:main`
 - Includes: CLI, SDK, MCP server, agent wrappers
 - Install: `pip install omnara` or `uv tool install omnara`
+
+## Docs
+
+### Getting Started
+- [README](README.md): Project overview, quick start, and installation guide
+- [CONTRIBUTING](CONTRIBUTING.md): Guide for contributing to the Omnara project
+- [AGENTS](AGENTS.md): Claude Code development guide for working on Omnara
+
+### CLI & Usage
+- [CLI Reference](docs/cli-reference.md): Complete command-line interface documentation with all commands, options, and examples
+
+### Architecture & Integration
+- [Architecture Diagram](docs/guides/architecture-diagram.md): System architecture overview with Mermaid diagrams showing component interactions and data flow
+- [n8n Integration](docs/n8n.md): Comprehensive n8n workflow integration architecture, webhook configuration, and AI agent tool setup
+
+### Deployment
+- [Fly.io Setup Guide](docs/deployment/fly-io-setup.md): Step-by-step guide for deploying Omnara to Fly.io with Supabase authentication
+- [Deployment Quick Start](DEPLOYMENT_QUICK_START.md): Rapid deployment instructions
+- [Deployment Summary](DEPLOYMENT_SUMMARY.md): Overview of deployment architecture and decisions

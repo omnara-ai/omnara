@@ -1,0 +1,80 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-review-action@v1
+        with:
+          # Required: Your Claude Code OAuth token
+          # Add this to Repository Settings → Secrets and variables → Actions
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Review prompt - customize this to match your project needs
+          review_prompt: |
+            Review this pull request for the Omnara project with focus on:
+
+            **Code Quality**:
+            - Follow Python best practices and type hints (Python 3.10+)
+            - Adherence to project architecture (dual server model, message-based communication)
+            - Proper use of SQLAlchemy 2.0 async patterns
+            - Type safety with Pydantic v2 schemas
+
+            **Security**:
+            - Authentication: Ensure proper separation of Backend (Supabase) vs Servers (custom JWT) auth
+            - API key handling: Never store raw tokens, always hash with SHA256
+            - JWT security: Validate both public and private key usage
+            - Multi-tenant isolation: All queries must filter by user_id
+
+            **Database & Migrations**:
+            - All model changes in src/shared/database/models.py
+            - Corresponding Alembic migrations included
+            - Proper async database session management
+            - Migrations follow naming conventions
+
+            **Testing**:
+            - Tests cover new functionality
+            - Integration tests marked with @pytest.mark.integration
+            - Test output is clean (no unhandled errors in logs)
+            - Both unit and integration tests where applicable
+
+            **Architecture**:
+            - Respect dual server architecture (Backend READ, Servers WRITE)
+            - Proper use of absolute imports (from shared.*, backend.*, servers.*)
+            - Message flow through unified messaging system
+            - Multi-protocol support (MCP + REST) when adding server endpoints
+
+            **Code Style**:
+            - Ruff formatting compliance
+            - Conventional commit message format
+            - No temporal references in comments (keep comments evergreen)
+            - All Python files start with ABOUTME comment (2 lines)
+
+            Provide specific, actionable feedback. Flag critical security or architectural issues.
+
+          # Optional: Use sticky comments to update the same comment thread
+          sticky_comment: true
+
+          # Optional: Filter PRs by author (comma-separated list)
+          # allowed_authors: "dependabot[bot],renovate[bot]"
+
+          # Optional: Only review specific file patterns (comma-separated globs)
+          # file_patterns: "src/**/*.py,apps/**/*.ts,apps/**/*.tsx"
+
+          # Optional: Skip review for specific file patterns
+          # exclude_patterns: "**/*.lock,**/*.json,**/migrations/**"
+
