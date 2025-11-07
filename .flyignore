@@ -1,0 +1,106 @@
+# Fly.io build context ignore file
+# Excludes unnecessary files from Docker build to speed up deployments
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/
+*.md
+!CLAUDE.md
+README.md
+CONTRIBUTING.md
+LICENSE
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Docker
+.dockerignore
+docker-compose*.yml
+Dockerfile
+
+# Node.js (for web/mobile apps - not needed in Python backend)
+apps/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Local development
+.env
+.env.local
+.env.*.local
+postgres-data/
+logs/
+
+# Tests
+tests/
+*_test.py
+test_*.py
+
+# Deployment scripts (not needed in container)
+infrastructure/scripts/
+dev-start.sh
+dev-stop.sh
+
+# Temporary files
+*.log
+*.tmp
+.cache/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Alembic (included in shared, but exclude local config)
+alembic.ini.local

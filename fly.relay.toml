@@ -1,0 +1,46 @@
+# Fly.io configuration for Omnara Relay Server
+# This service handles WebSocket relay for terminal streaming
+# Port: 8787, WebSocket endpoints: /agent (agents) + /terminal (viewers)
+# No database access needed (in-memory session management)
+
+app = "omnara-relay"
+primary_region = "iad"  # Should match other services region
+
+[build]
+  dockerfile = "infrastructure/docker/relay.Dockerfile"
+
+[env]
+  ENVIRONMENT = "production"
+  OMNARA_RELAY_WS_HOST = "0.0.0.0"
+  OMNARA_RELAY_WS_PORT = "8787"
+  OMNARA_RELAY_HISTORY_BYTES = "1048576"  # 1MB terminal history
+  OMNARA_RELAY_HEARTBEAT_INTERVAL = "10"  # seconds
+  OMNARA_RELAY_HEARTBEAT_MISS_LIMIT = "3"
+  OMNARA_RELAY_ENDED_RETENTION = "900"  # 15 minutes
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = false  # Keep running for WebSocket persistence
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"  # 256MB RAM, 1 shared vCPU (~$3/month)
+  memory = "256mb"
+  cpus = 1
+
+# Secrets to set with `flyctl secrets set`:
+# - OMNARA_RELAY_ALLOWED_ORIGINS (comma-separated, e.g., "https://omnara-backend.fly.dev")
+#
+# Optional secrets:
+# - JWT_PUBLIC_KEY (if agent auth needed)
+# - SUPABASE_URL (if Supabase auth needed)
+# - SUPABASE_ANON_KEY (if Supabase auth needed)

@@ -1,0 +1,45 @@
+# Fly.io configuration for Omnara Unified Server
+# This service handles agent communication (write operations)
+# Port: 8080, Endpoints: /mcp/ (MCP protocol) + /api/v1/ (REST API)
+# Authentication: Custom JWT for agents
+
+app = "omnara-servers"
+primary_region = "iad"  # Should match backend region
+
+[build]
+  dockerfile = "infrastructure/docker/servers.Dockerfile"
+
+[env]
+  ENVIRONMENT = "production"
+  MCP_SERVER_PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false  # Keep running for production
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"  # 256MB RAM, 1 shared vCPU (~$3/month)
+  memory = "256mb"
+  cpus = 1
+
+# Secrets to set with `flyctl secrets set`:
+# - PRODUCTION_DB_URL (Supabase PostgreSQL connection string)
+# - JWT_PUBLIC_KEY (for agent authentication)
+#
+# Optional secrets:
+# - SENTRY_DSN (error tracking)
+# - ANTHROPIC_API_KEY (for AI features)
+# - TWILIO_ACCOUNT_SID (push notifications)
+# - TWILIO_AUTH_TOKEN (push notifications)
+# - TWILIO_SENDGRID_API_KEY (email notifications)
+# - TWILIO_FROM_EMAIL (email notifications)

@@ -1,0 +1,50 @@
+# Fly.io configuration for Omnara Backend API
+# This service handles web dashboard API (read operations)
+# Port: 8000, Authentication: Supabase
+
+app = "omnara-backend"
+primary_region = "iad"  # Change to your preferred region (iad=Ashburn, lax=Los Angeles, etc.)
+
+[build]
+  dockerfile = "infrastructure/docker/backend.Dockerfile"
+
+[env]
+  ENVIRONMENT = "production"
+  API_PORT = "8000"
+  # FRONTEND_URLS will be set as secret (JSON array)
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false  # Keep running for production
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"  # 256MB RAM, 1 shared vCPU (~$3/month)
+  memory = "256mb"
+  cpus = 1
+
+# Secrets to set with `flyctl secrets set`:
+# - PRODUCTION_DB_URL (Supabase PostgreSQL connection string)
+# - SUPABASE_URL
+# - SUPABASE_ANON_KEY
+# - SUPABASE_SERVICE_ROLE_KEY
+# - JWT_PRIVATE_KEY
+# - JWT_PUBLIC_KEY
+# - FRONTEND_URLS (JSON array, e.g., '["https://yourdomain.com"]')
+#
+# Optional secrets:
+# - SENTRY_DSN (error tracking)
+# - STRIPE_SECRET_KEY (billing)
+# - STRIPE_WEBHOOK_SECRET (billing)
+# - TWILIO_ACCOUNT_SID (notifications)
+# - TWILIO_AUTH_TOKEN (notifications)
+# - TWILIO_FROM_PHONE_NUMBER (notifications)

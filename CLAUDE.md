@@ -1,199 +1,257 @@
-# Claude Code Development Guide for Omnara
+# CLAUDE.md
 
-Welcome Claude! This document contains everything you need to know to work effectively on the Omnara project.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-Omnara is a platform that allows users to communicate with their AI agents (like you!) from anywhere. It uses the Model Context Protocol (MCP) to enable real-time communication between agents and users through a web dashboard.
+Omnara is a platform that enables real-time monitoring and interaction with AI agents (Claude Code, Codex CLI, n8n workflows, etc.) through mobile, web, and API interfaces. Users can see what their agents are doing and respond to questions instantly.
 
-## Quick Context
+**Key Innovation**: Bidirectional communication - agents send progress updates and questions, users respond from any device.
 
-- **Purpose**: Let users see what their AI agents are doing and communicate with them in real-time
-- **Key Innovation**: Agents can ask questions and receive feedback while working
-- **Architecture**: Separate read (backend) and write (servers) operations for optimal performance
-- **Open Source**: This is a community project - code quality and clarity matter!
+## Architecture
 
-## Project Structure
-
+### Monorepo Structure
 ```
-omnara/
-├── src/              # All source code
-│   ├── omnara/      # Main Python package (CLI & SDK)
-│   ├── backend/     # FastAPI - Web dashboard API (read operations)
-│   ├── servers/     # Agent communication servers
-│   │   ├── mcp/     # MCP protocol server
-│   │   ├── api/     # REST API server
-│   │   └── shared/  # Shared server code
-│   ├── shared/      # Shared database models and infrastructure
-│   ├── mcp-installer/  # NPX tool for MCP client configuration
-│   └── integrations/   # Integration connectors (flat structure)
-│       ├── cli_wrappers/  # Agent CLI wrappers
-│       ├── headless/      # Background agents
-│       ├── n8n/           # n8n workflow package
-│       ├── github/        # GitHub Actions
-│       ├── utils/         # Utilities
-│       └── webhooks/      # Webhook handlers
-├── apps/            # User-facing applications
-│   ├── web/         # Next.js web dashboard
-│   └── mobile/      # React Native mobile app
-├── infrastructure/ # DevOps & deployment
-│   ├── docker/     # Dockerfiles
-│   └── scripts/    # Build & utility scripts
-├── tests/          # Test suites
-└── docs/           # Documentation
+src/
+├── omnara/         # Python CLI & SDK (pip install omnara)
+├── backend/        # FastAPI web dashboard API (READ operations)
+├── servers/        # Unified agent server (WRITE operations)
+│   ├── mcp/       # Model Context Protocol interface
+│   ├── api/       # REST API interface
+│   └── shared/    # Common business logic
+├── shared/        # Database models, migrations, config
+├── relay_server/  # WebSocket relay for terminal streaming
+├── integrations/  # Agent wrappers, webhooks, n8n nodes
+└── mcp-installer/ # NPX tool for MCP config
+
+apps/
+├── web/           # Next.js dashboard
+└── mobile/        # React Native app
+
+infrastructure/    # Docker, deployment, scripts
 ```
 
-## Key Technical Decisions
+### Critical Architectural Decisions
 
-### Authentication Architecture
-- **Two separate JWT systems**:
-  1. **Backend**: Supabase JWTs for web users
-  2. **Servers**: Custom JWT with weaker RSA (shorter API keys for agents)
-- API keys are hashed (SHA256) before storage - never store raw tokens
+**1. Dual Server Architecture**
+- **Backend** (`src/backend/`): Web dashboard API - READ operations only
+  - Auth: Supabase JWTs for web users
+  - Port: 8000
 
-### Database Design
-- **PostgreSQL** with **SQLAlchemy 2.0+**
-- **Alembic** for migrations - ALWAYS create migrations for schema changes
-- Multi-tenant design - all data is scoped by user_id
-- Key tables: users, user_agents, agent_instances, messages, api_keys
-- **Unified messaging system**: All agent interactions (steps, questions, feedback) are now stored in the `messages` table with `sender_type` and `requires_user_input` fields
+- **Servers** (`src/servers/`): Agent communication - WRITE operations only
+  - Auth: Custom JWT with weaker RSA (shorter API keys)
+  - Port: 8080
+  - Exposes both MCP (`/mcp/`) and REST (`/api/v1/`) interfaces
 
-### Server Architecture
-- **Unified server** (`src/servers/app.py`) supports both MCP and REST
-- MCP endpoint: `/mcp/`
-- REST endpoints: `/api/v1/*`
-- Both use the same authentication and business logic
+**2. Unified Messaging System**
+All agent interactions flow through the `messages` table:
+- `sender_type`: AGENT or USER
+- `requires_user_input`: Boolean flag for questions vs. updates
+- `last_read_message_id`: Track reading progress per instance
+- Agents receive queued user messages when sending new messages
 
-## Development Workflow
+**3. Multi-Protocol Support**
+The unified server (`src/servers/app.py`) supports:
+- **MCP Protocol**: For MCP-compatible agents (Claude Code, etc.)
+- **REST API**: For SDK clients and direct integrations
+- Both share identical authentication and business logic
 
-### Setting Up
-1. **Always activate the virtual environment first**:
-   ```bash
-   source .venv/bin/activate  # macOS/Linux
-   .venv\Scripts\activate     # Windows
-   ```
+## Development Commands
 
-2. **Install pre-commit hooks** (one-time):
-   ```bash
-   make pre-commit-install
-   ```
-
-### Before Making Changes
-1. **Check current branch**: Ensure you're on the right branch
-2. **Update dependencies**: Run `pip install -r requirements.txt` if needed
-3. **Check migrations**: Run `alembic current` in `shared/` directory
-
-### Making Changes
-
-#### Database Changes
-1. Modify models in `src/shared/models/`
-2. Generate migration:
-   ```bash
-   cd src/shared/
-   alembic revision --autogenerate -m "Descriptive message"
-   ```
-3. Review the generated migration file
-4. Test migration: `alembic upgrade head`
-5. Include migration file in your commit
-
-#### Code Changes
-1. **Follow existing patterns** - check similar files first
-2. **Use type hints** - We use Python 3.12 with full type annotations
-3. **Import style**: Prefer absolute imports from project root
-
-#### Testing
+### Setup
 ```bash
-make test              # Run all tests
-make test-integration  # Integration tests (needs Docker)
+# First time setup
+cp .env.example .env
+python infrastructure/scripts/generate_jwt_keys.py
+./dev-start.sh  # Starts PostgreSQL (Docker) + all servers
+
+# Stop everything
+./dev-stop.sh
+
+# Reset database
+./dev-start.sh --reset-db
 ```
 
-### Before Committing
-1. **Run linting and formatting**:
-   ```bash
-   make lint    # Check for issues
-   make format  # Auto-fix formatting
-   ```
+### Daily Development
+```bash
+make lint          # Run all checks (ruff + pyright)
+make format        # Auto-format with ruff
+make typecheck     # Type checking only
+make test          # All tests
+make test-unit     # Skip integration tests
+make test-integration  # Docker-dependent tests only
 
-2. **Verify your changes work**:
-   - Test the specific functionality you changed
-   - Run relevant test suites
-   - Check that migrations apply cleanly
+# Run specific test
+make test-k ARGS="test_auth"
+```
 
-3. **Update documentation** if you changed functionality
+### Database Migrations
 
-## Common Tasks
+**CRITICAL**: Always run from `src/shared/` directory:
 
-### Working with Messages
-The unified messaging system uses a single `messages` table:
-- **Agent messages**: Set `sender_type=AGENT`, use `requires_user_input=True` for questions
-- **User messages**: Set `sender_type=USER` for feedback/responses
-- **Reading messages**: Use `last_read_message_id` to track reading progress
-- **Queued messages**: Agent receives unread user messages when sending new messages
+```bash
+cd src/shared/
 
-### Adding a New API Endpoint
-1. Add route in `src/backend/api/` or `src/servers/api/routers.py`
-2. Create Pydantic models for request/response in `models.py`
-3. Add database queries in appropriate query files
-4. Write tests for the endpoint
+# Check current migration status
+alembic current
 
-### Adding a New MCP Tool
-1. Add tool definition in `src/servers/mcp/tools.py`
-2. Register tool in `src/servers/mcp/server.py`
-3. Share logic with REST endpoint if applicable
-4. Update agent documentation
+# Create migration after model changes
+alembic revision --autogenerate -m "description"
+
+# Apply migrations
+alembic upgrade head
+
+# Rollback one migration
+alembic downgrade -1
+```
+
+**Pre-commit hook enforces**: Model changes must have corresponding migrations.
+
+## Key Technical Constraints
+
+### Authentication Security
+- **Backend**: Uses Supabase JWTs - DO NOT mix with server auth
+- **Servers**: Custom JWT with weaker RSA implementation
+  - ⚠️ Keep BOTH private AND public keys secure
+  - API keys are hashed (SHA256) before storage - never store raw tokens
+
+### Database Rules
+1. All models in `src/shared/database/models.py`
+2. Multi-tenant: ALL queries must filter by `user_id`
+3. Use SQLAlchemy 2.0+ async patterns
+4. Migrations are version-controlled - commit them with model changes
+
+### Import Patterns
+```python
+# Always use absolute imports from project root
+from shared.database.models import User, AgentInstance
+from servers.shared.messages import create_message
+from backend.auth.supabase import get_current_user
+
+# Set PYTHONPATH when running manually
+export PYTHONPATH="$(pwd)/src"
+```
+
+### Running Services Manually
+```bash
+# From project root with PYTHONPATH set
+export PYTHONPATH="$(pwd)/src"
+
+# Backend (port 8000)
+uvicorn backend.main:app --port 8000
+
+# Unified Server (port 8080)
+python -m servers.app
+
+# Relay Server (port 8787)
+python -m relay_server.app
+```
+
+## Testing Philosophy
+
+- Python 3.10+ required (3.11+ preferred)
+- Use pytest with async support (`asyncio_mode = "auto"`)
+- Mark integration tests: `@pytest.mark.integration`
+- Integration tests need Docker (PostgreSQL)
+- Pre-commit hooks run ruff formatting and migration checks
+
+## Common Workflows
+
+### Adding an API Endpoint
+
+**Backend (read operations)**:
+1. Add route in `src/backend/api/`
+2. Create Pydantic models in `src/backend/models.py`
+3. Add query in `src/backend/db/`
+4. Write tests in `src/backend/tests/`
+
+**Servers (write operations)**:
+1. Add to both `src/servers/mcp/tools.py` AND `src/servers/api/routers.py`
+2. Share logic via `src/servers/shared/`
+3. Test both MCP and REST interfaces
 
 ### Modifying Database Schema
-1. Change models in `src/shared/models/`
-2. Generate and review migration
-3. Update any affected queries
-4. Update Pydantic models if needed
-5. Test thoroughly with existing data
+1. Edit `src/shared/database/models.py`
+2. `cd src/shared/ && alembic revision --autogenerate -m "description"`
+3. Review generated migration (edit if needed)
+4. Test: `alembic upgrade head`
+5. Update any affected Pydantic schemas
+6. Commit both model and migration files
 
-## Important Files to Know
+### Working with Messages
+```python
+# Agent sends a question
+create_message(
+    agent_instance_id=instance_id,
+    sender_type=SenderType.AGENT,
+    content="Should I refactor this module?",
+    requires_user_input=True
+)
 
-- `src/shared/config.py` - Central configuration using Pydantic settings
-- `src/shared/models/base.py` - SQLAlchemy base configuration
-- `servers/app.py` - Unified server entry point
-- `src/backend/auth/` - Authentication logic for web users
-- `src/servers/api/auth.py` - Agent authentication
+# Agent sends progress update
+create_message(
+    agent_instance_id=instance_id,
+    sender_type=SenderType.AGENT,
+    content="Analyzing codebase structure",
+    requires_user_input=False
+)
+
+# User responds
+create_message(
+    agent_instance_id=instance_id,
+    sender_type=SenderType.USER,
+    content="Yes, refactor it"
+)
+```
 
 ## Environment Variables
 
-Key variables you might need:
-- `DATABASE_URL` - PostgreSQL connection
-- `JWT_PUBLIC_KEY` / `JWT_PRIVATE_KEY` - For agent auth
-- `SUPABASE_URL` / `SUPABASE_ANON_KEY` - For web auth
-- `ENVIRONMENT` - Set to "development" for auto-reload
+Core variables (see `.env.example` for complete list):
+- `DATABASE_URL`: PostgreSQL connection
+- `DEVELOPMENT_DB_URL`: Override for local dev
+- `JWT_PUBLIC_KEY` / `JWT_PRIVATE_KEY`: Agent auth (RSA keys with newlines)
+- `SUPABASE_URL` / `SUPABASE_ANON_KEY`: Web auth
+- `ENVIRONMENT`: Set to "development" for auto-reload
 
-## Common Pitfalls to Avoid
+## Commit Conventions
 
-1. **Don't commit without migrations** - Pre-commit hooks will catch this
-2. **Don't store raw JWT tokens** - Always hash API keys
-3. **Don't mix authentication systems** - Backend uses Supabase, Servers use custom JWT
-4. **Don't forget user scoping** - All queries must filter by user_id
-5. **Don't skip type hints** - Pyright will complain
+Follow conventional commits:
+- `feat:` New features
+- `fix:` Bug fixes
+- `docs:` Documentation only
+- `refactor:` Code restructuring
+- `test:` Test additions/changes
 
-## Debugging Tips
+Example: `feat: add message filtering by date range`
 
-1. **Database issues**: Check migrations are up to date
-2. **Auth failures**: Verify JWT keys are properly formatted (with newlines)
-3. **Import errors**: Ensure you're using absolute imports
-4. **Type errors**: Run `make typecheck` to catch issues early
+## Type Hints & Code Style
 
-## Getting Help
+- Python 3.10+ with full type annotations required
+- Ruff for linting and formatting (replaces black/flake8)
+- Pyright for type checking
+- Prefer `Mapped[type]` for SQLAlchemy columns
+- Use Pydantic v2 for validation schemas
 
-- Check existing code for patterns
-- Read test files for usage examples
-- Error messages usually indicate what's wrong
-- The codebase is well-structured - similar things are grouped together
+## Pitfalls to Avoid
 
-## Your Superpowers on This Project
+1. **Don't run migrations from wrong directory** - Always `cd src/shared/` first
+2. **Don't skip migrations** - Pre-commit hook will block commits
+3. **Don't mix auth systems** - Backend ≠ Servers authentication
+4. **Don't forget user scoping** - All queries need `user_id` filter
+5. **Don't store raw API keys** - Hash with SHA256 first
+6. **Don't expose JWT keys** - Both public and private keys are sensitive
 
-As Claude Code, you're particularly good at:
-- Understanding the full codebase quickly
-- Maintaining consistency across files
-- Catching potential security issues
-- Writing comprehensive tests
-- Suggesting architectural improvements
+## Deployment
 
-Remember: This is an open-source project that helps AI agents communicate with humans. Your work here directly improves the AI-human collaboration experience!
+Uses automated scripts:
+- `./dev-start.sh`: Local development (PostgreSQL in Docker)
+- `./dev-stop.sh`: Stop all services
+- See `infrastructure/` for production deployment configs
+
+## Package Distribution
+
+Omnara is published to PyPI as `omnara`:
+- Version defined in `pyproject.toml`
+- CLI entry point: `omnara.cli:main`
+- Includes: CLI, SDK, MCP server, agent wrappers
+- Install: `pip install omnara` or `uv tool install omnara`

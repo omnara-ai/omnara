@@ -1,0 +1,30 @@
+app = 'omnara-web'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'infrastructure/docker/web.Dockerfile'
+
+  [build.args]
+    VITE_SUPABASE_URL = "https://ckofukzfogywmdzjrwss.supabase.co"
+    VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNrb2Z1a3pmb2d5d21kempyd3NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE3OTYyOTUsImV4cCI6MjA3NzM3MjI5NX0.hRbM5z3HIK1Lnas8-j1nep4-wh4g3-aA907gSRRWk9A"
+    VITE_API_URL = "https://omnara-backend.fly.dev"
+    VITE_RELAY_URL = "wss://omnara-relay.fly.dev/terminal"
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+  [[http_service.checks]]
+    grace_period = "5s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'
