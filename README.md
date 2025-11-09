@@ -6,7 +6,8 @@
 >
 > We've migrated to a new voice-first coding agent platform at [https://omnara.com](https://omnara.com) built using the Claude Agent SDK. The new service keeps the features you love - **web and mobile access to your machine** - but we've built our own integrated experience instead of wrapping the Claude Code CLI. This allows us to provide a more reliable and maintainable service.
 >
-> - **Legacy Web App**: The legacy web dashboard for this deprecated version is at [https://claude.omnara.com](https://claude.omnara.com) and will continue to work until the end of 2025
+> - **Legacy Web App**: The legacy web dashboard for this deprecated version is at [https://claude.omnara.com](https://claude.omnara.com) and will continue to work until the end of 2025. To use it, upgrade the Python package to version 1.7.0: `pip install omnara==1.7.0`
+> - **New Platform**: The new version at [omnara.com](https://omnara.com) is now an npm package. Install it with: `npm install -g omnara`
 > - **Current Paying Customers**: You can contact us at [contact@omnara.com](mailto:contact@omnara.com) for a refund. We will also apply 2 months of free credits to your account on the new platform at [omnara.com](https://omnara.com) and you will keep your current payment rate **forever**
 > - **Mobile App Auto-Updates**: If you have auto-updates enabled, your mobile app may have already updated to v1.5.0 (the new platform). If you need access to the older version (< 1.5.0) for this deprecated platform, please reach out to [contact@omnara.com](mailto:contact@omnara.com) and we can provide access via TestFlight
 > - **Building from Source**: The web and mobile apps are now fully open source under Apache 2.0. You can build both the web dashboard (`apps/web/`) and mobile app (`apps/mobile/`) from source if you prefer to self-host or run an older version
