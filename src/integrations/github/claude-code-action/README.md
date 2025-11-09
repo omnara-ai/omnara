@@ -13,7 +13,7 @@ This integration allows you to trigger AI agents from GitHub issues, PRs, and th
    - Save the token securely
 
 2. **Omnara API Key**
-   - Get your API key from the [Omnara dashboard](https://omnara.com)
+   - Get your API key from the [Omnara dashboard](https://claude.omnara.com)
    - You'll need this for webhook configuration
 
 3. **Anthropic API Key**

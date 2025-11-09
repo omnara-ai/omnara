@@ -66,7 +66,7 @@ class Settings(BaseSettings):
         return "postgresql://user:password@localhost:5432/agent_dashboard"
 
     # Frontend URLs - expects JSON array in env var
-    frontend_urls: List[str] = ["https://omnara.com", "http://localhost:3000"]
+    frontend_urls: List[str] = ["https://claude.omnara.com", "http://localhost:3000"]
 
     # API Versioning
     api_v1_prefix: str = "/api/v1"

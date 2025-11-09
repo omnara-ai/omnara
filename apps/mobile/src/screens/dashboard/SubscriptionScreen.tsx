@@ -132,7 +132,7 @@ export const SubscriptionScreen: React.FC = () => {
     // Handle based on provider
     if (subscription.provider === 'stripe') {
       // Open Omnara website for Stripe subscriptions
-      Linking.openURL('https://omnara.com');
+      Linking.openURL('https://claude.omnara.com');
     } else if (subscription.provider === 'apple' && Platform.OS === 'ios') {
       // Use management URL for Apple subscriptions on iOS
       if (subscription.managementUrl) {
@@ -250,14 +250,14 @@ export const SubscriptionScreen: React.FC = () => {
                 By subscribing, you agree to our{' '}
                 <Text 
                   style={styles.legalLink}
-                  onPress={() => Linking.openURL('https://omnara.com/terms')}
+                  onPress={() => Linking.openURL('https://claude.omnara.com/terms')}
                 >
                   Terms of Use
                 </Text>
                 {' '}and{' '}
                 <Text 
                   style={styles.legalLink}
-                  onPress={() => Linking.openURL('https://omnara.com/privacy')}
+                  onPress={() => Linking.openURL('https://claude.omnara.com/privacy')}
                 >
                   Privacy Policy
                 </Text>

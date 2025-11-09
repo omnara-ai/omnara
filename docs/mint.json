@@ -15,16 +15,16 @@
   "topbarLinks": [
     {
       "name": "Website",
-      "url": "https://omnara.com"
+      "url": "https://claude.omnara.com"
     },
     {
       "name": "Dashboard",
-      "url": "https://omnara.com/dashboard"
+      "url": "https://claude.omnara.com/dashboard"
     }
   ],
   "topbarCtaButton": {
     "name": "Get Started",
-    "url": "https://omnara.com"
+    "url": "https://claude.omnara.com"
   },
   "tabs": [
     {

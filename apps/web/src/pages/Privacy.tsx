@@ -147,7 +147,7 @@ const Privacy = () => {
             </p>
             <div className="mt-3 text-off-white/90">
               <p>Email: contact@omnara.com</p>
-              <p>Website: https://omnara.com</p>
+              <p>Website: https://claude.omnara.com</p>
             </div>
           </section>
 
