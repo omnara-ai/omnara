@@ -17,7 +17,7 @@ omnara --auth
 
 This command:
 1. Starts a local HTTP server on a random port
-2. Opens your browser to `https://omnara.com/cli-auth`
+2. Opens your browser to `https://claude.omnara.com/cli-auth`
 3. Prompts you to sign in (or create an account)
 4. Automatically receives the API key via callback
 5. Saves the key to `~/.omnara/credentials.json`
@@ -32,9 +32,9 @@ If browser authentication doesn't work (e.g., remote SSH session):
 
 <Steps>
   <Step title="Get Your API Key">
-    1. Sign in to your account at [omnara.com](https://omnara.com)
+    1. Sign in to your account at [claude.omnara.com](https://claude.omnara.com)
     2. Navigate to **Account → API Keys** (bottom left of dashboard)
-    3. Or visit directly: [omnara.com/dashboard/api-keys](https://omnara.com/dashboard/api-keys)
+    3. Or visit directly: [claude.omnara.com/dashboard/api-keys](https://claude.omnara.com/dashboard/api-keys)
     4. Click **Create API Key** or copy an existing key
   </Step>
 
@@ -81,7 +81,7 @@ This forces a new authentication flow even if credentials already exist.
   </Step>
 
   <Step title="Browser Opens">
-    URL includes port and state: `https://omnara.com/cli-auth?port=12345&state=abc123...`
+    URL includes port and state: `https://claude.omnara.com/cli-auth?port=12345&state=abc123...`
   </Step>
 
   <Step title="User Authenticates">
@@ -237,7 +237,7 @@ Omnara uses weaker RSA keys intentionally to keep API keys shorter. Keep your ke
     omnara --auth
 
     # Or use manual method
-    # 1. Visit https://omnara.com/cli-auth
+    # 1. Visit https://claude.omnara.com/cli-auth
     # 2. Copy API key
     # 3. Paste when CLI prompts
     ```

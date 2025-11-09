@@ -175,7 +175,7 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
                     <html>
                     <head>
                         <title>Omnara CLI - Authentication Successful</title>
-                        <meta http-equiv="refresh" content="1;url=https://omnara.com/dashboard">
+                        <meta http-equiv="refresh" content="1;url=https://claude.omnara.com/dashboard">
                         <style>
                             body {
                                 margin: 0;
@@ -261,12 +261,12 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
                             <p class="close-hint">Redirecting to dashboard in a moment...</p>
                             <p style="margin-top: 20px; font-size: 12px;">
                                 If you are not redirected automatically,
-                                <a href="https://omnara.com/dashboard" style="color: #86efac;">click here</a>.
+                                <a href="https://claude.omnara.com/dashboard" style="color: #86efac;">click here</a>.
                             </p>
                         </div>
                         <script>
                             setTimeout(() => {
-                                window.location.href = 'https://omnara.com/dashboard';
+                                window.location.href = 'https://claude.omnara.com/dashboard';
                             }, 500);
                         </script>
                     </body>
@@ -306,7 +306,7 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
         """)
 
 
-def authenticate_via_browser(auth_url="https://omnara.com"):
+def authenticate_via_browser(auth_url="https://claude.omnara.com"):
     """Authenticate via browser and return the API key"""
 
     # Generate a secure random state parameter
@@ -429,7 +429,7 @@ def ensure_api_key(args):
 
     # Authenticate via browser
     print("No API key found. Starting authentication...")
-    auth_url = getattr(args, "auth_url", "https://omnara.com")
+    auth_url = getattr(args, "auth_url", "https://claude.omnara.com")
     try:
         api_key = authenticate_via_browser(auth_url)
         save_api_key(api_key)
@@ -626,7 +626,7 @@ def add_runner_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--auth-url",
-        default="https://omnara.com",
+        default="https://claude.omnara.com",
         help="Base URL of the Omnara frontend for authentication",
     )
     parser.add_argument(
@@ -812,7 +812,7 @@ Examples:
     )
     headless_parser.add_argument(
         "--auth-url",
-        default="https://omnara.com",
+        default="https://claude.omnara.com",
         help="Base URL of the Omnara frontend for authentication",
     )
     headless_parser.add_argument(

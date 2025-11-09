@@ -14,8 +14,8 @@ import { theme } from '@/constants/theme';
 import { Header } from '@/components/ui';
 import { reportError } from '@/lib/logger';
 
-const PRIVACY_POLICY_URL = 'https://omnara.com/privacy';
-const TERMS_OF_USE_URL = 'https://omnara.com/terms';
+const PRIVACY_POLICY_URL = 'https://claude.omnara.com/privacy';
+const TERMS_OF_USE_URL = 'https://claude.omnara.com/terms';
 
 export const LegalScreen: React.FC = () => {
   const navigation = useNavigation();

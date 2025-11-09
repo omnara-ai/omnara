@@ -1,5 +1,19 @@
 # Omnara - Mission Control for Your AI Agents 🚀
 
+> ⚠️ **IMPORTANT NOTICE** ⚠️
+>
+> **This version of Omnara is no longer maintained.** We apologize for the inconvenience. This version was built as a wrapper around the Claude Code CLI, which became unfeasible to maintain with Claude Code's constant updates.
+>
+> We've migrated to a new voice-first coding agent platform at [https://omnara.com](https://omnara.com) built using the Claude Agent SDK. The new service keeps the features you love - **web and mobile access to your machine** - but we've built our own integrated experience instead of wrapping the Claude Code CLI. This allows us to provide a more reliable and maintainable service.
+>
+> - **Legacy Web App**: The legacy web dashboard for this deprecated version is at [https://claude.omnara.com](https://claude.omnara.com) and will continue to work until the end of 2025
+> - **Current Paying Customers**: You can contact us at [contact@omnara.com](mailto:contact@omnara.com) for a refund. We will also apply 2 months of free credits to your account on the new platform at [omnara.com](https://omnara.com) and you will keep your current payment rate **forever**
+> - **Mobile App Auto-Updates**: If you have auto-updates enabled, your mobile app may have already updated to v1.5.0 (the new platform). If you need access to the older version (< 1.5.0) for this deprecated platform, please reach out to [contact@omnara.com](mailto:contact@omnara.com) and we can provide access via TestFlight
+> - **Building from Source**: The web and mobile apps are now fully open source under Apache 2.0. You can build both the web dashboard (`apps/web/`) and mobile app (`apps/mobile/`) from source if you prefer to self-host or run an older version
+> - **Questions**: For any other questions, please contact us at [contact@omnara.com](mailto:contact@omnara.com)
+
+---
+
 <div align="center">
 
 **Your AI workforce, in your pocket.**
@@ -17,7 +31,7 @@
 
 <div align="center">
 
-[📱 **iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🤖 **Android App**](https://play.google.com/store/apps/details?id=com.omnara.app) • [🌐 **Web Dashboard**](https://omnara.com) • [📖 **Docs**](https://omnara.mintlify.dev/) • [🎥 **Demo**](https://www.loom.com/share/03d30efcf8e44035af03cbfebf840c73?sid=1c209c04-8a4c-4dd6-8c92-735c399886a6) • [⭐ **GitHub**](https://github.com/omnara-ai/omnara)
+[📱 **iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🤖 **Android App**](https://play.google.com/store/apps/details?id=com.omnara.app) • [🌐 **Web Dashboard**](https://claude.omnara.com) • [📖 **Docs**](https://omnara.mintlify.dev/) • [🎥 **Demo**](https://www.loom.com/share/03d30efcf8e44035af03cbfebf840c73?sid=1c209c04-8a4c-4dd6-8c92-735c399886a6) • [⭐ **GitHub**](https://github.com/omnara-ai/omnara)
 
 </div>
 
@@ -36,7 +50,7 @@ omnara
 omnara --agent codex
 ```
 
-That's it! Create an account when prompted, then return to your terminal to interact with your coding agent. You can now see and interact with your coding agent session from the [web dashboard](https://omnara.com/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
+That's it! Create an account when prompted, then return to your terminal to interact with your coding agent. You can now see and interact with your coding agent session from the [web dashboard](https://claude.omnara.com/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
 
 ## 💡 What is Omnara?
 
@@ -295,6 +309,6 @@ Omnara is open source software licensed under the [Apache 2.0 License](LICENSE).
 
 **Built with ❤️ by the Omnara team**
 
-[Website](https://omnara.com) • [Docs](https://omnara.mintlify.dev/) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
+[Website](https://claude.omnara.com) • [Docs](https://omnara.mintlify.dev/) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
 
 </div>

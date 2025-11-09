@@ -2,7 +2,7 @@
 
 The best human-in-the-loop node for n8n, built for seamless human-agent interaction. Perfect for approval workflows and real-time agent conversations.
 
-[Omnara](https://omnara.com) lets you monitor and guide AI agents without the noise. View your agent's full thought process through our web and mobile apps with smart notifications - only get alerted when your input is needed. Need urgent responses? Enable email and SMS notifications with zero setup. Stay in control while automation runs.
+[Omnara](https://claude.omnara.com) lets you monitor and guide AI agents without the noise. View your agent's full thought process through our web and mobile apps with smart notifications - only get alerted when your input is needed. Need urgent responses? Enable email and SMS notifications with zero setup. Stay in control while automation runs.
 
 ## Installation
 
@@ -49,7 +49,7 @@ npm link n8n-nodes-omnara
 
 ### 1. Get Your API Key
 
-1. Go to [Omnara Dashboard](https://omnara.com/dashboard)
+1. Go to [Omnara Dashboard](https://claude.omnara.com/dashboard)
 2. Click on your email in the bottom left corner
 3. Click "API Keys"
 4. Create a new API key and copy it
@@ -82,7 +82,7 @@ This lets you start workflows from the Omnara dashboard.
 3. Copy the webhook URL (looks like: `https://your-n8n.com/webhook/xxx`)
 
 **Step 2: Configure Omnara Dashboard**
-1. Go to [Omnara Dashboard](https://omnara.com/dashboard)
+1. Go to [Omnara Dashboard](https://claude.omnara.com/dashboard)
 2. Click the **+ New Instance** button (top left)
 3. Paste your webhook URL
 4. (Optional) Set a custom agent type; otherwise the workflow name is used

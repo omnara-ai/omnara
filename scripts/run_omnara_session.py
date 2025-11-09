@@ -36,7 +36,7 @@ def parse_args() -> tuple[argparse.Namespace, Iterable[str]]:
     )
     parser.add_argument(
         "--auth-url",
-        default="https://omnara.com",
+        default="https://claude.omnara.com",
         help="Auth URL used if a re-login is needed",
     )
     parser.add_argument("--name", help="Friendly session name")

@@ -18,7 +18,7 @@ class RelaySettings:
     ended_retention_seconds: int = 15 * 60
     allowed_origins: list[str] = field(
         default_factory=lambda: [
-            "https://omnara.com",
+            "https://claude.omnara.com",
             "https://omnara.ai",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
