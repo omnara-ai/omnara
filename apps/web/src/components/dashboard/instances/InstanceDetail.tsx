@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { InstanceHeader } from './InstanceHeader'
 import { ChatInterface } from './../chat/ChatInterface'
 import { TerminalInstancePanel } from './TerminalInstancePanel'
@@ -20,6 +21,7 @@ const SENTRY_TAGS = { feature: 'instance-detail' }
 
 export function InstanceDetail() {
   const { instanceId } = useParams<{ instanceId: string }>()
+  const queryClient = useQueryClient()
   const [instance, setInstance] = useState<IInstanceDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -282,6 +284,25 @@ export function InstanceDetail() {
         } catch (err) {
           reportError(err, {
             context: 'Failed to parse SSE agent heartbeat',
+            extras: { instanceId, raw: event.data },
+            tags: SENTRY_TAGS,
+          })
+        }
+      })
+
+      // Queue updates (real-time queue changes)
+      eventSource.addEventListener('queue_update', (event) => {
+        try {
+          const queueData = JSON.parse(event.data)
+
+          // Invalidate queue queries to refresh the queue UI
+          if (queueData.agent_instance_id === instanceId) {
+            queryClient.invalidateQueries({ queryKey: ['queue', instanceId] })
+            queryClient.invalidateQueries({ queryKey: ['queue-status', instanceId] })
+          }
+        } catch (err) {
+          reportError(err, {
+            context: 'Failed to parse SSE queue update',
             extras: { instanceId, raw: event.data },
             tags: SENTRY_TAGS,
           })

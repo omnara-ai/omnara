@@ -16,7 +16,23 @@ import {
   useQueueStatus,
   useDeleteQueueItem,
   useClearQueue,
+  useReorderQueue,
 } from '@/hooks/useQueue'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import { PromptQueueStatus } from '@/types/dashboard'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -29,6 +45,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { EditPromptModal } from './EditPromptModal'
 
 interface PromptQueuePanelProps {
   instanceId: string
@@ -40,6 +57,7 @@ export function PromptQueuePanel({ instanceId, isOpen, onClose }: PromptQueuePan
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editingItemText, setEditingItemText] = useState('')
 
   const { data: queue, isLoading: isLoadingQueue } = useQueue(
     instanceId,
@@ -48,15 +66,30 @@ export function PromptQueuePanel({ instanceId, isOpen, onClose }: PromptQueuePan
   const { data: queueStatus } = useQueueStatus(instanceId)
   const deleteItemMutation = useDeleteQueueItem(instanceId)
   const clearQueueMutation = useClearQueue(instanceId)
+  const reorderMutation = useReorderQueue(instanceId)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
 
   const handleDelete = (itemId: string) => {
     deleteItemMutation.mutate(itemId)
   }
 
   const handleEdit = (itemId: string) => {
-    // TODO: Implement edit modal
-    console.log('Edit item:', itemId)
-    setEditingItemId(itemId)
+    const item = queue?.find((q) => q.id === itemId)
+    if (item) {
+      setEditingItemId(itemId)
+      setEditingItemText(item.prompt_text)
+    }
+  }
+
+  const handleCloseEditModal = () => {
+    setEditingItemId(null)
+    setEditingItemText('')
   }
 
   const handleClearQueue = () => {
@@ -65,6 +98,23 @@ export function PromptQueuePanel({ instanceId, isOpen, onClose }: PromptQueuePan
         setIsClearDialogOpen(false)
       },
     })
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (!over || !queue || active.id === over.id) {
+      return
+    }
+
+    const oldIndex = queue.findIndex((item) => item.id === active.id)
+    const newIndex = queue.findIndex((item) => item.id === over.id)
+
+    if (oldIndex !== -1 && newIndex !== -1) {
+      const reorderedQueue = arrayMove(queue, oldIndex, newIndex)
+      const queueItemIds = reorderedQueue.map((item) => item.id)
+      reorderMutation.mutate(queueItemIds)
+    }
   }
 
   const pendingCount = queueStatus?.pending ?? 0
@@ -130,16 +180,27 @@ export function PromptQueuePanel({ instanceId, isOpen, onClose }: PromptQueuePan
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {queue.map((item) => (
-                    <QueueItem
-                      key={item.id}
-                      item={item}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                </div>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={queue.map((item) => item.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-2">
+                      {queue.map((item) => (
+                        <QueueItem
+                          key={item.id}
+                          item={item}
+                          onEdit={handleEdit}
+                          onDelete={handleDelete}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
               )}
             </ScrollArea>
 
@@ -186,6 +247,15 @@ export function PromptQueuePanel({ instanceId, isOpen, onClose }: PromptQueuePan
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Prompt Modal */}
+      <EditPromptModal
+        instanceId={instanceId}
+        itemId={editingItemId}
+        initialText={editingItemText}
+        isOpen={!!editingItemId}
+        onClose={handleCloseEditModal}
+      />
     </>
   )
 }

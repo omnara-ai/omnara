@@ -8,15 +8,24 @@ import {
 } from '@/components/ui/tooltip'
 import { PromptQueueItem, PromptQueueStatus } from '@/types/dashboard'
 import { cn } from '@/lib/utils'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 interface QueueItemProps {
   item: PromptQueueItem
   onEdit: (id: string) => void
   onDelete: (id: string) => void
-  isDragging?: boolean
 }
 
-export function QueueItem({ item, onEdit, onDelete, isDragging }: QueueItemProps) {
+export function QueueItem({ item, onEdit, onDelete }: QueueItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id })
   const truncateText = (text: string, maxLength: number = 80) => {
     if (text.length <= maxLength) return text
     return text.slice(0, maxLength) + '...'
@@ -48,8 +57,15 @@ export function QueueItem({ item, onEdit, onDelete, isDragging }: QueueItemProps
 
   const isPending = item.status === PromptQueueStatus.PENDING
 
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
   return (
     <div
+      ref={setNodeRef}
+      style={style}
       className={cn(
         'group relative flex items-start gap-3 p-3 rounded-lg border transition-all',
         getStatusColor(),
@@ -59,7 +75,11 @@ export function QueueItem({ item, onEdit, onDelete, isDragging }: QueueItemProps
     >
       {/* Drag Handle */}
       {isPending && (
-        <div className="flex-shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground">
+        <div
+          {...attributes}
+          {...listeners}
+          className="flex-shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+        >
           <GripVertical className="w-5 h-5" />
         </div>
       )}
