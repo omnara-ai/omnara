@@ -3,19 +3,22 @@ import { Button } from '@/components/ui/button'
 import { InstanceDetail, AgentStatus } from '@/types/dashboard'
 import { CheckCircle } from 'lucide-react'
 import { formatAgentTypeName } from '@/utils/statusUtils'
+import { QueueStatusBadge } from '../chat/QueueStatusBadge'
 
 interface InstanceHeaderProps {
   instance: InstanceDetail
   isWaitingForInput: boolean
   onMarkCompleted?: () => void
   completingInstance?: boolean
+  queueCount?: number
+  onQueueClick?: () => void
 }
 
 function formatTime(dateString: string) {
   return new Date(dateString).toLocaleString()
 }
 
-export function InstanceHeader({ instance, isWaitingForInput, onMarkCompleted, completingInstance }: InstanceHeaderProps) {
+export function InstanceHeader({ instance, isWaitingForInput, onMarkCompleted, completingInstance, queueCount = 0, onQueueClick }: InstanceHeaderProps) {
   // Single primary status indicator with stoplight colors
   const renderPrimaryStatus = () => {
     const ttlSeconds = 60
@@ -90,7 +93,7 @@ export function InstanceHeader({ instance, isWaitingForInput, onMarkCompleted, c
       {/* Right side: Actions and Primary Status */}
       <div className="flex items-center space-x-4">
         {onMarkCompleted && instance.status !== AgentStatus.COMPLETED && (
-          <Button 
+          <Button
             onClick={onMarkCompleted}
             disabled={completingInstance}
             className="bg-surface-panel text-text-primary hover:bg-interactive-hover transition-colors font-medium px-4 py-2 rounded-full border-0"
@@ -98,6 +101,9 @@ export function InstanceHeader({ instance, isWaitingForInput, onMarkCompleted, c
             <CheckCircle className="h-4 w-4 mr-2 text-text-secondary" />
             {completingInstance ? 'Marking...' : 'Mark as Completed'}
           </Button>
+        )}
+        {queueCount > 0 && onQueueClick && (
+          <QueueStatusBadge pendingCount={queueCount} onClick={onQueueClick} />
         )}
         {renderPrimaryStatus()}
       </div>

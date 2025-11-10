@@ -12,6 +12,13 @@ export enum InstanceAccessLevel {
   WRITE = 'WRITE'
 }
 
+export enum PromptQueueStatus {
+  PENDING = 'PENDING',
+  SENT = 'SENT',
+  FAILED = 'FAILED',
+  CANCELLED = 'CANCELLED'
+}
+
 export interface UserProfile {
     id: string
     email: string
@@ -143,3 +150,39 @@ export interface NewAPIKey {
     started_at: string
   }>
 } */
+
+// Prompt Queue types
+export interface PromptQueueItem {
+  id: string
+  prompt_text: string
+  position: number
+  status: PromptQueueStatus
+  created_at: string
+  sent_at: string | null
+  error_message: string | null
+  message_id: string | null
+}
+
+export interface QueueStatusResponse {
+  total: number
+  pending: number
+  sent: number
+  failed: number
+  next_position: number | null
+}
+
+export interface AddPromptsRequest {
+  prompts: string[]
+}
+
+export interface ReorderQueueRequest {
+  queue_item_ids: string[]
+}
+
+export interface UpdatePromptRequest {
+  prompt_text: string
+}
+
+export interface ClearQueueResponse {
+  deleted_count: number
+}

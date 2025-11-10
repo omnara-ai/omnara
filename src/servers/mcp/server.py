@@ -16,11 +16,15 @@ from .descriptions import (
     LOG_STEP_DESCRIPTION,
     ASK_QUESTION_DESCRIPTION,
     END_SESSION_DESCRIPTION,
+    CHECK_PROMPT_QUEUE_DESCRIPTION,
+    VIEW_PROMPT_QUEUE_DESCRIPTION,
 )
 from .tools import (
     log_step_impl,
     ask_question_impl,
     end_session_impl,
+    check_prompt_queue_impl,
+    view_prompt_queue_impl,
 )
 from .utils import detect_agent_type_from_headers
 
@@ -116,6 +120,36 @@ def end_session_tool(
     _user_id: str = "",  # Injected by decorator
 ) -> EndSessionResponse:
     return end_session_impl(
+        agent_instance_id=agent_instance_id,
+        user_id=_user_id,
+    )
+
+
+@mcp.tool(
+    name="check_prompt_queue",
+    description=CHECK_PROMPT_QUEUE_DESCRIPTION,
+)
+@require_auth
+def check_prompt_queue_tool(
+    agent_instance_id: str,
+    _user_id: str = "",  # Injected by decorator
+) -> str:
+    return check_prompt_queue_impl(
+        agent_instance_id=agent_instance_id,
+        user_id=_user_id,
+    )
+
+
+@mcp.tool(
+    name="view_prompt_queue",
+    description=VIEW_PROMPT_QUEUE_DESCRIPTION,
+)
+@require_auth
+def view_prompt_queue_tool(
+    agent_instance_id: str,
+    _user_id: str = "",  # Injected by decorator
+) -> str:
+    return view_prompt_queue_impl(
         agent_instance_id=agent_instance_id,
         user_id=_user_id,
     )

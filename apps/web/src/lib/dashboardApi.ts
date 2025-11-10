@@ -10,6 +10,13 @@ import {
   AgentQuestion,
   InstanceShare,
   InstanceAccessLevel,
+  PromptQueueItem,
+  PromptQueueStatus,
+  QueueStatusResponse,
+  AddPromptsRequest,
+  ReorderQueueRequest,
+  UpdatePromptRequest,
+  ClearQueueResponse,
   /*, CostAnalytics*/
 } from '../types/dashboard'
 import { toast } from '../hooks/use-toast'
@@ -420,6 +427,49 @@ class ApiClient {
     await this.request(`/api/v1/agent-instances/${instanceId}/questions/${questionId}/answer`, {
       method: 'POST',
       body: JSON.stringify({ answer }),
+    })
+  }
+
+  // Prompt Queue endpoints
+  async addPromptsToQueue(instanceId: string, prompts: string[]): Promise<PromptQueueItem[]> {
+    return this.request(`/api/v1/agent-instances/${instanceId}/prompt-queue`, {
+      method: 'POST',
+      body: JSON.stringify({ prompts }),
+    })
+  }
+
+  async getQueue(instanceId: string, status?: PromptQueueStatus): Promise<PromptQueueItem[]> {
+    const params = status ? `?status=${status}` : ''
+    return this.request(`/api/v1/agent-instances/${instanceId}/prompt-queue${params}`)
+  }
+
+  async getQueueStatus(instanceId: string): Promise<QueueStatusResponse> {
+    return this.request(`/api/v1/agent-instances/${instanceId}/prompt-queue/status`)
+  }
+
+  async reorderQueue(instanceId: string, queueItemIds: string[]): Promise<PromptQueueItem[]> {
+    return this.request(`/api/v1/agent-instances/${instanceId}/prompt-queue/reorder`, {
+      method: 'PUT',
+      body: JSON.stringify({ queue_item_ids: queueItemIds }),
+    })
+  }
+
+  async updateQueueItem(queueItemId: string, promptText: string): Promise<PromptQueueItem> {
+    return this.request(`/api/v1/prompt-queue/${queueItemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ prompt_text: promptText }),
+    })
+  }
+
+  async deleteQueueItem(queueItemId: string): Promise<void> {
+    await this.request(`/api/v1/prompt-queue/${queueItemId}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async clearQueue(instanceId: string): Promise<ClearQueueResponse> {
+    return this.request(`/api/v1/agent-instances/${instanceId}/prompt-queue/clear`, {
+      method: 'POST',
     })
   }
 

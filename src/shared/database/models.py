@@ -12,7 +12,7 @@ from sqlalchemy.orm import (
     validates,
 )
 
-from .enums import AgentStatus, SenderType, InstanceAccessLevel, TeamRole
+from .enums import AgentStatus, SenderType, InstanceAccessLevel, TeamRole, PromptQueueStatus
 from .utils import is_valid_git_diff
 
 if TYPE_CHECKING:
@@ -466,3 +466,60 @@ class TeamInstanceAccess(Base):
     granted_by_user: Mapped["User"] = relationship(
         "User", foreign_keys=[granted_by_user_id]
     )
+
+
+class PromptQueue(Base):
+    __tablename__ = "prompt_queue"
+    __table_args__ = (
+        Index("idx_prompt_queue_instance", "agent_instance_id"),
+        Index("idx_prompt_queue_status", "status"),
+        Index("idx_prompt_queue_user", "user_id"),
+        Index(
+            "uq_prompt_queue_instance_position",
+            "agent_instance_id",
+            "position",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgresUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), type_=PostgresUUID(as_uuid=True)
+    )
+    agent_instance_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_instances.id", ondelete="CASCADE"),
+        type_=PostgresUUID(as_uuid=True),
+    )
+
+    # Prompt content
+    prompt_text: Mapped[str] = mapped_column(Text)
+
+    # Queue management
+    position: Mapped[int] = mapped_column()
+    status: Mapped[PromptQueueStatus] = mapped_column(
+        default=PromptQueueStatus.PENDING
+    )
+
+    # Timing
+    created_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc)
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    # Error tracking
+    error_message: Mapped[str | None] = mapped_column(Text, default=None)
+    retry_count: Mapped[int] = mapped_column(default=0)
+
+    # Reference to sent message (once sent)
+    message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        type_=PostgresUUID(as_uuid=True),
+        default=None,
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    agent_instance: Mapped["AgentInstance"] = relationship("AgentInstance")
+    message: Mapped["Message | None"] = relationship("Message")

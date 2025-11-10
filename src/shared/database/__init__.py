@@ -1,4 +1,4 @@
-from .enums import AgentStatus, SenderType, InstanceAccessLevel, TeamRole
+from .enums import AgentStatus, SenderType, InstanceAccessLevel, TeamRole, PromptQueueStatus
 from .models import (
     AgentInstance,
     APIKey,
@@ -11,6 +11,7 @@ from .models import (
     Team,
     TeamMembership,
     TeamInstanceAccess,
+    PromptQueue,
 )
 from .subscription_models import (
     Subscription,
@@ -35,4 +36,6 @@ __all__ = [
     "TeamMembership",
     "TeamRole",
     "TeamInstanceAccess",
+    "PromptQueue",
+    "PromptQueueStatus",
 ]

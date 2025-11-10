@@ -27,3 +27,10 @@ class TeamRole(str, Enum):
     OWNER = "OWNER"
     ADMIN = "ADMIN"
     MEMBER = "MEMBER"
+
+
+class PromptQueueStatus(str, Enum):
+    PENDING = "PENDING"
+    SENT = "SENT"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"

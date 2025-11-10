@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { InstanceHeader } from './InstanceHeader'
 import { ChatInterface } from './../chat/ChatInterface'
 import { TerminalInstancePanel } from './TerminalInstancePanel'
+import { PromptQueuePanel } from './../chat/PromptQueuePanel'
 import { apiClient } from '@/lib/dashboardApi'
 import {
   InstanceDetail as IInstanceDetail,
@@ -13,11 +15,13 @@ import {
 } from '@/types/dashboard'
 import { Share } from 'lucide-react'
 import { reportError, reportMessage } from '@/integrations/sentry'
+import { useQueueStatus } from '@/hooks/useQueue'
 
 const SENTRY_TAGS = { feature: 'instance-detail' }
 
 export function InstanceDetail() {
   const { instanceId } = useParams<{ instanceId: string }>()
+  const queryClient = useQueryClient()
   const [instance, setInstance] = useState<IInstanceDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -34,6 +38,10 @@ export function InstanceDetail() {
   const [shareSubmitting, setShareSubmitting] = useState(false)
   const [shareError, setShareError] = useState<string | null>(null)
   const shareMenuRef = useRef<HTMLDivElement | null>(null)
+
+  // Queue state
+  const [isQueuePanelOpen, setIsQueuePanelOpen] = useState(false)
+  const { data: queueStatus } = useQueueStatus(instanceId || '')
 
   const fetchInstance = useCallback(async () => {
     if (!instanceId) return
@@ -276,6 +284,25 @@ export function InstanceDetail() {
         } catch (err) {
           reportError(err, {
             context: 'Failed to parse SSE agent heartbeat',
+            extras: { instanceId, raw: event.data },
+            tags: SENTRY_TAGS,
+          })
+        }
+      })
+
+      // Queue updates (real-time queue changes)
+      eventSource.addEventListener('queue_update', (event) => {
+        try {
+          const queueData = JSON.parse(event.data)
+
+          // Invalidate queue queries to refresh the queue UI
+          if (queueData.agent_instance_id === instanceId) {
+            queryClient.invalidateQueries({ queryKey: ['queue', instanceId] })
+            queryClient.invalidateQueries({ queryKey: ['queue-status', instanceId] })
+          }
+        } catch (err) {
+          reportError(err, {
+            context: 'Failed to parse SSE queue update',
             extras: { instanceId, raw: event.data },
             tags: SENTRY_TAGS,
           })
@@ -554,11 +581,13 @@ export function InstanceDetail() {
       <div className="px-6 py-6 border-b border-border-divider flex-shrink-0">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-          <InstanceHeader 
-            instance={instance} 
+          <InstanceHeader
+            instance={instance}
             isWaitingForInput={isWaitingForInput}
             onMarkCompleted={instance.is_owner ? handleMarkCompleted : undefined}
             completingInstance={instance.is_owner ? completingInstance : false}
+            queueCount={queueStatus?.pending || 0}
+            onQueueClick={() => setIsQueuePanelOpen(true)}
           />
           </div>
           {instance.is_owner && (
@@ -671,6 +700,13 @@ export function InstanceDetail() {
           />
         )}
       </div>
+
+      {/* Prompt Queue Panel */}
+      <PromptQueuePanel
+        instanceId={instance.id}
+        isOpen={isQueuePanelOpen}
+        onClose={() => setIsQueuePanelOpen(false)}
+      />
     </div>
   )
 }
