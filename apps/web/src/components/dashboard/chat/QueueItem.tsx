@@ -59,7 +59,7 @@ export function QueueItem({ item, onEdit, onDelete }: QueueItemProps) {
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition,
+    transition: transition || 'transform 200ms cubic-bezier(0.25, 0.1, 0.25, 1)',
   }
 
   return (
@@ -67,10 +67,11 @@ export function QueueItem({ item, onEdit, onDelete }: QueueItemProps) {
       ref={setNodeRef}
       style={style}
       className={cn(
-        'group relative flex items-start gap-3 p-3 rounded-lg border transition-all',
+        'group relative flex items-start gap-3 p-3 rounded-lg border transition-all duration-200',
+        'animate-in fade-in slide-in-from-top-2',
         getStatusColor(),
-        isDragging && 'opacity-50 ring-2 ring-primary',
-        isPending && 'hover:shadow-md hover:border-primary/50'
+        isDragging && 'opacity-50 ring-2 ring-primary scale-105 shadow-lg',
+        isPending && 'hover:shadow-md hover:border-primary/50 hover:scale-[1.01]'
       )}
     >
       {/* Drag Handle */}

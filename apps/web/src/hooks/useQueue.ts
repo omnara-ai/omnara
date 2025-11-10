@@ -49,7 +49,7 @@ export function useAddPrompts(instanceId: string) {
     onError: (error: Error) => {
       toast({
         title: 'Failed to add prompts',
-        description: error.message,
+        description: error.message || 'Unable to add prompts to the queue. Please try again.',
         variant: 'destructive',
       })
     },
@@ -93,7 +93,7 @@ export function useReorderQueue(instanceId: string) {
       }
       toast({
         title: 'Failed to reorder queue',
-        description: error.message,
+        description: error.message || 'The queue order could not be updated. Changes have been reverted.',
         variant: 'destructive',
       })
     },
@@ -122,7 +122,7 @@ export function useUpdateQueueItem(instanceId: string) {
     onError: (error: Error) => {
       toast({
         title: 'Failed to update prompt',
-        description: error.message,
+        description: error.message || 'The prompt could not be updated. Please try again.',
         variant: 'destructive',
       })
     },
@@ -148,7 +148,7 @@ export function useDeleteQueueItem(instanceId: string) {
     onError: (error: Error) => {
       toast({
         title: 'Failed to remove prompt',
-        description: error.message,
+        description: error.message || 'The prompt could not be removed. Please try again.',
         variant: 'destructive',
       })
     },
@@ -168,13 +168,13 @@ export function useClearQueue(instanceId: string) {
       queryClient.invalidateQueries({ queryKey: ['queue-status', instanceId] })
       toast({
         title: 'Queue cleared',
-        description: `${data.deleted_count} prompt(s) removed from queue`,
+        description: `${data.deleted_count} prompt${data.deleted_count !== 1 ? 's' : ''} removed from queue`,
       })
     },
     onError: (error: Error) => {
       toast({
         title: 'Failed to clear queue',
-        description: error.message,
+        description: error.message || 'Unable to clear the queue. Please try again.',
         variant: 'destructive',
       })
     },

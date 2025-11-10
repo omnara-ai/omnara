@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -54,6 +54,24 @@ export function AddPromptsModal({ instanceId, isOpen, onClose }: AddPromptsModal
     lines.splice(index, 1)
     setPromptsText(lines.join('\n'))
   }
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to submit
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (prompts.length > 0 && !addPromptsMutation.isPending) {
+          handleSubmit()
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, prompts.length, addPromptsMutation.isPending])
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -115,20 +133,26 @@ export function AddPromptsModal({ instanceId, isOpen, onClose }: AddPromptsModal
           )}
         </div>
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={handleClose}
-            disabled={addPromptsMutation.isPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={prompts.length === 0 || addPromptsMutation.isPending}
-          >
-            {addPromptsMutation.isPending ? 'Adding...' : 'Add to Queue'}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            Press <kbd className="px-1.5 py-0.5 text-xs border rounded bg-muted">⌘</kbd>+
+            <kbd className="px-1.5 py-0.5 text-xs border rounded bg-muted">Enter</kbd> to add
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleClose}
+              disabled={addPromptsMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={prompts.length === 0 || addPromptsMutation.isPending}
+            >
+              {addPromptsMutation.isPending ? 'Adding...' : 'Add to Queue'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

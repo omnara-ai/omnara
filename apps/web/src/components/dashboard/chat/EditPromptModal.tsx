@@ -36,6 +36,24 @@ export function EditPromptModal({
     }
   }, [initialText, isOpen])
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to save
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (isValid && !updateMutation.isPending) {
+          handleSubmit()
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, isValid, updateMutation.isPending, promptText, itemId])
+
   const handleSubmit = async () => {
     if (!itemId || promptText.trim().length === 0) return
 
@@ -103,20 +121,26 @@ export function EditPromptModal({
           )}
         </div>
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={handleClose}
-            disabled={updateMutation.isPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={!isValid || updateMutation.isPending}
-          >
-            {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            Press <kbd className="px-1.5 py-0.5 text-xs border rounded bg-muted">⌘</kbd>+
+            <kbd className="px-1.5 py-0.5 text-xs border rounded bg-muted">Enter</kbd> to save
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleClose}
+              disabled={updateMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={!isValid || updateMutation.isPending}
+            >
+              {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
