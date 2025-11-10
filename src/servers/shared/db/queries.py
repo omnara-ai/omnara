@@ -11,6 +11,8 @@ from shared.database import (
     Message,
     SenderType,
     UserAgent,
+    PromptQueue,
+    PromptQueueStatus,
 )
 from shared.database.billing_operations import check_agent_limit
 from shared.database.utils import sanitize_git_diff
@@ -410,6 +412,10 @@ async def send_agent_message(
     if queued_messages is None:
         queued_messages = []
 
+    # Auto-send next queued prompt if agent is not waiting for input
+    if not requires_user_input:
+        await process_queue_on_agent_response(db, instance.id)
+
     return str(instance.id), str(message.id), queued_messages
 
 
@@ -573,3 +579,491 @@ def trigger_webhook_for_user_response(
         logger.error(
             f"Failed to trigger webhook for agent instance {agent_instance_id}: {e}"
         )
+
+
+# ==================== Prompt Queue Functions ====================
+
+
+def get_next_queued_prompt(
+    db: Session, agent_instance_id: UUID
+) -> PromptQueue | None:
+    """Get the next pending prompt for an agent instance.
+
+    This function retrieves the next prompt in the queue with PENDING status,
+    ordered by position. It uses FOR UPDATE SKIP LOCKED to prevent race conditions.
+
+    Args:
+        db: Database session
+        agent_instance_id: The agent instance ID
+
+    Returns:
+        The next queued prompt or None if no pending prompts exist
+    """
+    # Get the agent instance to check its status
+    instance = db.query(AgentInstance).filter(AgentInstance.id == agent_instance_id).first()
+
+    if not instance:
+        return None
+
+    # Don't auto-send if agent is awaiting input
+    if instance.status == AgentStatus.AWAITING_INPUT:
+        return None
+
+    # Get next pending prompt
+    prompt = (
+        db.query(PromptQueue)
+        .filter(
+            PromptQueue.agent_instance_id == agent_instance_id,
+            PromptQueue.status == PromptQueueStatus.PENDING,
+        )
+        .order_by(PromptQueue.position.asc())
+        .with_for_update(skip_locked=True)
+        .first()
+    )
+
+    return prompt
+
+
+def send_queued_prompt(
+    db: Session,
+    queue_item: PromptQueue,
+    trigger_webhook: bool = True,
+) -> UUID:
+    """Convert a queued prompt to a user message.
+
+    This function takes a queued prompt and creates a user message from it,
+    updating the queue item status to SENT.
+
+    Args:
+        db: Database session
+        queue_item: The queue item to send
+        trigger_webhook: Whether to trigger webhooks (default: True)
+
+    Returns:
+        The created message ID
+    """
+    # Create user message
+    message = Message(
+        agent_instance_id=queue_item.agent_instance_id,
+        sender_type=SenderType.USER,
+        sender_user_id=queue_item.user_id,
+        content=queue_item.prompt_text,
+        requires_user_input=False,
+        message_metadata={"from_queue": True, "queue_item_id": str(queue_item.id)},
+    )
+    db.add(message)
+    db.flush()  # Flush to get the message ID
+
+    # Update queue item
+    queue_item.status = PromptQueueStatus.SENT
+    queue_item.sent_at = datetime.now(timezone.utc)
+    queue_item.message_id = message.id
+
+    # Update instance status to ACTIVE (prompt is now waiting for agent)
+    instance = db.query(AgentInstance).filter(
+        AgentInstance.id == queue_item.agent_instance_id
+    ).first()
+    if instance:
+        instance.status = AgentStatus.ACTIVE
+
+    # Trigger webhook if configured and requested
+    if trigger_webhook:
+        # Find the last agent message that requires input and has a webhook
+        last_agent_message = (
+            db.query(Message)
+            .filter(
+                Message.agent_instance_id == queue_item.agent_instance_id,
+                Message.sender_type == SenderType.AGENT,
+                Message.requires_user_input.is_(True),
+            )
+            .order_by(Message.created_at.desc())
+            .first()
+        )
+
+        if (
+            last_agent_message
+            and last_agent_message.message_metadata
+            and "webhook_url" in last_agent_message.message_metadata
+            and not last_agent_message.message_metadata.get("webhook_triggered", False)
+        ):
+            # Trigger webhook asynchronously
+            webhook_url = last_agent_message.message_metadata["webhook_url"]
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    client.post(
+                        webhook_url,
+                        json={
+                            "message_id": str(message.id),
+                            "content": message.content,
+                            "agent_instance_id": str(queue_item.agent_instance_id),
+                            "from_queue": True,
+                        },
+                    )
+                # Mark webhook as triggered
+                if last_agent_message.message_metadata is None:
+                    last_agent_message.message_metadata = {}
+                last_agent_message.message_metadata["webhook_triggered"] = True
+            except Exception as e:
+                logger.warning(f"Failed to trigger webhook: {e}")
+
+    db.commit()
+    return message.id
+
+
+async def process_queue_on_agent_response(
+    db: Session, agent_instance_id: UUID
+) -> UUID | None:
+    """Process the queue after an agent sends a message.
+
+    This function is called after an agent sends a message. It checks if there
+    are any pending queued prompts and automatically sends the next one.
+
+    Args:
+        db: Database session
+        agent_instance_id: The agent instance ID
+
+    Returns:
+        The message ID if a queued prompt was sent, None otherwise
+    """
+    # Get the next queued prompt
+    next_prompt = get_next_queued_prompt(db, agent_instance_id)
+
+    if not next_prompt:
+        return None
+
+    # Send the queued prompt
+    message_id = send_queued_prompt(db, next_prompt, trigger_webhook=True)
+
+    logger.info(
+        f"Auto-sent queued prompt (position {next_prompt.position}) "
+        f"to instance {agent_instance_id}"
+    )
+
+    return message_id
+
+
+def add_prompts_to_queue(
+    db: Session,
+    agent_instance_id: UUID,
+    user_id: UUID,
+    prompts: list[str],
+) -> list[PromptQueue]:
+    """Add multiple prompts to the queue for an agent instance.
+
+    Args:
+        db: Database session
+        agent_instance_id: The agent instance ID
+        user_id: The user ID (for access control)
+        prompts: List of prompt texts to add
+
+    Returns:
+        List of created PromptQueue items
+
+    Raises:
+        ValueError: If instance not found or user doesn't have access
+    """
+    # Verify instance exists and user has access
+    instance = db.query(AgentInstance).filter(AgentInstance.id == agent_instance_id).first()
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if instance.user_id != user_id:
+        raise ValueError("Access denied. Agent instance does not belong to user.")
+
+    # Get current max position
+    max_position = (
+        db.query(PromptQueue.position)
+        .filter(PromptQueue.agent_instance_id == agent_instance_id)
+        .order_by(PromptQueue.position.desc())
+        .first()
+    )
+
+    next_position = (max_position[0] + 1) if max_position else 0
+
+    # Create queue items
+    queue_items = []
+    for i, prompt_text in enumerate(prompts):
+        queue_item = PromptQueue(
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+            prompt_text=prompt_text,
+            position=next_position + i,
+            status=PromptQueueStatus.PENDING,
+        )
+        db.add(queue_item)
+        queue_items.append(queue_item)
+
+    db.flush()
+    return queue_items
+
+
+def get_queue_for_instance(
+    db: Session,
+    agent_instance_id: UUID,
+    user_id: UUID,
+    status_filter: PromptQueueStatus | None = None,
+) -> list[PromptQueue]:
+    """Get all queued prompts for an agent instance.
+
+    Args:
+        db: Database session
+        agent_instance_id: The agent instance ID
+        user_id: The user ID (for access control)
+        status_filter: Optional status to filter by
+
+    Returns:
+        List of PromptQueue items ordered by position
+
+    Raises:
+        ValueError: If instance not found or user doesn't have access
+    """
+    # Verify instance exists and user has access
+    instance = db.query(AgentInstance).filter(AgentInstance.id == agent_instance_id).first()
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if instance.user_id != user_id:
+        raise ValueError("Access denied. Agent instance does not belong to user.")
+
+    query = db.query(PromptQueue).filter(
+        PromptQueue.agent_instance_id == agent_instance_id
+    )
+
+    if status_filter:
+        query = query.filter(PromptQueue.status == status_filter)
+
+    return query.order_by(PromptQueue.position.asc()).all()
+
+
+def delete_queue_item(
+    db: Session,
+    queue_item_id: UUID,
+    user_id: UUID,
+) -> None:
+    """Delete a queue item and renumber remaining items.
+
+    Args:
+        db: Database session
+        queue_item_id: The queue item ID to delete
+        user_id: The user ID (for access control)
+
+    Raises:
+        ValueError: If queue item not found or user doesn't have access
+    """
+    queue_item = db.query(PromptQueue).filter(PromptQueue.id == queue_item_id).first()
+
+    if not queue_item:
+        raise ValueError("Queue item not found")
+
+    if queue_item.user_id != user_id:
+        raise ValueError("Access denied. Queue item does not belong to user.")
+
+    # Can only delete pending items
+    if queue_item.status != PromptQueueStatus.PENDING:
+        raise ValueError("Can only delete pending queue items")
+
+    agent_instance_id = queue_item.agent_instance_id
+    deleted_position = queue_item.position
+
+    # Delete the item
+    db.delete(queue_item)
+    db.flush()
+
+    # Renumber remaining items with higher positions
+    remaining_items = (
+        db.query(PromptQueue)
+        .filter(
+            PromptQueue.agent_instance_id == agent_instance_id,
+            PromptQueue.position > deleted_position,
+        )
+        .all()
+    )
+
+    for item in remaining_items:
+        item.position -= 1
+
+
+def update_queue_item(
+    db: Session,
+    queue_item_id: UUID,
+    user_id: UUID,
+    new_prompt_text: str,
+) -> PromptQueue:
+    """Update a queue item's prompt text.
+
+    Args:
+        db: Database session
+        queue_item_id: The queue item ID to update
+        user_id: The user ID (for access control)
+        new_prompt_text: The new prompt text
+
+    Returns:
+        The updated PromptQueue item
+
+    Raises:
+        ValueError: If queue item not found, user doesn't have access, or item is not pending
+    """
+    queue_item = db.query(PromptQueue).filter(PromptQueue.id == queue_item_id).first()
+
+    if not queue_item:
+        raise ValueError("Queue item not found")
+
+    if queue_item.user_id != user_id:
+        raise ValueError("Access denied. Queue item does not belong to user.")
+
+    # Can only update pending items
+    if queue_item.status != PromptQueueStatus.PENDING:
+        raise ValueError("Can only update pending queue items")
+
+    queue_item.prompt_text = new_prompt_text
+    db.flush()
+
+    return queue_item
+
+
+def reorder_queue(
+    db: Session,
+    agent_instance_id: UUID,
+    user_id: UUID,
+    queue_item_ids: list[UUID],
+) -> list[PromptQueue]:
+    """Reorder queue items based on provided order.
+
+    Args:
+        db: Database session
+        agent_instance_id: The agent instance ID
+        user_id: The user ID (for access control)
+        queue_item_ids: List of queue item IDs in desired order
+
+    Returns:
+        List of reordered PromptQueue items
+
+    Raises:
+        ValueError: If instance not found, user doesn't have access, or item IDs don't match
+    """
+    # Verify instance exists and user has access
+    instance = db.query(AgentInstance).filter(AgentInstance.id == agent_instance_id).first()
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if instance.user_id != user_id:
+        raise ValueError("Access denied. Agent instance does not belong to user.")
+
+    # Get all pending items for this instance
+    pending_items = (
+        db.query(PromptQueue)
+        .filter(
+            PromptQueue.agent_instance_id == agent_instance_id,
+            PromptQueue.status == PromptQueueStatus.PENDING,
+        )
+        .all()
+    )
+
+    # Verify all provided IDs exist and belong to this instance
+    pending_ids = {item.id for item in pending_items}
+    provided_ids = set(queue_item_ids)
+
+    if pending_ids != provided_ids:
+        raise ValueError("Provided queue item IDs do not match pending items")
+
+    # Create a mapping of ID to new position
+    id_to_position = {qid: i for i, qid in enumerate(queue_item_ids)}
+
+    # Update positions
+    for item in pending_items:
+        item.position = id_to_position[item.id]
+
+    db.flush()
+
+    return sorted(pending_items, key=lambda x: x.position)
+
+
+def clear_queue(
+    db: Session,
+    agent_instance_id: UUID,
+    user_id: UUID,
+) -> int:
+    """Clear all pending prompts from the queue.
+
+    Args:
+        db: Database session
+        agent_instance_id: The agent instance ID
+        user_id: The user ID (for access control)
+
+    Returns:
+        Number of items deleted
+
+    Raises:
+        ValueError: If instance not found or user doesn't have access
+    """
+    # Verify instance exists and user has access
+    instance = db.query(AgentInstance).filter(AgentInstance.id == agent_instance_id).first()
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if instance.user_id != user_id:
+        raise ValueError("Access denied. Agent instance does not belong to user.")
+
+    # Delete all pending items
+    deleted_count = (
+        db.query(PromptQueue)
+        .filter(
+            PromptQueue.agent_instance_id == agent_instance_id,
+            PromptQueue.status == PromptQueueStatus.PENDING,
+        )
+        .delete()
+    )
+
+    db.flush()
+    return deleted_count
+
+
+def get_queue_status(
+    db: Session,
+    agent_instance_id: UUID,
+    user_id: UUID,
+) -> dict:
+    """Get queue statistics for an agent instance.
+
+    Args:
+        db: Database session
+        agent_instance_id: The agent instance ID
+        user_id: The user ID (for access control)
+
+    Returns:
+        Dictionary with queue statistics:
+        - total: Total number of queue items
+        - pending: Number of pending items
+        - sent: Number of sent items
+        - failed: Number of failed items
+        - next_position: Position of next pending item (or None)
+
+    Raises:
+        ValueError: If instance not found or user doesn't have access
+    """
+    # Verify instance exists and user has access
+    instance = db.query(AgentInstance).filter(AgentInstance.id == agent_instance_id).first()
+    if not instance:
+        raise ValueError("Agent instance not found")
+
+    if instance.user_id != user_id:
+        raise ValueError("Access denied. Agent instance does not belong to user.")
+
+    # Get counts by status
+    all_items = db.query(PromptQueue).filter(
+        PromptQueue.agent_instance_id == agent_instance_id
+    ).all()
+
+    pending = [item for item in all_items if item.status == PromptQueueStatus.PENDING]
+    sent = [item for item in all_items if item.status == PromptQueueStatus.SENT]
+    failed = [item for item in all_items if item.status == PromptQueueStatus.FAILED]
+
+    next_position = min(item.position for item in pending) if pending else None
+
+    return {
+        "total": len(all_items),
+        "pending": len(pending),
+        "sent": len(sent),
+        "failed": len(failed),
+        "next_position": next_position,
+    }

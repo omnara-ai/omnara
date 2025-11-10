@@ -18,6 +18,10 @@ from servers.shared.db import (
     create_agent_message,
     get_or_create_agent_instance,
 )
+from servers.shared.db.queries import (
+    get_queue_status,
+    get_queue_for_instance,
+)
 from .models import AskQuestionResponse, EndSessionResponse, LogStepResponse
 
 
@@ -207,5 +211,135 @@ def end_session_impl(
     except Exception:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+
+def check_prompt_queue_impl(
+    agent_instance_id: str,
+    user_id: str = "",
+) -> str:
+    """Core implementation of the check_prompt_queue tool.
+
+    Args:
+        agent_instance_id: Agent instance ID to check
+        user_id: Authenticated user ID
+
+    Returns:
+        String with queue status information
+    """
+    if not agent_instance_id:
+        raise ValueError("agent_instance_id is required")
+    if not user_id:
+        raise ValueError("user_id is required")
+    try:
+        UUID(agent_instance_id)
+    except ValueError:
+        raise ValueError(
+            f"Invalid agent_instance_id format: must be a valid UUID, got '{agent_instance_id}'"
+        )
+
+    db = next(get_db())
+
+    try:
+        status = get_queue_status(
+            db=db,
+            agent_instance_id=UUID(agent_instance_id),
+            user_id=UUID(user_id),
+        )
+
+        if status["pending"] == 0:
+            return "No prompts queued."
+
+        next_prompt = None
+        if status["next_position"] is not None:
+            from shared.database import PromptQueue, PromptQueueStatus
+
+            next_prompt_obj = (
+                db.query(PromptQueue)
+                .filter(
+                    PromptQueue.agent_instance_id == UUID(agent_instance_id),
+                    PromptQueue.status == PromptQueueStatus.PENDING,
+                    PromptQueue.position == status["next_position"],
+                )
+                .first()
+            )
+            if next_prompt_obj:
+                # Truncate long prompts
+                next_prompt = (
+                    next_prompt_obj.prompt_text[:100] + "..."
+                    if len(next_prompt_obj.prompt_text) > 100
+                    else next_prompt_obj.prompt_text
+                )
+
+        result = f"Queue status: {status['pending']} pending, {status['sent']} sent, {status['failed']} failed."
+        if next_prompt:
+            result += f"\nNext prompt: {next_prompt}"
+
+        return result
+
+    except ValueError as e:
+        return f"Error: {str(e)}"
+    except Exception as e:
+        return f"Error checking queue: {str(e)}"
+    finally:
+        db.close()
+
+
+def view_prompt_queue_impl(
+    agent_instance_id: str,
+    user_id: str = "",
+) -> str:
+    """Core implementation of the view_prompt_queue tool.
+
+    Args:
+        agent_instance_id: Agent instance ID to check
+        user_id: Authenticated user ID
+
+    Returns:
+        String with formatted list of queued prompts
+    """
+    if not agent_instance_id:
+        raise ValueError("agent_instance_id is required")
+    if not user_id:
+        raise ValueError("user_id is required")
+    try:
+        UUID(agent_instance_id)
+    except ValueError:
+        raise ValueError(
+            f"Invalid agent_instance_id format: must be a valid UUID, got '{agent_instance_id}'"
+        )
+
+    db = next(get_db())
+
+    try:
+        from shared.database import PromptQueueStatus
+
+        pending_items = get_queue_for_instance(
+            db=db,
+            agent_instance_id=UUID(agent_instance_id),
+            user_id=UUID(user_id),
+            status_filter=PromptQueueStatus.PENDING,
+        )
+
+        if not pending_items:
+            return "No pending prompts in queue."
+
+        result = f"Pending prompts ({len(pending_items)}):\n"
+        for i, item in enumerate(pending_items, 1):
+            # Truncate long prompts for display
+            prompt_preview = (
+                item.prompt_text[:80] + "..."
+                if len(item.prompt_text) > 80
+                else item.prompt_text
+            )
+            result += f"{i}. {prompt_preview}\n"
+
+        return result
+
+    except ValueError as e:
+        return f"Error: {str(e)}"
+    except Exception as e:
+        return f"Error viewing queue: {str(e)}"
     finally:
         db.close()

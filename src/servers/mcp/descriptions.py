@@ -84,3 +84,43 @@ This will:
 
 Args:
     agent_instance_id: Current agent instance ID to end. REQUIRED."""
+
+
+CHECK_PROMPT_QUEUE_DESCRIPTION = """Check the status of queued prompts for this agent instance.
+
+This tool provides information about:
+• Number of pending prompts waiting to be processed
+• Number of prompts already sent
+• Number of failed prompts
+• Preview of the next prompt in queue
+
+📋 WHEN TO USE:
+• At the start of a session to see if there are queued tasks
+• Between completing tasks to check what's next
+• When user mentions they've queued multiple prompts
+
+💡 WHAT IT DOES:
+Prompts in the queue will be automatically sent to you one-by-one as you complete each task.
+You don't need to manually retrieve them - they'll appear as user messages automatically.
+
+Args:
+    agent_instance_id: Current agent instance ID. REQUIRED."""
+
+
+VIEW_PROMPT_QUEUE_DESCRIPTION = """View all pending prompts in the queue.
+
+This tool shows the complete list of prompts waiting to be processed, in order.
+
+📋 USE THIS WHEN:
+• You want to see all upcoming tasks at once
+• Planning work or estimating time
+• Understanding the full scope of queued work
+• User asks what's in the queue
+
+💡 NOTE:
+• Only shows pending prompts (not sent or failed ones)
+• Prompts are truncated for display purposes
+• Queue is processed automatically - no manual action needed
+
+Args:
+    agent_instance_id: Current agent instance ID. REQUIRED."""

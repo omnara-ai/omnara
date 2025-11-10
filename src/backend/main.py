@@ -15,6 +15,7 @@ from .api import (
     mobile_billing,
     user_settings,
     teams,
+    prompt_queue,
 )
 from .auth import routes as auth_routes
 
@@ -78,6 +79,7 @@ app.include_router(user_agents.router, prefix=settings.api_v1_prefix)
 app.include_router(push_notifications.router, prefix=settings.api_v1_prefix)
 app.include_router(user_settings.router, prefix=settings.api_v1_prefix)
 app.include_router(teams.router, prefix=settings.api_v1_prefix)
+app.include_router(prompt_queue.router, prefix=settings.api_v1_prefix)
 
 # Conditionally include billing router if Stripe is configured
 if settings.stripe_secret_key:

@@ -14,6 +14,7 @@ from shared.database.enums import (
     AgentStatus,
     TeamRole,
     InstanceAccessLevel,
+    PromptQueueStatus,
 )
 from shared.webhook_schemas import (
     get_webhook_type_schema,
@@ -28,6 +29,75 @@ from shared.webhook_schemas import (
 
 class UserMessageRequest(BaseModel):
     content: str = Field(..., description="Message content from the user")
+
+
+# ============================================================================
+# Prompt Queue Models
+# ============================================================================
+
+
+class PromptQueueCreate(BaseModel):
+    """Request to add prompts to the queue"""
+
+    prompts: list[str] = Field(
+        ...,
+        description="List of prompt texts to add to the queue",
+        min_length=1,
+        max_length=100,
+    )
+
+
+class PromptQueueItemResponse(BaseModel):
+    """Response model for a single prompt queue item"""
+
+    id: str
+    prompt_text: str
+    position: int
+    status: PromptQueueStatus
+    created_at: datetime
+    sent_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    message_id: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("id", "message_id", when_used="always")
+    def serialize_uuid(self, value: UUID | str | None) -> str | None:
+        if value is None:
+            return None
+        return str(value)
+
+
+class PromptQueueReorder(BaseModel):
+    """Request to reorder queue items"""
+
+    queue_item_ids: list[str] = Field(
+        ..., description="List of queue item IDs in desired order"
+    )
+
+
+class PromptQueueUpdate(BaseModel):
+    """Request to update a queue item"""
+
+    prompt_text: str = Field(..., description="Updated prompt text")
+
+
+class PromptQueueStatusResponse(BaseModel):
+    """Response model for queue status statistics"""
+
+    total: int = Field(..., description="Total number of queue items")
+    pending: int = Field(..., description="Number of pending items")
+    sent: int = Field(..., description="Number of sent items")
+    failed: int = Field(..., description="Number of failed items")
+    next_position: Optional[int] = Field(
+        None, description="Position of next pending item"
+    )
+
+
+class ClearQueueResponse(BaseModel):
+    """Response model for clearing the queue"""
+
+    deleted_count: int = Field(..., description="Number of items deleted")
 
 
 # ============================================================================
