@@ -218,6 +218,84 @@ func (s strictOpenAPIServer) getProjectMachinePoolGrant(
 	return openapi.GetProjectMachinePoolGrant200JSONResponse(response), nil
 }
 
+func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
+	ctx context.Context,
+	request openapi.UpdateProjectMachinePoolGrantRequestObject,
+) (openapi.UpdateProjectMachinePoolGrantResponseObject, error) {
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !s.server.orgManageAllowed(ctx, scope.org.ID) {
+		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	}
+	poolGrantID, ok := parseOpenAPIPublicID(publicid.KindProjectMachinePoolGrant, request.PoolGrantID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	defaultMachineEnvOverlay, err := rawJSONFromPointer(request.Body.DefaultMachineEnvOverlay)
+	if err != nil {
+		return nil, err
+	}
+	defaultMachineSecretEnvOverlay, err := rawJSONFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
+	if err != nil {
+		return nil, err
+	}
+	defaultMachineProviderOptionsOverlay, err := rawJSONFromPointer(
+		request.Body.DefaultMachineProviderOptionsOverlay,
+	)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := rawJSONFromPointer(request.Body.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	var envOverlayPatch, secretEnvOverlayPatch, providerOptionsOverlayPatch, metadataPatch *json.RawMessage
+	if request.Body.DefaultMachineEnvOverlay != nil {
+		envOverlayPatch = &defaultMachineEnvOverlay
+	}
+	if request.Body.DefaultMachineSecretEnvOverlay != nil {
+		secretEnvOverlayPatch = &defaultMachineSecretEnvOverlay
+	}
+	if request.Body.DefaultMachineProviderOptionsOverlay != nil {
+		providerOptionsOverlayPatch = &defaultMachineProviderOptionsOverlay
+	}
+	if request.Body.Metadata != nil {
+		metadataPatch = &metadata
+	}
+	input := executionstore.UpdateProjectMachinePoolGrantInput{
+		OrgID:                                scope.org.ID,
+		ProjectID:                            scope.project.ID,
+		ID:                                   poolGrantID,
+		Description:                          request.Body.Description,
+		DefaultMachineCPU:                    nullableIntPatchFromInt32(request.Body.DefaultMachineCpu),
+		DefaultMachineMemoryMB:               nullableIntPatchFromInt32(request.Body.DefaultMachineMemoryMb),
+		DefaultMachineEnvOverlay:             envOverlayPatch,
+		DefaultMachineSecretEnvOverlay:       secretEnvOverlayPatch,
+		DefaultMachineProviderOptionsOverlay: providerOptionsOverlayPatch,
+		DefaultCwd:                           request.Body.DefaultCwd,
+		MaxTotalMachines:                     nullableIntPatchFromInt32(request.Body.MaxTotalMachines),
+		MaxTotalCPU:                          nullableIntPatchFromInt32(request.Body.MaxTotalCpu),
+		MaxTotalMemoryMB:                     nullableIntPatchFromInt32(request.Body.MaxTotalMemoryMb),
+		MaxMachineCPU:                        nullableIntPatchFromInt32(request.Body.MaxMachineCpu),
+		MaxMachineMemoryMB:                   nullableIntPatchFromInt32(request.Body.MaxMachineMemoryMb),
+		Metadata:                             metadataPatch,
+	}
+	record, err := s.server.store.Execution().UpdateProjectMachinePoolGrant(ctx, input)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := projectMachinePoolGrantResponse(record)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.UpdateProjectMachinePoolGrant200JSONResponse(response), nil
+}
+
 func (s strictOpenAPIServer) DeleteProjectMachinePoolGrant(
 	ctx context.Context,
 	request openapi.DeleteProjectMachinePoolGrantRequestObject,

@@ -584,6 +584,113 @@ func (q *Queries) MarkPoolGrantMachinesDeleting(ctx context.Context, arg MarkPoo
 	return items, nil
 }
 
+const updateProjectMachinePoolGrant = `-- name: UpdateProjectMachinePoolGrant :one
+UPDATE project_machine_pool_grants
+SET description = $1,
+    default_machine_cpu = $2::integer,
+    default_machine_memory_mb = $3::integer,
+    default_machine_env_overlay = $4::jsonb,
+    default_machine_secret_env_overlay = $5::jsonb,
+    default_machine_provider_options_overlay = $6::jsonb,
+    default_cwd = $7,
+    max_total_machines = $8::integer,
+    max_total_cpu = $9::integer,
+    max_total_memory_mb = $10::integer,
+    max_machine_cpu = $11::integer,
+    max_machine_memory_mb = $12::integer,
+    metadata = $13,
+    updated_at = statement_timestamp()
+WHERE org_id = $14 AND project_id = $15 AND id = $16
+RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+`
+
+type UpdateProjectMachinePoolGrantParams struct {
+	Description                          string
+	DefaultMachineCpu                    *int32
+	DefaultMachineMemoryMb               *int32
+	DefaultMachineEnvOverlay             json.RawMessage
+	DefaultMachineSecretEnvOverlay       json.RawMessage
+	DefaultMachineProviderOptionsOverlay json.RawMessage
+	DefaultCwd                           string
+	MaxTotalMachines                     *int32
+	MaxTotalCpu                          *int32
+	MaxTotalMemoryMb                     *int32
+	MaxMachineCpu                        *int32
+	MaxMachineMemoryMb                   *int32
+	Metadata                             json.RawMessage
+	OrgID                                uuid.UUID
+	ProjectID                            uuid.UUID
+	ID                                   uuid.UUID
+}
+
+type UpdateProjectMachinePoolGrantRow struct {
+	ID                                   uuid.UUID
+	OrgID                                uuid.UUID
+	ProjectID                            uuid.UUID
+	MachinePoolID                        uuid.UUID
+	Description                          string
+	DefaultMachineCpu                    *int32
+	DefaultMachineMemoryMb               *int32
+	DefaultMachineEnvOverlay             json.RawMessage
+	DefaultMachineSecretEnvOverlay       json.RawMessage
+	DefaultMachineProviderOptionsOverlay json.RawMessage
+	DefaultCwd                           string
+	MaxTotalMachines                     *int32
+	MaxTotalCpu                          *int32
+	MaxTotalMemoryMb                     *int32
+	MaxMachineCpu                        *int32
+	MaxMachineMemoryMb                   *int32
+	IdempotencyKey                       string
+	Metadata                             json.RawMessage
+	CreatedAt                            time.Time
+	UpdatedAt                            time.Time
+}
+
+func (q *Queries) UpdateProjectMachinePoolGrant(ctx context.Context, arg UpdateProjectMachinePoolGrantParams) (UpdateProjectMachinePoolGrantRow, error) {
+	row := q.db.QueryRow(ctx, updateProjectMachinePoolGrant,
+		arg.Description,
+		arg.DefaultMachineCpu,
+		arg.DefaultMachineMemoryMb,
+		arg.DefaultMachineEnvOverlay,
+		arg.DefaultMachineSecretEnvOverlay,
+		arg.DefaultMachineProviderOptionsOverlay,
+		arg.DefaultCwd,
+		arg.MaxTotalMachines,
+		arg.MaxTotalCpu,
+		arg.MaxTotalMemoryMb,
+		arg.MaxMachineCpu,
+		arg.MaxMachineMemoryMb,
+		arg.Metadata,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.ID,
+	)
+	var i UpdateProjectMachinePoolGrantRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.MachinePoolID,
+		&i.Description,
+		&i.DefaultMachineCpu,
+		&i.DefaultMachineMemoryMb,
+		&i.DefaultMachineEnvOverlay,
+		&i.DefaultMachineSecretEnvOverlay,
+		&i.DefaultMachineProviderOptionsOverlay,
+		&i.DefaultCwd,
+		&i.MaxTotalMachines,
+		&i.MaxTotalCpu,
+		&i.MaxTotalMemoryMb,
+		&i.MaxMachineCpu,
+		&i.MaxMachineMemoryMb,
+		&i.IdempotencyKey,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const upsertProjectMachinePoolGrant = `-- name: UpsertProjectMachinePoolGrant :one
 INSERT INTO project_machine_pool_grants(org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, idempotency_key, metadata, created_at, updated_at)
 SELECT project.org_id, project.id, pool.id, $1, $2::integer, $3::integer, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::integer, $9::integer, $10::integer, $11::integer, $12::integer, $13, $14, statement_timestamp(), statement_timestamp()

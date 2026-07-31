@@ -58,6 +58,27 @@ func nullableIntPatchFromInt32(value nullable.Nullable[int32]) patch.NullableInt
 	return result
 }
 
+func nullableBoolPatchFromBool(value nullable.Nullable[bool]) patch.NullableBool {
+	result := patch.NullableBool{Set: value.IsSpecified()}
+	if !result.Set || value.IsNull() {
+		return result
+	}
+	converted := value.MustGet()
+	result.Value = &converted
+	return result
+}
+
+func stringPatchFromNullable[T ~string](value nullable.Nullable[T]) *string {
+	if !value.IsSpecified() {
+		return nil
+	}
+	converted := ""
+	if !value.IsNull() {
+		converted = string(value.MustGet())
+	}
+	return &converted
+}
+
 func stringValue(value *string) string {
 	if value == nil {
 		return ""

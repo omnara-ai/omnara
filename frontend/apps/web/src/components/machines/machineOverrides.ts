@@ -6,13 +6,15 @@ import {
 export interface EnvOverlayRow {
   id: string
   key: string
-  value: string
+  /** null is an unset entry: the overlay removes the pool's value for this key. */
+  value: string | null
 }
 
 export interface SecretEnvOverlayRow {
   id: string
   key: string
-  secretId: string
+  /** null is an unset entry: the overlay removes the pool's value for this key. */
+  secretId: string | null
 }
 
 export interface ProviderOptionsDraft {
@@ -50,10 +52,24 @@ export function secretEnvOverlayRowsValid(rows: SecretEnvOverlayRow[]) {
 
 export function envFromRows(rows: EnvOverlayRow[]): Record<string, string> | undefined {
   if (rows.length === 0) return undefined
-  return Object.fromEntries(rows.map((row) => [row.key.trim(), row.value]))
+  return Object.fromEntries(rows.map((row) => [row.key.trim(), row.value ?? '']))
 }
 
 export function secretEnvFromRows(rows: SecretEnvOverlayRow[]): Record<string, string> | undefined {
+  if (rows.length === 0) return undefined
+  return Object.fromEntries(rows.map((row) => [row.key.trim(), row.secretId ?? '']))
+}
+
+export function envOverlayFromRows(
+  rows: EnvOverlayRow[],
+): Record<string, string | null> | undefined {
+  if (rows.length === 0) return undefined
+  return Object.fromEntries(rows.map((row) => [row.key.trim(), row.value]))
+}
+
+export function secretEnvOverlayFromRows(
+  rows: SecretEnvOverlayRow[],
+): Record<string, string | null> | undefined {
   if (rows.length === 0) return undefined
   return Object.fromEntries(rows.map((row) => [row.key.trim(), row.secretId]))
 }
@@ -89,6 +105,14 @@ export function optionalNonNegativeInt32Valid(value: string) {
 
 export function optionalInt(value: string): number | undefined {
   return value.trim() === '' ? undefined : Number(value)
+}
+
+export function optionalIntOrNull(value: string): number | null {
+  return value.trim() === '' ? null : Number(value)
+}
+
+export function numberDraft(value: number | null | undefined): string {
+  return value == null ? '' : String(value)
 }
 
 export function stringOrUndefined(value: string): string | undefined {

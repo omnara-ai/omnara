@@ -187,6 +187,8 @@ const (
 	operationSetOrgAPIKeyProjectRole       operationID = "SetOrgAPIKeyProjectRole"
 	operationRemoveOrgAPIKeyProjectRole    operationID = "RemoveOrgAPIKeyProjectRole"
 	operationUpdateOrgMember               operationID = "UpdateOrgMember"
+	operationUpdateProjectMachinePoolGrant operationID = "UpdateProjectMachinePoolGrant"
+	operationUpdateProjectModelGrant       operationID = "UpdateProjectModelGrant"
 )
 
 type operationPolicy struct {
@@ -313,10 +315,12 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListProjectAvailableSecrets:   accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
 	operationGetProjectAvailableSecret:     accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
 	operationListProjectModelGrants:        accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationUpdateProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationDeleteProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationListProjectMachineGrants:      accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationListProjectMachinePoolGrants:  accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationGetProjectMachinePoolGrant:    accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationUpdateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationDeleteProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationCreateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 

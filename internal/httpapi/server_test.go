@@ -1524,6 +1524,13 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 			want:   http.StatusForbidden,
 		},
 		{
+			name:   "update project model grant route exact match",
+			method: http.MethodPatch,
+			path:   "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/model-grants/" + modelGrantPath,
+			body:   `{"max_output_tokens":1024}`,
+			want:   http.StatusForbidden,
+		},
+		{
 			name:   "delete project model grant route exact match",
 			method: http.MethodDelete,
 			path:   "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/model-grants/" + modelGrantPath,
@@ -1546,6 +1553,13 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 			name:   "get project machine pool grant route exact match",
 			method: http.MethodGet,
 			path:   "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/machine-pool-grants/" + poolGrantPath,
+			want:   http.StatusForbidden,
+		},
+		{
+			name:   "update project machine pool grant route exact match",
+			method: http.MethodPatch,
+			path:   "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/machine-pool-grants/" + poolGrantPath,
+			body:   `{"description":"updated"}`,
 			want:   http.StatusForbidden,
 		},
 		{

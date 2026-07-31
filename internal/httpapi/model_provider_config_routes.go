@@ -901,6 +901,92 @@ func configuredModelSummaryResponse(
 	}, nil
 }
 
+func (s strictOpenAPIServer) UpdateProjectModelGrant(
+	ctx context.Context,
+	request openapigen.UpdateProjectModelGrantRequestObject,
+) (openapigen.UpdateProjectModelGrantResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "request body is required")
+	}
+	grantID, ok := parseOpenAPIPublicID(publicid.KindProjectModelGrant, request.ModelGrantID)
+	if !ok {
+		return nil, apierror.FromCode(openapigen.ErrorCodeNotFound, "not found")
+	}
+	input, err := updateProjectModelGrantInput(
+		scope.org.ID,
+		scope.project.ID,
+		grantID,
+		*request.Body,
+	)
+	if err != nil {
+		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
+	}
+	record, err := s.server.store.Models().UpdateProjectModelGrant(ctx, input)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := projectModelGrantResponse(record)
+	if err != nil {
+		return nil, err
+	}
+	return openapigen.UpdateProjectModelGrant200JSONResponse(openapigen.ProjectModelGrantEnvelope{Grant: response}), nil
+}
+
+func updateProjectModelGrantInput(
+	orgID, projectID, grantID storage.ID,
+	body openapigen.UpdateProjectModelGrantRequest,
+) (modelstore.UpdateProjectModelGrantInput, error) {
+	input := modelstore.UpdateProjectModelGrantInput{
+		OrgID:     orgID,
+		ProjectID: projectID,
+		ID:        grantID,
+	}
+	nullableIntFields := []struct {
+		name   string
+		value  nullable.Nullable[int]
+		target *patch.NullableInt
+		min    int
+	}{
+		{name: "context_window_tokens", value: body.ContextWindowTokens, target: &input.ContextWindowTokens, min: 1},
+		{name: "max_output_tokens", value: body.MaxOutputTokens, target: &input.MaxOutputTokens, min: 1},
+		{
+			name:   "default_max_output_tokens",
+			value:  body.DefaultMaxOutputTokens,
+			target: &input.DefaultMaxOutputTokens,
+			min:    1,
+		},
+	}
+	for _, field := range nullableIntFields {
+		if !field.value.IsSpecified() {
+			continue
+		}
+		if err := applyNullableIntPatch(field.name, field.value, field.min, field.target); err != nil {
+			return modelstore.UpdateProjectModelGrantInput{}, err
+		}
+	}
+	input.DefaultCacheRetention = stringPatchFromNullable(body.DefaultCacheRetention)
+	input.SupportsTools = nullableBoolPatchFromBool(body.SupportsTools)
+	input.SupportsReasoning = nullableBoolPatchFromBool(body.SupportsReasoning)
+	input.DefaultReasoningEffort = stringPatchFromNullable(body.DefaultReasoningEffort)
+	if body.SupportedReasoningEfforts != nil {
+		values := append([]string(nil), (*body.SupportedReasoningEfforts)...)
+		input.SupportedReasoningEfforts = &values
+	}
+	if body.InputModalities != nil {
+		values := append([]string(nil), (*body.InputModalities)...)
+		input.InputModalities = &values
+	}
+	if body.OutputModalities != nil {
+		values := append([]string(nil), (*body.OutputModalities)...)
+		input.OutputModalities = &values
+	}
+	return input, nil
+}
+
 func (s strictOpenAPIServer) DeleteProjectModelGrant(
 	ctx context.Context,
 	request openapigen.DeleteProjectModelGrantRequestObject,

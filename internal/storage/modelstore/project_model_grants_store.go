@@ -86,6 +86,144 @@ func (s *Store) CreateProjectModelGrant(
 	return record, nil
 }
 
+func (s *Store) UpdateProjectModelGrant(
+	ctx context.Context,
+	input UpdateProjectModelGrantInput,
+) (ProjectModelGrantRecord, error) {
+	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.ID) {
+		return ProjectModelGrantRecord{}, storeerr.InvalidRequest(errors.New("org, project, and grant are required"))
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ProjectModelGrantRecord{}, fmt.Errorf("begin update project model grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+	ref, err := qtx.GetProjectModelGrant(
+		ctx,
+		dbsqlc.GetProjectModelGrantParams{OrgID: input.OrgID, ProjectID: input.ProjectID, ID: input.ID},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProjectModelGrantRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ProjectModelGrantRecord{}, fmt.Errorf("get project model grant for update: %w", err)
+	}
+	configuredModelRow, err := qtx.LockConfiguredModelForUse(
+		ctx,
+		dbsqlc.LockConfiguredModelForUseParams{OrgID: input.OrgID, ID: ref.ConfiguredModelID},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProjectModelGrantRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ProjectModelGrantRecord{}, fmt.Errorf("lock configured model for grant update: %w", err)
+	}
+	// Re-read after the configured-model lock; grant mutations serialize on the model row.
+	row, err := qtx.GetProjectModelGrant(
+		ctx,
+		dbsqlc.GetProjectModelGrantParams{OrgID: input.OrgID, ProjectID: input.ProjectID, ID: input.ID},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProjectModelGrantRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ProjectModelGrantRecord{}, fmt.Errorf("get project model grant for update: %w", err)
+	}
+	configuredModel := configuredModelRecordFromLockForUseSQLC(configuredModelRow)
+	providerConfig, err := qtx.GetModelProviderConfig(
+		ctx,
+		dbsqlc.GetModelProviderConfigParams{OrgID: input.OrgID, ID: configuredModel.ModelProviderConfigID},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProjectModelGrantRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ProjectModelGrantRecord{}, fmt.Errorf("load configured model provider config for grant update: %w", err)
+	}
+	merged := applyProjectModelGrantPatch(projectModelGrantRecordFromSQLC(row), input)
+	if _, err := EffectiveConfiguredModelForProjectGrant(
+		modelprotocol.APIFormat(providerConfig.ApiFormat),
+		configuredModel,
+		merged,
+	); err != nil {
+		return ProjectModelGrantRecord{}, err
+	}
+	updatedRow, err := qtx.UpdateProjectModelGrant(ctx, dbsqlc.UpdateProjectModelGrantParams{
+		ContextWindowTokens:       storeutil.Int32Ptr(merged.ContextWindowTokens),
+		MaxOutputTokens:           storeutil.Int32Ptr(merged.MaxOutputTokens),
+		DefaultMaxOutputTokens:    storeutil.Int32Ptr(merged.DefaultMaxOutputTokens),
+		DefaultCacheRetention:     storeutil.TextFromEmpty(merged.DefaultCacheRetention),
+		SupportsTools:             merged.SupportsTools,
+		SupportsReasoning:         merged.SupportsReasoning,
+		DefaultReasoningEffort:    merged.DefaultReasoningEffort,
+		SupportedReasoningEfforts: merged.SupportedReasoningEfforts,
+		InputModalities:           merged.InputModalities,
+		OutputModalities:          merged.OutputModalities,
+		OrgID:                     input.OrgID,
+		ProjectID:                 input.ProjectID,
+		ID:                        input.ID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProjectModelGrantRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ProjectModelGrantRecord{}, fmt.Errorf("update project model grant: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ProjectModelGrantRecord{}, fmt.Errorf("commit update project model grant: %w", err)
+	}
+	return projectModelGrantRecordFromSQLC(updatedRow), nil
+}
+
+func applyProjectModelGrantPatch(
+	record ProjectModelGrantRecord,
+	input UpdateProjectModelGrantInput,
+) ProjectModelGrantRecord {
+	if input.ContextWindowTokens.Set {
+		record.ContextWindowTokens = cloneIntPtr(input.ContextWindowTokens.Value)
+	}
+	if input.MaxOutputTokens.Set {
+		record.MaxOutputTokens = cloneIntPtr(input.MaxOutputTokens.Value)
+	}
+	if input.DefaultMaxOutputTokens.Set {
+		record.DefaultMaxOutputTokens = cloneIntPtr(input.DefaultMaxOutputTokens.Value)
+	}
+	if input.DefaultCacheRetention != nil {
+		record.DefaultCacheRetention = *input.DefaultCacheRetention
+	}
+	if input.SupportsTools.Set {
+		record.SupportsTools = cloneBoolPtr(input.SupportsTools.Value)
+	}
+	if input.SupportsReasoning.Set {
+		record.SupportsReasoning = cloneBoolPtr(input.SupportsReasoning.Value)
+	}
+	if input.DefaultReasoningEffort != nil {
+		record.DefaultReasoningEffort = *input.DefaultReasoningEffort
+	}
+	if input.SupportedReasoningEfforts != nil {
+		record.SupportedReasoningEfforts = append([]string(nil), (*input.SupportedReasoningEfforts)...)
+	}
+	if input.InputModalities != nil {
+		record.InputModalities = append([]string(nil), (*input.InputModalities)...)
+	}
+	if input.OutputModalities != nil {
+		record.OutputModalities = append([]string(nil), (*input.OutputModalities)...)
+	}
+	record.DefaultCacheRetention,
+		record.DefaultReasoningEffort,
+		record.SupportedReasoningEfforts,
+		record.InputModalities,
+		record.OutputModalities = normalizeConfiguredModelOptionFields(
+		record.DefaultCacheRetention,
+		record.DefaultReasoningEffort,
+		record.SupportedReasoningEfforts,
+		record.InputModalities,
+		record.OutputModalities,
+	)
+	return record
+}
+
 func (s *Store) GetActiveProjectModelGrantForConfiguredModel(
 	ctx context.Context,
 	orgID, projectID, configuredModelID ID,

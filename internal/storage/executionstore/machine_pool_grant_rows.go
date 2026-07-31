@@ -136,6 +136,31 @@ func projectMachinePoolGrantFromList(row dbsqlc.ListProjectMachinePoolGrantsRow)
 	)
 }
 
+func projectMachinePoolGrantFromUpdate(row dbsqlc.UpdateProjectMachinePoolGrantRow) ProjectMachinePoolGrantRecord {
+	return projectMachinePoolGrantRecord(
+		row.ID,
+		row.OrgID,
+		row.ProjectID,
+		row.MachinePoolID,
+		row.Description,
+		row.DefaultMachineCpu,
+		row.DefaultMachineMemoryMb,
+		row.DefaultMachineEnvOverlay,
+		row.DefaultMachineSecretEnvOverlay,
+		row.DefaultMachineProviderOptionsOverlay,
+		row.DefaultCwd,
+		row.MaxTotalMachines,
+		row.MaxTotalCpu,
+		row.MaxTotalMemoryMb,
+		row.MaxMachineCpu,
+		row.MaxMachineMemoryMb,
+		row.IdempotencyKey,
+		row.Metadata,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
 func projectMachinePoolGrantFromDelete(row dbsqlc.DeleteProjectMachinePoolGrantRow) ProjectMachinePoolGrantRecord {
 	return projectMachinePoolGrantRecord(
 		row.ID,

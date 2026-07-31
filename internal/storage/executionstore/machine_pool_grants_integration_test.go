@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -1104,7 +1105,7 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 		{
 			name:    "Per Machine CPU Cap Below Inherited Default",
 			input:   executionstore.CreateProjectMachinePoolGrantInput{MaxMachineCPU: &cpu2},
-			wantErr: "resolved project machine pool grant config cpu exceeds max_machine_cpu",
+			wantErr: "resolved project machine pool grant config: cpu exceeds max_machine_cpu",
 		},
 		{
 			name: "Per Machine CPU Cap With Lower Project Default",
@@ -2642,5 +2643,130 @@ func TestMachinePoolListSupportsServerSideSearchSortAndPagination(t *testing.T) 
 	}
 	if len(filtered.Pools) != 1 || filtered.Pools[0].Name != "list-beta" {
 		t.Fatalf("filtered machine pools = %+v, want only list-beta", filtered.Pools)
+	}
+}
+
+func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	providerAuthSecretID := createMachinePoolProviderAuthSecretForTest(
+		t,
+		ctx,
+		store,
+		"pool-grant-update-provider-auth",
+		"test-token",
+	)
+	maxCPU, maxMemoryMB := 16, 32768
+	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForTest(
+		executionstore.CreateMachinePoolInput{
+			OrgID:                testOrgID,
+			Name:                 "Grant Update Pool",
+			Provider:             "test.provider",
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     5,
+			MaxTotalCPU:          intPtrForMachinePoolTest(maxCPU),
+			MaxTotalMemoryMB:     intPtrForMachinePoolTest(maxMemoryMB),
+			MaxMachineCPU:        intPtrForMachinePoolTest(maxCPU),
+			MaxMachineMemoryMB:   intPtrForMachinePoolTest(maxMemoryMB),
+		},
+		defaultMachineFieldsForTest{
+			DefaultMachineCPU:             4,
+			DefaultMachineMemoryMB:        8192,
+			DefaultMachineEnv:             json.RawMessage(`{}`),
+			DefaultMachineProviderOptions: json.RawMessage(`{}`),
+		},
+	))
+	if err != nil {
+		t.Fatalf("create machine pool: %v", err)
+	}
+	grant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
+		OrgID:                    testOrgID,
+		ProjectID:                testProjectID,
+		MachinePoolID:            machinePool.ID,
+		Description:              "before",
+		DefaultMachineCPU:        intPtrForMachinePoolTest(2),
+		DefaultMachineEnvOverlay: json.RawMessage(`{"KEEP":"yes"}`),
+		DefaultCwd:               "/before",
+		MaxTotalCPU:              intPtrForMachinePoolTest(8),
+		MaxMachineCPU:            intPtrForMachinePoolTest(4),
+	})
+	if err != nil {
+		t.Fatalf("create grant: %v", err)
+	}
+
+	description := "after"
+	memory4096 := 4096
+	envOverlay := json.RawMessage(`{"NEW":"value"}`)
+	updated, err := store.Execution().UpdateProjectMachinePoolGrant(ctx, executionstore.UpdateProjectMachinePoolGrantInput{
+		OrgID:                    testOrgID,
+		ProjectID:                testProjectID,
+		ID:                       grant.ID,
+		Description:              &description,
+		DefaultMachineMemoryMB:   patch.NullableInt{Set: true, Value: &memory4096},
+		DefaultMachineEnvOverlay: &envOverlay,
+		MaxTotalCPU:              patch.NullableInt{Set: true},
+	})
+	if err != nil {
+		t.Fatalf("update grant: %v", err)
+	}
+	if updated.Description != "after" ||
+		updated.DefaultMachineCPU == nil || *updated.DefaultMachineCPU != 2 ||
+		updated.DefaultMachineMemoryMB == nil || *updated.DefaultMachineMemoryMB != 4096 ||
+		!sameJSON(updated.DefaultMachineEnvOverlay, envOverlay) ||
+		updated.DefaultCwd != "/before" ||
+		updated.MaxTotalCPU != nil ||
+		updated.MaxMachineCPU == nil || *updated.MaxMachineCPU != 4 ||
+		updated.MachinePoolID != machinePool.ID {
+		t.Fatalf("updated grant patch mismatch: %+v", updated)
+	}
+	if !updated.CreatedAt.Equal(grant.CreatedAt) || updated.UpdatedAt.Before(grant.UpdatedAt) {
+		t.Fatalf("updated grant timestamps mismatch: %+v", updated)
+	}
+	fetched, err := store.Execution().GetProjectMachinePoolGrant(ctx, testOrgID, testProjectID, grant.ID)
+	if err != nil {
+		t.Fatalf("get updated grant: %v", err)
+	}
+	if fetched.Description != "after" || fetched.MaxTotalCPU != nil {
+		t.Fatalf("fetched grant did not persist patch: %+v", fetched)
+	}
+
+	two := 2
+	if _, err := store.Execution().UpdateProjectMachinePoolGrant(ctx, executionstore.UpdateProjectMachinePoolGrantInput{
+		OrgID:         testOrgID,
+		ProjectID:     testProjectID,
+		ID:            grant.ID,
+		MaxMachineCPU: patch.NullableInt{Set: true, Value: &two},
+	}); err != nil {
+		t.Fatalf("lower per-machine cap to grant default: %v", err)
+	}
+	if _, err := store.Execution().UpdateProjectMachinePoolGrant(ctx, executionstore.UpdateProjectMachinePoolGrantInput{
+		OrgID:             testOrgID,
+		ProjectID:         testProjectID,
+		ID:                grant.ID,
+		DefaultMachineCPU: patch.NullableInt{Set: true},
+	}); err == nil || !strings.Contains(err.Error(), "cpu exceeds max_machine_cpu") {
+		t.Fatalf("clearing default cpu should fail against merged per-machine cap, got %v", err)
+	}
+
+	tooLarge := maxCPU * 2
+	if _, err := store.Execution().UpdateProjectMachinePoolGrant(ctx, executionstore.UpdateProjectMachinePoolGrantInput{
+		OrgID:         testOrgID,
+		ProjectID:     testProjectID,
+		ID:            grant.ID,
+		MaxMachineCPU: patch.NullableInt{Set: true, Value: &tooLarge},
+	}); err == nil || !strings.Contains(err.Error(), "cannot exceed machine pool max_machine_cpu") {
+		t.Fatalf("raising per-machine cap above pool cap should fail, got %v", err)
+	}
+
+	if _, err := store.Execution().UpdateProjectMachinePoolGrant(ctx, executionstore.UpdateProjectMachinePoolGrantInput{
+		OrgID:       testOrgID,
+		ProjectID:   testProjectID,
+		ID:          uuid.New(),
+		Description: &description,
+	}); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("update missing grant error = %v, want storeerr.ErrNotFound", err)
 	}
 }

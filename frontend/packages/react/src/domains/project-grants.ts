@@ -5,6 +5,8 @@ import {
   type ListProjectMachinePoolGrantsData,
   type ListProjectModelGrantsData,
   sdk,
+  type UpdateProjectMachinePoolGrantRequest,
+  type UpdateProjectModelGrantRequest,
 } from '@omnara/sdk'
 import {
   listProjectMachineGrantsInfiniteOptions,
@@ -132,6 +134,29 @@ export function useGrantMachinePoolToProject(orgID: string) {
   })
 }
 
+export function useUpdateProjectMachinePoolGrant(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      poolGrantID,
+      ...body
+    }: UpdateProjectMachinePoolGrantRequest & { poolGrantID: string }) => {
+      const { data } = await sdk.updateProjectMachinePoolGrant({
+        path: { orgID, projectID, poolGrantID },
+        body,
+        client,
+      })
+      return data
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: listProjectMachinePoolGrantsQueryKey({ path: { orgID, projectID }, client }),
+      })
+    },
+  })
+}
+
 export function useDeleteProjectMachinePoolGrant(orgID: string, projectID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
@@ -198,6 +223,29 @@ export function useCreateProjectModelGrant(orgID: string) {
           path: { orgID, projectID: variables.projectID },
           client,
         }),
+      })
+    },
+  })
+}
+
+export function useUpdateProjectModelGrant(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      modelGrantID,
+      ...body
+    }: UpdateProjectModelGrantRequest & { modelGrantID: string }) => {
+      const { data } = await sdk.updateProjectModelGrant({
+        path: { orgID, projectID, modelGrantID },
+        body,
+        client,
+      })
+      return data
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: listProjectModelGrantsQueryKey({ path: { orgID, projectID }, client }),
       })
     },
   })

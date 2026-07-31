@@ -693,6 +693,49 @@ func (q *Queries) GetModelProviderManagementKindForLifecycle(ctx context.Context
 	return management_kind, err
 }
 
+const getProjectModelGrant = `-- name: GetProjectModelGrant :one
+SELECT id, org_id, project_id, configured_model_id,
+       context_window_tokens, max_output_tokens, default_max_output_tokens,
+       default_cache_retention, supports_tools, supports_reasoning,
+       default_reasoning_effort, supported_reasoning_efforts,
+       input_modalities, output_modalities,
+       created_at, updated_at
+FROM project_model_grants
+WHERE org_id = $1
+  AND project_id = $2
+  AND id = $3
+`
+
+type GetProjectModelGrantParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) GetProjectModelGrant(ctx context.Context, arg GetProjectModelGrantParams) (ProjectModelGrant, error) {
+	row := q.db.QueryRow(ctx, getProjectModelGrant, arg.OrgID, arg.ProjectID, arg.ID)
+	var i ProjectModelGrant
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ConfiguredModelID,
+		&i.ContextWindowTokens,
+		&i.MaxOutputTokens,
+		&i.DefaultMaxOutputTokens,
+		&i.DefaultCacheRetention,
+		&i.SupportsTools,
+		&i.SupportsReasoning,
+		&i.DefaultReasoningEffort,
+		&i.SupportedReasoningEfforts,
+		&i.InputModalities,
+		&i.OutputModalities,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertConfiguredModel = `-- name: InsertConfiguredModel :one
 WITH ids AS (
   SELECT uuidv7() AS configured_model_id, uuidv7() AS revision_id
@@ -1815,6 +1858,84 @@ func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModel
 		&i.AuthOptions,
 		&i.CredentialSecretID,
 		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateProjectModelGrant = `-- name: UpdateProjectModelGrant :one
+UPDATE project_model_grants
+SET context_window_tokens = $1,
+    max_output_tokens = $2,
+    default_max_output_tokens = $3,
+    default_cache_retention = $4,
+    supports_tools = $5,
+    supports_reasoning = $6,
+    default_reasoning_effort = $7::text,
+    supported_reasoning_efforts = $8::text[],
+    input_modalities = $9::text[],
+    output_modalities = $10::text[],
+    updated_at = statement_timestamp()
+WHERE org_id = $11
+  AND project_id = $12
+  AND id = $13
+RETURNING id, org_id, project_id, configured_model_id,
+          context_window_tokens, max_output_tokens, default_max_output_tokens,
+          default_cache_retention, supports_tools, supports_reasoning,
+          default_reasoning_effort, supported_reasoning_efforts,
+          input_modalities, output_modalities,
+          created_at, updated_at
+`
+
+type UpdateProjectModelGrantParams struct {
+	ContextWindowTokens       *int32
+	MaxOutputTokens           *int32
+	DefaultMaxOutputTokens    *int32
+	DefaultCacheRetention     *string
+	SupportsTools             *bool
+	SupportsReasoning         *bool
+	DefaultReasoningEffort    string
+	SupportedReasoningEfforts []string
+	InputModalities           []string
+	OutputModalities          []string
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+	ID                        uuid.UUID
+}
+
+func (q *Queries) UpdateProjectModelGrant(ctx context.Context, arg UpdateProjectModelGrantParams) (ProjectModelGrant, error) {
+	row := q.db.QueryRow(ctx, updateProjectModelGrant,
+		arg.ContextWindowTokens,
+		arg.MaxOutputTokens,
+		arg.DefaultMaxOutputTokens,
+		arg.DefaultCacheRetention,
+		arg.SupportsTools,
+		arg.SupportsReasoning,
+		arg.DefaultReasoningEffort,
+		arg.SupportedReasoningEfforts,
+		arg.InputModalities,
+		arg.OutputModalities,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.ID,
+	)
+	var i ProjectModelGrant
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ConfiguredModelID,
+		&i.ContextWindowTokens,
+		&i.MaxOutputTokens,
+		&i.DefaultMaxOutputTokens,
+		&i.DefaultCacheRetention,
+		&i.SupportsTools,
+		&i.SupportsReasoning,
+		&i.DefaultReasoningEffort,
+		&i.SupportedReasoningEfforts,
+		&i.InputModalities,
+		&i.OutputModalities,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

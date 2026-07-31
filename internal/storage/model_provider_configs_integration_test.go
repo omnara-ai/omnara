@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -1982,4 +1983,137 @@ func TestModelProviderConfigListSupportsServerSideSearchSortAndPagination(t *tes
 	if len(filtered.Configs) != 1 || filtered.Configs[0].Name != "provider-beta" {
 		t.Fatalf("filtered providers = %+v, want only provider-beta", filtered.Configs)
 	}
+}
+
+func TestUpdateProjectModelGrantAppliesPatchSemantics(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	admin := createSecretTestUser(t, ctx, store, "Model Grant Updater", "admin")
+
+	credential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     testOrgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "model-grant-update-key",
+		Material:  secrets.GenericMaterial{Value: "sk-test-update"},
+		Actor:     userPrincipal(admin.ID),
+	})
+	if err != nil {
+		t.Fatalf("create credential: %v", err)
+	}
+	providerConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+		OrgID:              testOrgID,
+		Name:               "openai-grant-update",
+		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+		BaseURL:            "https://api.openai.com/v1",
+		CredentialSecretID: credential.ID,
+	})
+	if err != nil {
+		t.Fatalf("create provider config: %v", err)
+	}
+	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+		OrgID:                     testOrgID,
+		ModelProviderConfigID:     providerConfig.ID,
+		Name:                      "gpt-grant-update",
+		ProviderModelSlug:         "gpt-grant-update",
+		ContextWindowTokens:       128000,
+		MaxOutputTokens:           8192,
+		DefaultMaxOutputTokens:    intPtr(4096),
+		SupportsReasoning:         true,
+		DefaultReasoningEffort:    "medium",
+		SupportedReasoningEfforts: []string{"low", "medium", "high"},
+		InputModalities:           []string{"text", "image"},
+		OutputModalities:          []string{"text"},
+	})
+	if err != nil {
+		t.Fatalf("create configured model: %v", err)
+	}
+	grant, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+		OrgID:                  testOrgID,
+		ProjectID:              testProjectID,
+		ConfiguredModelID:      configuredModel.ID,
+		ContextWindowTokens:    intPtr(64000),
+		MaxOutputTokens:        intPtr(4096),
+		DefaultMaxOutputTokens: intPtr(2048),
+		SupportsTools:          boolPtr(true),
+	})
+	if err != nil {
+		t.Fatalf("create project model grant: %v", err)
+	}
+
+	updated, err := store.Models().UpdateProjectModelGrant(ctx, modelstore.UpdateProjectModelGrantInput{
+		OrgID:                     testOrgID,
+		ProjectID:                 testProjectID,
+		ID:                        grant.ID,
+		ContextWindowTokens:       patch.NullableInt{Set: true},
+		MaxOutputTokens:           nullableInt(2048),
+		SupportsTools:             patch.NullableBool{Set: true, Value: boolPtr(false)},
+		DefaultReasoningEffort:    strPtrForModelGrantUpdateTest("low"),
+		SupportedReasoningEfforts: &[]string{"low", "medium"},
+	})
+	if err != nil {
+		t.Fatalf("update project model grant: %v", err)
+	}
+	if updated.ContextWindowTokens != nil ||
+		updated.MaxOutputTokens == nil || *updated.MaxOutputTokens != 2048 ||
+		updated.DefaultMaxOutputTokens == nil || *updated.DefaultMaxOutputTokens != 2048 ||
+		updated.SupportsTools == nil || *updated.SupportsTools ||
+		updated.DefaultReasoningEffort != "low" ||
+		!slices.Equal(updated.SupportedReasoningEfforts, []string{"low", "medium"}) ||
+		updated.ConfiguredModelID != configuredModel.ID {
+		t.Fatalf("updated project model grant patch mismatch: %+v", updated)
+	}
+	if !updated.CreatedAt.Equal(grant.CreatedAt) || updated.UpdatedAt.Before(grant.UpdatedAt) {
+		t.Fatalf("updated project model grant timestamps mismatch: %+v", updated)
+	}
+
+	cleared, err := store.Models().UpdateProjectModelGrant(ctx, modelstore.UpdateProjectModelGrantInput{
+		OrgID:                     testOrgID,
+		ProjectID:                 testProjectID,
+		ID:                        grant.ID,
+		SupportsTools:             patch.NullableBool{Set: true},
+		DefaultReasoningEffort:    strPtrForModelGrantUpdateTest(""),
+		SupportedReasoningEfforts: &[]string{},
+	})
+	if err != nil {
+		t.Fatalf("clear project model grant overrides: %v", err)
+	}
+	if cleared.SupportsTools != nil || cleared.DefaultReasoningEffort != "" ||
+		len(cleared.SupportedReasoningEfforts) != 0 ||
+		cleared.MaxOutputTokens == nil || *cleared.MaxOutputTokens != 2048 {
+		t.Fatalf("cleared project model grant mismatch: %+v", cleared)
+	}
+
+	if _, err := store.Models().UpdateProjectModelGrant(ctx, modelstore.UpdateProjectModelGrantInput{
+		OrgID:               testOrgID,
+		ProjectID:           testProjectID,
+		ID:                  grant.ID,
+		ContextWindowTokens: nullableInt(256000),
+	}); err == nil || !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		t.Fatalf("widening context window should fail validation, got %v", err)
+	}
+
+	if _, err := store.Models().UpdateProjectModelGrant(ctx, modelstore.UpdateProjectModelGrantInput{
+		OrgID:           testOrgID,
+		ProjectID:       testProjectID,
+		ID:              grant.ID,
+		InputModalities: &[]string{"audio"},
+	}); err == nil || !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		t.Fatalf("non-subset input modalities should fail validation, got %v", err)
+	}
+
+	if _, err := store.Models().UpdateProjectModelGrant(ctx, modelstore.UpdateProjectModelGrantInput{
+		OrgID:           testOrgID,
+		ProjectID:       testProjectID,
+		ID:              uuid.New(),
+		MaxOutputTokens: nullableInt(1024),
+	}); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("update missing project model grant error = %v, want storeerr.ErrNotFound", err)
+	}
+}
+
+func strPtrForModelGrantUpdateTest(value string) *string {
+	return &value
 }
