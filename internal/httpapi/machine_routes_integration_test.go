@@ -118,6 +118,7 @@ func TestCreateMachineRejectsNonObjectMetadata(t *testing.T) {
 	}{
 		{name: "array", body: `{"display_name":"Bad Array Metadata","metadata":[]}`},
 		{name: "null", body: `{"display_name":"Bad Null Metadata","metadata":null}`},
+		{name: "nested", body: `{"display_name":"Bad Nested Metadata","metadata":{"team":"infra","nested":{"ok":true}}}`},
 	}
 	for _, tc := range cases {
 		requestJSONWithHeaders(
@@ -150,13 +151,13 @@ func TestCreateMachineRejectsNonObjectMetadata(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/machines",
-		`{"display_name":"Object Metadata","metadata":{"team":"infra","nested":{"ok":true}}}`,
+		`{"display_name":"Object Metadata","metadata":{"team":"infra","region":"sfo"}}`,
 		"idem-machine-metadata-object",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
 	metadata, ok := created["metadata"].(map[string]any)
-	if !ok || metadata["team"] != "infra" {
+	if !ok || metadata["team"] != "infra" || metadata["region"] != "sfo" {
 		t.Fatalf("created machine metadata = %+v", created["metadata"])
 	}
 }
@@ -280,7 +281,7 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/machines",
-		`{"display_name":"Different Machine","description":"different","cwd":"/different","env":{"APP":"different"},"metadata":{"changed":true}}`,
+		`{"display_name":"Different Machine","description":"different","cwd":"/different","env":{"APP":"different"},"metadata":{"changed":"yes"}}`,
 		"idem-machine-execution-defaults",
 		http.StatusOK,
 		authHeaders(orgAdminPAT.Token),

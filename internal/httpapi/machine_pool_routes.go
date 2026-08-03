@@ -37,10 +37,7 @@ func (s *Server) machinePoolResponse(record executionstore.MachinePoolRecord) (o
 	if err != nil {
 		return openapi.MachinePool{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
-	if err != nil {
-		return openapi.MachinePool{}, err
-	}
+	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
 	response := openapi.MachinePool{
 		Id:                            id,
 		OrgId:                         orgID,
@@ -177,10 +174,7 @@ func (s strictOpenAPIServer) createMachinePool(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	providerAuthSecretID, ok := parseOpenAPIPublicID(publicid.KindSecret, request.Body.ProviderAuthSecretId)
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid provider_auth_secret_id")
@@ -293,10 +287,7 @@ func (s strictOpenAPIServer) updateMachinePool(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	var providerAuthSecretID *storage.ID
 	if request.Body.ProviderAuthSecretId != nil {
 		parsed, ok := parseOpenAPIPublicID(publicid.KindSecret, *request.Body.ProviderAuthSecretId)

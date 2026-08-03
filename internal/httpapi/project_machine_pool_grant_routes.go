@@ -60,10 +60,7 @@ func (s strictOpenAPIServer) createProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -252,10 +249,7 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	var envOverlayPatch, secretEnvOverlayPatch, providerOptionsOverlayPatch, metadataPatch *json.RawMessage
 	if request.Body.DefaultMachineEnvOverlay != nil {
 		envOverlayPatch = &defaultMachineEnvOverlay
@@ -351,10 +345,7 @@ func projectMachinePoolGrantResponse(
 	if err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
-	if err != nil {
-		return openapi.ProjectMachinePoolGrant{}, err
-	}
+	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
 	var defaultMachineEnvOverlay map[string]*string
 	if err := json.Unmarshal(record.DefaultMachineEnvOverlay, &defaultMachineEnvOverlay); err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err

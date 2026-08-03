@@ -232,10 +232,7 @@ func (s strictOpenAPIServer) registerMachineDaemonRuntime(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := body.Metadata
 	observedPlatform, err := rawJSONFromPointer(body.ObservedPlatform)
 	if err != nil {
 		return nil, err

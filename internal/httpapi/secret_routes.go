@@ -32,27 +32,6 @@ func oauthAccessTokenLifetime(seconds *int32, startedAt time.Time) secrets.OAuth
 	return secrets.NewOAuthAccessTokenLifetime(time.Duration(*seconds)*time.Second, startedAt)
 }
 
-func secretMetadataMap(raw json.RawMessage) (map[string]string, error) {
-	if len(raw) == 0 {
-		return map[string]string{}, nil
-	}
-	var metadata map[string]string
-	if err := json.Unmarshal(raw, &metadata); err != nil {
-		return nil, err
-	}
-	if metadata == nil {
-		metadata = map[string]string{}
-	}
-	return metadata, nil
-}
-
-func secretMetadataRaw(value *map[string]string) (json.RawMessage, error) {
-	if value == nil {
-		return nil, nil
-	}
-	return json.Marshal(*value)
-}
-
 func newSecretOwner(record secretstore.SecretRecord) (openapi.SecretOwner, error) {
 	var owner openapi.SecretOwner
 	switch record.OwnerKind {
@@ -93,10 +72,7 @@ func newSecretResponse(record secretstore.SecretRecord) (openapi.Secret, error) 
 	if err != nil {
 		return openapi.Secret{}, err
 	}
-	metadata, err := secretMetadataMap(record.Metadata)
-	if err != nil {
-		return openapi.Secret{}, err
-	}
+	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
 	response := openapi.Secret{
 		Id: id, OrgId: orgID, ManagementKind: openapi.ManagementKind(record.ManagementKind),
 		Owner: owner, Name: record.Name, Kind: openapi.SecretKind(record.Kind),
@@ -356,10 +332,7 @@ func (s strictOpenAPIServer) CreateSecret(
 	if ownerErr != nil {
 		return nil, *ownerErr
 	}
-	metadata, err := secretMetadataRaw(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	material, materialErr := parseSecretMaterial(request.Body.Material, receivedAt)
 	if materialErr != nil {
 		return nil, *materialErr
@@ -496,10 +469,7 @@ func (s strictOpenAPIServer) UpdateSecret(
 		name = *request.Body.Name
 	}
 	if request.Body.Metadata != nil {
-		metadata, err = secretMetadataRaw(request.Body.Metadata)
-		if err != nil {
-			return nil, err
-		}
+		metadata = request.Body.Metadata
 	}
 	updated, err := s.server.store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
 		OrgID: org.ID, SecretID: record.ID, Name: name, Metadata: metadata,

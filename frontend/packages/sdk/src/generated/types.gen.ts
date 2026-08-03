@@ -690,10 +690,6 @@ export type ListSkillGrantsResponse = {
     next_cursor: string | null;
 };
 
-export type SecretPayload = {
-    [key: string]: string;
-};
-
 export type McpoAuthStartRequest = {
     owner: SecretOwnerInput;
     mcp_url: string;
@@ -702,9 +698,7 @@ export type McpoAuthStartRequest = {
     client_id?: string;
     client_secret?: string;
     scopes?: Array<string>;
-    metadata?: {
-        [key: string]: string;
-    };
+    metadata?: Metadata;
 };
 
 export type McpoAuthStartResponse = {
@@ -1134,6 +1128,13 @@ export type ToolInput = {
     [key: string]: unknown;
 };
 
+/**
+ * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+ */
+export type Metadata = {
+    [key: string]: string;
+};
+
 export type CreateAgentInputRequest = {
     content_blocks: Array<CreateAgentInputContentBlock>;
     delivery_mode?: CreateAgentInputDeliveryMode;
@@ -1552,9 +1553,7 @@ export type Actor = {
     provider_tenant_id?: string;
     provider_user_id: string;
     display_name?: string;
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -1566,12 +1565,7 @@ export type ExternalActorParams = {
     provider_tenant_id?: string;
     provider_user_id: string;
     display_name?: string;
-    /**
-     * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
-     */
-    metadata?: {
-        [key: string]: string;
-    };
+    metadata?: Metadata;
 };
 
 export type ListActorsResponse = {
@@ -1677,17 +1671,13 @@ export type SecretMaterial = ({
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
     name: string;
-    metadata?: {
-        [key: string]: string;
-    };
+    metadata?: Metadata;
     material: SecretMaterial;
 };
 
 export type UpdateSecretRequest = {
     name?: string;
-    metadata?: {
-        [key: string]: string;
-    };
+    metadata?: Metadata;
 };
 
 export type SecretVersionRequest = {
@@ -1707,9 +1697,7 @@ export type Secret = {
     owner: SecretOwner;
     name: string;
     kind: SecretKind;
-    metadata: {
-        [key: string]: string;
-    };
+    metadata: Metadata;
     current_version_number: number;
     payload_keys: Array<string>;
     created_at: Timestamp;
@@ -1944,9 +1932,7 @@ export type CreateMachinePoolRequestBase = {
     min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
 };
 
 export type UpdateMachinePoolRequest = {
@@ -1985,9 +1971,7 @@ export type UpdateMachinePoolRequest = {
     min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
 };
 
 export type MachinePool = {
@@ -2030,9 +2014,7 @@ export type MachinePool = {
     min_machine_memory_mb: number | null;
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
-    metadata: {
-        [key: string]: unknown;
-    };
+    metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -2076,9 +2058,7 @@ export type Machine = {
     next_reconcile_after: Timestamp | null;
     provision_attempts: number;
     delete_attempts: number;
-    metadata: {
-        [key: string]: unknown;
-    };
+    metadata: Metadata;
     deleted_at: Timestamp | null;
     created_at: Timestamp;
     updated_at: Timestamp;
@@ -2094,9 +2074,7 @@ export type CreateMachineRequest = {
     secret_env?: {
         [key: string]: SecretId;
     };
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
 };
 
 export type UpdateMachineRequest = {
@@ -2153,9 +2131,7 @@ export type ProjectMachineGrant = {
     source_kind: ProjectMachineGrantSourceKind;
     project_machine_pool_grant_id?: ProjectMachinePoolGrantId | null;
     description: string;
-    metadata: {
-        [key: string]: unknown;
-    };
+    metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -2163,9 +2139,7 @@ export type ProjectMachineGrant = {
 export type CreateProjectMachineGrantRequest = {
     machine_id: MachineId;
     description?: string;
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
 };
 
 export type CreateProjectMachineGrantResponse = {
@@ -2214,9 +2188,7 @@ export type ProjectMachinePoolGrant = {
     min_machine_memory_mb: number | null;
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
-    metadata: {
-        [key: string]: unknown;
-    };
+    metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -2249,9 +2221,7 @@ export type CreateProjectMachinePoolGrantRequest = {
     min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
 };
 
 /**
@@ -2278,9 +2248,7 @@ export type UpdateProjectMachinePoolGrantRequest = {
     min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
 };
 
 export type ListProjectMachinePoolGrantsResponse = {
@@ -2306,9 +2274,7 @@ export type MachinePoolSummary = {
 
 export type CreateMachineDaemonTokenRequest = {
     name?: string;
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
 };
 
 export type MachineDaemonToken = {
@@ -2316,9 +2282,7 @@ export type MachineDaemonToken = {
     org_id: OrganizationId;
     machine_id: MachineId;
     name: string;
-    metadata: {
-        [key: string]: unknown;
-    };
+    metadata: Metadata;
     created_at: Timestamp;
     last_used_at: Timestamp | null;
     revoked_at: Timestamp | null;
@@ -2374,9 +2338,7 @@ export type RegisterDaemonRuntimeRequest = {
     capacity?: {
         [key: string]: unknown;
     };
-    metadata?: {
-        [key: string]: unknown;
-    };
+    metadata?: Metadata;
     observed_platform?: {
         [key: string]: unknown;
     };

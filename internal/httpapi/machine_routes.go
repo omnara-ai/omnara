@@ -33,10 +33,7 @@ func (s strictOpenAPIServer) createMachine(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	env, err := rawJSONFromPointer(request.Body.Env)
 	if err != nil {
 		return nil, err
@@ -253,10 +250,7 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 	if err != nil {
 		return openapi.Machine{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
-	if err != nil {
-		return openapi.Machine{}, err
-	}
+	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
 	var env map[string]string
 	if err := json.Unmarshal(record.Env, &env); err != nil {
 		return openapi.Machine{}, err
@@ -420,10 +414,7 @@ func machineDaemonTokenResponse(record executionstore.MachineDaemonTokenRecord) 
 	if err != nil {
 		return openapi.MachineDaemonToken{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
-	if err != nil {
-		return openapi.MachineDaemonToken{}, err
-	}
+	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
 	return openapi.MachineDaemonToken{
 		Id:           id,
 		OrgId:        orgID,
@@ -527,10 +518,7 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 	if body.Name != nil && *body.Name != "" {
 		name = *body.Name
 	}
-	metadata, err := rawJSONFromPointer(body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := body.Metadata
 	token, err := newDaemonToken()
 	if err != nil {
 		return nil, err

@@ -120,17 +120,10 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
-	var metadata json.RawMessage
-	if body.Metadata != nil {
-		raw, err := json.Marshal(*body.Metadata)
-		if err != nil {
-			return openapi.MCPOAuthStartResponse{}, nil, err
-		}
-		metadata, err = validateMCPOAuthMetadata(raw)
-		if err != nil {
-			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
-			return openapi.MCPOAuthStartResponse{}, &apiErr, nil
-		}
+	metadata, err := validateMCPOAuthMetadata(body.Metadata)
+	if err != nil {
+		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
 	}
 	clientID := ""
 	if body.ClientId != nil {

@@ -6556,10 +6556,6 @@ components:
         next_cursor:
           type: string
           nullable: true
-    SecretPayload:
-      type: object
-      additionalProperties:
-        type: string
     MCPOAuthStartRequest:
       type: object
       additionalProperties: false
@@ -6584,9 +6580,7 @@ components:
           items:
             type: string
         metadata:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/Metadata'
     MCPOAuthStartResponse:
       type: object
       additionalProperties: false
@@ -7379,6 +7373,15 @@ components:
       additionalProperties: true
       x-go-type: json.RawMessage
       x-go-type-skip-optional-pointer: true
+    Metadata:
+      type: object
+      description: Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+      x-go-type: json.RawMessage
+      x-go-type-skip-optional-pointer: true
+      maxProperties: 16
+      additionalProperties:
+        type: string
+        maxLength: 512
     CreateAgentInputRequest:
       type: object
       additionalProperties: false
@@ -8194,10 +8197,7 @@ components:
         display_name:
           type: string
         metadata:
-          type: object
-          x-go-type: json.RawMessage
-          x-go-type-skip-optional-pointer: true
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -8220,14 +8220,7 @@ components:
           type: string
           maxLength: 256
         metadata:
-          type: object
-          description: Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
-          x-go-type: json.RawMessage
-          x-go-type-skip-optional-pointer: true
-          maxProperties: 16
-          additionalProperties:
-            type: string
-            maxLength: 512
+          $ref: '#/components/schemas/Metadata'
     ListActorsResponse:
       type: object
       additionalProperties: false
@@ -8437,9 +8430,7 @@ components:
           type: string
           minLength: 1
         metadata:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/Metadata'
         material:
           $ref: '#/components/schemas/SecretMaterial'
     UpdateSecretRequest:
@@ -8451,9 +8442,7 @@ components:
           type: string
           minLength: 1
         metadata:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/Metadata'
     SecretVersionRequest:
       type: object
       additionalProperties: false
@@ -8494,9 +8483,7 @@ components:
         kind:
           $ref: '#/components/schemas/SecretKind'
         metadata:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/Metadata'
         current_version_number:
           type: integer
           format: int32
@@ -8985,8 +8972,7 @@ components:
           minimum: 1
           maximum: 2147483647
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     UpdateMachinePoolRequest:
       type: object
       additionalProperties: false
@@ -9073,8 +9059,7 @@ components:
           maximum: 2147483647
           nullable: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     MachinePool:
       type: object
       additionalProperties: false
@@ -9169,8 +9154,7 @@ components:
           maximum: 2147483647
           nullable: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9278,8 +9262,7 @@ components:
           type: integer
           format: int32
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         deleted_at:
           allOf:
             - $ref: '#/components/schemas/Timestamp'
@@ -9309,8 +9292,7 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     UpdateMachineRequest:
       type: object
       additionalProperties: false
@@ -9426,8 +9408,7 @@ components:
         description:
           type: string
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9442,8 +9423,7 @@ components:
         description:
           type: string
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     CreateProjectMachineGrantResponse:
       type: object
       additionalProperties: false
@@ -9562,8 +9542,7 @@ components:
           maximum: 2147483647
           nullable: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9641,8 +9620,7 @@ components:
           minimum: 1
           maximum: 2147483647
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     UpdateProjectMachinePoolGrantRequest:
       type: object
       description: >-
@@ -9725,8 +9703,7 @@ components:
           maximum: 2147483647
           nullable: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     ListProjectMachinePoolGrantsResponse:
       type: object
       additionalProperties: false
@@ -9776,8 +9753,7 @@ components:
         name:
           type: string
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     MachineDaemonToken:
       type: object
       additionalProperties: false
@@ -9792,8 +9768,7 @@ components:
         name:
           type: string
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         last_used_at:
@@ -9929,8 +9904,7 @@ components:
           type: object
           additionalProperties: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         observed_platform:
           type: object
           additionalProperties: true

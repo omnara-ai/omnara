@@ -478,8 +478,6 @@ export const zSkillGrant = z.object({
     created_at: zTimestamp
 });
 
-export const zSecretPayload = z.record(z.string(), z.string());
-
 export const zMcpoAuthStartResponse = z.object({
     authorization_url: z.url(),
     expires_at: zTimestamp
@@ -875,6 +873,11 @@ export const zSubmitToolResultContentBlock = z.discriminatedUnion('type', [
  * Non-null JSON object containing the arguments emitted for a tool call.
  */
 export const zToolInput = z.record(z.string(), z.unknown());
+
+/**
+ * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+ */
+export const zMetadata = z.record(z.string(), z.string().max(512));
 
 export const zAgentInputEnvelope = z.object({
     agent_input: zAgentInput
@@ -1275,7 +1278,7 @@ export const zActor = z.object({
     provider_tenant_id: z.string().optional(),
     provider_user_id: z.string(),
     display_name: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: zMetadata.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1287,7 +1290,7 @@ export const zExternalActorParams = z.object({
     provider_tenant_id: z.string().min(1).max(128).optional(),
     provider_user_id: z.string().min(1).max(128),
     display_name: z.string().max(256).optional(),
-    metadata: z.record(z.string(), z.string().max(512)).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zCreateAgentInputRequest = z.object({
@@ -1343,7 +1346,7 @@ export const zMcpoAuthStartRequest = z.object({
     client_id: z.string().optional(),
     client_secret: z.string().optional(),
     scopes: z.array(z.string()).optional(),
-    metadata: z.record(z.string(), z.string()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zOrgSecretOwner = z.object({
@@ -1408,13 +1411,13 @@ export const zSecretMaterial = z.discriminatedUnion('kind', [
 export const zCreateSecretRequest = z.object({
     owner: zSecretOwnerInput,
     name: z.string().min(1),
-    metadata: z.record(z.string(), z.string()).optional(),
+    metadata: zMetadata.optional(),
     material: zSecretMaterial
 });
 
 export const zUpdateSecretRequest = z.object({
     name: z.string().min(1).optional(),
-    metadata: z.record(z.string(), z.string()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zSecretVersionRequest = z.object({
@@ -1439,7 +1442,7 @@ export const zSecret = z.object({
     owner: zSecretOwner,
     name: z.string(),
     kind: zSecretKind,
-    metadata: z.record(z.string(), z.string()),
+    metadata: zMetadata,
     current_version_number: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     payload_keys: z.array(z.string()),
     created_at: zTimestamp,
@@ -1610,7 +1613,7 @@ export const zCreateMachinePoolRequestBase = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
@@ -1657,7 +1660,7 @@ export const zUpdateMachinePoolRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zMachinePool = z.object({
@@ -1683,7 +1686,7 @@ export const zMachinePool = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullable(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1734,7 +1737,7 @@ export const zMachine = z.object({
     next_reconcile_after: zTimestamp.nullable(),
     provision_attempts: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     delete_attempts: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     deleted_at: zTimestamp.nullable(),
     created_at: zTimestamp,
     updated_at: zTimestamp
@@ -1746,7 +1749,7 @@ export const zCreateMachineRequest = z.object({
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
     secret_env: z.record(z.string(), zSecretId).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zUpdateMachineRequest = z.object({
@@ -1799,7 +1802,7 @@ export const zProjectMachineGrant = z.object({
     source_kind: zProjectMachineGrantSourceKind,
     project_machine_pool_grant_id: zProjectMachinePoolGrantId.nullish(),
     description: z.string(),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1807,7 +1810,7 @@ export const zProjectMachineGrant = z.object({
 export const zCreateProjectMachineGrantRequest = z.object({
     machine_id: zMachineId,
     description: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zCreateProjectMachineGrantResponse = z.object({
@@ -1844,7 +1847,7 @@ export const zProjectMachinePoolGrant = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullable(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1865,7 +1868,7 @@ export const zCreateProjectMachinePoolGrantRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 /**
@@ -1886,7 +1889,7 @@ export const zUpdateProjectMachinePoolGrantRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zMachinePoolSummary = z.object({
@@ -1912,7 +1915,7 @@ export const zListProjectMachinePoolGrantsResponse = z.object({
 
 export const zCreateMachineDaemonTokenRequest = z.object({
     name: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zMachineDaemonToken = z.object({
@@ -1920,7 +1923,7 @@ export const zMachineDaemonToken = z.object({
     org_id: zOrganizationId,
     machine_id: zMachineId,
     name: z.string(),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),
     revoked_at: zTimestamp.nullable(),
@@ -1998,7 +2001,7 @@ export const zRegisterDaemonRuntimeRequest = z.object({
     daemon_instance_id: z.uuid(),
     daemon_version: z.string().min(1),
     capacity: z.record(z.string(), z.unknown()).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: zMetadata.optional(),
     observed_platform: z.record(z.string(), z.unknown()).optional(),
     processes: z.array(zProcessReconciliationClaim)
 });
