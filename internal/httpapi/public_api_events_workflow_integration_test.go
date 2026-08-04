@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -1496,7 +1498,12 @@ func TestPublicEventStreamDeliversStreamDeltasViaRedis(t *testing.T) {
 		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
 	}
 
-	payload := json.RawMessage(`{"model_call_context_id":"mcc_test","seq":1,"event":{"kind":"text_delta","delta":"stream hello"}}`)
+	deltaTurnID := testPublicID(t, publicid.KindAgentTurn, uuid.New())
+	deltaModelCallContextID := testPublicID(t, publicid.KindModelCallContext, uuid.New())
+	payload := json.RawMessage(`{"turn_id":"` + deltaTurnID +
+		`","model_call_context_id":"` + deltaModelCallContextID +
+		`","seq":1,"source_seq_start":1,"source_seq_end":1,"coalesced_count":1,` +
+		`"event":{"kind":"text_delta","block_index":0,"delta":"stream hello"}}`)
 	if err := bus.PublishAgentStreamDelta(ctx, agentID, payload); err != nil {
 		t.Fatalf("publish stream delta: %v", err)
 	}

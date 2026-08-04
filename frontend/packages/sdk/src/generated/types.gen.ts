@@ -1136,6 +1136,9 @@ export type Metadata = {
 };
 
 export type CreateAgentInputRequest = {
+    /**
+     * At most 20 inline media blocks per submission, each holding up to 10 MiB of decoded media and up to 24 MiB decoded across the submission. Non-media blocks may hold up to 1 MiB combined. The whole request body is capped at 48 MiB.
+     */
     content_blocks: Array<CreateAgentInputContentBlock>;
     delivery_mode?: CreateAgentInputDeliveryMode;
     /**
@@ -1190,6 +1193,9 @@ export type SubmitToolCallResultRequest = {
      * Whether the custom tool call succeeded or failed.
      */
     outcome: 'succeeded' | 'failed';
+    /**
+     * At most 20 inline media blocks per submission, each holding up to 10 MiB of decoded media and up to 24 MiB decoded across the submission. Non-media blocks may hold up to 1 MiB combined. The whole request body is capped at 48 MiB.
+     */
     content_blocks: Array<SubmitToolResultContentBlock>;
 };
 
@@ -2114,7 +2120,19 @@ export type MachineAccess = {
     sources: Array<MachineAccessSource>;
 };
 
-export type VisibleMachine = MachineSummary & {
+export type VisibleMachine = {
+    id: MachineId;
+    org_id: OrganizationId;
+    source_kind: MachineSourceKind;
+    display_name: string;
+    description: string;
+    provider: string;
+    lifecycle_state: MachineLifecycleState;
+    connection_state: MachineConnectionState;
+    last_observed_at: Timestamp | null;
+    deleted_at: Timestamp | null;
+    created_at: Timestamp;
+    updated_at: Timestamp;
     access: MachineAccess;
 };
 
@@ -2399,7 +2417,12 @@ export type ProjectAccess = {
     can_operate: boolean;
 };
 
-export type VisibleProject = Project & {
+export type VisibleProject = {
+    id: ProjectId;
+    org_id: OrganizationId;
+    name: string;
+    created_at: Timestamp;
+    updated_at: Timestamp;
     access: ProjectAccess;
 };
 
@@ -6350,7 +6373,7 @@ export type StreamEventsError = StreamEventsErrors[keyof StreamEventsErrors];
 
 export type StreamEventsResponses = {
     /**
-     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, or `tool_result` as the SSE event name; best-effort model previews use `model_output_delta`; terminal stream errors use `error`. Heartbeats are SSE comments and carry no JSON payload.
+     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort model previews use `model_output_delta` and terminal stream errors use `error`; neither carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
      */
     200: AgentEventStreamData;
 };

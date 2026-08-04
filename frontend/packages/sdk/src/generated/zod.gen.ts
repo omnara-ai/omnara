@@ -1785,9 +1785,21 @@ export const zMachineAccess = z.object({
     sources: z.array(zMachineAccessSource)
 });
 
-export const zVisibleMachine = zMachineSummary.and(z.object({
+export const zVisibleMachine = z.object({
+    id: zMachineId,
+    org_id: zOrganizationId,
+    source_kind: zMachineSourceKind,
+    display_name: z.string(),
+    description: z.string(),
+    provider: z.string(),
+    lifecycle_state: zMachineLifecycleState,
+    connection_state: zMachineConnectionState,
+    last_observed_at: zTimestamp.nullable(),
+    deleted_at: zTimestamp.nullable(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
     access: zMachineAccess
-}));
+});
 
 export const zListVisibleMachinesResponse = z.object({
     data: z.array(zVisibleMachine),
@@ -2084,9 +2096,14 @@ export const zProjectAccess = z.object({
     can_operate: z.boolean()
 });
 
-export const zVisibleProject = zProject.and(z.object({
+export const zVisibleProject = z.object({
+    id: zProjectId,
+    org_id: zOrganizationId,
+    name: z.string(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
     access: zProjectAccess
-}));
+});
 
 export const zListProjectsResponse = z.object({
     data: z.array(zVisibleProject),
@@ -2587,7 +2604,7 @@ export const zListTurnEventsResponse2 = zListTurnEventsResponse;
 export const zListEventsResponse = zListAgentEventsResponse;
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, or `tool_result` as the SSE event name; best-effort model previews use `model_output_delta`; terminal stream errors use `error`. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort model previews use `model_output_delta` and terminal stream errors use `error`; neither carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 

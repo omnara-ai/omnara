@@ -3061,10 +3061,13 @@ paths:
         '200':
           description: >-
             Server-sent event stream. Durable frames use `agent_input`,
-            `model_output`, or `tool_result` as the SSE event name;
-            best-effort model previews use `model_output_delta`; terminal
-            stream errors use `error`. Heartbeats are SSE comments and carry
-            no JSON payload.
+            `model_output`, `tool_result`, or `context_checkpoint` as the
+            SSE event name and set the SSE `id` field to the event's
+            `sequence`, which reconnects can replay via `Last-Event-ID`.
+            Best-effort model previews use `model_output_delta` and terminal
+            stream errors use `error`; neither carries an SSE `id`, so
+            reconnects resume from the last durable event. Heartbeats are
+            SSE comments and carry no JSON payload.
           content:
             text/event-stream:
               schema:
@@ -7390,6 +7393,11 @@ components:
       properties:
         content_blocks:
           type: array
+          description: >-
+            At most 20 inline media blocks per submission, each holding up to
+            10 MiB of decoded media and up to 24 MiB decoded across the
+            submission. Non-media blocks may hold up to 1 MiB combined. The
+            whole request body is capped at 48 MiB.
           items:
             $ref: '#/components/schemas/CreateAgentInputContentBlock'
         delivery_mode:
@@ -7490,6 +7498,11 @@ components:
           description: Whether the custom tool call succeeded or failed.
         content_blocks:
           type: array
+          description: >-
+            At most 20 inline media blocks per submission, each holding up to
+            10 MiB of decoded media and up to 24 MiB decoded across the
+            submission. Non-media blocks may hold up to 1 MiB combined. The
+            whole request body is capped at 48 MiB.
           items:
             $ref: '#/components/schemas/SubmitToolResultContentBlock'
     ToolResult:
@@ -7880,12 +7893,16 @@ components:
           $ref: '#/components/schemas/ModelCallContextID'
         seq:
           $ref: '#/components/schemas/AgentSequence'
+          description: Monotonic frame sequence within this model call context's preview stream, starting at 1. Delta frames carry no SSE id; gaps in seq mean dropped best-effort frames.
         source_seq_start:
           $ref: '#/components/schemas/AgentSequence'
+          description: First provider stream event coalesced into this frame.
         source_seq_end:
           $ref: '#/components/schemas/AgentSequence'
+          description: Last provider stream event coalesced into this frame.
         coalesced_count:
           $ref: '#/components/schemas/AgentCount'
+          description: Number of provider stream events coalesced into this frame.
         event:
           $ref: '#/components/schemas/ModelOutputStreamDelta'
     AgentEventStreamData:
@@ -9367,14 +9384,40 @@ components:
           items:
             $ref: '#/components/schemas/MachineAccessSource'
     VisibleMachine:
-      allOf:
-        - $ref: '#/components/schemas/MachineSummary'
-        - type: object
-          additionalProperties: false
-          required: [access]
-          properties:
-            access:
-              $ref: '#/components/schemas/MachineAccess'
+      type: object
+      additionalProperties: false
+      required: [id, org_id, source_kind, display_name, description, provider, lifecycle_state, connection_state, last_observed_at, deleted_at, created_at, updated_at, access]
+      properties:
+        id:
+          $ref: '#/components/schemas/MachineID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        source_kind:
+          $ref: '#/components/schemas/MachineSourceKind'
+        display_name:
+          type: string
+        description:
+          type: string
+        provider:
+          type: string
+        lifecycle_state:
+          $ref: '#/components/schemas/MachineLifecycleState'
+        connection_state:
+          $ref: '#/components/schemas/MachineConnectionState'
+        last_observed_at:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        deleted_at:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        access:
+          $ref: '#/components/schemas/MachineAccess'
     ListVisibleMachinesResponse:
       type: object
       additionalProperties: false
@@ -10021,14 +10064,22 @@ components:
         can_operate:
           type: boolean
     VisibleProject:
-      allOf:
-        - $ref: '#/components/schemas/Project'
-        - type: object
-          additionalProperties: false
-          required: [access]
-          properties:
-            access:
-              $ref: '#/components/schemas/ProjectAccess'
+      type: object
+      additionalProperties: false
+      required: [id, org_id, name, created_at, updated_at, access]
+      properties:
+        id:
+          $ref: '#/components/schemas/ProjectID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        name:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        access:
+          $ref: '#/components/schemas/ProjectAccess'
     ListProjectsResponse:
       type: object
       additionalProperties: false
