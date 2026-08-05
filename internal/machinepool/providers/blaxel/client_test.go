@@ -17,19 +17,22 @@ import (
 func TestBlaxelRESTClientSandboxLifecycle(t *testing.T) {
 	var deleteCalls atomic.Int32
 	dataPlane := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("unexpected data-plane request: %s %s", r.Method, r.URL.Path)
+		t.Errorf("unexpected data-plane request: %s %s", r.Method, r.URL.Path)
 	}))
 	defer dataPlane.Close()
 
 	management := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer api-token" ||
-			r.Header.Get("X-Blaxel-Workspace") != "omnara" {
-			t.Fatalf("unexpected authentication headers: %+v", r.Header)
+		if r.Header.Get("X-Blaxel-Authorization") != "Bearer api-token" ||
+			r.Header.Get("X-Blaxel-Workspace") != "omnara" ||
+			r.Header.Get("Authorization") != "" {
+			t.Errorf("unexpected authentication headers: %+v", r.Header)
+			return
 		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/sandboxes":
 			if r.URL.Query().Get("createIfNotExist") != "true" {
-				t.Fatalf("createIfNotExist query = %q", r.URL.RawQuery)
+				t.Errorf("createIfNotExist query = %q", r.URL.RawQuery)
+				return
 			}
 			var request struct {
 				Metadata map[string]any `json:"metadata"`
@@ -38,13 +41,16 @@ func TestBlaxelRESTClientSandboxLifecycle(t *testing.T) {
 				} `json:"spec"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				t.Fatalf("decode create body: %v", err)
+				t.Errorf("decode create body: %v", err)
+				return
 			}
 			if request.Metadata["name"] != "omnara-mch-test" {
-				t.Fatalf("metadata = %+v", request.Metadata)
+				t.Errorf("metadata = %+v", request.Metadata)
+				return
 			}
 			if _, ok := request.Spec.Runtime["envs"]; ok {
-				t.Fatalf("create body carries env: %+v", request.Spec.Runtime)
+				t.Errorf("create body carries env: %+v", request.Spec.Runtime)
+				return
 			}
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"errorCode":"SANDBOX_ALREADY_EXISTS"}`))
@@ -59,7 +65,7 @@ func TestBlaxelRESTClientSandboxLifecycle(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
-			t.Fatalf("unexpected management request: %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected management request: %s %s", r.Method, r.URL.Path)
 		}
 	}))
 	defer management.Close()
@@ -95,23 +101,28 @@ func TestBlaxelRESTClientSandboxLifecycle(t *testing.T) {
 func TestBlaxelRESTClientProcessUsesDataPlane(t *testing.T) {
 	var calls atomic.Int32
 	dataPlane := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer api-token" ||
-			r.Header.Get("X-Blaxel-Workspace") != "omnara" {
-			t.Fatalf("unexpected authentication headers: %+v", r.Header)
+		if r.Header.Get("X-Blaxel-Authorization") != "Bearer api-token" ||
+			r.Header.Get("X-Blaxel-Workspace") != "omnara" ||
+			r.Header.Get("Authorization") != "" {
+			t.Errorf("unexpected authentication headers: %+v", r.Header)
+			return
 		}
 		if r.Method != http.MethodPost || r.URL.Path != "/process" {
-			t.Fatalf("unexpected process request: %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected process request: %s %s", r.Method, r.URL.Path)
+			return
 		}
 		calls.Add(1)
 		var request map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Fatalf("decode process request: %v", err)
+			t.Errorf("decode process request: %v", err)
+			return
 		}
 		if request["keepAlive"] != true || request["timeout"] != float64(0) ||
 			request["waitForCompletion"] != false {
-			t.Fatalf("process lifecycle fields = %+v", request)
+			t.Errorf("process lifecycle fields = %+v", request)
+			return
 		}
-		_, _ = w.Write([]byte(`{"pid":"4321","status":"running","exitCode":0,"keepAlive":true}`))
+		_, _ = w.Write([]byte(`{"pid":"4321","status":"running","keepAlive":true}`))
 	}))
 	defer dataPlane.Close()
 
@@ -124,7 +135,7 @@ func TestBlaxelRESTClientProcessUsesDataPlane(t *testing.T) {
 		Name: daemonProcessName, Command: "sleep 1", KeepAlive: true,
 	})
 	if err != nil || process.PID != "4321" || process.Status != processStatusRunning ||
-		process.ExitCode == nil || *process.ExitCode != 0 || !process.KeepAlive || calls.Load() != 1 {
+		!process.KeepAlive || calls.Load() != 1 {
 		t.Fatalf("process=%+v calls=%d err=%v", process, calls.Load(), err)
 	}
 	_, err = client.StartSandboxProcess(context.Background(), sandbox{
@@ -138,6 +149,52 @@ func TestBlaxelRESTClientProcessUsesDataPlane(t *testing.T) {
 	}, processRequest{})
 	if err == nil || !strings.Contains(err.Error(), "invalid data-plane url") {
 		t.Fatalf("plain HTTP error = %v", err)
+	}
+}
+
+func TestBlaxelRESTClientWakeUsesDataPlane(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantError  string
+	}{
+		{name: "daemon acknowledged wake", statusCode: http.StatusNoContent},
+		{
+			name:       "unexpected success response",
+			statusCode: http.StatusOK,
+			wantError:  "blaxel wake endpoint returned HTTP 200, want HTTP 204",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dataPlane := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("X-Blaxel-Authorization") != "Bearer api-token" ||
+					r.Header.Get("X-Blaxel-Workspace") != "omnara" ||
+					r.Header.Get("Authorization") != "" {
+					t.Errorf("unexpected authentication headers: %+v", r.Header)
+					return
+				}
+				if r.Method != http.MethodGet || r.URL.Path != "/port/8377/" {
+					t.Errorf("unexpected wake request: %s %s", r.Method, r.URL.Path)
+					return
+				}
+				w.WriteHeader(test.statusCode)
+			}))
+			defer dataPlane.Close()
+
+			client := newTestRESTClient("https://api.invalid.test")
+			client.httpClient = dataPlane.Client()
+			err := client.WakeSandbox(context.Background(), sandbox{
+				Metadata: resourceMetadata{Name: "omnara-mch-test", URL: dataPlane.URL},
+			})
+			if test.wantError == "" && err != nil {
+				t.Fatalf("wake sandbox: %v", err)
+			}
+			if test.wantError != "" && (err == nil || err.Error() != test.wantError) {
+				t.Fatalf("wake error = %v, want %q", err, test.wantError)
+			}
+		})
 	}
 }
 
@@ -171,7 +228,13 @@ func TestBlaxelRESTClientDataPlaneCancellation(t *testing.T) {
 		}, nil
 	})
 
-	err := client.doDataPlaneRequest(ctx, http.MethodGet, "https://sandbox.invalid.test/process", nil, nil)
+	_, err := client.doDataPlaneRequest(
+		ctx,
+		http.MethodGet,
+		"https://sandbox.invalid.test/process",
+		nil,
+		nil,
+	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("data-plane error = %v, want context canceled", err)
 	}

@@ -50,7 +50,7 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 		create.Metadata.Labels["omnara-machine"] != machineID.String() ||
 		create.Spec.Region != "us-pdx-1" ||
 		create.Spec.Runtime.Image != "blaxel/base-image:latest" ||
-		create.Spec.Runtime.Memory != 1024 {
+		create.Spec.Runtime.Memory != 1024 || len(create.Spec.Runtime.Ports) != 0 {
 		t.Fatalf("unexpected create request: %+v", create)
 	}
 	env := sandboxEnvMap(create.Spec.Runtime.Envs)
@@ -97,10 +97,16 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 	}
 	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)
 	if env[daemonprotocol.SleepAfterEnvVar] != "45000" ||
-		env[daemonprotocol.WakeListenAddrEnvVar] != "127.0.0.1:"+
+		env[daemonprotocol.WakeListenAddrEnvVar] != ":"+
 			strconv.Itoa(daemonprotocol.WakeListenerPort) ||
 		env[daemonprotocol.SleepPlatformEnvVar] != daemonprotocol.SleepPlatformBlaxel {
 		t.Fatalf("unexpected sleep env: %+v", env)
+	}
+	ports := api.createRequests[0].Spec.Runtime.Ports
+	if len(ports) != 1 || ports[0].Name != wakePortName ||
+		ports[0].Protocol != wakePortProtocol ||
+		ports[0].Target != daemonprotocol.WakeListenerPort {
+		t.Fatalf("unexpected sleep ports: %+v", ports)
 	}
 	if len(api.processRequests) != 1 {
 		t.Fatalf("process requests = %d, want 1", len(api.processRequests))
@@ -126,43 +132,25 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 	}
 }
 
-func TestBlaxelProviderWakeWaitsForSuccessfulPoke(t *testing.T) {
+func TestBlaxelProviderWakeUsesSandboxPort(t *testing.T) {
 	api := newFakeAPI()
-	api.processStatus = processStatusCompleted
-	exitCode := 0
-	api.processExitCode = &exitCode
 	provider := newTestProvider(api)
-	err := provider.WakeMachine(context.Background(), providers.WakeMachineInput{
+	input := providers.WakeMachineInput{
 		ProviderResourceID: "omnara-mch-test",
 		SandboxURL:         "https://sbx-test.bl.run",
-	})
-	if err != nil {
+	}
+	if err := provider.WakeMachine(context.Background(), input); err != nil {
 		t.Fatalf("wake blaxel machine: %v", err)
 	}
-	request := api.processRequests[0]
-	if request.Name != "" || request.KeepAlive || !request.WaitForCompletion ||
-		request.Timeout != wakeProcessTimeoutSeconds ||
-		!strings.Contains(
-			request.Command,
-			"127.0.0.1:"+strconv.Itoa(daemonprotocol.WakeListenerPort),
-		) {
-		t.Fatalf("unexpected wake process request: %+v", request)
+	if api.wakeTarget.Metadata.Name != input.ProviderResourceID ||
+		api.wakeTarget.Metadata.URL != input.SandboxURL {
+		t.Fatalf("unexpected wake target: %+v", api.wakeTarget)
 	}
 
-	exitCode = 1
-	if err := provider.WakeMachine(context.Background(), providers.WakeMachineInput{
-		SandboxURL: "https://sbx-test.bl.run",
-	}); err == nil || !strings.Contains(err.Error(), "exit code 1") {
-		t.Fatalf("failed wake error = %v", err)
-	}
-	api.processExitCode = nil
-	if err := provider.WakeMachine(context.Background(), providers.WakeMachineInput{
-		SandboxURL: "https://sbx-test.bl.run",
-	}); err == nil || !strings.Contains(err.Error(), "without an exit code") {
-		t.Fatalf("missing exit code error = %v", err)
-	}
-	if err := provider.WakeMachine(context.Background(), providers.WakeMachineInput{}); err == nil {
-		t.Fatal("missing sandbox url must fail")
+	wakeErr := errors.New("wake failed")
+	api.wakeErr = wakeErr
+	if err := provider.WakeMachine(context.Background(), input); !errors.Is(err, wakeErr) {
+		t.Fatalf("failed wake error = %v, want %v", err, wakeErr)
 	}
 }
 
@@ -675,11 +663,12 @@ type fakeAPI struct {
 	processesByName  map[string]sandboxProcess
 	createRequests   []createSandboxRequest
 	processRequests  []processRequest
+	wakeTarget       sandbox
 	deletedNames     []string
 	createErr        error
 	startProcessErr  error
+	wakeErr          error
 	processStatus    string
-	processExitCode  *int
 	processKeepAlive *bool
 }
 
@@ -750,7 +739,6 @@ func (f *fakeAPI) StartSandboxProcess(
 	process := sandboxProcess{
 		PID:       "4242",
 		Status:    f.processStatus,
-		ExitCode:  f.processExitCode,
 		KeepAlive: keepAlive,
 	}
 	f.processesByName[key] = process
@@ -771,4 +759,9 @@ func (f *fakeAPI) GetSandboxProcess(
 ) (sandboxProcess, bool, error) {
 	process, found := f.processesByName[target.Metadata.Name+"/"+name]
 	return process, found, nil
+}
+
+func (f *fakeAPI) WakeSandbox(_ context.Context, target sandbox) error {
+	f.wakeTarget = target
+	return f.wakeErr
 }

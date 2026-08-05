@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
@@ -25,6 +26,7 @@ type apiClient interface {
 	DeleteSandbox(context.Context, string) error
 	StartSandboxProcess(context.Context, sandbox, processRequest) (sandboxProcess, error)
 	GetSandboxProcess(context.Context, sandbox, string) (sandboxProcess, bool, error)
+	WakeSandbox(context.Context, sandbox) error
 }
 
 type createSandboxRequest struct {
@@ -44,14 +46,21 @@ type sandboxSpec struct {
 }
 
 type sandboxRuntime struct {
-	Image  string       `json:"image"`
-	Memory int          `json:"memory"`
-	Envs   []sandboxEnv `json:"envs,omitempty"`
+	Image  string        `json:"image"`
+	Memory int           `json:"memory"`
+	Envs   []sandboxEnv  `json:"envs,omitempty"`
+	Ports  []sandboxPort `json:"ports,omitempty"`
 }
 
 type sandboxEnv struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+}
+
+type sandboxPort struct {
+	Name     string `json:"name"`
+	Protocol string `json:"protocol"`
+	Target   int    `json:"target"`
 }
 
 type sandbox struct {
@@ -70,7 +79,6 @@ type processRequest struct {
 type sandboxProcess struct {
 	PID       string `json:"pid"`
 	Status    string `json:"status"`
-	ExitCode  *int   `json:"exitCode"`
 	KeepAlive bool   `json:"keepAlive"`
 }
 
@@ -86,7 +94,7 @@ func (c *restClient) CreateSandbox(
 	request createSandboxRequest,
 ) (sandbox, error) {
 	var result sandbox
-	err := c.doRequest(
+	_, err := c.doRequest(
 		ctx,
 		http.MethodPost,
 		c.apiBaseURL+"/sandboxes?createIfNotExist=true",
@@ -104,7 +112,7 @@ func (c *restClient) GetSandbox(
 	name string,
 ) (sandbox, bool, error) {
 	var result sandbox
-	err := c.doRequest(
+	_, err := c.doRequest(
 		ctx,
 		http.MethodGet,
 		c.apiBaseURL+"/sandboxes/"+url.PathEscape(name),
@@ -121,7 +129,7 @@ func (c *restClient) GetSandbox(
 }
 
 func (c *restClient) DeleteSandbox(ctx context.Context, name string) error {
-	err := c.doRequest(
+	_, err := c.doRequest(
 		ctx,
 		http.MethodDelete,
 		c.apiBaseURL+"/sandboxes/"+url.PathEscape(name),
@@ -139,12 +147,18 @@ func (c *restClient) StartSandboxProcess(
 	target sandbox,
 	request processRequest,
 ) (sandboxProcess, error) {
-	processURL, err := sandboxProcessURL(target)
+	sandboxURL, err := sandboxDataPlaneURL(target)
 	if err != nil {
 		return sandboxProcess{}, err
 	}
 	var process sandboxProcess
-	if err := c.doRequest(ctx, http.MethodPost, processURL, request, &process); err != nil {
+	if _, err := c.doRequest(
+		ctx,
+		http.MethodPost,
+		sandboxURL+"/process",
+		request,
+		&process,
+	); err != nil {
 		return sandboxProcess{}, err
 	}
 	return process, nil
@@ -155,15 +169,15 @@ func (c *restClient) GetSandboxProcess(
 	target sandbox,
 	name string,
 ) (sandboxProcess, bool, error) {
-	processURL, err := sandboxProcessURL(target)
+	sandboxURL, err := sandboxDataPlaneURL(target)
 	if err != nil {
 		return sandboxProcess{}, false, err
 	}
 	var process sandboxProcess
-	err = c.doDataPlaneRequest(
+	_, err = c.doDataPlaneRequest(
 		ctx,
 		http.MethodGet,
-		processURL+"/"+url.PathEscape(name),
+		sandboxURL+"/process/"+url.PathEscape(name),
 		nil,
 		&process,
 	)
@@ -176,7 +190,32 @@ func (c *restClient) GetSandboxProcess(
 	return process, true, nil
 }
 
-func sandboxProcessURL(target sandbox) (string, error) {
+func (c *restClient) WakeSandbox(ctx context.Context, target sandbox) error {
+	sandboxURL, err := sandboxDataPlaneURL(target)
+	if err != nil {
+		return err
+	}
+	statusCode, err := c.doDataPlaneRequest(
+		ctx,
+		http.MethodGet,
+		fmt.Sprintf("%s/port/%d/", sandboxURL, daemonprotocol.WakeListenerPort),
+		nil,
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	if statusCode != http.StatusNoContent {
+		return fmt.Errorf(
+			"blaxel wake endpoint returned HTTP %d, want HTTP %d",
+			statusCode,
+			http.StatusNoContent,
+		)
+	}
+	return nil
+}
+
+func sandboxDataPlaneURL(target sandbox) (string, error) {
 	sandboxURL := strings.TrimRight(strings.TrimSpace(target.Metadata.URL), "/")
 	if sandboxURL == "" {
 		return "", fmt.Errorf("blaxel sandbox %q is missing its data-plane url", target.Metadata.Name)
@@ -189,36 +228,37 @@ func sandboxProcessURL(target sandbox) (string, error) {
 		!providers.IsHTTPS(parsed) {
 		return "", fmt.Errorf("blaxel sandbox %q has an invalid data-plane url", target.Metadata.Name)
 	}
-	return sandboxURL + "/process", nil
+	return sandboxURL, nil
 }
 
 func (c *restClient) doDataPlaneRequest(
 	ctx context.Context,
 	method, requestURL string,
 	body, out any,
-) error {
+) (int, error) {
+	var statusCode int
 	var lastErr error
 	for attempt := 0; attempt <= dataPlaneRetries; attempt++ {
-		lastErr = c.doRequest(ctx, method, requestURL, body, out)
+		statusCode, lastErr = c.doRequest(ctx, method, requestURL, body, out)
 		if lastErr == nil || !isGatewayError(lastErr) || attempt == dataPlaneRetries {
-			return lastErr
+			return statusCode, lastErr
 		}
 		timer := time.NewTimer(dataPlaneRetryDelay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return ctx.Err()
+			return 0, ctx.Err()
 		case <-timer.C:
 		}
 	}
-	return lastErr
+	return statusCode, lastErr
 }
 
 func (c *restClient) doRequest(
 	ctx context.Context,
 	method, requestURL string,
 	body, out any,
-) error {
+) (int, error) {
 	statusCode, raw, err := providers.DoHTTPRequest(
 		ctx,
 		c.httpClient,
@@ -226,24 +266,24 @@ func (c *restClient) doRequest(
 		method,
 		requestURL,
 		map[string]string{
-			"Authorization":      "Bearer " + c.apiToken,
-			"X-Blaxel-Workspace": c.workspace,
+			"X-Blaxel-Authorization": "Bearer " + c.apiToken,
+			"X-Blaxel-Workspace":     c.workspace,
 		},
 		body,
 	)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if statusCode < 200 || statusCode >= 300 {
-		return apiError{StatusCode: statusCode}
+		return statusCode, apiError{StatusCode: statusCode}
 	}
 	if out == nil || len(raw) == 0 {
-		return nil
+		return statusCode, nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("decode blaxel response: %w", err)
+		return statusCode, fmt.Errorf("decode blaxel response: %w", err)
 	}
-	return nil
+	return statusCode, nil
 }
 
 type apiError struct {

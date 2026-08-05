@@ -18,9 +18,9 @@ import (
 
 const (
 	daemonProcessName               = "omnara-daemon"
-	wakeProcessTimeoutSeconds       = 7
+	wakePortName                    = "omnara-wake"
+	wakePortProtocol                = "HTTP"
 	processStatusRunning            = "running"
-	processStatusCompleted          = "completed"
 	provisioningTimeout             = 15 * time.Second
 	initialAwakeProcessPollInterval = 100 * time.Millisecond
 )
@@ -88,7 +88,7 @@ func (p *provider) ProvisionMachine(
 	}
 	if options.SleepAfterMS > 0 {
 		env[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
-		env[daemonprotocol.WakeListenAddrEnvVar] = "127.0.0.1:" +
+		env[daemonprotocol.WakeListenAddrEnvVar] = ":" +
 			strconv.Itoa(daemonprotocol.WakeListenerPort)
 		env[daemonprotocol.SleepPlatformEnvVar] = daemonprotocol.SleepPlatformBlaxel
 	}
@@ -108,6 +108,13 @@ func (p *provider) ProvisionMachine(
 				Envs:   sandboxEnvsFromMap(env),
 			},
 		},
+	}
+	if options.SleepAfterMS > 0 {
+		request.Spec.Runtime.Ports = []sandboxPort{{
+			Name:     wakePortName,
+			Protocol: wakePortProtocol,
+			Target:   daemonprotocol.WakeListenerPort,
+		}}
 	}
 	api := p.apiClient()
 	target, err := api.CreateSandbox(ctx, request)
@@ -262,33 +269,12 @@ func (p *provider) WakeMachine(
 	ctx context.Context,
 	input providers.WakeMachineInput,
 ) error {
-	if strings.TrimSpace(input.SandboxURL) == "" {
-		return errors.New("blaxel sandbox url is required")
-	}
-	process, err := p.apiClient().StartSandboxProcess(ctx, sandbox{
+	return p.apiClient().WakeSandbox(ctx, sandbox{
 		Metadata: resourceMetadata{
 			Name: input.ProviderResourceID,
 			URL:  input.SandboxURL,
 		},
-	}, processRequest{
-		Command:           wakeProcessCommand(),
-		KeepAlive:         false,
-		Timeout:           wakeProcessTimeoutSeconds,
-		WaitForCompletion: true,
 	})
-	if err != nil {
-		return err
-	}
-	if processStatus(process.Status) != processStatusCompleted {
-		return fmt.Errorf("blaxel wake process finished with status %q", process.Status)
-	}
-	if process.ExitCode == nil {
-		return errors.New("blaxel wake process completed without an exit code")
-	}
-	if *process.ExitCode != 0 {
-		return fmt.Errorf("blaxel wake process completed with exit code %d", *process.ExitCode)
-	}
-	return nil
 }
 
 func (p *provider) InspectMachine(
