@@ -1,0 +1,170 @@
+---
+title: Streaming events
+description: Read the agent timeline
+icon: "tower-broadcast"
+---
+
+Every agent has one ordered timeline of inputs, model responses, tool results, and context checkpoints. Use `GET /events` to read its history, or stream it with Server-Sent Events to follow new activity live.
+
+In the console, this timeline is the agent's conversation view. This page explains how to read it over the API when building your own UI or automation.
+
+```bash
+export BASE="$OMNARA_API/orgs/$ORG/projects/$PROJ"
+export AGENT="agt_v4qtrwz3jehcyd5n6a2bfgik7m"
+```
+
+## Read the timeline
+
+`GET /events` returns events in chronological order. Set `after_sequence=0` to start at the beginning:
+
+```bash
+curl "$BASE/agents/$AGENT/events?after_sequence=0&limit=100" \
+  -H "Authorization: Bearer $OMNARA_TOKEN"
+```
+
+```json
+{
+  "data": [
+    { "id": "evt_qtrwz3jehcyd5n6a2bfgik7mv4", "sequence": 1, "event_kind": "agent_input", "...": "..." },
+    { "id": "evt_5n6a2bfgik7mv4qtrwz3jehcyd", "sequence": 2, "event_kind": "model_output", "...": "..." }
+  ],
+  "next_after_sequence": 2,
+  "next_before_sequence": null,
+  "has_more": false
+}
+```
+
+To fetch the next page, pass `next_after_sequence` as `after_sequence`. Stop when `has_more` is `false`.
+
+To start with the newest events, use `before_sequence=0` instead and pass each `next_before_sequence` value into the next request. `limit` defaults to 100 and accepts up to 500.
+
+<Info>
+Full schema and playground: [List events](/api-reference/endpoints/events/list-events).
+</Info>
+
+## What each event carries
+
+Every event has an `id`, a `sequence` number, a turn, and an `event_kind`. There are four event kinds:
+
+- **`agent_input`** — something entered the conversation: a message, an interaction answer, a cancel, or a config change. [Sending input](/events/sending-input) covers each one.
+- **`model_output`** — one completed model response, with a `stop_reason` and any tool calls the model requested.
+- **`tool_result`** — the outcome of one tool call (`succeeded`, `failed`, `denied`, or `canceled`). Its `tool_call_id` matches the call in the model output that requested it.
+- **`context_checkpoint`** — a summary Omnara uses to carry earlier context forward when a conversation grows long.
+
+Depending on its kind, an event can contain text, reasoning, tool-call data, structured results, or a reference to a file stored as an [artifact](/events/artifacts). Exact fields are in the [List events](/api-reference/endpoints/events/list-events) reference.
+
+## Stream it live
+
+```bash
+curl -N "$BASE/agents/$AGENT/events/stream?stream_deltas=true" \
+  -H "Authorization: Bearer $OMNARA_TOKEN"
+```
+
+The response is a standard `text/event-stream`. The SSE `event` name tells you what each frame contains:
+
+| SSE event | Contains | Saved? |
+| --- | --- | --- |
+| `agent_input` | An input added to the timeline | Yes |
+| `model_output` | A completed model response | Yes |
+| `tool_result` | A completed tool call's result | Yes |
+| `context_checkpoint` | A summary of earlier context | Yes |
+| `model_output_delta` | A live preview while the model responds | No |
+| `error` | A stream error; reconnect after receiving one | No |
+
+Saved events use their `sequence` as the SSE `id`. Heartbeat comments (`:` lines) only keep the connection open and can be ignored. A simplified exchange looks like:
+
+```text
+event: model_output_delta
+data: {"model_call_context_id":"mcc_jehcyd5n6a2bfgik7mv4qtrwz3","event":{"kind":"text_delta","delta":"Comparing the two drafts"},"...":"..."}
+
+event: model_output
+id: 3
+data: {"id":"evt_5n6a2bfgik7mv4qtrwz3jehcyd","sequence":3,"event_kind":"model_output","content_blocks":[{"type":"text","text":"Comparing the two drafts, three obligations changed…"}],"...":"..."}
+
+: heartbeat
+```
+
+### Deltas are a preview, not the record
+
+With `stream_deltas=true`, the stream includes partial text, reasoning, and tool-call arguments while the model responds. Use these deltas to show progress, but do not treat them as durable history: they are not saved or replayed after a reconnect.
+
+When the completed `model_output` event arrives, replace the preview with it. Deltas and their final events share `model_call_context_id`; tool-call previews and results also share `tool_call_id`, so you can match them reliably. Exact delta frame shapes are in the [Stream events](/api-reference/endpoints/events/stream-events) reference.
+
+### Resuming after a disconnect
+
+Reconnect with `Last-Event-ID` set to the last saved sequence you processed. You can also pass the same value as `after_sequence`:
+
+```bash
+curl -N "$BASE/agents/$AGENT/events/stream?stream_deltas=true" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Last-Event-ID: 3"
+```
+
+The server sends every saved event after sequence 3, then continues live. Deltas produced while disconnected are not replayed, but the completed `model_output` event is.
+
+<Info>
+Full schema and playground: [Stream events](/api-reference/endpoints/events/stream-events).
+</Info>
+
+## Group events into turns
+
+Events are useful for live updates. For conversation history, it is often easier to group them into **turns**. A turn starts when an input enters the timeline and includes the resulting model responses and tool activity. Each agent numbers its turns with `turn_sequence`.
+
+List turns newest-first:
+
+```bash
+curl "$BASE/agents/$AGENT/turns?limit=20" -H "Authorization: Bearer $OMNARA_TOKEN"
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "trn_trwz3jehcyd5n6a2bfgik7mv4q",
+      "agent_id": "agt_v4qtrwz3jehcyd5n6a2bfgik7m",
+      "turn_sequence": 2,
+      "event_count": 9,
+      "opening_events": [ { "sequence": 12, "event_kind": "agent_input", "...": "..." } ],
+      "latest_event": { "sequence": 20, "event_kind": "model_output", "...": "..." },
+      "latest_semantic_event": { "sequence": 20, "event_kind": "model_output", "...": "..." },
+      "started_at": "2026-08-03T19:12:40Z",
+      "updated_at": "2026-08-03T19:14:02Z"
+    }
+  ],
+  "next_before_turn_sequence": 1
+}
+```
+
+The response includes enough to preview each turn without fetching all of its events:
+
+- `opening_events` shows what started the turn.
+- `latest_semantic_event` is the latest event useful to show in a conversation preview.
+- `latest_event` is the newest event overall, including internal processing events.
+
+To fetch the next page of older turns, pass `next_before_turn_sequence` as `before_turn_sequence`. When it is `null`, you have reached the first turn.
+
+To load all events in a turn, page backward from its end:
+
+```bash
+curl "$BASE/agents/$AGENT/turns/trn_trwz3jehcyd5n6a2bfgik7mv4q/events?limit=100" \
+  -H "Authorization: Bearer $OMNARA_TOKEN"
+```
+
+Events are chronological within each page. Pass `next_before_sequence` into the next request until it is `null`.
+
+A typical conversation UI lists turns, loads a turn's events when opened, and appends new events from the live stream.
+
+<Info>
+Full schemas and playground: [List turns](/api-reference/endpoints/events/list-turns) · [List turn events](/api-reference/endpoints/events/list-turn-events).
+</Info>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Approvals & questions" icon="user-check" href="/events/interactions">
+    What to do when the stream shows the agent waiting on a human
+  </Card>
+  <Card title="Artifacts" icon="box-archive" href="/events/artifacts">
+    View and download files referenced in the timeline
+  </Card>
+</CardGroup>

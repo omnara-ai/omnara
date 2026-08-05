@@ -1,5 +1,5 @@
 ---
-title: API Overview
+title: API overview
 description: How the API is organized, plus the conventions every endpoint shares
 icon: "code"
 ---
@@ -7,113 +7,88 @@ icon: "code"
 The Omnara API is JSON over HTTPS. Hosted routes live under:
 
 ```text
-https://app.omnara.com/api/v1
+https://api.omnara.com/v1
 ```
 
-Self-hosted deployments serve the same routes from their own origin. Every deployment serves its OpenAPI 3.0 specification at `GET /api/openapi.yaml`; the endpoint pages in this reference are generated from that spec.
+Self-hosted deployments serve the same API from their own origin under `/api/v1`. Every deployment serves its OpenAPI 3.0 specification at `GET /api/openapi.yaml`; the endpoint pages in this reference are generated from that spec.
+
+Two ways to read this tab: the generated **Endpoints** pages give you every operation's exact schema and a playground; the [Documentation tab](/introduction) teaches the same operations in task order with worked examples. Each teaching page links to its endpoint pages and vice versa — use whichever mode you're in.
 
 ## How the API is organized
 
 Most integrations only need the first three groups: launch an agent, respond when it needs a human, and read what it did.
 
-| Group                                                                                                                | What it covers                                                                        |
-| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [Agents](/api-reference/endpoints/agents/create-agent)                                                               | Launch agents, send inputs, manage the input backlog, and handle custom tool calls    |
-| [Interactions](/api-reference/endpoints/interactions/list-agent-interactions)                                        | List and resolve the approvals and questions that pause an agent                      |
-| [Events](/api-reference/endpoints/events/list-events)                                                                | Read or stream the agent timeline, list turns, download artifacts                     |
-| [Configs and Profiles](/api-reference/endpoints/configs-and-profiles/create-agent-config)                            | Compile agent configs and manage reusable launch profiles                             |
-| [Models](/api-reference/endpoints/models/create-model-provider-config)                                               | Model providers, configured models, and project model access                          |
-| [Machines](/api-reference/endpoints/machines/create-machine)                                                         | Machines, project machine access, and daemon tokens                                   |
-| [Machine Pools](/api-reference/endpoints/machine-pools/create-machine-pool)                                          | Machine pools and project pool access                                                 |
-| [Secrets](/api-reference/endpoints/secrets/create-secret)                                                            | Organization-, project-, and user-owned secrets, plus project availability and grants |
-| [Organizations and Projects](/api-reference/endpoints/organizations-and-projects/create-organization)                | Organizations, membership, invitations, and projects                                  |
-| [Users and API Keys](/api-reference/endpoints/users-and-api-keys/get-the-authenticated-user-and-their-organizations) | The authenticated user, personal access tokens, and pending invitations               |
+| Endpoint group | What it covers | Teaching pages |
+| --- | --- | --- |
+| [Agents](/api-reference/endpoints/agents/create-agent) | Launch agents, send inputs, manage the backlog, custom tool calls | [Agents](/agents/overview), [Sending input](/events/sending-input) |
+| [Interactions](/api-reference/endpoints/interactions/list-agent-interactions) | The approvals and questions that pause an agent | [Approvals & questions](/events/interactions) |
+| [Events](/api-reference/endpoints/events/list-events) | Read or stream the timeline, list turns, download artifacts | [Streaming events](/events/streaming), [Artifacts](/events/artifacts) |
+| [Configs and Profiles](/api-reference/endpoints/configs-and-profiles/create-agent-config) | Create agent configs, manage launch profiles | [Configs & profiles](/agents/configuration) |
+| [Models](/api-reference/endpoints/models/create-model-provider-config) | Model providers, configured models, project model access | [Model providers](/organization/model-providers) |
+| [Machines](/api-reference/endpoints/machines/create-machine) | Machines, project machine access, daemon tokens | [Connect a machine](/machines/connect) |
+| [Machine Pools](/api-reference/endpoints/machine-pools/create-machine-pool) | Machine pools and project pool access | [Machine pools](/machines/pools) |
+| [Secrets](/api-reference/endpoints/secrets/create-secret) | Org-, project-, and user-owned secrets, availability and grants | [Secrets](/organization/secrets) |
+| [Skills](/api-reference/endpoints/skills/create-skill) | Skill packages, revisions, project skill access | [Skills](/tools/skills) |
+| [Organizations and Projects](/api-reference/endpoints/organizations-and-projects/create-organization) | Organizations, membership, invitations, projects | [Members & access](/organization/members) |
+| [Users and API Keys](/api-reference/endpoints/users-and-api-keys/get-the-authenticated-user-and-their-organizations) | The authenticated user, tokens, pending invitations | [Authentication](/api/authentication) |
+| [Actors](/api-reference/endpoints/actors/list-project-actors) | External identity attribution for inputs and resolutions | [Sending input](/events/sending-input#who-said-that-actors-and-attribution) |
 
 A typical agent workflow maps onto the groups like this:
 
-1. **Launch** — `POST .../agents` with a profile or config ([Agents](/api-reference/endpoints/agents/create-agent))
-2. **Follow** — `GET .../events/stream` for the live timeline ([Events](/api-reference/endpoints/events/stream-events))
-3. **Respond** — resolve approvals and questions as they appear ([Interactions](/api-reference/endpoints/interactions/resolve-agent-interaction))
-4. **Continue** — send follow-up messages with `POST .../inputs` ([Agents](/api-reference/endpoints/agents/create-agent-input))
-
-Custom tool consumers list authorized work with
-`GET .../tool-calls?state=ready&type=custom`, then submit each result once to
-`POST .../tool-calls/{toolCallID}/result`. Calls that are not ready or already
-have a result return `409`.
-
-Secrets have separate ownership and availability. Manage every secret through
-the organization-level `/secrets` resource and choose its immutable `owner`
-when creating it. Use the read-only project secret endpoints to discover what
-a project can use and whether that availability is direct or comes from a
-grant.
+1. **Define** — create a config with `POST .../agent-configs` ([Agent configuration](/agents/configuration))
+2. **Launch** — `POST .../agents` with a config or profile ([Agents](/agents/overview))
+3. **Follow** — `GET .../events/stream` for the live timeline ([Streaming events](/events/streaming))
+4. **Respond** — resolve approvals and questions as they appear ([Approvals & questions](/events/interactions))
+5. **Continue** — send follow-ups with `POST .../inputs` ([Sending input](/events/sending-input))
 
 ## Authentication
 
 Create an API key in the console and send it as a bearer token:
 
 ```bash
-curl https://app.omnara.com/api/v1/me \
+curl https://api.omnara.com/v1/me \
   -H "Authorization: Bearer $OMNARA_TOKEN"
 ```
 
-| Credential                                 | Used by                                |
-| ------------------------------------------ | -------------------------------------- |
-| API key (`omnara_pat_...`)                 | API clients                            |
-| Machine daemon token (`omnara_daemon_...`) | Machine daemons, on daemon routes only |
-| Browser session cookie + `X-Omnara-Csrf`   | The web console                        |
+Personal API keys act as the user who created them, with that user's roles. Org API keys are separate principals with their own org and project roles. [Authentication](/api/authentication) covers both, plus device login and token management.
 
-API keys are shown once when created. Rotate them from the console if they are exposed.
+## Public IDs
+
+Every resource has a stable public ID with a type prefix (`agt_`, `acfg_`, `evt_`, …) followed by 26 lowercase base32 characters. IDs are opaque — don't parse anything but the prefix.
 
 ## Pagination
 
-| Style    | Endpoints              | Request parameters                                          | Response fields                                    |
-| -------- | ---------------------- | ----------------------------------------------------------- | -------------------------------------------------- |
-| Cursor   | Most list endpoints    | `cursor`, `limit`                                           | `data`, `next_cursor`                              |
+| Style | Endpoints | Request parameters | Response fields |
+| --- | --- | --- | --- |
+| Cursor | Most list endpoints | `cursor`, `limit` | `data`, `next_cursor` |
 | Sequence | Agent events and turns | `after_sequence`, `before_sequence`, `before_turn_sequence` | `next_after_sequence`, `next_before_*`, `has_more` |
 
-Pass the returned cursor back on the next request to continue.
+Pass the returned cursor back on the next request; a `null` cursor means you've reached the end. Sequence pagination is explained with examples in [Streaming events](/events/streaming#read-the-timeline).
 
 ## Idempotency
 
-Most create endpoints accept an optional `Idempotency-Key` header. Retrying with the same key returns the original control-plane resource instead of creating a duplicate. A replay returns `200` where the first request returned `201`; a conflicting retry returns `409`.
+Create endpoints where retries could do damage — orgs, projects, profiles, agents, inputs, machines, and machine/pool grants — accept an optional `Idempotency-Key` header (the API reference marks each one). Retrying with the same key and an identical body returns the original resource instead of creating a duplicate — a replay returns `200` where the first request returned `201`; a conflicting retry returns `409` with code `idempotency_key_conflict`.
 
-Agent creation uses first-write-wins semantics: reusing a key returns the agent's current state even if the retry body differs. The retry body is not applied.
-
-Organization creation also accepts this header but does not require it. A key determines the proposed organization ID, so a failed retry uses the same ID. Once the organization commits, reusing the key returns it without another hosted call. Without the header, each request is a fresh organization-creation attempt.
+Organization creation also accepts this header but does not require it. A key determines the proposed organization ID, so a failed retry uses the same ID. Once the organization commits, reusing the key returns it without another hosted call.
 
 ## Errors
 
-Every error response uses the same envelope:
+Every error, from every endpoint, is the same two-field envelope:
 
 ```json
-{ "error": "human-readable message", "code": "stable_error_code" }
+{ "error": "agent config source does not match JSON schema: /model: required", "code": "validation_failed" }
 ```
 
-`error` is human-readable and may change; `code` is stable and safe to branch on. Most responses use the status default (`invalid_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `gone`, `request_too_large`, `unprocessable`, `internal_error`, `upstream_error`, `service_unavailable`). Specific conditions use dedicated codes: `idempotency_key_conflict`, `validation_failed`, `state_transition_conflict`, `daemon_runtime_unregistered`, `csrf_check_failed`, and `authentication_unavailable`.
+Branch on `code` — it's a stable contract, enumerated in the OpenAPI spec, and each endpoint page in the reference lists the errors it can return. Never match on `error`; it's for humans and may change without notice.
 
-| Status | Meaning                                                         |
-| ------ | --------------------------------------------------------------- |
-| `400`  | The request was invalid                                         |
-| `401`  | Authentication is required or invalid                           |
-| `403`  | Authenticated, but not authorized for this action               |
-| `404`  | The resource does not exist or is not visible to you            |
-| `409`  | The request conflicts with current state or idempotency history |
-| `410`  | The resource is no longer available                             |
-| `422`  | The request cannot be processed in its current form             |
-| `500`  | Unexpected internal error                                       |
-| `502`  | An upstream service failed                                      |
-| `503`  | A service dependency is unavailable                             |
+Two rules worth internalizing:
 
-Resources you cannot read return `404`, not `403`; a `403` means the resource is visible but your role does not permit the action.
+- **Resources you cannot read return `404`, not `403`.** The API doesn't confirm the existence of things outside your access. A `403` always means "the resource is visible to you, but your role doesn't permit this action."
+- **Retry `429` and `5xx` with backoff, reusing the same `Idempotency-Key`** so a retry can never act twice. Other `4xx` errors won't change on retry — fix the request instead.
 
 ## Request size limits
 
-| Requests                                             | Limit |
-| ---------------------------------------------------- | ----- |
-| `POST .../inputs` and `POST .../tool-calls/{toolCallID}/result` | 48 MB |
-| All other requests                                   | 1 MB  |
-
-The larger limit covers base64-encoded attachments on agent inputs and custom tool call results.
+Most endpoints cap request bodies at 1 MiB. Agent inputs and custom tool call results accept up to 48 MiB for base64-encoded media. Skill upload requests allow 26 MiB of body data to carry an archive of up to 25 MiB. Decoded media has stricter caps — see [Attach files and images](/events/sending-input#attach-files-and-images). Oversized requests fail with `413` and code `request_too_large`.
 
 ## Streaming
 
@@ -123,4 +98,4 @@ Each agent exposes its timeline as a Server-Sent Events stream:
 GET /api/v1/orgs/{org}/projects/{project}/agents/{agent}/events/stream
 ```
 
-Use `after_sequence` or `Last-Event-ID` to resume after a disconnect. See the [Events](/api-reference/endpoints/events/list-events) endpoints in the API reference.
+Use `after_sequence` or `Last-Event-ID` to resume after a disconnect. [Streaming events](/events/streaming) covers the frame types, delta previews, and resume semantics.

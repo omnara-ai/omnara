@@ -1,0 +1,233 @@
+---
+title: Configs & profiles
+description: Define agents with YAML or JSON
+icon: "file-code"
+---
+
+An agent config is a YAML or JSON document that defines the agent's instruction, model, tools, permissions, and machines.
+
+Configs are immutable: changing the definition creates a new config ID (`acfg_…`). Submitting the same definition again returns the same ID.
+
+The example below includes every major section. If you are creating your first agent, start with the smaller config in the [Quickstart](/quickstart).
+
+```yaml
+version: v1
+name: Repo assistant
+instruction: |
+  Help engineers investigate issues in the acme/api repository.
+  Run read-only commands freely; ask before anything destructive.
+model:
+  provider_config: openai-prod
+  name: openai-prod - gpt-5.6
+  reasoning:
+    effort: high
+tools:
+  web_search: {}
+  ask_question: {}
+  run_command:
+    permission:
+      mode: always_ask
+  create_ticket:
+    type: custom
+    description: File a ticket in our internal tracker.
+    input_schema:
+      type: object
+      properties:
+        title: { type: string }
+        body: { type: string }
+      required: [title]
+mcp:
+  linear:
+    url: https://mcp.linear.app/mcp
+    auth:
+      type: oauth
+      secret_id: sec_gik7mv4qtrwz3jehcyd5n6a2bf
+machine_sources:
+  - machine_pool_name: default-pool
+    cwd: /workspace
+skills:
+  - skl_ik7mv4qtrwz3jehcyd5n6a2bfg
+```
+
+## Instruction and identity
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `version` | no | Only `v1` today; include it for forward compatibility. |
+| `name` | no | Display name for agents launched from this config. |
+| `instruction` | **yes** | The system-level brief. This is the single highest-leverage field you control — be specific about the job, the boundaries, and when to ask a human. |
+
+## Model
+
+`model` selects a model configured in Omnara. `provider_config` is the name of a [model provider](/organization/model-providers), and `name` must exactly match one of its configured models. Models added through the console include the provider prefix, such as `openai-prod - gpt-5.6`. The model must also be available to the project.
+
+```yaml
+model:
+  provider_config: openai-prod
+  name: openai-prod - gpt-5.6
+  cache_retention: short
+  reasoning:
+    effort: high
+```
+
+Most agents can use the configured model's defaults. Override these fields only when needed:
+
+| Field | What it does |
+| --- | --- |
+| `context_window_tokens` | Cap the effective context window below the model's maximum. |
+| `default_max_output_tokens` | Per-request output-token cap sent to the provider. |
+| `cache_retention` | Prompt-cache preference: `none`, `short`, or `long`. |
+| `reasoning.effort` | Reasoning effort for models that support it (for example `low`, `medium`, `high`). |
+
+## Tools
+
+Add a tool under `tools:` to make it available to the agent. Use `{}` to accept its defaults. You can add **built-in tools** that Omnara runs or **custom tools** that your own system runs. MCP tools are configured separately.
+
+### Built-in tools
+
+Enable a built-in tool by name. The [Built-in tools](/tools/built-in) page explains the available tools and their inputs. You can also change a tool's default permission:
+
+```yaml
+tools:
+  web_search: {}                # enabled, default permission
+  run_command:
+    permission:
+      mode: always_ask          # a human approves every command
+  delete_machine:
+    enabled: false              # explicitly off
+```
+
+Permission modes decide whether a tool runs immediately, asks a person first, or is denied. See [Tools & permissions](/tools/permissions) for defaults and supported modes.
+
+### Custom tools
+
+A custom tool describes an operation that your system performs. Its `description` tells the model when to use it, and its `input_schema` defines the arguments.
+
+The full example above defines `create_ticket` as a custom tool. When the agent calls it, Omnara waits for your system to submit the result. [Custom tools](/tools/custom) walks through that workflow.
+
+## MCP servers
+
+`mcp` connects the agent to [Model Context Protocol](https://modelcontextprotocol.io) servers. Each entry sets the server URL, authentication, and permissions. `auth.secret_id` points to a [secret](/organization/secrets) containing a bearer token or OAuth grant. [MCP servers](/tools/mcp) explains the full setup.
+
+## Machines
+
+`machine_sources` provides execution environments for tools such as `run_command`. Use a machine you connected yourself or let Omnara create one from a pool:
+
+```yaml
+machine_sources:
+  - machine_name: build-server-1     # a specific BYO machine…
+    cwd: /srv/repo
+    env_overlay:
+      CI: "true"
+    secret_env_overlay:
+      GITHUB_TOKEN: sec_7jehcyd5n6a2bfgik7mv4qtrwz
+  - machine_pool_name: default-pool  # …or capacity from a pool
+    machine_memory_mb: 4096
+    max_machines: 3
+```
+
+`env_overlay` sets environment variables. `secret_env_overlay` references [secrets](/organization/secrets), whose values are injected only when a process starts. Pool sources can also set machine size and limits; supported fields vary by provider. See [Machine pools](/machines/pools#create-a-pool) and the [config schema](/api-reference/endpoints/configs-and-profiles/create-agent-config).
+
+## Skills
+
+`skills` attaches reusable instructions and files that the agent can load with the `skill` tool. The project must own or hold a [grant](/tools/skills#grant-it-to-projects) for each referenced skill.
+
+## Create a config
+
+<Tabs>
+<Tab title="Console">
+  There is no separate config step in the console: writing a config in the **Builder** or **YAML** editor while creating an [agent](/agents/overview#launch-an-agent) or an [agent profile](#create-a-profile) creates it when you submit. Validation errors surface inline in the editor, pointing at the offending field.
+</Tab>
+<Tab title="API">
+  `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same definition was already created:
+
+  ```bash
+  jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
+  curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @-
+  ```
+
+  The response includes the config ID and final model settings after config overrides and project limits are applied. Validation errors identify the field that needs to be fixed.
+
+  <Info>
+  Full schema and playground: [Create agent config](/api-reference/endpoints/configs-and-profiles/create-agent-config) · [Get agent config](/api-reference/endpoints/configs-and-profiles/get-agent-config).
+  </Info>
+</Tab>
+</Tabs>
+
+## Profiles
+
+A **profile** gives a config a stable name, such as *Support triage*. Launching from that profile uses the config it currently points to.
+
+Updating a profile points it to a new immutable config. Future launches use the new config; existing agents keep the config they already use. Previous versions remain available in the profile's history.
+
+### Create a profile
+
+<Tabs>
+<Tab title="Console">
+  In your project, open **Agent Profiles** and click **New agent profile**. Name it (**Profile name**), then define the config in the **Builder** form or the **YAML** editor — the console creates the config and the profile in one step. Click **Create profile**.
+</Tab>
+<Tab title="API">
+  Point a name at an existing config:
+
+  ```bash
+  curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-profiles" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "Support triage",
+      "config": "acfg_mv4qtrwz3jehcyd5n6a2bfgik7"
+    }'
+  ```
+
+  The response starts with `current_generation: 1`; the generation increases each time the profile moves to a new config.
+
+  <Info>
+  Full schema and playground: [Create agent profile](/api-reference/endpoints/configs-and-profiles/create-agent-profile).
+  </Info>
+</Tab>
+</Tabs>
+
+### Advance a profile to a new config
+
+<Tabs>
+<Tab title="Console">
+  Open the profile's row menu and click **Edit**. Change the YAML and click **Save revision**. The console creates a new config and updates the profile. If someone else updated it first, your save fails instead of overwriting their change.
+</Tab>
+<Tab title="API">
+  Create the new config first, then update the profile. Send `expected_current_config_id` so the request fails with `409` if someone changed the profile after you read it:
+
+  ```bash
+  curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-profiles/aprf_3jehcyd5n6a2bfgik7mv4qtrwz/config" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "config": "acfg_n6a2bfgik7mv4qtrwz3jehcyd5",
+      "expected_current_config_id": "acfg_mv4qtrwz3jehcyd5n6a2bfgik7"
+    }'
+  ```
+
+  <Info>
+  Full schema and playground: [Update agent profile](/api-reference/endpoints/configs-and-profiles/update-agent-profile).
+  </Info>
+</Tab>
+</Tabs>
+
+### Use or delete a profile
+
+To launch from a profile, select it under **New agent** or pass `profile` and `config` to the API. See [Launch an agent](/agents/overview#launch-an-agent).
+
+Deleting a profile removes the profile and its version history, but agents launched from it keep running. In the console, open the profile's row menu and click **Delete**. An active integration that uses the profile must be removed first. See [Delete agent profile](/api-reference/endpoints/configs-and-profiles/delete-agent-profile).
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/agents/overview">
+    Launch agents from the config you just created
+  </Card>
+  <Card title="Tools & permissions" icon="shield-check" href="/tools/permissions">
+    Control which tools agents can use and which calls need approval
+  </Card>
+</CardGroup>

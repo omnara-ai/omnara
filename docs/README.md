@@ -23,6 +23,9 @@ published copy:
 make docs-openapi
 ```
 
+This step maps the server's `/api/v1` route prefix to the hosted
+`https://api.omnara.com/v1` base URL and enables the Mintlify playground.
+
 Operations tagged with `x-hidden: true` in the spec (the machine-daemon
 transport routes) are excluded from the generated nav — they're the internal
 daemon protocol, not public API surface — but remain in the downloadable spec.

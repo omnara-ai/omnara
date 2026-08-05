@@ -9,26 +9,64 @@ security:
 tags:
   - name: Agents
     description: Launch agents, send inputs, manage the input backlog, and work with tool calls.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/agents/overview
   - name: Interactions
     description: List and resolve the approvals and questions that pause an agent.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/events/interactions
+  - name: Actors
+    description: Attribute agent inputs and interaction responses to external users.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/events/sending-input#who-said-that-actors-and-attribution
   - name: Events
     description: Read or stream the agent timeline, list turns, and download artifacts.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/events/streaming
   - name: Configs and Profiles
-    description: Compile agent configs and manage reusable launch profiles.
+    description: Create agent configs, manage reusable launch profiles, and set up integrations.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/agents/configuration
   - name: Models
     description: Configure model providers and models, and grant projects access to them.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/organization/model-providers
   - name: Machines
     description: Register machines, control project access, and manage daemon tokens.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/machines/connect
   - name: Machine Pools
     description: Define machine pools and grant projects access to them.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/machines/pools
   - name: Secrets
     description: Manage secret ownership and versions, and inspect or grant project availability.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/organization/secrets
   - name: Skills
     description: Manage versioned skill ownership and load skill instructions on demand.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/tools/skills
   - name: Organizations and Projects
     description: Create organizations and projects and manage membership.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/organization/members
   - name: Users and API Keys
-    description: The authenticated user, personal access tokens, and invitations.
+    description: The authenticated user, personal and organization API keys, and invitations.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/api/authentication
   - name: Machine Daemon
     description: Routes the Omnara machine daemon uses to connect a machine.
 paths:
@@ -1406,7 +1444,7 @@ paths:
       operationId: listProjectAvailableSkills
       tags: [Skills]
       summary: List skills available to project
-      description: Includes organization skills, directly owned project skills, and granted skills, ordered by created_at descending, then id descending.
+      description: Includes directly owned project skills and granted skills, ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/SkillOwnerKindFilter'
@@ -5228,7 +5266,8 @@ paths:
           pattern: '^skl_[a-z2-7]{26}$'
     get:
       operationId: getDaemonSkillArchive
-      tags: [Route Inventory]
+      x-hidden: true
+      tags: [Machine Daemon]
       summary: Get daemon skill archive
       description: Requires daemon authentication plus a short-lived capability bound to the authenticated machine, skill, and revision.
       security:
@@ -5801,7 +5840,7 @@ components:
         name:
           type: string
           minLength: 1
-          description: Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing compiled agents.
+          description: Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
         provider_model_slug:
           type: string
           minLength: 1
@@ -5859,7 +5898,7 @@ components:
         name:
           type: string
           minLength: 1
-          description: Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change already compiled agents.
+          description: Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
         provider_model_slug:
           type: string
           minLength: 1

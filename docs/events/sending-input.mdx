@@ -1,0 +1,188 @@
+---
+title: Sending input
+description: Deliver messages to a running agent
+icon: "paper-plane"
+---
+
+Every message or control action you send to an agent starts as an **agent input** (`ain_…`). Omnara stores the input first, then adds it to the timeline as a durable `agent_input` event when the agent processes it. This lets a busy agent accept new messages without interrupting its current work.
+
+There are four input kinds. You only create the first directly; the others are produced by their own endpoints:
+
+| `input_kind` | Created by |
+| --- | --- |
+| `content` | `POST /inputs` — the messages this page is about |
+| `interaction_response` | [Resolving an interaction](/events/interactions) |
+| `control` | [Stop current work](/agents/overview#stop-current-work) |
+| `config_change` | [Changing the config mid-conversation](#change-the-config-mid-conversation) |
+
+```bash
+export BASE="$OMNARA_API/orgs/$ORG/projects/$PROJ"
+export AGENT="agt_v4qtrwz3jehcyd5n6a2bfgik7m"
+```
+
+## Send a message
+
+<Tabs>
+<Tab title="Console">
+  Open the agent, type a message in the composer, and click **Send**.
+</Tab>
+<Tab title="API">
+  ```bash
+  curl "$BASE/agents/$AGENT/inputs" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -H "Idempotency-Key: reply-8f2c1a" \
+    -d '{
+      "content_blocks": [
+        { "type": "text", "text": "Also check whether the deadline moved." }
+      ]
+    }'
+  ```
+
+  ```json
+  {
+    "agent_input": {
+      "id": "ain_2bfgik7mv4qtrwz3jehcyd5n6a",
+      "state": "received",
+      "delivery_mode": "queued",
+      "...": "..."
+    }
+  }
+  ```
+
+  `state: received` means Omnara accepted the input. When the agent processes it, the state becomes `resolved` and a matching event appears on the timeline. An input can instead become `canceled` or `rejected` if it is withdrawn or cannot be delivered.
+
+  If your system retries requests, send an `Idempotency-Key` to avoid delivering the same message twice.
+
+  <Info>
+  Full schema and playground: [Create agent input](/api-reference/endpoints/agents/create-agent-input).
+  </Info>
+</Tab>
+</Tabs>
+
+## Attach files and images
+
+An input can include files alongside text. Inline files are base64-encoded, with limits of 10 MiB per file, 24 MiB combined, and 20 files per input:
+
+```bash
+jq -n --arg data "$(base64 < chart.png)" '{
+  content_blocks: [
+    { type: "text", text: "Does this chart match the numbers you found?" },
+    { type: "media", media_type: "image/png", filename: "chart.png", data: $data }
+  ]
+}' |
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @-
+```
+
+Omnara accepts common images, PDFs, text files, spreadsheets, and Office documents. It stores each file as an [artifact](/events/artifacts) and replaces the inline data with a `media_ref` in the timeline.
+
+## Queued vs steering
+
+`delivery_mode` decides when a busy agent receives a message:
+
+- **`queued`** (default) waits until the agent is ready to start new work. Use it for a new task or follow-up.
+- **`steering`** joins the current turn at the next model call, ahead of queued messages. Use it for an urgent correction such as “stop using the staging database.”
+
+The other input kinds — interaction responses, cancels, config changes — never wait in the queue: they're delivered with a third mode, `immediate`, that you can't choose. Only `content` inputs take `queued` or `steering`.
+
+```bash
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "delivery_mode": "steering",
+    "cancel_open_interactions": true,
+    "content_blocks": [ { "type": "text", "text": "Ignore the 2024 draft — it was superseded." } ]
+  }'
+```
+
+If the agent is idle, both modes deliver immediately; the difference only exists under load.
+
+For a steering message, set `cancel_open_interactions: true` when the correction makes an open approval or question irrelevant. Omnara cancels those interactions before delivering the message. This field is only valid with `delivery_mode: "steering"`.
+
+## Inspect and manage the queue
+
+The queue is API-only for now; the console has no queue view. Through the API, you can list waiting inputs, change their order or delivery mode, or cancel them.
+
+### List waiting inputs
+
+```bash
+curl "$BASE/agents/$AGENT/inputs/backlog" \
+  -H "Authorization: Bearer $OMNARA_TOKEN"
+```
+
+```json
+{
+  "data": [
+    { "id": "ain_2bfgik7mv4qtrwz3jehcyd5n6a", "state": "received", "delivery_mode": "queued", "...": "..." },
+    { "id": "ain_4qtrwz3jehcyd5n6a2bfgik7mv", "state": "received", "delivery_mode": "queued", "...": "..." }
+  ],
+  "next_cursor": null
+}
+```
+
+Similarly, you can cancel a queued input, change its position, or switch it between queued and steering delivery. These operations work only while the input is still waiting; if the agent has already taken it, the API returns `409`.
+
+<Info>
+Full schemas and playground: [List queued backlog inputs](/api-reference/endpoints/agents/list-queued-backlog-inputs) · [Cancel](/api-reference/endpoints/agents/cancel-queued-backlog-input) · [Move](/api-reference/endpoints/agents/move-queued-backlog-input) · [Promote](/api-reference/endpoints/agents/promote-queued-input-to-steering) · [Demote](/api-reference/endpoints/agents/demote-steering-input-to-queued).
+</Info>
+
+## Change the config mid-conversation
+
+You can change which [config](/agents/configuration) an agent uses without restarting its conversation. Send the new config source to switch models, tools, permissions, or instructions. Omnara validates the config and records the change on the timeline. This is API-only for now.
+
+```bash
+jq -n --rawfile src agent-v2.yaml '{source: $src, source_format: "yaml"}' |
+curl "$BASE/agents/$AGENT/config" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @-
+```
+
+The change takes effect at the next model call. The console marks it in the conversation with an **Agent configuration changed** divider.
+
+<Info>
+Full schema and playground: [Update agent config](/api-reference/endpoints/agents/update-agent-config).
+</Info>
+
+## Who said that? Actors and attribution
+
+Every input is attributed to whoever authenticated the request. When a person calls the API with their own token, that's exactly what you want. But often the people talking to your agent aren't Omnara users at all — they're your customers, typing into your chat frontend or ticketing system. Your backend relays their messages with its own token, so without help the timeline would credit every message to that one backend identity.
+
+An **actor** solves this. It's not another kind of account — it's a lightweight identity record for an external user, and passing `actor` on an input names who actually spoke:
+
+```bash
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_SERVICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content_blocks": [ { "type": "text", "text": "Customer says the export is still failing." } ],
+    "actor": {
+      "provider_tenant_id": "acme-support",
+      "provider_user_id": "user-3841",
+      "display_name": "Dana R."
+    }
+  }'
+```
+
+Omnara reuses an actor when its `provider_tenant_id` and `provider_user_id` match an existing record. You can also pass an actor when [resolving an interaction](/events/interactions) or [stopping current work](/agents/overview#stop-current-work).
+
+Actors belong to a project and can be listed, fetched, or created through the API. Omit `actor` when the request is authenticated as an Omnara user; their account already provides the attribution.
+
+<Info>
+Full schemas and playground: [List project actors](/api-reference/endpoints/actors/list-project-actors) · [Upsert an external actor](/api-reference/endpoints/actors/upsert-an-external-actor) · [Get a project actor](/api-reference/endpoints/actors/get-a-project-actor).
+</Info>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Streaming events" icon="tower-broadcast" href="/events/streaming">
+    Watch your input get admitted and answered, live
+  </Card>
+  <Card title="Approvals & questions" icon="user-check" href="/events/interactions">
+    Resolve the prompts that pause an agent
+  </Card>
+</CardGroup>

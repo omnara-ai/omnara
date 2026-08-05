@@ -1,0 +1,154 @@
+---
+title: Approvals & questions
+description: Respond when an agent needs approval or an answer
+icon: "user-check"
+---
+
+Interactions pause an agent when it needs a person to approve an action or answer a question. The agent resumes when someone responds; if the current work is canceled, the interaction is canceled too. There are two kinds:
+
+| `interaction_kind` | Created when | Typical form |
+| --- | --- | --- |
+| `permission` | A tool with `always_ask` [permission](/tools/permissions) is called | "Permission requested for run_command" with Allow/Deny |
+| `question` | The agent uses the `ask_question` built-in tool | Whatever the agent wants to know, with options it composed |
+
+Both ride on the same tool-call machinery: the parent tool call waits while the interaction is `open`. An interaction ends in one of two states — `resolved` (someone answered) or `canceled` (the work it guarded was canceled, superseded, or archived).
+
+```bash
+export BASE="$OMNARA_API/orgs/$ORG/projects/$PROJ"
+export AGENT="agt_v4qtrwz3jehcyd5n6a2bfgik7m"
+```
+
+## Find open interactions
+
+<Tabs>
+<Tab title="Console">
+  Open interactions appear as cards at the bottom of the agent's conversation, badged **Permission required** or **Agent question**, with the form's context and options rendered ready to answer. Nothing to poll or refresh — they show up live.
+</Tab>
+<Tab title="API">
+  ```bash
+  curl "$BASE/agents/$AGENT/interactions?state=open" \
+    -H "Authorization: Bearer $OMNARA_TOKEN"
+  ```
+
+  ```json
+  {
+    "data": [
+      {
+        "id": "int_rwz3jehcyd5n6a2bfgik7mv4qt",
+        "org_id": "org_k7mv4qtrwz3jehcyd5n6a2bfgi",
+        "project_id": "proj_7mv4qtrwz3jehcyd5n6a2bfgik",
+        "agent_id": "agt_v4qtrwz3jehcyd5n6a2bfgik7m",
+        "interaction_kind": "permission",
+        "state": "open",
+        "request": {
+          "title": "Permission requested for run_command",
+          "context": [
+            { "label": "Command", "value": "rm -rf ./build && npm run build" },
+            { "label": "Machine", "value": "mchr-x7k2p3" },
+            { "label": "Shell", "value": "bash" }
+          ],
+          "questions": [
+            {
+              "prompt": "Allow this tool call?",
+              "options": [
+                { "label": "Allow" },
+                { "label": "Deny", "allows_text": true }
+              ]
+            }
+          ]
+        },
+        "created_at": "2026-08-03T19:13:20Z"
+      }
+    ],
+    "next_cursor": null
+  }
+  ```
+
+  Filter by `state` (`open`, `resolved`, `canceled`) or omit it for everything; results are cursor-paginated, oldest first. In practice you rarely poll this — open interactions announce themselves on the [event stream](/events/streaming) as tool-call activity, and this endpoint is how you fetch the form to render.
+
+  <Info>
+  Full schema and playground: [List agent interactions](/api-reference/endpoints/interactions/list-agent-interactions).
+  </Info>
+</Tab>
+</Tabs>
+
+## Render the form
+
+Every interaction's `request` is the same small form structure, designed to render without special-casing:
+
+- `title` — one line saying what's being asked.
+- `context` — optional label/value pairs to display verbatim (the command about to run, the machine it targets). Show all of them; they're the approver's evidence.
+- `questions` — one or more, in order. Each has a `prompt` and at least one option. `multiple: true` means the answer may select several options; an option with `allows_text: true` invites free text alongside the selection (in permission forms, that's the "Deny" option — the text becomes the reason the model sees).
+
+Permission forms always have exactly one question with `Allow` at index 0 and `Deny` at index 1. Question forms are composed by the agent, so treat them generically.
+
+## Resolve it
+
+<Tabs>
+<Tab title="Console">
+  On the interaction card, click the option you're choosing — **Allow** or **Deny** on a permission, or the agent's own options on a question. Where an option invites free text, **Additional details (optional)** appears; on a Deny, that text becomes the reason the model sees. Click **Submit** and the agent resumes immediately.
+</Tab>
+<Tab title="API">
+  Answer with one entry per question, in order. `option_indices` are zero-based positions into that question's `options`:
+
+  ```bash
+  curl "$BASE/agents/$AGENT/interactions/int_rwz3jehcyd5n6a2bfgik7mv4qt/resolve" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{ "answers": [ { "option_indices": [0] } ] }'
+  ```
+
+  The response is the interaction in its final state:
+
+  ```json
+  {
+    "id": "int_rwz3jehcyd5n6a2bfgik7mv4qt",
+    "interaction_kind": "permission",
+    "state": "resolved",
+    "request": { "title": "Permission requested for run_command", "...": "..." },
+    "resolution": { "answers": [ { "option_indices": [0] } ] },
+    "resolved_by_input_id": "ain_fgik7mv4qtrwz3jehcyd5n6a2b",
+    "resolved_at": "2026-08-03T19:14:01Z",
+    "...": "..."
+  }
+  ```
+
+  To deny with a reason, select the Deny option and attach text:
+
+  ```bash
+  curl "$BASE/agents/$AGENT/interactions/int_rwz3jehcyd5n6a2bfgik7mv4qt/resolve" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{ "answers": [ { "option_indices": [1], "text": "Not on the build server — use a pool machine." } ] }'
+  ```
+</Tab>
+</Tabs>
+
+Two operational notes:
+
+- **Resolution is first-writer-wins.** Re-sending the *same* answers replays idempotently — `200` with the already-resolved interaction. Sending *different* answers, or resolving a canceled interaction, returns `409` with code `idempotency_key_conflict`. Whoever answers first, wins; build your approval UI to handle the race gracefully.
+- **Attribution works like inputs.** Services relaying human decisions pass `actor` alongside `answers` so `resolved_by_input_id` traces to the real person — see [actors](/events/sending-input#who-said-that-actors-and-attribution).
+
+<Info>
+Full schema and playground: [Resolve agent interaction](/api-reference/endpoints/interactions/resolve-agent-interaction).
+</Info>
+
+## When interactions cancel
+
+You never delete an interaction; it cancels when the work it guarded goes away:
+
+- Sending input with [`cancel_open_interactions: true`](/events/sending-input#queued-vs-steering) — your new message supersedes the pending prompts; their tool calls complete as `canceled`.
+- [Stopping the agent](/agents/overview#stop-current-work) or [archiving it](/agents/overview#archive-an-agent) — everything in flight, interactions included, is canceled.
+
+Canceled interactions keep their `request` and stay listable, so audit trails show what was asked even when nobody answered.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Artifacts" icon="box-archive" href="/events/artifacts">
+    Download the files agents produce and reference
+  </Card>
+  <Card title="Agent configuration" icon="file-code" href="/agents/configuration">
+    Decide which tools require approval in the first place
+  </Card>
+</CardGroup>

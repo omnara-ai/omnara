@@ -1,0 +1,102 @@
+---
+title: Authentication
+description: Personal and organization API keys, device login for CLIs, and token management
+icon: "key"
+---
+
+Two kinds of API keys exist, and both are sent the same way:
+
+| Credential | Shape | Acts as |
+| --- | --- | --- |
+| Personal API key | `omnara_pat_…` | You — your roles, your project access |
+| Org API key | `omnara_org_…` | The org itself — a service account for integrations and automations |
+
+(Connected machines authenticate with their own daemon tokens, minted in the [connect flow](/machines/connect#install-the-daemon) and valid only on daemon routes.)
+
+## Using an API key
+
+Send either key as a bearer token. This example uses a personal key because `/me` is a user-only endpoint:
+
+```bash
+curl https://api.omnara.com/v1/me \
+  -H "Authorization: Bearer $OMNARA_TOKEN"
+```
+
+```json
+{
+  "user": { "id": "usr_ehcyd5n6a2bfgik7mv4qtrwz3j", "email": "you@example.com", "display_name": "You" },
+  "orgs": [ { "id": "org_k7mv4qtrwz3jehcyd5n6a2bfgi", "name": "Acme", "role": "owner", "created_at": "2026-08-01T17:02:11Z" } ]
+}
+```
+
+A personal API key authenticates as you and carries exactly your roles and project access — no more, no less. There are no separate API scopes to configure; what you can do in the console, your token can do through the API. For service integrations, use an [org API key](#org-api-keys-for-services) instead, so access doesn't hinge on one person's account.
+
+A missing or invalid token returns `401` with code `unauthorized`. A valid token used on something your roles don't permit returns `403` — or `404` if you can't even see the resource. Details in [Errors](/api/overview#errors).
+
+## Creating personal keys
+
+Tokens are minted where a human can approve them — creating one is deliberately *not* possible with another API key:
+
+- **Console** — go to **API Tokens** in the sidebar and click **New token**. The full token is shown once.
+- **Device login** — for CLIs and dev tools, below.
+
+The token format is `omnara_pat_<token_id>_<secret>`. Only a hash of the secret is stored server-side, so treat the one-time display as the only copy that will ever exist.
+
+## Org API keys for services
+
+Services shouldn't run as a person — when that person leaves or their access changes, the integration breaks. An org API key is its own principal: it holds an org role (`admin` or `member`) and per-project roles, granted exactly like a member's.
+
+Create one in the console: open **API Tokens**, switch to the **Organization** tab, and under **Organization API tokens** click **New token**. Pick a name and org role; the `omnara_org_…` token is shown once. Then grant the key project roles from its detail panel — a member-role key sees nothing until you do, same as a human member.
+
+Key management stays human-gated: creating, renaming, changing roles, and revoking all require a console session, so one API key can never mint or escalate another. Listing and reading key metadata work with regular API auth ([List org API keys](/api-reference/endpoints/users-and-api-keys/list-org-api-keys)). Revocation is permanent and drops the key's org and project roles ([Revoke](/api-reference/endpoints/users-and-api-keys/revoke-an-org-api-key)).
+
+## Device login for CLIs
+
+The device flow gets a token onto a machine where pasting secrets is awkward. It's three steps: request a code, have the user approve it in a browser, poll for the token. These routes live under `/api/auth` (not `/api/v1`) and the first two need no authentication.
+
+**1. Start the flow:**
+
+```bash
+curl https://app.omnara.com/api/auth/device/code \
+  -H "Content-Type: application/json" \
+  -d '{ "client_name": "acme-cli", "token_name": "laptop of dana" }'
+```
+
+```json
+{
+  "device_code": "b62d4cb3…",
+  "user_code": "GLPM-XKCD",
+  "verification_uri": "https://app.omnara.com/device",
+  "verification_uri_complete": "https://app.omnara.com/device?user_code=GLPM-XKCD",
+  "expires_in": 900,
+  "interval": 5
+}
+```
+
+**2. Send the user to approve.** Open `verification_uri_complete` (or show `user_code` and point them at `verification_uri`). They sign in and approve — or deny — on the console's **Approve device login** page.
+
+**3. Poll for the token** every `interval` seconds with the private `device_code`:
+
+```bash
+curl https://app.omnara.com/api/auth/device/token \
+  -H "Content-Type: application/json" \
+  -d '{ "device_code": "b62d4cb3…" }'
+```
+
+While the user hasn't decided, you get `202`:
+
+```json
+{ "error": "authorization_pending", "interval": 5 }
+```
+
+(`slow_down` means you're polling too fast — back off to the returned interval.) On approval, `200` delivers a normal API key:
+
+```json
+{ "access_token": "omnara_pat_hcyd5n6a2…", "token_type": "Bearer" }
+```
+
+A denied or expired flow returns `400` with `"access_denied"` or `"expired_token"`. The resulting token is a regular personal access token for the approving user, named after `token_name` — it appears in their token list like any other.
+
+## Managing tokens
+
+The **API Tokens** page — or [List personal access tokens](/api-reference/endpoints/users-and-api-keys/list-the-authenticated-users-personal-access-tokens) — shows your tokens with creation and last-used times, metadata only: the secret is never shown again. `last_used_at` tells you which tokens are actually alive; prune the rest, and [revoke](/api-reference/endpoints/users-and-api-keys/revoke-a-personal-access-token) immediately if a token leaks — revocation is permanent.
