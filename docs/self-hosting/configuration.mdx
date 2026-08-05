@@ -1,0 +1,212 @@
+---
+title: Configuration
+description: Environment-variable reference for every control-plane process
+icon: "sliders"
+---
+
+All configuration is environment variables. `.env.example` in the repo root tracks the full surface.
+
+<Note>
+  **Required** refers to production. Setting `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1`
+  fills the fallbacks marked *dev* below (local Compose services, console email,
+  an insecure secret-encryption key). Never set it in production.
+</Note>
+
+## Core
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_PUBLIC_URL` | Public origin for the app and API; used in emails, OAuth callbacks, and daemon bootstrap config. Origin only, no path; HTTPS outside localhost. Set identically on API, worker, and maintenance. | — | Yes |
+| `OMNARA_BILLING_URL` | External billing page linked from the web app; the UI appends `?org=<org-id>`. HTTPS outside localhost, no query parameters. Leave unset to hide billing in the web app. | — | No |
+| `OMNARA_API_ADDR` | Public listen address of `api` | `:8080` | No |
+| `OMNARA_API_METRICS_ADDR` | `api` health/metrics listener | `:8081` | No |
+| `OMNARA_WORKER_METRICS_ADDR` | `worker` health/metrics listener | `:8082` | No |
+| `OMNARA_MAINTENANCE_METRICS_ADDR` | `maintenance` health/metrics listener | `:8083` | No |
+| `OMNARA_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` | `info` | No |
+| `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS` | `1` enables local-development fallbacks | unset | No |
+| `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
+| `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
+| `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
+| `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
+
+Each metrics listener serves `GET /healthz` (liveness), `GET /readyz` (Postgres and Redis reachable), and Prometheus `GET /metrics`, kept off the public listener so it can stay on your internal network.
+
+Each worker generates a random process UUID at startup and uses it only as its Redis control-message address. Active agent runtime locks store that routing UUID, while owned writes check the runtime-lock ID and its stored lease deadline. There is no durable worker registry or operator-configured worker identity.
+
+Workers grant 90-second runtime-lock leases and renew them automatically. PostgreSQL records the absolute `lease_expires_at` deadline, and maintenance evaluates that stored deadline against PostgreSQL statement time. There is no runtime-lock timeout setting to coordinate across processes.
+
+## Database and Redis
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_DATABASE_URL` | Postgres connection string used by `migrate` and the three long-running control-plane services | *dev:* local Compose Postgres | Yes |
+| `OMNARA_REDIS_URL` | Redis or Valkey URL | *dev:* `redis://127.0.0.1:6379/0` | Yes |
+| `OMNARA_MIGRATIONS_DIR` | Directory containing schema migrations; used only by `cmd/migrate` | `migrations` | No |
+
+The database connection's first `search_path` schema owns the Omnara tables.
+If `pg_trgm` is already installed in another schema, include that schema
+second, for example `search_path=agents,extensions`. Only include schemas that
+do not grant `CREATE` to untrusted database roles.
+
+## Web serving and proxy
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_WEB_SERVING` | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No |
+| `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control. | — | No |
+
+## Email
+
+Signup and password reset send email through `OMNARA_EMAIL_DRIVER`. In production, use `smtp` or `sendgrid` — or disable both flows with `OMNARA_AUTH_SIGNUP_ENABLED=0` and `OMNARA_AUTH_PASSWORD_RESET_ENABLED=0`.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_EMAIL_DRIVER` | `none`, `console` (dev only), `smtp`, or `sendgrid` | `none` (*dev:* `console`) | When signup or reset is enabled |
+| `OMNARA_EMAIL_FROM` | Sender address | — | With `smtp` or `sendgrid` |
+| `OMNARA_SMTP_ADDR` | SMTP server `host:port` | — | With `smtp` |
+| `OMNARA_SMTP_USERNAME` / `OMNARA_SMTP_PASSWORD` | SMTP credentials; set both or neither | — | No |
+| `OMNARA_SMTP_REQUIRE_TLS` | Require STARTTLS; disabling is dev-only | `1` | No |
+| `SENDGRID_API_KEY` | SendGrid API key | — | With `sendgrid` |
+
+## Auth and SSO connectors
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_AUTH_SIGNUP_ENABLED` | First-party password signup | `1` | No |
+| `OMNARA_AUTH_PASSWORD_RESET_ENABLED` | Password reset flow | `1` | No |
+| `OMNARA_AUTH_CONNECTORS_JSON` | JSON array of social/SSO login connectors | — | No |
+
+`OMNARA_AUTH_CONNECTORS_JSON` is authoritative at API startup: connectors omitted from the list are disabled. GitHub uses `kind:"github"` (endpoints default to github.com; GitHub-compatible providers must supply `issuer`, `authorization_url`, `token_url`, and `userinfo_url`). Google and generic SSO providers — Keycloak, Okta, Auth0, Azure, ZITADEL — use `kind:"oidc"` with the issuer URL and standard discovery; endpoint overrides are rejected. Production connector URLs must use HTTPS (localhost is allowed for local IdP testing).
+
+```sh
+OMNARA_AUTH_CONNECTORS_JSON='[
+  {"slug":"github","kind":"github","display_name":"GitHub","client_id":"<id>","client_secret":"<secret>"},
+  {"slug":"google","kind":"oidc","display_name":"Google","issuer":"https://accounts.google.com","client_id":"<id>","client_secret":"<secret>","email_trust_policy":"verified_email"}
+]'
+```
+
+**`email_trust_policy`** controls what a connector's email claim may do:
+
+- `none` (OIDC default) — the connector can only authenticate identities already linked to an Omnara user.
+- `verified_email` — also allows first-time account creation and same-email linking; set it only for providers you trust to assert mailbox ownership. GitHub defaults to `verified_email` using only its primary verified email; Google email is accepted for create/link only for Gmail/Googlemail addresses or Workspace tokens with `hd`.
+
+## Secret encryption
+
+Secret values are envelope-encrypted with keys from this ring.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_SECRET_ENCRYPTION_KEYS` | JSON object of key ID to base64 32-byte key (the key ring) | *dev:* insecure `dev-local` key | Yes |
+| `OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID` | Key ID used to wrap new writes; must exist in the ring | *dev:* `dev-local` | Yes |
+
+Generate each key with `openssl rand -base64 32`. To rotate: add the new key to the ring, set it active, rewrap stored versions, then remove the old key once nothing references it.
+
+## Skill download capabilities
+
+Skill archive offers use a short-lived capability bound to one machine, skill, and revision. The API and worker must share the same signing key.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_SKILL_DOWNLOAD_SIGNING_KEY` | Base64-encoded 32-byte HMAC key for machine-bound skill download capabilities | *dev:* insecure local key | Yes |
+
+Generate the key with `openssl rand -base64 32` and configure the same value for API and worker processes.
+
+## Blob storage
+
+Artifact content lives in S3-compatible object storage; a bucket is required.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_BLOB_S3_BUCKET` | Bucket for artifact content | *dev:* Compose MinIO bucket `omnara` | Yes |
+| `OMNARA_BLOB_S3_REGION` | Bucket region | — | No |
+| `OMNARA_BLOB_S3_ENDPOINT` | Custom endpoint for MinIO or other S3-compatible stores; HTTPS outside localhost | — | No |
+| `OMNARA_BLOB_S3_ACCESS_KEY_ID` / `OMNARA_BLOB_S3_SECRET_ACCESS_KEY` | Static credentials; set both or neither. Leave empty to use the AWS default credential chain. | — | No |
+| `OMNARA_BLOB_S3_USE_PATH_STYLE` | `1` for path-style addressing (MinIO) | `0` | No |
+
+## Machine daemon and pools
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_INTERVAL` | API-side fallback drain floor for connected daemon sockets when Redis wakeups are missed | `30s` | No |
+| `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_JITTER` | Jitter added to the fallback drain; must not exceed the interval | `10s` | No |
+| `OMNARA_DAEMON_RELEASE_URL` | Platform-manifest directory embedded in the hosted `omnarad.sh` installer | `https://releases.omnara.com/omnarad/latest` | No |
+| `OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES` | Path to a YAML file of default pool templates; when set, new orgs get cluster-managed machine pools | — | No |
+| `OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN` | Provider token read by the example default-pool template; default-pool provider tokens stay in env | — | No |
+
+Daemon runtimes use a fixed two-minute lease recorded in PostgreSQL. The API renews the stored deadline, and maintenance evaluates that deadline without a matching timeout setting.
+
+The installer resolves `<manifest-directory>/<os>-<arch>.txt` and stores that concrete manifest URL for later updates. To use the GitHub-hosted channel instead of R2, set `OMNARA_DAEMON_RELEASE_URL=https://github.com/omnara-ai/omnara/releases/download/omnarad-stable`. This setting affects new installations only; an existing installation continues using the source stored in its installation receipt. The plain-text manifest must contain exactly one `version=MAJOR.MINOR.PATCH`, `url=<artifact URL>`, and `sha256=<64 hex characters>` field. Release artifacts must return that exact version from `omnarad --version`.
+
+Daemon hosts accept these installation and runtime overrides:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `OMNARA_HOME` | Binary, configuration, logs, locks, and runtime state | `$HOME/.omnarad` |
+| `OMNARA_API_URL` | Control-plane origin; HTTP is accepted only for loopback or `host.docker.internal` during local development | Existing `daemon.json` value, otherwise `https://app.omnara.com` |
+| `OMNARA_MACHINE_TOKEN` | Machine token; prompted for by the installer when omitted | Existing `daemon.json` value |
+| `OMNARA_NO_UPDATE` | Set to `1` or `0` to temporarily disable or enable managed updates | Existing `daemon.json` value, otherwise `0` |
+| `OMNARA_RUNNER_PATH` | Temporary `PATH` override for agent commands | Existing `daemon.json` value, otherwise the installation `PATH` |
+| `OMNARA_DAEMON_SEED_PATH` | Existing `omnarad` binary used only to seed a fresh installer-owned home | — |
+
+`omnarad install` atomically writes validated `daemon.json` configuration. `omnarad start` and `omnarad restart` apply `OMNARA_API_URL`, `OMNARA_MACHINE_TOKEN`, `OMNARA_NO_UPDATE`, and `OMNARA_RUNNER_PATH` in memory without changing that file. When launchd or systemd is available, update `daemon.json` and run `omnarad restart` instead. Without a service manager, temporary overrides run under foreground supervision; `omnarad start --no-service` explicitly stops any managed daemon and runs with foreground supervision.
+
+Machine pool templates define the provider, default machine configuration, and limits used when agents request pool-backed machines.
+
+| Provider | CPU fields | `provider_config` | `default_machine_provider_options` |
+| --- | --- | --- | --- |
+| `unikraft` | Required | Optional `api_base_url`, `allowed_images`, and `allowed_metros` | `image`, `metro`, and optional `startup_script` and `sleep_after_ms` |
+| `blaxel` | Omit `default_machine_cpu`, `max_total_cpu`, and `max_machine_cpu` | Required `workspace`; optional `allowed_images` and `allowed_regions` | Blaxel sandbox `image`, `region`, and optional `startup_script` and `sleep_after_ms` |
+| `daytona` | Required | Optional `api_base_url`, `allowed_snapshots`, and `allowed_targets` | Daytona snapshot name, `target`, and optional `startup_script` |
+
+Blaxel images must be sandbox images built or pushed through Blaxel, not arbitrary registry images. Custom images must include `sandbox-api`. The Omnara launcher used by Blaxel images and Daytona snapshots requires a POSIX shell, standard Unix utilities, `curl`, and `sha256sum` or `shasum`; `startup_script` additionally requires `base64`.
+
+Custom pool images must provide `HOME` or `OMNARA_HOME`, and the selected location must be writable by the daemon process.
+
+For Unikraft and Blaxel pools, `sleep_after_ms` enables scale-to-zero after that many milliseconds of daemon inactivity. Omit it or set it to `0` to disable sleep; enabled values must be at least `30000`.
+
+Blaxel machine pools require quota Tier 2 or higher for unlimited persistence. Tier 0 and Tier 1 enforce maximum sandbox lifetimes of 7 and 30 days, respectively.
+
+Daytona snapshot CPU and memory are resolved through the Daytona API and counted against the pool caps. Snapshots are configured and allowed by name, must be active in the selected target, and must allow sandboxes to reach `OMNARA_PUBLIC_URL`.
+
+## Model providers
+
+Hosted deployments can create one cluster-managed model provider for every new organization. The control-plane API asks an optional hosted API for its credential before opening the organization transaction. A hosted API failure fails the request without creating the organization. On success, the organization, memberships, default project, default machine pools and grants, cluster-managed secret and provider, configured models, and model grants are committed together. Cluster-managed resource definitions remain visible but cannot be edited through tenant APIs; tenant-owned project grants can still reference the cluster-managed models and machine pools.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the cluster-managed provider and configured-model template to create with each organization | — | No |
+| `OMNARA_HOSTED_API_URL` | Base URL for optional Omnara-hosted capabilities; the control plane appends its provider-neutral API route | — | When a default model provider template is configured |
+| `OMNARA_HOSTED_API_TOKEN` | Shared service-identity bearer token for control-plane-only hosted API routes; must contain at least 32 bytes | — | When a default model provider template is configured |
+
+Generate one high-entropy hosted API token and inject the same value only into
+the control-plane and hosted-backend deployments. It is not a browser,
+webhook, provider-management, or hosted-backend-to-control-plane credential.
+Restricting the hosted API ingress to the control plane is additional defense;
+the bearer token is still required.
+
+The control plane calls `POST /model-provider-credentials` beneath the configured base URL. The request contains the proposed public organization ID, the authenticated creator's public user ID, and the complete normalized provider template. The template's required `provisioner` field is an opaque adapter name interpreted by the hosted service; the control plane does not enumerate provisioners or apply provider-specific validation. The hosted service returns only the credential value.
+
+```json
+{ "credential_value": "..." }
+```
+
+`Idempotency-Key` is optional on organization creation. When supplied, the control plane derives the same proposed organization ID on every retry and a completed replay returns the existing organization without another hosted call. Without the header, every request is a new creation attempt. If hosted issuance succeeds but the local organization transaction fails, the external credential can be orphaned. The hosted service must not create a second credential for that organization ID; an operator must repair the hosted issuance before the same attempt can complete.
+
+## Local and live-test bootstrap
+
+Model providers are configured through the console or API, not env vars. These keys only feed the local example CLI bootstrap and live tests.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OPENAI_API_KEY` | Lets the example CLI bootstrap the `openai-prod` provider config; used by live tests | — | No |
+| `OPENAI_BASE_URL` | Alternative OpenAI-compatible endpoint | `https://api.openai.com/v1` | No |
+| `ANTHROPIC_API_KEY` | Lets the example CLI bootstrap `anthropic-prod`; used by live tests | — | No |
+| `ANTHROPIC_BASE_URL` | Alternative Anthropic endpoint | `https://api.anthropic.com` | No |
+
+## Web tools
+
+Web tools work out of the box: `web_fetch` has no vendor dependency, and `web_search` defaults to Exa's keyless endpoint.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `EXA_API_KEY` | Upgrades `web_search` to the direct Exa API; recommended for hosted or multi-tenant deployments | — | No |

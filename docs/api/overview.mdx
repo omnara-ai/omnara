@@ -1,224 +1,126 @@
 ---
 title: API Overview
-description: 'REST API for Omnara agent integration'
+description: How the API is organized, plus the conventions every endpoint shares
+icon: "code"
 ---
 
-## Overview
+The Omnara API is JSON over HTTPS. Hosted routes live under:
 
-The Omnara REST API provides programmatic access to all platform features. Use it to build custom agent integrations, dashboards, or automation workflows.
+```text
+https://app.omnara.com/api/v1
+```
 
-**Base URL:** `https://agent.omnara.com/api/v1`
+Self-hosted deployments serve the same routes from their own origin. Every deployment serves its OpenAPI 3.0 specification at `GET /api/openapi.yaml`; the endpoint pages in this reference are generated from that spec.
+
+## How the API is organized
+
+Most integrations only need the first three groups: launch an agent, respond when it needs a human, and read what it did.
+
+| Group                                                                                                                | What it covers                                                                        |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [Agents](/api-reference/endpoints/agents/create-agent)                                                               | Launch agents, send inputs, manage the input backlog, and handle custom tool calls    |
+| [Interactions](/api-reference/endpoints/interactions/list-agent-interactions)                                        | List and resolve the approvals and questions that pause an agent                      |
+| [Events](/api-reference/endpoints/events/list-events)                                                                | Read or stream the agent timeline, list turns, download artifacts                     |
+| [Configs and Profiles](/api-reference/endpoints/configs-and-profiles/create-agent-config)                            | Compile agent configs and manage reusable launch profiles                             |
+| [Models](/api-reference/endpoints/models/create-model-provider-config)                                               | Model providers, configured models, and project model access                          |
+| [Machines](/api-reference/endpoints/machines/create-machine)                                                         | Machines, project machine access, and daemon tokens                                   |
+| [Machine Pools](/api-reference/endpoints/machine-pools/create-machine-pool)                                          | Machine pools and project pool access                                                 |
+| [Secrets](/api-reference/endpoints/secrets/create-secret)                                                            | Organization-, project-, and user-owned secrets, plus project availability and grants |
+| [Organizations and Projects](/api-reference/endpoints/organizations-and-projects/create-organization)                | Organizations, membership, invitations, and projects                                  |
+| [Users and API Keys](/api-reference/endpoints/users-and-api-keys/get-the-authenticated-user-and-their-organizations) | The authenticated user, personal access tokens, and pending invitations               |
+
+A typical agent workflow maps onto the groups like this:
+
+1. **Launch** — `POST .../agents` with a profile or config ([Agents](/api-reference/endpoints/agents/create-agent))
+2. **Follow** — `GET .../events/stream` for the live timeline ([Events](/api-reference/endpoints/events/stream-events))
+3. **Respond** — resolve approvals and questions as they appear ([Interactions](/api-reference/endpoints/interactions/resolve-agent-interaction))
+4. **Continue** — send follow-up messages with `POST .../inputs` ([Agents](/api-reference/endpoints/agents/create-agent-input))
+
+Custom tool consumers list authorized work with
+`GET .../tool-calls?state=ready&type=custom`, then submit each result once to
+`POST .../tool-calls/{toolCallID}/result`. Calls that are not ready or already
+have a result return `409`.
+
+Secrets have separate ownership and availability. Manage every secret through
+the organization-level `/secrets` resource and choose its immutable `owner`
+when creating it. Use the read-only project secret endpoints to discover what
+a project can use and whether that availability is direct or comes from a
+grant.
 
 ## Authentication
 
-All API requests require authentication via Bearer token:
+Create an API key in the console and send it as a bearer token:
 
 ```bash
-curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://agent.omnara.com/api/v1/messages/agent
+curl https://app.omnara.com/api/v1/me \
+  -H "Authorization: Bearer $OMNARA_TOKEN"
 ```
 
-<Card title="Get Your API Key" icon="key" href="/authentication">
-  Learn how to obtain and manage API keys
-</Card>
+| Credential                                 | Used by                                |
+| ------------------------------------------ | -------------------------------------- |
+| API key (`omnara_pat_...`)                 | API clients                            |
+| Machine daemon token (`omnara_daemon_...`) | Machine daemons, on daemon routes only |
+| Browser session cookie + `X-Omnara-Csrf`   | The web console                        |
 
-## Quick Start
+API keys are shown once when created. Rotate them from the console if they are exposed.
 
-Send a message from your agent:
+## Pagination
 
-```bash
-curl -X POST https://agent.omnara.com/api/v1/messages/agent \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "agent_type": "My Custom Agent",
-    "content": "Starting analysis of codebase",
-    "requires_user_input": false
-  }'
-```
+| Style    | Endpoints              | Request parameters                                          | Response fields                                    |
+| -------- | ---------------------- | ----------------------------------------------------------- | -------------------------------------------------- |
+| Cursor   | Most list endpoints    | `cursor`, `limit`                                           | `data`, `next_cursor`                              |
+| Sequence | Agent events and turns | `after_sequence`, `before_sequence`, `before_turn_sequence` | `next_after_sequence`, `next_before_*`, `has_more` |
 
-Response:
+Pass the returned cursor back on the next request to continue.
+
+## Idempotency
+
+Most create endpoints accept an optional `Idempotency-Key` header. Retrying with the same key returns the original control-plane resource instead of creating a duplicate. A replay returns `200` where the first request returned `201`; a conflicting retry returns `409`.
+
+Agent creation uses first-write-wins semantics: reusing a key returns the agent's current state even if the retry body differs. The retry body is not applied.
+
+Organization creation also accepts this header but does not require it. A key determines the proposed organization ID, so a failed retry uses the same ID. Once the organization commits, reusing the key returns it without another hosted call. Without the header, each request is a fresh organization-creation attempt.
+
+## Errors
+
+Every error response uses the same envelope:
 
 ```json
-{
-  "success": true,
-  "message_id": "msg_abc123",
-  "agent_instance_id": "inst_xyz789",
-  "queued_user_messages": []
-}
+{ "error": "human-readable message", "code": "stable_error_code" }
 ```
 
-## Core Endpoints
+`error` is human-readable and may change; `code` is stable and safe to branch on. Most responses use the status default (`invalid_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `gone`, `request_too_large`, `unprocessable`, `internal_error`, `upstream_error`, `service_unavailable`). Specific conditions use dedicated codes: `idempotency_key_conflict`, `validation_failed`, `state_transition_conflict`, `daemon_runtime_unregistered`, `csrf_check_failed`, and `authentication_unavailable`.
 
-<CardGroup cols={2}>
-  <Card title="Send Message" icon="paper-plane">
-    **POST** `/messages/agent`
+| Status | Meaning                                                         |
+| ------ | --------------------------------------------------------------- |
+| `400`  | The request was invalid                                         |
+| `401`  | Authentication is required or invalid                           |
+| `403`  | Authenticated, but not authorized for this action               |
+| `404`  | The resource does not exist or is not visible to you            |
+| `409`  | The request conflicts with current state or idempotency history |
+| `410`  | The resource is no longer available                             |
+| `422`  | The request cannot be processed in its current form             |
+| `500`  | Unexpected internal error                                       |
+| `502`  | An upstream service failed                                      |
+| `503`  | A service dependency is unavailable                             |
 
-    Send status updates or ask questions
-  </Card>
+Resources you cannot read return `404`, not `403`; a `403` means the resource is visible but your role does not permit the action.
 
-  <Card title="Get Pending Messages" icon="inbox">
-    **GET** `/messages/pending`
+## Request size limits
 
-    Retrieve user responses
-  </Card>
+| Requests                                             | Limit |
+| ---------------------------------------------------- | ----- |
+| `POST .../inputs` and `POST .../tool-calls/{toolCallID}/result` | 48 MB |
+| All other requests                                   | 1 MB  |
 
-  <Card title="End Session" icon="circle-stop">
-    **POST** `/sessions/end`
+The larger limit covers base64-encoded attachments on agent inputs and custom tool call results.
 
-    Mark agent session as complete
-  </Card>
+## Streaming
 
-  <Card title="Verify Auth" icon="shield-check">
-    **GET** `/auth/verify`
+Each agent exposes its timeline as a Server-Sent Events stream:
 
-    Validate API key
-  </Card>
-</CardGroup>
-
-## Python SDK
-
-For Python applications, use the official SDK:
-
-```bash
-pip install omnara
+```text
+GET /api/v1/orgs/{org}/projects/{project}/agents/{agent}/events/stream
 ```
 
-```python
-from omnara import OmnaraClient
-import uuid
-
-client = OmnaraClient(api_key="your-api-key")
-instance_id = str(uuid.uuid4())
-
-# Send a message
-response = client.send_message(
-    agent_type="My Agent",
-    content="Processing data...",
-    agent_instance_id=instance_id,
-    requires_user_input=False
-)
-
-# Ask a question
-answer = client.send_message(
-    content="Should I proceed with deployment?",
-    agent_instance_id=instance_id,
-    requires_user_input=True
-)
-print(f"User said: {answer}")
-```
-
-<Card title="Python SDK Documentation" icon="python" href="/api/sdk">
-  Complete SDK reference and examples
-</Card>
-
-## Rate Limits
-
-Current rate limits (subject to change):
-
-| Tier | Requests/minute | Requests/hour |
-|------|----------------|---------------|
-| Free | 60 | 1,000 |
-| Pro | 300 | 10,000 |
-| Enterprise | Custom | Custom |
-
-Rate limit headers are included in responses:
-
-```
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1640000000
-```
-
-## Error Handling
-
-The API uses standard HTTP status codes:
-
-| Code | Meaning |
-|------|---------|
-| 200 | Success |
-| 400 | Bad Request - Invalid parameters |
-| 401 | Unauthorized - Invalid or missing API key |
-| 403 | Forbidden - Insufficient permissions |
-| 404 | Not Found - Resource doesn't exist |
-| 429 | Too Many Requests - Rate limit exceeded |
-| 500 | Internal Server Error |
-
-Error response format:
-
-```json
-{
-  "error": {
-    "code": "invalid_request",
-    "message": "Missing required field: agent_type",
-    "details": {
-      "field": "agent_type"
-    }
-  }
-}
-```
-
-## Webhooks
-
-Configure webhooks to receive real-time notifications when users respond:
-
-1. Set up webhook URL in dashboard
-2. Include webhook URL in message metadata:
-
-```json
-{
-  "agent_type": "My Agent",
-  "content": "Approve deployment?",
-  "requires_user_input": true,
-  "message_metadata": {
-    "webhook_url": "https://your-app.com/webhook",
-    "webhook_type": "custom"
-  }
-}
-```
-
-3. Receive POST request when user responds:
-
-```json
-{
-  "user_message": "Yes, approved",
-  "user_id": "user_abc123",
-  "message_id": "msg_xyz789",
-  "agent_instance_id": "inst_def456",
-  "timestamp": "2025-10-08T12:00:00Z"
-}
-```
-
-## Self-Hosted Instances
-
-Point to your own Omnara instance:
-
-```bash
-export OMNARA_API_URL="https://omnara.mycompany.com"
-```
-
-Or in API calls:
-
-```python
-client = OmnaraClient(
-    api_key="your-key",
-    base_url="https://omnara.mycompany.com"
-)
-```
-
-## Next Steps
-
-<CardGroup cols={2}>
-  <Card title="Authentication" href="/api/authentication">
-    API key management and security
-  </Card>
-  <Card title="Python SDK" href="/api/sdk">
-    Official Python SDK documentation
-  </Card>
-  <Card title="CLI Reference" href="/cli/overview">
-    Use CLI for quick testing
-  </Card>
-  <Card title="Integrations" href="/integrations/n8n">
-    Pre-built integrations
-  </Card>
-</CardGroup>
+Use `after_sequence` or `Last-Event-ID` to resume after a disconnect. See the [Events](/api-reference/endpoints/events/list-events) endpoints in the API reference.

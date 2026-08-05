@@ -1,315 +1,141 @@
-# Omnara - Mission Control for Your AI Agents 🚀
+# Omnara
 
-> ⚠️ **IMPORTANT NOTICE** ⚠️
->
-> **This version of Omnara is no longer maintained.** We apologize for the inconvenience. This version was built as a wrapper around the Claude Code CLI, which became unfeasible to maintain with Claude Code's constant updates.
->
-> We've migrated to a new voice-first coding agent platform at [https://omnara.com](https://omnara.com) built using the Claude Agent SDK. The new service keeps the features you love - **web and mobile access to your machine** - but we've built our own integrated experience instead of wrapping the Claude Code CLI. This allows us to provide a more reliable and maintainable service.
->
-> - **Legacy Web App**: The legacy web dashboard for this deprecated version is at [https://claude.omnara.com](https://claude.omnara.com) and will continue to work until the end of 2025. To use it, upgrade the Python package to version 1.7.0: `pip install omnara==1.7.0`
-> - **New Platform**: The new version at [omnara.com](https://omnara.com) is now a bun executable. Install it with: `curl -fsSL https://omnara.com/install/install.sh | bash`
-> - **Current Paying Customers**: You can contact us at [contact@omnara.com](mailto:contact@omnara.com) for a refund. We will also apply 2 months of free credits to your account on the new platform at [omnara.com](https://omnara.com) and you will keep your current payment rate **forever**
-> - **Mobile App Auto-Updates**: If you have auto-updates enabled, your mobile app may have already updated to v1.5.0 (the new platform). If you need access to the older version (< 1.5.0) for this deprecated platform, please reach out to [contact@omnara.com](mailto:contact@omnara.com) and we can provide access via TestFlight
-> - **Building from Source**: The web and mobile apps are now fully open source under Apache 2.0. You can build both the web dashboard (`apps/web/`) and mobile app (`apps/mobile/`) from source if you prefer to self-host or run an older version
-> - **Questions**: For any other questions, please contact us at [contact@omnara.com](mailto:contact@omnara.com)
+The control plane for agents.
 
----
+Take your agents from prototype to production — one open-source API to deploy,
+run, and control them. Self-host it, or use our managed cloud.
 
-<div align="center">
+## Deploy agents, not infrastructure
 
-**Your AI workforce, in your pocket.**
+Define an agent once — in YAML or the console — with its model, tools, policies,
+and machines. Launch it from the API, console, or Slack. Omnara owns the agent
+loop and its durable state, so agents can run for minutes or days, survive
+crashes and disconnects, pause for a human, and resume exactly where they left
+off.
 
-[![PyPI version](https://badge.fury.io/py/omnara.svg)](https://badge.fury.io/py/omnara)
-[![Downloads](https://pepy.tech/badge/omnara)](https://pepy.tech/project/omnara)
-[![Python Versions](https://img.shields.io/pypi/pyversions/omnara.svg)](https://pypi.org/project/omnara/)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![GitHub stars](https://img.shields.io/github/stars/omnara-ai/omnara?style=social)](https://github.com/omnara-ai/omnara)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+A production agent needs more than a prompt and a model call. It needs reliable
+hosting, persistent history, secure access to models, machines, and tools, and a
+way for people to stay in control. Omnara provides those pieces as one system.
 
-</div>
+- **Agents outlive workers** — every turn, tool call, approval, checkpoint, and
+  artifact is durable state. Workers can restart without restarting the agent.
+- **Machines are tools** — let agents use managed pool machines or connect your
+  own through an outbound daemon. The agent is not bound to one machine's
+  lifecycle.
+- **Models stay replaceable** — configure providers centrally and grant each
+  project only the models it should use, without coupling agent definitions to
+  one vendor.
+- **Humans stay in control** — scope access by organization and project, encrypt
+  secrets, require approval for risky tools, and retain an append-only history
+  of agent activity.
 
-![Omnara Mobile Experience](./docs/assets/three-panel.png)
+## Architecture
 
-<div align="center">
+The repository contains a TypeScript web console, four long-running Go service
+entrypoints, and one migration entrypoint:
 
-[📱 **iOS App**](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727) • [🤖 **Android App**](https://play.google.com/store/apps/details?id=com.omnara.app) • [🌐 **Web Dashboard**](https://claude.omnara.com) • [📖 **Docs**](https://omnara.mintlify.dev/) • [🎥 **Demo**](https://www.loom.com/share/03d30efcf8e44035af03cbfebf840c73?sid=1c209c04-8a4c-4dd6-8c92-735c399886a6) • [⭐ **GitHub**](https://github.com/omnara-ai/omnara)
+- `frontend/` contains the web console.
+- `cmd/api` serves the HTTP API.
+- `cmd/worker` claims ready agent work, calls models, and executes tools.
+- `cmd/maintenance` performs global background maintenance.
+- `cmd/daemon` runs agent processes on connected machines.
+- `cmd/migrate` applies database migrations as a one-shot process.
 
-</div>
+Postgres is the source of truth. Valkey/Redis provides best-effort wakeups and
+cancellation signals, while S3-compatible object storage holds artifacts.
+Model and machine-provider adapters sit behind first-party contracts, so the
+durable agent state does not depend on a single vendor.
 
----
+See the [architecture documentation](https://docs.omnara.com/self-hosting/architecture)
+for the full request and execution flow.
 
-## 🚀 Quick Start
+## Quickstart
 
-```bash
-# Install Omnara (requires python >= 3.10)
-pip install omnara
+### Requirements
 
-# Start a Claude Code session that's synced between terminal, web, and mobile
-omnara
+- Docker with Compose
 
-# Start a Codex CLI session that's synced between terminal, web, and mobile
-omnara --agent codex
-```
+### Run published images
 
-That's it! Create an account when prompted, then return to your terminal to interact with your coding agent. You can now see and interact with your coding agent session from the [web dashboard](https://claude.omnara.com/dashboard) or the [mobile app](https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727).
-
-## 💡 What is Omnara?
-
-Omnara transforms your AI agents (Claude Code, Codex CLI, n8n, and more) from silent workers into communicative teammates. Get real-time visibility into what your agents are doing, and respond to their questions instantly from a single dashboard on web and mobile.
-
-
-### 🎬 See It In Action
-
-![Agent Activity Feed](./docs/assets/Mobile-app-showcase.gif)
-
-## 📖 How to Use
-
-### 1. Omnara CLI
-<details>
-<summary>The primary way to use CLI coding agents (Claude Code, Codex CLI) with Omnara</summary>
-
-#### Installation
-
-Install Omnara using your preferred package manager:
-
-```bash
-# Using pip
-pip install omnara
-
-# Using uv
-uv tool install omnara
-
-# Using pipx
-pipx install omnara
-```
-
-#### Running Omnara
-
-Omnara offers three different modes depending on your workflow:
-
-##### **Standard Mode** - Full Claude Code/Codex CLI Experience
-```bash
-omnara
-```
-Starts Claude Code with the standard CLI interface, fully synced across terminal, web dashboard, and mobile app. You interact with Claude Code in your terminal as usual, while everything is mirrored to the Omnara dashboard.
-
-```bash
-omnara --agent codex
-```
-Starts Codex with the standard CLI interface with the same features as noted above
-
-##### **Headless Mode** - Dashboard-Only Interaction
-```bash
-omnara headless
-```
-Runs Claude Code in the background without the terminal UI. Perfect for when you want to interact with Claude Code exclusively through the Omnara web dashboard or mobile app.
-
-##### **Server Mode** - Remote Launch Capability
-```bash
-omnara serve
-```
-Exposes an endpoint that allows you to launch Claude Code instances remotely from the Omnara dashboard. Ideal for triggering AI agents from your phone or another device.
-
-#### Upgrading
-
-Keep Omnara up-to-date with the latest features:
-
-```bash
-# Using pip
-pip install omnara --upgrade
-
-# Using uv
-uv tool upgrade omnara
-
-# Using pipx
-pipx upgrade omnara
-```
-
-</details>
-
-### 2. n8n Integration
-<details>
-<summary>Add human-in-the-loop capabilities to your n8n workflows</summary>
-
-#### What it Does
-
-The Omnara n8n integration provides a specialized "Human in the Loop" node that enables real-time human-AI collaboration within your n8n workflows. Perfect for approval workflows, agent conversations, and guided automation.
-
-
-#### Installation & Setup
-
-For detailed installation and configuration instructions, see the [n8n-nodes-omnara package](https://www.npmjs.com/package/n8n-nodes-omnara) on npm.
-
-</details>
-
-### 3. GitHub Actions Integration
-<details>
-<summary>Run Claude Code in GitHub Actions with Omnara monitoring</summary>
-
-#### What it Does
-
-The Omnara GitHub Actions integration allows you to trigger Claude Code to run in your GitHub Actions workflows via repository dispatch events, while monitoring and interacting with it through the Omnara dashboard.
-
-#### Key Features
-
-- **Remote Launch**: Start GitHub Actions from your phone or web dashboard
-- **Automatic PR Creation**: Claude creates branches, commits changes, and opens PRs
-- **Real-time Monitoring**: Track progress and provide guidance through Omnara
-
-#### Installation & Setup
-
-For complete setup instructions including GitHub workflow configuration, see the [GitHub Actions integration guide](./src/integrations/github/claude-code-action/README.md).
-
-</details>
-
-## 🔧 Integrating your own Agent into Omnara
-
-
-### Method 1: Manual MCP Configuration
-
-For custom MCP setups, you can configure manually:
-
-```json
-{
-  "mcpServers": {
-    "omnara": {
-      "command": "pipx",
-      "args": ["run", "--no-cache", "omnara", "mcp", "--api-key", "YOUR_API_KEY"]
-    }
-  }
-}
-```
-
-### Method 2: Python SDK
-```python
-from omnara import OmnaraClient
-import uuid
-
-client = OmnaraClient(api_key="your-api-key")
-instance_id = str(uuid.uuid4())
-
-# Log progress and check for user feedback
-response = client.send_message(
-    agent_type="claude-code",
-    content="Analyzing codebase structure",
-    agent_instance_id=instance_id,
-    requires_user_input=False
-)
-
-# Ask for user input when needed
-answer = client.send_message(
-    content="Should I refactor this legacy module?",
-    agent_instance_id=instance_id,
-    requires_user_input=True
-)
-```
-
-### Method 3: REST API
-```bash
-curl -X POST https://agent.omnara.com/api/v1/messages/agent \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"content": "Starting deployment process", "agent_type": "claude-code", "requires_user_input": false}'
-```
-
-## 🏗️ Architecture Overview
-
-Omnara provides a unified platform for monitoring and controlling your AI agents:
-
-```mermaid
-graph TB
-    subgraph "Your AI Agents"
-        A[🤖 AI Agents<br/>Claude Code, Cursor, etc.]
-    end
-
-    subgraph "Omnara Platform"
-        API[🌐 API Server]
-        DB[(📊 PostgreSQL)]
-        NOTIFY[🔔 Notification Service<br/>Push/Email/SMS]
-    end
-
-    subgraph "Your Devices"
-        M[📱 Mobile App]
-        W[💻 Web Dashboard]
-    end
-
-    A -->|Send updates| API
-    API -->|Store data| DB
-    API -->|Trigger notifications| NOTIFY
-    NOTIFY -->|Alert users| M
-    DB -->|Real-time sync| M
-    DB -->|Real-time sync| W
-    M -->|User responses| API
-    W -->|User responses| API
-    API -->|Deliver feedback| A
-
-    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
-    style API fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
-    style DB fill:#ffccbc,stroke:#d84315,stroke-width:2px,color:#000
-    style NOTIFY fill:#fff59d,stroke:#f57f17,stroke-width:2px,color:#000
-    style M fill:#f8bbd0,stroke:#c2185b,stroke-width:3px,color:#000
-    style W fill:#f8bbd0,stroke:#c2185b,stroke-width:3px,color:#000
-```
-
-### For Developers
-
-<details>
-<summary><b>🛠️ Development Setup</b></summary>
-
-**Prerequisites:** Docker, Python 3.10+, Node.js
-
-**Quick Start:**
-```bash
-git clone https://github.com/omnara-ai/omnara
+```sh
+git clone https://github.com/omnara-ai/omnara.git
 cd omnara
-cp .env.example .env
-python infrastructure/scripts/generate_jwt_keys.py
-./dev-start.sh  # Starts everything automatically
+docker compose -f compose.yaml --profile app up -d
 ```
 
-**Stop services:** `./dev-stop.sh`
+### Build from source
 
-For detailed setup instructions, manual configuration, and contribution guidelines, see our [Contributing Guide](CONTRIBUTING.md).
-
-</details>
-
-## 🤝 Contributing
-
-We love contributions! Check out our [Contributing Guide](CONTRIBUTING.md) to get started.
-
-### Development Commands
-```bash
-make lint       # Run code quality checks
-make format     # Auto-format code
-make test       # Run test suite
-./dev-start.sh  # Start development servers
+```sh
+git clone https://github.com/omnara-ai/omnara.git
+cd omnara
+docker compose --profile app up -d --build
 ```
 
-## 📊 Pricing
+Open [http://localhost:8000](http://localhost:8000). Local authentication email
+is written to `docker compose logs api`, so you can complete signup without
+configuring an email provider.
 
-| Plan | Price | Features |
-|------|-------|----------|
-| **Free** | $0/mo | 10 agents/month, Core features |
-| **Pro** | $9/mo | Unlimited agents, Priority support |
-| **Enterprise** | [Contact Us](https://cal.com/ishaan-sehgal-8kc22w/omnara-demo) | Teams, SSO, Custom integrations |
+Add a model-provider credential in the console, create an agent profile, and
+launch an agent. The [hosted quickstart](https://docs.omnara.com/quickstart)
+walks through the same product flow in more detail.
 
-## 🆘 Support
+Local development uses intentionally insecure defaults. Do not use those
+defaults in a deployed environment. Follow the
+[self-hosting guide](https://docs.omnara.com/self-hosting/deployment) and
+[configuration reference](https://docs.omnara.com/self-hosting/configuration)
+for production setup.
 
-- 💬 [GitHub Discussions](https://github.com/omnara-ai/omnara/discussions)
-- 🐛 [Report Issues](https://github.com/omnara-ai/omnara/issues)
-- 📧 [Email Support](mailto:ishaan@omnara.com)
-- 📖 [Documentation](https://omnara.mintlify.dev/)
+## API
 
-## 📜 License
+The public API is defined in [`api/openapi/openapi.yaml`](api/openapi/openapi.yaml)
+and served from `/api/v1`. Use it to manage organizations, projects, agent
+profiles, agents, inputs, events, interactions, models, machines, pools, skills,
+and secrets.
 
-Omnara is open source software licensed under the [Apache 2.0 License](LICENSE).
+- [API overview](https://docs.omnara.com/api/overview)
+- [Published documentation](https://docs.omnara.com)
 
----
+Generated Go and TypeScript API code is committed and checked for drift in CI.
+Change the OpenAPI document first, then regenerate the affected clients and
+server boundaries.
 
-<div align="center">
+## Development
 
-**Built with ❤️ by the Omnara team**
+Source development requires the Go version declared in [`go.mod`](go.mod),
+Node.js 22 or newer with Corepack, and Docker with Compose.
 
-[Website](https://claude.omnara.com) • [Docs](https://omnara.mintlify.dev/) • [Twitter](https://twitter.com/omnaraai) • [LinkedIn](https://linkedin.com/company/omnara)
+Run the fast repository gate:
 
-</div>
+```sh
+make verify
+```
+
+Run database-backed integration tests:
+
+```sh
+make test-integration
+```
+
+Run deterministic service end-to-end tests:
+
+```sh
+make test-service-e2e
+```
+
+Provider-backed live tests are available through the `make test-live-*` targets
+and require the corresponding credentials.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for generated-code workflows and pull
+request expectations.
+
+## Community
+
+- Use [GitHub Issues](https://github.com/omnara-ai/omnara/issues) for bugs and
+  feature requests.
+- Join the [Omnara Discord](https://discord.gg/Dc46sYk6e3) for questions and
+  discussion.
+- Report vulnerabilities privately by following [SECURITY.md](SECURITY.md).
+
+## License
+
+Omnara is licensed under the [Apache License 2.0](LICENSE).

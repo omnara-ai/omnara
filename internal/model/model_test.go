@@ -1,0 +1,511 @@
+package model
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
+)
+
+func TestModelWindowForRequestUsesExactPolicy(t *testing.T) {
+	capabilities := Capabilities{
+		ContextWindowTokens:    200000,
+		MaxOutputTokens:        64000,
+		DefaultMaxOutputTokens: 2048,
+	}
+	policy := RequestPolicy{MaxOutputTokens: 32_000}
+	window := modelWindowForRequest(capabilities, policy)
+	if window.RequestMaxOutputTokens != 32_000 || window.SafetyMarginTokens == 0 {
+		t.Fatalf("request window = %+v, want exact policy max and safety margin", window)
+	}
+	if usable := UsableInputTokensForRequest(capabilities, policy); usable != 159_808 {
+		t.Fatalf("usable input tokens = %d, want 159808", usable)
+	}
+}
+
+func TestPrepareForSendIgnoresProviderNeutralBundleSize(t *testing.T) {
+	body := json.RawMessage(`{"request":true}`)
+	bundle := modelcontext.Bundle{
+		AvailableMachinePools: []modelcontext.MachinePoolRef{{
+			MachinePoolName: "provider-omits-this-field",
+			Description:     strings.Repeat("internal metadata ", 10_000),
+		}},
+	}
+	client := prepareForSendClient{
+		prepared:     PreparedRequest{Body: body},
+		capabilities: Capabilities{ContextWindowTokens: 1_000},
+	}
+
+	prepared, err := PrepareForSend(
+		context.Background(),
+		client,
+		bundle,
+		RequestPolicy{MaxOutputTokens: 100},
+		"test_api",
+	)
+	if err != nil {
+		t.Fatalf("prepare small provider request from large neutral bundle: %v", err)
+	}
+	if string(prepared.Body) != string(body) ||
+		prepared.InputTokenEstimate != modelcontext.EstimatePreparedRequest(body, nil) {
+		t.Fatalf("prepared request / estimate = %s/%d", prepared.Body, prepared.InputTokenEstimate)
+	}
+}
+
+func TestRequestPolicyFromCapabilitiesFallsBackToOutputCeiling(t *testing.T) {
+	policy := RequestPolicyFromCapabilities(Capabilities{MaxOutputTokens: 64_000})
+	if policy.MaxOutputTokens != 64_000 {
+		t.Fatalf("request policy max output = %d, want ceiling 64000", policy.MaxOutputTokens)
+	}
+}
+
+func TestPrepareForSendUsesSerializedRequestEstimate(t *testing.T) {
+	bundle := modelcontext.Bundle{}
+	client := prepareForSendClient{prepared: PreparedRequest{
+		Body:               json.RawMessage(`{"request":true}`),
+		InputTokenEstimate: 900,
+	}, capabilities: Capabilities{ContextWindowTokens: 1_000}}
+	_, err := PrepareForSend(
+		context.Background(),
+		client,
+		bundle,
+		RequestPolicy{MaxOutputTokens: 200},
+		"test_api",
+	)
+	var providerErr ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != ErrorKindContextWindow ||
+		providerErr.Code != "prepared_request_budget_overflow" {
+		t.Fatalf("serialized request overflow = %v, want context-window provider error", err)
+	}
+	client.prepared.InputTokenEstimate = 700
+	prepared, err := PrepareForSend(
+		context.Background(),
+		client,
+		bundle,
+		RequestPolicy{MaxOutputTokens: 200},
+		"test_api",
+	)
+	if err != nil {
+		t.Fatalf("prepare fitting serialized request: %v", err)
+	}
+	if prepared.InputTokenEstimate != 700 || string(prepared.Body) != `{"request":true}` {
+		t.Fatalf("prepared request / estimate = %s/%d", prepared.Body, prepared.InputTokenEstimate)
+	}
+}
+
+func TestPrepareForSendRejectsEmptyProviderRequest(t *testing.T) {
+	bundle := modelcontext.Bundle{}
+	_, err := PrepareForSend(
+		context.Background(),
+		prepareForSendClient{},
+		bundle,
+		RequestPolicy{},
+		"test_api",
+	)
+	var providerErr ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != ErrorKindInvalidRequest ||
+		providerErr.Code != "empty_prepared_request" {
+		t.Fatalf("empty prepared request = %v, want invalid-request provider error", err)
+	}
+}
+
+func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
+	bundle := modelcontext.Bundle{
+		RenderedMedia: []modelcontext.RenderedMedia{{
+			Media: modelcontext.ResolvedMedia{Kind: modelcontext.AttachmentKindImage},
+		}},
+	}
+	client := prepareForSendClient{
+		prepared: PreparedRequest{Body: json.RawMessage(`{"request":true}`), InputTokenEstimate: 100},
+		capabilities: Capabilities{
+			ContextWindowTokens: 100_000,
+			InputModalities:     []string{"text"},
+			OutputModalities:    []string{"text"},
+		},
+	}
+	_, err := PrepareForSend(context.Background(), client, bundle, RequestPolicy{}, "test_api")
+	var providerErr ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" {
+		t.Fatalf("image modality error = %v, want unsupported input modality", err)
+	}
+
+	client.capabilities.InputModalities = []string{"text", "image"}
+	bundle.RenderedMedia[0].Media.Kind = modelcontext.AttachmentKindDocument
+	_, err = PrepareForSend(context.Background(), client, bundle, RequestPolicy{}, "test_api")
+	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" ||
+		!strings.Contains(providerErr.Message, "file input") {
+		t.Fatalf("file modality error = %v, want unsupported file input modality", err)
+	}
+
+	client.capabilities.InputModalities = []string{"text", "image", "file"}
+	client.capabilities.OutputModalities = []string{"audio"}
+	_, err = PrepareForSend(context.Background(), client, bundle, RequestPolicy{}, "test_api")
+	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_output_modality" {
+		t.Fatalf("output modality error = %v, want unsupported output modality", err)
+	}
+
+	client.capabilities.OutputModalities = []string{"text"}
+	if _, err := PrepareForSend(context.Background(), client, bundle, RequestPolicy{}, "test_api"); err != nil {
+		t.Fatalf("compatible modalities: %v", err)
+	}
+}
+
+func TestParseRetryAfterPreservesWireForm(t *testing.T) {
+	delta := ParseRetryAfter("120")
+	if delta == nil || delta.DeltaSeconds == nil || *delta.DeltaSeconds != 120 ||
+		delta.DelayMilliseconds != nil || delta.HTTPDate != nil {
+		t.Fatalf("delta Retry-After = %+v", delta)
+	}
+
+	fractional := ParseRetryAfter("0.125")
+	if fractional == nil || fractional.DeltaSeconds != nil ||
+		fractional.DelayMilliseconds == nil || *fractional.DelayMilliseconds != 125 ||
+		fractional.HTTPDate != nil {
+		t.Fatalf("fractional Retry-After = %+v", fractional)
+	}
+
+	milliseconds := RetryAfterFromHeader(http.Header{
+		"Retry-After-Ms": []string{"1500.25"},
+		"Retry-After":    []string{"120"},
+	})
+	if milliseconds == nil || milliseconds.DeltaSeconds != nil ||
+		milliseconds.DelayMilliseconds == nil || *milliseconds.DelayMilliseconds != 1501 ||
+		milliseconds.HTTPDate != nil {
+		t.Fatalf("millisecond Retry-After = %+v", milliseconds)
+	}
+
+	const absolute = "Wed, 21 Oct 2015 07:28:00 GMT"
+	date := RetryAfterFromHeader(http.Header{"Retry-After": []string{absolute}})
+	wantDate := time.Date(2015, time.October, 21, 7, 28, 0, 0, time.UTC)
+	if date == nil || date.DeltaSeconds != nil || date.DelayMilliseconds != nil ||
+		date.HTTPDate == nil || !date.HTTPDate.Equal(wantDate) {
+		t.Fatalf("date Retry-After = %+v, want %s", date, wantDate)
+	}
+	if got := ParseRetryAfter("not-a-retry-delay"); got != nil {
+		t.Fatalf("malformed Retry-After = %+v, want nil", got)
+	}
+	if got := RetryAfterFromHeader(http.Header{"Retry-After-Ms": []string{"1e30"}}); got != nil {
+		t.Fatalf("overflowing Retry-After-Ms = %+v, want nil", got)
+	}
+}
+
+func TestShouldRetryFromHeaderAcceptsOnlyExplicitBooleans(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  *bool
+	}{
+		{value: "true", want: boolPointer(true)},
+		{value: " FALSE ", want: boolPointer(false)},
+		{value: "1"},
+		{value: ""},
+	} {
+		got := ShouldRetryFromHeader(http.Header{"X-Should-Retry": []string{test.value}})
+		if got == nil || test.want == nil {
+			if got != nil || test.want != nil {
+				t.Fatalf("X-Should-Retry %q = %v, want %v", test.value, got, test.want)
+			}
+			continue
+		}
+		if *got != *test.want {
+			t.Fatalf("X-Should-Retry %q = %v, want %v", test.value, *got, *test.want)
+		}
+	}
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
+func TestAmbiguousProviderOutcomePreservesCauseAndClassification(t *testing.T) {
+	cause := ProviderError{Kind: ErrorKindTransient, RequestID: "req_1"}
+	err := AmbiguousProviderOutcome(cause)
+	if !IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("error = %T %v, want ambiguous provider outcome", err, err)
+	}
+	var providerErr ProviderError
+	if !errors.As(err, &providerErr) || providerErr.RequestID != "req_1" {
+		t.Fatalf("wrapped provider error = %+v", providerErr)
+	}
+	var wantWrapper *AmbiguousProviderOutcomeError
+	if !errors.As(err, &wantWrapper) {
+		t.Fatalf("error = %T %v, want ambiguous wrapper", err, err)
+	}
+	var gotWrapper *AmbiguousProviderOutcomeError
+	if !errors.As(AmbiguousProviderOutcome(err), &gotWrapper) || gotWrapper != wantWrapper {
+		t.Fatal("wrapping an ambiguous outcome should be idempotent")
+	}
+}
+
+type prepareForSendClient struct {
+	prepared     PreparedRequest
+	err          error
+	capabilities Capabilities
+}
+
+func (c prepareForSendClient) RequestedProviderModelSlug() string { return "prepare-test" }
+func (prepareForSendClient) APIFormat() modelprotocol.APIFormat   { return "test" }
+func (prepareForSendClient) ModelAPIVariant() modelprotocol.APIVariant {
+	return "default"
+}
+
+func (c prepareForSendClient) Prepare(context.Context, PrepareInput) (PreparedRequest, error) {
+	return c.prepared, c.err
+}
+
+func (prepareForSendClient) Respond(context.Context, Request) (Response, error) {
+	return Response{}, nil
+}
+
+func (c prepareForSendClient) Capabilities() Capabilities { return c.capabilities }
+
+func TestToolCallsFromEnvelopePreservesContentOrder(t *testing.T) {
+	envelope := modelenvelope.ResponseEnvelope{
+		Normalized: modelenvelope.ResponseNormalized{
+			Content: []modelenvelope.ResponsePart{
+				{Type: "text", Text: "before"},
+				{
+					Type:           "tool_call",
+					ProviderCallID: "call_first",
+					ToolName:       "run_command",
+					ToolInput:      json.RawMessage(`{}`),
+				},
+				{Type: "text", Text: "between"},
+				{
+					Type:           "tool_call",
+					ProviderCallID: "call_second",
+					ToolName:       "read_file",
+					ToolInput:      json.RawMessage(`{}`),
+				},
+			},
+		},
+	}
+	calls := ToolCallsFromEnvelope(envelope)
+	if len(calls) != 2 {
+		t.Fatalf("tool calls = %+v, want 2", calls)
+	}
+	if calls[0].ID != "call_first" {
+		t.Fatalf("first tool call = %+v, want call_first in content order", calls[0])
+	}
+	if calls[1].ID != "call_second" {
+		t.Fatalf("second tool call = %+v, want call_second in content order", calls[1])
+	}
+}
+
+func TestResponseEnvelopeRejectsInvalidToolInput(t *testing.T) {
+	_, err := NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
+		ID:         "resp_1",
+		StopReason: modelenvelope.StopReasonToolUse,
+		Content: []ResponsePart{{
+			Type:           "tool_call",
+			ProviderCallID: "call_bad",
+			ToolName:       "run_command",
+			ToolInput:      json.RawMessage(`{"command":`),
+		}},
+	})
+	if err == nil {
+		t.Fatal("malformed tool input must be rejected before durable storage")
+	}
+}
+
+func TestResponseEnvelopePreservesOrderedContentParts(t *testing.T) {
+	envelope, err := NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
+		ID: "resp_1",
+		Content: []ResponsePart{
+			{Type: "text", Text: "before"},
+			{Type: "reasoning", Text: "middle"},
+			{Type: "text", Text: "after"},
+		},
+		StopReason: modelenvelope.StopReasonEndTurn,
+	})
+	if err != nil {
+		t.Fatalf("response envelope: %v", err)
+	}
+	if len(envelope.Normalized.Content) != 3 {
+		t.Fatalf("content parts = %+v, want 3", envelope.Normalized.Content)
+	}
+	if envelope.Normalized.Content[0].Text != "before" ||
+		envelope.Normalized.Content[1].Text != "middle" ||
+		envelope.Normalized.Content[2].Text != "after" {
+		t.Fatalf("ordered content parts not preserved: %+v", envelope.Normalized.Content)
+	}
+}
+
+func TestResponseEnvelopeAcceptsEmptySuccessfulContent(t *testing.T) {
+	envelope, err := NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
+		ID:         "resp_empty",
+		StopReason: modelenvelope.StopReasonEndTurn,
+	})
+	if err != nil {
+		t.Fatalf("response envelope: %v", err)
+	}
+	if len(envelope.Normalized.Content) != 0 ||
+		envelope.Normalized.StopReason != modelenvelope.StopReasonEndTurn {
+		t.Fatalf("empty successful response changed: %+v", envelope.Normalized)
+	}
+}
+
+func TestResponseEnvelopeAcceptsReasoningParts(t *testing.T) {
+	envelope, err := NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
+		ID: "resp_reasoning",
+		Content: []ResponsePart{
+			{Type: "reasoning", Text: "visible summary"},
+			{Type: "text", Text: "final answer"},
+		},
+		StopReason: modelenvelope.StopReasonEndTurn,
+	})
+	if err != nil {
+		t.Fatalf("response envelope: %v", err)
+	}
+	if len(envelope.Normalized.Content) != 2 ||
+		envelope.Normalized.Content[0].Type != "reasoning" ||
+		envelope.Normalized.Content[0].Text != "visible summary" ||
+		envelope.Normalized.Content[1].Type != "text" {
+		t.Fatalf("reasoning content part not preserved: %+v", envelope.Normalized.Content)
+	}
+}
+
+func TestResponseEnvelopeAcceptsWholeOutputReplayAndRejectsNull(t *testing.T) {
+	envelope, err := NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
+		ID:             "resp_replay",
+		ProviderReplay: json.RawMessage(`[{"type":"reasoning","encrypted_content":"opaque"}]`),
+		Content:        []ResponsePart{{Type: "reasoning", Text: "summary"}},
+		StopReason:     modelenvelope.StopReasonEndTurn,
+	})
+	if err != nil || len(envelope.ProviderReplay) == 0 {
+		t.Fatalf("whole-output replay was not preserved: envelope=%+v err=%v", envelope, err)
+	}
+	_, err = NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
+		ID:             "resp_bad",
+		ProviderReplay: json.RawMessage(`null`),
+		Content:        []ResponsePart{{Type: "text", Text: "answer"}},
+		StopReason:     modelenvelope.StopReasonEndTurn,
+	})
+	if err != nil {
+		t.Fatalf("null replay should be treated as absent: %v", err)
+	}
+}
+
+func TestValidateProviderJSONRejectsDatabaseUnsafeStrings(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{name: "escaped NUL", body: []byte(`{"text":"\u0000"}`)},
+		{name: "invalid UTF-8", body: []byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateProviderJSON(test.body); err == nil {
+				t.Fatal("expected database-unsafe provider JSON to be rejected")
+			}
+		})
+	}
+}
+
+func TestResponseEnvelopeRejectsDatabaseUnsafeProviderStrings(t *testing.T) {
+	_, err := NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
+		ID: "resp_1",
+		Content: []ResponsePart{{
+			Type: modelenvelope.ResponsePartTypeText,
+			Text: "unsafe\x00text",
+		}},
+		StopReason: modelenvelope.StopReasonEndTurn,
+	})
+	if err == nil {
+		t.Fatal("expected NUL provider content to be rejected")
+	}
+}
+
+func TestProviderReplayIdentityIsIndependentFromSendCredentials(t *testing.T) {
+	t.Parallel()
+
+	client := replayIdentityClient{
+		slug:       "anthropic/claude-sonnet-4",
+		apiFormat:  "openai-chat-completions",
+		apiVariant: "openrouter",
+	}
+	identity := ProviderReplayIdentityForClient("mpc_1", client)
+	if identity != (modelenvelope.ProviderReplayIdentity{
+		ModelProviderConfigID:      "mpc_1",
+		RequestedProviderModelSlug: client.slug,
+		APIFormat:                  client.apiFormat,
+		APIVariant:                 client.apiVariant,
+	}) {
+		t.Fatalf("provider replay identity = %+v", identity)
+	}
+	if identity == ProviderReplayIdentityForClient("mpc_2", client) {
+		t.Fatal("different provider configurations must not share replay identity")
+	}
+}
+
+func TestAPIIdentityForClientRequiresCompleteIdentity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		client      Client
+		wantFormat  modelprotocol.APIFormat
+		wantVariant modelprotocol.APIVariant
+		wantOK      bool
+	}{
+		{name: "nil"},
+		{
+			name:   "format only",
+			client: replayIdentityClient{apiFormat: "openai-chat-completions"},
+		},
+		{
+			name:   "variant only",
+			client: replayIdentityClient{apiVariant: "openrouter"},
+		},
+		{
+			name:        "complete",
+			client:      replayIdentityClient{apiFormat: "openai-chat-completions", apiVariant: "openrouter"},
+			wantFormat:  "openai-chat-completions",
+			wantVariant: "openrouter",
+			wantOK:      true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			apiFormat, apiVariant, ok := APIIdentityForClient(test.client)
+			if apiFormat != test.wantFormat || apiVariant != test.wantVariant || ok != test.wantOK {
+				t.Fatalf(
+					"API identity = %q/%q/%t, want %q/%q/%t",
+					apiFormat,
+					apiVariant,
+					ok,
+					test.wantFormat,
+					test.wantVariant,
+					test.wantOK,
+				)
+			}
+		})
+	}
+}
+
+type replayIdentityClient struct {
+	slug       string
+	apiFormat  modelprotocol.APIFormat
+	apiVariant modelprotocol.APIVariant
+}
+
+func (c replayIdentityClient) RequestedProviderModelSlug() string { return c.slug }
+func (c replayIdentityClient) APIFormat() modelprotocol.APIFormat { return c.apiFormat }
+func (c replayIdentityClient) ModelAPIVariant() modelprotocol.APIVariant {
+	return c.apiVariant
+}
+func (replayIdentityClient) Capabilities() Capabilities { return Capabilities{} }
+func (replayIdentityClient) Prepare(context.Context, PrepareInput) (PreparedRequest, error) {
+	return PreparedRequest{}, nil
+}
+func (replayIdentityClient) Respond(context.Context, Request) (Response, error) {
+	return Response{}, nil
+}

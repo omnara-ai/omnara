@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /tools/ci
+      - /tools/goose
+      - /tools/omnaralint
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

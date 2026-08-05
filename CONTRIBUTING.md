@@ -1,131 +1,41 @@
 # Contributing to Omnara
 
-Thanks for your interest in contributing!
+Thanks for helping improve Omnara. Bug reports, documentation fixes, feature
+ideas, and code contributions are welcome.
 
-## Prerequisites
+Follow the README [Quickstart](README.md#quickstart) for local setup. Report
+vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 
-- **Docker** (required for automated setup)
-- **Python 3.11+**
-- **Git**
+## Pull requests
 
-Note: PostgreSQL runs in Docker, no local database installation needed!
+- Open an issue before starting a substantial change so we can agree on the
+  direction.
+- Keep each pull request focused on one problem.
+- Use a conventional title accepted by
+  [the PR title configuration](.github/pr-title-config.json), such as
+  `fix: handle expired sessions` or `feat(api): add agent filtering`.
+- Run the relevant checks described in the README's
+  [Development section](README.md#development).
 
-## Quick Start (Automated)
+## Generated files
 
-The fastest way to get started:
+Do not edit generated files by hand. After changing the OpenAPI contract, run:
 
-1. **Fork and clone the repository**
-   ```bash
-   git clone https://github.com/omnara-ai/omnara.git
-   cd omnara
-   ```
-
-2. **Copy environment configuration**
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **Generate JWT keys**
-   ```bash
-   python infrastructure/scripts/generate_jwt_keys.py
-   ```
-
-4. **Start everything with one command**
-   ```bash
-   ./dev-start.sh
-   ```
-   This automatically:
-   - Starts PostgreSQL in Docker
-   - Runs database migrations
-   - Starts the Backend API (port 8000)
-   - Starts the Unified Server (port 8080)
-
-5. **When you're done developing**
-   ```bash
-   ./dev-stop.sh
-   ```
-
-### Resetting the Database
-If you need a fresh database:
-```bash
-./dev-start.sh --reset-db
+```sh
+make openapi-generate
+make docs-openapi
+make web-generate
 ```
 
-## Alternative: Manual Setup
+After changing SQL queries, run:
 
-If you prefer manual control:
-
-1. Set up your development environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Windows: .venv\Scripts\activate
-   make dev-install
-   make pre-commit-install
-   ```
-
-2. Set up PostgreSQL and configure `DATABASE_URL` in `.env`
-
-3. Generate JWT keys: `python infrastructure/scripts/generate_jwt_keys.py`
-
-4. Run migrations: `cd src/shared && alembic upgrade head`
-
-5. Start services manually:
-   ```bash
-   # Set Python path (required for imports)
-   export PYTHONPATH="$(pwd)/src"
-
-   # Terminal 1: Unified Server
-   python -m servers.app
-
-   # Terminal 2: Backend API (in project root, not backend/)
-   uvicorn backend.main:app --port 8000
-   ```
-
-## Development Process
-
-1. Create a branch: `feature/`, `bugfix/`, or `docs/`
-2. Make your changes
-3. Run checks: `make lint` and `make test`
-4. Submit a pull request
-
-## Code Style
-
-- Python 3.10+
-- Type hints required
-- Follow existing patterns
-- Tests for new features
-
-## Database Changes
-
-When modifying models:
-
-1. Edit models in `src/shared/database/models.py`
-2. Generate migration: `cd src/shared && alembic revision --autogenerate -m "description"`
-3. Test migration before committing
-
-## Commit Messages
-
-Use conventional commits:
-
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation
-- `refactor:` Code refactoring
-- `test:` Tests
-
-Example: `feat: add API key rotation endpoint`
-
-## Available Commands
-
-```bash
-make lint          # Run linting checks
-make format        # Auto-format code
-make test          # Run all tests
-make test-unit     # Unit tests only
-make test-integration  # Integration tests (needs Docker)
-make typecheck     # Type checking
+```sh
+make sqlc-generate
 ```
 
-## Questions?
+Commit the resulting generated changes with the source change.
 
-Open an issue on GitHub!
+## Licensing
+
+By submitting a contribution, you agree that it may be distributed under the
+[Apache License 2.0](LICENSE).

@@ -1,0 +1,6 @@
+dist
+node_modules
+pnpm-lock.yaml
+packages/sdk/src/generated
+apps/web/playwright-report
+apps/web/test-results

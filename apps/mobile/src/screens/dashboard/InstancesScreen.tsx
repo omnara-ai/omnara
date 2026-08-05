@@ -1,1 +1,0 @@
-export { AllInstancesScreen as InstancesScreen } from '@/screens/instances/AllInstancesScreen';

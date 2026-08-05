@@ -1,180 +1,82 @@
 ---
 title: Quickstart
-description: 'Get started with Omnara in under 5 minutes'
+description: Create and launch your first agent from the console
+icon: "rocket"
 ---
 
+This guide creates a simple research agent, launches it from the console, and shows where to inspect its timeline.
+
+You need an Omnara account and a model provider API key.
+
+## Create an agent profile
+
 <Steps>
-  <Step title="Install Omnara">
-    Choose your preferred package manager:
-
-    <CodeGroup>
-    ```bash pip
-    pip install omnara
-    ```
-
-    ```bash homebrew
-    brew install omnara
-    ```
-
-    ```bash uv
-    uv tool install omnara
-    ```
-
-    ```bash pipx
-    pipx install omnara
-    ```
-    </CodeGroup>
+  <Step title="Sign in">
+    Go to [app.omnara.com](https://app.omnara.com). Onboarding creates your first organization and project.
   </Step>
+  <Step title="Add a model provider">
+    In **Overview > Model providers**, add a provider and choose the credential secret that contains its API key.
 
-  <Step title="Start Your Agent">
-    Launch Claude Code with dashboard integration:
-
-    ```bash
-    omnara
-    ```
-
-    On first run, this will:
-    1. Open your browser for authentication
-    2. Prompt you to sign in to Omnara (or create an account)
-    3. Automatically save your API key to `~/.omnara/credentials.json`
-
-    Everything you do in the terminal is now synced to your [dashboard](https://claude.omnara.com/dashboard) and mobile app.
-
-    <Tip>
-    Authentication happens automatically on first run. You can also explicitly authenticate with `omnara --auth` if needed.
-    </Tip>
+    The provider name and model name are the values you reference from agent configs.
   </Step>
+  <Step title="Create a profile">
+    Open your project, then choose **Agent profiles > New agent profile**. Give it a name like `Research assistant`.
+  </Step>
+  <Step title="Paste the config">
+    Replace `openai-prod` and `gpt-5.5` with the provider and model names from your workspace:
 
-  <Step title="Try Other Modes">
-    Explore different usage patterns:
-
-    <CodeGroup>
-    ```bash Headless
-    # Run in background without terminal UI
-    omnara headless --prompt "Review this codebase"
+    ```yaml
+    version: v1
+    name: Research assistant
+    instruction: |
+      Research the questions the user sends you. Use web search for
+      current information, cite sources, and ask for clarification when needed.
+    model:
+      provider_config: openai-prod
+      name: gpt-5.5
+    tools:
+      web_search: {}
+      web_fetch: {}
+      ask_question: {}
     ```
 
-    ```bash Webhook Server
-    # Enable remote triggering
-    omnara serve
-    ```
-
-    ```bash Different Agent
-    # Use Codex instead of Claude Code
-    omnara --agent codex
-    ```
-    </CodeGroup>
+    Save the profile. Omnara validates the model and tools before the profile can launch agents.
   </Step>
 </Steps>
 
-## Next Steps
+## Launch it
 
-<CardGroup cols={2}>
-  <Card
-    title="CLI Commands"
-    icon="terminal"
-    href="/cli/overview"
-  >
-    Explore all available commands
-  </Card>
-  <Card
-    title="n8n Integration"
-    icon="workflow"
-    href="/integrations/n8n"
-  >
-    Add human-in-the-loop to workflows
-  </Card>
-  <Card
-    title="Python SDK"
-    icon="python"
-    href="/api/sdk"
-  >
-    Build custom integrations
-  </Card>
-  <Card
-    title="Environment Variables"
-    icon="gear"
-    href="/cli/environment-variables"
-  >
-    Configure with env vars
-  </Card>
-</CardGroup>
+<Steps>
+  <Step title="Start an agent">
+    In your project, choose **Agents > New agent**. Select the profile you just created.
+  </Step>
+  <Step title="Send the first message">
+    Use a concrete task:
 
-## Common Workflows
-
-<AccordionGroup>
-  <Accordion title="Development with Claude Code" icon="code">
-    ```bash
-    # Set Claude as default
-    omnara --set-default claude
-
-    # Start a named session
-    omnara --name "Feature Development"
-
-    # Work in terminal as usual
-    # Everything syncs to dashboard automatically
+    ```text
+    What changed in EU AI regulation this year? Cite sources and ask me if the scope is unclear.
     ```
-  </Accordion>
+  </Step>
+  <Step title="Watch the timeline">
+    Open the agent. The timeline shows the input, model output, tool calls, tool results, and any human interactions.
+  </Step>
+  <Step title="Answer if it asks">
+    If the agent needs a decision or clarification, resolve the interaction in the console. The agent resumes from the same turn.
+  </Step>
+</Steps>
 
-  <Accordion title="Background Code Review" icon="magnifying-glass">
-    ```bash
-    # Start headless review
-    omnara headless \
-      --prompt "Review all files in src/ for security issues" \
-      --allowed-tools Read,Grep \
-      --cwd /path/to/project
+## Connect: deploy to Slack
 
-    # Check dashboard for results
-    # Respond to any questions Claude asks
-    ```
-  </Accordion>
+On the profile row, choose **Deploy to... > Slack** and complete the install flow. After the Slack app is installed, mentioning the agent in a channel launches a fresh agent from that profile.
 
-  <Accordion title="Remote Mobile Development" icon="mobile">
-    ```bash
-    # On your computer, start webhook server
-    omnara serve
+Slack is just one launch surface. The same profile can also be launched from the console or API.
 
-    # From your phone:
-    # 1. Open Omnara app
-    # 2. Go to Settings → Integrations
-    # 3. Add webhook configuration
-    # 4. Tap "Launch Agent" to trigger Claude on your computer
-    ```
-  </Accordion>
-</AccordionGroup>
+## API users
 
-## Troubleshooting
+Create an API key in the console, then use the [API reference](/api/overview) to create configs, launch agents, stream events, and resolve interactions programmatically.
 
-<AccordionGroup>
-  <Accordion title="Authentication fails">
-    ```bash
-    # Try re-authenticating
-    omnara --reauth
+## Next steps
 
-    # Or set API key manually
-    export OMNARA_API_KEY="your-key-here"
-    omnara
-    ```
-  </Accordion>
-
-  <Accordion title="Agent not found">
-    Ensure the agent CLI is installed:
-
-    ```bash
-    # Claude Code
-    claude --version
-
-    # Codex (packaged with Omnara)
-    # Should work out of the box
-
-    # Amp
-    amp --version
-    ```
-  </Accordion>
-
-  <Accordion title="Dashboard not updating">
-    1. Check you're not using `--no-relay`
-    2. Verify internet connection
-    3. Check logs: `~/.omnara/<agent>_wrapper/<session-id>.log`
-  </Accordion>
-</AccordionGroup>
+<Card title="API Reference" icon="code" href="/api/overview">
+  Create configs, launch agents, stream events, and resolve interactions from your own systems
+</Card>

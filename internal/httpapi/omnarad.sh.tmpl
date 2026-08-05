@@ -1,0 +1,462 @@
+#!/bin/sh
+set -eu
+original_umask=$(umask)
+umask 077
+
+default_release_url={{shellQuote .ReleaseURL}}
+default_api_url={{shellQuote .APIURL}}
+OMNARA_API_URL=${OMNARA_API_URL:-$default_api_url}
+export OMNARA_API_URL
+install_only=0
+staging_dir=
+shell_refresh_command=
+
+die() {
+  printf '%s\n' "omnarad installer: $*" >&2
+  exit 1
+}
+
+run_public() {
+  exec env -i \
+    PATH="${PATH:-/usr/bin:/bin}" \
+    HOME="${HOME:-}" \
+    TMPDIR="${TMPDIR:-/tmp}" \
+    LANG="${LANG:-C}" \
+    LC_ALL="${LC_ALL:-}" \
+    HTTP_PROXY="${HTTP_PROXY:-}" \
+    HTTPS_PROXY="${HTTPS_PROXY:-}" \
+    ALL_PROXY="${ALL_PROXY:-}" \
+    NO_PROXY="${NO_PROXY:-}" \
+    http_proxy="${http_proxy:-}" \
+    https_proxy="${https_proxy:-}" \
+    all_proxy="${all_proxy:-}" \
+    no_proxy="${no_proxy:-}" \
+    SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
+    SSL_CERT_DIR="${SSL_CERT_DIR:-}" \
+    CURL_CA_BUNDLE="${CURL_CA_BUNDLE:-}" \
+    "$@"
+}
+
+run_with_timeout() {
+  timeout_seconds=$1
+  shift
+  timeout_stdin=0
+  if [ "${1:-}" = --stdin ]; then
+    timeout_stdin=1
+    shift
+  fi
+  timeout_ready=0
+  timeout_expired=0
+  trap 'timeout_ready=1' USR1
+  trap 'timeout_expired=1' USR2
+  /bin/sh -c '
+    timeout_sleep_pid=
+    trap "$2" HUP INT TERM
+    kill -USR1 "$PPID" 2>/dev/null || exit 1
+    sleep "$1" &
+    timeout_sleep_pid=$!
+    wait "$timeout_sleep_pid" 2>/dev/null || exit 0
+    while kill -USR2 "$PPID" 2>/dev/null; do
+      sleep 1 &
+      timeout_sleep_pid=$!
+      wait "$timeout_sleep_pid" 2>/dev/null || exit 0
+    done
+  ' sh "$timeout_seconds" '[ -z "$timeout_sleep_pid" ] || kill -TERM "$timeout_sleep_pid" 2>/dev/null || true; exit 0' \
+    </dev/null >/dev/null 2>&1 &
+  timeout_watchdog_pid=$!
+  while [ "$timeout_ready" -eq 0 ] && kill -0 "$timeout_watchdog_pid" 2>/dev/null; do
+    :
+  done
+  if [ "$timeout_ready" -eq 0 ]; then
+    wait "$timeout_watchdog_pid" 2>/dev/null || true
+    trap - USR1
+    trap - USR2
+    return 1
+  fi
+  if [ "$timeout_stdin" -eq 1 ]; then
+    exec 9<&0
+    "$@" <&9 9<&- &
+    timeout_command_pid=$!
+    exec 9<&-
+  else
+    "$@" </dev/null &
+    timeout_command_pid=$!
+  fi
+  timeout_status=0
+  wait "$timeout_command_pid" 2>/dev/null || timeout_status=$?
+  kill -TERM "$timeout_watchdog_pid" 2>/dev/null || true
+  wait "$timeout_watchdog_pid" 2>/dev/null || true
+  trap - USR1
+  trap - USR2
+  if [ "$timeout_expired" -eq 1 ]; then
+    kill -TERM "$timeout_command_pid" 2>/dev/null || true
+    sleep 1
+    kill -KILL "$timeout_command_pid" 2>/dev/null || true
+    wait "$timeout_command_pid" 2>/dev/null || true
+    timeout_status=124
+  fi
+  return "$timeout_status"
+}
+
+parse_url_authority() {
+  url_authority=$1
+  url_host=
+  url_port=
+  url_has_port=0
+  case "$url_authority" in
+    \[*\]:*)
+      url_host=${url_authority%%\]*}
+      url_host=${url_host#\[}
+      url_port=${url_authority#*\]:}
+      url_has_port=1
+      ;;
+    \[*\])
+      url_host=${url_authority#\[}
+      url_host=${url_host%\]}
+      ;;
+    *:*)
+      url_host=${url_authority%%:*}
+      url_port=${url_authority#*:}
+      url_has_port=1
+      ;;
+    *) url_host=$url_authority ;;
+  esac
+  [ -n "$url_host" ] || return 1
+  case "$url_host" in
+    *'['*|*']'*) return 1 ;;
+  esac
+  if [ "$url_has_port" -eq 1 ]; then
+    case "$url_port" in
+      ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$url_port" -ge 1 ] 2>/dev/null && [ "$url_port" -le 65535 ] 2>/dev/null || return 1
+  fi
+}
+
+is_allowed_url() {
+  allowed_url=$1
+  case "$allowed_url" in
+    *'"'*|*'\'*|*'#'*) return 1 ;;
+  esac
+  if printf '%s' "$allowed_url" | run_with_timeout 5 --stdin run_public grep -Eq '[[:space:][:cntrl:]]'; then
+    return 1
+  fi
+  case "$allowed_url" in
+    https://*) ;;
+    http://*) ;;
+    *) return 1 ;;
+  esac
+  allowed_rest=${allowed_url#*://}
+  allowed_authority=${allowed_rest%%/*}
+  allowed_authority=${allowed_authority%%\?*}
+  case "$allowed_authority" in
+    ''|*@*) return 1 ;;
+  esac
+  parse_url_authority "$allowed_authority" || return 1
+  case "$allowed_url" in
+    https://*) return 0 ;;
+  esac
+  case "$url_host" in
+    localhost|127.0.0.1|::1) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+manifest_url_for_platform() {
+  release_url=$1
+  manifest_os=$2
+  manifest_arch=$3
+  case "$release_url" in
+    *'?'*) return 1 ;;
+  esac
+  while [ "${release_url%/}" != "$release_url" ]; do
+    release_url=${release_url%/}
+  done
+  printf '%s/%s-%s.txt\n' "$release_url" "$manifest_os" "$manifest_arch"
+}
+
+detect_platform() {
+  platform_os=$(run_with_timeout 5 run_public uname -s) || die "unable to detect operating system"
+  platform_arch=$(run_with_timeout 5 run_public uname -m) || die "unable to detect architecture"
+  case "$platform_os" in
+    Darwin) platform_os=darwin ;;
+    Linux) platform_os=linux ;;
+    *) die "unsupported operating system: $platform_os" ;;
+  esac
+  case "$platform_arch" in
+    x86_64|amd64) platform_arch=amd64 ;;
+    arm64|aarch64) platform_arch=arm64 ;;
+    *) die "unsupported architecture: $platform_arch" ;;
+  esac
+  if [ "$platform_os" = darwin ] && [ "$platform_arch" = amd64 ] && command -v sysctl >/dev/null 2>&1; then
+    translated=$(run_with_timeout 5 run_public sysctl -n sysctl.proc_translated 2>/dev/null || true)
+    if [ "$translated" = 1 ]; then
+      platform_arch=arm64
+    fi
+  fi
+}
+
+is_release_version() {
+  printf '%s\n' "$1" | run_with_timeout 5 --stdin run_public grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+}
+
+read_binary_version() {
+  version_binary=$1
+  version_output=$(run_with_timeout 10 run_public "$version_binary" --version 2>/dev/null) || return 1
+  case "$version_output" in
+    ''|*"
+"*) return 1 ;;
+  esac
+  is_release_version "$version_output" || return 1
+  printf '%s\n' "$version_output"
+}
+
+download_file() {
+  download_url=$1
+  download_destination=$2
+  download_limit=$3
+  command -v curl >/dev/null 2>&1 || die "curl is required to download omnarad"
+  case "$download_url" in
+    https://*)
+      run_with_timeout 90 run_public curl --disable --fail --silent --show-error --location \
+        --connect-timeout 10 --max-time 60 --max-redirs 5 \
+        --max-filesize "$download_limit" \
+        --proto '=https' --proto-redir '=https' --output "$download_destination" "$download_url" \
+        || die "download failed: $download_url"
+      ;;
+    http://*)
+      run_with_timeout 90 run_public curl --disable --fail --silent --show-error \
+        --connect-timeout 10 --max-time 60 --max-redirs 0 \
+        --max-filesize "$download_limit" \
+        --proto '=http' --output "$download_destination" "$download_url" \
+        || die "download failed: $download_url"
+      ;;
+  esac
+  chmod 0600 "$download_destination"
+  download_size=$(run_with_timeout 5 --stdin run_public wc -c < "$download_destination") || die "unable to inspect download"
+  case "$download_size" in
+    ''|*[!0-9[:space:]]*) die "unable to inspect download" ;;
+  esac
+  download_size=$((download_size + 0))
+  [ "$download_size" -le "$download_limit" ] || die "download exceeded size limit: $download_url"
+}
+
+stage_seed() {
+  seed_path=$1
+  case "$seed_path" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$seed_path" ] && [ ! -L "$seed_path" ] && [ -r "$seed_path" ] || return 1
+  run_with_timeout 10 run_public cp "$seed_path" "$staged_binary" || return 1
+  chmod 0700 "$staged_binary" || return 1
+  read_binary_version "$staged_binary" >/dev/null || return 1
+}
+
+parse_manifest() {
+  manifest_version=
+  manifest_artifact_url=
+  manifest_sha256=
+  manifest_version_count=0
+  manifest_url_count=0
+  manifest_sha_count=0
+  while IFS='=' read -r manifest_key manifest_value || [ -n "$manifest_key$manifest_value" ]; do
+    case "$manifest_key" in
+      version)
+        manifest_version_count=$((manifest_version_count + 1))
+        manifest_version=$manifest_value
+        ;;
+      url)
+        manifest_url_count=$((manifest_url_count + 1))
+        manifest_artifact_url=$manifest_value
+        ;;
+      sha256)
+        manifest_sha_count=$((manifest_sha_count + 1))
+        manifest_sha256=$manifest_value
+        ;;
+      *) ;;
+    esac
+  done < "$manifest_path"
+  [ "$manifest_version_count" -eq 1 ] && [ -n "$manifest_version" ] || die "release manifest must contain exactly one version"
+  [ "$manifest_url_count" -eq 1 ] && [ -n "$manifest_artifact_url" ] || die "release manifest must contain exactly one url"
+  [ "$manifest_sha_count" -eq 1 ] && [ -n "$manifest_sha256" ] || die "release manifest must contain exactly one sha256"
+  is_release_version "$manifest_version" || die "release manifest version is invalid"
+  is_allowed_url "$manifest_artifact_url" || die "release artifact URL is invalid"
+  case "$manifest_sha256" in
+    ''|*[!0-9a-fA-F]*) die "release manifest sha256 is invalid" ;;
+  esac
+  [ ${#manifest_sha256} -eq 64 ] || die "release manifest sha256 is invalid"
+  manifest_sha256=$(printf '%s' "$manifest_sha256" | run_with_timeout 5 --stdin run_public tr '[:upper:]' '[:lower:]') || die "unable to normalize checksum"
+}
+
+stage_download() {
+  download_file "$release_manifest_url" "$manifest_path" 65536
+  parse_manifest
+  download_file "$manifest_artifact_url" "$staged_binary" 268435456
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual_sha256=$(run_with_timeout 10 run_public sha256sum "$staged_binary") || die "unable to checksum omnarad"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual_sha256=$(run_with_timeout 10 run_public shasum -a 256 "$staged_binary") || die "unable to checksum omnarad"
+  else
+    die "sha256sum or shasum is required to verify omnarad"
+  fi
+  actual_sha256=${actual_sha256%% *}
+  actual_sha256=$(printf '%s' "$actual_sha256" | run_with_timeout 5 --stdin run_public tr '[:upper:]' '[:lower:]') || die "unable to normalize checksum"
+  [ "$actual_sha256" = "$manifest_sha256" ] || die "omnarad checksum mismatch"
+  chmod 0700 "$staged_binary"
+  staged_version=$(read_binary_version "$staged_binary") || die "downloaded omnarad failed version validation"
+  [ "$staged_version" = "$manifest_version" ] || die "downloaded omnarad version does not match release manifest"
+}
+
+cleanup() {
+  cleanup_status=$?
+  trap - 0
+  if [ -n "$staging_dir" ]; then
+    rm -rf "$staging_dir" || true
+  fi
+  exit "$cleanup_status"
+}
+
+is_writable_config() {
+  config_path=$1
+  if [ -w "$config_path" ]; then
+    return 0
+  fi
+  if [ ! -e "$config_path" ] && [ -w "$(dirname "$config_path")" ]; then
+    return 0
+  fi
+  return 1
+}
+
+config_has_omnarad_path() {
+  [ -f "$1" ] && grep -Fqx "$2" "$1" 2>/dev/null
+}
+
+append_path_config() {
+  config_path=$1
+  path_line=$2
+  printf '\n# managed by omnarad\n%s\n' "$path_line" >> "$config_path"
+  printf 'Added "%s" to PATH in "%s"\n' "$daemon_bin_dir" "$config_path"
+  shell_refresh_command="source \"$config_path\""
+}
+
+setup_path() {
+  installed_binary=$1
+  daemon_bin_dir=$(dirname "$installed_binary")
+  if [ -z "${HOME:-}" ]; then
+    printf 'Manually add omnarad to PATH:\n  export PATH="%s:$PATH"\n' "$daemon_bin_dir"
+    return
+  fi
+  local_bin=$HOME/.local/bin
+  if printf '%s' "${PATH:-}" | tr ':' '\n' | grep -Fxq "$local_bin"; then
+    if mkdir -p "$local_bin" 2>/dev/null && ln -snf "$installed_binary" "$local_bin/omnarad" 2>/dev/null; then
+      printf 'Symlinked omnarad into %s\n' "$local_bin"
+      return
+    fi
+  fi
+  for profile_path in "$daemon_bin_dir" "$HOME"; do
+    case "$profile_path" in
+      *'$'*|*'`'*|*'"'*|*'\'*|*'!'*|*:*|*[[:cntrl:]]*)
+        printf 'omnarad was installed, but its directory must be added to PATH manually\n'
+        return
+        ;;
+    esac
+  done
+
+  current_shell=${SHELL:-}
+  current_shell=${current_shell##*/}
+  case "$current_shell" in
+    fish)
+      config_path=$HOME/.config/fish/config.fish
+      path_line="fish_add_path \"$daemon_bin_dir\""
+      if config_has_omnarad_path "$config_path" "$path_line"; then
+        shell_refresh_command="source \"$config_path\""
+      elif mkdir -p "$(dirname "$config_path")" 2>/dev/null && is_writable_config "$config_path"; then
+        append_path_config "$config_path" "$path_line"
+      else
+        printf 'Manually add omnarad to PATH:\n  fish_add_path "%s"\n' "$daemon_bin_dir"
+      fi
+      ;;
+    zsh)
+      config_path=$HOME/.zshrc
+      path_line="path=(\"$daemon_bin_dir\" \$path)"
+      if config_has_omnarad_path "$config_path" "$path_line"; then
+        shell_refresh_command="source \"$config_path\""
+      elif is_writable_config "$config_path"; then
+        append_path_config "$config_path" "$path_line"
+      else
+        printf 'Manually add omnarad to PATH:\n  path=("%s" $path)\n' "$daemon_bin_dir"
+      fi
+      ;;
+    bash)
+      config_path=$HOME/.bashrc
+      if [ "$platform_os" = darwin ]; then
+        config_path=$HOME/.bash_profile
+        for candidate in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+          if [ -e "$candidate" ]; then
+            config_path=$candidate
+            break
+          fi
+        done
+      fi
+      path_line="export PATH=\"$daemon_bin_dir:\$PATH\""
+      if config_has_omnarad_path "$config_path" "$path_line"; then
+        shell_refresh_command="source \"$config_path\""
+      elif is_writable_config "$config_path"; then
+        append_path_config "$config_path" "$path_line"
+      else
+        printf 'Manually add omnarad to PATH:\n  export PATH="%s:$PATH"\n' "$daemon_bin_dir"
+      fi
+      ;;
+    *)
+      printf 'Manually add omnarad to PATH:\n  export PATH="%s:$PATH"\n' "$daemon_bin_dir"
+      ;;
+  esac
+}
+
+case $# in
+  0) ;;
+  1)
+    [ "$1" = --install-only ] || die "usage: omnarad.sh [--install-only]"
+    install_only=1
+    ;;
+  *) die "usage: omnarad.sh [--install-only]" ;;
+esac
+
+release_url=${OMNARA_DAEMON_RELEASE_URL:-$default_release_url}
+is_allowed_url "$release_url" || die "release URL is invalid"
+detect_platform
+release_manifest_url=$(manifest_url_for_platform "$release_url" "$platform_os" "$platform_arch") \
+  || die "release URL must not contain query parameters"
+
+staging_dir=$(mktemp -d "${TMPDIR:-/tmp}/omnarad-install.XXXXXX") || die "unable to create staging directory"
+chmod 0700 "$staging_dir"
+staged_binary=$staging_dir/omnarad
+manifest_path=$staging_dir/manifest
+trap cleanup 0
+trap 'exit 1' HUP INT TERM
+
+seed_staged=0
+if [ -n "${OMNARA_DAEMON_SEED_PATH:-}" ] && stage_seed "$OMNARA_DAEMON_SEED_PATH"; then
+  seed_staged=1
+fi
+if [ "$seed_staged" -eq 0 ]; then
+  rm -f "$staged_binary"
+  stage_download
+fi
+
+umask "$original_umask"
+"$staged_binary" install --release-manifest-url "$release_manifest_url" --no-start
+if [ "$install_only" -eq 1 ]; then
+  exit 0
+fi
+
+daemon_home=${OMNARA_HOME:-$HOME/.omnarad}
+installed_binary=$daemon_home/bin/omnarad
+setup_path "$installed_binary"
+if [ -n "$shell_refresh_command" ]; then
+  printf 'Open a new terminal or run: %s\n' "$shell_refresh_command"
+fi
+rm -rf "$staging_dir"
+staging_dir=
+exec "$installed_binary" restart

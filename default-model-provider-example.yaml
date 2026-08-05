@@ -1,0 +1,223 @@
+provisioner: openrouter
+name: omnara-openrouter
+credential_secret_name: omnara-openrouter-key
+api_format: openai-chat-completions
+api_variant: openrouter
+base_url: https://openrouter.ai/api/v1
+endpoint_path: /chat/completions
+auth_kind: bearer_token
+models:
+  - name: anthropic/claude-fable-5
+    provider_model_slug: anthropic/claude-fable-5
+    context_window_tokens: 1000000
+    max_output_tokens: 128000
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [max, xhigh, high, medium, low]
+    input_modalities: [text, image, file]
+    output_modalities: [text]
+  - name: anthropic/claude-sonnet-5
+    provider_model_slug: anthropic/claude-sonnet-5
+    context_window_tokens: 1000000
+    max_output_tokens: 128000
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [max, xhigh, high, medium, low]
+    input_modalities: [text, image, file]
+    output_modalities: [text]
+  - name: anthropic/claude-opus-5
+    provider_model_slug: anthropic/claude-opus-5
+    context_window_tokens: 1000000
+    max_output_tokens: 128000
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [max, xhigh, high, medium, low]
+    input_modalities: [text, image, file]
+    output_modalities: [text]
+  - name: openai/gpt-5.6-sol
+    provider_model_slug: openai/gpt-5.6-sol
+    context_window_tokens: 1050000
+    max_output_tokens: 128000
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: medium
+    supported_reasoning_efforts: [max, xhigh, high, medium, low, none]
+    input_modalities: [file, image, text]
+    output_modalities: [text]
+  - name: openai/gpt-5.6-terra
+    provider_model_slug: openai/gpt-5.6-terra
+    context_window_tokens: 1050000
+    max_output_tokens: 128000
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: medium
+    supported_reasoning_efforts: [max, xhigh, high, medium, low, none]
+    input_modalities: [file, image, text]
+    output_modalities: [text]
+  - name: openai/gpt-5.6-luna
+    provider_model_slug: openai/gpt-5.6-luna
+    context_window_tokens: 1050000
+    max_output_tokens: 128000
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: medium
+    supported_reasoning_efforts: [max, xhigh, high, medium, low, none]
+    input_modalities: [file, image, text]
+    output_modalities: [text]
+  - name: google/gemini-3.1-pro-preview
+    provider_model_slug: google/gemini-3.1-pro-preview
+    context_window_tokens: 1048576
+    max_output_tokens: 65536
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: medium
+    supported_reasoning_efforts: [high, medium, low]
+    input_modalities: [audio, file, image, text, video]
+    output_modalities: [text]
+  - name: google/gemini-3.6-flash
+    provider_model_slug: google/gemini-3.6-flash
+    context_window_tokens: 1048576
+    max_output_tokens: 65536
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: medium
+    supported_reasoning_efforts: [high, medium, low, minimal]
+    input_modalities: [text, image, video, file, audio]
+    output_modalities: [text]
+  - name: google/gemini-3.5-flash-lite
+    provider_model_slug: google/gemini-3.5-flash-lite
+    context_window_tokens: 1048576
+    max_output_tokens: 65536
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: minimal
+    supported_reasoning_efforts: [high, medium, low, minimal]
+    input_modalities: [text, image, video, file, audio]
+    output_modalities: [text]
+  - name: z-ai/glm-5.2
+    provider_model_slug: z-ai/glm-5.2
+    context_window_tokens: 1048576
+    max_output_tokens: 131072
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [xhigh, high]
+    input_modalities: [text]
+    output_modalities: [text]
+  - name: deepseek/deepseek-v4-pro
+    provider_model_slug: deepseek/deepseek-v4-pro
+    context_window_tokens: 1048576
+    max_output_tokens: 384000
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [xhigh, high]
+    input_modalities: [text]
+    output_modalities: [text]
+  - name: deepseek/deepseek-v4-flash-0731
+    provider_model_slug: deepseek/deepseek-v4-flash-0731
+    context_window_tokens: 1048576
+    max_output_tokens: 65536
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [max, high, low]
+    input_modalities: [text]
+    output_modalities: [text]
+  - name: qwen/qwen3.8-max
+    provider_model_slug: qwen/qwen3.8-max
+    context_window_tokens: 1000000
+    max_output_tokens: 131072
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: xhigh
+    supported_reasoning_efforts: [xhigh, high, medium, low, minimal]
+    input_modalities: [text, image, video]
+    output_modalities: [text]
+  - name: qwen/qwen3.7-plus
+    provider_model_slug: qwen/qwen3.7-plus
+    context_window_tokens: 1000000
+    max_output_tokens: 131072
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text, image]
+    output_modalities: [text]
+  - name: qwen/qwen3.7-flash
+    provider_model_slug: qwen/qwen3.7-flash
+    context_window_tokens: 1000000
+    max_output_tokens: 65536
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text, image, video]
+    output_modalities: [text]
+  - name: x-ai/grok-4.5
+    provider_model_slug: x-ai/grok-4.5
+    context_window_tokens: 500000
+    max_output_tokens: 8192
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [high, medium, low]
+    input_modalities: [text, image, file]
+    output_modalities: [text]
+  - name: mistralai/mistral-large-2512
+    provider_model_slug: mistralai/mistral-large-2512
+    context_window_tokens: 262144
+    max_output_tokens: 8192
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: false
+    input_modalities: [text, image, file]
+    output_modalities: [text]
+  - name: mistralai/mistral-medium-3-5
+    provider_model_slug: mistralai/mistral-medium-3-5
+    context_window_tokens: 262144
+    max_output_tokens: 8192
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [high, none]
+    input_modalities: [text, image, file]
+    output_modalities: [text]
+  - name: mistralai/mistral-small-2603
+    provider_model_slug: mistralai/mistral-small-2603
+    context_window_tokens: 262144
+    max_output_tokens: 8192
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: high
+    supported_reasoning_efforts: [high, none]
+    input_modalities: [text, image]
+    output_modalities: [text]
+  - name: moonshotai/kimi-k3
+    provider_model_slug: moonshotai/kimi-k3
+    context_window_tokens: 1048576
+    max_output_tokens: 8192
+    default_max_output_tokens: 8192
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: max
+    supported_reasoning_efforts: [max, high, low]
+    input_modalities: [text, image]
+    output_modalities: [text]

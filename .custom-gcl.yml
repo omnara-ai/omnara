@@ -1,0 +1,8 @@
+# Keep this version in sync with github.com/golangci/golangci-lint/v2 in tools/ci/go.mod.
+# make verify enforces the match before building the custom linter.
+version: v2.12.2
+name: custom-golangci-lint
+destination: ./.tools
+plugins:
+  - module: github.com/omnara-ai/omnara/tools/omnaralint
+    path: ./tools/omnaralint

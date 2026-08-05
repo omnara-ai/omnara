@@ -1,0 +1,11 @@
+packages:
+  - packages/*
+  - apps/*
+
+allowBuilds:
+  esbuild: set this to true or false
+
+minimumReleaseAge: 14400
+
+onlyBuiltDependencies:
+  - esbuild

@@ -1,8 +1,0 @@
-Welcome to Amp
-
-Type your message here and press Enter to submit, or Ctrl+R to regenerate the last response.
-
-╭──────────────────────────────────────────────────────────────────────────────╮
-│                                                                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯

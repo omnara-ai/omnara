@@ -1,0 +1,22 @@
+{
+  "CHECKS": {
+    "special_prefixes": [
+      "[WIP] "
+    ],
+    "types": [
+      "feat",
+      "fix",
+      "docs",
+      "test",
+      "refactor",
+      "build",
+      "chore",
+      "ci",
+      "perf",
+      "security",
+      "revert",
+      "release",
+      "style"
+    ]
+  }
+}

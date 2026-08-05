@@ -1,0 +1,11 @@
+name: Setup test services
+description: Start the local Postgres, Redis, and MinIO test services and wait for their healthchecks.
+
+runs:
+  using: composite
+  steps:
+    - name: Start test services
+      shell: bash
+      run: |
+        docker compose up -d --wait postgres redis minio
+        docker compose run --rm minio-init

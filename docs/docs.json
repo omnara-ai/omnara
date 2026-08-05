@@ -1,0 +1,102 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Omnara",
+  "seo": {
+    "metatags": {
+      "canonical": "https://docs.omnara.com",
+      "og:site_name": "Omnara Docs",
+      "twitter:card": "summary_large_image"
+    }
+  },
+  "logo": {
+    "dark": "/logo/omnara-logo.svg",
+    "light": "/logo/omnara-logo.svg"
+  },
+  "favicon": "/favicon.ico",
+  "colors": {
+    "primary": "#d4a843",
+    "light": "#c9b06a",
+    "dark": "#1A1A1A"
+  },
+  "background": {
+    "color": {
+      "dark": "#1a1917"
+    },
+    "decoration": "gradient"
+  },
+  "appearance": {
+    "default": "dark",
+    "strict": true
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter",
+      "weight": 600
+    },
+    "body": {
+      "family": "Inter",
+      "weight": 400
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:contact@omnara.com"
+      },
+      {
+        "label": "GitHub",
+        "href": "https://github.com/omnara-ai/omnara"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Console",
+      "href": "https://app.omnara.com"
+    }
+  },
+  "navigation": {
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Discord",
+          "icon": "discord",
+          "href": "https://discord.gg/Dc46sYk6e3"
+        }
+      ]
+    },
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "openapi": {
+          "source": "api-reference/openapi.yaml",
+          "directory": "api-reference/endpoints"
+        },
+        "pages": ["api/overview"]
+      },
+      {
+        "group": "Self-Hosting",
+        "pages": [
+          "self-hosting/architecture",
+          "self-hosting/deployment",
+          "self-hosting/configuration"
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "x": "https://twitter.com/omnaraai",
+      "linkedin": "https://linkedin.com/company/omnara",
+      "discord": "https://discord.gg/Dc46sYk6e3"
+    }
+  }
+}

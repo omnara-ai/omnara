@@ -1,0 +1,447 @@
+{
+  "$defs": {
+    "AgentConfigMCPAuthSource": {
+      "additionalProperties": false,
+      "properties": {
+        "secret_id": {
+          "minLength": 1,
+          "pattern": "^sec_[a-z2-7]{26}$",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "bearer",
+            "oauth"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "secret_id"
+      ],
+      "type": "object"
+    },
+    "AgentConfigMCPSource": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/AgentConfigMCPAuthSource"
+        },
+        "default_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "permission": {
+          "$ref": "#/$defs/ToolPermissionSelection"
+        },
+        "tools": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigMCPToolSource"
+          },
+          "propertyNames": {
+            "allOf": [
+              {
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "not": {
+                  "pattern": "__",
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "url": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "AgentConfigMCPToolSource": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "permission": {
+          "$ref": "#/$defs/ToolPermissionSelection"
+        }
+      },
+      "type": "object"
+    },
+    "AgentConfigMachineSource": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "machine_name"
+          ],
+          "type": "object"
+        },
+        {
+          "required": [
+            "machine_pool_name"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "env_overlay": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "propertyNames": {
+                "minLength": 1,
+                "pattern": "^[^=\u0000]+$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initial_num_machines": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "machine_cpu": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "machine_memory_mb": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "machine_name": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "machine_pool_name": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "machine_provider_options_overlay": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_machines": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "secret_env_overlay": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "pattern": "^sec_[a-z2-7]{26}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "propertyNames": {
+                "minLength": 1,
+                "pattern": "^[^=\u0000]+$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "AgentConfigModelSource": {
+      "additionalProperties": false,
+      "properties": {
+        "cache_retention": {
+          "enum": [
+            "none",
+            "short",
+            "long"
+          ]
+        },
+        "context_window_tokens": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "default_max_output_tokens": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "provider_config": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "reasoning": {
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "required": [
+            "effort"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "provider_config",
+        "name"
+      ],
+      "type": "object"
+    },
+    "AgentConfigToolSource": {
+      "additionalProperties": false,
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "description"
+              ],
+              "type": "object"
+            },
+            {
+              "required": [
+                "input_schema"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "const": "custom"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input_schema": {
+          "$ref": "#/$defs/AgentToolInputSchema"
+        },
+        "permission": {
+          "$ref": "#/$defs/ToolPermissionSelection"
+        },
+        "type": {
+          "enum": [
+            "built_in",
+            "custom"
+          ]
+        }
+      },
+      "then": {
+        "required": [
+          "description",
+          "input_schema"
+        ]
+      },
+      "type": "object"
+    },
+    "AgentToolInputSchema": {
+      "properties": {
+        "properties": {
+          "additionalProperties": {
+            "type": "object"
+          },
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "object"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "ToolPermissionSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "instruction": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "machine_sources": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/AgentConfigMachineSource"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mcp": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentConfigMCPSource"
+      },
+      "propertyNames": {
+        "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "model": {
+      "$ref": "#/$defs/AgentConfigModelSource"
+    },
+    "name": {
+      "type": "string"
+    },
+    "skills": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^skl_[a-z2-7]{26}$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tools": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentConfigToolSource"
+      },
+      "propertyNames": {
+        "allOf": [
+          {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          {
+            "not": {
+              "pattern": "^mcp__",
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "type": "object"
+    },
+    "version": {
+      "enum": [
+        "v1"
+      ]
+    }
+  },
+  "required": [
+    "instruction",
+    "model"
+  ],
+  "type": "object"
+}
