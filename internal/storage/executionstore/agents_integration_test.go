@@ -1529,11 +1529,10 @@ tools:
 		t.Fatalf("source reorder updated second binding at %v, want %v", reorderedSecond.UpdatedAt, secondBinding.UpdatedAt)
 	}
 	token, err := store.Execution().CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
-		OrgID:           testOrgID,
-		MachineID:       firstMachine.ID,
-		Name:            "live source removal",
-		Token:           "token-live-explicit-source-removal",
-		CreatedByUserID: user.ID,
+		OrgID:     testOrgID,
+		MachineID: firstMachine.ID,
+		Name:      "live source removal",
+		Token:     "token-live-explicit-source-removal",
 	})
 	if err != nil {
 		t.Fatalf("create live source removal daemon token: %v", err)

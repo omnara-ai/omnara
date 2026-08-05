@@ -419,25 +419,20 @@ func machineDaemonTokenResponse(record executionstore.MachineDaemonTokenRecord) 
 	if err != nil {
 		return openapi.MachineDaemonToken{}, err
 	}
-	createdByUserID, err := idOrNil(publicid.KindUser, record.CreatedByUserID)
-	if err != nil {
-		return openapi.MachineDaemonToken{}, err
-	}
 	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
 	if err != nil {
 		return openapi.MachineDaemonToken{}, err
 	}
 	return openapi.MachineDaemonToken{
-		Id:              id,
-		OrgId:           orgID,
-		MachineId:       machineID,
-		Name:            record.Name,
-		CreatedByUserId: nullableFromPtr(createdByUserID),
-		Metadata:        metadata,
-		CreatedAt:       record.CreatedAt,
-		LastUsedAt:      nullableFromPtr(record.LastUsedAt),
-		RevokedAt:       nullableFromPtr(record.RevokedAt),
-		RevokeReason:    record.RevokeReason,
+		Id:           id,
+		OrgId:        orgID,
+		MachineId:    machineID,
+		Name:         record.Name,
+		Metadata:     metadata,
+		CreatedAt:    record.CreatedAt,
+		LastUsedAt:   nullableFromPtr(record.LastUsedAt),
+		RevokedAt:    nullableFromPtr(record.RevokedAt),
+		RevokeReason: record.RevokeReason,
 	}, nil
 }
 
@@ -523,10 +518,6 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 	if machine.SourceKind != executionstore.MachineSourceKindBYO {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
-		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-	}
 	body := openapi.CreateBYOMachineDaemonTokenJSONRequestBody{}
 	if request.Body != nil {
 		body = *request.Body
@@ -546,13 +537,11 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 	record, err := s.server.store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           machine.OrgID,
-			MachineID:       machine.ID,
-			Name:            name,
-			Token:           token,
-			CreatedByUserID: principal.ID,
-			ActorPrincipal:  principal,
-			Metadata:        metadata,
+			OrgID:     machine.OrgID,
+			MachineID: machine.ID,
+			Name:      name,
+			Token:     token,
+			Metadata:  metadata,
 		},
 	)
 	if err != nil {

@@ -67,6 +67,26 @@ func (q *Queries) CountActiveConfiguredModelsForProvider(ctx context.Context, ar
 	return column_1, err
 }
 
+const countActiveMachineDaemonTokensForMachine = `-- name: CountActiveMachineDaemonTokensForMachine :one
+SELECT count(*)::bigint
+FROM machine_daemon_tokens
+WHERE org_id = $1
+  AND machine_id = $2
+  AND revoked_at IS NULL
+`
+
+type CountActiveMachineDaemonTokensForMachineParams struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+}
+
+func (q *Queries) CountActiveMachineDaemonTokensForMachine(ctx context.Context, arg CountActiveMachineDaemonTokensForMachineParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveMachineDaemonTokensForMachine, arg.OrgID, arg.MachineID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countActiveOrgAPIKeysForOrg = `-- name: CountActiveOrgAPIKeysForOrg :one
 SELECT count(*)::bigint
 FROM org_api_keys
@@ -213,27 +233,6 @@ func (q *Queries) CountActiveTenantSecretsForOwner(ctx context.Context, arg Coun
 		arg.OwnerProjectID,
 		arg.OwnerUserID,
 	)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const countActiveUserCreatedMachineDaemonTokensForMachine = `-- name: CountActiveUserCreatedMachineDaemonTokensForMachine :one
-SELECT count(*)::bigint
-FROM machine_daemon_tokens
-WHERE org_id = $1
-  AND machine_id = $2
-  AND created_by_user_id IS NOT NULL
-  AND revoked_at IS NULL
-`
-
-type CountActiveUserCreatedMachineDaemonTokensForMachineParams struct {
-	OrgID     uuid.UUID
-	MachineID uuid.UUID
-}
-
-func (q *Queries) CountActiveUserCreatedMachineDaemonTokensForMachine(ctx context.Context, arg CountActiveUserCreatedMachineDaemonTokensForMachineParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countActiveUserCreatedMachineDaemonTokensForMachine, arg.OrgID, arg.MachineID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

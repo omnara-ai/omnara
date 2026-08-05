@@ -19,14 +19,10 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	ctx context.Context,
 	input CreateBYOMachineDaemonTokenInput,
 ) (MachineDaemonTokenRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" || input.Token == "" ||
-		isNilID(input.CreatedByUserID) {
+	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" || input.Token == "" {
 		return MachineDaemonTokenRecord{}, errors.New(
-			"org, machine, name, token, and actor are required",
+			"org, machine, name, and token are required",
 		)
-	}
-	if input.ActorPrincipal.Type != "" && input.ActorPrincipal.ID != input.CreatedByUserID {
-		return MachineDaemonTokenRecord{}, storeerr.ErrUnauthorized
 	}
 	input.Metadata = normalizedJSON(input.Metadata)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -35,24 +31,14 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.CreatedByUserID}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return MachineDaemonTokenRecord{}, storeerr.ErrUnauthorized
-		}
-		return MachineDaemonTokenRecord{}, fmt.Errorf("lock creator for machine daemon token: %w", err)
-	}
-	if err := s.identity.EnsureUserPrincipalStillActiveTx(ctx, tx, input.ActorPrincipal); err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
 	row, err := qtx.CreateBYOMachineDaemonToken(
 		ctx,
 		dbsqlc.CreateBYOMachineDaemonTokenParams{
-			OrgID:           input.OrgID,
-			MachineID:       input.MachineID,
-			Name:            input.Name,
-			TokenHash:       tokenutil.Hash(input.Token),
-			CreatedByUserID: input.CreatedByUserID,
-			Metadata:        input.Metadata,
+			OrgID:     input.OrgID,
+			MachineID: input.MachineID,
+			Name:      input.Name,
+			TokenHash: tokenutil.Hash(input.Token),
+			Metadata:  input.Metadata,
 		},
 	)
 	if err != nil {
@@ -66,9 +52,9 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	); err != nil {
 		return MachineDaemonTokenRecord{}, err
 	}
-	tokenCount, err := qtx.CountActiveUserCreatedMachineDaemonTokensForMachine(
+	tokenCount, err := qtx.CountActiveMachineDaemonTokensForMachine(
 		ctx,
-		dbsqlc.CountActiveUserCreatedMachineDaemonTokensForMachineParams{
+		dbsqlc.CountActiveMachineDaemonTokensForMachineParams{
 			OrgID:     input.OrgID,
 			MachineID: input.MachineID,
 		},
@@ -78,7 +64,7 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	}
 	if tokenCount > MaxActiveBYODaemonTokensPerMachine {
 		return MachineDaemonTokenRecord{}, resourceLimitExceeded(
-			"active user-created machine daemon tokens",
+			"active machine daemon tokens",
 			MaxActiveBYODaemonTokensPerMachine,
 		)
 	}
@@ -186,17 +172,16 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 	return PoolMachineProviderProvisioningStart{
 		DaemonToken: CreatedMachineDaemonToken{
 			Record: MachineDaemonTokenRecord{
-				ID:              row.ID,
-				OrgID:           row.OrgID,
-				MachineID:       row.MachineID,
-				Name:            row.Name,
-				TokenHash:       row.TokenHash,
-				CreatedByUserID: idFromSQLCPtr(row.CreatedByUserID),
-				Metadata:        row.Metadata,
-				CreatedAt:       row.CreatedAt,
-				LastUsedAt:      row.LastUsedAt,
-				RevokedAt:       row.RevokedAt,
-				RevokeReason:    row.RevokeReason,
+				ID:           row.ID,
+				OrgID:        row.OrgID,
+				MachineID:    row.MachineID,
+				Name:         row.Name,
+				TokenHash:    row.TokenHash,
+				Metadata:     row.Metadata,
+				CreatedAt:    row.CreatedAt,
+				LastUsedAt:   row.LastUsedAt,
+				RevokedAt:    row.RevokedAt,
+				RevokeReason: row.RevokeReason,
 			},
 			Token: token,
 		},

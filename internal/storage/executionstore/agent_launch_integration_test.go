@@ -1874,11 +1874,10 @@ tools:
 		token, err := store.Execution().CreateBYOMachineDaemonToken(
 			ctx,
 			executionstore.CreateBYOMachineDaemonTokenInput{
-				OrgID:           testOrgID,
-				MachineID:       binding.MachineID,
-				Name:            "multi daemon",
-				Token:           "token-launch-multi-" + binding.MachineRef,
-				CreatedByUserID: user.ID,
+				OrgID:     testOrgID,
+				MachineID: binding.MachineID,
+				Name:      "multi daemon",
+				Token:     "token-launch-multi-" + binding.MachineRef,
 			},
 		)
 		if err != nil {
@@ -3470,8 +3469,7 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	if err != nil {
 		t.Fatalf("create system machine daemon token: %v", err)
 	}
-	if providerProvisioning.DaemonToken.Record.CreatedByUserID != NilID ||
-		providerProvisioning.DaemonToken.Token == "" {
+	if providerProvisioning.DaemonToken.Token == "" {
 		t.Fatalf(
 			"unexpected system token: %+v token=%q",
 			providerProvisioning.DaemonToken.Record,
@@ -4583,7 +4581,7 @@ func TestSystemBootstrapTokenRetryDoesNotRevokePriorToken(t *testing.T) {
 			token.ID != secondProviderProvisioning.DaemonToken.Record.ID {
 			t.Fatalf("unexpected token in list: %+v", token)
 		}
-		if token.CreatedByUserID != NilID || token.RevokedAt != nil {
+		if token.RevokedAt != nil {
 			t.Fatalf("system bootstrap token should remain usable before runtime registration: %+v", token)
 		}
 	}

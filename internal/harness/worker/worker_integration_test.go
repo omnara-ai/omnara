@@ -2153,11 +2153,10 @@ func createWorkerExecutableMachine(
 	token, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           workerTestOrgID,
-			MachineID:       machine.ID,
-			Name:            "worker test daemon",
-			Token:           "worker-test-daemon-token-" + now.Format(time.RFC3339Nano),
-			CreatedByUserID: workerTestUserID,
+			OrgID:     workerTestOrgID,
+			MachineID: machine.ID,
+			Name:      "worker test daemon",
+			Token:     "worker-test-daemon-token-" + now.Format(time.RFC3339Nano),
 		},
 	)
 	if err != nil {

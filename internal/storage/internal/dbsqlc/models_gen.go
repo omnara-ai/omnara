@@ -249,17 +249,16 @@ type IntegrationTarget struct {
 }
 
 type MachineDaemonToken struct {
-	ID              uuid.UUID
-	OrgID           uuid.UUID
-	MachineID       uuid.UUID
-	Name            string
-	TokenHash       string
-	CreatedByUserID *uuid.UUID
-	Metadata        json.RawMessage
-	CreatedAt       time.Time
-	LastUsedAt      *time.Time
-	RevokedAt       *time.Time
-	RevokeReason    string
+	ID           uuid.UUID
+	OrgID        uuid.UUID
+	MachineID    uuid.UUID
+	Name         string
+	TokenHash    string
+	Metadata     json.RawMessage
+	CreatedAt    time.Time
+	LastUsedAt   *time.Time
+	RevokedAt    *time.Time
+	RevokeReason string
 }
 
 type MachinePool struct {

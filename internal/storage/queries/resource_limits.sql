@@ -29,12 +29,11 @@ FROM org_api_keys
 WHERE org_id = sqlc.arg(org_id)
   AND revoked_at IS NULL;
 
--- name: CountActiveUserCreatedMachineDaemonTokensForMachine :one
+-- name: CountActiveMachineDaemonTokensForMachine :one
 SELECT count(*)::bigint
 FROM machine_daemon_tokens
 WHERE org_id = sqlc.arg(org_id)
   AND machine_id = sqlc.arg(machine_id)
-  AND created_by_user_id IS NOT NULL
   AND revoked_at IS NULL;
 
 -- name: CountActiveTenantModelProviderConfigsForOrg :one

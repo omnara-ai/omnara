@@ -1679,11 +1679,10 @@ func TestPasswordAuthChangeAndRevokeAllRequireSession(t *testing.T) {
 	if _, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           orgID,
-			MachineID:       machine.ID,
-			Name:            "revoke-all",
-			Token:           "token-http-revoke-all",
-			CreatedByUserID: completed.User.ID,
+			OrgID:     orgID,
+			MachineID: machine.ID,
+			Name:      "revoke-all",
+			Token:     "token-http-revoke-all",
 		},
 	); err != nil {
 		t.Fatalf("create revoke-all machine token: %v", err)
@@ -1743,11 +1742,8 @@ func TestPasswordAuthChangeAndRevokeAllRequireSession(t *testing.T) {
 	if _, err := store.Execution().AuthenticateMachineDaemonToken(
 		ctx,
 		"token-http-revoke-all",
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("machine daemon token after revoke-all error=%v, want unauthorized", err)
+	); err != nil {
+		t.Fatalf("machine daemon token after revoke-all: %v", err)
 	}
 	if _, _, err := store.Identity().AuthenticateBrowserSession(
 		ctx,
@@ -1813,11 +1809,10 @@ func TestPasswordlessUserCanRevokeAllAuthTokens(t *testing.T) {
 	if _, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           orgID,
-			MachineID:       machine.ID,
-			Name:            "passwordless revoke",
-			Token:           "token-http-passwordless-revoke",
-			CreatedByUserID: user.ID,
+			OrgID:     orgID,
+			MachineID: machine.ID,
+			Name:      "passwordless revoke",
+			Token:     "token-http-passwordless-revoke",
 		},
 	); err != nil {
 		t.Fatalf("create passwordless daemon token: %v", err)
@@ -1843,11 +1838,8 @@ func TestPasswordlessUserCanRevokeAllAuthTokens(t *testing.T) {
 	if _, err := store.Execution().AuthenticateMachineDaemonToken(
 		ctx,
 		"token-http-passwordless-revoke",
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("passwordless daemon token after revoke-all error=%v, want unauthorized", err)
+	); err != nil {
+		t.Fatalf("passwordless daemon token after revoke-all: %v", err)
 	}
 	if _, _, err := store.Identity().AuthenticateBrowserSession(
 		ctx,

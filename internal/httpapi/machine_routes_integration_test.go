@@ -51,11 +51,35 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/machines/"+machineID+"/daemon-tokens",
-		`{"name":"pat cannot mint daemon token"}`,
+		`{"name":"pat minted daemon token"}`,
 		"",
-		http.StatusForbidden,
+		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
+	adminKey := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/api-keys",
+		`{"name":"daemon minting key","org_role":"admin"}`,
+		"",
+		http.StatusCreated,
+		project.adminBrowserAuthHeaders(),
+	)
+	adminKeyToken := adminKey["token"].(string)
+	orgKeyMint := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/machines/"+machineID+"/daemon-tokens",
+		`{"name":"org key minted daemon token"}`,
+		"",
+		http.StatusCreated,
+		authHeaders(adminKeyToken),
+	)
+	if orgKeyMint["token"].(string) == "" {
+		t.Fatal("org key minted daemon token missing plaintext token")
+	}
 	tokenResponse := requestJSONWithHeaders(
 		t,
 		handler,
@@ -2438,7 +2462,7 @@ func createDaemonProcessFixtureWithToolCalls(
 	additionalToolCalls []model.ToolCall,
 ) daemonProcessFixture {
 	t.Helper()
-	user, err := storagetest.CreateVerifiedUser(
+	_, err := storagetest.CreateVerifiedUser(
 		ctx,
 		pool,
 		storagetest.CreateVerifiedUserInput{Email: name + "@example.com", DisplayName: name},
@@ -2473,11 +2497,10 @@ func createDaemonProcessFixtureWithToolCalls(
 	tokenRecord, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           project.OrgUUID,
-			MachineID:       machine.ID,
-			Name:            "daemon",
-			Token:           token,
-			CreatedByUserID: user.ID,
+			OrgID:     project.OrgUUID,
+			MachineID: machine.ID,
+			Name:      "daemon",
+			Token:     token,
 		},
 	)
 	if err != nil {

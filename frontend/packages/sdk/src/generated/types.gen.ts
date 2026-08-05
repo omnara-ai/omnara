@@ -2193,7 +2193,6 @@ export type MachineDaemonToken = {
     org_id: OrganizationId;
     machine_id: MachineId;
     name: string;
-    created_by_user_id?: UserId | null;
     metadata: {
         [key: string]: unknown;
     };
