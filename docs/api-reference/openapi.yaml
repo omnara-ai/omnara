@@ -1,4 +1,4 @@
-# Published copy of api/openapi/openapi.yaml (the canonical spec). Do not edit by hand; run 'make docs-openapi' after changing the spec.
+# Published documentation view of api/openapi/openapi.yaml. Do not edit by hand; run 'make docs-openapi' after changing the canonical spec.
 openapi: 3.0.3
 info:
   title: Omnara API
@@ -10,30 +10,68 @@ security:
 tags:
   - name: Agents
     description: Launch agents, send inputs, manage the input backlog, and work with tool calls.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/agents/overview
   - name: Interactions
     description: List and resolve the approvals and questions that pause an agent.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/events/interactions
+  - name: Actors
+    description: Attribute agent inputs and interaction responses to external users.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/events/sending-input#who-said-that-actors-and-attribution
   - name: Events
     description: Read or stream the agent timeline, list turns, and download artifacts.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/events/streaming
   - name: Configs and Profiles
-    description: Compile agent configs and manage reusable launch profiles.
+    description: Create agent configs, manage reusable launch profiles, and set up integrations.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/agents/configuration
   - name: Models
     description: Configure model providers and models, and grant projects access to them.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/organization/model-providers
   - name: Machines
     description: Register machines, control project access, and manage daemon tokens.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/machines/connect
   - name: Machine Pools
     description: Define machine pools and grant projects access to them.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/machines/pools
   - name: Secrets
     description: Manage secret ownership and versions, and inspect or grant project availability.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/organization/secrets
   - name: Skills
     description: Manage versioned skill ownership and load skill instructions on demand.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/tools/skills
   - name: Organizations and Projects
     description: Create organizations and projects and manage membership.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/organization/members
   - name: Users and API Keys
-    description: The authenticated user, personal access tokens, and invitations.
+    description: The authenticated user, personal and organization API keys, and invitations.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/api/authentication
   - name: Machine Daemon
     description: Routes the Omnara machine daemon uses to connect a machine.
 paths:
-  /api/v1/personal-access-tokens:
+  /personal-access-tokens:
     get:
       operationId: listPersonalAccessTokens
       tags: [Users and API Keys]
@@ -89,7 +127,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/personal-access-tokens/{tokenID}/revoke:
+  /personal-access-tokens/{tokenID}/revoke:
     parameters:
       - name: tokenID
         in: path
@@ -122,7 +160,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/daemon/bootstrap:
+  /daemon/bootstrap:
     post:
       operationId: bootstrapDaemon
       x-hidden: true
@@ -147,7 +185,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs:
+  /orgs:
     post:
       operationId: createOrganization
       tags: [Organizations and Projects]
@@ -195,7 +233,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}:
+  /orgs/{orgID}:
     parameters:
       - name: orgID
         in: path
@@ -232,7 +270,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/me:
+  /me:
     get:
       operationId: getCurrentUser
       tags: [Users and API Keys]
@@ -285,7 +323,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/invitations:
+  /invitations:
     get:
       operationId: listPendingInvitations
       tags: [Users and API Keys]
@@ -313,7 +351,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/invitations/{invitationID}/accept:
+  /invitations/{invitationID}/accept:
     parameters:
       - name: invitationID
         in: path
@@ -348,7 +386,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/invitations/{invitationID}/decline:
+  /invitations/{invitationID}/decline:
     parameters:
       - name: invitationID
         in: path
@@ -383,7 +421,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects:
+  /orgs/{orgID}/projects:
     parameters:
       - name: orgID
         in: path
@@ -459,7 +497,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}:
+  /orgs/{orgID}/projects/{projectID}:
     parameters:
       - name: orgID
         in: path
@@ -503,7 +541,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/members:
+  /orgs/{orgID}/members:
     parameters:
       - name: orgID
         in: path
@@ -541,7 +579,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/members/{userID}:
+  /orgs/{orgID}/members/{userID}:
     parameters:
       - name: orgID
         in: path
@@ -617,7 +655,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/members/{userID}/projects:
+  /orgs/{orgID}/members/{userID}/projects:
     parameters:
       - name: orgID
         in: path
@@ -656,7 +694,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}:
+  /orgs/{orgID}/members/{userID}/projects/{projectID}:
     parameters:
       - name: orgID
         in: path
@@ -734,7 +772,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/api-keys:
+  /orgs/{orgID}/api-keys:
     parameters:
       - name: orgID
         in: path
@@ -800,7 +838,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/api-keys/{keyID}:
+  /orgs/{orgID}/api-keys/{keyID}:
     parameters:
       - name: orgID
         in: path
@@ -868,7 +906,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke:
+  /orgs/{orgID}/api-keys/{keyID}/revoke:
     parameters:
       - name: orgID
         in: path
@@ -907,7 +945,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/api-keys/{keyID}/projects:
+  /orgs/{orgID}/api-keys/{keyID}/projects:
     parameters:
       - name: orgID
         in: path
@@ -946,7 +984,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}:
+  /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}:
     parameters:
       - name: orgID
         in: path
@@ -1021,7 +1059,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/invitations:
+  /orgs/{orgID}/invitations:
     parameters:
       - name: orgID
         in: path
@@ -1091,7 +1129,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/invitations/{invitationID}:
+  /orgs/{orgID}/invitations/{invitationID}:
     parameters:
       - name: orgID
         in: path
@@ -1129,7 +1167,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/skills:
+  /orgs/{orgID}/skills:
     parameters:
       - name: orgID
         in: path
@@ -1219,7 +1257,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/skills/{skillID}:
+  /orgs/{orgID}/skills/{skillID}:
     parameters:
       - name: orgID
         in: path
@@ -1285,7 +1323,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/skills/{skillID}/grants:
+  /orgs/{orgID}/skills/{skillID}/grants:
     parameters:
       - name: orgID
         in: path
@@ -1352,7 +1390,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/skills/{skillID}/grants/{grantID}:
+  /orgs/{orgID}/skills/{skillID}/grants/{grantID}:
     parameters:
       - name: orgID
         in: path
@@ -1390,7 +1428,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/projects/{projectID}/skills:
+  /orgs/{orgID}/projects/{projectID}/skills:
     parameters:
       - name: orgID
         in: path
@@ -1407,7 +1445,7 @@ paths:
       operationId: listProjectAvailableSkills
       tags: [Skills]
       summary: List skills available to project
-      description: Includes organization skills, directly owned project skills, and granted skills, ordered by created_at descending, then id descending.
+      description: Includes directly owned project skills and granted skills, ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/SkillOwnerKindFilter'
@@ -1431,7 +1469,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/secrets:
+  /orgs/{orgID}/secrets:
     parameters:
       - name: orgID
         in: path
@@ -1496,7 +1534,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/secrets/mcp-oauth:
+  /orgs/{orgID}/secrets/mcp-oauth:
     parameters:
       - name: orgID
         in: path
@@ -1534,7 +1572,7 @@ paths:
         '502': { $ref: '#/components/responses/BadGateway' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/secrets/{secretID}:
+  /orgs/{orgID}/secrets/{secretID}:
     parameters:
       - name: orgID
         in: path
@@ -1615,7 +1653,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/secrets/{secretID}/versions:
+  /orgs/{orgID}/secrets/{secretID}/versions:
     parameters:
       - name: orgID
         in: path
@@ -1657,7 +1695,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/secrets/{secretID}/grants:
+  /orgs/{orgID}/secrets/{secretID}/grants:
     parameters:
       - name: orgID
         in: path
@@ -1725,7 +1763,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/secrets/{secretID}/grants/{grantID}:
+  /orgs/{orgID}/secrets/{secretID}/grants/{grantID}:
     parameters:
       - name: orgID
         in: path
@@ -1765,7 +1803,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs:
+  /orgs/{orgID}/projects/{projectID}/integration-installs:
     parameters:
       - name: orgID
         in: path
@@ -1812,7 +1850,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}:
+  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}:
     parameters:
       - name: orgID
         in: path
@@ -1857,7 +1895,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs:
+  /orgs/{orgID}/projects/{projectID}/agent-configs:
     parameters:
       - name: orgID
         in: path
@@ -1910,7 +1948,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/tool-catalog:
+  /tool-catalog:
     get:
       operationId: getToolCatalog
       tags: [Configs and Profiles]
@@ -1928,7 +1966,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}:
+  /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}:
     parameters:
       - name: orgID
         in: path
@@ -1971,7 +2009,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles:
+  /orgs/{orgID}/projects/{projectID}/agent-profiles:
     parameters:
       - name: orgID
         in: path
@@ -2056,7 +2094,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}:
+  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}:
     parameters:
       - name: orgID
         in: path
@@ -2127,7 +2165,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config:
+  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config:
     parameters:
       - name: orgID
         in: path
@@ -2182,7 +2220,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup:
+  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup:
     parameters:
       - name: orgID
         in: path
@@ -2235,7 +2273,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup:
+  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup:
     parameters:
       - name: orgID
         in: path
@@ -2288,7 +2326,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents:
+  /orgs/{orgID}/projects/{projectID}/agents:
     parameters:
       - name: orgID
         in: path
@@ -2378,7 +2416,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}:
     parameters:
       - name: orgID
         in: path
@@ -2421,7 +2459,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive:
     parameters:
       - name: orgID
         in: path
@@ -2473,7 +2511,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config:
     parameters:
       - name: orgID
         in: path
@@ -2528,7 +2566,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs:
     parameters:
       - name: orgID
         in: path
@@ -2589,7 +2627,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls:
     parameters:
       - name: orgID
         in: path
@@ -2644,7 +2682,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result:
     parameters:
       - name: orgID
         in: path
@@ -2706,7 +2744,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns:
     parameters:
       - name: orgID
         in: path
@@ -2767,7 +2805,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events:
     parameters:
       - name: orgID
         in: path
@@ -2834,7 +2872,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events:
     parameters:
       - name: orgID
         in: path
@@ -2909,7 +2947,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream:
     parameters:
       - name: orgID
         in: path
@@ -2985,7 +3023,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel:
     parameters:
       - name: orgID
         in: path
@@ -3038,7 +3076,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions:
     parameters:
       - name: orgID
         in: path
@@ -3090,7 +3128,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve:
     parameters:
       - name: orgID
         in: path
@@ -3149,7 +3187,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog:
     parameters:
       - name: orgID
         in: path
@@ -3196,7 +3234,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel:
     parameters:
       - name: orgID
         in: path
@@ -3249,7 +3287,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move:
     parameters:
       - name: orgID
         in: path
@@ -3308,7 +3346,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering:
     parameters:
       - name: orgID
         in: path
@@ -3367,7 +3405,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued:
     parameters:
       - name: orgID
         in: path
@@ -3420,7 +3458,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}:
     parameters:
       - name: orgID
         in: path
@@ -3469,7 +3507,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content:
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content:
     parameters:
       - name: orgID
         in: path
@@ -3519,7 +3557,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/machines:
+  /orgs/{orgID}/projects/{projectID}/machines:
     parameters:
       - name: orgID
         in: path
@@ -3566,7 +3604,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants:
+  /orgs/{orgID}/projects/{projectID}/machine-grants:
     parameters:
       - name: orgID
         in: path
@@ -3653,7 +3691,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}:
+  /orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}:
     parameters:
       - name: orgID
         in: path
@@ -3699,7 +3737,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/secrets:
+  /orgs/{orgID}/projects/{projectID}/secrets:
     parameters:
       - name: orgID
         in: path
@@ -3742,7 +3780,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/projects/{projectID}/secrets/{secretID}:
+  /orgs/{orgID}/projects/{projectID}/secrets/{secretID}:
     parameters:
       - name: orgID
         in: path
@@ -3779,7 +3817,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/projects/{projectID}/actors:
+  /orgs/{orgID}/projects/{projectID}/actors:
     parameters:
       - name: orgID
         in: path
@@ -3857,7 +3895,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/projects/{projectID}/actors/{actorID}:
+  /orgs/{orgID}/projects/{projectID}/actors/{actorID}:
     parameters:
       - name: orgID
         in: path
@@ -3894,7 +3932,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-  /api/v1/orgs/{orgID}/machines:
+  /orgs/{orgID}/machines:
     parameters:
       - name: orgID
         in: path
@@ -3976,7 +4014,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/machines/{machineID}:
+  /orgs/{orgID}/machines/{machineID}:
     parameters:
       - name: orgID
         in: path
@@ -4072,7 +4110,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/model-provider-configs:
+  /orgs/{orgID}/model-provider-configs:
     parameters:
       - name: orgID
         in: path
@@ -4152,7 +4190,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}:
+  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}:
     parameters:
       - name: orgID
         in: path
@@ -4248,7 +4286,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models:
+  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models:
     parameters:
       - name: orgID
         in: path
@@ -4328,7 +4366,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}:
+  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}:
     parameters:
       - name: orgID
         in: path
@@ -4407,7 +4445,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/model-grants:
+  /orgs/{orgID}/projects/{projectID}/model-grants:
     parameters:
       - name: orgID
         in: path
@@ -4492,7 +4530,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}:
+  /orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}:
     parameters:
       - name: orgID
         in: path
@@ -4579,7 +4617,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/machine-pools:
+  /orgs/{orgID}/machine-pools:
     parameters:
       - name: orgID
         in: path
@@ -4658,7 +4696,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/machine-pools/{poolID}:
+  /orgs/{orgID}/machine-pools/{poolID}:
     parameters:
       - name: orgID
         in: path
@@ -4756,7 +4794,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants:
+  /orgs/{orgID}/projects/{projectID}/machine-pool-grants:
     parameters:
       - name: orgID
         in: path
@@ -4843,7 +4881,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}:
+  /orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}:
     parameters:
       - name: orgID
         in: path
@@ -4951,7 +4989,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens:
+  /orgs/{orgID}/machines/{machineID}/daemon-tokens:
     parameters:
       - name: orgID
         in: path
@@ -5024,7 +5062,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke:
+  /orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke:
     parameters:
       - name: orgID
         in: path
@@ -5071,7 +5109,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/daemon/runtimes:
+  /daemon/runtimes:
     post:
       operationId: registerMachineDaemonRuntime
       x-hidden: true
@@ -5106,7 +5144,7 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/daemon/runtimes/{runtimeID}/socket:
+  /daemon/runtimes/{runtimeID}/socket:
     parameters:
       - name: runtimeID
         in: path
@@ -5138,7 +5176,7 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/daemon/runtimes/{runtimeID}/end:
+  /daemon/runtimes/{runtimeID}/end:
     parameters:
       - name: runtimeID
         in: path
@@ -5174,7 +5212,7 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/daemon/runtimes/{runtimeID}/sleep:
+  /daemon/runtimes/{runtimeID}/sleep:
     parameters:
       - name: runtimeID
         in: path
@@ -5219,7 +5257,7 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/daemon/skills/{skillID}/archive:
+  /daemon/skills/{skillID}/archive:
     parameters:
       - name: skillID
         in: path
@@ -5229,11 +5267,12 @@ paths:
           pattern: '^skl_[a-z2-7]{26}$'
     get:
       operationId: getDaemonSkillArchive
-      tags: [Route Inventory]
+      x-hidden: true
+      tags: [Machine Daemon]
       summary: Get daemon skill archive
       description: Requires daemon authentication plus a short-lived capability bound to the authenticated machine, skill, and revision.
       security:
-        - bearerAuth: []
+        - machineDaemonAuth: []
       parameters:
         - name: revision_id
           in: query
@@ -5802,7 +5841,7 @@ components:
         name:
           type: string
           minLength: 1
-          description: Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing compiled agents.
+          description: Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
         provider_model_slug:
           type: string
           minLength: 1
@@ -5860,7 +5899,7 @@ components:
         name:
           type: string
           minLength: 1
-          description: Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change already compiled agents.
+          description: Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
         provider_model_slug:
           type: string
           minLength: 1
@@ -9958,3 +9997,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProjectMembershipGrant'
+# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1.
+servers:
+  - url: https://api.omnara.com/v1
+    description: Hosted Omnara

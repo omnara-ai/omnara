@@ -1043,7 +1043,7 @@ export const listProjectAvailableSkillsQueryKey = (options: Options<ListProjectA
 /**
  * List skills available to project
  *
- * Includes organization skills, directly owned project skills, and granted skills, ordered by created_at descending, then id descending.
+ * Includes directly owned project skills and granted skills, ordered by created_at descending, then id descending.
  */
 export const listProjectAvailableSkillsOptions = (options: Options<ListProjectAvailableSkillsData>) => queryOptions<ListProjectAvailableSkillsResponse, ListProjectAvailableSkillsError, ListProjectAvailableSkillsResponse, ReturnType<typeof listProjectAvailableSkillsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1063,7 +1063,7 @@ export const listProjectAvailableSkillsInfiniteQueryKey = (options: Options<List
 /**
  * List skills available to project
  *
- * Includes organization skills, directly owned project skills, and granted skills, ordered by created_at descending, then id descending.
+ * Includes directly owned project skills and granted skills, ordered by created_at descending, then id descending.
  */
 export const listProjectAvailableSkillsInfiniteOptions = (options: Options<ListProjectAvailableSkillsData>) => {
     const opts = infiniteQueryOptions<ListProjectAvailableSkillsResponse, ListProjectAvailableSkillsError, InfiniteData<ListProjectAvailableSkillsResponse>, QueryKey<Options<ListProjectAvailableSkillsData>>, string | Pick<QueryKey<Options<ListProjectAvailableSkillsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(

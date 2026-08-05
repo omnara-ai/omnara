@@ -218,7 +218,7 @@ export type ModelProviderConfigList = {
 
 export type CreateConfiguredModelRequest = {
     /**
-     * Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing compiled agents.
+     * Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
      */
     name: string;
     /**
@@ -270,7 +270,7 @@ export type CreateConfiguredModelRequest = {
  */
 export type UpdateConfiguredModelRequest = {
     /**
-     * Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change already compiled agents.
+     * Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
      */
     name?: string;
     /**

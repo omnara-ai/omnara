@@ -444,15 +444,23 @@ test-blackbox:
 	$(GO) test -count=1 -v -timeout=20m -tags=blackbox ./internal/blackbox $(if $(RUN),-run '$(RUN)')
 
 docs-openapi:
-	{ echo "# Published copy of api/openapi/openapi.yaml (the canonical spec). Do not edit by hand; run 'make docs-openapi' after changing the spec."; \
-	  cat api/openapi/openapi.yaml; } > docs/api-reference/openapi.yaml
+	{ echo "# Published documentation view of api/openapi/openapi.yaml. Do not edit by hand; run 'make docs-openapi' after changing the canonical spec."; \
+	  sed 's#^  /api/v1/#  /#' api/openapi/openapi.yaml; \
+	  echo "# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1."; \
+	  echo "servers:"; \
+	  echo "  - url: https://api.omnara.com/v1"; \
+	  echo "    description: Hosted Omnara"; } > docs/api-reference/openapi.yaml
 	@echo "docs-openapi: spec copied. Mintlify auto-generates the Endpoints pages from it at build time."
 
 docs-openapi-check:
 	@tmp="$$(mktemp)"; \
 	trap 'rm -f "$$tmp"' EXIT; \
-	{ echo "# Published copy of api/openapi/openapi.yaml (the canonical spec). Do not edit by hand; run 'make docs-openapi' after changing the spec."; \
-	  cat api/openapi/openapi.yaml; } > "$$tmp"; \
+	{ echo "# Published documentation view of api/openapi/openapi.yaml. Do not edit by hand; run 'make docs-openapi' after changing the canonical spec."; \
+	  sed 's#^  /api/v1/#  /#' api/openapi/openapi.yaml; \
+	  echo "# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1."; \
+	  echo "servers:"; \
+	  echo "  - url: https://api.omnara.com/v1"; \
+	  echo "    description: Hosted Omnara"; } > "$$tmp"; \
 	diff -u "$$tmp" docs/api-reference/openapi.yaml || { \
 		printf '\ndocs/api-reference/openapi.yaml is stale; run make docs-openapi\n'; \
 		exit 1; \

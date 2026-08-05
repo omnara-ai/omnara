@@ -43,7 +43,7 @@
     "links": [
       {
         "label": "Support",
-        "href": "mailto:contact@omnara.com"
+        "href": "/support"
       },
       {
         "label": "GitHub",
@@ -66,28 +66,93 @@
         }
       ]
     },
-    "groups": [
+    "tabs": [
       {
-        "group": "Get Started",
-        "pages": [
-          "introduction",
-          "quickstart"
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "how-omnara-works"
+            ]
+          },
+          {
+            "group": "Agents",
+            "pages": [
+              "agents/overview",
+              "agents/configuration"
+            ]
+          },
+          {
+            "group": "Inputs & events",
+            "pages": [
+              "events/sending-input",
+              "events/streaming",
+              "events/interactions",
+              "events/artifacts"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "tools/permissions",
+              "tools/built-in",
+              "tools/custom",
+              "tools/mcp",
+              "tools/skills"
+            ]
+          },
+          {
+            "group": "Machines",
+            "pages": [
+              "machines/overview",
+              "machines/connect",
+              "machines/pools"
+            ]
+          },
+          {
+            "group": "Organization",
+            "pages": [
+              "organization/model-providers",
+              "organization/secrets",
+              "organization/members"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/slack"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              "examples/repo-slack-agent",
+              "examples/mounted-storage"
+            ]
+          }
         ]
       },
       {
-        "group": "API Reference",
-        "openapi": {
-          "source": "api-reference/openapi.yaml",
-          "directory": "api-reference/endpoints"
-        },
-        "pages": ["api/overview"]
-      },
-      {
-        "group": "Self-Hosting",
-        "pages": [
-          "self-hosting/architecture",
-          "self-hosting/deployment",
-          "self-hosting/configuration"
+        "tab": "API reference",
+        "groups": [
+          {
+            "group": "API reference",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": {
+              "source": "api-reference/openapi.yaml",
+              "directory": "api-reference/endpoints"
+            }
+          }
         ]
       }
     ]

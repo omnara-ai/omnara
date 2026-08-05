@@ -1,0 +1,116 @@
+---
+title: MCP servers
+description: Connect MCP servers and configure their tools, permissions, and authentication
+icon: "server"
+---
+
+[MCP (Model Context Protocol)](https://modelcontextprotocol.io) is an open standard for connecting tools to models. Add a server such as Linear, Notion, or your own internal service to an agent config, and Omnara discovers its tools and makes them available to the model.
+
+## Declaring a server
+
+Each entry under `mcp:` defines one server:
+
+```yaml
+mcp:
+  linear:
+    url: https://mcp.linear.app/mcp
+    auth:
+      type: oauth
+      secret_id: sec_gik7mv4qtrwz3jehcyd5n6a2bf
+    permission:
+      mode: always_ask
+    tools:
+      get_issue:
+        permission:
+          mode: always_allow
+      delete_issue:
+        enabled: false
+  internal-docs:
+    url: https://mcp.internal.acme.dev/mcp
+    auth:
+      type: bearer
+      secret_id: sec_7jehcyd5n6a2bfgik7mv4qtrwz
+    default_enabled: false      # opt-in: only listed tools are exposed
+    tools:
+      search_docs: {}
+```
+
+| Field | Notes |
+| --- | --- |
+| `url` | The server's MCP endpoint. |
+| `auth.type` | `bearer` (a token in a [generic secret](/organization/secrets)) or `oauth` (an `oauth_token_set` secret — see below). Omit for unauthenticated servers. |
+| `auth.secret_id` | The `sec_…` reference. The config never contains the credential itself. |
+| `permission` | Server-wide default mode; per-tool `permission` overrides it. MCP tools default to `always_ask` — third-party code asks first. |
+| `default_enabled` | `false` flips the server to allowlist mode: only tools listed under `tools:` are exposed. |
+
+### How MCP tools are named
+
+MCP tool names combine the server and tool: `mcp__<server>__<tool>`. For example, Linear's `get_issue` tool appears as `mcp__linear__get_issue`.
+
+These names appear in `model_output` tool calls and in [`GET /tool-calls`](/tools/custom#find-calls-waiting-for-you) with `type: "mcp"`. Server and tool names cannot contain `__`, and the combined name must fit within 64 characters.
+
+## Bearer auth
+
+For servers that take a static token, store the token as a generic secret and reference it:
+
+```bash
+curl "$OMNARA_API/orgs/$ORG/secrets" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "owner": { "kind": "project", "project_id": "'"$PROJ"'" },
+    "name": "internal-docs-mcp-token",
+    "material": { "kind": "generic", "value": "mcp-token-..." }
+  }'
+```
+
+The response's `id` (`sec_…`) goes in `auth.secret_id` with `type: bearer`. Rotation is a [new secret version](/organization/secrets#rotate-a-secret) — configs keep referencing the same ID.
+
+## Connect with OAuth
+
+For servers such as Linear, Omnara handles OAuth registration, authorization, and token exchange. It stores the resulting credentials in an `oauth_token_set` secret that your config references.
+
+<Tabs>
+<Tab title="Console">
+  On any Secrets page, click **New secret**, pick the **MCP OAuth secret** kind, name it, and enter the MCP server URL. **Authorize and Create Secret** sends you to the server's authorization page; approve, and you land back in the console with the secret saved.
+
+  The secret's row action **Copy MCP config** then puts a ready-to-paste `mcp:` YAML block — the server URL plus `auth.type: oauth` and the `secret_id` — on your clipboard.
+</Tab>
+<Tab title="API">
+  One endpoint starts the flow:
+
+  ```bash
+  curl "$OMNARA_API/orgs/$ORG/secrets/mcp-oauth" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "owner": { "kind": "project", "project_id": "'"$PROJ"'" },
+      "name": "linear-mcp",
+      "mcp_url": "https://mcp.linear.app/mcp",
+      "return_to": "/projects/'"$PROJ"'/secrets"
+    }'
+  ```
+
+  ```json
+  {
+    "authorization_url": "https://linear.app/oauth/authorize?client_id=…&state=…",
+    "expires_at": "2026-08-03T20:28:00Z"
+  }
+  ```
+
+  Open `authorization_url` in a browser and approve access. Omnara reads the server's OAuth metadata, registers a client when supported, exchanges the authorization code, and stores the result as an `oauth_token_set` secret. You can also pass an existing `client_id` and `client_secret` in the start request.
+
+  The browser returns to the console-relative `return_to` path with `?mcp_oauth=success&secret_id=sec_…` appended. Absolute return URLs are rejected. Use that secret ID with `auth.type: oauth`. The authorization link is single-use and expires in 10 minutes.
+</Tab>
+</Tabs>
+
+Re-running the flow with the same owner and name creates a new *version* of the same secret, so re-authorizing never forces a config change.
+
+Troubleshooting:
+
+- If the MCP server doesn't actually require auth, the start call returns `409` — declare it without an `auth` block instead.
+- If a token expires and cannot be refreshed, affected tool calls return `mcp_connection_failed`. Re-run the OAuth flow to create a fresh secret version; the config can keep using the same secret ID.
+
+<Info>
+Full schema and playground: [Start MCP OAuth for a new secret](/api-reference/endpoints/secrets/start-mcp-oauth-for-a-new-secret).
+</Info>

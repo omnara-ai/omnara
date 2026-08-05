@@ -1,0 +1,82 @@
+---
+title: Tools & permissions
+description: Control which tools an agent can use and which calls require approval
+icon: "shield-check"
+---
+
+Tools let an agent search the web, run commands, call external services, and more. An agent can use only the tools listed in its current [config](/agents/configuration). Changing that set requires an explicit [config update](/events/sending-input#change-the-config-mid-conversation), so you can always see exactly what the agent has access to.
+
+Omnara has exactly three kinds of tools, distinguished by *who executes them*:
+
+| Kind | Executed by | Declared as | Default permission |
+| --- | --- | --- | --- |
+| **Built-in** | Omnara | A name from the [built-in set](/tools/built-in), e.g. `web_search` | `always_allow` |
+| **MCP** | A [Model Context Protocol](https://modelcontextprotocol.io) server you point at | An entry under `mcp:`, exposed as `mcp__<server>__<tool>` | `always_ask` |
+| **Custom** | **Your own system**, via the API | `type: custom` with a description and input schema | `always_allow` |
+
+## Permission modes
+
+Each tool has one of three permission modes. For MCP tools, you can set a default for the server and override it for individual tools:
+
+| Mode | What happens on each call |
+| --- | --- |
+| `always_allow` | Runs immediately. No human involved. |
+| `always_ask` | The call pauses in `awaiting_permission` and a **permission [interaction](/events/interactions)** opens. A human approves or denies; the agent continues either way, knowing the outcome. |
+| `always_deny` | The call is refused and the model is told so. Useful for explicitly fencing off one tool from a server that's otherwise allowed. |
+
+```yaml
+tools:
+  web_search: {}               # built-in, default always_allow
+  run_command:
+    permission:
+      mode: always_ask         # every command needs approval
+mcp:
+  linear:
+    url: https://mcp.linear.app/mcp
+    permission:
+      mode: always_ask         # server-wide default
+    tools:
+      get_issue:
+        permission:
+          mode: always_allow   # reads are fine
+      delete_issue:
+        permission:
+          mode: always_deny    # never, even with approval
+```
+
+A permission mode applies to every call. Changing it requires creating a new config and [updating the agent](/events/sending-input#change-the-config-mid-conversation).
+
+<Note>
+`send_integration_message` supports only `always_allow`, so agents can deliver replies to integrations such as Slack without opening another approval prompt.
+</Note>
+
+## What an `always_ask` call looks like
+
+When an agent calls a tool with `always_ask`, its turn pauses and a permission interaction opens. Until someone approves or denies it, the tool call has state `awaiting_permission`. [Approvals & questions](/events/interactions) shows the form and how to respond.
+
+## Check available tools
+
+`GET /tool-catalog` lists the built-in tools available in your deployment, including each tool's description, default permission, and supported modes:
+
+```bash
+curl "$OMNARA_API/tool-catalog" -H "Authorization: Bearer $OMNARA_TOKEN"
+```
+
+The response also includes the supported modes and defaults for custom and MCP tools in `custom_tool_permissions` and `mcp_tool_permissions`. Use it to build or validate configs against your deployment's current tool catalog.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Built-in tools" icon="toolbox" href="/tools/built-in">
+    Available tools, with inputs and defaults
+  </Card>
+  <Card title="Custom tools" icon="plug" href="/tools/custom">
+    Declare a tool, execute it in your system, post the result back
+  </Card>
+  <Card title="MCP servers" icon="server" href="/tools/mcp">
+    Connect third-party tool servers, including the OAuth flow
+  </Card>
+  <Card title="Skills" icon="graduation-cap" href="/tools/skills">
+    Versioned instruction packages agents load on demand
+  </Card>
+</CardGroup>

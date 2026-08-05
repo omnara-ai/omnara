@@ -1,0 +1,144 @@
+---
+title: Agents
+description: Launch agents, inspect them, cancel work, and archive
+icon: "robot"
+---
+
+This page covers common agent lifecycle operations in the console and over the API. API examples use a [bearer token](/api/authentication):
+
+```bash
+export OMNARA_API="https://api.omnara.com/v1"
+export BASE="$OMNARA_API/orgs/$ORG/projects/$PROJ"
+```
+
+## Launch an agent
+
+Create an agent from a [config](/agents/configuration), or from a [profile](/agents/configuration#profiles) if you want the launch tied to a named template.
+
+<Tabs>
+<Tab title="Console">
+  In your project, open **Agents** and click **New agent**. If your role can manage project resources, choose how to define the agent:
+
+  - **From profile** — pick an existing [profile](/agents/configuration#profiles); the launch uses its current config.
+  - **Builder** — a form for name, instruction, model, machine sources, tools, skills, and MCP servers, with a live YAML preview.
+  - **YAML** — paste or write the config directly in the editor.
+
+  Users with launch-only access can select **From profile** but cannot create a config with the Builder or YAML editor.
+
+  Add a **First message (optional)** to kick the agent off, then click **Create agent**. You land in the conversation view.
+</Tab>
+<Tab title="API">
+  ```bash
+  curl "$BASE/agents" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -H "Idempotency-Key: launch-weekly-report-2026-08-03" \
+    -d '{
+      "config": "acfg_mv4qtrwz3jehcyd5n6a2bfgik7",
+      "message": "Draft release notes for the changes merged this week."
+    }'
+  ```
+
+  To launch from a profile, pass both `profile` and `config`. The profile identifies the named template; the config pins the exact current or historical version to launch.
+
+  The response includes the agent, its config, attached machines, and opening input:
+
+  ```json
+  {
+    "agent": {
+      "id": "agt_v4qtrwz3jehcyd5n6a2bfgik7m",
+      "state": "active",
+      "current_config_id": "acfg_mv4qtrwz3jehcyd5n6a2bfgik7",
+      "...": "..."
+    },
+    "agent_config": {
+      "id": "acfg_mv4qtrwz3jehcyd5n6a2bfgik7",
+      "...": "..."
+    },
+    "machine_bindings": [],
+    "agent_input": {
+      "id": "ain_4qtrwz3jehcyd5n6a2bfgik7mv",
+      "state": "received",
+      "delivery_mode": "queued",
+      "...": "..."
+    },
+    "...": "..."
+  }
+  ```
+
+  `agent_config` is the exact immutable config used for this agent. `machine_bindings` lists machines attached at launch and is empty when the config declares none. `agent_input` is the opening message and is absent when you omit `message`.
+
+  Retrying the same request with the same `Idempotency-Key` returns the original agent instead of launching another.
+
+  <Info>
+  Full schema and playground: [Create agent](/api-reference/endpoints/agents/create-agent).
+  </Info>
+</Tab>
+</Tabs>
+
+## Find agents
+
+The project's **Agents** page lists active agents; click one to open its conversation. Over the API, listing returns active agents newest first. Archived agents are omitted from the list but remain retrievable by ID.
+
+<Info>
+For full schemas and playground see: [List agents](/api-reference/endpoints/agents/list-agents) and [Get agent](/api-reference/endpoints/agents/get-agent).
+</Info>
+
+## Stop current work
+
+Stopping cancels the agent's current turn, pending tool calls, and open interactions. The agent and its conversation remain available; the next input starts a new turn.
+
+<Tabs>
+<Tab title="Console">
+  While the agent is working, the composer shows **Stop agent** — click it. The button disappears when the agent is idle.
+</Tab>
+<Tab title="API">
+  ```bash
+  curl -X POST "$BASE/agents/agt_v4qtrwz3jehcyd5n6a2bfgik7m/cancel" \
+    -H "Authorization: Bearer $OMNARA_TOKEN"
+  ```
+
+  The response includes `affected: true` when work was canceled. `affected: false` means the agent was already idle, so the request is safe to repeat.
+
+  <Info>
+  Full schema and playground: [Cancel agent](/api-reference/endpoints/agents/cancel-agent).
+  </Info>
+</Tab>
+</Tabs>
+
+## Archive an agent
+
+Archiving retires an agent. It stops current work, drops queued inputs, releases machine bindings, and deletes pooled machines created for the agent. The agent leaves active listings, but its event history remains available by ID.
+
+Machines you connected yourself, configs, and profiles are not deleted.
+
+<Tabs>
+<Tab title="Console">
+  On the **Agents** page, open the row's actions and click **Archive**.
+</Tab>
+<Tab title="API">
+  ```bash
+  curl -X POST "$BASE/agents/agt_v4qtrwz3jehcyd5n6a2bfgik7m/archive" \
+    -H "Authorization: Bearer $OMNARA_TOKEN"
+  ```
+
+  The response returns the agent with `state: "archived"`. Repeating the request is safe.
+
+  <Info>
+  Full schema and playground: [Archive agent](/api-reference/endpoints/agents/archive-agent).
+  </Info>
+</Tab>
+</Tabs>
+
+There is no unarchive. Launch a new agent when you need to continue with fresh work.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Agent configuration" icon="file-code" href="/agents/configuration">
+    Define an agent's model, tools, permissions, and machines
+  </Card>
+  <Card title="Sending input" icon="paper-plane" href="/events/sending-input">
+    Send messages and change direction while an agent works
+  </Card>
+</CardGroup>

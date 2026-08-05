@@ -1,82 +1,226 @@
 ---
 title: Quickstart
-description: Create and launch your first agent from the console
+description: Launch an agent, watch it reply live, and answer its first question — in the console or using the API
 icon: "rocket"
 ---
 
-This guide creates a simple research agent, launches it from the console, and shows where to inspect its timeline.
+## Create an account
 
-You need an Omnara account and a model provider API key.
+Sign in at [app.omnara.com](https://app.omnara.com). Onboarding creates your first organization and project — that's where your agent will live.
 
-## Create an agent profile
+## Connect a model provider
 
-<Steps>
-  <Step title="Sign in">
-    Go to [app.omnara.com](https://app.omnara.com). Onboarding creates your first organization and project.
-  </Step>
-  <Step title="Add a model provider">
-    In **Overview > Model providers**, add a provider and choose the credential secret that contains its API key.
+Omnara is model-agnostic: you bring a provider API key, and agents use the models you've configured.
 
-    The provider name and model name are the values you reference from agent configs.
-  </Step>
-  <Step title="Create a profile">
-    Open your project, then choose **Agent profiles > New agent profile**. Give it a name like `Research assistant`.
-  </Step>
-  <Step title="Paste the config">
-    Replace `openai-prod` and `gpt-5.5` with the provider and model names from your workspace:
+<Tabs>
+<Tab title="Console">
+  1. Under **Models** in the sidebar, click **New provider**. Pick OpenAI, OpenRouter, or Anthropic, and name the provider. This guide uses `openai-prod`.
+  2. Create the credential secret inline (**New secret**) with your provider API key, then click **Add provider**.
+  3. In the **Add models** step, select `gpt-5.6` and create it. Models added this way are prefixed with the provider name, so it lands under **Configured models** as `openai-prod - gpt-5.6`.
+  4. Grant the model to your project: on the model's row, click **Grant to project** and pick your project.
+</Tab>
+<Tab title="API">
+  The same chain is four calls — store the key as a credential secret, create the provider config, add the configured model, grant it to your project. [Model providers](/organization/model-providers) walks each one with full requests and responses.
+</Tab>
+</Tabs>
 
-    ```yaml
-    version: v1
-    name: Research assistant
-    instruction: |
-      Research the questions the user sends you. Use web search for
-      current information, cite sources, and ask for clarification when needed.
-    model:
-      provider_config: openai-prod
-      name: gpt-5.5
-    tools:
-      web_search: {}
-      web_fetch: {}
-      ask_question: {}
-    ```
+## Launch, watch, and answer
 
-    Save the profile. Omnara validates the model and tools before the profile can launch agents.
-  </Step>
-</Steps>
+<Tabs>
+<Tab title="Console">
+  <Steps>
+    <Step title="Create the agent">
+      In your project, open **Agents** and click **New agent**. Switch to the **YAML** tab and paste this config — an instruction, a model, and the tools the agent may use:
 
-## Launch it
+      ```yaml
+      version: v1
+      name: Research assistant
+      instruction: |
+        Research the questions the user sends you. Use web search for current
+        information, cite sources, and ask for clarification when needed.
+      model:
+        provider_config: openai-prod
+        name: openai-prod - gpt-5.6
+      tools:
+        web_search: {}
+        web_fetch: {}
+        ask_question: {}
+      ```
 
-<Steps>
-  <Step title="Start an agent">
-    In your project, choose **Agents > New agent**. Select the profile you just created.
-  </Step>
-  <Step title="Send the first message">
-    Use a concrete task:
+      `model.name` must match a configured model exactly, as shown on the **Models** page — substitute yours if it's named differently.
 
-    ```text
-    What changed in EU AI regulation this year? Cite sources and ask me if the scope is unclear.
-    ```
-  </Step>
-  <Step title="Watch the timeline">
-    Open the agent. The timeline shows the input, model output, tool calls, tool results, and any human interactions.
-  </Step>
-  <Step title="Answer if it asks">
-    If the agent needs a decision or clarification, resolve the interaction in the console. The agent resumes from the same turn.
-  </Step>
-</Steps>
+      In **First message (optional)**, give it the task:
 
-## Connect: deploy to Slack
+      ```text
+      Find the Omnara blog post "The Log Is the Agent." Before summarizing it, use
+      ask_question to ask me one question: whether I want a technical or
+      non-technical explanation. Then explain its main idea, give me three key
+      takeaways, and link to the post.
+      ```
 
-On the profile row, choose **Deploy to... > Slack** and complete the install flow. After the Slack app is installed, mentioning the agent in a channel launches a fresh agent from that profile.
+      Click **Create agent**. The console validates the config, launches the agent, and drops you into its conversation view.
+    </Step>
+    <Step title="Answer the scope question">
+      The agent pauses and an **Agent question** card appears in the conversation. Choose an option and click **Submit**. The agent resumes immediately.
+    </Step>
+    <Step title="Watch it work">
+      The conversation view is live: you'll see the agent's web searches appear as tool activity, text stream in as it's generated, and the finished reply land.
+    </Step>
+    <Step title="Continue the conversation">
+      Type a follow-up in the composer and hit **Send**:
 
-Slack is just one launch surface. The same profile can also be launched from the console or API.
+      ```text
+      How does this help an agent recover when a machine disconnects?
+      ```
+    </Step>
+  </Steps>
 
-## API users
+</Tab>
+<Tab title="API">
+  <Steps>
+    <Step title="Get an API key and set up your shell">
+      You need `curl` and `jq`. Go to **API Tokens** in the sidebar and click **New token**. The token is shown once — copy it, then:
 
-Create an API key in the console, then use the [API reference](/api/overview) to create configs, launch agents, stream events, and resolve interactions programmatically.
+      ```bash
+      export OMNARA_API="https://api.omnara.com/v1"        # or your self-hosted origin + /api/v1
+      export OMNARA_TOKEN="omnara_pat_..."                # the API key you just created
+      ```
+    </Step>
+    <Step title="Find your org and project">
+      Every agent belongs to a project inside an organization. These commands select your first organization and project:
+
+      ```bash
+      export ORG="$(
+        curl -fsS "$OMNARA_API/me" \
+          -H "Authorization: Bearer $OMNARA_TOKEN" |
+        jq -r '.orgs[0].id'
+      )"
+
+      export PROJ="$(
+        curl -fsS "$OMNARA_API/orgs/$ORG/projects?limit=1" \
+          -H "Authorization: Bearer $OMNARA_TOKEN" |
+        jq -r '.data[0].id'
+      )"
+      ```
+
+      These select the first available organization and project. If you have more than one, set `ORG` and `PROJ` to the IDs you want instead.
+    </Step>
+    <Step title="Create the config">
+      An agent config is a small YAML document: an instruction, a model, and the tools the agent may use. Save this as `agent.yaml`:
+
+      ```yaml
+      version: v1
+      name: Research assistant
+      instruction: |
+        Research the questions the user sends you. Use web search for current
+        information, cite sources, and ask for clarification when needed.
+      model:
+        provider_config: openai-prod
+        name: openai-prod - gpt-5.6
+      tools:
+        web_search: {}
+        web_fetch: {}
+        ask_question: {}
+      ```
+
+      `model.name` must match a configured model exactly — this guide uses the console-created name `openai-prod - gpt-5.6`; substitute yours if it differs.
+
+      Create the config and save its ID:
+
+      ```bash
+      export CONFIG="$(
+        jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
+        curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
+          -H "Authorization: Bearer $OMNARA_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d @- |
+        jq -r '.id'
+      )"
+      ```
+
+      The API validates the model and tools. Submitting the same source again returns the same config ID.
+    </Step>
+    <Step title="Launch the agent">
+      Launch the agent with its first task and save the agent ID:
+
+      ```bash
+      export AGENT="$(
+        curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents" \
+          -H "Authorization: Bearer $OMNARA_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "config": "'"$CONFIG"'",
+            "message": "Find the Omnara blog post \"The Log Is the Agent.\" Before summarizing it, use ask_question to ask me one question: whether I want a technical or non-technical explanation. Then explain its main idea, give me three key takeaways, and link to the post."
+          }' |
+        jq -r '.agent.id'
+      )"
+      ```
+
+      The agent starts working immediately.
+    </Step>
+    <Step title="Stream the reply">
+      Open the event stream. `stream_deltas=true` includes partial output while the model responds:
+
+      ```bash
+      curl -N "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/events/stream?stream_deltas=true" \
+        -H "Authorization: Bearer $OMNARA_TOKEN"
+      ```
+
+      Leave this terminal running. It shows the opening input, the agent's question, its tool calls, and the final response. [Streaming events](/events/streaming) explains reconnection and event formats.
+    </Step>
+    <Step title="Answer the scope question">
+      When the question appears in the stream, use a second terminal to get the open interaction's ID:
+
+      ```bash
+      export INTERACTION="$(
+        curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/interactions?state=open" \
+          -H "Authorization: Bearer $OMNARA_TOKEN" |
+        jq -r '.data[0].id'
+      )"
+      ```
+
+      Resolve it by option index. This selects the first option:
+
+      ```bash
+      curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/interactions/$INTERACTION/resolve" \
+        -H "Authorization: Bearer $OMNARA_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"answers": [{"option_indices": [0]}]}'
+      ```
+
+      The agent resumes immediately, and the stream shows its research and final response.
+    </Step>
+    <Step title="Continue the conversation">
+      Send a follow-up from the second terminal:
+
+      ```bash
+      curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/inputs" \
+        -H "Authorization: Bearer $OMNARA_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"content_blocks": [{"type": "text", "text": "How does this help an agent recover when a machine disconnects?"}]}'
+      ```
+
+      That's the complete flow: define, launch, and converse.
+    </Step>
+  </Steps>
+</Tab>
+</Tabs>
 
 ## Next steps
 
-<Card title="API Reference" icon="code" href="/api/overview">
-  Create configs, launch agents, stream events, and resolve interactions from your own systems
-</Card>
+Next, see how these pieces combine in the [repo Slack agent](/examples/repo-slack-agent): a Slack bot that works on a real repository using machines, secrets, and permissions.
+
+<CardGroup cols={2}>
+  <Card title="How Omnara works" icon="sitemap" href="/how-omnara-works">
+    The object model behind what you just did
+  </Card>
+  <Card title="Agents" icon="robot" href="/agents/overview">
+    Launch, update, cancel, and archive agents
+  </Card>
+  <Card title="Agent configuration" icon="file-code" href="/agents/configuration">
+    Define models, tools, permissions, and machines
+  </Card>
+  <Card title="Streaming events" icon="tower-broadcast" href="/events/streaming">
+    Read history, follow live activity, and reconnect safely
+  </Card>
+</CardGroup>
