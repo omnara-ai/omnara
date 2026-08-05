@@ -13,12 +13,12 @@ interact with each agent.
 
 ## Who it is for
 
-- <ins><strong>Developers</strong></ins>. Build agents for internal use or
-  customer-facing products with the API. Your application controls who can use
-  each agent, what input it receives, and how its output reaches users. Omnara
-  handles execution and state in between.
-- <ins><strong>Teams</strong></ins>. Interact with agents directly through
-  Omnara's dashboard or first-party Slack connector.
+- **Developers.** Build agents for internal use or customer-facing products with
+  the API. Your application controls who can use each agent, what input it
+  receives, and how its output reaches users. Omnara handles execution and state
+  in between.
+- **Teams.** Interact with agents directly through Omnara's dashboard or
+  first-party Slack connector.
 
 ## Features
 
