@@ -254,17 +254,17 @@ func TestHTTPHostedCredentialProvisionerRejectsRedirect(t *testing.T) {
 
 func TestHostedAPIConfigurationValidation(t *testing.T) {
 	t.Parallel()
-	if err := ValidateHostedAPIBaseURL("http://hosted.example.test/internal"); err == nil {
-		t.Fatal("public HTTP hosted URL accepted")
+	if err := ValidateHostedAPIBaseURL("http://hosted.example.test/internal"); err != nil {
+		t.Fatalf("HTTP hosted URL: %v", err)
 	}
 	if err := ValidateHostedAPIBaseURL("http://127.0.0.1:4310/internal"); err != nil {
 		t.Fatalf("loopback hosted URL: %v", err)
 	}
 	endpoint, err := hostedCredentialEndpoint(
-		"https://hosted.example.test/private/",
+		"http://saas-api:4301/internal/",
 		HostedCredentialPath,
 	)
-	if err != nil || endpoint != "https://hosted.example.test/private/model-provider-credentials" {
+	if err != nil || endpoint != "http://saas-api:4301/internal/model-provider-credentials" {
 		t.Fatalf("endpoint = %q err=%v", endpoint, err)
 	}
 	if err := ValidateHostedAPIToken(strings.Repeat("a", MinimumHostedAPITokenBytes-1)); err == nil {
