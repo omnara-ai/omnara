@@ -13,34 +13,37 @@ interact with each agent.
 
 ## Who it is for
 
-- **Developers.** Build agents for internal use or customer-facing products with
-  the API. Your application controls who can use each agent, what input it
-  receives, and how its output reaches users. Omnara handles execution and state
-  in between.
-- **Teams.** Interact with agents directly through Omnara's dashboard or
-  first-party Slack connector.
+- <ins><strong>Developers</strong></ins>. Build agents for internal use or
+  customer-facing products with the API. Your application controls who can use
+  each agent, what input it receives, and how its output reaches users. Omnara
+  handles execution and state in between.
+- <ins><strong>Teams</strong></ins>. Interact with agents directly through
+  Omnara's dashboard or first-party Slack connector.
 
 ## Features
 
-- **Durable agents.** Agent state is committed atomically to Postgres. Agents
-  recover automatically from crashes, restarts, and temporary machine
-  disconnects.
-- **Machine access.** Use sandboxes from Blaxel, Daytona, or Unikraft (more
-  coming soon), or connect your own laptop or VM. An agent can run with no
-  machines or use several at once. These can be sandboxes, your own machines,
-  or both. You can add or remove machines while the agent is running.
-- **Models.** Bring your own API keys and use any model exposed through a
-  compatible endpoint, including OpenRouter, LiteLLM, and Ollama. Omnara
-  supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages,
-  with more API formats coming soon.
-- **Tools.** Use built-in tools, custom tools, skills, and HTTP MCP servers.
-- **RBAC.** Assign organization and project roles to users and API keys.
-  Separate who can manage access, configure agents, operate them, or only view
-  them.
-- **Cloud or self-hosted.** Use Omnara Cloud or run it yourself under Apache 2.0.
-  - **Queryable state.** Self-hosted deployments can query agent history
-    directly in Postgres for analytics, evals, prompt analysis, and training
-    datasets.
+- <ins><strong>Durable agents</strong></ins>. Agent state is committed
+  atomically to Postgres. Agents recover automatically from crashes, restarts,
+  and temporary machine disconnects.
+- <ins><strong>Machine access</strong></ins>. Use sandboxes from Blaxel,
+  Daytona, or Unikraft (more coming soon), or connect your own laptop or VM. An
+  agent can run with no machines or use several at once. These can be sandboxes,
+  your own machines, or both. You can add or remove machines while the agent is
+  running.
+- <ins><strong>Models</strong></ins>. Bring your own API keys and use any model
+  exposed through a compatible endpoint, including OpenRouter, LiteLLM, and
+  Ollama. Omnara supports OpenAI Responses, OpenAI Chat Completions, and
+  Anthropic Messages, with more API formats coming soon.
+- <ins><strong>Tools</strong></ins>. Use built-in tools, custom tools, skills,
+  and HTTP MCP servers.
+- <ins><strong>RBAC</strong></ins>. Assign organization and project roles to
+  users and API keys. Separate who can manage access, configure agents, operate
+  them, or only view them.
+- <ins><strong>Cloud or self-hosted</strong></ins>. Use Omnara Cloud or run it
+  yourself under Apache 2.0.
+  - <ins><strong>Queryable state</strong></ins>. Self-hosted deployments can
+    query agent history directly in Postgres for analytics, evals, prompt
+    analysis, and training datasets.
 
 ## Get started
 
