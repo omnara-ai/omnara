@@ -67,7 +67,7 @@ Pass the returned cursor back on the next request; a `null` cursor means you've 
 
 ## Idempotency
 
-Create endpoints where retries could do damage — orgs, projects, profiles, agents, inputs, machines, and machine/pool grants — accept an optional `Idempotency-Key` header (the API reference marks each one). Retrying with the same key and an identical body returns the original resource instead of creating a duplicate — a replay returns `200` where the first request returned `201`; a conflicting retry returns `409` with code `idempotency_key_conflict`.
+Create endpoints — orgs, projects, profiles, inputs, machines, and machine/pool grants — accept an optional `Idempotency-Key` header (the API reference marks each one). Retrying with the same key and an identical body returns the original resource instead of creating a duplicate — a replay returns `200` where the first request returned `201`; a conflicting retry returns `409` with code `idempotency_key_conflict`.
 
 Organization creation also accepts this header but does not require it. A key determines the proposed organization ID, so a failed retry uses the same ID. Once the organization commits, reusing the key returns it without another hosted call.
 
@@ -95,7 +95,7 @@ Most endpoints cap request bodies at 1 MiB. Agent inputs and custom tool call re
 Each agent exposes its timeline as a Server-Sent Events stream:
 
 ```text
-GET /api/v1/orgs/{org}/projects/{project}/agents/{agent}/events/stream
+GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream
 ```
 
 Use `after_sequence` or `Last-Event-ID` to resume after a disconnect. [Streaming events](/events/streaming) covers the frame types, delta previews, and resume semantics.
