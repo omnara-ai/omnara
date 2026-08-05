@@ -422,6 +422,49 @@ export type CreateProjectModelGrantRequest = {
     output_modalities?: Array<string>;
 };
 
+/**
+ * Update a project model grant's overrides. Omitted fields keep their current values. Null clears an override so the project inherits from the configured model; for arrays, an empty array clears the override.
+ */
+export type UpdateProjectModelGrantRequest = {
+    /**
+     * Project token-window limit. Cannot exceed the configured model's current limit.
+     */
+    context_window_tokens?: number | null;
+    /**
+     * Project output-token ceiling. Cannot exceed the configured model's ceiling.
+     */
+    max_output_tokens?: number | null;
+    /**
+     * Project default per-request output-token cap.
+     */
+    default_max_output_tokens?: number | null;
+    default_cache_retention?: ModelCacheRetention | null;
+    /**
+     * Project-level tool-use gate. Can disable tools, but cannot enable tools when the configured model does not support them.
+     */
+    supports_tools?: boolean | null;
+    /**
+     * Project-level reasoning gate. Can disable reasoning, but cannot enable reasoning when the configured model does not support it.
+     */
+    supports_reasoning?: boolean | null;
+    /**
+     * Project default reasoning effort.
+     */
+    default_reasoning_effort?: string | null;
+    /**
+     * Project subset of configured-model reasoning efforts. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort on the grant too.
+     */
+    supported_reasoning_efforts?: Array<string>;
+    /**
+     * Project subset of configured-model input types.
+     */
+    input_modalities?: Array<string>;
+    /**
+     * Project subset of configured-model output types.
+     */
+    output_modalities?: Array<string>;
+};
+
 export type ProjectModelGrant = {
     id: ProjectModelGrantId;
     org_id: OrganizationId;
@@ -2155,6 +2198,33 @@ export type CreateProjectMachinePoolGrantRequest = {
     max_total_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * Update a project machine pool grant. Omitted fields keep their current values. Null clears an override so the grant follows the machine pool again. Overlay objects and metadata are replaced whole when present; send an empty object to clear them.
+ */
+export type UpdateProjectMachinePoolGrantRequest = {
+    description?: string;
+    default_machine_cpu?: number | null;
+    default_machine_memory_mb?: number | null;
+    default_machine_env_overlay?: {
+        [key: string]: string | null;
+    };
+    default_machine_secret_env_overlay?: {
+        [key: string]: string | null;
+    };
+    default_machine_provider_options_overlay?: {
+        [key: string]: unknown;
+    };
+    default_cwd?: string;
+    max_total_machines?: number | null;
+    max_total_cpu?: number | null;
+    max_total_memory_mb?: number | null;
+    max_machine_cpu?: number | null;
+    max_machine_memory_mb?: number | null;
     metadata?: {
         [key: string]: unknown;
     };
@@ -8154,6 +8224,55 @@ export type DeleteProjectModelGrantResponses = {
 
 export type DeleteProjectModelGrantResponse = DeleteProjectModelGrantResponses[keyof DeleteProjectModelGrantResponses];
 
+export type UpdateProjectModelGrantData = {
+    body: UpdateProjectModelGrantRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+        modelGrantID: string;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}';
+};
+
+export type UpdateProjectModelGrantErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+};
+
+export type UpdateProjectModelGrantError = UpdateProjectModelGrantErrors[keyof UpdateProjectModelGrantErrors];
+
+export type UpdateProjectModelGrantResponses = {
+    /**
+     * Route response.
+     */
+    200: ProjectModelGrantEnvelope;
+};
+
+export type UpdateProjectModelGrantResponse = UpdateProjectModelGrantResponses[keyof UpdateProjectModelGrantResponses];
+
 export type ListMachinePoolsData = {
     body?: never;
     path: {
@@ -8627,6 +8746,55 @@ export type GetProjectMachinePoolGrantResponses = {
 };
 
 export type GetProjectMachinePoolGrantResponse = GetProjectMachinePoolGrantResponses[keyof GetProjectMachinePoolGrantResponses];
+
+export type UpdateProjectMachinePoolGrantData = {
+    body: UpdateProjectMachinePoolGrantRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+        poolGrantID: string;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}';
+};
+
+export type UpdateProjectMachinePoolGrantErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+};
+
+export type UpdateProjectMachinePoolGrantError = UpdateProjectMachinePoolGrantErrors[keyof UpdateProjectMachinePoolGrantErrors];
+
+export type UpdateProjectMachinePoolGrantResponses = {
+    /**
+     * Project machine pool grant updated.
+     */
+    200: ProjectMachinePoolGrant;
+};
+
+export type UpdateProjectMachinePoolGrantResponse = UpdateProjectMachinePoolGrantResponses[keyof UpdateProjectMachinePoolGrantResponses];
 
 export type ListByoMachineDaemonTokensData = {
     body?: never;

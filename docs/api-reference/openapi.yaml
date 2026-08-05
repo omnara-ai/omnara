@@ -4517,9 +4517,9 @@ paths:
       tags: [Models]
       summary: Delete project model grant
       description: >-
-        Removes the project's access to the configured model. Agents already launched with the model
-        keep their immutable configuration; new launches can no longer select it. The model itself is
-        retained, and there are no dependency blockers.
+        Removes the project's access to the configured model. The grant is live policy: new launches
+        can no longer select the model, and agents already using it lose access on their next model
+        call. The model itself is retained, and there are no dependency blockers.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -4527,6 +4527,46 @@ paths:
       responses:
         '204':
           description: Project model grant deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: updateProjectModelGrant
+      tags: [Models]
+      summary: Update project model grant
+      description: >-
+        Updates the project's overrides for the configured model. Omitted fields keep their current
+        values; null clears an override so the project inherits from the configured model. The grant
+        is live policy: agents already using the model re-apply the updated overrides on their next
+        model call, against the configured-model revision each agent pinned at launch. Updates are
+        validated against the configured model's current revision only, so an update can make an
+        agent pinned to an older, incompatible revision fail its next model call.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectModelGrantRequest'
+      responses:
+        '200':
+          description: Route response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectModelGrantEnvelope'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4857,6 +4897,44 @@ paths:
       responses:
         '200':
           description: Project machine pool grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMachinePoolGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: updateProjectMachinePoolGrant
+      tags: [Machine Pools]
+      summary: Update project machine pool grant
+      description: >-
+        Updates the grant's overrides and limits. Omitted fields keep their current values; null
+        clears an override so the grant follows the machine pool again. Overlay objects and metadata
+        are replaced whole when present. Existing machines keep their configuration; the updated
+        defaults and limits apply to new launches.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectMachinePoolGrantRequest'
+      responses:
+        '200':
+          description: Project machine pool grant updated.
           content:
             application/json:
               schema:
@@ -5953,6 +6031,61 @@ components:
         output_modalities:
           type: array
           description: Optional project subset of configured-model output types. Empty or omitted means inherit.
+          items:
+            type: string
+    UpdateProjectModelGrantRequest:
+      type: object
+      description: >-
+        Update a project model grant's overrides. Omitted fields keep their current values. Null
+        clears an override so the project inherits from the configured model; for arrays, an empty
+        array clears the override.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        context_window_tokens:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: Project token-window limit. Cannot exceed the configured model's current limit.
+        max_output_tokens:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: Project output-token ceiling. Cannot exceed the configured model's ceiling.
+        default_max_output_tokens:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: Project default per-request output-token cap.
+        default_cache_retention:
+          allOf:
+            - $ref: '#/components/schemas/ModelCacheRetention'
+          nullable: true
+        supports_tools:
+          type: boolean
+          nullable: true
+          description: Project-level tool-use gate. Can disable tools, but cannot enable tools when the configured model does not support them.
+        supports_reasoning:
+          type: boolean
+          nullable: true
+          description: Project-level reasoning gate. Can disable reasoning, but cannot enable reasoning when the configured model does not support it.
+        default_reasoning_effort:
+          type: string
+          nullable: true
+          description: Project default reasoning effort.
+        supported_reasoning_efforts:
+          type: array
+          description: Project subset of configured-model reasoning efforts. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort on the grant too.
+          items:
+            type: string
+        input_modalities:
+          type: array
+          description: Project subset of configured-model input types.
+          items:
+            type: string
+        output_modalities:
+          type: array
+          description: Project subset of configured-model output types.
           items:
             type: string
     ProjectModelGrant:
@@ -9289,6 +9422,78 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        metadata:
+          type: object
+          additionalProperties: true
+    UpdateProjectMachinePoolGrantRequest:
+      type: object
+      description: >-
+        Update a project machine pool grant. Omitted fields keep their current values. Null clears
+        an override so the grant follows the machine pool again. Overlay objects and metadata are
+        replaced whole when present; send an empty object to clear them.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        description:
+          type: string
+        default_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+          nullable: true
+        default_machine_memory_mb:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+          nullable: true
+        default_machine_env_overlay:
+          type: object
+          additionalProperties:
+            type: string
+            nullable: true
+        default_machine_secret_env_overlay:
+          type: object
+          additionalProperties:
+            type: string
+            pattern: '^sec_[a-z2-7]{26}$'
+            nullable: true
+        default_machine_provider_options_overlay:
+          type: object
+          additionalProperties: true
+        default_cwd:
+          type: string
+        max_total_machines:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        max_total_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        max_total_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        max_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+          nullable: true
+        max_machine_memory_mb:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+          nullable: true
         metadata:
           type: object
           additionalProperties: true

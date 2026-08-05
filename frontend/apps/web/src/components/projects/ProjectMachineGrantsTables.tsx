@@ -6,13 +6,16 @@ import {
   useProjectMachineGrants,
   useProjectMachinePoolGrants,
 } from '@omnara/react'
+import { type ProjectMachinePoolGrantListItem } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
+import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
+import { EditMachinePoolGrantDialog } from '@/components/projects/EditMachinePoolGrantDialog'
 import { GrantMachineButton } from '@/components/projects/GrantMachineButton'
 import { GrantMachinePoolButton } from '@/components/projects/GrantMachinePoolButton'
 import { Button } from '@/components/ui/button'
@@ -23,6 +26,8 @@ import {
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
+import { canManageOrg } from '@/lib/permissions'
+import { useActiveOrg } from '@/lib/use-active-org'
 
 function overlaySummary(overlay: Record<string, unknown>) {
   const summary = Object.entries(overlay)
@@ -64,6 +69,9 @@ export function ProjectMachineGrantsTables({
   const machineGrantsPaged = usePagedQuery(machineGrantsQuery, machineList.queryKey)
   const deleteGrant = useDeleteProjectMachinePoolGrant(orgId, projectId)
   const deleteMachineGrant = useDeleteProjectMachineGrant(orgId, projectId)
+  const [editing, setEditing] = useState<ProjectMachinePoolGrantListItem | null>(null)
+  const { activeOrg } = useActiveOrg()
+  const canDeleteGrants = canManageOrg(activeOrg.role)
 
   return (
     <>
@@ -105,10 +113,17 @@ export function ProjectMachineGrantsTables({
             <span className="text-muted-foreground">{item.grant.description || '—'}</span>,
             <ResourceRowActions
               deleteLabel="Delete grant"
-              onDelete={() => {
-                if (!window.confirm('Delete this machine pool grant?')) return
-                deleteGrant.mutate(item.grant.id)
+              onEdit={() => {
+                setEditing(item)
               }}
+              onDelete={
+                canDeleteGrants
+                  ? () => {
+                      if (!window.confirm('Delete this machine pool grant?')) return
+                      deleteGrant.mutate(item.grant.id)
+                    }
+                  : undefined
+              }
             />,
           ]}
           rowExpanded={(item) => (
@@ -150,6 +165,18 @@ export function ProjectMachineGrantsTables({
           }}
           emptyMessage="No machine pools granted. Grant a pool so agents in this project can run."
         />
+        {editing && (
+          <EditMachinePoolGrantDialog
+            key={editing.grant.id}
+            open
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen) setEditing(null)
+            }}
+            orgId={orgId}
+            projectId={projectId}
+            item={editing}
+          />
+        )}
       </div>
       <div className="flex flex-col gap-3">
         <SearchHeader
@@ -182,10 +209,14 @@ export function ProjectMachineGrantsTables({
             <span className="text-muted-foreground">{item.grant.description || '—'}</span>,
             <ResourceRowActions
               deleteLabel="Delete grant"
-              onDelete={() => {
-                if (!window.confirm('Delete this machine grant?')) return
-                deleteMachineGrant.mutate(item.grant.id)
-              }}
+              onDelete={
+                canDeleteGrants
+                  ? () => {
+                      if (!window.confirm('Delete this machine grant?')) return
+                      deleteMachineGrant.mutate(item.grant.id)
+                    }
+                  : undefined
+              }
             />,
           ]}
           rowExpanded={(item) => (

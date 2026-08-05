@@ -57,28 +57,28 @@ func validateMachineResourcesWithinPerMachineLimits(
 }
 
 func validateProjectMachinePoolGrantStaticPolicy(
-	input CreateProjectMachinePoolGrantInput,
+	config projectMachinePoolGrantConfig,
 	pool MachinePoolRecord,
 ) error {
-	if input.MaxTotalCPU != nil && pool.MaxTotalCPU == nil {
+	if config.MaxTotalCPU != nil && pool.MaxTotalCPU == nil {
 		return errors.New("pool grant max_total_cpu is not supported by the machine pool")
 	}
-	if input.MaxTotalMemoryMB != nil && pool.MaxTotalMemoryMB == nil {
+	if config.MaxTotalMemoryMB != nil && pool.MaxTotalMemoryMB == nil {
 		return errors.New("pool grant max_total_memory_mb is not supported by the machine pool")
 	}
-	if input.MaxMachineCPU != nil {
+	if config.MaxMachineCPU != nil {
 		if pool.MaxMachineCPU == nil {
 			return errors.New("pool grant max_machine_cpu is not supported by the machine pool")
 		}
-		if *input.MaxMachineCPU > *pool.MaxMachineCPU {
+		if *config.MaxMachineCPU > *pool.MaxMachineCPU {
 			return errors.New("pool grant max_machine_cpu cannot exceed machine pool max_machine_cpu")
 		}
 	}
-	if input.MaxMachineMemoryMB != nil {
+	if config.MaxMachineMemoryMB != nil {
 		if pool.MaxMachineMemoryMB == nil {
 			return errors.New("pool grant max_machine_memory_mb is not supported by the machine pool")
 		}
-		if *input.MaxMachineMemoryMB > *pool.MaxMachineMemoryMB {
+		if *config.MaxMachineMemoryMB > *pool.MaxMachineMemoryMB {
 			return errors.New("pool grant max_machine_memory_mb cannot exceed machine pool max_machine_memory_mb")
 		}
 	}
@@ -87,17 +87,17 @@ func validateProjectMachinePoolGrantStaticPolicy(
 
 func resolveProjectMachinePoolGrantPerMachineLimits(
 	pool MachinePoolRecord,
-	input CreateProjectMachinePoolGrantInput,
+	config projectMachinePoolGrantConfig,
 ) MachineResourceLimits {
 	perMachineLimits := MachineResourceLimits{
 		MaxMachineCPU:      pool.MaxMachineCPU,
 		MaxMachineMemoryMB: pool.MaxMachineMemoryMB,
 	}
-	if input.MaxMachineCPU != nil {
-		perMachineLimits.MaxMachineCPU = input.MaxMachineCPU
+	if config.MaxMachineCPU != nil {
+		perMachineLimits.MaxMachineCPU = config.MaxMachineCPU
 	}
-	if input.MaxMachineMemoryMB != nil {
-		perMachineLimits.MaxMachineMemoryMB = input.MaxMachineMemoryMB
+	if config.MaxMachineMemoryMB != nil {
+		perMachineLimits.MaxMachineMemoryMB = config.MaxMachineMemoryMB
 	}
 	return perMachineLimits
 }

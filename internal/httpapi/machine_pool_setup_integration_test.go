@@ -734,6 +734,88 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("listed pool grants = %d, want 1: %+v", got, poolGrants)
 	}
 
+	patchedPoolGrant := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		project.ProjectPath+"/machine-pool-grants/"+poolGrantID,
+		`{"description":"patched project pool","default_machine_memory_mb":1024,"max_total_cpu":null,"default_machine_env_overlay":{"PATCHED_ONLY":"yes"}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if patchedPoolGrant["id"] != poolGrantID ||
+		patchedPoolGrant["description"] != "patched project pool" ||
+		patchedPoolGrant["default_machine_memory_mb"].(float64) != 1024 ||
+		patchedPoolGrant["max_total_cpu"] != nil ||
+		patchedPoolGrant["max_machine_cpu"].(float64) != 2 ||
+		patchedPoolGrant["default_cwd"] != "/project" {
+		t.Fatalf("patched pool grant mismatch: %+v", patchedPoolGrant)
+	}
+	patchedPoolGrantEnv := patchedPoolGrant["default_machine_env_overlay"].(map[string]any)
+	if patchedPoolGrantEnv["PATCHED_ONLY"] != "yes" || len(patchedPoolGrantEnv) != 1 {
+		t.Fatalf("patched pool grant env overlay should be replaced whole: %+v", patchedPoolGrant)
+	}
+	patchedPoolGrantSecretEnv := patchedPoolGrant["default_machine_secret_env_overlay"].(map[string]any)
+	if patchedPoolGrantSecretEnv["process_id"] != providerAuthSecretID {
+		t.Fatalf("patched pool grant secret env overlay should be kept: %+v", patchedPoolGrant)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		project.ProjectPath+"/machine-pool-grants/"+poolGrantID,
+		`{}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		project.ProjectPath+"/machine-pool-grants/"+poolGrantID,
+		`{"max_machine_cpu":3}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		project.ProjectPath+"/machine-pool-grants/"+poolGrantID,
+		`{"description":"project admin cannot edit org pool grant"}`,
+		"",
+		http.StatusForbidden,
+		authHeaders(projectAdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		project.ProjectPath+"/machine-pool-grants/"+testPublicID(t, publicid.KindProjectMachinePoolGrant, httpTestID("missing-pool-grant")),
+		`{"description":"missing"}`,
+		"",
+		http.StatusNotFound,
+		authHeaders(project.AdminToken),
+	)
+	restoredPoolGrant := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		project.ProjectPath+"/machine-pool-grants/"+poolGrantID,
+		`{"description":"default project pool","default_machine_memory_mb":2048,"max_total_cpu":4,"default_machine_env_overlay":{"SECRET_THING":"project-value","PROJECT_ONLY":"yes","uri":"project-uri"}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if restoredPoolGrant["description"] != "default project pool" ||
+		restoredPoolGrant["default_machine_memory_mb"].(float64) != 2048 ||
+		restoredPoolGrant["max_total_cpu"].(float64) != 4 {
+		t.Fatalf("restored pool grant mismatch: %+v", restoredPoolGrant)
+	}
+
 	overCountSourceYAML := "name: Too Many Pool Machines Agent\ninstruction: Use too many machines.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 3\n    initial_num_machines: 3\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,

@@ -54,6 +54,25 @@ WHERE org_id = sqlc.arg(org_id)
   AND machine_pool_id = sqlc.arg(machine_pool_id)
 ORDER BY id;
 
+-- name: UpdateProjectMachinePoolGrant :one
+UPDATE project_machine_pool_grants
+SET description = sqlc.arg(description),
+    default_machine_cpu = sqlc.narg(default_machine_cpu)::integer,
+    default_machine_memory_mb = sqlc.narg(default_machine_memory_mb)::integer,
+    default_machine_env_overlay = sqlc.arg(default_machine_env_overlay)::jsonb,
+    default_machine_secret_env_overlay = sqlc.arg(default_machine_secret_env_overlay)::jsonb,
+    default_machine_provider_options_overlay = sqlc.arg(default_machine_provider_options_overlay)::jsonb,
+    default_cwd = sqlc.arg(default_cwd),
+    max_total_machines = sqlc.narg(max_total_machines)::integer,
+    max_total_cpu = sqlc.narg(max_total_cpu)::integer,
+    max_total_memory_mb = sqlc.narg(max_total_memory_mb)::integer,
+    max_machine_cpu = sqlc.narg(max_machine_cpu)::integer,
+    max_machine_memory_mb = sqlc.narg(max_machine_memory_mb)::integer,
+    metadata = sqlc.arg(metadata),
+    updated_at = statement_timestamp()
+WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
+RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at;
+
 -- name: DeleteProjectMachinePoolGrant :one
 DELETE FROM project_machine_pool_grants
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)

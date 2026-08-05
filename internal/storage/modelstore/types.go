@@ -203,6 +203,22 @@ type CreateProjectModelGrantInput struct {
 	OutputModalities          []string
 }
 
+type UpdateProjectModelGrantInput struct {
+	OrgID                     ID
+	ProjectID                 ID
+	ID                        ID
+	ContextWindowTokens       patch.NullableInt
+	MaxOutputTokens           patch.NullableInt
+	DefaultMaxOutputTokens    patch.NullableInt
+	DefaultCacheRetention     *string
+	SupportsTools             patch.NullableBool
+	SupportsReasoning         patch.NullableBool
+	DefaultReasoningEffort    *string
+	SupportedReasoningEfforts *[]string
+	InputModalities           *[]string
+	OutputModalities          *[]string
+}
+
 type ProjectModelGrantRecord struct {
 	ID                        ID        `json:"id"`
 	OrgID                     ID        `json:"org_id"`

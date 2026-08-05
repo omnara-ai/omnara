@@ -194,6 +194,22 @@ export const zCreateProjectModelGrantRequest = z.object({
     output_modalities: z.array(z.string()).optional()
 });
 
+/**
+ * Update a project model grant's overrides. Omitted fields keep their current values. Null clears an override so the project inherits from the configured model; for arrays, an empty array clears the override.
+ */
+export const zUpdateProjectModelGrantRequest = z.object({
+    context_window_tokens: z.int().gte(1).nullish(),
+    max_output_tokens: z.int().gte(1).nullish(),
+    default_max_output_tokens: z.int().gte(1).nullish(),
+    default_cache_retention: zModelCacheRetention.nullish(),
+    supports_tools: z.boolean().nullish(),
+    supports_reasoning: z.boolean().nullish(),
+    default_reasoning_effort: z.string().nullish(),
+    supported_reasoning_efforts: z.array(z.string()).optional(),
+    input_modalities: z.array(z.string()).optional(),
+    output_modalities: z.array(z.string()).optional()
+});
+
 export const zMachinePoolId = z.string().regex(/^mpo_[a-z2-7]{26}$/);
 
 export const zMachineId = z.string().regex(/^mch_[a-z2-7]{26}$/);
@@ -1814,6 +1830,25 @@ export const zCreateProjectMachinePoolGrantRequest = z.object({
     metadata: z.record(z.string(), z.unknown()).optional()
 });
 
+/**
+ * Update a project machine pool grant. Omitted fields keep their current values. Null clears an override so the grant follows the machine pool again. Overlay objects and metadata are replaced whole when present; send an empty object to clear them.
+ */
+export const zUpdateProjectMachinePoolGrantRequest = z.object({
+    description: z.string().optional(),
+    default_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
+    default_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
+    default_machine_env_overlay: z.record(z.string(), z.string().nullable()).optional(),
+    default_machine_secret_env_overlay: z.record(z.string(), z.string().regex(/^sec_[a-z2-7]{26}$/).nullable()).optional(),
+    default_machine_provider_options_overlay: z.record(z.string(), z.unknown()).optional(),
+    default_cwd: z.string().optional(),
+    max_total_machines: z.int().gte(0).lte(2147483647).nullish(),
+    max_total_cpu: z.int().gte(0).lte(2147483647).nullish(),
+    max_total_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
+    max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
+    max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
+    metadata: z.record(z.string(), z.unknown()).optional()
+});
+
 export const zMachinePoolSummary = z.object({
     id: zMachinePoolId,
     org_id: zOrganizationId,
@@ -2689,6 +2724,11 @@ export const zCreateProjectModelGrantResponse = zProjectModelGrantEnvelope;
 export const zDeleteProjectModelGrantResponse = z.void();
 
 /**
+ * Route response.
+ */
+export const zUpdateProjectModelGrantResponse = zProjectModelGrantEnvelope;
+
+/**
  * Machine pools.
  */
 export const zListMachinePoolsResponse2 = zListMachinePoolsResponse;
@@ -2732,6 +2772,11 @@ export const zDeleteProjectMachinePoolGrantResponse = z.void();
  * Project machine pool grant.
  */
 export const zGetProjectMachinePoolGrantResponse = zProjectMachinePoolGrant;
+
+/**
+ * Project machine pool grant updated.
+ */
+export const zUpdateProjectMachinePoolGrantResponse = zProjectMachinePoolGrant;
 
 /**
  * Machine daemon tokens.

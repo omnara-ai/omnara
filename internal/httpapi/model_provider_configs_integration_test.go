@@ -393,6 +393,91 @@ model:
 	if _, ok := replayedGrant["metadata"]; ok {
 		t.Fatalf("replayed model grant response should not include metadata: %+v", replayedGrant)
 	}
+	grantPath := project.ProjectPath + "/model-grants/" + grant["id"].(string)
+	patchedGrant := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		grantPath,
+		`{"max_output_tokens":2048,"context_window_tokens":null,"supports_tools":false,"default_cache_retention":null}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)["grant"].(map[string]any)
+	if patchedGrant["id"] != grant["id"] ||
+		patchedGrant["max_output_tokens"] != float64(2048) ||
+		patchedGrant["context_window_tokens"] != nil ||
+		patchedGrant["supports_tools"] != false ||
+		patchedGrant["supports_reasoning"] != true ||
+		patchedGrant["default_max_output_tokens"] != float64(2048) ||
+		patchedGrant["default_reasoning_effort"] != "medium" {
+		t.Fatalf("patched model grant mismatch: %+v", patchedGrant)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		grantPath,
+		`{}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		grantPath,
+		`{"default_cache_retention":"forever"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		grantPath,
+		`{"context_window_tokens":256000}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		grantPath,
+		`{"input_modalities":["audio"]}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		project.ProjectPath+"/model-grants/"+testPublicID(t, publicid.KindProjectModelGrant, httpTestID("missing-model-grant")),
+		`{"max_output_tokens":1024}`,
+		"",
+		http.StatusNotFound,
+		authHeaders(project.AdminToken),
+	)
+	restoredGrant := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		grantPath,
+		`{"max_output_tokens":4096,"context_window_tokens":64000,"supports_tools":true}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)["grant"].(map[string]any)
+	if restoredGrant["max_output_tokens"] != float64(4096) ||
+		restoredGrant["context_window_tokens"] != float64(64000) ||
+		restoredGrant["supports_tools"] != true {
+		t.Fatalf("restored model grant mismatch: %+v", restoredGrant)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,

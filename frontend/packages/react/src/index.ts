@@ -63,6 +63,7 @@ export {
   type MachinePoolListSort,
   useCreateMachinePool,
   useDeleteMachinePool,
+  useMachinePool,
   useMachinePools,
   useUpdateMachinePool,
 } from './domains/machine-pools'
@@ -149,6 +150,8 @@ export {
   useProjectMachineGrants,
   useProjectMachinePoolGrants,
   useProjectModelGrants,
+  useUpdateProjectMachinePoolGrant,
+  useUpdateProjectModelGrant,
 } from './domains/project-grants'
 export { useCreateProject, useProjects, useVisibleProjectsList } from './domains/projects'
 export {

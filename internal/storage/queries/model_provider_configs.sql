@@ -525,6 +525,41 @@ WHERE grant_row.org_id = sqlc.arg(org_id)
   AND grant_row.project_id = sqlc.arg(project_id)
   AND grant_row.configured_model_id = sqlc.arg(configured_model_id);
 
+-- name: GetProjectModelGrant :one
+SELECT id, org_id, project_id, configured_model_id,
+       context_window_tokens, max_output_tokens, default_max_output_tokens,
+       default_cache_retention, supports_tools, supports_reasoning,
+       default_reasoning_effort, supported_reasoning_efforts,
+       input_modalities, output_modalities,
+       created_at, updated_at
+FROM project_model_grants
+WHERE org_id = sqlc.arg(org_id)
+  AND project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id);
+
+-- name: UpdateProjectModelGrant :one
+UPDATE project_model_grants
+SET context_window_tokens = sqlc.narg(context_window_tokens),
+    max_output_tokens = sqlc.narg(max_output_tokens),
+    default_max_output_tokens = sqlc.narg(default_max_output_tokens),
+    default_cache_retention = sqlc.narg(default_cache_retention),
+    supports_tools = sqlc.narg(supports_tools),
+    supports_reasoning = sqlc.narg(supports_reasoning),
+    default_reasoning_effort = sqlc.arg(default_reasoning_effort)::text,
+    supported_reasoning_efforts = sqlc.arg(supported_reasoning_efforts)::text[],
+    input_modalities = sqlc.arg(input_modalities)::text[],
+    output_modalities = sqlc.arg(output_modalities)::text[],
+    updated_at = statement_timestamp()
+WHERE org_id = sqlc.arg(org_id)
+  AND project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+RETURNING id, org_id, project_id, configured_model_id,
+          context_window_tokens, max_output_tokens, default_max_output_tokens,
+          default_cache_retention, supports_tools, supports_reasoning,
+          default_reasoning_effort, supported_reasoning_efforts,
+          input_modalities, output_modalities,
+          created_at, updated_at;
+
 -- name: ListProjectModelGrants :many
 WITH listed AS (
  SELECT g.id, g.org_id, g.project_id, g.configured_model_id,

@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
+	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -95,6 +96,243 @@ type CreateProjectMachinePoolGrantInput struct {
 	Metadata                             json.RawMessage
 }
 
+type UpdateProjectMachinePoolGrantInput struct {
+	OrgID                                ID
+	ProjectID                            ID
+	ID                                   ID
+	Description                          *string
+	DefaultMachineCPU                    patch.NullableInt
+	DefaultMachineMemoryMB               patch.NullableInt
+	DefaultMachineEnvOverlay             *json.RawMessage
+	DefaultMachineSecretEnvOverlay       *json.RawMessage
+	DefaultMachineProviderOptionsOverlay *json.RawMessage
+	DefaultCwd                           *string
+	MaxTotalMachines                     patch.NullableInt
+	MaxTotalCPU                          patch.NullableInt
+	MaxTotalMemoryMB                     patch.NullableInt
+	MaxMachineCPU                        patch.NullableInt
+	MaxMachineMemoryMB                   patch.NullableInt
+	Metadata                             *json.RawMessage
+}
+
+type projectMachinePoolGrantConfig struct {
+	DefaultMachineCPU                    *int
+	DefaultMachineMemoryMB               *int
+	DefaultMachineEnvOverlay             json.RawMessage
+	DefaultMachineSecretEnvOverlay       json.RawMessage
+	DefaultMachineProviderOptionsOverlay json.RawMessage
+	DefaultCwd                           string
+	MaxTotalMachines                     *int
+	MaxTotalCPU                          *int
+	MaxTotalMemoryMB                     *int
+	MaxMachineCPU                        *int
+	MaxMachineMemoryMB                   *int
+}
+
+func projectMachinePoolGrantConfigFromCreateInput(
+	input CreateProjectMachinePoolGrantInput,
+) projectMachinePoolGrantConfig {
+	return projectMachinePoolGrantConfig{
+		DefaultMachineCPU:                    input.DefaultMachineCPU,
+		DefaultMachineMemoryMB:               input.DefaultMachineMemoryMB,
+		DefaultMachineEnvOverlay:             input.DefaultMachineEnvOverlay,
+		DefaultMachineSecretEnvOverlay:       input.DefaultMachineSecretEnvOverlay,
+		DefaultMachineProviderOptionsOverlay: input.DefaultMachineProviderOptionsOverlay,
+		DefaultCwd:                           input.DefaultCwd,
+		MaxTotalMachines:                     input.MaxTotalMachines,
+		MaxTotalCPU:                          input.MaxTotalCPU,
+		MaxTotalMemoryMB:                     input.MaxTotalMemoryMB,
+		MaxMachineCPU:                        input.MaxMachineCPU,
+		MaxMachineMemoryMB:                   input.MaxMachineMemoryMB,
+	}
+}
+
+func projectMachinePoolGrantConfigFromRecord(
+	record ProjectMachinePoolGrantRecord,
+) projectMachinePoolGrantConfig {
+	return projectMachinePoolGrantConfig{
+		DefaultMachineCPU:                    cloneIntPtr(record.DefaultMachineCPU),
+		DefaultMachineMemoryMB:               cloneIntPtr(record.DefaultMachineMemoryMB),
+		DefaultMachineEnvOverlay:             record.DefaultMachineEnvOverlay,
+		DefaultMachineSecretEnvOverlay:       record.DefaultMachineSecretEnvOverlay,
+		DefaultMachineProviderOptionsOverlay: record.DefaultMachineProviderOptionsOverlay,
+		DefaultCwd:                           record.DefaultCwd,
+		MaxTotalMachines:                     cloneIntPtr(record.MaxTotalMachines),
+		MaxTotalCPU:                          cloneIntPtr(record.MaxTotalCPU),
+		MaxTotalMemoryMB:                     cloneIntPtr(record.MaxTotalMemoryMB),
+		MaxMachineCPU:                        cloneIntPtr(record.MaxMachineCPU),
+		MaxMachineMemoryMB:                   cloneIntPtr(record.MaxMachineMemoryMB),
+	}
+}
+
+func applyProjectMachinePoolGrantPatch(
+	config *projectMachinePoolGrantConfig,
+	input UpdateProjectMachinePoolGrantInput,
+) {
+	if input.DefaultMachineCPU.Set {
+		config.DefaultMachineCPU = cloneIntPtr(input.DefaultMachineCPU.Value)
+	}
+	if input.DefaultMachineMemoryMB.Set {
+		config.DefaultMachineMemoryMB = cloneIntPtr(input.DefaultMachineMemoryMB.Value)
+	}
+	if input.DefaultMachineEnvOverlay != nil {
+		config.DefaultMachineEnvOverlay = *input.DefaultMachineEnvOverlay
+	}
+	if input.DefaultMachineSecretEnvOverlay != nil {
+		config.DefaultMachineSecretEnvOverlay = *input.DefaultMachineSecretEnvOverlay
+	}
+	if input.DefaultMachineProviderOptionsOverlay != nil {
+		config.DefaultMachineProviderOptionsOverlay = *input.DefaultMachineProviderOptionsOverlay
+	}
+	if input.DefaultCwd != nil {
+		config.DefaultCwd = *input.DefaultCwd
+	}
+	if input.MaxTotalMachines.Set {
+		config.MaxTotalMachines = cloneIntPtr(input.MaxTotalMachines.Value)
+	}
+	if input.MaxTotalCPU.Set {
+		config.MaxTotalCPU = cloneIntPtr(input.MaxTotalCPU.Value)
+	}
+	if input.MaxTotalMemoryMB.Set {
+		config.MaxTotalMemoryMB = cloneIntPtr(input.MaxTotalMemoryMB.Value)
+	}
+	if input.MaxMachineCPU.Set {
+		config.MaxMachineCPU = cloneIntPtr(input.MaxMachineCPU.Value)
+	}
+	if input.MaxMachineMemoryMB.Set {
+		config.MaxMachineMemoryMB = cloneIntPtr(input.MaxMachineMemoryMB.Value)
+	}
+}
+
+func normalizeProjectMachinePoolGrantConfig(
+	config projectMachinePoolGrantConfig,
+) (projectMachinePoolGrantConfig, MachineProvisioningOverlay, MachineEnvironmentOverlay, error) {
+	if config.MaxTotalMachines != nil && (*config.MaxTotalMachines < 0 || *config.MaxTotalMachines > math.MaxInt32) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"pool grant max_total_machines must be between 0 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if config.MaxTotalCPU != nil && (*config.MaxTotalCPU < 0 || *config.MaxTotalCPU > math.MaxInt32) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"pool grant max_total_cpu must be between 0 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if config.MaxTotalMemoryMB != nil && (*config.MaxTotalMemoryMB < 0 || *config.MaxTotalMemoryMB > math.MaxInt32) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"pool grant max_total_memory_mb must be between 0 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if config.MaxMachineCPU != nil && (*config.MaxMachineCPU <= 0 || *config.MaxMachineCPU > math.MaxInt32) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"pool grant max_machine_cpu must be between 1 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if config.MaxMachineMemoryMB != nil &&
+		(*config.MaxMachineMemoryMB <= 0 || *config.MaxMachineMemoryMB > math.MaxInt32) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"pool grant max_machine_memory_mb must be between 1 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if strings.ContainsRune(config.DefaultCwd, 0) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, errors.New(
+			"pool grant default_cwd cannot contain NUL",
+		)
+	}
+	provisioningOverlay, err := machineProvisioningOverlayFromColumns(
+		config.DefaultMachineCPU,
+		config.DefaultMachineMemoryMB,
+		config.DefaultMachineProviderOptionsOverlay,
+	)
+	if err != nil {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"project machine pool grant default_machine fields: %w", err)
+	}
+	environmentOverlay, err := machineEnvironmentOverlayFromColumns(
+		config.DefaultMachineEnvOverlay,
+		config.DefaultMachineSecretEnvOverlay,
+	)
+	if err != nil {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"project machine pool grant default_machine fields: %w", err)
+	}
+	config.DefaultMachineEnvOverlay = normalizedJSON(config.DefaultMachineEnvOverlay)
+	config.DefaultMachineSecretEnvOverlay = normalizedJSON(config.DefaultMachineSecretEnvOverlay)
+	config.DefaultMachineProviderOptionsOverlay = normalizedJSON(config.DefaultMachineProviderOptionsOverlay)
+	return config, provisioningOverlay, environmentOverlay, nil
+}
+
+func (s *Store) validateProjectMachinePoolGrantAgainstPoolTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	orgID, projectID ID,
+	pool MachinePoolRecord,
+	config projectMachinePoolGrantConfig,
+	provisioningOverlay MachineProvisioningOverlay,
+	environmentOverlay MachineEnvironmentOverlay,
+) error {
+	if err := validateProjectMachinePoolGrantStaticPolicy(config, pool); err != nil {
+		return storeerr.InvalidRequest(err)
+	}
+	poolDefaultProvisioning, err := MachineProvisioningFromDefaults(
+		pool.DefaultMachineCPU,
+		pool.DefaultMachineMemoryMB,
+		pool.DefaultMachineProviderOptions,
+	)
+	if err != nil {
+		return fmt.Errorf("machine pool default_machine fields: %w", err)
+	}
+	poolDefaultEnvironment, err := MachineEnvironmentFromColumns(
+		pool.DefaultMachineEnv,
+		pool.DefaultMachineSecretEnv,
+	)
+	if err != nil {
+		return fmt.Errorf("machine pool default_machine fields: %w", err)
+	}
+	projectProvisioning, err := s.ResolveMachineProvisioning(
+		pool.Provider,
+		MachinePoolProviderPolicy{
+			DefaultProvisioning: poolDefaultProvisioning,
+			ResourceLimits: MachineResourceLimits{
+				MaxTotalCPU:        pool.MaxTotalCPU,
+				MaxTotalMemoryMB:   pool.MaxTotalMemoryMB,
+				MaxMachineCPU:      pool.MaxMachineCPU,
+				MaxMachineMemoryMB: pool.MaxMachineMemoryMB,
+			},
+			ProviderConfig: pool.ProviderConfig,
+		},
+		provisioningOverlay,
+		MachineProvisioningOverlay{},
+	)
+	if err != nil {
+		return fmt.Errorf("project machine pool grant default_machine fields: %w", err)
+	}
+	_, err = resolveMachineEnvironmentTx(
+		ctx,
+		qtx,
+		orgID,
+		projectID,
+		poolDefaultEnvironment,
+		environmentOverlay,
+	)
+	if err != nil {
+		return fmt.Errorf("project machine pool grant default_machine fields: %w", err)
+	}
+	perMachineLimits := resolveProjectMachinePoolGrantPerMachineLimits(pool, config)
+	projectMachineResources, err := resourcesFromMachineProvisioning(projectProvisioning)
+	if err != nil {
+		return fmt.Errorf("resolved project machine pool grant config: %w", err)
+	}
+	if err := validateMachineResourcesWithinPerMachineLimits(projectMachineResources, perMachineLimits); err != nil {
+		return fmt.Errorf("resolved project machine pool grant config: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) CreateProjectMachinePoolGrant(
 	ctx context.Context,
 	input CreateProjectMachinePoolGrantInput,
@@ -103,71 +341,13 @@ func (s *Store) CreateProjectMachinePoolGrant(
 		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(errors.New(
 			"pool grant org, project, and machine pool are required",
 		))
-
 	}
-	if input.MaxTotalMachines != nil && (*input.MaxTotalMachines < 0 || *input.MaxTotalMachines > math.MaxInt32) {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(fmt.Errorf(
-			"pool grant max_total_machines must be between 0 and %d when set",
-			math.MaxInt32,
-		))
-
-	}
-	if input.MaxTotalCPU != nil && (*input.MaxTotalCPU < 0 || *input.MaxTotalCPU > math.MaxInt32) {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(fmt.Errorf(
-			"pool grant max_total_cpu must be between 0 and %d when set",
-			math.MaxInt32,
-		))
-
-	}
-	if input.MaxTotalMemoryMB != nil && (*input.MaxTotalMemoryMB < 0 || *input.MaxTotalMemoryMB > math.MaxInt32) {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(fmt.Errorf(
-			"pool grant max_total_memory_mb must be between 0 and %d when set",
-			math.MaxInt32,
-		))
-
-	}
-	if input.MaxMachineCPU != nil && (*input.MaxMachineCPU <= 0 || *input.MaxMachineCPU > math.MaxInt32) {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(fmt.Errorf(
-			"pool grant max_machine_cpu must be between 1 and %d when set",
-			math.MaxInt32,
-		))
-
-	}
-	if input.MaxMachineMemoryMB != nil &&
-		(*input.MaxMachineMemoryMB <= 0 || *input.MaxMachineMemoryMB > math.MaxInt32) {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(fmt.Errorf(
-			"pool grant max_machine_memory_mb must be between 1 and %d when set",
-			math.MaxInt32,
-		))
-
-	}
-	if strings.ContainsRune(input.DefaultCwd, 0) {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(
-			errors.New("pool grant default_cwd cannot contain NUL"),
-		)
-	}
-	grantProvisioningOverlay, err := machineProvisioningOverlayFromColumns(
-		input.DefaultMachineCPU,
-		input.DefaultMachineMemoryMB,
-		input.DefaultMachineProviderOptionsOverlay,
+	config, grantProvisioningOverlay, grantEnvironmentOverlay, err := normalizeProjectMachinePoolGrantConfig(
+		projectMachinePoolGrantConfigFromCreateInput(input),
 	)
 	if err != nil {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(
-			fmt.Errorf("project machine pool grant default_machine fields: %w", err))
-
+		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
 	}
-	grantEnvironmentOverlay, err := machineEnvironmentOverlayFromColumns(
-		input.DefaultMachineEnvOverlay,
-		input.DefaultMachineSecretEnvOverlay,
-	)
-	if err != nil {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(
-			fmt.Errorf("project machine pool grant default_machine fields: %w", err))
-
-	}
-	input.DefaultMachineEnvOverlay = normalizedJSON(input.DefaultMachineEnvOverlay)
-	input.DefaultMachineSecretEnvOverlay = normalizedJSON(input.DefaultMachineSecretEnvOverlay)
-	input.DefaultMachineProviderOptionsOverlay = normalizedJSON(input.DefaultMachineProviderOptionsOverlay)
 	input.Metadata, err = normalizedJSONObject(input.Metadata, "project machine pool grant metadata")
 	if err != nil {
 		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
@@ -189,7 +369,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 		)
 		if replayErr == nil {
 			grant := projectMachinePoolGrantFromIdempotency(replay)
-			if !sameProjectMachinePoolGrantCreateInput(grant, input) {
+			if !sameProjectMachinePoolGrantCreateIntent(grant, input, config) {
 				return ProjectMachinePoolGrantRecord{}, storeerr.ErrIdempotencyConflict
 			}
 			if _, err := qtx.LockMachinePoolForUpdate(
@@ -224,60 +404,17 @@ func (s *Store) CreateProjectMachinePoolGrant(
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("get machine pool for project pool grant: %w", err)
 	}
 	poolRecord := machinePoolRecordFromSQLC(pool)
-	if err := validateProjectMachinePoolGrantStaticPolicy(input, poolRecord); err != nil {
-		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
-	}
-	poolDefaultProvisioning, err := MachineProvisioningFromDefaults(
-		poolRecord.DefaultMachineCPU,
-		poolRecord.DefaultMachineMemoryMB,
-		poolRecord.DefaultMachineProviderOptions,
-	)
-	if err != nil {
-		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("machine pool default_machine fields: %w", err)
-	}
-	poolDefaultEnvironment, err := MachineEnvironmentFromColumns(
-		poolRecord.DefaultMachineEnv,
-		poolRecord.DefaultMachineSecretEnv,
-	)
-	if err != nil {
-		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("machine pool default_machine fields: %w", err)
-	}
-	projectProvisioning, err := s.ResolveMachineProvisioning(
-		poolRecord.Provider,
-		MachinePoolProviderPolicy{
-			DefaultProvisioning: poolDefaultProvisioning,
-			ResourceLimits: MachineResourceLimits{
-				MaxTotalCPU:        poolRecord.MaxTotalCPU,
-				MaxTotalMemoryMB:   poolRecord.MaxTotalMemoryMB,
-				MaxMachineCPU:      poolRecord.MaxMachineCPU,
-				MaxMachineMemoryMB: poolRecord.MaxMachineMemoryMB,
-			},
-			ProviderConfig: poolRecord.ProviderConfig,
-		},
-		grantProvisioningOverlay,
-		MachineProvisioningOverlay{},
-	)
-	if err != nil {
-		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("project machine pool grant default_machine fields: %w", err)
-	}
-	_, err = resolveMachineEnvironmentTx(
+	if err := s.validateProjectMachinePoolGrantAgainstPoolTx(
 		ctx,
 		qtx,
 		input.OrgID,
 		input.ProjectID,
-		poolDefaultEnvironment,
+		poolRecord,
+		config,
+		grantProvisioningOverlay,
 		grantEnvironmentOverlay,
-	)
-	if err != nil {
-		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("project machine pool grant default_machine fields: %w", err)
-	}
-	perMachineLimits := resolveProjectMachinePoolGrantPerMachineLimits(poolRecord, input)
-	projectMachineResources, err := resourcesFromMachineProvisioning(projectProvisioning)
-	if err != nil {
-		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("resolved project machine pool grant config: %w", err)
-	}
-	if err := validateMachineResourcesWithinPerMachineLimits(projectMachineResources, perMachineLimits); err != nil {
-		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("resolved project machine pool grant config %w", err)
+	); err != nil {
+		return ProjectMachinePoolGrantRecord{}, err
 	}
 	row, err := qtx.UpsertProjectMachinePoolGrant(
 		ctx,
@@ -286,17 +423,17 @@ func (s *Store) CreateProjectMachinePoolGrant(
 			ProjectID:                            input.ProjectID,
 			MachinePoolID:                        input.MachinePoolID,
 			Description:                          input.Description,
-			DefaultMachineCpu:                    sqlcInt32Ptr(input.DefaultMachineCPU),
-			DefaultMachineMemoryMb:               sqlcInt32Ptr(input.DefaultMachineMemoryMB),
-			DefaultMachineEnvOverlay:             input.DefaultMachineEnvOverlay,
-			DefaultMachineSecretEnvOverlay:       input.DefaultMachineSecretEnvOverlay,
-			DefaultMachineProviderOptionsOverlay: input.DefaultMachineProviderOptionsOverlay,
-			DefaultCwd:                           input.DefaultCwd,
-			MaxTotalMachines:                     sqlcInt32Ptr(input.MaxTotalMachines),
-			MaxTotalCpu:                          sqlcInt32Ptr(input.MaxTotalCPU),
-			MaxTotalMemoryMb:                     sqlcInt32Ptr(input.MaxTotalMemoryMB),
-			MaxMachineCpu:                        sqlcInt32Ptr(input.MaxMachineCPU),
-			MaxMachineMemoryMb:                   sqlcInt32Ptr(input.MaxMachineMemoryMB),
+			DefaultMachineCpu:                    sqlcInt32Ptr(config.DefaultMachineCPU),
+			DefaultMachineMemoryMb:               sqlcInt32Ptr(config.DefaultMachineMemoryMB),
+			DefaultMachineEnvOverlay:             config.DefaultMachineEnvOverlay,
+			DefaultMachineSecretEnvOverlay:       config.DefaultMachineSecretEnvOverlay,
+			DefaultMachineProviderOptionsOverlay: config.DefaultMachineProviderOptionsOverlay,
+			DefaultCwd:                           config.DefaultCwd,
+			MaxTotalMachines:                     sqlcInt32Ptr(config.MaxTotalMachines),
+			MaxTotalCpu:                          sqlcInt32Ptr(config.MaxTotalCPU),
+			MaxTotalMemoryMb:                     sqlcInt32Ptr(config.MaxTotalMemoryMB),
+			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
+			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
 			IdempotencyKey:                       sqlcTextFromEmpty(input.IdempotencyKey),
 			Metadata:                             input.Metadata,
 		},
@@ -327,26 +464,137 @@ func (s *Store) CreateProjectMachinePoolGrant(
 	return grant, nil
 }
 
-func sameProjectMachinePoolGrantCreateInput(
+func sameProjectMachinePoolGrantCreateIntent(
 	grant ProjectMachinePoolGrantRecord,
 	input CreateProjectMachinePoolGrantInput,
+	config projectMachinePoolGrantConfig,
 ) bool {
 	return grant.OrgID == input.OrgID &&
 		grant.ProjectID == input.ProjectID &&
 		grant.MachinePoolID == input.MachinePoolID &&
 		grant.Description == input.Description &&
-		sameIntPtr(grant.DefaultMachineCPU, input.DefaultMachineCPU) &&
-		sameIntPtr(grant.DefaultMachineMemoryMB, input.DefaultMachineMemoryMB) &&
-		sameJSON(grant.DefaultMachineEnvOverlay, input.DefaultMachineEnvOverlay) &&
-		sameJSON(grant.DefaultMachineSecretEnvOverlay, input.DefaultMachineSecretEnvOverlay) &&
-		sameJSON(grant.DefaultMachineProviderOptionsOverlay, input.DefaultMachineProviderOptionsOverlay) &&
-		grant.DefaultCwd == input.DefaultCwd &&
-		sameIntPtr(grant.MaxTotalMachines, input.MaxTotalMachines) &&
-		sameIntPtr(grant.MaxTotalCPU, input.MaxTotalCPU) &&
-		sameIntPtr(grant.MaxTotalMemoryMB, input.MaxTotalMemoryMB) &&
-		sameIntPtr(grant.MaxMachineCPU, input.MaxMachineCPU) &&
-		sameIntPtr(grant.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
+		sameIntPtr(grant.DefaultMachineCPU, config.DefaultMachineCPU) &&
+		sameIntPtr(grant.DefaultMachineMemoryMB, config.DefaultMachineMemoryMB) &&
+		sameJSON(grant.DefaultMachineEnvOverlay, config.DefaultMachineEnvOverlay) &&
+		sameJSON(grant.DefaultMachineSecretEnvOverlay, config.DefaultMachineSecretEnvOverlay) &&
+		sameJSON(grant.DefaultMachineProviderOptionsOverlay, config.DefaultMachineProviderOptionsOverlay) &&
+		grant.DefaultCwd == config.DefaultCwd &&
+		sameIntPtr(grant.MaxTotalMachines, config.MaxTotalMachines) &&
+		sameIntPtr(grant.MaxTotalCPU, config.MaxTotalCPU) &&
+		sameIntPtr(grant.MaxTotalMemoryMB, config.MaxTotalMemoryMB) &&
+		sameIntPtr(grant.MaxMachineCPU, config.MaxMachineCPU) &&
+		sameIntPtr(grant.MaxMachineMemoryMB, config.MaxMachineMemoryMB) &&
 		sameJSON(grant.Metadata, input.Metadata)
+}
+
+func (s *Store) UpdateProjectMachinePoolGrant(
+	ctx context.Context,
+	input UpdateProjectMachinePoolGrantInput,
+) (ProjectMachinePoolGrantRecord, error) {
+	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.ID) {
+		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(errors.New(
+			"pool grant org, project, and id are required",
+		))
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("begin update project machine pool grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	ref, err := qtx.GetProjectMachinePoolGrant(
+		ctx,
+		dbsqlc.GetProjectMachinePoolGrantParams{OrgID: input.OrgID, ProjectID: input.ProjectID, ID: input.ID},
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ProjectMachinePoolGrantRecord{}, storeerr.ErrNotFound
+		}
+		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("get project machine pool grant for update: %w", err)
+	}
+	pool, err := qtx.LockMachinePoolForUpdate(
+		ctx,
+		dbsqlc.LockMachinePoolForUpdateParams{OrgID: input.OrgID, ID: ref.MachinePoolID},
+	)
+	if err != nil {
+		return ProjectMachinePoolGrantRecord{}, fmt.Errorf(
+			"lock machine pool for project machine pool grant update: %w",
+			err,
+		)
+	}
+	// Re-read after the pool lock; grant mutations serialize on the pool row.
+	row, err := qtx.GetProjectMachinePoolGrant(
+		ctx,
+		dbsqlc.GetProjectMachinePoolGrantParams{OrgID: input.OrgID, ProjectID: input.ProjectID, ID: input.ID},
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ProjectMachinePoolGrantRecord{}, storeerr.ErrNotFound
+		}
+		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("get project machine pool grant for update: %w", err)
+	}
+	current := projectMachinePoolGrantFromGet(row)
+	description := current.Description
+	if input.Description != nil {
+		description = *input.Description
+	}
+	metadata := current.Metadata
+	if input.Metadata != nil {
+		metadata, err = normalizedJSONObject(*input.Metadata, "project machine pool grant metadata")
+		if err != nil {
+			return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
+		}
+	}
+	config := projectMachinePoolGrantConfigFromRecord(current)
+	applyProjectMachinePoolGrantPatch(&config, input)
+	config, provisioningOverlay, environmentOverlay, err := normalizeProjectMachinePoolGrantConfig(config)
+	if err != nil {
+		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
+	}
+	poolRecord := machinePoolRecordFromSQLC(pool)
+	if err := s.validateProjectMachinePoolGrantAgainstPoolTx(
+		ctx,
+		qtx,
+		input.OrgID,
+		input.ProjectID,
+		poolRecord,
+		config,
+		provisioningOverlay,
+		environmentOverlay,
+	); err != nil {
+		return ProjectMachinePoolGrantRecord{}, err
+	}
+	updated, err := qtx.UpdateProjectMachinePoolGrant(
+		ctx,
+		dbsqlc.UpdateProjectMachinePoolGrantParams{
+			Description:                          description,
+			DefaultMachineCpu:                    sqlcInt32Ptr(config.DefaultMachineCPU),
+			DefaultMachineMemoryMb:               sqlcInt32Ptr(config.DefaultMachineMemoryMB),
+			DefaultMachineEnvOverlay:             config.DefaultMachineEnvOverlay,
+			DefaultMachineSecretEnvOverlay:       config.DefaultMachineSecretEnvOverlay,
+			DefaultMachineProviderOptionsOverlay: config.DefaultMachineProviderOptionsOverlay,
+			DefaultCwd:                           config.DefaultCwd,
+			MaxTotalMachines:                     sqlcInt32Ptr(config.MaxTotalMachines),
+			MaxTotalCpu:                          sqlcInt32Ptr(config.MaxTotalCPU),
+			MaxTotalMemoryMb:                     sqlcInt32Ptr(config.MaxTotalMemoryMB),
+			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
+			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
+			Metadata:                             metadata,
+			OrgID:                                input.OrgID,
+			ProjectID:                            input.ProjectID,
+			ID:                                   input.ID,
+		},
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ProjectMachinePoolGrantRecord{}, storeerr.ErrNotFound
+		}
+		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("update project machine pool grant: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("commit update project machine pool grant: %w", err)
+	}
+	return projectMachinePoolGrantFromUpdate(updated), nil
 }
 
 func (s *Store) GetProjectMachinePoolGrant(
@@ -523,4 +771,12 @@ func (s *Store) DeleteProjectMachinePoolGrant(
 		result.Machines = append(result.Machines, machineRecordFromMarkPoolGrantMachinesDeletingSQLC(machineRow))
 	}
 	return result, nil
+}
+
+func cloneIntPtr(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

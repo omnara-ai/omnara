@@ -170,9 +170,9 @@ export function EnvOverlayEditor({
                 }}
               />
               <Input
-                value={row.value}
+                value={row.value ?? ''}
                 autoComplete="off"
-                placeholder="value"
+                placeholder={row.value === null ? 'unset — removes the pool value' : 'value'}
                 aria-label="Variable value"
                 onChange={(event) => {
                   updateRow(row.id, { value: event.target.value })
@@ -249,15 +249,24 @@ export function SecretEnvOverlayEditor({
                   updateRow(row.id, { key: event.target.value })
                 }}
               />
-              <SecretSelect
-                orgId={orgId}
-                projectId={projectId}
-                enabled={enabled}
-                value={row.secretId}
-                onChange={(secretId) => {
-                  updateRow(row.id, { secretId })
-                }}
-              />
+              {row.secretId === null ? (
+                <Input
+                  disabled
+                  value=""
+                  placeholder="unset — removes the pool value"
+                  aria-label="Variable value"
+                />
+              ) : (
+                <SecretSelect
+                  orgId={orgId}
+                  projectId={projectId}
+                  enabled={enabled}
+                  value={row.secretId}
+                  onChange={(secretId) => {
+                    updateRow(row.id, { secretId })
+                  }}
+                />
+              )}
               <Button
                 type="button"
                 size="icon"

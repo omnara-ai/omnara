@@ -88,7 +88,7 @@ function numberPlaceholder(value: number | null) {
   return value === null ? undefined : String(value)
 }
 
-function PoolGrantOverrideFields({
+export function PoolGrantOverrideFields({
   orgId,
   projectId,
   enabled,

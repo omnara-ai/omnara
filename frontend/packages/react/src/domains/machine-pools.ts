@@ -1,6 +1,10 @@
 import { type ListMachinePoolsData, sdk, type UpdateMachinePoolRequest } from '@omnara/sdk'
-import { listMachinePoolsInfiniteOptions, listMachinePoolsQueryKey } from '@omnara/sdk/tanstack'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  getMachinePoolOptions,
+  listMachinePoolsInfiniteOptions,
+  listMachinePoolsQueryKey,
+} from '@omnara/sdk/tanstack'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -27,6 +31,14 @@ export function useMachinePools(orgID: string, options?: MachinePoolListOptions)
     }),
     ...cursorPagination,
     enabled: list.enabled,
+  })
+}
+
+export function useMachinePool(orgID: string, poolID: string, options?: { enabled?: boolean }) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getMachinePoolOptions({ path: { orgID, poolID }, client }),
+    enabled: (options?.enabled ?? true) && poolID !== '',
   })
 }
 
