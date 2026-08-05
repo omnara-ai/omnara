@@ -1,9 +1,0 @@
-name: Example agent
-instruction: Help the user make progress locally. You can ask the user questions when you need clarification or approval.
-model:
-  provider_config: openai-prod
-  name: gpt-5.5
-tools:
-  ask_question:
-    permission:
-      mode: always_ask

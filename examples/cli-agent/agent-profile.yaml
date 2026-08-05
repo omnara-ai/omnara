@@ -1,0 +1,38 @@
+name: CLI example agent
+instruction: |
+  Help the user make progress on their local machine. Ask questions when you
+  need clarification or approval before doing anything destructive.
+model:
+  provider_config: prod-openai
+  name: gpt-5.6-sol
+tools:
+  ask_question:
+    enabled: true
+  run_command:
+    permission:
+      mode: always_ask
+  read_process:
+    enabled: true
+  write_process:
+    permission:
+      mode: always_ask
+  stop_process:
+    enabled: true
+  list_processes:
+    enabled: true
+  web_search:
+    enabled: true
+  web_fetch:
+    enabled: true
+# The CLI adds a machine_sources entry for the current machine when this file
+# does not declare one, so run_command executes on the machine registered at
+# startup.
+#
+# machine_sources:
+#   - machine_name: my-laptop
+#
+# List project-granted skills the agent may use. Reference one in a prompt
+# with $[skill-name] to ask the agent to use it.
+#
+# skills:
+#   - my-skill
