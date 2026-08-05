@@ -9,7 +9,6 @@
   },
   "scripts": {
     "start": "tsx src/main.ts",
-    "seed-models": "tsx src/seed-models.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

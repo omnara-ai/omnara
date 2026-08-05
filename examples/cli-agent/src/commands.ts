@@ -1,16 +1,10 @@
 import type { OmnaraClient, ToolCatalog, ToolPermissionMode } from '@omnara/sdk'
 import { sdk } from '@omnara/sdk'
-import YAML from 'yaml'
 
 import type { AgentProfileSource, AgentProfileToolSource } from './bootstrap.js'
-import { ensureModelAccess } from './bootstrap.js'
-import type { CliEnv } from './env.js'
-import { interruptForError } from './progress.js'
-import { loadCliState, updateCliState } from './state.js'
 
 export interface ConfigSession {
   client: OmnaraClient
-  env: CliEnv
   orgId: string
   projectId: string
   agentId: string
@@ -33,7 +27,7 @@ export async function runConfigCommand(session: ConfigSession, line: string): Pr
     case '/permission':
       return setPermission(session, args)
     default:
-      throw new Error(`unknown command ${command}; available: /model, /effort, /permission, /quit`)
+      throw new Error(`unknown command ${command}; available: /model, /effort, /mode, /permission, /quit`)
   }
 }
 
@@ -42,14 +36,7 @@ async function setModel(session: ConfigSession, args: string[]): Promise<string>
   if (slug == null || args.length !== 1) throw new Error('usage: /model <model-slug>')
   const profile = structuredClone(session.profile)
   profile.model = { ...profile.model, name: slug }
-  try {
-    await ensureModelAccess(session.client, session.orgId, session.projectId, profile)
-  } catch (error) {
-    interruptForError()
-    throw error
-  }
   await pushConfig(session, profile)
-  updateCliState(session.env, { model: slug })
   return `model set to ${slug}`
 }
 
@@ -59,7 +46,6 @@ async function setEffort(session: ConfigSession, args: string[]): Promise<string
   const profile = structuredClone(session.profile)
   profile.model = { ...profile.model, reasoning: { effort } }
   await pushConfig(session, profile)
-  updateCliState(session.env, { effort })
   return `reasoning effort set to ${effort}`
 }
 
@@ -97,9 +83,6 @@ async function setPermission(session: ConfigSession, args: string[]): Promise<st
   }
   profile.tools = tools
   await pushConfig(session, profile)
-  const permissions = { ...loadCliState(session.env).permissions }
-  for (const name of updated) permissions[name] = mode
-  updateCliState(session.env, { permissions })
   const summary = `permission ${mode} set for ${updated.join(', ')}`
   return skipped.length > 0 ? `${summary} (unsupported, unchanged: ${skipped.join(', ')})` : summary
 }
@@ -125,8 +108,7 @@ async function pushConfig(session: ConfigSession, profile: AgentProfileSource): 
   await sdk.updateAgentConfig({
     client: session.client,
     path: { orgID: session.orgId, projectID: session.projectId, agentID: session.agentId },
-    headers: { 'Idempotency-Key': `cli-config-${new Date().toISOString()}` },
-    body: { source: YAML.stringify(profile), source_format: 'yaml' },
+    body: { source: JSON.stringify(profile), source_format: 'json' },
   })
   session.profile = profile
 }

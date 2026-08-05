@@ -5,6 +5,7 @@ import type {
   AgentEvent,
   AgentInteraction,
   InteractionAnswer,
+  ListAgentEventsResponse,
   ModelOutputDelta,
   OmnaraClient,
 } from '@omnara/sdk'
@@ -12,12 +13,8 @@ import { AgentEventStreamError, ApiError, openAgentEventStream, sdk } from '@omn
 
 import type { AgentProfileSource } from './bootstrap.js'
 import { runConfigCommand } from './commands.js'
-import type { CliEnv } from './env.js'
 import { promptContentBlocks } from './prompt.js'
 import { pick } from './select.js'
-import { loadCliState, updateCliState } from './state.js'
-
-type DisplayMode = 'simple' | 'default' | 'full'
 
 const ansi = {
   reset: '\x1b[0m',
@@ -38,11 +35,11 @@ function label(name: string, color: string): string {
 
 export interface ChatTarget {
   client: OmnaraClient
-  env: CliEnv
   orgId: string
   projectId: string
   agentId: string
   profile: AgentProfileSource
+  resume?: boolean
 }
 
 class Terminal {
@@ -151,6 +148,19 @@ class Terminal {
     this.print(text)
   }
 
+  printNow(text: string): void {
+    if (!this.locked) {
+      this.print(text)
+      return
+    }
+    console.log(text)
+    this.lastBlank = text.trim() === ''
+  }
+
+  blankLineNow(): void {
+    if (!this.lastBlank) this.printNow('')
+  }
+
   lock(): void {
     this.eraseRegion()
     this.locked = true
@@ -181,7 +191,7 @@ interface ReadResult {
 type Completer = (line: string) => [string[], string]
 
 function makeCompleter(data: { models: string[]; efforts: string[]; tools: string[] }): Completer {
-  const commands = ['/model ', '/effort ', '/permission ', '/display ', '/quit']
+  const commands = ['/model ', '/effort ', '/permission ', '/mode ', '/quit']
   return (line: string) => {
     const wordStart = line.lastIndexOf(' ') + 1
     const word = line.slice(wordStart)
@@ -196,8 +206,8 @@ function makeCompleter(data: { models: string[]; efforts: string[]; tools: strin
           return data.efforts
         case '/permission':
           return [...data.tools, 'ask', 'allow']
-        case '/display':
-          return ['simple', 'default', 'full']
+        case '/mode':
+          return ['queue', 'steer']
         default:
           return []
       }
@@ -250,12 +260,16 @@ function toolCallSummary(name: string, input: Record<string, unknown>): string |
   return abbreviate(entries.map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`).join(', '))
 }
 
+interface ToolCallInfo {
+  name: string
+  summary?: string
+}
+
 function printEvent(
   terminal: Terminal,
   event: AgentEvent,
   streamedTextContexts: Set<string>,
-  display: DisplayMode,
-  toolNames: Map<string, string>,
+  toolCalls: Map<string, ToolCallInfo>,
 ): void {
   switch (event.event_kind) {
     case 'agent_input':
@@ -269,28 +283,11 @@ function printEvent(
               terminal.printBlock(`${label('agent', ansi.green)} ${block.text}`)
             }
             break
-          case 'tool_call': {
-            toolNames.set(block.tool_call_id, block.name)
-            if (display === 'default') {
-              const summary = toolCallSummary(block.name, block.input)
-              terminal.printBlock(
-                `${label('tool call', ansi.magenta)} ${block.name}` +
-                  (summary != null ? `\n  ${ansi.dim}${summary}${ansi.reset}` : ''),
-              )
-              break
-            }
-            const header = `${label('tool call', ansi.magenta)} ${block.name} ${ansi.gray}${block.tool_call_id}${ansi.reset}`
-            terminal.printBlock(
-              display === 'simple'
-                ? header
-                : `${header}\n  ${ansi.dim}input${ansi.reset} ${JSON.stringify(block.input)}`,
-            )
-            break
-          }
-          case 'reasoning':
-            if (display === 'full' && block.text.trim() !== '') {
-              terminal.printBlock(`${label('thinking', ansi.gray)} ${ansi.dim}${block.text}${ansi.reset}`)
-            }
+          case 'tool_call':
+            toolCalls.set(block.tool_call_id, {
+              name: block.name,
+              summary: toolCallSummary(block.name, block.input),
+            })
             break
           case 'error':
             terminal.printBlock(`${label('error', ansi.red)} ${block.text}`)
@@ -302,34 +299,65 @@ function printEvent(
       return
     }
     case 'tool_result': {
-      if (display === 'default') {
-        const name = toolNames.get(event.tool_call_id) ?? event.tool_call_id
-        const output = event.content_blocks
-          .map((block) => (block.type === 'text' ? block.text : block.type === 'structured_data' ? JSON.stringify(block.value) : ''))
-          .find((text) => text.trim() !== '')
-        terminal.printBlock(
-          `${label('tool result', ansi.blue)} ${name} (${event.outcome})` +
-            (output != null ? `\n  ${ansi.dim}${abbreviate(output)}${ansi.reset}` : ''),
-        )
-        return
-      }
-      const header = `${label('tool result', ansi.blue)} ${event.tool_call_id} (${event.outcome})`
-      if (display === 'simple') {
-        terminal.printBlock(header)
-        return
-      }
-      const lines: string[] = []
-      for (const block of event.content_blocks) {
-        if (block.type === 'text' && block.text.trim() !== '') lines.push(block.text)
-        if (block.type === 'structured_data') lines.push(JSON.stringify(block.value))
-      }
-      terminal.printBlock(lines.length > 0 ? `${header} ${lines.join('\n  ')}` : header)
+      const call = toolCalls.get(event.tool_call_id)
+      toolCalls.delete(event.tool_call_id)
+      const name = call?.name ?? event.tool_call_id
+      const output = event.content_blocks
+        .map((block) => (block.type === 'text' ? block.text : block.type === 'structured_data' ? JSON.stringify(block.value) : ''))
+        .find((text) => text.trim() !== '')
+      const outcomeColor =
+        event.outcome === 'succeeded' ? ansi.green : event.outcome === 'canceled' ? ansi.yellow : ansi.red
+      terminal.printBlock(
+        `${label('tool', ansi.magenta)} ${name} ${outcomeColor}(${event.outcome})${ansi.reset}` +
+          (call?.summary != null ? `\n  ${ansi.dim}${call.summary}${ansi.reset}` : '') +
+          (output != null ? `\n  ${ansi.dim}→ ${abbreviate(output)}${ansi.reset}` : ''),
+      )
       return
     }
     case 'context_checkpoint':
       terminal.printBlock(`${label('checkpoint', ansi.gray)} context summarized`)
       return
   }
+}
+
+const historyEventLimit = 500
+
+function printHistoryEvent(terminal: Terminal, event: AgentEvent, toolCalls: Map<string, ToolCallInfo>): void {
+  if (event.event_kind === 'agent_input') {
+    if (event.input_kind !== 'content') return
+    const text = event.content_blocks
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .filter((line) => line.trim() !== '')
+      .join('\n')
+    if (text !== '') terminal.printBlock(`${label('you', ansi.cyan)} ${text}`)
+    return
+  }
+  printEvent(terminal, event, new Set(), toolCalls)
+}
+
+async function loadHistory(
+  client: OmnaraClient,
+  path: { orgID: string; projectID: string; agentID: string },
+  terminal: Terminal,
+  toolCalls: Map<string, ToolCallInfo>,
+): Promise<number> {
+  const pages: AgentEvent[][] = []
+  let loaded = 0
+  let before: number | null = 0
+  do {
+    const { data }: { data: ListAgentEventsResponse } = await sdk.listEvents({
+      client,
+      path,
+      query: { before_sequence: before ?? 0, limit: 100 },
+    })
+    pages.unshift(data.data)
+    loaded += data.data.length
+    before = data.next_before_sequence ?? null
+  } while (before != null && loaded < historyEventLimit)
+  const events = pages.flat().sort((a, b) => a.sequence - b.sequence)
+  if (before != null) terminal.printBlock(`${ansi.dim}(older history omitted)${ansi.reset}`)
+  for (const event of events) printHistoryEvent(terminal, event, toolCalls)
+  return events.length > 0 ? events[events.length - 1]!.sequence : 0
 }
 
 class DeltaRenderer {
@@ -435,9 +463,9 @@ async function answerInteraction(
   const kind = interaction.interaction_kind === 'permission' ? 'approval' : 'question'
   const color = interaction.interaction_kind === 'permission' ? ansi.yellow : ansi.cyan
   const form = interaction.request
-  terminal.blankLine()
-  terminal.print(`${label(kind, color)} ${form.title}`)
-  for (const item of form.context ?? []) terminal.print(`  ${ansi.dim}${item.label}:${ansi.reset} ${item.value}`)
+  terminal.blankLineNow()
+  terminal.printNow(`${label(kind, color)} ${form.title}`)
+  for (const item of form.context ?? []) terminal.printNow(`  ${ansi.dim}${item.label}:${ansi.reset} ${item.value}`)
   const answers: InteractionAnswer[] = []
   for (const question of form.questions) {
     const indices = await pick(
@@ -459,7 +487,7 @@ async function answerInteraction(
       if (text.line != null && text.line.trim() !== '') answer.text = text.line.trim()
     }
     const chosen = answer.option_indices.map((index) => question.options[index]?.label).join(', ')
-    terminal.print(`  ${ansi.dim}${question.prompt}${ansi.reset} ${chosen}${answer.text != null ? `: ${answer.text}` : ''}`)
+    terminal.printNow(`  ${ansi.dim}${question.prompt}${ansi.reset} ${chosen}${answer.text != null ? `: ${answer.text}` : ''}`)
     answers.push(answer)
   }
   return answers
@@ -477,8 +505,24 @@ export async function runChat(target: ChatTarget): Promise<void> {
   const terminal = new Terminal()
   const deltas = new DeltaRenderer(terminal, streamedTextContexts)
   let interruptRead = new AbortController()
-  let display: DisplayMode = loadCliState(target.env).display ?? 'default'
-  const toolNames = new Map<string, string>()
+  let inputMode: 'queue' | 'steer' = 'queue'
+  const toolCalls = new Map<string, ToolCallInfo>()
+  let toolPreviewShown = false
+  const renderRunningTools = (): void => {
+    if (toolCalls.size === 0) {
+      if (toolPreviewShown) {
+        toolPreviewShown = false
+        terminal.setPreview(undefined)
+      }
+      return
+    }
+    const parts = [...toolCalls.values()].map((tool) =>
+      tool.summary != null ? `${tool.name} · ${tool.summary}` : tool.name,
+    )
+    const width = Math.max(20, (process.stdout.columns ?? 80) - 8)
+    toolPreviewShown = true
+    terminal.setPreview(`${label('tool', ansi.magenta)} ${ansi.dim}${abbreviate(parts.join(' | '), width)} …${ansi.reset}`)
+  }
   const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
   let spinnerIndex = 0
   let agentState: { text: string; detail?: string } | undefined
@@ -537,8 +581,11 @@ export async function runChat(target: ChatTarget): Promise<void> {
   }
   void refreshModelCompletions()
 
+  const initialSequence = target.resume === true ? await loadHistory(client, path, terminal, toolCalls) : 0
+  renderRunningTools()
+
   const streamTask = (async () => {
-    let afterSequence = 0
+    let afterSequence = initialSequence
     while (!abort.signal.aborted) {
       try {
         const { stream } = await openAgentEventStream({
@@ -561,12 +608,16 @@ export async function runChat(target: ChatTarget): Promise<void> {
               if (frame.stop_reason === 'tool_use') setAgentState('running tools…')
               else finishTurn()
             }
-            printEvent(terminal, frame, streamedTextContexts, display, toolNames)
+            printEvent(terminal, frame, streamedTextContexts, toolCalls)
+            renderRunningTools()
           } else if ('event' in frame) {
             const delta = frame.event
             if (delta.kind === 'block_start') {
               if (delta.block.kind === 'tool_use') {
-                toolNames.set(delta.block.tool_call_id, delta.block.tool_name)
+                if (!toolCalls.has(delta.block.tool_call_id)) {
+                  toolCalls.set(delta.block.tool_call_id, { name: delta.block.tool_name })
+                  renderRunningTools()
+                }
                 setAgentState(`calling ${delta.block.tool_name}…`)
               } else if (delta.block.kind === 'thinking') {
                 thinkingTail = ''
@@ -627,14 +678,13 @@ export async function runChat(target: ChatTarget): Promise<void> {
   const handleLine = async (line: string): Promise<'quit' | undefined> => {
     if (line === '') return undefined
     if (line === '/quit' || line === '/exit') return 'quit'
-    if (line.startsWith('/display')) {
+    if (line.split(/\s+/)[0] === '/mode') {
       const [, arg, ...rest] = line.split(/\s+/)
-      if ((arg !== 'simple' && arg !== 'default' && arg !== 'full') || rest.length > 0) {
-        throw new Error('usage: /display <simple|default|full>')
+      if ((arg !== 'queue' && arg !== 'steer') || rest.length > 0) {
+        throw new Error('usage: /mode <queue|steer>')
       }
-      display = arg
-      updateCliState(target.env, { display })
-      terminal.printBlock(`${label('config', ansi.gray)} display mode set to ${display}`)
+      inputMode = arg
+      terminal.printBlock(`${label('config', ansi.gray)} input mode set to ${inputMode}`)
       return undefined
     }
     if (line.startsWith('/')) {
@@ -642,12 +692,14 @@ export async function runChat(target: ChatTarget): Promise<void> {
       if (line.startsWith('/model')) void refreshModelCompletions()
       return undefined
     }
-    const blocks = await promptContentBlocks(line)
+    const blocks = promptContentBlocks(line)
     await sdk.createAgentInput({
       client,
       path,
-      headers: { 'Idempotency-Key': `cli-input-${new Date().toISOString()}` },
-      body: { content_blocks: blocks },
+      body: {
+        content_blocks: blocks,
+        ...(inputMode === 'steer' ? { delivery_mode: 'steering' as const, cancel_open_interactions: true } : {}),
+      },
     })
     setAgentState('working…')
     return undefined

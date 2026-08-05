@@ -1,9 +1,8 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { chmodSync, copyFileSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import type { CliEnv } from './env.js'
-import { repoRoot } from './env.js'
 
 export interface DaemonState {
   apiUrl: string
@@ -59,22 +58,15 @@ export function writeDaemonConfig(env: CliEnv, daemonToken: string, identity: Da
   writeFileSync(path.join(home, 'daemon.json'), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
 }
 
-export function ensureDaemonBinary(env: CliEnv): string {
+function ensureDaemonBinary(env: CliEnv): string {
+  if (env.omnaradBinary == null) {
+    throw new Error('OMNARAD_BINARY is required to run the local machine daemon; point it at a prebuilt omnarad')
+  }
   const binDir = path.join(omnaradHome(env), 'bin')
   mkdirSync(binDir, { recursive: true })
   const binary = path.join(binDir, 'omnarad')
-  if (env.omnaradBinary != null) {
-    copyFileSync(env.omnaradBinary, binary)
-    chmodSync(binary, 0o755)
-    return binary
-  }
-  const build = spawnSync('go', ['build', '-o', binary, './cmd/daemon'], {
-    cwd: repoRoot,
-    stdio: ['ignore', 'ignore', 'inherit'],
-  })
-  if (build.status !== 0) {
-    throw new Error('go build ./cmd/daemon failed; set OMNARAD_BINARY to use a prebuilt omnarad')
-  }
+  copyFileSync(env.omnaradBinary, binary)
+  chmodSync(binary, 0o755)
   return binary
 }
 
