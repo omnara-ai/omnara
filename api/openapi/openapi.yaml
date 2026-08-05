@@ -4516,9 +4516,9 @@ paths:
       tags: [Models]
       summary: Delete project model grant
       description: >-
-        Removes the project's access to the configured model. Agents already launched with the model
-        keep their immutable configuration; new launches can no longer select it. The model itself is
-        retained, and there are no dependency blockers.
+        Removes the project's access to the configured model. The grant is live policy: new launches
+        can no longer select the model, and agents already using it lose access on their next model
+        call. The model itself is retained, and there are no dependency blockers.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -4544,9 +4544,11 @@ paths:
       summary: Update project model grant
       description: >-
         Updates the project's overrides for the configured model. Omitted fields keep their current
-        values; null clears an override so the project inherits from the configured model. Agents
-        already launched with the model keep their immutable configuration; the updated overrides
-        apply to new launches.
+        values; null clears an override so the project inherits from the configured model. The grant
+        is live policy: agents already using the model re-apply the updated overrides on their next
+        model call, against the configured-model revision each agent pinned at launch. Updates are
+        validated against the configured model's current revision only, so an update can make an
+        agent pinned to an older, incompatible revision fail its next model call.
       security:
         - bearerAuth: []
         - browserSessionCookie: []

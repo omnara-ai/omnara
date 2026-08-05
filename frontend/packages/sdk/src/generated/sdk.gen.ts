@@ -2436,7 +2436,7 @@ export const createProjectModelGrant = <ThrowOnError extends boolean = true>(opt
 /**
  * Delete project model grant
  *
- * Removes the project's access to the configured model. Agents already launched with the model keep their immutable configuration; new launches can no longer select it. The model itself is retained, and there are no dependency blockers.
+ * Removes the project's access to the configured model. The grant is live policy: new launches can no longer select the model, and agents already using it lose access on their next model call. The model itself is retained, and there are no dependency blockers.
  */
 export const deleteProjectModelGrant = <ThrowOnError extends boolean = true>(options: Options<DeleteProjectModelGrantData, ThrowOnError>): RequestResult<DeleteProjectModelGrantResponses, DeleteProjectModelGrantErrors, ThrowOnError> => (options.client ?? client).delete<DeleteProjectModelGrantResponses, DeleteProjectModelGrantErrors, ThrowOnError>({
     responseValidator: async (data) => await zDeleteProjectModelGrantResponse.parseAsync(data),
@@ -2460,7 +2460,7 @@ export const deleteProjectModelGrant = <ThrowOnError extends boolean = true>(opt
 /**
  * Update project model grant
  *
- * Updates the project's overrides for the configured model. Omitted fields keep their current values; null clears an override so the project inherits from the configured model. Agents already launched with the model keep their immutable configuration; the updated overrides apply to new launches.
+ * Updates the project's overrides for the configured model. Omitted fields keep their current values; null clears an override so the project inherits from the configured model. The grant is live policy: agents already using the model re-apply the updated overrides on their next model call, against the configured-model revision each agent pinned at launch. Updates are validated against the configured model's current revision only, so an update can make an agent pinned to an older, incompatible revision fail its next model call.
  */
 export const updateProjectModelGrant = <ThrowOnError extends boolean = true>(options: Options<UpdateProjectModelGrantData, ThrowOnError>): RequestResult<UpdateProjectModelGrantResponses, UpdateProjectModelGrantErrors, ThrowOnError> => (options.client ?? client).patch<UpdateProjectModelGrantResponses, UpdateProjectModelGrantErrors, ThrowOnError>({
     responseValidator: async (data) => await zUpdateProjectModelGrantResponse.parseAsync(data),

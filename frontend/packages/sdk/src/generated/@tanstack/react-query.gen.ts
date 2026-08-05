@@ -2855,7 +2855,7 @@ export const createProjectModelGrantMutation = (options?: Partial<Options<Create
 /**
  * Delete project model grant
  *
- * Removes the project's access to the configured model. Agents already launched with the model keep their immutable configuration; new launches can no longer select it. The model itself is retained, and there are no dependency blockers.
+ * Removes the project's access to the configured model. The grant is live policy: new launches can no longer select the model, and agents already using it lose access on their next model call. The model itself is retained, and there are no dependency blockers.
  */
 export const deleteProjectModelGrantMutation = (options?: Partial<Options<DeleteProjectModelGrantData>>): UseMutationOptions<DeleteProjectModelGrantResponse, DeleteProjectModelGrantError, Options<DeleteProjectModelGrantData>> => {
     const mutationOptions: UseMutationOptions<DeleteProjectModelGrantResponse, DeleteProjectModelGrantError, Options<DeleteProjectModelGrantData>> = {
@@ -2874,7 +2874,7 @@ export const deleteProjectModelGrantMutation = (options?: Partial<Options<Delete
 /**
  * Update project model grant
  *
- * Updates the project's overrides for the configured model. Omitted fields keep their current values; null clears an override so the project inherits from the configured model. Agents already launched with the model keep their immutable configuration; the updated overrides apply to new launches.
+ * Updates the project's overrides for the configured model. Omitted fields keep their current values; null clears an override so the project inherits from the configured model. The grant is live policy: agents already using the model re-apply the updated overrides on their next model call, against the configured-model revision each agent pinned at launch. Updates are validated against the configured model's current revision only, so an update can make an agent pinned to an older, incompatible revision fail its next model call.
  */
 export const updateProjectModelGrantMutation = (options?: Partial<Options<UpdateProjectModelGrantData>>): UseMutationOptions<UpdateProjectModelGrantResponse, UpdateProjectModelGrantError, Options<UpdateProjectModelGrantData>> => {
     const mutationOptions: UseMutationOptions<UpdateProjectModelGrantResponse, UpdateProjectModelGrantError, Options<UpdateProjectModelGrantData>> = {
