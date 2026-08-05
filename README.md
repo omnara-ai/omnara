@@ -1,61 +1,63 @@
 # Omnara
 
-The control plane for agents.
+**The API for production-grade agents.**
 
-Take your agents from prototype to production — one open-source API to deploy,
-run, and control them. Self-host it, or use our managed cloud.
+Omnara is an open source platform for building and running agents. It handles
+execution and state while you choose the models, tools, machines, and how users
+interact with each agent.
 
-## Deploy agents, not infrastructure
+[Omnara Cloud](https://app.omnara.com) ·
+[Documentation](docs/introduction.mdx) ·
+[API](docs/api/overview.mdx) ·
+[Discord](https://discord.gg/Dc46sYk6e3)
 
-Define an agent once — in YAML or the console — with its model, tools, policies,
-and machines. Launch it from the API, console, or Slack. Omnara owns the agent
-loop and its durable state, so agents can run for minutes or days, survive
-crashes and disconnects, pause for a human, and resume exactly where they left
-off.
+## Who it is for
 
-A production agent needs more than a prompt and a model call. It needs reliable
-hosting, persistent history, secure access to models, machines, and tools, and a
-way for people to stay in control. Omnara provides those pieces as one system.
+- **Developers.** Build agents for internal use or customer-facing products with
+  the API. Your application controls who can use each agent, what input it
+  receives, and how its output reaches users. Omnara handles execution and state
+  in between.
+- **Teams.** Interact with agents directly through Omnara's dashboard or
+  first-party Slack connector.
 
-- **Agents outlive workers** — every turn, tool call, approval, checkpoint, and
-  artifact is durable state. Workers can restart without restarting the agent.
-- **Machines are tools** — let agents use managed pool machines or connect your
-  own through an outbound daemon. The agent is not bound to one machine's
-  lifecycle.
-- **Models stay replaceable** — configure providers centrally and grant each
-  project only the models it should use, without coupling agent definitions to
-  one vendor.
-- **Humans stay in control** — scope access by organization and project, encrypt
-  secrets, require approval for risky tools, and retain an append-only history
-  of agent activity.
+## Features
 
-## Architecture
+- **Durable agents.** Agent state is committed atomically to Postgres. Agents
+  recover automatically from crashes, restarts, and temporary machine
+  disconnects.
+- **Machine access.** Use sandboxes from Blaxel, Daytona, or Unikraft (more
+  coming soon), or connect your own laptop or VM. An agent can run with no
+  machines or use several at once. These can be sandboxes, your own machines,
+  or both. You can add or remove machines while the agent is running.
+- **Models.** Bring your own API keys and use any model exposed through a
+  compatible endpoint, including OpenRouter, LiteLLM, and Ollama. Omnara
+  supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages,
+  with more API formats coming soon.
+- **Tools.** Use built-in tools, custom tools, skills, and HTTP MCP servers.
+- **RBAC.** Assign organization and project roles to users and API keys.
+  Separate who can manage access, configure agents, operate them, or only view
+  them.
+- **Cloud or self-hosted.** Use Omnara Cloud or run it yourself under Apache 2.0.
+  - **Queryable state.** Self-hosted deployments can query agent history
+    directly in Postgres for analytics, evals, prompt analysis, and training
+    datasets.
 
-The repository contains a TypeScript web console, four long-running Go service
-entrypoints, and one migration entrypoint:
+## Get started
 
-- `frontend/` contains the web console.
-- `cmd/api` serves the HTTP API.
-- `cmd/worker` claims ready agent work, calls models, and executes tools.
-- `cmd/maintenance` performs global background maintenance.
-- `cmd/daemon` runs agent processes on connected machines.
-- `cmd/migrate` applies database migrations as a one-shot process.
+### Omnara Cloud
 
-Postgres is the source of truth. Valkey/Redis provides best-effort wakeups and
-cancellation signals, while S3-compatible object storage holds artifacts.
-Model and machine-provider adapters sit behind first-party contracts, so the
-durable agent state does not depend on a single vendor.
+Sign up at [app.omnara.com](https://app.omnara.com), add a model provider,
+define an agent profile, and launch it from the console, Slack, or API.
 
-See the [architecture documentation](https://docs.omnara.com/self-hosting/architecture)
-for the full request and execution flow.
+See the [quickstart](docs/quickstart.mdx) for the complete flow.
 
-## Quickstart
+### Self-host
 
-### Requirements
+#### Requirements
 
 - Docker with Compose
 
-### Run published images
+#### Run published images
 
 ```sh
 git clone https://github.com/omnara-ai/omnara.git
@@ -63,7 +65,7 @@ cd omnara
 docker compose -f compose.yaml --profile app up -d
 ```
 
-### Build from source
+#### Build from source
 
 ```sh
 git clone https://github.com/omnara-ai/omnara.git
@@ -75,48 +77,38 @@ Open [http://localhost:8000](http://localhost:8000). Local authentication email
 is written to `docker compose logs api`, so you can complete signup without
 configuring an email provider.
 
-Add a model-provider credential in the console, create an agent profile, and
-launch an agent. The [hosted quickstart](https://docs.omnara.com/quickstart)
-walks through the same product flow in more detail.
+Add a model provider credential in the console, create an agent profile, and
+launch an agent.
 
 Local development uses intentionally insecure defaults. Do not use those
 defaults in a deployed environment. Follow the
-[self-hosting guide](https://docs.omnara.com/self-hosting/deployment) and
-[configuration reference](https://docs.omnara.com/self-hosting/configuration)
-for production setup.
+[self-hosting guide](docs/self-hosting/deployment.mdx) and
+[configuration reference](docs/self-hosting/configuration.mdx) for production
+setup.
 
 ## API
 
-The public API is defined in [`api/openapi/openapi.yaml`](api/openapi/openapi.yaml)
-and served from `/api/v1`. Use it to manage organizations, projects, agent
-profiles, agents, inputs, events, interactions, models, machines, pools, skills,
-and secrets.
-
-- [API overview](https://docs.omnara.com/api/overview)
-- [Published documentation](https://docs.omnara.com)
-
-Generated Go and TypeScript API code is committed and checked for drift in CI.
-Change the OpenAPI document first, then regenerate the affected clients and
-server boundaries.
+The API is defined in [`api/openapi/openapi.yaml`](api/openapi/openapi.yaml) and
+served under `/api/v1`. See the [API overview](docs/api/overview.mdx).
 
 ## Development
 
 Source development requires the Go version declared in [`go.mod`](go.mod),
 Node.js 22 or newer with Corepack, and Docker with Compose.
 
-Run the fast repository gate:
+Run the fast repository gate.
 
 ```sh
 make verify
 ```
 
-Run database-backed integration tests:
+Run database-backed integration tests.
 
 ```sh
 make test-integration
 ```
 
-Run deterministic service end-to-end tests:
+Run deterministic service end-to-end tests.
 
 ```sh
 make test-service-e2e
@@ -130,12 +122,10 @@ request expectations.
 
 ## Community
 
-- Use [GitHub Issues](https://github.com/omnara-ai/omnara/issues) for bugs and
-  feature requests.
-- Join the [Omnara Discord](https://discord.gg/Dc46sYk6e3) for questions and
-  discussion.
-- Report vulnerabilities privately by following [SECURITY.md](SECURITY.md).
+[GitHub Issues](https://github.com/omnara-ai/omnara/issues) ·
+[Discord](https://discord.gg/Dc46sYk6e3) ·
+[Security](SECURITY.md)
 
 ## License
 
-Omnara is licensed under the [Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE)
