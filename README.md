@@ -2,9 +2,9 @@
 
 **The API for production-grade agents.**
 
-Omnara is an open source platform for building and running agents. It handles
-execution and state while you choose the models, tools, machines, and how users
-interact with each agent.
+Omnara is an open source platform for running agents. It handles execution and
+state while you choose the models, tools, machines, and how users interact with
+each agent.
 
 [Omnara Cloud](https://app.omnara.com) ·
 [Documentation](https://docs.omnara.com/introduction) ·
