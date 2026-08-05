@@ -1,0 +1,204 @@
+version: "2"
+rules:
+  - name: users-deleted-at
+    message: "users query must filter deleted_at (or annotate @sqlc-vet-disable users-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+users\b') && !query.sql.contains('deleted_at')
+  - name: orgs-deleted-at
+    message: "orgs query must filter deleted_at (or annotate @sqlc-vet-disable orgs-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+orgs\b') && !query.sql.contains('deleted_at')
+  - name: projects-deleted-at
+    message: "projects query must filter deleted_at (or annotate @sqlc-vet-disable projects-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+projects\b') && !query.sql.contains('deleted_at')
+  - name: secrets-deleted-at
+    message: "secrets query must filter deleted_at (or annotate @sqlc-vet-disable secrets-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+secrets\b') && !query.sql.contains('deleted_at')
+  - name: model-provider-configs-deleted-at
+    message: "model_provider_configs query must filter deleted_at (or annotate @sqlc-vet-disable model-provider-configs-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+model_provider_configs\b') && !query.sql.contains('deleted_at')
+  - name: configured-models-deleted-at
+    message: "configured_models query must filter deleted_at (or annotate @sqlc-vet-disable configured-models-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+configured_models\b') && !query.sql.contains('deleted_at')
+  - name: agent-profiles-deleted-at
+    message: "agent_profiles query must filter deleted_at (or annotate @sqlc-vet-disable agent-profiles-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+agent_profiles\b') && !query.sql.contains('deleted_at')
+  - name: agent-profile-versions-deleted-at
+    message: "agent_profile_versions query must filter deleted_at (or annotate @sqlc-vet-disable agent-profile-versions-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+agent_profile_versions\b') && !query.sql.contains('deleted_at')
+  - name: integration-installs-deleted-at
+    message: "integration_installs query must filter deleted_at (or annotate @sqlc-vet-disable integration-installs-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_installs\b') && !query.sql.contains('deleted_at')
+  - name: integration-targets-deleted-at
+    message: "integration_targets query must filter deleted_at (or annotate @sqlc-vet-disable integration-targets-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_targets\b') && !query.sql.contains('deleted_at')
+  - name: machine-pools-deleted-at
+    message: "machine_pools query must filter deleted_at (or annotate @sqlc-vet-disable machine-pools-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+machine_pools\b') && !query.sql.contains('deleted_at')
+  - name: machines-deleted-at
+    message: "machines query must filter deleted_at (or annotate @sqlc-vet-disable machines-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+machines\b') && !query.sql.contains('deleted_at')
+  - name: skills-deleted-at
+    message: "skills query must filter deleted_at (or annotate @sqlc-vet-disable skills-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+skills\b') && !query.sql.contains('deleted_at')
+  - name: skill-revisions-deleted-at
+    message: "skill_revisions query must filter deleted_at (or annotate @sqlc-vet-disable skill-revisions-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+skill_revisions\b') && !query.sql.contains('deleted_at')
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/storage/queries"
+    rules:
+      - users-deleted-at
+      - orgs-deleted-at
+      - projects-deleted-at
+      - secrets-deleted-at
+      - model-provider-configs-deleted-at
+      - configured-models-deleted-at
+      - agent-profiles-deleted-at
+      - agent-profile-versions-deleted-at
+      - integration-installs-deleted-at
+      - integration-targets-deleted-at
+      - machine-pools-deleted-at
+      - machines-deleted-at
+      - skills-deleted-at
+      - skill-revisions-deleted-at
+    gen:
+      go:
+        package: "dbsqlc"
+        out: "internal/storage/internal/dbsqlc"
+        sql_package: "pgx/v5"
+        emit_empty_slices: true
+        emit_json_tags: false
+        emit_interface: false
+        omit_unused_structs: true
+        query_parameter_limit: 0
+        output_db_file_name: "db_gen.go"
+        output_models_file_name: "models_gen.go"
+        overrides:
+          - db_type: "pg_catalog.uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "pg_catalog.uuid"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+              pointer: true
+          - db_type: "uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+              pointer: true
+          - db_type: "pg_catalog.timestamptz"
+            go_type:
+              import: "time"
+              type: "Time"
+          - db_type: "pg_catalog.timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          - db_type: "timestamptz"
+            go_type:
+              import: "time"
+              type: "Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          - db_type: "text"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true
+          - db_type: "pg_catalog.int4"
+            nullable: true
+            go_type:
+              type: "int32"
+              pointer: true
+          - db_type: "int4"
+            nullable: true
+            go_type:
+              type: "int32"
+              pointer: true
+          - db_type: "pg_catalog.int8"
+            nullable: true
+            go_type:
+              type: "int64"
+              pointer: true
+          - db_type: "int8"
+            nullable: true
+            go_type:
+              type: "int64"
+              pointer: true
+          - db_type: "pg_catalog.bool"
+            nullable: true
+            go_type:
+              type: "bool"
+              pointer: true
+          - db_type: "bool"
+            nullable: true
+            go_type:
+              type: "bool"
+              pointer: true
+          - db_type: "pg_catalog.jsonb"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - db_type: "pg_catalog.jsonb"
+            nullable: true
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+              pointer: true
+          - db_type: "jsonb"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - db_type: "jsonb"
+            nullable: true
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+              pointer: true
+  - engine: "sqlite"
+    schema: "internal/machinedaemon/statedb/migrations"
+    queries: "internal/machinedaemon/statedb/queries"
+    database:
+      # Build-time query validation only; omnarad opens a per-machine state.sqlite file.
+      uri: ":memory:"
+    rules:
+      - sqlc/db-prepare
+    gen:
+      go:
+        package: "dbsqlc"
+        out: "internal/machinedaemon/statedb/internal/dbsqlc"
+        sql_package: "database/sql"
+        emit_empty_slices: false
+        emit_interface: false
+        omit_unused_structs: true
+        query_parameter_limit: 0
+        output_db_file_name: "db_gen.go"
+        output_models_file_name: "models_gen.go"

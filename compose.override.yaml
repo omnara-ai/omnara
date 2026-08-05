@@ -1,0 +1,35 @@
+# Auto-loaded in a repo checkout: builds the app services from source instead
+# of pulling the published release images, and tags them with local names so
+# they never masquerade as ghcr.io releases. Run the published images from a
+# checkout with `docker compose -f compose.yaml --profile app up`.
+
+services:
+  migrate:
+    image: omnara-migrations:local
+    build:
+      context: .
+      target: migrations
+
+  api:
+    image: omnara-api:local
+    build:
+      context: .
+      target: api
+
+  worker:
+    image: omnara-worker:local
+    build:
+      context: .
+      target: worker
+
+  maintenance:
+    image: omnara-maintenance:local
+    build:
+      context: .
+      target: maintenance
+
+  web:
+    image: omnara-web:local
+    build:
+      context: .
+      target: web

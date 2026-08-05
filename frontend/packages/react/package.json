@@ -1,0 +1,31 @@
+{
+  "name": "@omnara/react",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@omnara/sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "@types/react": "^19.0.0",
+    "ai": "7.0.15",
+    "react": "^19.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "4.1.9"
+  }
+}

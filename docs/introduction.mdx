@@ -1,100 +1,41 @@
 ---
 title: Introduction
-description: 'Mission control for your AI coding agents'
+description: The open-source control plane for managed agents
+icon: "hand-wave"
 ---
 
-<img
-  className="block dark:hidden"
-  src="/assets/three-panel.png"
-  alt="Omnara Dashboard"
-/>
-<img
-  className="hidden dark:block"
-  src="/assets/three-panel.png"
-  alt="Omnara Dashboard"
-/>
+Building an agent is trivial. Running one in production isn't. An agent your product or team can actually rely on is a service: it needs hosting, team access, integrations, MCP servers, durability, and rules about what it's allowed to do.
 
-## What is Omnara?
+Omnara provides that service. Define an agent, launch it, and Omnara runs the loop — execution environments, model calls, tools. The API is stateful: it stores the conversation, so new input resumes the agent where it left off.
 
-Omnara transforms your AI agents (Claude Code, Codex CLI, n8n, and more) from silent workers into communicative teammates. Get real-time visibility into what your agents are doing, and respond to their questions instantly from a single dashboard on web and mobile.
+Omnara is also designed to outlive any process or machine where its agents run, meaning crashes, restarts, or days-long execution are normal operation, not failure modes.
+
+## What you get
 
 <CardGroup cols={2}>
-  <Card
-    title="CLI Integration"
-    icon="terminal"
-    href="/cli/overview"
-  >
-    Run AI coding agents with full dashboard sync
+  <Card title="Durable agents" icon="database">
+    Agents keep their history and live state across restarts and disconnects.
   </Card>
-  <Card
-    title="n8n Workflows"
-    icon="workflow"
-    href="/integrations/n8n"
-  >
-    Add human-in-the-loop to your automations
+  <Card title="Human-in-the-loop" icon="user-check">
+    Agents pause for approvals and questions. Permissions for users and agents can be defined at the organization and project levels.
   </Card>
-  <Card
-    title="Python SDK"
-    icon="python"
-    href="/api/sdk"
-  >
-    Build custom agent integrations
+  <Card title="Vendor-agnostic" icon="arrows-rotate">
+    Use OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint — including open-source models you host.
   </Card>
-  <Card
-    title="REST API"
-    icon="code"
-    href="/api/overview"
-  >
-    Direct API access for any platform
+  <Card title="Flexible compute" icon="server">
+    Bring your own machines or use cloud machines Omnara allocates from dynamic pools. Offline machines can seamlessly leave and rejoin when back.
   </Card>
 </CardGroup>
 
-## Key Features
+## How it fits together
 
-<AccordionGroup>
-  <Accordion title="Real-time Dashboard" icon="gauge">
-    See exactly what your AI agents are doing in real-time across terminal, web, and mobile. Never lose track of your agents again.
-  </Accordion>
-  <Accordion title="Two-way Communication" icon="messages">
-    Your agents can ask questions and wait for your response. Reply from anywhere - your phone, web dashboard, or terminal.
-  </Accordion>
-  <Accordion title="Multi-agent Support" icon="robot">
-    Works with Claude Code, Codex CLI, n8n workflows, and any custom agent via our SDK or REST API.
-  </Accordion>
-  <Accordion title="Session Persistence" icon="database">
-    All messages and sessions are stored securely. Resume conversations, review history, and track progress over time.
-  </Accordion>
-</AccordionGroup>
+1. An **organization** owns projects, secrets, models, and machines
+2. A **project** scopes agents and the grants they can use
+3. An **agent** is one running instance: its conversation, tool calls, and history
+4. You send **inputs**, stream **events**, and resolve **interactions** when the agent needs you
 
-## Quick Start
+## Start here
 
-Get started in under a minute:
-
-<CodeGroup>
-
-```bash pip
-pip install omnara
-omnara
-```
-
-```bash homebrew
-brew install omnara
-omnara
-```
-
-```bash uv
-uv tool install omnara
-omnara
-```
-
-</CodeGroup>
-
-That's it! Create an account when prompted, then interact with Claude in your terminal. Everything syncs automatically to your [dashboard](https://claude.omnara.com/dashboard).
-
-<Card
-  title="Continue to Quickstart"
-  icon="rocket"
-  href="/quickstart"
->
-  Detailed setup instructions and examples
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Launch your first agent in about five minutes
 </Card>

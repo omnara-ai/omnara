@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Omnara</title>
+    <script>
+      // Apply the stored theme before first paint; src/lib/theme.ts owns
+      // changes after load.
+      const stored = localStorage.getItem('theme')
+      document.documentElement.classList.toggle(
+        'dark',
+        stored === 'dark' ||
+          (stored !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches),
+      )
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

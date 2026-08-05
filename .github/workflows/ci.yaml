@@ -1,0 +1,344 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Verify and Vulnerability Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: go-${{ runner.os }}-${{ runner.arch }}-verify-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-verify-
+
+      - id: golangci-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/custom-golangci-lint
+          key: custom-golangci-lint-${{ runner.os }}-${{ runner.arch }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('.custom-gcl.yml', 'tools/ci/go.mod', 'tools/ci/go.sum', 'tools/omnaralint/go.mod', 'tools/omnaralint/go.sum', 'tools/omnaralint/**/*.go') }}
+
+      - run: touch .tools/custom-golangci-lint
+        if: steps.golangci-cache.outputs.cache-hit == 'true'
+
+      - run: make verify-static
+
+      - run: make govulncheck
+
+  go-tests:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        include:
+          - label: Unit Tests
+            target: unit
+          - label: Machine Daemon Race Tests
+            target: race-machinedaemon
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-
+
+      - run: make ${{ matrix.target }}
+
+  daemon-darwin:
+    name: Daemon macOS Tests
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go test ./internal/machinedaemon ./cmd/daemon ./internal/omnarad
+
+  frontend:
+    name: Frontend Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ runner.arch }}-frontend-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-frontend-
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+
+      - run: corepack enable
+
+      - run: make web-e2e
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: |
+            frontend/apps/web/playwright-report
+            frontend/apps/web/test-results
+          retention-days: 7
+
+      - run: make build-api-from-dist
+
+      - name: Show database logs on failure
+        if: failure()
+        run: docker compose logs postgres redis
+
+      - name: Stop test database
+        if: always()
+        run: docker compose down -v
+
+  integration:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        include:
+          - label: Database Contract Checks
+            target: test-database-contracts
+          - label: Storage Integration Tests
+            target: test-integration-storage
+          - label: HTTP API Integration Tests
+            target: test-integration-httpapi
+          - label: Runtime Integration Tests
+            target: test-integration-runtime
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-
+
+      - uses: ./.github/actions/setup-test-db
+
+      - run: make ${{ matrix.target }}
+
+      - name: Show database logs on failure
+        if: failure()
+        run: docker compose logs postgres redis
+
+      - name: Stop test database
+        if: always()
+        run: docker compose down -v
+
+  service-e2e:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        include:
+          - label: Service E2E A
+            shard: 0
+          - label: Service E2E B
+            shard: 1
+          - label: Service E2E C
+            shard: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ runner.arch }}-service-e2e-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-service-e2e-
+
+      - uses: ./.github/actions/setup-test-db
+
+      - run: make test-service-e2e SERVICE_E2E_SHARD_INDEX=${{ matrix.shard }} SERVICE_E2E_SHARD_TOTAL=3
+
+      - name: Show database logs on failure
+        if: failure()
+        run: docker compose logs postgres redis
+
+      - name: Stop test database
+        if: always()
+        run: docker compose down -v
+
+  live-web:
+    name: Live Web Tests
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/ci/go.sum
+            tools/goose/go.sum
+            tools/omnaralint/go.sum
+
+      - run: make test-live-web
+
+  live:
+    name: Live Provider Tests
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check live test secrets
+        id: secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "openai=false" >> "$GITHUB_OUTPUT"
+            echo "OPENAI_API_KEY is not configured; skipping live OpenAI tests."
+          else
+            echo "openai=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "openrouter=false" >> "$GITHUB_OUTPUT"
+            echo "OPENROUTER_API_KEY is not configured; skipping live OpenRouter tests."
+          else
+            echo "openrouter=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "anthropic=false" >> "$GITHUB_OUTPUT"
+            echo "ANTHROPIC_API_KEY is not configured; skipping live Anthropic tests."
+          else
+            echo "anthropic=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ runner.arch }}-live-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-live-
+
+      - uses: ./.github/actions/setup-test-db
+        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+
+      - run: make test-live-openai
+        if: steps.secrets.outputs.openai == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG }}
+
+      - run: make test-live-openai-chat-completions
+        if: steps.secrets.outputs.openai == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG }}
+          OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG }}
+
+      - run: make test-live-openrouter
+        if: steps.secrets.outputs.openrouter == 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OMNARA_E2E_OPENROUTER_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_PROVIDER_MODEL_SLUG }}
+          OMNARA_E2E_OPENROUTER_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_OPENAI_PROVIDER_MODEL_SLUG }}
+          OMNARA_E2E_OPENROUTER_ANTHROPIC_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_ANTHROPIC_PROVIDER_MODEL_SLUG }}
+          OMNARA_E2E_OPENROUTER_SETTINGS_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_SETTINGS_PROVIDER_MODEL_SLUG }}
+          OMNARA_E2E_OPENROUTER_TOOL_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_TOOL_PROVIDER_MODEL_SLUG }}
+
+      - run: make test-live-anthropic
+        if: steps.secrets.outputs.anthropic == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG }}
+
+      - run: make test-live-api-format-switching
+        if: steps.secrets.outputs.openai == 'true' && steps.secrets.outputs.anthropic == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG }}
+          OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG }}
+          OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG }}
+
+      - name: Show database logs on failure
+        if: failure() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true')
+        run: docker compose logs postgres redis
+
+      - name: Stop test database
+        if: always() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true')
+        run: docker compose down -v

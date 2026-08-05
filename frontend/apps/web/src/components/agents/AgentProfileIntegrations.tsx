@@ -1,0 +1,123 @@
+import { useDeleteIntegrationInstall, useIntegrationInstalls } from '@omnara/react'
+import { ApiError, type IntegrationInstall } from '@omnara/sdk'
+import { Trash2 } from 'lucide-react'
+
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
+import { formatDateTime } from '@/lib/format'
+
+const providerLabels: Record<string, string> = { slack: 'Slack' }
+
+function providerLabel(provider: string) {
+  return providerLabels[provider] ?? provider
+}
+
+function installName(install: IntegrationInstall) {
+  return install.provider_agent_display_name || install.provider_account_ref
+}
+
+/** Integration installs bound to one agent profile, shown in its expanded row. */
+export function AgentProfileIntegrations({
+  orgId,
+  projectId,
+  profileId,
+  canManage,
+}: {
+  orgId: string
+  projectId: string
+  profileId: string
+  canManage: boolean
+}) {
+  const query = useIntegrationInstalls(orgId, projectId, {
+    filters: { agent_profile_id: profileId },
+  })
+  const installs = useInfiniteQueryItems(query)
+  const deleteInstall = useDeleteIntegrationInstall(orgId, projectId)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h4 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+        Integrations
+      </h4>
+      {query.isPending ? (
+        <Spinner className="size-4" />
+      ) : query.isError ? (
+        <div className="flex items-center gap-3">
+          <p className="text-muted-foreground text-sm">Couldn&rsquo;t load integrations.</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void query.refetch()
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : installs.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          No integrations yet.
+          {canManage && ' Use “Deploy to app” to make this profile available in an external app.'}
+        </p>
+      ) : (
+        <ul className="bg-background flex flex-col divide-y rounded-md border">
+          {installs.map((install) => (
+            <li key={install.id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2 text-sm">
+                <span className="truncate font-medium">{installName(install)}</span>
+                <Badge variant="outline">{providerLabel(install.provider)}</Badge>
+                {install.state === 'disabled' && <Badge variant="secondary">Disabled</Badge>}
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="text-muted-foreground text-xs">
+                  Installed {formatDateTime(install.created_at)}
+                </span>
+                {canManage && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={deleteInstall.isPending}
+                    onClick={() => {
+                      const confirmed = window.confirm(
+                        `Remove the ${providerLabel(install.provider)} integration ${installName(install)}? ` +
+                          'Agents are kept, but the connected app stops working.',
+                      )
+                      if (!confirmed) return
+                      deleteInstall.mutate(install.id, {
+                        onError: (error) => {
+                          window.alert(
+                            error instanceof ApiError
+                              ? error.message
+                              : 'Could not remove integration',
+                          )
+                        },
+                      })
+                    }}
+                  >
+                    <Trash2 />
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {query.hasNextPage && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="self-start"
+          disabled={query.isFetchingNextPage}
+          onClick={() => {
+            void query.fetchNextPage()
+          }}
+        >
+          Show more
+        </Button>
+      )}
+    </div>
+  )
+}

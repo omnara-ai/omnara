@@ -1,0 +1,186 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    # Existing baseline.
+    - errcheck
+    - govet
+    - omnaralint
+    - staticcheck
+    # Bug finders. Each catches a class of correctness mistake that the
+    # baseline four do not and aligns with the repository's correctness bar.
+    - asasalint              # []any accidentally passed to func(...any)
+    - bidichk                # dangerous bidi unicode in source
+    - bodyclose              # http.Response.Body left unclosed
+    - canonicalheader        # net/http header keys use canonical casing
+    - containedctx           # context.Context stored in structs leaks lifetimes
+    - contextcheck           # non-inherited context.Context used downstream
+    - copyloopvar            # redundant loop-variable copies (Go 1.22+)
+    - depguard               # deny dependencies that conflict with repo policy
+    - durationcheck          # time.Duration * time.Duration mistakes
+    - errorlint              # wrong error wrapping / type-assertion patterns
+    - errname                # error types follow Go naming conventions
+    - errchkjson             # unsafe JSON marshal/encode errors ignored
+    - exhaustive             # non-exhaustive enum switches
+    - fatcontext             # context nested in a loop / closure
+    - forcetypeassert        # type assertions must check the ok result
+    - gocheckcompilerdirectives  # malformed //go: directives
+    - gomoddirectives        # invalid go.mod directive usage
+    - ineffassign            # assignments overwritten before being read
+    - intrange               # for i := 0; i < n; i++  ->  for i := range n
+    - lll                    # keep product Go source readable in review
+    - loggercheck            # malformed slog key/value pairs
+    - makezero               # make([]T, n) then append, etc.
+    - nilerr                 # `return nil` after `if err != nil`
+    - nilnesserr             # related nil-error misuse (govet nilness companion)
+    - noctx                  # http.NewRequest / exec.Command without context
+    - nilnil                 # simultaneous nil error and invalid nil value
+    - nolintlint             # nolint directives must be explicit and reviewable
+    - predeclared            # shadows builtins (len, new, error, ...)
+    - promlinter             # Prometheus metric names follow best practices
+    - reassign               # package-level vars reassigned at runtime
+    - recvcheck              # mixed pointer/value receivers on a type
+    - rowserrcheck           # pgx/database/sql Rows.Err() not checked
+    - spancheck              # OpenTelemetry spans not ended / status not set
+    - sqlclosecheck          # Rows/Stmt not closed
+    - tparallel              # misuse of t.Parallel
+    - unconvert              # redundant type conversion
+    - unused                 # unreferenced private code and declarations
+    - usestdlibvars          # http.MethodGet, http.StatusOK, ... over literals
+    - usetesting             # use the testing package's modern helpers
+    - wastedassign           # value assigned but never read
+    # Style/correctness hybrid. Misspellings show up in user-facing strings,
+    # API docs, and migration comments, so this catches more than aesthetics.
+    - misspell
+  settings:
+    staticcheck:
+      checks:
+        - all
+        - -QF*
+        - -ST1000
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    misspell:
+      locale: US
+    lll:
+      line-length: 120
+      tab-width: 1
+    rowserrcheck:
+      packages:
+        - github.com/jackc/pgx/v5
+    custom:
+      omnaralint:
+        type: module
+        description: Omnara repository-specific invariants.
+    depguard:
+      rules:
+        main:
+          list-mode: lax
+          deny:
+            - pkg: "math/rand$"
+              desc: use crypto/rand for tokens and IDs; math/rand/v2 is a separate import and must be justified in review
+            - pkg: github.com/pkg/errors
+              desc: use standard-library errors plus fmt.Errorf with %w
+        production_test_support:
+          list-mode: lax
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/testutil/**"
+          deny:
+            - pkg: github.com/omnara-ai/omnara/internal/testutil
+              desc: test support belongs in _test.go or internal/testutil, never in production dependencies
+        generated_storage_boundary:
+          list-mode: lax
+          files:
+            - $all
+            - "!**/internal/storage/**"
+          deny:
+            - pkg: github.com/omnara-ai/omnara/internal/storage/dbsqlc
+              desc: generated sqlc types must stay behind semantic internal/storage methods
+        daemon_state_storage_boundary:
+          list-mode: lax
+          files:
+            - "**/cmd/daemon/**"
+            - "**/internal/machinedaemon/**"
+            - "**/internal/omnarad/**"
+            - "!**/internal/machinedaemon/statedb/**"
+          deny:
+            - pkg: database/sql
+              desc: daemon SQL access belongs in internal/machinedaemon/statedb
+            - pkg: modernc.org/sqlite
+              desc: daemon SQLite access belongs in internal/machinedaemon/statedb
+    errcheck:
+      check-type-assertions: false
+    gomoddirectives:
+      exclude-forbidden: true
+      ignore-forbidden: true
+      toolchain-forbidden: true
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+  exclusions:
+    generated: disable
+    rules:
+      # oapi-codegen's oneOf wrappers intentionally mix value accessors with
+      # pointer mutation methods; the generated file is not hand-editable.
+      - path: internal/httpapi/openapi/api\.gen\.go
+        linters:
+          - recvcheck
+      - linters:
+          - lll
+        source: '^const [A-Za-z0-9_]+ = "'
+      - linters:
+          - lll
+        source: '^\s*[A-Za-z0-9_]+ := `'
+      - linters:
+          - lll
+        source: '^\s*`'
+      - linters:
+          - lll
+        source: '^\s*"'
+      - linters:
+          - lll
+        source: 'json\.RawMessage\(`'
+      - linters:
+          - lll
+        source: '^\s*return "'
+      - linters:
+          - lll
+        source: '^\s*want: "'
+      - linters:
+          - lll
+        source: '^\s*\{"slug"'
+      - linters:
+          - lll
+        source: '^\s*[A-Za-z0-9_]+ToolDescription\s*='
+      - linters:
+          - lll
+        source: '^\s*\)\.[A-Za-z]'
+      - path: (internal/storage/internal/dbsqlc/|internal/machinedaemon/statedb/internal/dbsqlc/)
+        linters:
+          - errcheck
+          - govet
+          - lll
+          - staticcheck
+      - path: internal/httpapi/openapi/api\.gen\.go
+        linters:
+          - errcheck
+          - forcetypeassert
+          - lll
+          - misspell
+          - usestdlibvars
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+          - contextcheck
+          - noctx

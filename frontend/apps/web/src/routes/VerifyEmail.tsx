@@ -1,0 +1,129 @@
+import { completeEmailVerification } from '@omnara/sdk/browser'
+import type { SyntheticEvent } from 'react'
+import { useEffect, useState } from 'react'
+
+import { AuthHeading, AuthLayout } from '@/components/auth/AuthLayout'
+import { PasswordRequirements } from '@/components/auth/PasswordRequirements'
+import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
+import { authTokenFromURL, clearAuthTokenFromURL } from '@/lib/auth-link'
+import type { SubmitStatus } from '@/lib/submit-status'
+import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
+
+interface VerifyEmailState {
+  displayName: string
+  password: string
+  confirmPassword: string
+  passwordsMismatch: boolean
+  status: SubmitStatus
+}
+
+export function VerifyEmail() {
+  const [token] = useState(authTokenFromURL)
+  const [state, setState] = useState<VerifyEmailState>({
+    displayName: '',
+    password: '',
+    confirmPassword: '',
+    passwordsMismatch: false,
+    status: token ? idle : { phase: 'error', message: 'Verification link is missing a token.' },
+  })
+  const isSubmitting = state.status.phase === 'submitting'
+  const errorMessage = statusError(state.status)
+
+  useEffect(() => {
+    clearAuthTokenFromURL()
+  }, [])
+
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token) return
+    if (state.password !== state.confirmPassword) {
+      setState((prev) => ({ ...prev, passwordsMismatch: true, status: idle }))
+      return
+    }
+    setState((prev) => ({ ...prev, status: submitting }))
+    try {
+      await completeEmailVerification(token, state.password, state.displayName)
+      window.location.assign('/')
+    } catch (err) {
+      setState((prev) => ({ ...prev, status: submitError(err, 'Email verification failed') }))
+    }
+  }
+
+  return (
+    <AuthLayout>
+      <div className="flex flex-col gap-6">
+        <AuthHeading
+          title="Finish setting up your account"
+          subtitle="Choose a password to complete signup."
+        />
+        <form
+          onSubmit={(event) => {
+            void handleSubmit(event)
+          }}
+        >
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="name">Name</FieldLabel>
+              <Input
+                id="name"
+                autoComplete="name"
+                value={state.displayName}
+                onChange={(event) => {
+                  setState((prev) => ({ ...prev, displayName: event.target.value }))
+                }}
+              />
+              <FieldDescription>Optional — how you&apos;ll appear in Omnara.</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="password">Password</FieldLabel>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={state.password}
+                aria-describedby="password-requirements"
+                aria-invalid={errorMessage ? true : undefined}
+                onChange={(event) => {
+                  setState((prev) => ({
+                    ...prev,
+                    password: event.target.value,
+                    passwordsMismatch: false,
+                  }))
+                }}
+              />
+              <PasswordRequirements id="password-requirements" password={state.password} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="confirm-password">Confirm password</FieldLabel>
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={state.confirmPassword}
+                aria-invalid={state.passwordsMismatch ? true : undefined}
+                onChange={(event) => {
+                  setState((prev) => ({
+                    ...prev,
+                    confirmPassword: event.target.value,
+                    passwordsMismatch: false,
+                  }))
+                }}
+              />
+              {state.passwordsMismatch && <FieldError>Passwords do not match.</FieldError>}
+            </Field>
+            {errorMessage && <FieldError>{errorMessage}</FieldError>}
+            <Button type="submit" className="w-full" disabled={isSubmitting || !token}>
+              {isSubmitting && <Spinner />}
+              Continue
+            </Button>
+          </FieldGroup>
+        </form>
+      </div>
+    </AuthLayout>
+  )
+}

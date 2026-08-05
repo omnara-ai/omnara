@@ -1,0 +1,54 @@
+name: PR Title
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Conventional commit type reference:
+      # https://www.conventionalcommits.org/en/v1.0.0/
+      - name: Check PR title prefix
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+              event = json.load(f)
+          with open(".github/pr-title-config.json", encoding="utf-8") as f:
+              config = json.load(f)
+
+          title = event["pull_request"]["title"]
+          checks = config["CHECKS"]
+          if any(title.startswith(prefix) for prefix in checks["special_prefixes"]):
+              print(f"PR title accepted: {title}")
+              sys.exit(0)
+
+          match = re.match(r"^(?P<type>[a-z]+)(?:\([a-z0-9._/-]+\))?!?: .+", title)
+          if match and match.group("type") in checks["types"]:
+              print(f"PR title accepted: {title}")
+              sys.exit(0)
+
+          print("PR title must use conventional commit syntax:")
+          for title_type in checks["types"]:
+              print(f"  - {title_type}: ...")
+              print(f"  - {title_type}(scope): ...")
+          for prefix in checks["special_prefixes"]:
+              print(f"  - {prefix.strip()} ...")
+          print(f"Current title: {title}")
+          sys.exit(1)
+          PY
