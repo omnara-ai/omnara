@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
-	"github.com/omnara-ai/omnara/internal/urlpolicy"
 )
 
 const (
@@ -154,12 +153,21 @@ func ValidateHostedAPIBaseURL(raw string) error {
 	if raw == "" || raw != strings.TrimSpace(raw) {
 		return errors.New("OMNARA_HOSTED_API_URL is required and cannot have surrounding whitespace")
 	}
-	if err := urlpolicy.RequireHTTPSOrLoopback(raw); err != nil {
-		return fmt.Errorf("OMNARA_HOSTED_API_URL: %w", err)
-	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("parse OMNARA_HOSTED_API_URL: %w", err)
+	}
+	if parsed.Hostname() == "" || parsed.Opaque != "" {
+		return errors.New("OMNARA_HOSTED_API_URL must be absolute and include a host")
+	}
+	if parsed.User != nil {
+		return errors.New("OMNARA_HOSTED_API_URL must not include user information")
+	}
+	if parsed.Fragment != "" {
+		return errors.New("OMNARA_HOSTED_API_URL must not include a fragment")
+	}
+	if !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
+		return errors.New("OMNARA_HOSTED_API_URL must use HTTP or HTTPS")
 	}
 	if parsed.RawQuery != "" || parsed.ForceQuery {
 		return errors.New("OMNARA_HOSTED_API_URL must contain only scheme, host, and an optional path")
