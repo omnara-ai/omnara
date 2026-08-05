@@ -24,8 +24,7 @@ WITH authenticated AS MATERIALIZED (
     AND (
       machine.lifecycle_state = 'active'
       OR (
-        token.created_by_user_id IS NULL
-        AND machine.source_kind = 'pool'
+        machine.source_kind = 'pool'
         AND machine.lifecycle_state IN ('provisioning', 'provision_failed')
       )
     )
@@ -87,10 +86,10 @@ created_token AS (
   INSERT INTO machine_daemon_tokens(org_id, machine_id, name, token_hash, metadata, created_at)
   SELECT attempt.org_id, attempt.id, $4, $5, $6, statement_timestamp()
   FROM provisioning_attempt attempt
-  RETURNING id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
+  RETURNING id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason
 )
 SELECT created_token.id, created_token.org_id, created_token.machine_id, created_token.name,
-       created_token.token_hash, created_token.created_by_user_id, created_token.metadata,
+       created_token.token_hash, created_token.metadata,
        created_token.created_at, created_token.last_used_at, created_token.revoked_at,
        created_token.revoke_reason, provisioning_attempt.provider_provision_attempted_at,
        provisioning_attempt.updated_at
@@ -115,7 +114,6 @@ type BeginPoolMachineProviderProvisioningRow struct {
 	MachineID                    uuid.UUID
 	Name                         string
 	TokenHash                    string
-	CreatedByUserID              *uuid.UUID
 	Metadata                     json.RawMessage
 	CreatedAt                    time.Time
 	LastUsedAt                   *time.Time
@@ -141,7 +139,6 @@ func (q *Queries) BeginPoolMachineProviderProvisioning(ctx context.Context, arg 
 		&i.MachineID,
 		&i.Name,
 		&i.TokenHash,
-		&i.CreatedByUserID,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.LastUsedAt,
@@ -174,21 +171,19 @@ func (q *Queries) ClearMachineSleep(ctx context.Context, arg ClearMachineSleepPa
 }
 
 const createBYOMachineDaemonToken = `-- name: CreateBYOMachineDaemonToken :one
-INSERT INTO machine_daemon_tokens(org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at)
-SELECT machine.org_id, machine.id, $1, $2, users.id, $3, statement_timestamp()
+INSERT INTO machine_daemon_tokens(org_id, machine_id, name, token_hash, metadata, created_at)
+SELECT machine.org_id, machine.id, $1, $2, $3, statement_timestamp()
 FROM machines machine
-JOIN users ON users.id = $4
-WHERE machine.org_id = $5 AND machine.id = $6 AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active' AND machine.source_kind = 'byo'
-RETURNING id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
+WHERE machine.org_id = $4 AND machine.id = $5 AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active' AND machine.source_kind = 'byo'
+RETURNING id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason
 `
 
 type CreateBYOMachineDaemonTokenParams struct {
-	Name            string
-	TokenHash       string
-	Metadata        json.RawMessage
-	CreatedByUserID uuid.UUID
-	OrgID           uuid.UUID
-	MachineID       uuid.UUID
+	Name      string
+	TokenHash string
+	Metadata  json.RawMessage
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
 }
 
 func (q *Queries) CreateBYOMachineDaemonToken(ctx context.Context, arg CreateBYOMachineDaemonTokenParams) (MachineDaemonToken, error) {
@@ -196,7 +191,6 @@ func (q *Queries) CreateBYOMachineDaemonToken(ctx context.Context, arg CreateBYO
 		arg.Name,
 		arg.TokenHash,
 		arg.Metadata,
-		arg.CreatedByUserID,
 		arg.OrgID,
 		arg.MachineID,
 	)
@@ -207,7 +201,6 @@ func (q *Queries) CreateBYOMachineDaemonToken(ctx context.Context, arg CreateBYO
 		&i.MachineID,
 		&i.Name,
 		&i.TokenHash,
-		&i.CreatedByUserID,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.LastUsedAt,
@@ -947,50 +940,6 @@ func (q *Queries) InsertDaemonRuntime(ctx context.Context, arg InsertDaemonRunti
 	return id, err
 }
 
-const listActiveBYOMachineDaemonTokensForUser = `-- name: ListActiveBYOMachineDaemonTokensForUser :many
-SELECT id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
-FROM machine_daemon_tokens
-WHERE created_by_user_id = $1
-  AND revoked_at IS NULL
-ORDER BY created_at, id
-`
-
-type ListActiveBYOMachineDaemonTokensForUserParams struct {
-	UserID *uuid.UUID
-}
-
-func (q *Queries) ListActiveBYOMachineDaemonTokensForUser(ctx context.Context, arg ListActiveBYOMachineDaemonTokensForUserParams) ([]MachineDaemonToken, error) {
-	rows, err := q.db.Query(ctx, listActiveBYOMachineDaemonTokensForUser, arg.UserID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []MachineDaemonToken{}
-	for rows.Next() {
-		var i MachineDaemonToken
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.MachineID,
-			&i.Name,
-			&i.TokenHash,
-			&i.CreatedByUserID,
-			&i.Metadata,
-			&i.CreatedAt,
-			&i.LastUsedAt,
-			&i.RevokedAt,
-			&i.RevokeReason,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listActiveDaemonRuntimesForUpdate = `-- name: ListActiveDaemonRuntimesForUpdate :many
 SELECT id, org_id, machine_id, daemon_token_id, daemon_instance_id, daemon_version, state, coalesce(state_reason_code, '') AS state_reason_code, state_reason_message, capacity, metadata, created_at, last_seen_at, lease_expires_at, ended_at, updated_at
 FROM daemon_runtimes
@@ -1119,7 +1068,7 @@ func (q *Queries) ListActiveProjectMachineGrantsForMachine(ctx context.Context, 
 }
 
 const listAllMachineDaemonTokens = `-- name: ListAllMachineDaemonTokens :many
-SELECT id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
+SELECT id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason
 FROM machine_daemon_tokens
 WHERE org_id = $1 AND machine_id = $2
 ORDER BY created_at, id
@@ -1145,7 +1094,6 @@ func (q *Queries) ListAllMachineDaemonTokens(ctx context.Context, arg ListAllMac
 			&i.MachineID,
 			&i.Name,
 			&i.TokenHash,
-			&i.CreatedByUserID,
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.LastUsedAt,
@@ -1163,15 +1111,17 @@ func (q *Queries) ListAllMachineDaemonTokens(ctx context.Context, arg ListAllMac
 }
 
 const listBYOMachineDaemonTokens = `-- name: ListBYOMachineDaemonTokens :many
-SELECT id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
-FROM machine_daemon_tokens
-WHERE org_id = $1 AND machine_id = $2
-  AND created_by_user_id IS NOT NULL
+SELECT token.id, token.org_id, token.machine_id, token.name, token.token_hash, token.metadata, token.created_at, token.last_used_at, token.revoked_at, token.revoke_reason
+FROM machine_daemon_tokens token
+JOIN machines machine ON machine.org_id = token.org_id AND machine.id = token.machine_id
+WHERE token.org_id = $1 AND token.machine_id = $2
+  AND machine.deleted_at IS NULL
+  AND machine.source_kind = 'byo'
   AND (
     $3::timestamptz IS NULL
-    OR (created_at, id) < ($3::timestamptz, $4::uuid)
+    OR (token.created_at, token.id) < ($3::timestamptz, $4::uuid)
   )
-ORDER BY created_at DESC, id DESC
+ORDER BY token.created_at DESC, token.id DESC
 LIMIT $5::bigint
 `
 
@@ -1204,7 +1154,6 @@ func (q *Queries) ListBYOMachineDaemonTokens(ctx context.Context, arg ListBYOMac
 			&i.MachineID,
 			&i.Name,
 			&i.TokenHash,
-			&i.CreatedByUserID,
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.LastUsedAt,
@@ -2008,12 +1957,19 @@ func (q *Queries) ReportableDaemonRuntimeExists(ctx context.Context, arg Reporta
 const revokeBYOMachineDaemonToken = `-- name: RevokeBYOMachineDaemonToken :one
 UPDATE machine_daemon_tokens
 SET revoked_at = statement_timestamp(), revoke_reason = $1
-WHERE org_id = $2
-  AND machine_id = $3
-  AND id = $4
-  AND created_by_user_id IS NOT NULL
-  AND revoked_at IS NULL
-RETURNING id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
+WHERE machine_daemon_tokens.org_id = $2
+  AND machine_daemon_tokens.machine_id = $3
+  AND machine_daemon_tokens.id = $4
+  AND machine_daemon_tokens.revoked_at IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM machines machine
+    WHERE machine.org_id = machine_daemon_tokens.org_id
+      AND machine.id = machine_daemon_tokens.machine_id
+      AND machine.deleted_at IS NULL
+      AND machine.source_kind = 'byo'
+  )
+RETURNING id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason
 `
 
 type RevokeBYOMachineDaemonTokenParams struct {
@@ -2037,7 +1993,6 @@ func (q *Queries) RevokeBYOMachineDaemonToken(ctx context.Context, arg RevokeBYO
 		&i.MachineID,
 		&i.Name,
 		&i.TokenHash,
-		&i.CreatedByUserID,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.LastUsedAt,
@@ -2073,7 +2028,6 @@ SET revoked_at = statement_timestamp(),
     revoke_reason = 'replaced_by_registered_runtime'
 WHERE machine_daemon_tokens.org_id = $1
   AND machine_daemon_tokens.machine_id = $2
-  AND machine_daemon_tokens.created_by_user_id IS NULL
   AND machine_daemon_tokens.revoked_at IS NULL
   AND machine_daemon_tokens.id <> $3
   AND EXISTS (
@@ -2282,8 +2236,7 @@ WHERE token.org_id = $1
   AND (
     machine.lifecycle_state = 'active'
     OR (
-      token.created_by_user_id IS NULL
-      AND machine.source_kind = 'pool'
+      machine.source_kind = 'pool'
       AND machine.lifecycle_state IN ('provisioning', 'provision_failed')
     )
   )

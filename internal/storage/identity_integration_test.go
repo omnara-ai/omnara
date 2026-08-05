@@ -5896,7 +5896,7 @@ func TestCleanupInactiveAuthStatePurgesOnlyAbandonedSignupState(t *testing.T) {
 	assertAuthDeviceFlowRowCountByDeviceCode(t, ctx, pool, referencedDeviceFlow.DeviceCode, 1)
 }
 
-func TestCompromiseRevocationBlocksStaleDaemonTokenCreation(t *testing.T) {
+func TestCompromiseRevocationBlocksStalePersonalAccessTokenCreation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -5964,12 +5964,10 @@ func TestCompromiseRevocationBlocksStaleDaemonTokenCreation(t *testing.T) {
 	if _, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       machine.ID,
-			Name:            "active",
-			Token:           "token-compromise-active",
-			CreatedByUserID: user.ID,
-			ActorPrincipal:  sessionPrincipal,
+			OrgID:     testOrgID,
+			MachineID: machine.ID,
+			Name:      "active",
+			Token:     "token-compromise-active",
 		},
 	); err != nil {
 		t.Fatalf("create daemon token with active session: %v", err)
@@ -5986,22 +5984,6 @@ func TestCompromiseRevocationBlocksStaleDaemonTokenCreation(t *testing.T) {
 		storeerr.ErrUnauthorized,
 	) {
 		t.Fatalf("active PAT principal PAT create error=%v, want unauthorized", err)
-	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
-		ctx,
-		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       machine.ID,
-			Name:            "active-pat",
-			Token:           "token-compromise-active-pat",
-			CreatedByUserID: user.ID,
-			ActorPrincipal:  patPrincipal,
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("active PAT principal daemon token create error=%v, want unauthorized", err)
 	}
 	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
@@ -6029,38 +6011,6 @@ func TestCompromiseRevocationBlocksStaleDaemonTokenCreation(t *testing.T) {
 	) {
 		t.Fatalf("non-user principal PAT create error=%v, want unauthorized", err)
 	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
-		ctx,
-		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       machine.ID,
-			Name:            "unbound-user",
-			Token:           "token-compromise-unbound-user",
-			CreatedByUserID: user.ID,
-			ActorPrincipal:  unboundUserPrincipal,
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("unbound user principal daemon token create error=%v, want unauthorized", err)
-	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
-		ctx,
-		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       machine.ID,
-			Name:            "non-user",
-			Token:           "token-compromise-non-user",
-			CreatedByUserID: user.ID,
-			ActorPrincipal:  nonUserPrincipal,
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("non-user principal daemon token create error=%v, want unauthorized", err)
-	}
 	if _, err := pool.Exec(ctx, `
 		UPDATE browser_sessions
 		SET created_at = transaction_timestamp() - interval '8 days',
@@ -6082,22 +6032,6 @@ func TestCompromiseRevocationBlocksStaleDaemonTokenCreation(t *testing.T) {
 	) {
 		t.Fatalf("idle browser session PAT create error=%v, want unauthorized", err)
 	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
-		ctx,
-		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       machine.ID,
-			Name:            "idle-session",
-			Token:           "token-compromise-idle-session",
-			CreatedByUserID: user.ID,
-			ActorPrincipal:  idleSessionPrincipal,
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("idle browser session daemon token create error=%v, want unauthorized", err)
-	}
 
 	if err := store.AccountSecurity().RevokeUserTokensForCompromiseWithPasswordIfPresent(
 		ctx,
@@ -6109,43 +6043,8 @@ func TestCompromiseRevocationBlocksStaleDaemonTokenCreation(t *testing.T) {
 	if _, err := store.Execution().AuthenticateMachineDaemonToken(
 		ctx,
 		"token-compromise-active",
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("active daemon token after compromise error=%v, want unauthorized", err)
-	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
-		ctx,
-		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       machine.ID,
-			Name:            "stale-session",
-			Token:           "token-compromise-stale-session",
-			CreatedByUserID: user.ID,
-			ActorPrincipal:  sessionPrincipal,
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("stale browser session daemon token create error=%v, want unauthorized", err)
-	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
-		ctx,
-		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       machine.ID,
-			Name:            "stale-pat",
-			Token:           "token-compromise-stale-pat",
-			CreatedByUserID: user.ID,
-			ActorPrincipal:  patPrincipal,
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("stale PAT daemon token create error=%v, want unauthorized", err)
+	); err != nil {
+		t.Fatalf("daemon token after compromise: %v", err)
 	}
 	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
@@ -6312,17 +6211,6 @@ func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 	store := newIntegrationStore(pool)
 
 	user := mustCreateProjectOperatorUser(t, ctx, store, "compromise-race@example.com", "Compromise Race")
-	machine, err := store.Execution().CreateDaemonMachine(
-		ctx,
-		executionstore.CreateDaemonMachineInput{
-			OrgID:          testOrgID,
-			DisplayName:    "Compromise Race Machine",
-			IdempotencyKey: "idem-compromise-race-machine",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create machine: %v", err)
-	}
 	session, err := store.Identity().CreateBrowserSession(
 		ctx,
 		identitystore.CreateBrowserSessionInput{
@@ -6346,9 +6234,8 @@ func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 		t.Fatalf("lock user: %v", err)
 	}
 	patCh := make(chan tokenCreationRaceResult, 1)
-	daemonCh := make(chan error, 1)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		created, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
@@ -6365,31 +6252,14 @@ func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 		}
 		patCh <- tokenCreationRaceResult{token: created.Token}
 	}()
-	go func() {
-		defer wg.Done()
-		_, err := store.Execution().CreateBYOMachineDaemonToken(
-			ctx,
-			executionstore.CreateBYOMachineDaemonTokenInput{
-				OrgID:           testOrgID,
-				MachineID:       machine.ID,
-				Name:            "race daemon",
-				Token:           "token-compromise-race-daemon",
-				CreatedByUserID: user.ID,
-				ActorPrincipal:  principal,
-			},
-		)
-		daemonCh <- err
-	}()
 	time.Sleep(100 * time.Millisecond)
 	assertRaceResultBlocked(t, "PAT creation", patCh)
-	assertErrorResultBlocked(t, "daemon token creation", daemonCh)
 	revokeCh := make(chan error, 1)
 	go func() {
 		revokeCh <- store.AccountSecurity().RevokeUserTokensForCompromiseWithPasswordIfPresent(ctx, user.ID, "")
 	}()
 	time.Sleep(100 * time.Millisecond)
 	assertRaceResultBlocked(t, "PAT creation", patCh)
-	assertErrorResultBlocked(t, "daemon token creation", daemonCh)
 	assertErrorResultBlocked(t, "compromise revocation", revokeCh)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit lock tx: %v", err)
@@ -6398,9 +6268,6 @@ func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 	patResult := <-patCh
 	if patResult.err != nil && !errors.Is(patResult.err, storeerr.ErrUnauthorized) {
 		t.Fatalf("concurrent PAT creation: %v", patResult.err)
-	}
-	if err := <-daemonCh; err != nil && !errors.Is(err, storeerr.ErrUnauthorized) {
-		t.Fatalf("concurrent daemon token creation: %v", err)
 	}
 	if err := <-revokeCh; err != nil {
 		t.Fatalf("concurrent revoke: %v", err)
@@ -6415,15 +6282,6 @@ func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 		) {
 			t.Fatalf("concurrent PAT after revoke error=%v, want unauthorized", err)
 		}
-	}
-	if _, err := store.Execution().AuthenticateMachineDaemonToken(
-		ctx,
-		"token-compromise-race-daemon",
-	); !errors.Is(
-		err,
-		storeerr.ErrUnauthorized,
-	) {
-		t.Fatalf("concurrent daemon token after revoke error=%v, want unauthorized", err)
 	}
 }
 

@@ -163,17 +163,16 @@ type CreateProjectMachineGrantInput struct {
 }
 
 type MachineDaemonTokenRecord struct {
-	ID              ID              `json:"id"`
-	OrgID           ID              `json:"org_id"`
-	MachineID       ID              `json:"machine_id"`
-	Name            string          `json:"name"`
-	TokenHash       string          `json:"-"`
-	CreatedByUserID ID              `json:"created_by_user_id"`
-	Metadata        json.RawMessage `json:"metadata"`
-	CreatedAt       time.Time       `json:"created_at"`
-	LastUsedAt      *time.Time      `json:"last_used_at,omitempty"`
-	RevokedAt       *time.Time      `json:"revoked_at,omitempty"`
-	RevokeReason    string          `json:"revoke_reason,omitempty"`
+	ID           ID              `json:"id"`
+	OrgID        ID              `json:"org_id"`
+	MachineID    ID              `json:"machine_id"`
+	Name         string          `json:"name"`
+	TokenHash    string          `json:"-"`
+	Metadata     json.RawMessage `json:"metadata"`
+	CreatedAt    time.Time       `json:"created_at"`
+	LastUsedAt   *time.Time      `json:"last_used_at,omitempty"`
+	RevokedAt    *time.Time      `json:"revoked_at,omitempty"`
+	RevokeReason string          `json:"revoke_reason,omitempty"`
 }
 
 type CreatedMachineDaemonToken struct {
@@ -182,13 +181,11 @@ type CreatedMachineDaemonToken struct {
 }
 
 type CreateBYOMachineDaemonTokenInput struct {
-	OrgID           ID
-	MachineID       ID
-	Name            string
-	Token           string
-	CreatedByUserID ID
-	ActorPrincipal  identitystore.PrincipalRecord
-	Metadata        json.RawMessage
+	OrgID     ID
+	MachineID ID
+	Name      string
+	Token     string
+	Metadata  json.RawMessage
 }
 
 type MachineDaemonBootstrapInput struct {

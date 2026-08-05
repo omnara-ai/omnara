@@ -8,7 +8,6 @@ CREATE TABLE machine_daemon_tokens (
     machine_id uuid NOT NULL,
     name text NOT NULL,
     token_hash text NOT NULL,
-    created_by_user_id uuid REFERENCES users(id),
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL,
     last_used_at timestamptz,
@@ -22,8 +21,7 @@ CREATE TABLE machine_daemon_tokens (
 );
 
 CREATE INDEX machine_daemon_tokens_byo_created_idx
-    ON machine_daemon_tokens(org_id, machine_id, created_at DESC, id DESC)
-    WHERE created_by_user_id IS NOT NULL;
+    ON machine_daemon_tokens(org_id, machine_id, created_at DESC, id DESC);
 
 CREATE TABLE daemon_runtimes (
     id uuid PRIMARY KEY DEFAULT uuidv7(),

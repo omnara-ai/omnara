@@ -4891,6 +4891,7 @@ paths:
       tags: [Machines]
       summary: Create byo machine daemon token
       security:
+        - bearerAuth: []
         - browserSessionCookie: []
           csrfHeader: []
       requestBody:
@@ -9354,10 +9355,6 @@ components:
           $ref: '#/components/schemas/MachineID'
         name:
           type: string
-        created_by_user_id:
-          allOf:
-            - $ref: '#/components/schemas/UserID'
-          nullable: true
         metadata:
           type: object
           additionalProperties: true

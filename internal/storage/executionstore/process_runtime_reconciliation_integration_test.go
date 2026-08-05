@@ -66,7 +66,7 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	user := mustCreateProjectOperatorUser(t, ctx, store, "runtime-machine@example.com", "Runtime Machine Tester")
+	mustCreateProjectOperatorUser(t, ctx, store, "runtime-machine@example.com", "Runtime Machine Tester")
 	createdMachine, err := store.Execution().CreateDaemonMachine(
 		ctx,
 		executionstore.CreateDaemonMachineInput{
@@ -93,11 +93,10 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 	token, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       createdMachine.ID,
-			Name:            "daemon",
-			Token:           "token-runtime-machine",
-			CreatedByUserID: user.ID,
+			OrgID:     testOrgID,
+			MachineID: createdMachine.ID,
+			Name:      "daemon",
+			Token:     "token-runtime-machine",
 		},
 	)
 	if err != nil {
@@ -347,7 +346,7 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 5, 18, 10, 30, 0, 0, time.UTC)
-	user, err := store.Identity().CreateVerifiedUser(
+	_, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{Email: "runtime-bindings@example.com", DisplayName: "Runtime Bindings Tester"},
 	)
@@ -408,11 +407,10 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 	token, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       machine.ID,
-			Name:            "daemon",
-			Token:           "token-runtime-bindings",
-			CreatedByUserID: user.ID,
+			OrgID:     testOrgID,
+			MachineID: machine.ID,
+			Name:      "daemon",
+			Token:     "token-runtime-bindings",
 		},
 	)
 	if err != nil {
@@ -487,11 +485,10 @@ func TestDaemonRuntimeCredentialRotationPreservesIdentityAndRevocationOwnership(
 	replacementToken, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       fixture.MachineID,
-			Name:            "replacement-token",
-			Token:           "replacement-token-runtime-isolation",
-			CreatedByUserID: fixture.UserID,
+			OrgID:     testOrgID,
+			MachineID: fixture.MachineID,
+			Name:      "replacement-token",
+			Token:     "replacement-token-runtime-isolation",
 		},
 	)
 	if err != nil {
@@ -578,11 +575,10 @@ func TestDaemonRuntimeCredentialTransferRevokesOldRuntimeAuthority(t *testing.T)
 	replacementToken, err := fixture.Store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           fixture.OrgID,
-			MachineID:       fixture.MachineID,
-			Name:            "replacement-authority",
-			Token:           "replacement-runtime-authority",
-			CreatedByUserID: fixture.UserID,
+			OrgID:     fixture.OrgID,
+			MachineID: fixture.MachineID,
+			Name:      "replacement-authority",
+			Token:     "replacement-runtime-authority",
 		},
 	)
 	if err != nil {
@@ -815,11 +811,10 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 		t.Fatalf("start queued process: %v", err)
 	}
 	replacementToken, err := fixture.Store.Execution().CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
-		OrgID:           fixture.OrgID,
-		MachineID:       fixture.MachineID,
-		Name:            "contended-replacement-authority",
-		Token:           "contended-replacement-runtime-authority",
-		CreatedByUserID: fixture.UserID,
+		OrgID:     fixture.OrgID,
+		MachineID: fixture.MachineID,
+		Name:      "contended-replacement-authority",
+		Token:     "contended-replacement-runtime-authority",
 	})
 	if err != nil {
 		t.Fatalf("create replacement daemon token: %v", err)

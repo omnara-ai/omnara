@@ -121,48 +121,45 @@ func projectMachineGrantRecord(
 
 func machineDaemonTokenFromCreate(row dbsqlc.MachineDaemonToken) MachineDaemonTokenRecord {
 	return MachineDaemonTokenRecord{
-		ID:              row.ID,
-		OrgID:           row.OrgID,
-		MachineID:       row.MachineID,
-		Name:            row.Name,
-		TokenHash:       row.TokenHash,
-		CreatedByUserID: idFromSQLCPtr(row.CreatedByUserID),
-		Metadata:        row.Metadata,
-		CreatedAt:       row.CreatedAt,
-		LastUsedAt:      row.LastUsedAt,
-		RevokedAt:       row.RevokedAt,
-		RevokeReason:    row.RevokeReason,
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		MachineID:    row.MachineID,
+		Name:         row.Name,
+		TokenHash:    row.TokenHash,
+		Metadata:     row.Metadata,
+		CreatedAt:    row.CreatedAt,
+		LastUsedAt:   row.LastUsedAt,
+		RevokedAt:    row.RevokedAt,
+		RevokeReason: row.RevokeReason,
 	}
 }
 
 func machineDaemonTokenFromList(row dbsqlc.MachineDaemonToken) MachineDaemonTokenRecord {
 	return MachineDaemonTokenRecord{
-		ID:              row.ID,
-		OrgID:           row.OrgID,
-		MachineID:       row.MachineID,
-		Name:            row.Name,
-		TokenHash:       row.TokenHash,
-		CreatedByUserID: idFromSQLCPtr(row.CreatedByUserID),
-		Metadata:        row.Metadata,
-		CreatedAt:       row.CreatedAt,
-		LastUsedAt:      row.LastUsedAt,
-		RevokedAt:       row.RevokedAt,
-		RevokeReason:    row.RevokeReason,
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		MachineID:    row.MachineID,
+		Name:         row.Name,
+		TokenHash:    row.TokenHash,
+		Metadata:     row.Metadata,
+		CreatedAt:    row.CreatedAt,
+		LastUsedAt:   row.LastUsedAt,
+		RevokedAt:    row.RevokedAt,
+		RevokeReason: row.RevokeReason,
 	}
 }
 
 func machineDaemonTokenFromRevoke(row dbsqlc.MachineDaemonToken) MachineDaemonTokenRecord {
 	return MachineDaemonTokenRecord{
-		ID:              row.ID,
-		OrgID:           row.OrgID,
-		MachineID:       row.MachineID,
-		Name:            row.Name,
-		TokenHash:       row.TokenHash,
-		CreatedByUserID: idFromSQLCPtr(row.CreatedByUserID),
-		Metadata:        row.Metadata,
-		CreatedAt:       row.CreatedAt,
-		LastUsedAt:      row.LastUsedAt,
-		RevokedAt:       row.RevokedAt,
-		RevokeReason:    row.RevokeReason,
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		MachineID:    row.MachineID,
+		Name:         row.Name,
+		TokenHash:    row.TokenHash,
+		Metadata:     row.Metadata,
+		CreatedAt:    row.CreatedAt,
+		LastUsedAt:   row.LastUsedAt,
+		RevokedAt:    row.RevokedAt,
+		RevokeReason: row.RevokeReason,
 	}
 }

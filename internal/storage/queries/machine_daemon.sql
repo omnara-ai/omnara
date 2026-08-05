@@ -297,12 +297,11 @@ WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND id = s
 RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at;
 
 -- name: CreateBYOMachineDaemonToken :one
-INSERT INTO machine_daemon_tokens(org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at)
-SELECT machine.org_id, machine.id, sqlc.arg(name), sqlc.arg(token_hash), users.id, sqlc.arg(metadata), statement_timestamp()
+INSERT INTO machine_daemon_tokens(org_id, machine_id, name, token_hash, metadata, created_at)
+SELECT machine.org_id, machine.id, sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(metadata), statement_timestamp()
 FROM machines machine
-JOIN users ON users.id = sqlc.arg(created_by_user_id)
 WHERE machine.org_id = sqlc.arg(org_id) AND machine.id = sqlc.arg(machine_id) AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active' AND machine.source_kind = 'byo'
-RETURNING id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason;
+RETURNING id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason;
 
 -- name: BeginPoolMachineProviderProvisioning :one
 WITH provisioning_attempt AS (
@@ -321,10 +320,10 @@ created_token AS (
   INSERT INTO machine_daemon_tokens(org_id, machine_id, name, token_hash, metadata, created_at)
   SELECT attempt.org_id, attempt.id, sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(metadata), statement_timestamp()
   FROM provisioning_attempt attempt
-  RETURNING id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
+  RETURNING id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason
 )
 SELECT created_token.id, created_token.org_id, created_token.machine_id, created_token.name,
-       created_token.token_hash, created_token.created_by_user_id, created_token.metadata,
+       created_token.token_hash, created_token.metadata,
        created_token.created_at, created_token.last_used_at, created_token.revoked_at,
        created_token.revoke_reason, provisioning_attempt.provider_provision_attempted_at,
        provisioning_attempt.updated_at
@@ -334,19 +333,21 @@ JOIN provisioning_attempt
  AND provisioning_attempt.id = created_token.machine_id;
 
 -- name: ListBYOMachineDaemonTokens :many
-SELECT id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
-FROM machine_daemon_tokens
-WHERE org_id = sqlc.arg(org_id) AND machine_id = sqlc.arg(machine_id)
-  AND created_by_user_id IS NOT NULL
+SELECT token.id, token.org_id, token.machine_id, token.name, token.token_hash, token.metadata, token.created_at, token.last_used_at, token.revoked_at, token.revoke_reason
+FROM machine_daemon_tokens token
+JOIN machines machine ON machine.org_id = token.org_id AND machine.id = token.machine_id
+WHERE token.org_id = sqlc.arg(org_id) AND token.machine_id = sqlc.arg(machine_id)
+  AND machine.deleted_at IS NULL
+  AND machine.source_kind = 'byo'
   AND (
     sqlc.narg(cursor_created_at)::timestamptz IS NULL
-    OR (created_at, id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    OR (token.created_at, token.id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
   )
-ORDER BY created_at DESC, id DESC
+ORDER BY token.created_at DESC, token.id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListAllMachineDaemonTokens :many
-SELECT id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
+SELECT id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason
 FROM machine_daemon_tokens
 WHERE org_id = sqlc.arg(org_id) AND machine_id = sqlc.arg(machine_id)
 ORDER BY created_at, id;
@@ -362,8 +363,7 @@ WITH authenticated AS MATERIALIZED (
     AND (
       machine.lifecycle_state = 'active'
       OR (
-        token.created_by_user_id IS NULL
-        AND machine.source_kind = 'pool'
+        machine.source_kind = 'pool'
         AND machine.lifecycle_state IN ('provisioning', 'provision_failed')
       )
     )
@@ -399,8 +399,7 @@ WHERE token.org_id = sqlc.arg(org_id)
   AND (
     machine.lifecycle_state = 'active'
     OR (
-      token.created_by_user_id IS NULL
-      AND machine.source_kind = 'pool'
+      machine.source_kind = 'pool'
       AND machine.lifecycle_state IN ('provisioning', 'provision_failed')
     )
   );
@@ -408,12 +407,19 @@ WHERE token.org_id = sqlc.arg(org_id)
 -- name: RevokeBYOMachineDaemonToken :one
 UPDATE machine_daemon_tokens
 SET revoked_at = statement_timestamp(), revoke_reason = sqlc.arg(reason)
-WHERE org_id = sqlc.arg(org_id)
-  AND machine_id = sqlc.arg(machine_id)
-  AND id = sqlc.arg(id)
-  AND created_by_user_id IS NOT NULL
-  AND revoked_at IS NULL
-RETURNING id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason;
+WHERE machine_daemon_tokens.org_id = sqlc.arg(org_id)
+  AND machine_daemon_tokens.machine_id = sqlc.arg(machine_id)
+  AND machine_daemon_tokens.id = sqlc.arg(id)
+  AND machine_daemon_tokens.revoked_at IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM machines machine
+    WHERE machine.org_id = machine_daemon_tokens.org_id
+      AND machine.id = machine_daemon_tokens.machine_id
+      AND machine.deleted_at IS NULL
+      AND machine.source_kind = 'byo'
+  )
+RETURNING id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason;
 
 -- name: RevokeMachineDaemonTokensForMachine :exec
 UPDATE machine_daemon_tokens
@@ -423,20 +429,12 @@ WHERE org_id = sqlc.arg(org_id)
   AND machine_id = sqlc.arg(machine_id)
   AND revoked_at IS NULL;
 
--- name: ListActiveBYOMachineDaemonTokensForUser :many
-SELECT id, org_id, machine_id, name, token_hash, created_by_user_id, metadata, created_at, last_used_at, revoked_at, revoke_reason
-FROM machine_daemon_tokens
-WHERE created_by_user_id = sqlc.arg(user_id)
-  AND revoked_at IS NULL
-ORDER BY created_at, id;
-
 -- name: RevokeSiblingSystemMachineDaemonTokens :exec
 UPDATE machine_daemon_tokens
 SET revoked_at = statement_timestamp(),
     revoke_reason = 'replaced_by_registered_runtime'
 WHERE machine_daemon_tokens.org_id = sqlc.arg(org_id)
   AND machine_daemon_tokens.machine_id = sqlc.arg(machine_id)
-  AND machine_daemon_tokens.created_by_user_id IS NULL
   AND machine_daemon_tokens.revoked_at IS NULL
   AND machine_daemon_tokens.id <> sqlc.arg(active_token_id)
   AND EXISTS (

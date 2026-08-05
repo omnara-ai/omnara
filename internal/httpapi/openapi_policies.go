@@ -345,7 +345,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationUpdateMachine:               accountPolicy(machineScope(executionstore.MachineActionManage)),
 	operationDeleteMachine:               accountPolicy(machineScope(executionstore.MachineActionManage)),
 	operationListBYOMachineDaemonTokens:  accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationCreateBYOMachineDaemonToken: browserSessionPolicy(machineScope(executionstore.MachineActionManage)),
+	operationCreateBYOMachineDaemonToken: accountPolicy(machineScope(executionstore.MachineActionManage)),
 	operationRevokeMachineDaemonToken:    accountPolicy(machineScope(executionstore.MachineActionManage)),
 
 	operationCreateProjectMachineGrant: accountPolicy(customScope("project access-manage + BYO machine manage")),

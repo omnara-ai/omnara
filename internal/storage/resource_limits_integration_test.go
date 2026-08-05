@@ -526,11 +526,10 @@ func TestResourceLimitLocksDoNotBlockUnrelatedCreates(t *testing.T) {
 	tokenCtx, cancelToken := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelToken()
 	if _, err := store.Execution().CreateBYOMachineDaemonToken(tokenCtx, executionstore.CreateBYOMachineDaemonTokenInput{
-		OrgID:           testOrgID,
-		MachineID:       machine.ID,
-		Name:            "Resource limit lock token",
-		Token:           "resource-limit-lock-token",
-		CreatedByUserID: admin.ID,
+		OrgID:     testOrgID,
+		MachineID: machine.ID,
+		Name:      "Resource limit lock token",
+		Token:     "resource-limit-lock-token",
 	}); err != nil {
 		_ = blocker.Rollback(ctx)
 		<-skillResult
@@ -593,25 +592,25 @@ FROM generate_series(1, $3::integer) AS n
 
 	firstToken, err := store.Execution().CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
 		OrgID: testOrgID, MachineID: machine.ID, Name: "First daemon token",
-		Token: "first-limited-daemon-token", CreatedByUserID: testDefaultProviderAdminUserID,
+		Token: "first-limited-daemon-token",
 	})
 	if err != nil {
 		t.Fatalf("create first daemon token: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO machine_daemon_tokens(
-  org_id, machine_id, name, token_hash, created_by_user_id, created_at
+  org_id, machine_id, name, token_hash, created_at
 )
 SELECT $1, $2, 'Limit seed daemon token ' || n,
-       'limit-seed-daemon-token-hash-' || n, $3, $4
-FROM generate_series(1, $5::integer) AS n
-`, testOrgID, machine.ID, testDefaultProviderAdminUserID, now,
+       'limit-seed-daemon-token-hash-' || n, $3
+FROM generate_series(1, $4::integer) AS n
+`, testOrgID, machine.ID, now,
 		executionstore.MaxActiveBYODaemonTokensPerMachine-1); err != nil {
 		t.Fatalf("seed daemon tokens to limit: %v", err)
 	}
 	secondTokenInput := executionstore.CreateBYOMachineDaemonTokenInput{
 		OrgID: testOrgID, MachineID: machine.ID, Name: "Second daemon token",
-		Token: "second-limited-daemon-token", CreatedByUserID: testDefaultProviderAdminUserID,
+		Token: "second-limited-daemon-token",
 	}
 	if _, err := store.Execution().CreateBYOMachineDaemonToken(ctx, secondTokenInput); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("daemon token over limit error = %v, want ErrConflict", err)

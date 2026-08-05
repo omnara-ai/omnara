@@ -2036,11 +2036,10 @@ func createExecutableBinding(
 	token, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           toolsTestOrgID,
-			MachineID:       machine.ID,
-			Name:            name + " daemon",
-			Token:           "tools-target-token-" + name,
-			CreatedByUserID: userID,
+			OrgID:     toolsTestOrgID,
+			MachineID: machine.ID,
+			Name:      name + " daemon",
+			Token:     "tools-target-token-" + name,
 		},
 	)
 	if err != nil {

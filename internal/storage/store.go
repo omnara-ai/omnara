@@ -107,8 +107,6 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	store.accountSecurity = accountsecurity.New(
 		pool,
 		store.identity,
-		store.execution,
-		config.postCommitPublisher,
 	)
 	return store
 }

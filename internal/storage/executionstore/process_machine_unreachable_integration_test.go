@@ -21,7 +21,7 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	user := mustCreateProjectOperatorUser(t, ctx, store, "archive-machine@example.com", "Archive Machine Tester")
+	mustCreateProjectOperatorUser(t, ctx, store, "archive-machine@example.com", "Archive Machine Tester")
 	createdMachine, err := store.Execution().CreateDaemonMachine(
 		ctx,
 		executionstore.CreateDaemonMachineInput{
@@ -48,11 +48,10 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 	token, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       createdMachine.ID,
-			Name:            "daemon",
-			Token:           "token-archive-machine",
-			CreatedByUserID: user.ID,
+			OrgID:     testOrgID,
+			MachineID: createdMachine.ID,
+			Name:      "daemon",
+			Token:     "token-archive-machine",
 		},
 	)
 	if err != nil {

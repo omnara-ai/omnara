@@ -422,11 +422,10 @@ func newProcessDaemonFixtureInStore(
 	token, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:           testOrgID,
-			MachineID:       createdMachine.ID,
-			Name:            "daemon",
-			Token:           "token-" + testName,
-			CreatedByUserID: userID,
+			OrgID:     testOrgID,
+			MachineID: createdMachine.ID,
+			Name:      "daemon",
+			Token:     "token-" + testName,
 		},
 	)
 	if err != nil {

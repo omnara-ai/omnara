@@ -1845,7 +1845,6 @@ export const zMachineDaemonToken = z.object({
     org_id: zOrganizationId,
     machine_id: zMachineId,
     name: z.string(),
-    created_by_user_id: zUserId.nullish(),
     metadata: z.record(z.string(), z.unknown()),
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),

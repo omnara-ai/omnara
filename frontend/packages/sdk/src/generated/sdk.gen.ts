@@ -2684,11 +2684,19 @@ export const listByoMachineDaemonTokens = <ThrowOnError extends boolean = true>(
  */
 export const createByoMachineDaemonToken = <ThrowOnError extends boolean = true>(options: Options<CreateByoMachineDaemonTokenData, ThrowOnError>): RequestResult<CreateByoMachineDaemonTokenResponses, CreateByoMachineDaemonTokenErrors, ThrowOnError> => (options.client ?? client).post<CreateByoMachineDaemonTokenResponses, CreateByoMachineDaemonTokenErrors, ThrowOnError>({
     responseValidator: async (data) => await zCreateByoMachineDaemonTokenResponse.parseAsync(data),
-    security: [{
+    security: [
+        {
+            key: 'bearerAuth',
+            scheme: 'bearer',
+            type: 'http'
+        },
+        {
             in: 'cookie',
             name: '__Host-omnara_session',
             type: 'apiKey'
-        }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
+        },
+        { name: 'X-Omnara-Csrf', type: 'apiKey' }
+    ],
     url: '/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens',
     ...options,
     headers: {
