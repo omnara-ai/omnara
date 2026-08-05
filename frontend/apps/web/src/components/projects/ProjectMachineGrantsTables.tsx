@@ -26,6 +26,8 @@ import {
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
+import { canManageOrg } from '@/lib/permissions'
+import { useActiveOrg } from '@/lib/use-active-org'
 
 function overlaySummary(overlay: Record<string, unknown>) {
   const summary = Object.entries(overlay)
@@ -68,6 +70,8 @@ export function ProjectMachineGrantsTables({
   const deleteGrant = useDeleteProjectMachinePoolGrant(orgId, projectId)
   const deleteMachineGrant = useDeleteProjectMachineGrant(orgId, projectId)
   const [editing, setEditing] = useState<ProjectMachinePoolGrantListItem | null>(null)
+  const { activeOrg } = useActiveOrg()
+  const canDeleteGrants = canManageOrg(activeOrg.role)
 
   return (
     <>
@@ -112,10 +116,14 @@ export function ProjectMachineGrantsTables({
               onEdit={() => {
                 setEditing(item)
               }}
-              onDelete={() => {
-                if (!window.confirm('Delete this machine pool grant?')) return
-                deleteGrant.mutate(item.grant.id)
-              }}
+              onDelete={
+                canDeleteGrants
+                  ? () => {
+                      if (!window.confirm('Delete this machine pool grant?')) return
+                      deleteGrant.mutate(item.grant.id)
+                    }
+                  : undefined
+              }
             />,
           ]}
           rowExpanded={(item) => (
@@ -201,10 +209,14 @@ export function ProjectMachineGrantsTables({
             <span className="text-muted-foreground">{item.grant.description || '—'}</span>,
             <ResourceRowActions
               deleteLabel="Delete grant"
-              onDelete={() => {
-                if (!window.confirm('Delete this machine grant?')) return
-                deleteMachineGrant.mutate(item.grant.id)
-              }}
+              onDelete={
+                canDeleteGrants
+                  ? () => {
+                      if (!window.confirm('Delete this machine grant?')) return
+                      deleteMachineGrant.mutate(item.grant.id)
+                    }
+                  : undefined
+              }
             />,
           ]}
           rowExpanded={(item) => (
