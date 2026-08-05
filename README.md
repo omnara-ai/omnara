@@ -7,8 +7,8 @@ execution and state while you choose the models, tools, machines, and how users
 interact with each agent.
 
 [Omnara Cloud](https://app.omnara.com) ·
-[Documentation](docs/introduction.mdx) ·
-[API](docs/api/overview.mdx) ·
+[Documentation](https://docs.omnara.com/introduction) ·
+[API](https://docs.omnara.com/api/overview) ·
 [Discord](https://discord.gg/Dc46sYk6e3)
 
 ## Who it is for
@@ -49,7 +49,7 @@ interact with each agent.
 Sign up at [app.omnara.com](https://app.omnara.com), add a model provider,
 define an agent profile, and launch it from the console, Slack, or API.
 
-See the [quickstart](docs/quickstart.mdx) for the complete flow.
+See the [quickstart](https://docs.omnara.com/quickstart) for the complete flow.
 
 ### Self-host
 
@@ -82,14 +82,15 @@ launch an agent.
 
 Local development uses intentionally insecure defaults. Do not use those
 defaults in a deployed environment. Follow the
-[self-hosting guide](docs/self-hosting/deployment.mdx) and
-[configuration reference](docs/self-hosting/configuration.mdx) for production
-setup.
+[self-hosting guide](https://docs.omnara.com/self-hosting/deployment) and
+[configuration reference](https://docs.omnara.com/self-hosting/configuration)
+for production setup.
 
 ## API
 
 The API is defined in [`api/openapi/openapi.yaml`](api/openapi/openapi.yaml) and
-served under `/api/v1`. See the [API overview](docs/api/overview.mdx).
+served under `/api/v1`. See the
+[API overview](https://docs.omnara.com/api/overview).
 
 ## Development
 
