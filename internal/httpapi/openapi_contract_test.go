@@ -257,6 +257,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		{"/api/v1/daemon/runtimes/{runtimeID}/socket", "get"},
 		{"/api/v1/daemon/runtimes/{runtimeID}/end", "post"},
 		{"/api/v1/daemon/runtimes/{runtimeID}/sleep", "post"},
+		{"/api/v1/daemon/skills/{skillID}/archive", "get"},
 	} {
 		operation := openAPIOperation(t, doc.Paths, route.path, route.method)
 		hidden, ok := operation["x-hidden"].(bool)

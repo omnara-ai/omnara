@@ -5271,7 +5271,7 @@ paths:
       summary: Get daemon skill archive
       description: Requires daemon authentication plus a short-lived capability bound to the authenticated machine, skill, and revision.
       security:
-        - bearerAuth: []
+        - machineDaemonAuth: []
       parameters:
         - name: revision_id
           in: query

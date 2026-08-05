@@ -850,7 +850,7 @@ export const deleteSkillGrant = <ThrowOnError extends boolean = true>(options: O
 /**
  * List skills available to project
  *
- * Includes organization skills, directly owned project skills, and granted skills, ordered by created_at descending, then id descending.
+ * Includes directly owned project skills and granted skills, ordered by created_at descending, then id descending.
  */
 export const listProjectAvailableSkills = <ThrowOnError extends boolean = true>(options: Options<ListProjectAvailableSkillsData, ThrowOnError>): RequestResult<ListProjectAvailableSkillsResponses, ListProjectAvailableSkillsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectAvailableSkillsResponses, ListProjectAvailableSkillsErrors, ThrowOnError>({
     responseValidator: async (data) => await zListProjectAvailableSkillsResponse.parseAsync(data),
@@ -2852,7 +2852,7 @@ export const sleepMachineDaemonRuntime = <ThrowOnError extends boolean = true>(o
 export const getDaemonSkillArchive = <ThrowOnError extends boolean = true>(options: Options<GetDaemonSkillArchiveData, ThrowOnError>): RequestResult<GetDaemonSkillArchiveResponses, GetDaemonSkillArchiveErrors, ThrowOnError> => (options.client ?? client).get<GetDaemonSkillArchiveResponses, GetDaemonSkillArchiveErrors, ThrowOnError>({
     responseValidator: async (data) => await zGetDaemonSkillArchiveResponse.parseAsync(data),
     security: [{
-            key: 'bearerAuth',
+            key: 'machineDaemonAuth',
             scheme: 'bearer',
             type: 'http'
         }],
