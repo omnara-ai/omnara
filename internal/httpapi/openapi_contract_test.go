@@ -253,6 +253,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		method string
 	}{
 		{"/api/v1/daemon/bootstrap", "post"},
+		{"/api/v1/daemon/bootstrap/failures", "post"},
 		{"/api/v1/daemon/runtimes", "post"},
 		{"/api/v1/daemon/runtimes/{runtimeID}/socket", "get"},
 		{"/api/v1/daemon/runtimes/{runtimeID}/end", "post"},
@@ -291,6 +292,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	}
 	machineOnlyMutations := map[string]bool{
 		"post /api/v1/daemon/bootstrap":                  true,
+		"post /api/v1/daemon/bootstrap/failures":         true,
 		"post /api/v1/daemon/runtimes":                   true,
 		"post /api/v1/daemon/runtimes/{runtimeID}/end":   true,
 		"post /api/v1/daemon/runtimes/{runtimeID}/sleep": true,

@@ -167,3 +167,25 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 		t.Fatalf("cwd = %q, want %s", got.Cwd, machineCwd)
 	}
 }
+
+func TestMachineInspectionIncludesBootstrapFailure(t *testing.T) {
+	failure := json.RawMessage(`{"stage":"daemon_install","exit_status":7,"output_tail":"failed"}`)
+	record := executionstore.PoolMachineRecord{
+		Binding:          executionstore.AgentMachineBindingRecord{MachineRef: "mchr-pool01"},
+		BootstrapFailure: failure,
+	}
+	inspected, err := json.Marshal(machineInspection(record))
+	if err != nil {
+		t.Fatalf("marshal machine inspection: %v", err)
+	}
+	if !strings.Contains(string(inspected), `"bootstrap_failure":`+string(failure)) {
+		t.Fatalf("machine inspection = %s, want bootstrap failure", inspected)
+	}
+	listed, err := json.Marshal(machineObservation(record))
+	if err != nil {
+		t.Fatalf("marshal machine observation: %v", err)
+	}
+	if strings.Contains(string(listed), "bootstrap_failure") {
+		t.Fatalf("machine list observation = %s, want bootstrap failure omitted", listed)
+	}
+}

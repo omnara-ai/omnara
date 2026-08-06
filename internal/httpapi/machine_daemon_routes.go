@@ -54,6 +54,41 @@ func (s strictOpenAPIServer) BootstrapDaemon(
 	return openapi.BootstrapDaemon200JSONResponse(response), nil
 }
 
+func (s strictOpenAPIServer) RecordDaemonBootstrapFailure(
+	ctx context.Context,
+	request openapi.RecordDaemonBootstrapFailureRequestObject,
+) (openapi.RecordDaemonBootstrapFailureResponseObject, error) {
+	scope, scopeErr := machineDaemonScopeFromContext(ctx)
+	if scopeErr != nil {
+		return nil, *scopeErr
+	}
+	var outputTail []byte
+	if request.Body != nil {
+		outputTail = []byte(*request.Body)
+	}
+	outputTruncated := request.Params.CaptureStatus != 0 ||
+		len(outputTail) > executionstore.MaxMachineBootstrapFailureOutputBytes
+	if len(outputTail) > executionstore.MaxMachineBootstrapFailureOutputBytes {
+		outputTail = outputTail[len(outputTail)-executionstore.MaxMachineBootstrapFailureOutputBytes:]
+	}
+	err := s.server.store.Execution().RecordMachineBootstrapFailure(
+		ctx,
+		executionstore.MachineBootstrapFailureInput{
+			OrgID:           scope.OrgID,
+			MachineID:       scope.MachineID,
+			DaemonTokenID:   scope.DaemonTokenID,
+			Stage:           string(request.Params.Stage),
+			ExitStatus:      request.Params.ExitStatus,
+			OutputTail:      outputTail,
+			OutputTruncated: outputTruncated,
+		},
+	)
+	if err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
+	return openapi.RecordDaemonBootstrapFailure204Response{}, nil
+}
+
 func daemonBootstrapResponse(bootstrap executionstore.MachineBootstrapRecord) (openapi.BootstrapDaemonResponse, error) {
 	installationID, err := publicID(publicid.KindInstallation, bootstrap.InstallationID)
 	if err != nil {

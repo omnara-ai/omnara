@@ -3854,7 +3854,10 @@ func TestPoolProvisioningAttemptFenceRejectsStaleCompletion(t *testing.T) {
 	}
 	if _, err := pool.Exec(
 		ctx,
-		`UPDATE machines SET next_reconcile_after = statement_timestamp() - interval '1 second' WHERE org_id = $1 AND id = $2`,
+		`UPDATE machines
+		 SET next_reconcile_after = statement_timestamp() - interval '1 second',
+		     bootstrap_failure = '{"stage":"startup_script"}'::jsonb
+		 WHERE org_id = $1 AND id = $2`,
 		testOrgID,
 		result.MachineBindings[0].MachineID,
 	); err != nil {
@@ -3870,6 +3873,18 @@ func TestPoolProvisioningAttemptFenceRejectsStaleCompletion(t *testing.T) {
 	}
 	if firstClaim.Machine.ProvisionAttempts != 1 || secondClaim.Machine.ProvisionAttempts != 2 {
 		t.Fatalf("unexpected attempts first=%+v second=%+v", firstClaim, secondClaim)
+	}
+	var bootstrapFailure *json.RawMessage
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT bootstrap_failure FROM machines WHERE org_id = $1 AND id = $2`,
+		testOrgID,
+		result.MachineBindings[0].MachineID,
+	).Scan(&bootstrapFailure); err != nil {
+		t.Fatalf("load bootstrap failure after retry claim: %v", err)
+	}
+	if bootstrapFailure != nil {
+		t.Fatalf("bootstrap failure after retry claim = %s, want null", *bootstrapFailure)
 	}
 	if _, err := store.Execution().BeginPoolMachineProviderProvisioning(
 		ctx,

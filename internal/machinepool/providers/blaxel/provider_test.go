@@ -70,7 +70,7 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 		process.Timeout != 0 || process.WaitForCompletion {
 		t.Fatalf("unexpected process request: %+v", process)
 	}
-	if process.Command != providers.ManagedBootScript("") {
+	if process.Command != providers.ManagedBootScript() {
 		t.Fatalf("process command = %q, want daemon launcher", process.Command)
 	}
 }
@@ -116,7 +116,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 		process.WaitForCompletion {
 		t.Fatalf("unexpected daemon process: %+v", process)
 	}
-	managedBoot := providers.ManagedBootScript("")
+	managedBoot := providers.ManagedBootScript()
 	if !strings.HasSuffix(process.Command, managedBoot) ||
 		!strings.Contains(
 			process.Command,
@@ -198,7 +198,7 @@ func TestBlaxelProviderProvisionRunsStartupScriptBeforeDaemon(t *testing.T) {
 		t.Fatalf("provision blaxel machine: %v", err)
 	}
 	process := api.processRequests[0]
-	wantCommand := providers.ManagedBootScript(startupScript)
+	wantCommand := providers.ManagedBootScript()
 	if process.Command != wantCommand {
 		t.Fatalf("process command does not run startup before daemon")
 	}

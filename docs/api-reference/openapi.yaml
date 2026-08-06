@@ -185,6 +185,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /daemon/bootstrap/failures:
+    post:
+      operationId: recordDaemonBootstrapFailure
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Record daemon bootstrap failure
+      security:
+        - machineDaemonAuth: []
+      parameters:
+        - name: stage
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [startup_script, daemon_install]
+        - name: exit_status
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 255
+        - name: capture_status
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 255
+      requestBody:
+        content:
+          text/plain:
+            schema:
+              type: string
+              maxLength: 4097
+      responses:
+        '204':
+          description: Bootstrap failure recorded.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /orgs:
     post:
       operationId: createOrganization

@@ -15,9 +15,10 @@ import (
 )
 
 type PoolMachineRecord struct {
-	Binding         AgentMachineBindingRecord `json:"binding"`
-	Machine         MachineRecord             `json:"machine"`
-	MachinePoolName string                    `json:"machine_pool_name"`
+	Binding          AgentMachineBindingRecord `json:"binding"`
+	Machine          MachineRecord             `json:"machine"`
+	MachinePoolName  string                    `json:"machine_pool_name"`
+	BootstrapFailure json.RawMessage           `json:"bootstrap_failure,omitempty"`
 }
 
 type MachinePoolSourceRecord struct {
@@ -818,8 +819,9 @@ func poolMachineRecordFromSQLC(row dbsqlc.SelectPoolMachinesRow) PoolMachineReco
 		row.LifecycleVersion,
 	)
 	return PoolMachineRecord{
-		Binding:         binding,
-		Machine:         machine,
-		MachinePoolName: row.PoolName,
+		Binding:          binding,
+		Machine:          machine,
+		MachinePoolName:  row.PoolName,
+		BootstrapFailure: rawMessageFromSQLCPtr(row.BootstrapFailure),
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,7 +63,7 @@ func TestBuildManagedMachineEnvRejectsReservedMachineEnv(t *testing.T) {
 func TestManagedMachineStartupRunsStartupScriptBeforeDaemon(t *testing.T) {
 	dir := t.TempDir()
 	markerPath := filepath.Join(dir, "startup-marker")
-	server, _ := managedLauncherTestServer(
+	server, requests := managedLauncherTestServer(
 		t,
 		fmt.Sprintf(
 			"#!/bin/sh\nif [ ! -f %q ]; then echo startup-marker-missing; exit 9; fi\necho daemon-started\n",
@@ -77,7 +79,7 @@ func TestManagedMachineStartupRunsStartupScriptBeforeDaemon(t *testing.T) {
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
-		managedBootstrapScriptTestEnv(ManagedBootScript(startupScript)),
+		managedBootstrapScriptTestEnv(ManagedBootScript()),
 		"OMNARA_API_URL="+server.URL,
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
@@ -91,6 +93,9 @@ func TestManagedMachineStartupRunsStartupScriptBeforeDaemon(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "daemon-started") {
 		t.Fatalf("launcher output = %q, want daemon-started", out)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("launcher requests = %d, want installer only", got)
 	}
 	if got := strings.TrimSpace(string(mustReadFile(t, markerPath))); got != "startup-ran" {
 		t.Fatalf("startup marker = %q, want startup-ran", got)
@@ -116,7 +121,7 @@ func TestManagedMachineStartupDoesNotExposeStartupPayloadToDaemon(t *testing.T) 
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
-		managedBootstrapScriptTestEnv(ManagedBootScript(startupScript)),
+		managedBootstrapScriptTestEnv(ManagedBootScript()),
 		"OMNARA_API_URL="+server.URL,
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
@@ -135,8 +140,45 @@ func TestManagedMachineStartupDoesNotExposeStartupPayloadToDaemon(t *testing.T) 
 
 func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 	dir := t.TempDir()
-	server, requests := managedLauncherTestServer(t, "#!/bin/sh\necho daemon-started\n")
-	startupScript := "exit 7\n"
+	type failureReport struct {
+		Stage         string
+		ExitStatus    int
+		CaptureStatus int
+		OutputTail    []byte
+	}
+	reports := make(chan failureReport, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/daemon/bootstrap/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
+			r.Header.Get("Content-Type") != "text/plain" {
+			http.NotFound(w, r)
+			return
+		}
+		exitStatus, err := strconv.Atoi(r.URL.Query().Get("exit_status"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		captureStatus, err := strconv.Atoi(r.URL.Query().Get("capture_status"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		outputTail, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		reports <- failureReport{
+			Stage:         r.URL.Query().Get("stage"),
+			ExitStatus:    exitStatus,
+			CaptureStatus: captureStatus,
+			OutputTail:    outputTail,
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	wantTail := strings.Repeat("t", 4*1024)
+	startupScript := "printf '%s' " + strconv.Quote("discarded"+wantTail) + "\nexit 7\n"
 	startupScriptPayload := base64.StdEncoding.EncodeToString([]byte(startupScript))
 	fakeBin := managedStartupTestBin(t, dir, startupScriptPayload, startupScript)
 
@@ -144,7 +186,7 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
-		managedBootstrapScriptTestEnv(ManagedBootScript(startupScript)),
+		managedBootstrapScriptTestEnv(ManagedBootScript()),
 		"OMNARA_API_URL="+server.URL,
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
@@ -161,11 +203,19 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 	if strings.Contains(output, "daemon-started") {
 		t.Fatalf("launcher output = %q, want daemon not to start", output)
 	}
-	if got := requests.Load(); got != 0 {
-		t.Fatalf("installer requests = %d, want 0", got)
-	}
-	if !strings.Contains(output, "omnara startup script failed with exit status 7") {
-		t.Fatalf("launcher output = %q, want startup failure log", output)
+	select {
+	case report := <-reports:
+		if report.Stage != "startup_script" || report.ExitStatus != 7 || report.CaptureStatus != 0 ||
+			string(report.OutputTail) != "d"+wantTail {
+			t.Fatalf(
+				"failure report status=%d capture_status=%d tail_bytes=%d",
+				report.ExitStatus,
+				report.CaptureStatus,
+				len(report.OutputTail),
+			)
+		}
+	default:
+		t.Fatal("startup failure report was not sent")
 	}
 }
 
@@ -188,7 +238,7 @@ func TestManagedMachineStartupBlocksDaemonUntilStartupScriptFinishes(t *testing.
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
-		managedBootstrapScriptTestEnv(ManagedBootScript(startupScript)),
+		managedBootstrapScriptTestEnv(ManagedBootScript()),
 		"OMNARA_API_URL="+server.URL,
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
@@ -262,17 +312,168 @@ func TestManagedMachineStartupBlocksDaemonUntilStartupScriptFinishes(t *testing.
 	}
 }
 
-func TestManagedMachineStartupScriptIncludesStartupOrchestration(t *testing.T) {
-	script := managedMachineStartupScript()
+func TestManagedMachineStartupDoesNotWaitForBackgroundOutput(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		dir := t.TempDir()
+		backgroundPIDPath := filepath.Join(dir, "background.pid")
+		t.Cleanup(func() { killProcessFromPIDFile(backgroundPIDPath) })
+		daemonMarkerPath := filepath.Join(dir, "daemon-started")
+		server, requests := managedLauncherTestServer(
+			t,
+			fmt.Sprintf("#!/bin/sh\necho started > %q\n", daemonMarkerPath),
+		)
+		startupScript := fmt.Sprintf("sleep 30 &\necho $! > %q\nexit 0\n", backgroundPIDPath)
+
+		out, duration, err := runManagedStartupWithFileOutput(t, dir, server.URL, startupScript)
+		if err != nil {
+			t.Fatalf("launcher failed: %v\n%s", err, out)
+		}
+		if duration >= 3*time.Second {
+			t.Fatalf("launcher duration = %s, want background output not to block daemon", duration)
+		}
+		if got := strings.TrimSpace(string(mustReadFile(t, daemonMarkerPath))); got != "started" {
+			t.Fatalf("daemon marker = %q, want started", got)
+		}
+		if got := requests.Load(); got != 1 {
+			t.Fatalf("launcher requests = %d, want installer only", got)
+		}
+	})
+
+	t.Run("failure", func(t *testing.T) {
+		dir := t.TempDir()
+		backgroundPIDPath := filepath.Join(dir, "background.pid")
+		t.Cleanup(func() { killProcessFromPIDFile(backgroundPIDPath) })
+		type failureReport struct {
+			Stage         string
+			ExitStatus    int
+			CaptureStatus int
+			OutputTail    []byte
+		}
+		reports := make(chan failureReport, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/daemon/bootstrap/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
+				r.Header.Get("Content-Type") != "text/plain" {
+				http.NotFound(w, r)
+				return
+			}
+			exitStatus, err := strconv.Atoi(r.URL.Query().Get("exit_status"))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			captureStatus, err := strconv.Atoi(r.URL.Query().Get("capture_status"))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			outputTail, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			reports <- failureReport{
+				Stage:         r.URL.Query().Get("stage"),
+				ExitStatus:    exitStatus,
+				CaptureStatus: captureStatus,
+				OutputTail:    outputTail,
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		t.Cleanup(server.Close)
+		startupScript := fmt.Sprintf(
+			"echo background-failure\nsleep 30 &\necho $! > %q\nexit 7\n",
+			backgroundPIDPath,
+		)
+
+		out, duration, err := runManagedStartupWithFileOutput(t, dir, server.URL, startupScript)
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 {
+			t.Fatalf("launcher error = %v output = %q, want exit status 7", err, out)
+		}
+		if duration >= 3*time.Second {
+			t.Fatalf("launcher duration = %s, want background output not to block failure report", duration)
+		}
+		select {
+		case report := <-reports:
+			if report.Stage != "startup_script" || report.ExitStatus != 7 ||
+				report.CaptureStatus == 0 || len(report.OutputTail) != 0 {
+				t.Fatalf(
+					"failure report status=%d capture_status=%d tail_bytes=%d",
+					report.ExitStatus,
+					report.CaptureStatus,
+					len(report.OutputTail),
+				)
+			}
+		default:
+			t.Fatal("startup failure report was not sent")
+		}
+	})
+}
+
+func TestManagedBootstrapPreludeIncludesStartupOrchestration(t *testing.T) {
+	script := managedBootstrapPreludeScript()
 	if !strings.Contains(script, startupScriptEnvVar) ||
-		!strings.Contains(script, `/bin/sh -c "$startup_script"`) {
+		!strings.Contains(script, `/bin/sh -c "$s"`) {
 		t.Fatal("startup script does not include startup orchestration")
 	}
 }
 
 func TestManagedBootScriptWithoutStartupScript(t *testing.T) {
-	if got, want := ManagedBootScript(""), managedDaemonLauncherScript(); got != want {
-		t.Fatal("managed boot script without startup script does not equal daemon launcher")
+	script := ManagedBootScript()
+	if !strings.Contains(script, "r daemon_install") || !strings.Contains(script, "r startup_script") {
+		t.Fatal("managed boot script without startup payload must retain bootstrap failure reporting")
+	}
+}
+
+func runManagedStartupWithFileOutput(
+	t *testing.T,
+	dir string,
+	serverURL string,
+	startupScript string,
+) ([]byte, time.Duration, error) {
+	t.Helper()
+	startupScriptPayload := base64.StdEncoding.EncodeToString([]byte(startupScript))
+	fakeBin := managedStartupTestBin(t, dir, startupScriptPayload, startupScript)
+	outputPath := filepath.Join(dir, "launcher-output")
+	outputFile, err := os.Create(outputPath)
+	if err != nil {
+		t.Fatalf("create launcher output: %v", err)
+	}
+	args := ManagedDaemonLauncherArgs()
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Env = append(os.Environ(),
+		"HOME="+dir,
+		managedBootstrapScriptTestEnv(ManagedBootScript()),
+		"OMNARA_API_URL="+serverURL,
+		"OMNARA_MACHINE_TOKEN=machine-token",
+		startupScriptEnvVar+"="+startupScriptPayload,
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"NO_PROXY=127.0.0.1",
+		"no_proxy=127.0.0.1",
+	)
+	cmd.Stdout = outputFile
+	cmd.Stderr = outputFile
+	startedAt := time.Now()
+	runErr := cmd.Run()
+	duration := time.Since(startedAt)
+	if err := outputFile.Close(); err != nil {
+		t.Fatalf("close launcher output: %v", err)
+	}
+	return mustReadFile(t, outputPath), duration, runErr
+}
+
+func killProcessFromPIDFile(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err == nil {
+		_ = process.Kill()
 	}
 }
 
@@ -282,7 +483,7 @@ func managedStartupTestBin(t *testing.T, dir, expectedPayload, startupScript str
 	if err != nil {
 		t.Fatalf("find base64: %v", err)
 	}
-	bootstrapPayload := base64.StdEncoding.EncodeToString([]byte(ManagedBootScript(startupScript)))
+	bootstrapPayload := ManagedBootScriptPayload()
 	fakeBin := filepath.Join(dir, "bin")
 	if err := os.Mkdir(fakeBin, 0o755); err != nil {
 		t.Fatalf("mkdir fake bin: %v", err)
@@ -295,8 +496,8 @@ func managedStartupTestBin(t *testing.T, dir, expectedPayload, startupScript str
 		startupScript += "\n"
 	}
 	writeExecutable(t, filepath.Join(fakeBin, "base64"), fmt.Sprintf(`#!/bin/sh
-if [ "$1" != "-d" ]; then
-  exit 2
+if [ "${1:-}" != "-d" ]; then
+  exec %s "$@"
 fi
 payload=$(cat)
 if [ "$payload" = %s ]; then
@@ -309,7 +510,7 @@ if [ "$payload" != %s ]; then
 fi
 cat <<'%s'
 %s%s
-`, strconv.Quote(bootstrapPayload), strconv.Quote(realBase64), strconv.Quote(expectedPayload), delimiter, startupScript, delimiter))
+`, strconv.Quote(realBase64), strconv.Quote(bootstrapPayload), strconv.Quote(realBase64), strconv.Quote(expectedPayload), delimiter, startupScript, delimiter))
 	return fakeBin
 }
 

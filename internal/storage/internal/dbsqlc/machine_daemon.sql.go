@@ -1845,6 +1845,54 @@ func (q *Queries) OnlineDaemonRuntimeExists(ctx context.Context, arg OnlineDaemo
 	return exists, err
 }
 
+const recordPoolMachineBootstrapFailure = `-- name: RecordPoolMachineBootstrapFailure :one
+UPDATE machines machine
+SET bootstrap_failure = jsonb_build_object(
+      'stage', $1::text,
+      'exit_status', $2::integer,
+      'output_tail', $3::text,
+      'output_truncated', $4::boolean,
+      'reported_at', statement_timestamp()
+    ),
+    updated_at = statement_timestamp()
+FROM machine_daemon_tokens token
+WHERE machine.org_id = $5
+  AND machine.id = $6
+  AND machine.source_kind = 'pool'
+  AND machine.deleted_at IS NULL
+  AND machine.lifecycle_state IN ('provisioning', 'provision_failed', 'active')
+  AND token.org_id = machine.org_id
+  AND token.machine_id = machine.id
+  AND token.id = $7
+  AND token.revoked_at IS NULL
+RETURNING machine.bootstrap_failure
+`
+
+type RecordPoolMachineBootstrapFailureParams struct {
+	Stage           string
+	ExitStatus      int32
+	OutputTail      string
+	OutputTruncated bool
+	OrgID           uuid.UUID
+	MachineID       uuid.UUID
+	DaemonTokenID   uuid.UUID
+}
+
+func (q *Queries) RecordPoolMachineBootstrapFailure(ctx context.Context, arg RecordPoolMachineBootstrapFailureParams) (*json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, recordPoolMachineBootstrapFailure,
+		arg.Stage,
+		arg.ExitStatus,
+		arg.OutputTail,
+		arg.OutputTruncated,
+		arg.OrgID,
+		arg.MachineID,
+		arg.DaemonTokenID,
+	)
+	var bootstrap_failure *json.RawMessage
+	err := row.Scan(&bootstrap_failure)
+	return bootstrap_failure, err
+}
+
 const refreshDaemonRuntimeRegistration = `-- name: RefreshDaemonRuntimeRegistration :one
 UPDATE daemon_runtimes runtime
 SET daemon_token_id = token.id,
