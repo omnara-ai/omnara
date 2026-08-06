@@ -26,7 +26,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.2
 	github.com/prometheus/client_golang v1.24.1
 	github.com/redis/go-redis/v9 v9.21.0
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	golang.org/x/crypto v0.54.0
 	golang.org/x/image v0.44.0
 	golang.org/x/net v0.57.0
