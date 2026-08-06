@@ -110,12 +110,13 @@ func TestInteractionFormPromptBlocksUsesOneAtomicSubmission(t *testing.T) {
 			t.Fatalf("interaction summary %q does not contain %q", summary, want)
 		}
 	}
-	if blocks[1]["block_id"] != "omnara_question_0" ||
-		blocks[2]["block_id"] != "omnara_question_1" {
+	if blocks[1]["block_id"] != "omnara_question_interaction-permission_0" ||
+		blocks[2]["block_id"] != "omnara_question_interaction-permission_1" {
 		t.Fatalf("question blocks = %#v, %#v", blocks[1], blocks[2])
 	}
 	elements, ok := blocks[3]["elements"].([]map[string]any)
-	if !ok || len(elements) != 1 || elements[0]["action_id"] != PromptAction {
+	if !ok || len(elements) != 1 ||
+		elements[0]["action_id"] != PromptAction+"_interaction-permission" {
 		t.Fatalf("submit actions = %#v", blocks[3]["elements"])
 	}
 }

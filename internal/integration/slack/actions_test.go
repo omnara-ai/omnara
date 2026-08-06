@@ -49,10 +49,10 @@ func TestResolveInteractionFormSupportsMultipleSelections(t *testing.T) {
 			},
 		}},
 	}
-	result := ResolveInteractionForm(value, ActionState{
+	result := ResolveInteractionForm("interaction-question", value, ActionState{
 		Values: map[string]map[string]actionStateValue{
-			questionBlockID(0): {
-				PromptAnswerAction: {
+			questionBlockID("interaction-question", 0): {
+				promptAnswerActionID("interaction-question"): {
 					SelectedOptions: []actionStateOption{{Value: "1"}, {Value: "0"}},
 				},
 			},
@@ -63,6 +63,31 @@ func TestResolveInteractionFormSupportsMultipleSelections(t *testing.T) {
 		len(result.Resolution.Answers[0].OptionIndices) != 2 ||
 		result.Resolution.Answers[0].OptionIndices[0] != 0 ||
 		result.Resolution.Answers[0].OptionIndices[1] != 1 {
+		t.Fatalf("ResolveInteractionForm() = %+v", result)
+	}
+}
+
+func TestResolveInteractionFormAcceptsLegacyBlockAndActionIDs(t *testing.T) {
+	value := interactionform.Form{
+		Title: "Question",
+		Questions: []interactionform.Question{{
+			Prompt:  "Deploy?",
+			Options: []interactionform.Option{{Label: "Yes"}, {Label: "No"}},
+		}},
+	}
+	result := ResolveInteractionForm("interaction-question", value, ActionState{
+		Values: map[string]map[string]actionStateValue{
+			legacyQuestionBlockID(0): {
+				PromptAnswerAction: {
+					SelectedOption: &actionStateOption{Value: "1"},
+				},
+			},
+		},
+	})
+	if result.InvalidReason != "" ||
+		len(result.Resolution.Answers) != 1 ||
+		len(result.Resolution.Answers[0].OptionIndices) != 1 ||
+		result.Resolution.Answers[0].OptionIndices[0] != 1 {
 		t.Fatalf("ResolveInteractionForm() = %+v", result)
 	}
 }

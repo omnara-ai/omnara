@@ -75,10 +75,16 @@ func (s *Server) resolveIntegrationInteractionAction(
 	install integrationstore.IntegrationInstallRecord,
 	envelope slack.ActionsEnvelope,
 ) (map[string]any, error) {
-	actionValue, err := slack.PromptActionFromActions(envelope)
+	actionValue, actionID, err := slack.PromptActionFromActions(envelope)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidIntegrationAction, err)
 	}
+	s.log.Info(
+		"slack interaction action received",
+		"interaction_id", actionValue.InteractionID,
+		"agent_id", actionValue.AgentID,
+		"action_id", actionID,
+	)
 	agentID, err := publicid.Decode(publicid.KindAgent, actionValue.AgentID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid agent id", errInvalidIntegrationAction)
@@ -123,7 +129,7 @@ func (s *Server) resolveIntegrationInteractionAction(
 			"text": "This prompt has already been resolved.",
 		}, nil
 	}
-	resolutionResult, err := integrationInteractionResolution(existing, envelope)
+	resolutionResult, err := integrationInteractionResolution(actionValue.InteractionID, existing, envelope)
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +240,7 @@ type integrationInteractionResolutionResult struct {
 }
 
 func integrationInteractionResolution(
+	interactionID string,
 	existing executionstore.AgentInteractionRecord,
 	envelope slack.ActionsEnvelope,
 ) (integrationInteractionResolutionResult, error) {
@@ -242,7 +249,7 @@ func integrationInteractionResolution(
 		return integrationInteractionResolutionResult{},
 			fmt.Errorf("parse stored interaction form: %w", err)
 	}
-	responseResult := slack.ResolveInteractionForm(value, envelope.State)
+	responseResult := slack.ResolveInteractionForm(interactionID, value, envelope.State)
 	if responseResult.InvalidReason != "" {
 		return integrationInteractionResolutionResult{InvalidReason: responseResult.InvalidReason}, nil
 	}

@@ -252,10 +252,10 @@ func InteractionFormPromptBlocks(
 		}
 		blocks = append(blocks, map[string]any{
 			"type":     "input",
-			"block_id": questionBlockID(index),
+			"block_id": questionBlockID(base.InteractionID, index),
 			"element": map[string]any{
 				"type":      elementType,
-				"action_id": PromptAnswerAction,
+				"action_id": promptAnswerActionID(base.InteractionID),
 				"options":   options,
 			},
 			"label": map[string]any{
@@ -267,7 +267,7 @@ func InteractionFormPromptBlocks(
 	blocks = append(blocks, map[string]any{
 		"type": "actions",
 		"elements": []map[string]any{
-			primaryButton("Submit", PromptAction, base),
+			primaryButton("Submit", promptSubmitActionID(base.InteractionID), base),
 		},
 	})
 	return summary, blocks
@@ -314,8 +314,20 @@ func promptMarkerBlockID(interactionID string) string {
 	return "omnara_interaction_" + interactionID
 }
 
-func questionBlockID(index int) string {
+func questionBlockID(interactionID string, index int) string {
+	return "omnara_question_" + interactionID + "_" + strconv.Itoa(index)
+}
+
+func legacyQuestionBlockID(index int) string {
 	return "omnara_question_" + strconv.Itoa(index)
+}
+
+func promptAnswerActionID(interactionID string) string {
+	return PromptAnswerAction + "_" + interactionID
+}
+
+func promptSubmitActionID(interactionID string) string {
+	return PromptAction + "_" + interactionID
 }
 
 func button(text, actionID string, value PromptActionValue) map[string]any {

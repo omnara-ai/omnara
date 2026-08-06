@@ -326,7 +326,7 @@ func TestIntegrationInteractionPromptPayloadUsesPlainTextAndSharedAction(t *test
 		t.Fatalf("unexpected prompt text block: %+v", decoded.Blocks)
 	}
 	if len(decoded.Blocks[2].Elements) != 1 ||
-		decoded.Blocks[2].Elements[0].ActionID != slack.PromptAction {
+		!strings.HasPrefix(decoded.Blocks[2].Elements[0].ActionID, slack.PromptAction+"_") {
 		t.Fatalf("unexpected prompt actions: %+v", decoded.Blocks[2].Elements)
 	}
 	var value slack.PromptActionValue
@@ -433,8 +433,8 @@ func TestIntegrationQuestionPromptPayloadIncludesQuestionText(t *testing.T) {
 		decoded.Blocks[0].Text.Text != "Question" ||
 		decoded.Blocks[0].BlockID != "omnara_interaction_"+interactionPublicID ||
 		decoded.Blocks[1].Type != "input" ||
-		decoded.Blocks[1].BlockID != "omnara_question_0" ||
-		decoded.Blocks[1].Element.ActionID != slack.PromptAnswerAction ||
+		decoded.Blocks[1].BlockID != "omnara_question_"+interactionPublicID+"_0" ||
+		decoded.Blocks[1].Element.ActionID != slack.PromptAnswerAction+"_"+interactionPublicID ||
 		decoded.Blocks[1].Label.Text != "What now?" {
 		t.Fatalf("unexpected question prompt payload: %+v", decoded)
 	}

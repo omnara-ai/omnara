@@ -95,7 +95,7 @@ func ValidateActionIdentity(identity Identity, envelope ActionsEnvelope) bool {
 	return true
 }
 
-func PromptActionFromActions(envelope ActionsEnvelope) (PromptActionValue, error) {
+func PromptActionFromActions(envelope ActionsEnvelope) (PromptActionValue, string, error) {
 	for _, action := range envelope.Actions {
 		if !PromptActionID(action.ActionID) || action.Value == "" {
 			continue
@@ -104,9 +104,9 @@ func PromptActionFromActions(envelope ActionsEnvelope) (PromptActionValue, error
 		if err != nil {
 			continue
 		}
-		return value, nil
+		return value, action.ActionID, nil
 	}
-	return PromptActionValue{}, errors.New("missing Omnara integration prompt action value")
+	return PromptActionValue{}, "", errors.New("missing Omnara integration prompt action value")
 }
 
 func PromptActionID(actionID string) bool {
@@ -135,6 +135,7 @@ type InteractionFormResolutionResult struct {
 }
 
 func ResolveInteractionForm(
+	interactionID string,
 	value interactionform.Form,
 	state ActionState,
 ) InteractionFormResolutionResult {
@@ -142,13 +143,19 @@ func ResolveInteractionForm(
 		Answers: make([]interactionform.Answer, 0, len(value.Questions)),
 	}
 	for index, question := range value.Questions {
-		block, ok := state.Values[questionBlockID(index)]
+		block, ok := state.Values[questionBlockID(interactionID, index)]
+		if !ok {
+			block, ok = state.Values[legacyQuestionBlockID(index)]
+		}
 		if !ok {
 			return InteractionFormResolutionResult{
 				InvalidReason: fmt.Sprintf("question %d requires an answer", index),
 			}
 		}
-		stateValue := block[PromptAnswerAction]
+		stateValue, ok := block[promptAnswerActionID(interactionID)]
+		if !ok {
+			stateValue = block[PromptAnswerAction]
+		}
 		optionIndices := make([]int, 0, 1)
 		if question.Multiple {
 			for _, selected := range stateValue.SelectedOptions {
