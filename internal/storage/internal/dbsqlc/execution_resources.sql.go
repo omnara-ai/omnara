@@ -193,11 +193,17 @@ SELECT claimed.id, claimed.org_id, claimed.machine_pool_id, claimed.source_kind,
        'offline'::text AS connection_state,
        claimed.last_observed_at, claimed.cpu, claimed.memory_mb, claimed.cwd, claimed.env, claimed.secret_env, claimed.provider_options, coalesce(claimed.idempotency_key, '') AS idempotency_key, coalesce(claimed.lifecycle_reason_code, '') AS lifecycle_reason_code, claimed.lifecycle_reason_message, claimed.next_reconcile_after, claimed.provision_attempts, claimed.delete_attempts, claimed.metadata, claimed.deleted_at, claimed.created_at, claimed.updated_at,
        claimed.lifecycle_changed_at, claimed.lifecycle_version,
-       machine_grant.project_id AS grant_project_id
+       machine_grant.project_id AS grant_project_id,
+       coalesce(binding.env_overlay, '{}'::jsonb) AS binding_env_overlay,
+       coalesce(binding.secret_env_overlay, '{}'::jsonb) AS binding_secret_env_overlay
 FROM claimed
 LEFT JOIN project_machine_grants machine_grant ON machine_grant.org_id = claimed.org_id
   AND machine_grant.machine_id = claimed.id
   AND machine_grant.source_kind = 'pool'
+LEFT JOIN agent_machine_bindings binding ON binding.org_id = claimed.org_id
+  AND binding.machine_id = claimed.id
+  AND binding.binding_kind = 'pool'
+  AND binding.state = 'attached'
 `
 
 type ClaimPoolMachineForProvisioningParams struct {
@@ -239,6 +245,8 @@ type ClaimPoolMachineForProvisioningRow struct {
 	LifecycleChangedAt           time.Time
 	LifecycleVersion             int64
 	GrantProjectID               *uuid.UUID
+	BindingEnvOverlay            json.RawMessage
+	BindingSecretEnvOverlay      json.RawMessage
 }
 
 func (q *Queries) ClaimPoolMachineForProvisioning(ctx context.Context, arg ClaimPoolMachineForProvisioningParams) (ClaimPoolMachineForProvisioningRow, error) {
@@ -281,6 +289,8 @@ func (q *Queries) ClaimPoolMachineForProvisioning(ctx context.Context, arg Claim
 		&i.LifecycleChangedAt,
 		&i.LifecycleVersion,
 		&i.GrantProjectID,
+		&i.BindingEnvOverlay,
+		&i.BindingSecretEnvOverlay,
 	)
 	return i, err
 }

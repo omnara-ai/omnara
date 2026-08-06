@@ -857,11 +857,16 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get launch pool grant: %v", err)
 	}
+	agentPlainValue := "agent-plain"
+	agentSecretRef := orgSecretID
 	resolvedMachine, err := store.Execution().ResolvePoolMachineTx(
 		ctx,
 		store.q,
 		poolGrant,
-		agentconfig.RuntimeMachine{},
+		agentconfig.RuntimeMachine{
+			EnvOverlay:       map[string]*string{"AGENT_PLAIN": &agentPlainValue},
+			SecretEnvOverlay: map[string]*string{"AGENT_SECRET": &agentSecretRef},
+		},
 	)
 	if err != nil {
 		t.Fatalf("resolve pool machine: %v", err)
@@ -924,14 +929,27 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	if claim.GrantProjectID != testProjectID {
 		t.Fatalf("claim grant project = %s, want %s", claim.GrantProjectID, testProjectID)
 	}
+	if got := claim.BindingEnvironmentOverlay.Env["AGENT_PLAIN"]; got == nil || *got != agentPlainValue {
+		t.Fatalf("claim binding env overlay = %+v, want AGENT_PLAIN", claim.BindingEnvironmentOverlay)
+	}
+	if got := claim.BindingEnvironmentOverlay.SecretEnv["AGENT_SECRET"]; got == nil || *got != agentSecretRef {
+		t.Fatalf("claim binding secret env overlay = %+v, want AGENT_SECRET", claim.BindingEnvironmentOverlay)
+	}
 	provisioningEnv, err := store.Execution().ResolvePoolMachineProvisioningEnv(ctx, claim)
 	if err != nil {
 		t.Fatalf("resolve provisioning env: %v", err)
 	}
-	if len(provisioningEnv) != len(wantEnv) {
-		t.Fatalf("provisioning env = %+v, want %+v", provisioningEnv, wantEnv)
+	wantProvisioningEnv := map[string]string{
+		"PLAIN":          "plain",
+		"ORG_SECRET":     "org-secret-value",
+		"PROJECT_SECRET": "project-secret-value",
+		"AGENT_PLAIN":    "agent-plain",
+		"AGENT_SECRET":   "org-secret-value",
 	}
-	for key, want := range wantEnv {
+	if len(provisioningEnv) != len(wantProvisioningEnv) {
+		t.Fatalf("provisioning env = %+v, want %+v", provisioningEnv, wantProvisioningEnv)
+	}
+	for key, want := range wantProvisioningEnv {
 		if got := provisioningEnv[key]; got != want {
 			t.Fatalf("provisioning env[%s] = %q, want %q; env=%+v", key, got, want, provisioningEnv)
 		}

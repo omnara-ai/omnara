@@ -126,7 +126,7 @@ machine_sources:
     max_machines: 3
 ```
 
-`env_overlay` sets environment variables. `secret_env_overlay` references [secrets](/organization/secrets), whose values are injected only when a process starts. Pool sources can also set machine size and limits; supported fields vary by provider. See [Machine pools](/machines/pools#create-a-pool) and the [config schema](/api-reference/endpoints/configs-and-profiles/create-agent-config).
+`env_overlay` sets environment variables. `secret_env_overlay` references [secrets](/organization/secrets), whose values are resolved when they are injected. Both apply to every process the agent runs on the machine; for pool sources they also apply to the machine environment at provisioning, so the pool's startup script sees them. Pool sources can also set machine size and limits; supported fields vary by provider. See [Machine pools](/machines/pools#create-a-pool) and the [config schema](/api-reference/endpoints/configs-and-profiles/create-agent-config).
 
 ## Skills
 

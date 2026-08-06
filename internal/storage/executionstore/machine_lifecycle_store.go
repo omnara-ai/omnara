@@ -93,8 +93,9 @@ type PoolMachineDeletionClaim struct {
 }
 
 type PoolMachineProvisioningClaim struct {
-	Machine        MachineRecord
-	GrantProjectID ID
+	Machine                   MachineRecord
+	GrantProjectID            ID
+	BindingEnvironmentOverlay MachineEnvironmentOverlay
 }
 
 func (s *Store) ClaimPoolMachineForProvisioning(
@@ -134,12 +135,20 @@ func (s *Store) ClaimPoolMachineForProvisioning(
 	if err != nil {
 		return PoolMachineProvisioningClaim{}, false, fmt.Errorf("claim pool machine for provisioning: %w", err)
 	}
+	bindingEnvironmentOverlay, err := machineEnvironmentOverlayFromColumns(
+		row.BindingEnvOverlay,
+		row.BindingSecretEnvOverlay,
+	)
+	if err != nil {
+		return PoolMachineProvisioningClaim{}, false, fmt.Errorf("pool machine binding environment overlay: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return PoolMachineProvisioningClaim{}, false, fmt.Errorf("commit pool machine provisioning claim: %w", err)
 	}
 	return PoolMachineProvisioningClaim{
-		Machine:        machineRecordFromClaimPoolProvisioningSQLC(row),
-		GrantProjectID: idFromSQLCPtr(row.GrantProjectID),
+		Machine:                   machineRecordFromClaimPoolProvisioningSQLC(row),
+		GrantProjectID:            idFromSQLCPtr(row.GrantProjectID),
+		BindingEnvironmentOverlay: bindingEnvironmentOverlay,
 	}, true, nil
 }
 

@@ -7288,7 +7288,7 @@ components:
         cwd:
           type: string
         env_overlay:
-          description: Env overlay applied to processes launched through this binding; it does not change the machine environment applied to the provider machine at provisioning. A null entry removes the key.
+          description: Env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
           type: object
           additionalProperties:
             type: string

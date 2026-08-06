@@ -555,6 +555,17 @@ func machineProvisioningFromColumns(
 	return machineProvisioning, nil
 }
 
+func effectiveMachineEnvironment(
+	machineEnv, machineSecretEnv json.RawMessage,
+	bindingOverlay MachineEnvironmentOverlay,
+) (MachineEnvironment, error) {
+	environment, err := MachineEnvironmentFromColumns(machineEnv, machineSecretEnv)
+	if err != nil {
+		return MachineEnvironment{}, err
+	}
+	return resolveMachineEnvironment(environment, bindingOverlay)
+}
+
 func MachineEnvironmentFromColumns(env, secretEnv json.RawMessage) (MachineEnvironment, error) {
 	var environment MachineEnvironment
 	if err := decodeMachineJSONField(env, "env", &environment.Env); err != nil {
@@ -710,17 +721,20 @@ func (s *Store) ResolveEnvironmentSecrets(
 	orgID, projectID ID,
 	envJSON, secretEnvJSON json.RawMessage,
 ) (map[string]string, error) {
-	var env map[string]string
-	if err := decodeMachineJSONField(envJSON, "env", &env); err != nil {
+	environment, err := MachineEnvironmentFromColumns(envJSON, secretEnvJSON)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", storeerr.ErrPermanentEnvironment, err)
 	}
-	var secretEnv map[string]string
-	if err := decodeMachineJSONField(secretEnvJSON, "secret_env", &secretEnv); err != nil {
-		return nil, fmt.Errorf("%w: %w", storeerr.ErrPermanentEnvironment, err)
-	}
-	if err := validateMachineEnvironment(MachineEnvironment{Env: env, SecretEnv: secretEnv}); err != nil {
-		return nil, fmt.Errorf("%w: %w", storeerr.ErrPermanentEnvironment, err)
-	}
+	return s.resolveEnvironmentSecrets(ctx, orgID, projectID, environment)
+}
+
+func (s *Store) resolveEnvironmentSecrets(
+	ctx context.Context,
+	orgID, projectID ID,
+	environment MachineEnvironment,
+) (map[string]string, error) {
+	env := maps.Clone(environment.Env)
+	secretEnv := environment.SecretEnv
 	if env == nil {
 		env = map[string]string{}
 	}
@@ -785,13 +799,15 @@ func (s *Store) ResolvePoolMachineProvisioningEnv(
 	ctx context.Context,
 	claim PoolMachineProvisioningClaim,
 ) (map[string]string, error) {
-	return s.ResolveEnvironmentSecrets(
-		ctx,
-		claim.Machine.OrgID,
-		claim.GrantProjectID,
+	environment, err := effectiveMachineEnvironment(
 		claim.Machine.Env,
 		claim.Machine.SecretEnv,
+		claim.BindingEnvironmentOverlay,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", storeerr.ErrPermanentEnvironment, err)
+	}
+	return s.resolveEnvironmentSecrets(ctx, claim.Machine.OrgID, claim.GrantProjectID, environment)
 }
 
 func resourcesFromMachineProvisioning(
