@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -30,10 +31,15 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-const outboundHTTPClientTimeout = 30 * time.Second
+const (
+	outboundHTTPClientTimeout  = 30 * time.Second
+	defaultReconciliationPlan  = "plan"
+	defaultReconciliationApply = "apply"
+)
 
 func main() {
 	cfg, err := config.Load()
@@ -41,6 +47,14 @@ func main() {
 		log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
 		log.Error("load config", "error", err)
 		os.Exit(1)
+	}
+	if len(os.Args) > 1 {
+		if err := runDefaultReconciliation(context.Background(), cfg, os.Args[1:], os.Stdout); err != nil {
+			log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
+			log.Error("run command", "error", err)
+			os.Exit(1)
+		}
+		return
 	}
 	if err := cfg.ValidateAPI(); err != nil {
 		log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
@@ -206,6 +220,65 @@ func main() {
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func parseDefaultReconciliationMode(args []string) (string, error) {
+	if len(args) != 2 || args[0] != "reconcile-defaults" {
+		return "", errors.New("usage: omnara-api reconcile-defaults plan|apply")
+	}
+	switch args[1] {
+	case defaultReconciliationPlan, defaultReconciliationApply:
+		return args[1], nil
+	default:
+		return "", errors.New("usage: omnara-api reconcile-defaults plan|apply")
+	}
+}
+
+func runDefaultReconciliation(
+	ctx context.Context,
+	cfg config.Config,
+	args []string,
+	output io.Writer,
+) error {
+	mode, err := parseDefaultReconciliationMode(args)
+	if err != nil {
+		return err
+	}
+	if cfg.DatabaseURL == "" {
+		return errors.New("OMNARA_DATABASE_URL is required")
+	}
+	if len(cfg.DefaultMachinePools) == 0 && cfg.DefaultModelProvider == nil {
+		return errors.New("no default templates are configured")
+	}
+	db, err := storage.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+	store := storage.NewStore(db, storage.WithMachinePoolProviders(machinepool.DefaultCatalog()))
+	result, err := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
+		Apply:                mode == defaultReconciliationApply,
+		DefaultMachinePools:  cfg.DefaultMachinePools,
+		DefaultModelProvider: cfg.DefaultModelProvider,
+	})
+	if err != nil {
+		return err
+	}
+	for _, change := range result.Changes {
+		if _, err := fmt.Fprintf(output, "%s: %s\n", mode, change); err != nil {
+			return err
+		}
+	}
+	for _, warning := range result.Warnings {
+		if _, err := fmt.Fprintf(output, "%s: warning: %s\n", mode, warning); err != nil {
+			return err
+		}
+	}
+	if len(result.Changes) == 0 {
+		_, err = fmt.Fprintf(output, "%s: no changes\n", mode)
+		return err
+	}
+	return nil
 }
 
 func bootstrapAuthConnectors(ctx context.Context, store *storage.Store, cfg config.Config) error {

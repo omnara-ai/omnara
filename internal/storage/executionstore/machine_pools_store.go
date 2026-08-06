@@ -325,34 +325,38 @@ func (s *Store) CreateMachinePool(
 	if record.DeletedAt != nil {
 		return MachinePoolRecord{}, storeerr.ErrIdempotencyConflict
 	}
-	if record.Name != input.Name ||
-		record.ManagementKind != input.ManagementKind ||
-		record.Description != input.Description ||
-		record.Provider != input.Provider ||
-		!sameIntPtr(record.DefaultMachineCPU, input.DefaultMachineCPU) ||
-		!sameIntPtr(record.DefaultMachineMemoryMB, input.DefaultMachineMemoryMB) ||
-		!sameJSON(record.DefaultMachineEnv, input.DefaultMachineEnv) ||
-		!sameJSON(record.DefaultMachineSecretEnv, input.DefaultMachineSecretEnv) ||
-		!sameJSON(record.DefaultMachineProviderOptions, input.DefaultMachineProviderOptions) ||
-		record.DefaultCwd != input.DefaultCwd ||
-		!sameJSON(record.ProviderConfig, input.ProviderConfig) ||
-		record.ProviderAuthSecretID != input.ProviderAuthSecretID ||
-		record.ProviderAuthEnvVar != input.ProviderAuthEnvVar ||
-		record.RuntimeProtectionEnabled != input.RuntimeProtectionEnabled ||
-		record.MaxTotalMachines != input.MaxTotalMachines ||
-		!sameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) ||
-		!sameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) ||
-		!sameIntPtr(record.MinMachineCPU, input.MinMachineCPU) ||
-		!sameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) ||
-		!sameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) ||
-		!sameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) ||
-		!sameJSON(record.Metadata, input.Metadata) {
+	if !sameMachinePoolIntent(record, input) {
 		return MachinePoolRecord{}, storeerr.ErrIdempotencyConflict
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return MachinePoolRecord{}, fmt.Errorf("commit replay create machine pool: %w", err)
 	}
 	return record, nil
+}
+
+func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInput) bool {
+	return record.Name == input.Name &&
+		record.ManagementKind == input.ManagementKind &&
+		record.Description == input.Description &&
+		record.Provider == input.Provider &&
+		sameIntPtr(record.DefaultMachineCPU, input.DefaultMachineCPU) &&
+		sameIntPtr(record.DefaultMachineMemoryMB, input.DefaultMachineMemoryMB) &&
+		sameJSON(record.DefaultMachineEnv, input.DefaultMachineEnv) &&
+		sameJSON(record.DefaultMachineSecretEnv, input.DefaultMachineSecretEnv) &&
+		sameJSON(record.DefaultMachineProviderOptions, input.DefaultMachineProviderOptions) &&
+		record.DefaultCwd == input.DefaultCwd &&
+		sameJSON(record.ProviderConfig, input.ProviderConfig) &&
+		record.ProviderAuthSecretID == input.ProviderAuthSecretID &&
+		record.ProviderAuthEnvVar == input.ProviderAuthEnvVar &&
+		record.RuntimeProtectionEnabled == input.RuntimeProtectionEnabled &&
+		record.MaxTotalMachines == input.MaxTotalMachines &&
+		sameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) &&
+		sameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) &&
+		sameIntPtr(record.MinMachineCPU, input.MinMachineCPU) &&
+		sameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) &&
+		sameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) &&
+		sameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
+		sameJSON(record.Metadata, input.Metadata)
 }
 
 func prepareMachinePoolCreateInput(
@@ -685,29 +689,7 @@ func (s *Store) UpdateMachinePool(
 	if err := s.validatePoolDefaultsTx(ctx, qtx, merged, poolDefaults); err != nil {
 		return MachinePoolRecord{}, err
 	}
-	row, err := qtx.UpdateMachinePool(ctx, dbsqlc.UpdateMachinePoolParams{
-		OrgID:                         input.OrgID,
-		ID:                            input.ID,
-		Name:                          merged.Name,
-		Description:                   merged.Description,
-		DefaultMachineCpu:             sqlcInt32Ptr(merged.DefaultMachineCPU),
-		DefaultMachineMemoryMb:        sqlcInt32Ptr(merged.DefaultMachineMemoryMB),
-		DefaultMachineEnv:             merged.DefaultMachineEnv,
-		DefaultMachineSecretEnv:       merged.DefaultMachineSecretEnv,
-		DefaultMachineProviderOptions: merged.DefaultMachineProviderOptions,
-		DefaultCwd:                    merged.DefaultCwd,
-		ProviderConfig:                merged.ProviderConfig,
-		ProviderAuthSecretID:          sqlcIDFromNil(merged.ProviderAuthSecretID),
-		RuntimeProtectionEnabled:      merged.RuntimeProtectionEnabled,
-		MaxTotalMachines:              merged.MaxTotalMachines,
-		MaxTotalCpu:                   sqlcInt32Ptr(merged.MaxTotalCPU),
-		MaxTotalMemoryMb:              sqlcInt32Ptr(merged.MaxTotalMemoryMB),
-		MinMachineCpu:                 sqlcInt32Ptr(merged.MinMachineCPU),
-		MinMachineMemoryMb:            sqlcInt32Ptr(merged.MinMachineMemoryMB),
-		MaxMachineCpu:                 sqlcInt32Ptr(merged.MaxMachineCPU),
-		MaxMachineMemoryMb:            sqlcInt32Ptr(merged.MaxMachineMemoryMB),
-		Metadata:                      merged.Metadata,
-	})
+	row, err := updateMachinePoolRow(ctx, qtx, input.ID, merged)
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
 			return MachinePoolRecord{}, storeerr.ErrConflict
@@ -727,6 +709,38 @@ func (s *Store) UpdateMachinePool(
 		return MachinePoolRecord{}, fmt.Errorf("commit update machine pool: %w", err)
 	}
 	return record, nil
+}
+
+func updateMachinePoolRow(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	id ID,
+	input CreateMachinePoolInput,
+) (dbsqlc.MachinePool, error) {
+	return qtx.UpdateMachinePool(ctx, dbsqlc.UpdateMachinePoolParams{
+		OrgID:                         input.OrgID,
+		ID:                            id,
+		ManagementKind:                string(input.ManagementKind),
+		Name:                          input.Name,
+		Description:                   input.Description,
+		DefaultMachineCpu:             sqlcInt32Ptr(input.DefaultMachineCPU),
+		DefaultMachineMemoryMb:        sqlcInt32Ptr(input.DefaultMachineMemoryMB),
+		DefaultMachineEnv:             input.DefaultMachineEnv,
+		DefaultMachineSecretEnv:       input.DefaultMachineSecretEnv,
+		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
+		DefaultCwd:                    input.DefaultCwd,
+		ProviderConfig:                input.ProviderConfig,
+		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
+		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
+		MaxTotalMachines:              input.MaxTotalMachines,
+		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
+		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
+		MinMachineCpu:                 sqlcInt32Ptr(input.MinMachineCPU),
+		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
+		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
+		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
+		Metadata:                      input.Metadata,
+	})
 }
 
 func (s *Store) GetMachinePool(ctx context.Context, orgID, id ID) (MachinePoolRecord, error) {

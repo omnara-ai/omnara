@@ -98,6 +98,16 @@ ORDER BY CASE WHEN NOT sqlc.arg(sort_desc)::boolean THEN sort_key END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean THEN id END DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
+-- name: ListClusterManagedModelProviderConfigsByName :many
+SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
+       request_timeout_ms, auth_kind, auth_options,
+       credential_secret_id, deleted_at, created_at, updated_at
+FROM model_provider_configs
+WHERE name = sqlc.arg(name)
+  AND management_kind = 'cluster'
+  AND deleted_at IS NULL
+ORDER BY org_id, id;
+
 -- name: UpdateModelProviderConfig :one
 UPDATE model_provider_configs config
 SET base_url = sqlc.arg(base_url),
@@ -111,7 +121,7 @@ FROM secrets credential
 WHERE config.org_id = sqlc.arg(org_id)
   AND config.id = sqlc.arg(id)
   AND config.deleted_at IS NULL
-  AND config.management_kind = 'tenant'
+  AND config.management_kind = sqlc.arg(management_kind)
   AND credential.org_id = config.org_id
   AND credential.id = sqlc.arg(credential_secret_id)
   AND credential.management_kind = config.management_kind
@@ -355,7 +365,7 @@ WITH target_configured_model AS (
   FROM configured_models configured_model
   JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
     AND provider_config.id = configured_model.model_provider_config_id
-    AND provider_config.management_kind = 'tenant'
+    AND provider_config.management_kind = sqlc.arg(management_kind)
     AND provider_config.deleted_at IS NULL
   WHERE configured_model.org_id = sqlc.arg(org_id)
     AND configured_model.model_provider_config_id = sqlc.arg(model_provider_config_id)
@@ -456,10 +466,22 @@ WHERE configured_models.org_id = sqlc.arg(org_id)
     FROM model_provider_configs provider_config
     WHERE provider_config.org_id = configured_models.org_id
       AND provider_config.id = configured_models.model_provider_config_id
-      AND provider_config.management_kind = 'tenant'
+      AND provider_config.management_kind = sqlc.arg(management_kind)
   )
 RETURNING id, org_id, model_provider_config_id, name, current_revision_id,
           deleted_at, created_at, updated_at;
+
+-- name: GetDefaultConfiguredModelRemovalState :one
+SELECT EXISTS (
+         SELECT 1 FROM project_model_grants model_grant
+         WHERE model_grant.configured_model_id = sqlc.arg(target_configured_model_id)
+           AND model_grant.project_id = sqlc.arg(default_project_id)
+       ) AS granted_to_default_project,
+       EXISTS (
+         SELECT 1 FROM project_model_grants model_grant
+         WHERE model_grant.configured_model_id = sqlc.arg(target_configured_model_id)
+           AND model_grant.project_id <> sqlc.arg(default_project_id)
+       ) AS granted_to_other_project;
 
 -- name: ConfiguredModelHasActiveGrants :one
 SELECT EXISTS (

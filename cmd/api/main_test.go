@@ -63,3 +63,23 @@ func TestRequireWebIndexRejectsMissingIndex(t *testing.T) {
 		t.Fatalf("missing index error = %v, want source/index context", err)
 	}
 }
+
+func TestParseDefaultReconciliationMode(t *testing.T) {
+	for _, test := range []struct {
+		args      []string
+		wantMode  string
+		wantError bool
+	}{
+		{args: []string{"reconcile-defaults", "plan"}, wantMode: defaultReconciliationPlan},
+		{args: []string{"reconcile-defaults", "apply"}, wantMode: defaultReconciliationApply},
+		{wantError: true},
+		{args: []string{"unknown"}, wantError: true},
+		{args: []string{"reconcile-defaults", "unknown"}, wantError: true},
+		{args: []string{"reconcile-defaults", "plan", "extra"}, wantError: true},
+	} {
+		mode, err := parseDefaultReconciliationMode(test.args)
+		if (err != nil) != test.wantError || mode != test.wantMode {
+			t.Fatalf("parse reconciliation mode %v = mode %q, err %v", test.args, mode, err)
+		}
+	}
+}
