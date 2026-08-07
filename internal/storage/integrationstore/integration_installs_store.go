@@ -334,13 +334,41 @@ func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id ID) 
 	if isNilID(projectID) || isNilID(id) {
 		return errors.New("project and integration install are required")
 	}
+	_, err := storeutil.RetryTransaction(ctx, func() (struct{}, error) {
+		return struct{}{}, s.deleteIntegrationInstallOnce(ctx, projectID, id)
+	})
+	return err
+}
+
+func (s *Store) deleteIntegrationInstallOnce(ctx context.Context, projectID, id ID) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin delete integration install: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	if err := s.access.ClearInstallTargetsFromAgents(ctx, tx, projectID, id); err != nil {
+	install, err := getIntegrationInstall(ctx, q, projectID, id)
+	if err != nil {
+		return err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, projectID); err != nil {
+		return err
+	}
+	agentIDs, err := q.ListIntegrationInstallAgentIDsForLifecycle(
+		ctx,
+		dbsqlc.ListIntegrationInstallAgentIDsForLifecycleParams{
+			ProjectID:            projectID,
+			IntegrationInstallID: id,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("list integration install agents for lifecycle: %w", err)
+	}
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentIDs))
+	for _, agentID := range agentIDs {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
 		return err
 	}
 	if _, err := q.LockIntegrationInstallForMutation(
@@ -353,6 +381,9 @@ func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id ID) 
 		return fmt.Errorf("lock integration install for deletion: %w", err)
 	}
 	if _, err := getIntegrationInstall(ctx, q, projectID, id); err != nil {
+		return err
+	}
+	if err := s.access.ClearInstallTargetsFromAgents(ctx, tx, projectID, id); err != nil {
 		return err
 	}
 	if err := q.DeleteIntegrationTargets(ctx, dbsqlc.DeleteIntegrationTargetsParams{

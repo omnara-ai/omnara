@@ -429,7 +429,6 @@ CREATE TABLE integration_targets (
     UNIQUE (project_id, agent_id, id)
 );
 
--- integrations_store.go relies on this name to detect target-ref collisions.
 CREATE UNIQUE INDEX integration_targets_agent_target_ref_idx
     ON integration_targets(project_id, agent_id, target_ref);
 

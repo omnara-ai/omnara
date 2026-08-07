@@ -885,10 +885,12 @@ func TestResolveMachineProviderAuthTokenReportsMissingSecret(t *testing.T) {
 	store := newSecretIntegrationStore(pool)
 	_, err := store.Execution().ResolveMachineProviderAuthToken(
 		ctx,
-		testOrgID,
-		management.Tenant,
-		uuid.New(),
-		"",
+		executionstore.MachinePoolRecord{
+			ID:                   uuid.New(),
+			OrgID:                testOrgID,
+			ManagementKind:       management.Tenant,
+			ProviderAuthSecretID: uuid.New(),
+		},
 	)
 	if err == nil || err.Error() != "machine pool provider auth secret is unavailable" || errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("missing provider auth secret error = %v", err)

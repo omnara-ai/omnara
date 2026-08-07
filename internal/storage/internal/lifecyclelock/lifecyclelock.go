@@ -24,13 +24,6 @@ type PoolRef struct {
 	PoolID uuid.UUID
 }
 
-type PoolGrantRef struct {
-	OrgID     uuid.UUID
-	ProjectID uuid.UUID
-	PoolID    uuid.UUID
-	GrantID   uuid.UUID
-}
-
 type MachineRef struct {
 	OrgID     uuid.UUID
 	MachineID uuid.UUID
@@ -181,12 +174,12 @@ func orderedIDs(ids []uuid.UUID) []uuid.UUID {
 	return deduped
 }
 
-func AgentSources(ctx context.Context, tx pgx.Tx, refs []AgentRef) error {
+func AgentSources(ctx context.Context, tx pgx.Tx, agentIDs []uuid.UUID) error {
 	q := dbsqlc.New(tx)
-	for _, ref := range orderedAgentRefs(refs) {
+	for _, agentID := range orderedIDs(agentIDs) {
 		if err := q.LockAgentMachineSources(
 			ctx,
-			dbsqlc.LockAgentMachineSourcesParams{AgentID: ref.AgentID},
+			dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
 		); err != nil {
 			return fmt.Errorf("lock agent machine sources for lifecycle: %w", err)
 		}
@@ -219,35 +212,17 @@ func Pools(ctx context.Context, tx pgx.Tx, refs []PoolRef) error {
 	return nil
 }
 
-func PoolGrants(ctx context.Context, tx pgx.Tx, refs []PoolGrantRef) error {
+func PoolGrants(ctx context.Context, tx pgx.Tx, grantIDs []uuid.UUID) error {
 	q := dbsqlc.New(tx)
-	ordered := append([]PoolGrantRef(nil), refs...)
-	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].OrgID != ordered[j].OrgID {
-			return bytes.Compare(ordered[i].OrgID[:], ordered[j].OrgID[:]) < 0
-		}
-		if ordered[i].PoolID != ordered[j].PoolID {
-			return bytes.Compare(ordered[i].PoolID[:], ordered[j].PoolID[:]) < 0
-		}
-		if ordered[i].ProjectID != ordered[j].ProjectID {
-			return bytes.Compare(ordered[i].ProjectID[:], ordered[j].ProjectID[:]) < 0
-		}
-		return bytes.Compare(ordered[i].GrantID[:], ordered[j].GrantID[:]) < 0
-	})
-	var previous PoolGrantRef
-	for i, ref := range ordered {
-		if i > 0 && ref == previous {
-			continue
-		}
+	for _, grantID := range orderedIDs(grantIDs) {
 		if _, err := q.LockProjectMachinePoolGrantForLifecycle(
 			ctx,
 			dbsqlc.LockProjectMachinePoolGrantForLifecycleParams{
-				OrgID: ref.OrgID, ProjectID: ref.ProjectID, ID: ref.GrantID,
+				ID: grantID,
 			},
 		); err != nil {
 			return rowLockError("lock project machine pool grant for lifecycle", err)
 		}
-		previous = ref
 	}
 	return nil
 }

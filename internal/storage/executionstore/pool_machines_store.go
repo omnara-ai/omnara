@@ -108,7 +108,7 @@ func (t *toolCallTransaction) createPoolMachine(
 	if err := lifecyclelock.AgentSources(
 		ctx,
 		t.tx,
-		[]lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: agentID}},
+		[]ID{agentID},
 	); err != nil {
 		return CreatePoolMachineResult{}, err
 	}
@@ -170,6 +170,12 @@ func (t *toolCallTransaction) createPoolMachine(
 		input.MachinePoolID,
 	)
 	if err != nil {
+		return CreatePoolMachineResult{}, err
+	}
+	if err := lifecyclelock.Pools(ctx, t.tx, []lifecyclelock.PoolRef{{
+		OrgID:  agent.OrgID,
+		PoolID: currentSource.MachinePoolID,
+	}}); err != nil {
 		return CreatePoolMachineResult{}, err
 	}
 	poolGrant, err := t.q.GetActiveProjectMachinePoolGrantForLaunch(
@@ -284,7 +290,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	if err := lifecyclelock.AgentSources(
 		ctx,
 		t.tx,
-		[]lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: agentID}},
+		[]ID{agentID},
 	); err != nil {
 		return PoolMachineRecord{}, err
 	}

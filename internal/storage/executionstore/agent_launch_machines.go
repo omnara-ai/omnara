@@ -94,7 +94,7 @@ func (s *Store) resolveLaunchMachineSourcesTx(
 	orgID, projectID ID,
 	sources []launchMachineSource,
 ) error {
-	if err := s.resolveLaunchPoolMachineSourcesTx(ctx, qtx, orgID, projectID, sources); err != nil {
+	if err := s.resolveLaunchPoolMachineSourcesTx(ctx, tx, qtx, orgID, projectID, sources); err != nil {
 		return err
 	}
 	if err := lockLaunchMachineSourcesTx(ctx, tx, orgID, sources, nil); err != nil {
@@ -105,23 +105,30 @@ func (s *Store) resolveLaunchMachineSourcesTx(
 
 func (s *Store) resolveLaunchPoolMachineSourcesTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	orgID, projectID ID,
 	sources []launchMachineSource,
 ) error {
 	var poolIndexes []int
+	poolRefs := make([]lifecyclelock.PoolRef, 0, len(sources))
 	for index := range sources {
 		if sources[index].MachinePoolID != NilID {
 			poolIndexes = append(poolIndexes, index)
+			poolRefs = append(poolRefs, lifecyclelock.PoolRef{
+				OrgID:  orgID,
+				PoolID: sources[index].MachinePoolID,
+			})
 		}
+	}
+	if err := lifecyclelock.Pools(ctx, tx, poolRefs); err != nil {
+		return err
 	}
 	sort.Slice(poolIndexes, func(i, j int) bool {
 		left := sources[poolIndexes[i]]
 		right := sources[poolIndexes[j]]
 		return left.MachinePoolID.String() < right.MachinePoolID.String()
 	})
-	// Lock pool grants in a deterministic order so concurrent launches that
-	// reference the same pools in different config orders cannot deadlock.
 	for _, index := range poolIndexes {
 		poolGrant, err := qtx.GetActiveProjectMachinePoolGrantForLaunch(
 			ctx,

@@ -81,7 +81,7 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 		)
 		createDone <- createOutcome{result: result, err: createErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "GetActiveProjectMachinePoolGrantForLaunch", 1)
+	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 	agentLockCtx, cancelAgentLock := context.WithTimeout(ctx, 2*time.Second)
 	defer cancelAgentLock()
@@ -145,6 +145,143 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 		fixture,
 		created.Machine.Machine.ID,
 	)
+}
+
+func TestMultiPoolLaunchLocksEveryPoolBeforeAnyGrant(t *testing.T) {
+	t.Parallel()
+	for _, reverse := range []bool{false, true} {
+		name := "forward source order"
+		slug := "forward"
+		if reverse {
+			name = "reverse source order"
+			slug = "reverse"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "multi-pool-"+slug)
+			secondPool := createLaunchTestMachinePool(
+				t,
+				ctx,
+				fixture.store,
+				"Multi Pool "+slug,
+				"test.provider",
+				defaultMachineFieldsForTest{
+					DefaultMachineProviderOptions: json.RawMessage(`{"image":"multi-pool"}`),
+				},
+				2,
+				fixture.now.Add(6*time.Second),
+			)
+			secondGrant, err := fixture.store.Execution().CreateProjectMachinePoolGrant(
+				ctx,
+				CreateProjectMachinePoolGrantInput{
+					OrgID:          testOrgID,
+					ProjectID:      testProjectID,
+					MachinePoolID:  secondPool.ID,
+					IdempotencyKey: "multi-pool-grant-" + slug,
+				},
+			)
+			if err != nil {
+				t.Fatalf("create second pool grant: %v", err)
+			}
+			type source struct {
+				pool  MachinePoolRecord
+				grant ProjectMachinePoolGrantRecord
+			}
+			sources := []source{
+				{pool: fixture.machinePool, grant: fixture.poolGrant},
+				{pool: secondPool, grant: secondGrant},
+			}
+			if reverse {
+				sources[0], sources[1] = sources[1], sources[0]
+			}
+			profile := mustCreateConfigAndProfileBookmarkFromYAML(
+				t,
+				ctx,
+				fixture.store,
+				"multi-pool-profile-"+slug,
+				"Multi Pool "+name,
+				fmt.Sprintf(`
+name: Multi Pool Lock Classes
+instruction: Validate pool lock classes.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+machine_sources:
+  - machine_pool_name: %s
+    max_machines: 1
+    initial_num_machines: 0
+  - machine_pool_name: %s
+    max_machines: 1
+    initial_num_machines: 0
+tools:
+  run_command: {}
+`, sources[0].pool.Name, sources[1].pool.Name),
+				fixture.now.Add(7*time.Second),
+			)
+
+			controlTx, err := fixture.pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin multi-pool control transaction: %v", err)
+			}
+			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlQ := dbsqlc.New(controlTx)
+			if _, err := controlQ.LockMachinePoolForLifecycle(
+				ctx,
+				dbsqlc.LockMachinePoolForLifecycleParams{
+					OrgID: testOrgID,
+					ID:    sources[1].pool.ID,
+				},
+			); err != nil {
+				t.Fatalf("lock second source pool: %v", err)
+			}
+
+			type launchOutcome struct {
+				result LaunchAgentResult
+				err    error
+			}
+			launchDone := make(chan launchOutcome, 1)
+			go func() {
+				result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(
+					context.Background(),
+					LaunchAgentInput{
+						ProjectID:      testProjectID,
+						ProfileID:      profile.ID,
+						AgentConfigID:  profile.CurrentConfigID,
+						LaunchedBy:     PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+						IdempotencyKey: "multi-pool-launch-" + slug,
+					},
+				)
+				launchDone <- launchOutcome{result: result, err: launchErr}
+			}()
+			waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
+
+			grantLockCtx, cancelGrantLock := context.WithTimeout(ctx, 2*time.Second)
+			defer cancelGrantLock()
+			if _, err := controlQ.LockProjectMachinePoolGrantForLifecycle(
+				grantLockCtx,
+				dbsqlc.LockProjectMachinePoolGrantForLifecycleParams{
+					ID: sources[0].grant.ID,
+				},
+			); err != nil {
+				t.Fatalf("lock first source grant while launch waits for second pool: %v", err)
+			}
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release multi-pool control transaction: %v", err)
+			}
+
+			select {
+			case outcome := <-launchDone:
+				if outcome.err != nil {
+					t.Fatalf("launch multi-pool agent: %v", outcome.err)
+				}
+				if len(outcome.result.MachineBindings) != 0 {
+					t.Fatalf("multi-pool zero-initial launch bindings = %+v", outcome.result.MachineBindings)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for multi-pool launch")
+			}
+		})
+	}
 }
 
 func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
@@ -298,6 +435,114 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 	}
 	if current.LifecycleState != "deleted" || current.DeletedAt == nil {
 		t.Fatalf("completed pool-machine deletion = %+v", current)
+	}
+}
+
+func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
+	t.Parallel()
+	for _, tokenWins := range []bool{true, false} {
+		name := "deletion wins"
+		slug := "deletion-wins"
+		if tokenWins {
+			name = "token wins"
+			slug = "token-wins"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "daemon-token-delete-"+slug)
+			machine, err := fixture.store.Execution().CreateDaemonMachine(
+				ctx,
+				CreateDaemonMachineInput{
+					OrgID:          testOrgID,
+					DisplayName:    "Daemon Token Deletion",
+					IdempotencyKey: "daemon-token-delete-" + slug,
+				},
+			)
+			if err != nil {
+				t.Fatalf("create BYO machine: %v", err)
+			}
+
+			controlTx, err := fixture.pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin machine lock control transaction: %v", err)
+			}
+			defer func() { _ = controlTx.Rollback(ctx) }()
+			if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+				ctx,
+				dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.ID},
+			); err != nil {
+				t.Fatalf("lock machine for daemon token contention: %v", err)
+			}
+
+			tokenDone := make(chan error, 1)
+			deleteDone := make(chan error, 1)
+			startToken := func() {
+				go func() {
+					_, tokenErr := fixture.store.Execution().CreateBYOMachineDaemonToken(
+						context.Background(),
+						executionstore.CreateBYOMachineDaemonTokenInput{
+							OrgID:     testOrgID,
+							MachineID: machine.ID,
+							Name:      "contention token",
+							Token:     "omd_contention_token",
+						},
+					)
+					tokenDone <- tokenErr
+				}()
+			}
+			startDelete := func() {
+				go func() {
+					_, deleteErr := fixture.store.Execution().DeleteMachine(
+						context.Background(),
+						DeleteMachineInput{OrgID: testOrgID, MachineID: machine.ID},
+					)
+					deleteDone <- deleteErr
+				}()
+			}
+			if tokenWins {
+				startToken()
+				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+				startDelete()
+			} else {
+				startDelete()
+				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+				startToken()
+			}
+			waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release machine lock control transaction: %v", err)
+			}
+
+			tokenErr := <-tokenDone
+			if tokenWins && tokenErr != nil {
+				t.Fatalf("create daemon token before deletion: %v", tokenErr)
+			}
+			if !tokenWins && !errors.Is(tokenErr, storeerr.ErrNotFound) {
+				t.Fatalf("create daemon token after deletion error = %v, want not found", tokenErr)
+			}
+			if err := <-deleteDone; err != nil {
+				t.Fatalf("delete BYO machine: %v", err)
+			}
+
+			var tokenCount, revokedCount int
+			if err := fixture.pool.QueryRow(
+				ctx,
+				`SELECT count(*)::integer,
+				        count(*) FILTER (WHERE revoked_at IS NOT NULL)::integer
+				 FROM machine_daemon_tokens
+				 WHERE org_id = $1 AND machine_id = $2`,
+				testOrgID,
+				machine.ID,
+			).Scan(&tokenCount, &revokedCount); err != nil {
+				t.Fatalf("count daemon tokens after deletion: %v", err)
+			}
+			if tokenWins && (tokenCount != 1 || revokedCount != 1) {
+				t.Fatalf("daemon token counts = total %d revoked %d, want 1 and 1", tokenCount, revokedCount)
+			}
+			if !tokenWins && tokenCount != 0 {
+				t.Fatalf("daemon token count after deletion won = %d, want 0", tokenCount)
+			}
+		})
 	}
 }
 
@@ -605,7 +850,7 @@ tools:
 		})
 		launchDone <- launchOutcome{result: result, err: launchErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "GetActiveProjectMachinePoolGrantForLaunch", 1)
+	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 	environmentCtx, cancelEnvironment := context.WithTimeout(ctx, 2*time.Second)
 	defer cancelEnvironment()
@@ -631,7 +876,7 @@ tools:
 		})
 		configDone <- configChangeOutcome{result: result, err: changeErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "GetActiveProjectMachinePoolGrantForLaunch", 2)
+	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release pool and environment lock control transaction: %v", err)

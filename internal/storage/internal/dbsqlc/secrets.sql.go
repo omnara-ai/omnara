@@ -189,6 +189,75 @@ func (q *Queries) DeleteSecretVersions(ctx context.Context, arg DeleteSecretVers
 	return err
 }
 
+const getMachinePoolDeletionCredentialVersion = `-- name: GetMachinePoolDeletionCredentialVersion :one
+SELECT version.id, version.org_id, version.secret_id, version.version_number,
+       version.payload_keys, version.encryption_scheme, version.key_id,
+       version.dek_wrapped_by, version.encrypted_dek, version.encrypted_dek_nonce,
+       version.nonce, version.ciphertext, version.created_at,
+       secret.kind
+FROM machine_pools pool
+JOIN secrets secret
+  ON secret.org_id = pool.org_id
+ AND secret.id = pool.provider_auth_secret_id
+ AND secret.management_kind = 'tenant'
+ AND secret.owner_kind = 'org'
+ AND secret.kind = 'generic'
+JOIN secret_versions version
+  ON version.org_id = secret.org_id
+ AND version.secret_id = secret.id
+ AND version.id = pool.deletion_provider_auth_secret_version_id
+WHERE pool.org_id = $1
+  AND pool.id = $2
+  AND pool.management_kind = 'tenant'
+  AND pool.deleted_at IS NOT NULL
+`
+
+type GetMachinePoolDeletionCredentialVersionParams struct {
+	OrgID         uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+type GetMachinePoolDeletionCredentialVersionRow struct {
+	ID                uuid.UUID
+	OrgID             uuid.UUID
+	SecretID          uuid.UUID
+	VersionNumber     int32
+	PayloadKeys       []string
+	EncryptionScheme  string
+	KeyID             string
+	DekWrappedBy      string
+	EncryptedDek      []byte
+	EncryptedDekNonce []byte
+	Nonce             []byte
+	Ciphertext        []byte
+	CreatedAt         time.Time
+	Kind              string
+}
+
+// @sqlc-vet-disable machine-pools-deleted-at
+// @sqlc-vet-disable secrets-deleted-at
+func (q *Queries) GetMachinePoolDeletionCredentialVersion(ctx context.Context, arg GetMachinePoolDeletionCredentialVersionParams) (GetMachinePoolDeletionCredentialVersionRow, error) {
+	row := q.db.QueryRow(ctx, getMachinePoolDeletionCredentialVersion, arg.OrgID, arg.MachinePoolID)
+	var i GetMachinePoolDeletionCredentialVersionRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.SecretID,
+		&i.VersionNumber,
+		&i.PayloadKeys,
+		&i.EncryptionScheme,
+		&i.KeyID,
+		&i.DekWrappedBy,
+		&i.EncryptedDek,
+		&i.EncryptedDekNonce,
+		&i.Nonce,
+		&i.Ciphertext,
+		&i.CreatedAt,
+		&i.Kind,
+	)
+	return i, err
+}
+
 const getProjectAvailableSecret = `-- name: GetProjectAvailableSecret :one
 WITH available AS (
   SELECT s.id, s.org_id, s.management_kind, s.owner_kind, s.owner_project_id, s.owner_user_id, s.name, s.kind, s.metadata, s.current_version_id, v.version_number AS current_version_number, v.payload_keys, NULL::uuid AS grant_id, s.created_at, s.updated_at

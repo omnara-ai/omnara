@@ -72,9 +72,7 @@ ORDER BY machine_pool_id, project_id, id;
 -- name: LockProjectMachinePoolGrantForLifecycle :one
 SELECT id, machine_pool_id
 FROM project_machine_pool_grants
-WHERE org_id = sqlc.arg(org_id)
-  AND project_id = sqlc.arg(project_id)
-  AND id = sqlc.arg(id)
+WHERE id = sqlc.arg(id)
 FOR UPDATE;
 
 -- name: ListPoolGrantMachineIDsForLifecycle :many

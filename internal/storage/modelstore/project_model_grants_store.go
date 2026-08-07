@@ -103,6 +103,9 @@ func (s *Store) UpdateProjectModelGrant(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return ProjectModelGrantRecord{}, err
+	}
 	ref, err := qtx.GetProjectModelGrant(
 		ctx,
 		dbsqlc.GetProjectModelGrantParams{OrgID: input.OrgID, ProjectID: input.ProjectID, ID: input.ID},

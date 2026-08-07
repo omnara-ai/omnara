@@ -53,6 +53,9 @@ func (s *Store) CreateBYOMachineDaemonToken(
 			Metadata:  input.Metadata,
 		},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MachineDaemonTokenRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("create BYO machine daemon token: %w", err)
 	}

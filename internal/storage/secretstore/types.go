@@ -219,6 +219,11 @@ type ReadOrgOwnedSecretPayloadInput struct {
 	Kind     secrets.Kind
 }
 
+type ReadMachinePoolDeletionCredentialInput struct {
+	OrgID         ID
+	MachinePoolID ID
+}
+
 type RotateProjectAvailableOAuthSecretInput struct {
 	ProjectID ID
 	Lease     OAuthRefreshLeaseRecord

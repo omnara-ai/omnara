@@ -696,6 +696,220 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 	}
 }
 
+func TestIntegrationTargetRetriesGeneratedReferenceCollisionInTransaction(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	admin, agent, credentialID := createFixedIntegrationFixture(
+		t,
+		ctx,
+		store,
+		"target-ref-collision",
+	)
+	installInput := slackIntegrationInstallInput(
+		NilID,
+		agent.ID,
+		admin.ID,
+		credentialID,
+		"A_TARGET_REF_COLLISION",
+		"T_TARGET_REF_COLLISION",
+	)
+	installInput.IntegrationKind = "workspace_single_agent"
+	install := mustCreateIntegrationInstall(t, ctx, store, installInput)
+	integrationStore := store.Integrations()
+	integrationStore.IntegrationSetTargetRefGenerator(func(string) (string, error) {
+		return "slack-fixed", nil
+	})
+	if _, err := integrationStore.CreateIntegrationTarget(
+		ctx,
+		integrationstore.CreateIntegrationTargetInput{
+			ProjectID:            testProjectID,
+			AgentID:              agent.ID,
+			IntegrationInstallID: install.ID,
+			ProviderRef:          "C_COLLISION:first",
+			ProviderRefKind:      "thread",
+		},
+	); err != nil {
+		t.Fatalf("create collision fixture target: %v", err)
+	}
+
+	references := []string{"slack-fixed", "slack-free"}
+	generated := 0
+	integrationStore.IntegrationSetTargetRefGenerator(func(string) (string, error) {
+		ref := references[generated]
+		generated++
+		return ref, nil
+	})
+	created, err := integrationStore.CreateIntegrationTarget(
+		ctx,
+		integrationstore.CreateIntegrationTargetInput{
+			ProjectID:            testProjectID,
+			AgentID:              agent.ID,
+			IntegrationInstallID: install.ID,
+			ProviderRef:          "C_COLLISION:second",
+			ProviderRefKind:      "thread",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create target after generated reference collision: %v", err)
+	}
+	if !created.Created || created.TargetRef != "slack-free" || generated != 2 {
+		t.Fatalf("target after reference collision = %+v, generated=%d", created, generated)
+	}
+}
+
+func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
+	t.Parallel()
+	for _, scope := range []string{"project", "organization"} {
+		t.Run(scope, func(t *testing.T) {
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newSecretIntegrationStore(pool)
+			admin, agent, credentialID := createFixedIntegrationFixture(
+				t,
+				ctx,
+				store,
+				"install-scope-delete-"+scope,
+			)
+			installInput := slackIntegrationInstallInput(
+				NilID,
+				agent.ID,
+				admin.ID,
+				credentialID,
+				"A_INSTALL_SCOPE_DELETE_"+scope,
+				"T_INSTALL_SCOPE_DELETE_"+scope,
+			)
+			installInput.IntegrationKind = "workspace_single_agent"
+			install := mustCreateIntegrationInstall(t, ctx, store, installInput)
+			target, err := store.Integrations().CreateIntegrationTarget(
+				ctx,
+				integrationstore.CreateIntegrationTargetInput{
+					ProjectID:            testProjectID,
+					AgentID:              agent.ID,
+					IntegrationInstallID: install.ID,
+					ProviderRef:          "C_SCOPE_DELETE:" + scope,
+					ProviderRefKind:      "thread",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create unbound integration target: %v", err)
+			}
+			var boundTargetID *ID
+			if err := pool.QueryRow(
+				ctx,
+				`SELECT integration_target_id FROM agents WHERE project_id = $1 AND id = $2`,
+				testProjectID,
+				agent.ID,
+			).Scan(&boundTargetID); err != nil {
+				t.Fatalf("load integration agent binding: %v", err)
+			}
+			if boundTargetID != nil {
+				t.Fatalf("integration target fixture is bound: %s", *boundTargetID)
+			}
+
+			actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(admin.ID))
+			if err != nil {
+				t.Fatalf("build scope deletion actor: %v", err)
+			}
+			controlTx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin integration install control transaction: %v", err)
+			}
+			defer func() { _ = controlTx.Rollback(ctx) }()
+			if _, err := dbsqlc.New(controlTx).LockIntegrationInstallForMutation(
+				ctx,
+				dbsqlc.LockIntegrationInstallForMutationParams{
+					ProjectID: testProjectID,
+					ID:        install.ID,
+				},
+			); err != nil {
+				t.Fatalf("lock integration install for scope contention: %v", err)
+			}
+
+			installDeleteDone := make(chan error, 1)
+			go func() {
+				installDeleteDone <- store.Integrations().DeleteIntegrationInstall(
+					context.Background(),
+					testProjectID,
+					install.ID,
+				)
+			}()
+			waitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
+
+			scopeDeleteDone := make(chan error, 1)
+			go func() {
+				if scope == "project" {
+					_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+						context.Background(),
+						testOrgID,
+						testProjectID,
+						actor,
+					)
+					scopeDeleteDone <- deleteErr
+					return
+				}
+				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
+					context.Background(),
+					testOrgID,
+					actor,
+				)
+				scopeDeleteDone <- deleteErr
+			}()
+			gateQuery := "LockProjectLifecycleExclusive"
+			if scope == "organization" {
+				gateQuery = "LockOrganizationLifecycleExclusive"
+			}
+			waitForNamedLockWaiters(t, ctx, pool, gateQuery, 1)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release integration install control transaction: %v", err)
+			}
+
+			select {
+			case err := <-installDeleteDone:
+				if err != nil {
+					t.Fatalf("delete integration install before %s deletion: %v", scope, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for integration install deletion")
+			}
+			select {
+			case err := <-scopeDeleteDone:
+				if err != nil {
+					t.Fatalf("delete %s after integration install: %v", scope, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("timed out waiting for %s deletion", scope)
+			}
+
+			var activeInstallCount, activeTargetCount int
+			if err := pool.QueryRow(
+				ctx,
+				`SELECT
+				   (SELECT count(*)::integer FROM integration_installs
+				    WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL),
+				   (SELECT count(*)::integer FROM integration_targets
+				    WHERE project_id = $1 AND id = $3 AND deleted_at IS NULL)`,
+				testProjectID,
+				install.ID,
+				target.ID,
+			).Scan(&activeInstallCount, &activeTargetCount); err != nil {
+				t.Fatalf("count active integration state after %s deletion: %v", scope, err)
+			}
+			if activeInstallCount != 0 || activeTargetCount != 0 {
+				t.Fatalf(
+					"active integration state after %s deletion: installs=%d targets=%d",
+					scope,
+					activeInstallCount,
+					activeTargetCount,
+				)
+			}
+		})
+	}
+}
+
 func TestDisableIntegrationInstallRequiresCurrentOAuthGeneration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

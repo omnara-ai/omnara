@@ -139,6 +139,7 @@ func (s *Store) changeAgentConfigOnce(
 		}
 		if err := s.resolveLaunchPoolMachineSourcesTx(
 			ctx,
+			tx,
 			qtx,
 			project.OrgID,
 			input.ProjectID,

@@ -1205,7 +1205,7 @@ SELECT count(*)::integer
 FROM pg_stat_activity
 WHERE datname = current_database()
   AND wait_event_type = 'Lock'
-  AND query LIKE '%GetActiveProjectMachinePoolGrantForLaunch%'
+  AND query LIKE '%LockMachinePoolForLifecycle%'
 `).Scan(&waiters); err != nil {
 			t.Fatalf("count config change pool lock waiters: %v", err)
 		}

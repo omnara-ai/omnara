@@ -254,3 +254,59 @@ func (s *Store) ReadOrgOwnedSecretPayload(
 		OAuthAccessTokenRemaining: time.Duration(version.OauthAccessTokenRemainingSeconds * float64(time.Second)),
 	}, nil
 }
+
+func (s *Store) ReadMachinePoolDeletionCredentialPayload(
+	ctx context.Context,
+	input ReadMachinePoolDeletionCredentialInput,
+) (SecretPayloadRecord, error) {
+	if s.secretKeyWrapper == nil {
+		return SecretPayloadRecord{}, errors.New("secret key wrapper is required")
+	}
+	if isNilID(input.OrgID) || isNilID(input.MachinePoolID) {
+		return SecretPayloadRecord{}, invalidSecretRequest("org and machine pool are required")
+	}
+	row, err := s.q.GetMachinePoolDeletionCredentialVersion(
+		ctx,
+		dbsqlc.GetMachinePoolDeletionCredentialVersionParams{
+			OrgID:         input.OrgID,
+			MachinePoolID: input.MachinePoolID,
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SecretPayloadRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return SecretPayloadRecord{}, fmt.Errorf("get machine pool deletion credential: %w", err)
+	}
+	version := SecretVersionRecord{
+		ID:                row.ID,
+		OrgID:             row.OrgID,
+		SecretID:          row.SecretID,
+		VersionNumber:     row.VersionNumber,
+		PayloadKeys:       append([]string(nil), row.PayloadKeys...),
+		EncryptionScheme:  row.EncryptionScheme,
+		KeyID:             row.KeyID,
+		DEKWrappedBy:      row.DekWrappedBy,
+		EncryptedDEK:      append([]byte(nil), row.EncryptedDek...),
+		EncryptedDEKNonce: append([]byte(nil), row.EncryptedDekNonce...),
+		Nonce:             append([]byte(nil), row.Nonce...),
+		Ciphertext:        append([]byte(nil), row.Ciphertext...),
+		CreatedAt:         row.CreatedAt,
+	}
+	payload, err := secrets.DecryptPayload(
+		ctx,
+		s.secretKeyWrapper,
+		encryptedPayloadFromSecretVersion(version),
+		secrets.AssociatedData{
+			OrgID:         version.OrgID.String(),
+			SecretID:      version.SecretID.String(),
+			VersionID:     version.ID.String(),
+			VersionNumber: version.VersionNumber,
+			Kind:          secrets.Kind(row.Kind),
+		},
+	)
+	if err != nil {
+		return SecretPayloadRecord{}, fmt.Errorf("decrypt machine pool deletion credential: %w", err)
+	}
+	return SecretPayloadRecord{Payload: payload, CurrentVersionID: version.ID}, nil
+}

@@ -155,6 +155,14 @@ UPDATE integration_targets SET deleted_at = statement_timestamp(), updated_at = 
 WHERE project_id = sqlc.arg(project_id) AND integration_install_id = sqlc.arg(integration_install_id)
   AND deleted_at IS NULL;
 
+-- name: ListIntegrationInstallAgentIDsForLifecycle :many
+-- @sqlc-vet-disable integration-targets-deleted-at
+SELECT DISTINCT agent_id
+FROM integration_targets
+WHERE project_id = sqlc.arg(project_id)
+  AND integration_install_id = sqlc.arg(integration_install_id)
+ORDER BY agent_id;
+
 -- name: ClearDeletedIntegrationTargetsFromAgents :exec
 -- @sqlc-vet-disable integration-targets-deleted-at
 -- Clears agent references to targets that were just soft deleted.
@@ -199,7 +207,7 @@ JOIN integration_installs install
  AND install.deleted_at IS NULL
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.id = sqlc.arg(agent_id)
-ON CONFLICT (project_id, integration_install_id, provider_ref) WHERE deleted_at IS NULL DO NOTHING
+ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, integration_install_id, target_ref, provider_ref,
   provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at;
 

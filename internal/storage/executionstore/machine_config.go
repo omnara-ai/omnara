@@ -238,21 +238,30 @@ func (s *Store) ResolvePoolMachineTx(
 
 func (s *Store) ResolveMachineProviderAuthToken(
 	ctx context.Context,
-	orgID ID,
-	managementKind management.Kind,
-	providerAuthSecretID ID,
-	providerAuthEnvVar string,
+	pool MachinePoolRecord,
 ) (string, error) {
-	switch managementKind {
+	switch pool.ManagementKind {
 	case management.Tenant:
-		if isNilID(providerAuthSecretID) {
+		if isNilID(pool.ProviderAuthSecretID) {
 			return "", errors.New("provider_auth_secret_id is required")
 		}
-		credential, err := s.secrets.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
-			OrgID:    orgID,
-			SecretID: providerAuthSecretID,
-			Kind:     secretstore.SecretKindGeneric,
-		})
+		var credential secretstore.SecretPayloadRecord
+		var err error
+		if pool.DeletedAt == nil {
+			credential, err = s.secrets.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
+				OrgID:    pool.OrgID,
+				SecretID: pool.ProviderAuthSecretID,
+				Kind:     secretstore.SecretKindGeneric,
+			})
+		} else {
+			credential, err = s.secrets.ReadMachinePoolDeletionCredentialPayload(
+				ctx,
+				secretstore.ReadMachinePoolDeletionCredentialInput{
+					OrgID:         pool.OrgID,
+					MachinePoolID: pool.ID,
+				},
+			)
+		}
 		if err != nil {
 			if errors.Is(err, storeerr.ErrNotFound) {
 				return "", errors.New("machine pool provider auth secret is unavailable")
@@ -265,13 +274,13 @@ func (s *Store) ResolveMachineProviderAuthToken(
 		}
 		return token, nil
 	case management.Cluster:
-		token := strings.TrimSpace(os.Getenv(providerAuthEnvVar))
+		token := strings.TrimSpace(os.Getenv(pool.ProviderAuthEnvVar))
 		if token == "" {
-			return "", fmt.Errorf("provider auth env var %s is required", providerAuthEnvVar)
+			return "", fmt.Errorf("provider auth env var %s is required", pool.ProviderAuthEnvVar)
 		}
 		return token, nil
 	default:
-		return "", fmt.Errorf("machine pool management kind %q is invalid", managementKind)
+		return "", fmt.Errorf("machine pool management kind %q is invalid", pool.ManagementKind)
 	}
 }
 

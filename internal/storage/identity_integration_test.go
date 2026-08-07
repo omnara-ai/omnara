@@ -2027,7 +2027,7 @@ func TestPoolTeardownCompletionDestroysDeletedOrgSecretVersions(t *testing.T) {
 	store := newIntegrationStore(pool, WithSecretKeyWrapper(keyWrapper))
 	now := time.Date(2026, 4, 29, 16, 20, 0, 0, time.UTC)
 	admin := createSecretTestUser(t, ctx, store, "Teardown Admin", "admin")
-	credential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+	credential, credentialVersion, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     testOrgID,
 		OwnerKind: secretstore.SecretOwnerOrg,
 		Name:      "teardown-pool-credential",
@@ -2046,10 +2046,11 @@ func TestPoolTeardownCompletionDestroysDeletedOrgSecretVersions(t *testing.T) {
 		INSERT INTO machine_pools(
 			id, org_id, name, management_kind, provider, default_machine_memory_mb,
 			max_total_machines, max_total_memory_mb, max_machine_memory_mb,
-			provider_auth_secret_id, deleted_at, created_at, updated_at
+			provider_auth_secret_id, deletion_provider_auth_secret_version_id,
+			deleted_at, created_at, updated_at
 		)
-		VALUES ($1, $2, 'teardown-destroy-pool', 'tenant', 'test', 1024, 1, 1024, 1024, $3, $4, $4, $4)
-	`, poolID, testOrgID, credential.ID, now); err != nil {
+		VALUES ($1, $2, 'teardown-destroy-pool', 'tenant', 'test', 1024, 1, 1024, 1024, $3, $4, $5, $5, $5)
+	`, poolID, testOrgID, credential.ID, credentialVersion.ID, now); err != nil {
 		t.Fatalf("insert deleted machine pool: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `

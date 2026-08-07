@@ -29,13 +29,19 @@ type Access interface {
 }
 
 type Store struct {
-	pool   *pgxpool.Pool
-	q      *dbsqlc.Queries
-	access Access
+	pool               *pgxpool.Pool
+	q                  *dbsqlc.Queries
+	access             Access
+	targetRefGenerator func(string) (string, error)
 }
 
 func New(pool *pgxpool.Pool, access Access) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), access: access}
+	return &Store{
+		pool:               pool,
+		q:                  dbsqlc.New(pool),
+		access:             access,
+		targetRefGenerator: newIntegrationTargetRef,
+	}
 }
 
 func isNilID(id ID) bool {

@@ -643,16 +643,12 @@ func (q *Queries) ListProjectMachinePoolGrants(ctx context.Context, arg ListProj
 const lockProjectMachinePoolGrantForLifecycle = `-- name: LockProjectMachinePoolGrantForLifecycle :one
 SELECT id, machine_pool_id
 FROM project_machine_pool_grants
-WHERE org_id = $1
-  AND project_id = $2
-  AND id = $3
+WHERE id = $1
 FOR UPDATE
 `
 
 type LockProjectMachinePoolGrantForLifecycleParams struct {
-	OrgID     uuid.UUID
-	ProjectID uuid.UUID
-	ID        uuid.UUID
+	ID uuid.UUID
 }
 
 type LockProjectMachinePoolGrantForLifecycleRow struct {
@@ -661,7 +657,7 @@ type LockProjectMachinePoolGrantForLifecycleRow struct {
 }
 
 func (q *Queries) LockProjectMachinePoolGrantForLifecycle(ctx context.Context, arg LockProjectMachinePoolGrantForLifecycleParams) (LockProjectMachinePoolGrantForLifecycleRow, error) {
-	row := q.db.QueryRow(ctx, lockProjectMachinePoolGrantForLifecycle, arg.OrgID, arg.ProjectID, arg.ID)
+	row := q.db.QueryRow(ctx, lockProjectMachinePoolGrantForLifecycle, arg.ID)
 	var i LockProjectMachinePoolGrantForLifecycleRow
 	err := row.Scan(&i.ID, &i.MachinePoolID)
 	return i, err

@@ -506,6 +506,9 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return ProjectMachinePoolGrantRecord{}, err
+	}
 	ref, err := qtx.GetProjectMachinePoolGrant(
 		ctx,
 		dbsqlc.GetProjectMachinePoolGrantParams{OrgID: input.OrgID, ProjectID: input.ProjectID, ID: input.ID},
@@ -730,7 +733,7 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 	if _, err := qtx.LockProjectMachinePoolGrantForLifecycle(
 		ctx,
 		dbsqlc.LockProjectMachinePoolGrantForLifecycleParams{
-			OrgID: orgID, ProjectID: projectID, ID: id,
+			ID: id,
 		},
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

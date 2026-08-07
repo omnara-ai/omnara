@@ -122,11 +122,11 @@ func deleteProjectRelationshipsTx(
 	if err := q.DeleteProjectAgentProfileVersions(ctx, dbsqlc.DeleteProjectAgentProfileVersionsParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project agent profile versions: %w", err)
 	}
-	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
-		return fmt.Errorf("delete project integration targets: %w", err)
-	}
 	if err := q.DeleteProjectIntegrationInstalls(ctx, dbsqlc.DeleteProjectIntegrationInstallsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integration installs: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration targets: %w", err)
 	}
 	return nil
 }
@@ -207,11 +207,7 @@ func prelockProjectMachineLifecycleTx(
 	if err != nil {
 		return nil, fmt.Errorf("list project agents for lifecycle: %w", err)
 	}
-	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentIDs))
-	for _, agentID := range agentIDs {
-		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
-	}
-	if err := lifecyclelock.AgentSources(ctx, tx, agentRefs); err != nil {
+	if err := lifecyclelock.AgentSources(ctx, tx, agentIDs); err != nil {
 		return nil, err
 	}
 	agentIDs, err = q.ListActiveAgentIDsForProjectDeletion(
@@ -221,7 +217,7 @@ func prelockProjectMachineLifecycleTx(
 	if err != nil {
 		return nil, fmt.Errorf("reload project agents for lifecycle: %w", err)
 	}
-	agentRefs = agentRefs[:0]
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentIDs))
 	for _, agentID := range agentIDs {
 		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
 	}
@@ -250,13 +246,11 @@ func prelockProjectMachineLifecycleTx(
 	if err != nil {
 		return nil, fmt.Errorf("reload project pool grants for lifecycle: %w", err)
 	}
-	grantRefs := make([]lifecyclelock.PoolGrantRef, 0, len(grantRows))
+	grantIDs := make([]ID, 0, len(grantRows))
 	for _, grantRow := range grantRows {
-		grantRefs = append(grantRefs, lifecyclelock.PoolGrantRef{
-			OrgID: orgID, ProjectID: projectID, PoolID: grantRow.MachinePoolID, GrantID: grantRow.ID,
-		})
+		grantIDs = append(grantIDs, grantRow.ID)
 	}
-	if err := lifecyclelock.PoolGrants(ctx, tx, grantRefs); err != nil {
+	if err := lifecyclelock.PoolGrants(ctx, tx, grantIDs); err != nil {
 		return nil, err
 	}
 	machineIDs, err := q.ListProjectMachineIDsForLifecycle(
@@ -296,7 +290,11 @@ func prelockOrganizationMachineLifecycleTx(
 		)
 	}
 	sourceRefs, _ := organizationAgentLifecycleRefs(agentRows)
-	if err := lifecyclelock.AgentSources(ctx, tx, sourceRefs); err != nil {
+	sourceIDs := make([]uuid.UUID, 0, len(sourceRefs))
+	for _, ref := range sourceRefs {
+		sourceIDs = append(sourceIDs, ref.AgentID)
+	}
+	if err := lifecyclelock.AgentSources(ctx, tx, sourceIDs); err != nil {
 		return organizationMachineLifecyclePlan{}, err
 	}
 	agentRows, err = q.ListActiveAgentRefsForOrganizationDeletion(
@@ -360,14 +358,11 @@ func prelockOrganizationMachineLifecycleTx(
 			err,
 		)
 	}
-	grantRefs := make([]lifecyclelock.PoolGrantRef, 0, len(grantRows))
+	grantIDs := make([]ID, 0, len(grantRows))
 	for _, grantRow := range grantRows {
-		grantRefs = append(grantRefs, lifecyclelock.PoolGrantRef{
-			OrgID: orgID, ProjectID: grantRow.ProjectID,
-			PoolID: grantRow.MachinePoolID, GrantID: grantRow.ID,
-		})
+		grantIDs = append(grantIDs, grantRow.ID)
 	}
-	if err := lifecyclelock.PoolGrants(ctx, tx, grantRefs); err != nil {
+	if err := lifecyclelock.PoolGrants(ctx, tx, grantIDs); err != nil {
 		return organizationMachineLifecyclePlan{}, err
 	}
 	machineIDs, err := q.ListOrganizationMachineIDsForLifecycle(

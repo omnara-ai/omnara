@@ -11,6 +11,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -185,6 +187,171 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("rejected project child rows = %d, want zero", profileCount)
 		}
 	})
+}
+
+func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
+	t.Parallel()
+	for _, updateWins := range []bool{true, false} {
+		name := "deletion wins"
+		slug := "deletion-wins"
+		if updateWins {
+			name = "updates win"
+			slug = "updates-win"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "grant-update-"+slug)
+			actor := scopeDeletionActor(t, fixture)
+
+			var modelGrantID, configuredModelID ID
+			if err := fixture.pool.QueryRow(
+				ctx,
+				`SELECT id, configured_model_id
+				 FROM project_model_grants
+				 WHERE org_id = $1 AND project_id = $2
+				 ORDER BY id
+				 LIMIT 1`,
+				testOrgID,
+				testProjectID,
+			).Scan(&modelGrantID, &configuredModelID); err != nil {
+				t.Fatalf("load model grant for contention: %v", err)
+			}
+
+			controlTx, err := fixture.pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin grant update control transaction: %v", err)
+			}
+			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlQ := dbsqlc.New(controlTx)
+			if updateWins {
+				if _, err := controlQ.LockMachinePoolForLifecycle(
+					ctx,
+					dbsqlc.LockMachinePoolForLifecycleParams{
+						OrgID: testOrgID,
+						ID:    fixture.machinePool.ID,
+					},
+				); err != nil {
+					t.Fatalf("lock machine pool for grant update contention: %v", err)
+				}
+				if _, err := controlQ.LockConfiguredModelForMutation(
+					ctx,
+					dbsqlc.LockConfiguredModelForMutationParams{
+						OrgID: testOrgID,
+						ID:    configuredModelID,
+					},
+				); err != nil {
+					t.Fatalf("lock configured model for grant update contention: %v", err)
+				}
+			} else if err := controlQ.LockAgentMachineSources(
+				ctx,
+				dbsqlc.LockAgentMachineSourcesParams{AgentID: fixture.agent.ID},
+			); err != nil {
+				t.Fatalf("lock agent sources for project deletion contention: %v", err)
+			}
+
+			poolUpdateDone := make(chan error, 1)
+			modelUpdateDone := make(chan error, 1)
+			startUpdates := func() {
+				description := "updated before deletion"
+				go func() {
+					_, updateErr := fixture.store.Execution().UpdateProjectMachinePoolGrant(
+						context.Background(),
+						executionstore.UpdateProjectMachinePoolGrantInput{
+							OrgID:       testOrgID,
+							ProjectID:   testProjectID,
+							ID:          fixture.poolGrant.ID,
+							Description: &description,
+						},
+					)
+					poolUpdateDone <- updateErr
+				}()
+				go func() {
+					supportsTools := false
+					_, updateErr := fixture.store.Models().UpdateProjectModelGrant(
+						context.Background(),
+						modelstore.UpdateProjectModelGrantInput{
+							OrgID:     testOrgID,
+							ProjectID: testProjectID,
+							ID:        modelGrantID,
+							SupportsTools: patch.NullableBool{
+								Set:   true,
+								Value: &supportsTools,
+							},
+						},
+					)
+					modelUpdateDone <- updateErr
+				}()
+			}
+
+			deleteDone := make(chan error, 1)
+			startDelete := func() {
+				go func() {
+					_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
+						context.Background(),
+						testOrgID,
+						testProjectID,
+						actor,
+					)
+					deleteDone <- deleteErr
+				}()
+			}
+
+			if updateWins {
+				startUpdates()
+				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockConfiguredModelForUse", 1)
+				startDelete()
+				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
+			} else {
+				startDelete()
+				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+				startUpdates()
+				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
+			}
+
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release grant update control transaction: %v", err)
+			}
+			for label, done := range map[string]<-chan error{
+				"machine-pool grant update": poolUpdateDone,
+				"model grant update":        modelUpdateDone,
+			} {
+				select {
+				case err := <-done:
+					if updateWins && err != nil {
+						t.Fatalf("%s before deletion: %v", label, err)
+					}
+					if !updateWins && !errors.Is(err, storeerr.ErrNotFound) {
+						t.Fatalf("%s after deletion error = %v, want not found", label, err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatalf("timed out waiting for %s", label)
+				}
+			}
+			select {
+			case err := <-deleteDone:
+				if err != nil {
+					t.Fatalf("delete project during grant updates: %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for project deletion")
+			}
+
+			var poolGrantCount, modelGrantCount int
+			if err := fixture.pool.QueryRow(
+				ctx,
+				`SELECT
+				   (SELECT count(*)::integer FROM project_machine_pool_grants WHERE project_id = $1),
+				   (SELECT count(*)::integer FROM project_model_grants WHERE project_id = $1)`,
+				testProjectID,
+			).Scan(&poolGrantCount, &modelGrantCount); err != nil {
+				t.Fatalf("count grants after project deletion: %v", err)
+			}
+			if poolGrantCount != 0 || modelGrantCount != 0 {
+				t.Fatalf("grants after project deletion: pools=%d models=%d", poolGrantCount, modelGrantCount)
+			}
+		})
+	}
 }
 
 func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {

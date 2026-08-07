@@ -800,13 +800,11 @@ func (s *Store) DeleteMachinePoolTx(
 	if err != nil {
 		return nil, fmt.Errorf("list project machine pool grants for machine pool: %w", err)
 	}
-	grantRefs := make([]lifecyclelock.PoolGrantRef, 0, len(poolGrantRefs))
+	grantIDs := make([]ID, 0, len(poolGrantRefs))
 	for _, grantRef := range poolGrantRefs {
-		grantRefs = append(grantRefs, lifecyclelock.PoolGrantRef{
-			OrgID: orgID, ProjectID: grantRef.ProjectID, PoolID: id, GrantID: grantRef.ID,
-		})
+		grantIDs = append(grantIDs, grantRef.ID)
 	}
-	if err := lifecyclelock.PoolGrants(ctx, tx, grantRefs); err != nil {
+	if err := lifecyclelock.PoolGrants(ctx, tx, grantIDs); err != nil {
 		return nil, err
 	}
 	machineIDs, err := qtx.ListMachinePoolMachineIDsForLifecycle(
