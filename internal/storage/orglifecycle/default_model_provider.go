@@ -2,7 +2,6 @@ package orglifecycle
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -40,7 +39,6 @@ func (s *Service) createDefaultModelProviderForOrgTx(
 		ManagementKind: management.Cluster,
 		OwnerKind:      secretstore.SecretOwnerOrg,
 		Name:           template.CredentialSecretName,
-		Metadata:       json.RawMessage(`{}`),
 		Material:       secrets.GenericMaterial{Value: credentialValue},
 		Actor: identitystore.PrincipalRecord{
 			Type: identitystore.PrincipalTypeUser,

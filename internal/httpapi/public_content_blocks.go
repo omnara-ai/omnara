@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/oapi-codegen/nullable"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -413,7 +412,7 @@ func publicToolInput(
 func publicJSONValue(
 	raw json.RawMessage,
 	description string,
-) (nullable.Nullable[openapi.JSONBlob], error) {
+) (openapi.JSONBlob, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("%s is missing", description)
@@ -422,9 +421,7 @@ func publicJSONValue(
 		return nil, fmt.Errorf("%s is invalid JSON", description)
 	}
 	if bytes.Equal(trimmed, []byte("null")) {
-		return nullableFromPtr[openapi.JSONBlob](nil), nil
+		return nil, nil //nolint:nilnil // A nil blob is the JSON null representation.
 	}
-	return nullableFromValue[openapi.JSONBlob](
-		json.RawMessage(bytes.Clone(trimmed)),
-	), nil
+	return json.RawMessage(bytes.Clone(trimmed)), nil
 }

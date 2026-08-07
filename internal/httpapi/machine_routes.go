@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -250,7 +251,10 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 	if err != nil {
 		return openapi.Machine{}, err
 	}
-	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
+	if err != nil {
+		return openapi.Machine{}, err
+	}
 	var env map[string]string
 	if err := json.Unmarshal(record.Env, &env); err != nil {
 		return openapi.Machine{}, err
@@ -414,7 +418,10 @@ func machineDaemonTokenResponse(record executionstore.MachineDaemonTokenRecord) 
 	if err != nil {
 		return openapi.MachineDaemonToken{}, err
 	}
-	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
+	if err != nil {
+		return openapi.MachineDaemonToken{}, err
+	}
 	return openapi.MachineDaemonToken{
 		Id:           id,
 		OrgId:        orgID,

@@ -7,6 +7,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
+
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 const (
@@ -95,7 +97,7 @@ type CreateSecretInput struct {
 	OwnerProjectID ID
 	OwnerUserID    ID
 	Name           string
-	Metadata       json.RawMessage
+	Metadata       resourcemeta.Metadata
 	Material       secrets.Material
 	Actor          PrincipalRecord
 	MCPOAuthFlowID ID
@@ -162,7 +164,7 @@ type UpdateSecretMetadataInput struct {
 	OrgID    ID
 	SecretID ID
 	Name     string
-	Metadata json.RawMessage
+	Metadata resourcemeta.Metadata
 	Actor    PrincipalRecord
 }
 
@@ -171,7 +173,7 @@ type CreateSecretVersionInput struct {
 	SecretID       ID
 	Material       secrets.Material
 	Actor          PrincipalRecord
-	SecretMetadata json.RawMessage
+	SecretMetadata resourcemeta.Metadata
 	MCPOAuthFlowID ID
 }
 

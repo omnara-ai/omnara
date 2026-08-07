@@ -2,6 +2,7 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -49,7 +50,6 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 		return DaemonRuntimeRegistrationRecord{}, errors.New("daemon runtime lease timeout is too short")
 	}
 	input.Capacity = normalizedJSON(input.Capacity)
-	input.Metadata = normalizedJSON(input.Metadata)
 	input.ObservedPlatform = normalizedJSON(input.ObservedPlatform)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -114,7 +114,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 				DaemonTokenID:            input.DaemonTokenID,
 				DaemonInstanceID:         input.DaemonInstanceID,
 				Capacity:                 input.Capacity,
-				Metadata:                 input.Metadata,
+				Metadata:                 json.RawMessage(`{}`),
 				LeaseTimeoutMilliseconds: input.LeaseTimeout.Milliseconds(),
 			},
 		)
@@ -153,7 +153,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 				DaemonInstanceID:         input.DaemonInstanceID,
 				DaemonVersion:            input.DaemonVersion,
 				Capacity:                 input.Capacity,
-				Metadata:                 input.Metadata,
+				Metadata:                 json.RawMessage(`{}`),
 				LeaseTimeoutMilliseconds: input.LeaseTimeout.Milliseconds(),
 			},
 		)
@@ -214,7 +214,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 			DaemonTokenID:            input.DaemonTokenID,
 			DaemonInstanceID:         input.DaemonInstanceID,
 			Capacity:                 input.Capacity,
-			Metadata:                 input.Metadata,
+			Metadata:                 json.RawMessage(`{}`),
 			LeaseTimeoutMilliseconds: input.LeaseTimeout.Milliseconds(),
 		},
 	)
@@ -272,7 +272,7 @@ func (s *Store) HeartbeatDaemonRuntime(
 			DaemonTokenID:            input.Authority.DaemonTokenID,
 			DaemonInstanceID:         input.DaemonInstanceID,
 			Capacity:                 normalizedJSON(input.Capacity),
-			Metadata:                 normalizedJSON(input.Metadata),
+			Metadata:                 json.RawMessage(`{}`),
 			LeaseTimeoutMilliseconds: input.LeaseTimeout.Milliseconds(),
 		},
 	)

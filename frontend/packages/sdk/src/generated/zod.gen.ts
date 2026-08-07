@@ -53,6 +53,39 @@ export const zError = z.object({
 });
 
 /**
+ * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+ */
+export const zClientErrorCode = z.enum([
+    'invalid_request',
+    'validation_failed',
+    'unauthorized',
+    'forbidden',
+    'csrf_check_failed',
+    'not_found',
+    'conflict',
+    'idempotency_key_conflict',
+    'state_transition_conflict',
+    'pending_work',
+    'not_wake_capable',
+    'gone',
+    'daemon_runtime_unregistered',
+    'request_too_large',
+    'unsupported_media_type',
+    'unprocessable',
+    'rate_limited'
+]);
+
+/**
+ * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+ */
+export const zServerErrorCode = z.enum([
+    'internal_error',
+    'upstream_error',
+    'service_unavailable',
+    'authentication_unavailable'
+]);
+
+/**
  * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs; cluster-managed resources are installed by the control plane and are read-only through tenant lifecycle APIs.
  */
 export const zManagementKind = z.enum(['tenant', 'cluster']);
@@ -477,6 +510,11 @@ export const zSkillGrant = z.object({
     target_project_id: zProjectId,
     created_at: zTimestamp
 });
+
+/**
+ * User-supplied metadata for the stored secret. A restriction of Metadata that leaves room for one reserved pair - Omnara sets mcp_url on the secret to the flow's MCP endpoint URL, so the key is reserved and at most 15 user pairs are accepted.
+ */
+export const zMcpoAuthStartMetadata = z.record(z.string(), z.string().max(512));
 
 export const zMcpoAuthStartResponse = z.object({
     authorization_url: z.url(),
@@ -1069,31 +1107,31 @@ export const zModelOutputStreamBlock = z.discriminatedUnion('kind', [
 
 export const zModelOutputBlockStartDelta = z.object({
     kind: z.enum(['block_start']),
-    block_index: z.int().gte(0).optional().default(0),
+    block_index: z.int().gte(0),
     block: zModelOutputStreamBlock
 });
 
 export const zModelOutputTextDelta = z.object({
     kind: z.enum(['text_delta']),
-    block_index: z.int().gte(0).optional().default(0),
+    block_index: z.int().gte(0),
     delta: z.string()
 });
 
 export const zModelOutputThinkingDelta = z.object({
     kind: z.enum(['thinking_delta']),
-    block_index: z.int().gte(0).optional().default(0),
+    block_index: z.int().gte(0),
     delta: z.string()
 });
 
 export const zModelOutputToolArgumentsDelta = z.object({
     kind: z.enum(['tool_arguments_delta']),
-    block_index: z.int().gte(0).optional().default(0),
+    block_index: z.int().gte(0),
     delta: z.string()
 });
 
 export const zModelOutputBlockStopDelta = z.object({
     kind: z.enum(['block_stop']),
-    block_index: z.int().gte(0).optional().default(0)
+    block_index: z.int().gte(0)
 });
 
 export const zModelUsage = z.object({
@@ -1136,7 +1174,7 @@ export const zModelOutputDelta = z.object({
     seq: zAgentSequence,
     source_seq_start: zAgentSequence,
     source_seq_end: zAgentSequence,
-    coalesced_count: zAgentCount.optional(),
+    coalesced_count: zAgentCount,
     event: zModelOutputStreamDelta
 });
 
@@ -1278,7 +1316,7 @@ export const zActor = z.object({
     provider_tenant_id: z.string().optional(),
     provider_user_id: z.string(),
     display_name: z.string().optional(),
-    metadata: zMetadata.optional(),
+    metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1346,7 +1384,7 @@ export const zMcpoAuthStartRequest = z.object({
     client_id: z.string().optional(),
     client_secret: z.string().optional(),
     scopes: z.array(z.string()).optional(),
-    metadata: zMetadata.optional()
+    metadata: zMcpoAuthStartMetadata.optional()
 });
 
 export const zOrgSecretOwner = z.object({
@@ -1758,7 +1796,10 @@ export const zUpdateMachineRequest = z.object({
     secret_env: z.record(z.string(), zSecretId).optional()
 });
 
-export const zMachineSummary = z.object({
+/**
+ * Shared machine fields composed into machine response schemas. Composing schemas close their final shape with unevaluatedProperties.
+ */
+export const zMachineSummaryFields = z.object({
     id: zMachineId,
     org_id: zOrganizationId,
     source_kind: zMachineSourceKind,
@@ -1773,6 +1814,8 @@ export const zMachineSummary = z.object({
     updated_at: zTimestamp
 });
 
+export const zMachineSummary = zMachineSummaryFields;
+
 export const zMachineAccessSource = z.object({
     kind: zMachineAccessSourceKind,
     project_id: zProjectId.optional(),
@@ -1785,21 +1828,9 @@ export const zMachineAccess = z.object({
     sources: z.array(zMachineAccessSource)
 });
 
-export const zVisibleMachine = z.object({
-    id: zMachineId,
-    org_id: zOrganizationId,
-    source_kind: zMachineSourceKind,
-    display_name: z.string(),
-    description: z.string(),
-    provider: z.string(),
-    lifecycle_state: zMachineLifecycleState,
-    connection_state: zMachineConnectionState,
-    last_observed_at: zTimestamp.nullable(),
-    deleted_at: zTimestamp.nullable(),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
+export const zVisibleMachine = zMachineSummaryFields.and(z.object({
     access: zMachineAccess
-});
+}));
 
 export const zListVisibleMachinesResponse = z.object({
     data: z.array(zVisibleMachine),
@@ -2013,7 +2044,6 @@ export const zRegisterDaemonRuntimeRequest = z.object({
     daemon_instance_id: z.uuid(),
     daemon_version: z.string().min(1),
     capacity: z.record(z.string(), z.unknown()).optional(),
-    metadata: zMetadata.optional(),
     observed_platform: z.record(z.string(), z.unknown()).optional(),
     processes: z.array(zProcessReconciliationClaim)
 });
@@ -2055,13 +2085,18 @@ export const zCreateProjectRequest = z.object({
     name: z.string().min(1)
 });
 
-export const zProject = z.object({
+/**
+ * Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
+ */
+export const zProjectFields = z.object({
     id: zProjectId,
     org_id: zOrganizationId,
     name: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
+
+export const zProject = zProjectFields;
 
 export const zSkillGrantListItem = z.object({
     grant: zSkillGrant,
@@ -2096,14 +2131,9 @@ export const zProjectAccess = z.object({
     can_operate: z.boolean()
 });
 
-export const zVisibleProject = z.object({
-    id: zProjectId,
-    org_id: zOrganizationId,
-    name: z.string(),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
+export const zVisibleProject = zProjectFields.and(z.object({
     access: zProjectAccess
-});
+}));
 
 export const zListProjectsResponse = z.object({
     data: z.array(zVisibleProject),

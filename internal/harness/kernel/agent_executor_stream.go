@@ -92,7 +92,7 @@ type streamEnvelope struct {
 	Seq                uint64            `json:"seq"`
 	SourceSeqStart     uint64            `json:"source_seq_start"`
 	SourceSeqEnd       uint64            `json:"source_seq_end"`
-	CoalescedCount     uint64            `json:"coalesced_count,omitempty"`
+	CoalescedCount     uint64            `json:"coalesced_count"`
 	Event              model.StreamEvent `json:"event"`
 }
 
@@ -253,7 +253,22 @@ func coalescableStreamEvent(kind model.StreamEventKind) bool {
 
 func (s *harnessStreamSink) publish(ctx context.Context, envelope streamEnvelope) {
 	envelope.Seq = s.frameSeq.Add(1)
-	payload, err := json.Marshal(envelope)
+	event, err := publicStreamDelta(envelope.Event)
+	if err != nil {
+		if s.log != nil {
+			s.log.Debug("encode stream delta payload failed", "error", err)
+		}
+		return
+	}
+	payload, err := json.Marshal(streamDeltaEnvelope{
+		TurnID:             envelope.TurnID,
+		ModelCallContextID: envelope.ModelCallContextID,
+		Seq:                envelope.Seq,
+		SourceSeqStart:     envelope.SourceSeqStart,
+		SourceSeqEnd:       envelope.SourceSeqEnd,
+		CoalescedCount:     envelope.CoalescedCount,
+		Event:              event,
+	})
 	if err != nil {
 		if s.log != nil {
 			s.log.Debug("encode stream delta payload failed", "error", err)

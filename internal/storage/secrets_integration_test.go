@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -136,7 +138,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 		OrgID:     testOrgID,
 		OwnerKind: secretstore.SecretOwnerOrg,
 		Name:      "openai",
-		Metadata:  json.RawMessage(`{"label":"OpenAI","suite":"availability"}`),
+		Metadata:  resourcemeta.Metadata{"label": "OpenAI", "suite": "availability"},
 		Material:  secrets.GenericMaterial{Value: "sk-secret-openai"},
 		Actor:     userPrincipal(admin.ID),
 	})
@@ -162,7 +164,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 		OwnerKind:      secretstore.SecretOwnerProject,
 		OwnerProjectID: testProjectID,
 		Name:           "project-openai",
-		Metadata:       json.RawMessage(`{"label":"Project OpenAI","suite":"availability"}`),
+		Metadata:       resourcemeta.Metadata{"label": "Project OpenAI", "suite": "availability"},
 		Material:       secrets.GenericMaterial{Value: "sk-secret-project"},
 		Actor:          userPrincipal(developer.ID),
 	})
@@ -285,7 +287,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 		OrgID:     testOrgID,
 		OwnerKind: secretstore.SecretOwnerOrg,
 		Name:      "anthropic",
-		Metadata:  json.RawMessage(`{"label":"Anthropic","suite":"availability"}`),
+		Metadata:  resourcemeta.Metadata{"label": "Anthropic", "suite": "availability"},
 		Material:  secrets.GenericMaterial{Value: "sk-secret-anthropic"},
 		Actor:     userPrincipal(admin.ID),
 	})
@@ -906,7 +908,7 @@ func TestCanonicalSecretPaginationIsStableForEqualTimestamps(t *testing.T) {
 	for _, name := range []string{"equal-a", "equal-b", "equal-c"} {
 		record, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: name,
-			Metadata: json.RawMessage(`{"pagination":"equal"}`),
+			Metadata: resourcemeta.Metadata{"pagination": "equal"},
 			Material: secrets.GenericMaterial{Value: name}, Actor: userPrincipal(admin.ID),
 		})
 		if err != nil {
@@ -1009,7 +1011,7 @@ func TestUserOwnedSecretIsTenantBoundAndGrantable(t *testing.T) {
 		OwnerKind:   secretstore.SecretOwnerUser,
 		OwnerUserID: user.ID,
 		Name:        "github-oauth",
-		Metadata:    json.RawMessage(`{"provider":"github","external_user_id":"octo"}`),
+		Metadata:    resourcemeta.Metadata{"provider": "github", "external_user_id": "octo"},
 		Material:    oauthSecretMaterialForTest("gh-access", "gh-refresh", secrets.OAuthAccessTokenLifetime{}),
 		Actor:       userPrincipal(user.ID),
 	})
@@ -1355,21 +1357,19 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 		Material:  secrets.GenericMaterial{Value: "secret"},
 		Actor:     userPrincipal(admin.ID),
 	}
-	invalidMetadataInput := input
-	invalidMetadataInput.Name = "invalid-metadata"
-	invalidMetadataInput.Metadata = json.RawMessage(`[]`)
-	if _, _, err := store.Secrets().CreateSecret(ctx, invalidMetadataInput); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
-		t.Fatalf("create secret with array metadata error = %v, want ErrInvalidSecretRequest", err)
+	tooManyEntries := resourcemeta.Metadata{}
+	for i := range resourcemeta.MaxEntries + 1 {
+		tooManyEntries[fmt.Sprintf("key-%d", i)] = "value"
 	}
-	nonStringMetadataInput := input
-	nonStringMetadataInput.Name = "non-string-metadata"
-	nonStringMetadataInput.Metadata = json.RawMessage(`{"enabled":true}`)
-	if _, _, err := store.Secrets().CreateSecret(ctx, nonStringMetadataInput); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
-		t.Fatalf("create secret with non-string metadata error = %v, want ErrInvalidSecretRequest", err)
+	tooManyEntriesInput := input
+	tooManyEntriesInput.Name = "too-many-entries-metadata"
+	tooManyEntriesInput.Metadata = tooManyEntries
+	if _, _, err := store.Secrets().CreateSecret(ctx, tooManyEntriesInput); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
+		t.Fatalf("create secret with too many metadata entries error = %v, want ErrInvalidSecretRequest", err)
 	}
 	oversizedMetadataInput := input
 	oversizedMetadataInput.Name = "oversized-metadata"
-	oversizedMetadataInput.Metadata = json.RawMessage(`{"value":"` + strings.Repeat("x", secretstore.MaxSecretMetadataBytes) + `"}`)
+	oversizedMetadataInput.Metadata = resourcemeta.Metadata{"value": strings.Repeat("x", resourcemeta.MaxValueLength+1)}
 	if _, _, err := store.Secrets().CreateSecret(ctx, oversizedMetadataInput); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
 		t.Fatalf("create secret with oversized metadata error = %v, want ErrInvalidSecretRequest", err)
 	}
@@ -1386,7 +1386,7 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 			OrgID:    testOrgID,
 			SecretID: first.ID,
 			Name:     "shared-renamed",
-			Metadata: json.RawMessage(`{"label":"renamed"}`),
+			Metadata: resourcemeta.Metadata{"label": "renamed"},
 			Actor:    userPrincipal(admin.ID),
 		},
 	)
@@ -1403,14 +1403,14 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 			OrgID:    testOrgID,
 			SecretID: first.ID,
 			Name:     "bad-metadata",
-			Metadata: json.RawMessage(`null`),
+			Metadata: resourcemeta.Metadata{"": "value"},
 			Actor:    userPrincipal(admin.ID),
 		},
 	); !errors.Is(
 		err,
 		storeerr.ErrInvalidSecretRequest,
 	) {
-		t.Fatalf("update secret with null metadata error = %v, want ErrInvalidSecretRequest", err)
+		t.Fatalf("update secret with empty metadata key error = %v, want ErrInvalidSecretRequest", err)
 	}
 	secondOrgSecret, _, err := store.Secrets().CreateSecret(
 		ctx,

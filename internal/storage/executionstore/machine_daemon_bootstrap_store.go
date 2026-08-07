@@ -26,7 +26,10 @@ func (s *Store) CreateBYOMachineDaemonToken(
 			"org, machine, name, and token are required",
 		)
 	}
-	input.Metadata = normalizedJSON(input.Metadata)
+	metadata, err := metadataColumn(input.Metadata, "daemon token metadata")
+	if err != nil {
+		return MachineDaemonTokenRecord{}, err
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("begin create machine daemon token: %w", err)
@@ -40,7 +43,7 @@ func (s *Store) CreateBYOMachineDaemonToken(
 			MachineID: input.MachineID,
 			Name:      input.Name,
 			TokenHash: tokenutil.Hash(input.Token),
-			Metadata:  input.Metadata,
+			Metadata:  metadata,
 		},
 	)
 	if err != nil {

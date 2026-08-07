@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -51,15 +53,15 @@ func userPrincipalFromContext(ctx context.Context) (identitystore.PrincipalRecor
 }
 
 type mcpOAuthFlowData struct {
-	FlowID          storage.ID      `json:"flow_id"`
-	OrgID           storage.ID      `json:"org_id"`
-	OwnerKind       string          `json:"owner_kind"`
-	OwnerProjectID  storage.ID      `json:"owner_project_id"`
-	OwnerUserID     storage.ID      `json:"owner_user_id"`
-	CreatedByUserID storage.ID      `json:"created_by_user_id"`
-	SecretName      string          `json:"secret_name"`
-	Metadata        json.RawMessage `json:"metadata,omitempty"`
-	ReturnTo        string          `json:"return_to,omitempty"`
+	FlowID          storage.ID            `json:"flow_id"`
+	OrgID           storage.ID            `json:"org_id"`
+	OwnerKind       string                `json:"owner_kind"`
+	OwnerProjectID  storage.ID            `json:"owner_project_id"`
+	OwnerUserID     storage.ID            `json:"owner_user_id"`
+	CreatedByUserID storage.ID            `json:"created_by_user_id"`
+	SecretName      string                `json:"secret_name"`
+	Metadata        resourcemeta.Metadata `json:"metadata,omitempty"`
+	ReturnTo        string                `json:"return_to,omitempty"`
 }
 
 func (s strictOpenAPIServer) StartSecretMCPOAuth(
@@ -120,8 +122,8 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
-	metadata, err := validateMCPOAuthMetadata(body.Metadata)
-	if err != nil {
+	metadata := body.Metadata
+	if err := validateMCPOAuthMetadata(metadata); err != nil {
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
 	}
@@ -431,20 +433,23 @@ func (s *Server) saveMCPOAuthSecret(
 	return existing.ID, nil
 }
 
-func mcpOAuthSecretMetadata(existing, provided json.RawMessage, mcpURL string) (json.RawMessage, error) {
-	metadata := map[string]string{}
-	if len(existing) > 0 {
-		if err := json.Unmarshal(existing, &metadata); err != nil {
+func mcpOAuthSecretMetadata(
+	existing json.RawMessage,
+	provided resourcemeta.Metadata,
+	mcpURL string,
+) (resourcemeta.Metadata, error) {
+	metadata := resourcemeta.Metadata{}
+	if provided != nil {
+		maps.Copy(metadata, provided)
+	} else if len(existing) > 0 {
+		decoded, err := resourcemeta.FromJSON(existing)
+		if err != nil {
 			return nil, fmt.Errorf("parse existing secret metadata: %w", err)
 		}
+		metadata = decoded
 	}
-	if len(provided) > 0 {
-		if err := json.Unmarshal(provided, &metadata); err != nil {
-			return nil, fmt.Errorf("parse provided secret metadata: %w", err)
-		}
-	}
-	metadata["mcp_url"] = mcpURL
-	return json.Marshal(metadata)
+	metadata[secrets.KeyMCPURL] = mcpURL
+	return metadata, nil
 }
 
 func (s *Server) mcpOAuthClientMetadataRoute(w http.ResponseWriter, r *http.Request) {
@@ -476,16 +481,28 @@ func (s *Server) mcpOAuthClientMetadataURL() (string, bool) {
 	return s.absolutePublicURL(mcpOAuthClientMetadataPath), true
 }
 
-func validateMCPOAuthMetadata(raw json.RawMessage) (json.RawMessage, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil
+func validateMCPOAuthMetadata(metadata resourcemeta.Metadata) error {
+	if metadata == nil {
+		return nil
+	}
+	if err := metadata.Validate(); err != nil {
+		return err
+	}
+	if len(metadata) >= resourcemeta.MaxEntries {
+		return fmt.Errorf(
+			"metadata cannot have more than %d entries; the %s key is reserved",
+			resourcemeta.MaxEntries-1, secrets.KeyMCPURL,
+		)
+	}
+	if _, ok := metadata[secrets.KeyMCPURL]; ok {
+		return fmt.Errorf("metadata key %q is reserved", secrets.KeyMCPURL)
+	}
+	raw, err := metadata.JSON()
+	if err != nil {
+		return err
 	}
 	if len(raw) > secretstore.MaxSecretMetadataBytes {
-		return nil, fmt.Errorf("metadata exceeds %d bytes", secretstore.MaxSecretMetadataBytes)
+		return fmt.Errorf("metadata exceeds %d bytes", secretstore.MaxSecretMetadataBytes)
 	}
-	var metadata map[string]string
-	if err := json.Unmarshal(raw, &metadata); err != nil || metadata == nil {
-		return nil, errors.New("metadata must be a JSON object with string values")
-	}
-	return raw, nil
+	return nil
 }

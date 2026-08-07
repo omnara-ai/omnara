@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -250,7 +251,8 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 		return nil, err
 	}
 	metadata := request.Body.Metadata
-	var envOverlayPatch, secretEnvOverlayPatch, providerOptionsOverlayPatch, metadataPatch *json.RawMessage
+	var envOverlayPatch, secretEnvOverlayPatch, providerOptionsOverlayPatch *json.RawMessage
+	var metadataPatch *resourcemeta.Metadata
 	if request.Body.DefaultMachineEnvOverlay != nil {
 		envOverlayPatch = &defaultMachineEnvOverlay
 	}
@@ -345,7 +347,10 @@ func projectMachinePoolGrantResponse(
 	if err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
-	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
+	if err != nil {
+		return openapi.ProjectMachinePoolGrant{}, err
+	}
 	var defaultMachineEnvOverlay map[string]*string
 	if err := json.Unmarshal(record.DefaultMachineEnvOverlay, &defaultMachineEnvOverlay); err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err

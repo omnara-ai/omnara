@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -72,7 +72,10 @@ func newSecretResponse(record secretstore.SecretRecord) (openapi.Secret, error) 
 	if err != nil {
 		return openapi.Secret{}, err
 	}
-	metadata := jsonOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
+	if err != nil {
+		return openapi.Secret{}, err
+	}
 	response := openapi.Secret{
 		Id: id, OrgId: orgID, ManagementKind: openapi.ManagementKind(record.ManagementKind),
 		Owner: owner, Name: record.Name, Kind: openapi.SecretKind(record.Kind),
@@ -461,7 +464,11 @@ func (s strictOpenAPIServer) UpdateSecret(
 	if apiErr != nil {
 		return nil, *apiErr
 	}
-	name, metadata := record.Name, record.Metadata
+	name := record.Name
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
+	if err != nil {
+		return nil, err
+	}
 	if request.Body.Name != nil {
 		if *request.Body.Name == "" {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name cannot be empty")

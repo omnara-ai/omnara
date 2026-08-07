@@ -136,7 +136,10 @@ func createDefaultMachinePoolForTest(
 	input.DefaultMachineSecretEnv = normalizedJSON(input.DefaultMachineSecretEnv)
 	input.DefaultMachineProviderOptions = normalizedJSON(input.DefaultMachineProviderOptions)
 	input.ProviderConfig = normalizedJSON(input.ProviderConfig)
-	input.Metadata = normalizedJSON(input.Metadata)
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		t.Fatalf("encode machine pool metadata: %v", err)
+	}
 	row, err := store.q.InsertMachinePool(ctx, dbsqlc.InsertMachinePoolParams{
 		OrgID:                         input.OrgID,
 		Name:                          input.Name,
@@ -157,7 +160,7 @@ func createDefaultMachinePoolForTest(
 		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		Metadata:                      input.Metadata,
+		Metadata:                      metadata,
 	})
 	if err != nil {
 		t.Fatalf("create default machine pool: %v", err)
