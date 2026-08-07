@@ -100,32 +100,45 @@ export function ProjectMachineGrantsTables({
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Pool' },
-            { header: 'Description' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'pool',
+              header: 'Pool',
+              cell: (item) => <span className="font-medium">{item.machine_pool.name}</span>,
+            },
+            {
+              id: 'description',
+              header: 'Description',
+              cell: (item) => (
+                <span className="text-muted-foreground">{item.grant.description || '—'}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (item) => (
+                <ResourceRowActions
+                  deleteLabel="Delete grant"
+                  onEdit={() => {
+                    setEditing(item)
+                  }}
+                  onDelete={
+                    canDeleteGrants
+                      ? () => {
+                          if (!window.confirm('Delete this machine pool grant?')) return
+                          deleteGrant.mutate(item.grant.id)
+                        }
+                      : undefined
+                  }
+                />
+              ),
+            },
           ]}
           data={grantsPaged.rows}
           isFiltered={poolList.isFiltering}
           pagination={grantsPaged.pagination}
           getRowId={(item) => item.grant.id}
-          rowCells={(item) => [
-            <span className="font-medium">{item.machine_pool.name}</span>,
-            <span className="text-muted-foreground">{item.grant.description || '—'}</span>,
-            <ResourceRowActions
-              deleteLabel="Delete grant"
-              onEdit={() => {
-                setEditing(item)
-              }}
-              onDelete={
-                canDeleteGrants
-                  ? () => {
-                      if (!window.confirm('Delete this machine pool grant?')) return
-                      deleteGrant.mutate(item.grant.id)
-                    }
-                  : undefined
-              }
-            />,
-          ]}
           rowExpanded={(item) => (
             <DetailList
               items={[
@@ -196,29 +209,42 @@ export function ProjectMachineGrantsTables({
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Machine' },
-            { header: 'Description' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'machine',
+              header: 'Machine',
+              cell: (item) => <span className="font-medium">{item.machine.display_name}</span>,
+            },
+            {
+              id: 'description',
+              header: 'Description',
+              cell: (item) => (
+                <span className="text-muted-foreground">{item.grant.description || '—'}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (item) => (
+                <ResourceRowActions
+                  deleteLabel="Delete grant"
+                  onDelete={
+                    canDeleteGrants
+                      ? () => {
+                          if (!window.confirm('Delete this machine grant?')) return
+                          deleteMachineGrant.mutate(item.grant.id)
+                        }
+                      : undefined
+                  }
+                />
+              ),
+            },
           ]}
           data={machineGrantsPaged.rows}
           isFiltered={machineList.isFiltering}
           pagination={machineGrantsPaged.pagination}
           getRowId={(item) => item.grant.id}
-          rowCells={(item) => [
-            <span className="font-medium">{item.machine.display_name}</span>,
-            <span className="text-muted-foreground">{item.grant.description || '—'}</span>,
-            <ResourceRowActions
-              deleteLabel="Delete grant"
-              onDelete={
-                canDeleteGrants
-                  ? () => {
-                      if (!window.confirm('Delete this machine grant?')) return
-                      deleteMachineGrant.mutate(item.grant.id)
-                    }
-                  : undefined
-              }
-            />,
-          ]}
           rowExpanded={(item) => (
             <DetailList
               items={[

@@ -15,12 +15,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
 const (
 	webE2EPassword       = "Correct horse battery staple 1!"
 	webE2EProviderConfig = "openai-prod"
 	webE2EModelName      = "service-e2e-local"
+	webE2EUngrantedModel = "service-e2e-ungranted"
 )
 
 func TestWebE2E(t *testing.T) {
@@ -48,6 +50,22 @@ func TestWebE2E(t *testing.T) {
 		t.Fatalf("decode project id: %v", err)
 	}
 	store := storage.NewStore(env.db)
+	provider, err := store.Models().GetModelProviderConfigByName(ctx, orgID, webE2EProviderConfig)
+	if err != nil {
+		t.Fatalf("get web e2e model provider: %v", err)
+	}
+	defaultMaxOutputTokens := 4096
+	if _, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+		OrgID:                  orgID,
+		ModelProviderConfigID:  provider.ID,
+		Name:                   webE2EUngrantedModel,
+		ProviderModelSlug:      webE2EUngrantedModel,
+		ContextWindowTokens:    128000,
+		MaxOutputTokens:        8192,
+		DefaultMaxOutputTokens: &defaultMaxOutputTokens,
+	}); err != nil {
+		t.Fatalf("create ungranted web e2e model: %v", err)
+	}
 	adminEmail := "web-admin-" + env.seed + "@example.com"
 	viewerEmail := "web-viewer-" + env.seed + "@example.com"
 	createWebE2EUser(
@@ -57,6 +75,7 @@ func TestWebE2E(t *testing.T) {
 		orgID,
 		projectID,
 		adminEmail,
+		authz.OrgRoleAdmin,
 		authz.ProjectRoleAdmin,
 	)
 	createWebE2EUser(
@@ -66,6 +85,7 @@ func TestWebE2E(t *testing.T) {
 		orgID,
 		projectID,
 		viewerEmail,
+		authz.OrgRoleMember,
 		authz.ProjectRoleViewer,
 	)
 
@@ -80,6 +100,7 @@ func TestWebE2E(t *testing.T) {
 		"OMNARA_WEB_E2E_PASSWORD="+webE2EPassword,
 		"OMNARA_WEB_E2E_PROVIDER_CONFIG="+webE2EProviderConfig,
 		"OMNARA_WEB_E2E_MODEL_NAME="+webE2EModelName,
+		"OMNARA_WEB_E2E_UNGRANTED_MODEL="+webE2EUngrantedModel,
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -93,7 +114,7 @@ func createWebE2EUser(
 	ctx context.Context,
 	store *storage.Store,
 	orgID, projectID storage.ID,
-	email, projectRole string,
+	email, orgRole, projectRole string,
 ) {
 	t.Helper()
 	start, err := store.Identity().StartPasswordSignup(
@@ -126,7 +147,7 @@ func createWebE2EUser(
 		identitystore.AddOrgMembershipInput{
 			OrgID:  orgID,
 			UserID: completed.User.ID,
-			Role:   authz.OrgRoleMember,
+			Role:   orgRole,
 		},
 	); err != nil {
 		t.Fatalf("add organization membership for %s: %v", email, err)

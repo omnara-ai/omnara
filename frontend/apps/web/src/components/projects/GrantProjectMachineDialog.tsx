@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { createResourceMultiCombobox } from '@/components/ui/resource-combobox'
+import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
 import { Spinner } from '@/components/ui/spinner'
 import { useBatchGrantSubmit } from '@/hooks/use-batch-grant-submit'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
@@ -91,7 +91,7 @@ export function GrantProjectMachineDialog({
               <FieldLabel>Machines</FieldLabel>
               <MachineMultiCombobox
                 items={machines}
-                value={batch.items.map((machine) => machine.id)}
+                value={batch.items}
                 onValueChange={batch.setItems}
                 search={search}
                 query={machinesQuery}

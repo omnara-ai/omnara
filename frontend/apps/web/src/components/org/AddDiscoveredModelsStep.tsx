@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { createResourceMultiCombobox } from '@/components/ui/resource-combobox'
+import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
 import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -50,6 +50,7 @@ export function AddDiscoveredModelsStep({
   )
   const unavailableCount = discoveredModels.length - creatableModels.length
   const [state, setState] = useState(initialAddModelsState)
+  const selectedSlugSet = new Set(state.selectedSlugs)
   // Covers the whole batch below; the mutation's isPending only tracks its latest call.
   const [submitting, setSubmitting] = useState(false)
   const mounted = useRef(true)
@@ -112,7 +113,7 @@ export function AddDiscoveredModelsStep({
           <FieldLabel>Detected models</FieldLabel>
           <DiscoveredModelMultiCombobox
             items={creatableModels}
-            value={state.selectedSlugs}
+            value={creatableModels.filter((model) => selectedSlugSet.has(model.slug))}
             disabled={submitting}
             onValueChange={(models) => {
               setState((prev) => ({

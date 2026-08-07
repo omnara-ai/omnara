@@ -41,13 +41,13 @@ export function OAuthTokenFields({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {oauthKeys
-                  .filter((option) => option.value === entry.key || !usedKeys.has(option.value))
-                  .map((option) => (
+                {oauthKeys.map((option) =>
+                  option.value === entry.key || !usedKeys.has(option.value) ? (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
-                  ))}
+                  ) : null,
+                )}
               </SelectContent>
             </Select>
             <Input

@@ -1,6 +1,6 @@
 import { useDeleteOrgInvitation, useOrgInvitations, useOrgMembers } from '@omnara/react'
 import type { OrgInvitation, OrgMember } from '@omnara/sdk'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
@@ -30,10 +30,14 @@ export function Members() {
   const [inviteOpen, setInviteOpen] = useState(false)
   const canManage = canManageOrg(activeOrg.role)
   const [page, setPage] = useState(0)
-
-  useEffect(() => {
+  const [paginationOwner, setPaginationOwner] = useState({
+    orgID: activeOrg.id,
+    canManage,
+  })
+  if (paginationOwner.orgID !== activeOrg.id || paginationOwner.canManage !== canManage) {
+    setPaginationOwner({ orgID: activeOrg.id, canManage })
     setPage(0)
-  }, [activeOrg.id, canManage])
+  }
 
   const invitationsQuery = useOrgInvitations(activeOrg.id, {
     pageSize: PAGE_SIZE,
@@ -50,13 +54,17 @@ export function Members() {
     enabled: invitationsExhausted,
   })
 
-  const invitationRows: CombinedRow[] = (invitationsQuery.data?.pages ?? [])
-    .flatMap((loadedPage) => loadedPage.data)
-    .map((invitation): CombinedRow => ({ kind: 'invitation', id: invitation.id, invitation }))
-  const memberRows: CombinedRow[] = (membersQuery.data?.pages ?? [])
-    .flatMap((loadedPage) => loadedPage.data)
-    .map((member): CombinedRow => ({ kind: 'member', id: member.user_id, member }))
-  const loadedRows = [...invitationRows, ...memberRows]
+  const loadedRows: CombinedRow[] = []
+  for (const loadedPage of invitationsQuery.data?.pages ?? []) {
+    for (const invitation of loadedPage.data) {
+      loadedRows.push({ kind: 'invitation', id: invitation.id, invitation })
+    }
+  }
+  for (const loadedPage of membersQuery.data?.pages ?? []) {
+    for (const member of loadedPage.data) {
+      loadedRows.push({ kind: 'member', id: member.user_id, member })
+    }
+  }
   const pageStart = page * PAGE_SIZE
   const rows = loadedRows.slice(pageStart, pageStart + PAGE_SIZE)
   const nextPageStart = pageStart + PAGE_SIZE
@@ -140,25 +148,45 @@ export function Members() {
           </div>
         )}
         <DataTable
-          columns={[{ header: 'Name' }, { header: 'Email' }, { header: 'Role', className: 'w-28' }]}
+          columns={[
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (row) =>
+                row.kind === 'invitation' ? (
+                  <span className="text-muted-foreground italic">Pending</span>
+                ) : (
+                  <span className="font-medium">{memberName(row.member)}</span>
+                ),
+            },
+            {
+              id: 'email',
+              header: 'Email',
+              cell: (row) => (
+                <span
+                  className={row.kind === 'invitation' ? 'font-medium' : 'text-muted-foreground'}
+                >
+                  {row.kind === 'invitation' ? row.invitation.email : row.member.email || '—'}
+                </span>
+              ),
+            },
+            {
+              id: 'role',
+              header: 'Role',
+              className: 'w-28',
+              cell: (row) =>
+                row.kind === 'invitation' ? (
+                  <Badge variant="secondary">Invited</Badge>
+                ) : (
+                  <Badge variant="outline" className="capitalize">
+                    {row.member.role}
+                  </Badge>
+                ),
+            },
+          ]}
           data={rows}
           pagination={pagination}
           getRowId={(row) => row.id}
-          rowCells={(row) =>
-            row.kind === 'invitation'
-              ? [
-                  <span className="text-muted-foreground italic">Pending</span>,
-                  <span className="font-medium">{row.invitation.email}</span>,
-                  <Badge variant="secondary">Invited</Badge>,
-                ]
-              : [
-                  <span className="font-medium">{memberName(row.member)}</span>,
-                  <span className="text-muted-foreground">{row.member.email || '—'}</span>,
-                  <Badge variant="outline" className="capitalize">
-                    {row.member.role}
-                  </Badge>,
-                ]
-          }
           rowExpanded={(row) =>
             row.kind === 'invitation' ? (
               <div className="flex items-end justify-between gap-3 py-1">

@@ -99,7 +99,7 @@ export function GrantMachinePoolDialog({
               <FieldLabel>Machine pool</FieldLabel>
               <MachinePoolCombobox
                 items={pools}
-                value={selected?.pool.id ?? null}
+                value={selected?.pool ?? null}
                 onValueChange={(pool) => {
                   setSelected(pool ? { pool, draft: emptyPoolGrantDraft() } : null)
                 }}

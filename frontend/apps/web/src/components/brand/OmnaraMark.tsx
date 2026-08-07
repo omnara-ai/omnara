@@ -1,27 +1,27 @@
 import { cn } from '@/lib/utils'
 
 // Omnara logo mark, mirrored from docs/logo/omnara-logo.svg.
-export function OmnaraLogo({ className }: { className?: string }) {
+function OmnaraLogo({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
       <g filter="url(#omnara-logo-shadow)">
         <path
           fillRule="evenodd"
           clipRule="evenodd"
-          d="M18.1104 2.02161C10.3044 1.56202 2.61003 8.4316 1.89894 22.8101H6.34976C6.34976 22.8101 6.34976 28.9478 6.34976 29.3195C6.34976 29.6912 6.34976 30 6.96942 30C7.58908 30 17.7852 30 17.7852 30V26.987C20.5969 27.3554 29.9638 24.1171 30.098 15.777C30.2322 7.43708 25.9164 2.48122 18.1104 2.02161ZM17.59 5.16132C22.7422 5.16132 26.919 9.33799 26.919 14.4902C26.919 19.6425 22.9375 23.8534 17.7852 23.8534V26.987C9.59656 22.7664 8.29139 20.5148 8.26103 14.4902C8.26107 9.33801 12.4377 5.16135 17.59 5.16132Z"
+          d="M18.11 2.02C10.3 1.56 2.61 8.43 1.9 22.81H6.35C6.35 22.81 6.35 28.95 6.35 29.32C6.35 29.69 6.35 30 6.97 30C7.59 30 17.79 30 17.79 30V26.99C20.6 27.36 29.96 24.12 30.1 15.78C30.23 7.44 25.92 2.48 18.11 2.02ZM17.59 5.16C22.74 5.16 26.92 9.34 26.92 14.49C26.92 19.64 22.94 23.85 17.79 23.85V26.99C9.6 22.77 8.29 20.51 8.26 14.49C8.26 9.34 12.44 5.16 17.59 5.16Z"
           fill="url(#omnara-logo-fill)"
         />
         <path
-          d="M10.8823 14.5647C10.8823 15.8752 11.9447 16.9375 13.2552 16.9375C14.5657 16.9375 15.6281 15.8752 15.6281 14.5647C15.6281 13.2542 14.5657 12.1918 13.2552 12.1918C11.9447 12.1918 10.8823 13.2542 10.8823 14.5647Z"
+          d="M10.88 14.56C10.88 15.88 11.94 16.94 13.26 16.94C14.57 16.94 15.63 15.88 15.63 14.56C15.63 13.25 14.57 12.19 13.26 12.19C11.94 12.19 10.88 13.25 10.88 14.56Z"
           fill="url(#omnara-logo-fill)"
         />
       </g>
       <defs>
         <filter
           id="omnara-logo-shadow"
-          x="1.89893"
+          x="1.9"
           y="2"
-          width="28.2021"
+          width="28.2"
           height="28"
           filterUnits="userSpaceOnUse"
           colorInterpolationFilters="sRGB"
@@ -34,16 +34,16 @@ export function OmnaraLogo({ className }: { className?: string }) {
             values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
             result="hardAlpha"
           />
-          <feOffset dx="-0.396707" dy="0.396707" />
+          <feOffset dx="-0.4" dy="0.4" />
           <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
           <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0" />
           <feBlend mode="normal" in2="shape" result="effect1_innerShadow_444_6982" />
         </filter>
         <linearGradient
           id="omnara-logo-fill"
-          x1="30.1011"
+          x1="30.1"
           y1="2"
-          x2="1.89893"
+          x2="1.9"
           y2="30"
           gradientUnits="userSpaceOnUse"
         >

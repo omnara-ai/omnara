@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import type { PaginationControls } from '@/hooks/use-paged-query'
 
@@ -10,15 +10,14 @@ const PAGE_SIZE = 15
  */
 export function useArrayPagination<TItem>(items: TItem[]) {
   const [pageIndex, setPageIndex] = useState(0)
-  const previousItems = useRef(items)
+  const [previousItems, setPreviousItems] = useState(items)
   const itemsChanged =
-    previousItems.current.length !== items.length ||
-    previousItems.current.some((item, index) => item !== items[index])
-  useEffect(() => {
-    if (!itemsChanged) return
-    previousItems.current = items
+    previousItems.length !== items.length ||
+    previousItems.some((item, index) => item !== items[index])
+  if (itemsChanged) {
+    setPreviousItems(items)
     setPageIndex(0)
-  }, [items, itemsChanged])
+  }
   const pageCount = Math.max(Math.ceil(items.length / PAGE_SIZE), 1)
   const page = Math.min(pageIndex, pageCount - 1)
   const rows = items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)

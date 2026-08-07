@@ -21,6 +21,19 @@ function selectedOptions(
   return optionIndices.flatMap((index) => options[index] ?? [])
 }
 
+function keyedContextItems(interaction: AgentInteraction) {
+  const occurrences = new Map<string, number>()
+  return (interaction.request.context ?? []).map((item) => {
+    const contentKey = JSON.stringify([item.label, item.value])
+    const occurrence = (occurrences.get(contentKey) ?? 0) + 1
+    occurrences.set(contentKey, occurrence)
+    return {
+      item,
+      key: `${interaction.id}:context:${contentKey}:${String(occurrence)}`,
+    }
+  })
+}
+
 function InteractionFormCard({
   interaction,
   resolve,
@@ -35,9 +48,15 @@ function InteractionFormCard({
   const [selections, setSelections] = useState<Record<number, number[]>>({})
   const [responses, setResponses] = useState<Record<number, string>>({})
   const isPermission = interaction.interaction_kind === 'permission'
-  const complete = interaction.request.questions.every(
-    (_, questionIndex) => (selections[questionIndex]?.length ?? 0) > 0,
-  )
+  const questions = interaction.request.questions
+  let complete = true
+  for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
+    if ((selections[questionIndex]?.length ?? 0) === 0) {
+      complete = false
+      break
+    }
+  }
+  const contextItems = keyedContextItems(interaction)
 
   function submit() {
     const answers: InteractionAnswer[] = []
@@ -75,18 +94,19 @@ function InteractionFormCard({
         <CardTitle className="text-sm">{interaction.request.title}</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-5">
-        {interaction.request.context != null && interaction.request.context.length > 0 && (
+        {contextItems.length > 0 && (
           <dl className="bg-background grid gap-2 rounded-md border p-3 text-xs">
-            {interaction.request.context.map((item, index) => (
-              <div key={`${item.label}-${index}`} className="grid gap-1">
+            {contextItems.map(({ item, key }) => (
+              <div key={key} className="grid gap-1">
                 <dt className="text-muted-foreground font-medium">{item.label}</dt>
                 <dd className="whitespace-pre-wrap font-mono">{item.value}</dd>
               </div>
             ))}
           </dl>
         )}
-        {interaction.request.questions.map((question, questionIndex) => {
+        {questions.map((question, questionIndex) => {
           const optionIndices = selections[questionIndex] ?? []
+          const optionIndexSet = new Set(optionIndices)
           const allowsText = selectedOptions(question.options, optionIndices).some(
             (option) => option.allows_text === true,
           )
@@ -99,22 +119,23 @@ function InteractionFormCard({
                     key={optionIndex}
                     type="button"
                     size="sm"
-                    variant={optionIndices.includes(optionIndex) ? 'default' : 'outline'}
+                    variant={optionIndexSet.has(optionIndex) ? 'default' : 'outline'}
                     disabled={!canOperate || pending}
                     onClick={() => {
                       const nextOptionIndices =
                         question.multiple === true
-                          ? optionIndices.includes(optionIndex)
+                          ? optionIndexSet.has(optionIndex)
                             ? optionIndices.filter((index) => index !== optionIndex)
                             : [...optionIndices, optionIndex]
                           : [optionIndex]
+                      const nextOptionIndexSet = new Set(nextOptionIndices)
                       setSelections((current) => ({
                         ...current,
                         [questionIndex]: nextOptionIndices,
                       }))
                       const nextAllowsText = question.options.some(
                         (option, index) =>
-                          option.allows_text === true && nextOptionIndices.includes(index),
+                          option.allows_text === true && nextOptionIndexSet.has(index),
                       )
                       if (!nextAllowsText) {
                         setResponses((current) => ({

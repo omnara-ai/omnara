@@ -284,6 +284,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 
 	browserOnlyMutations := map[string]bool{
 		"post /api/v1/personal-access-tokens":                               true,
+		"post /api/v1/orgs/{orgID}/machines/connect":                        true,
 		"post /api/v1/orgs/{orgID}/api-keys":                                true,
 		"patch /api/v1/orgs/{orgID}/api-keys/{keyID}":                       true,
 		"post /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke":                 true,

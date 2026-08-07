@@ -57,6 +57,25 @@ export interface BasicConfig {
   skillIds: string[]
 }
 
+export type BasicConfigDraft = Omit<BasicConfig, 'name'>
+
+export function createEmptyBasicConfigDraft(): BasicConfigDraft {
+  return {
+    instruction: '',
+    providerConfig: '',
+    modelName: '',
+    machineSources: [],
+    tools: [],
+    mcpServers: [],
+    skillIds: [],
+  }
+}
+
+export function serializeBasicConfigDraft(name: string, draft: BasicConfigDraft) {
+  const config: BasicConfig = { name, ...draft }
+  return isBasicConfigComplete(config) ? serializeBasicConfig(config) : ''
+}
+
 const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
 const positiveIntegerPattern = /^[1-9][0-9]*$/
 
@@ -64,7 +83,7 @@ function isMachineCountValid(value: string) {
   return value === '' || positiveIntegerPattern.test(value)
 }
 
-export function isBasicConfigComplete(config: BasicConfig) {
+function isBasicConfigComplete(config: BasicConfig) {
   const mcpServerNames = config.mcpServers.map((server) => server.name.trim())
   return (
     config.instruction.trim() !== '' &&
@@ -107,7 +126,7 @@ function yamlBlock(value: string) {
     .join('\n')}`
 }
 
-export function serializeBasicConfig(config: BasicConfig) {
+function serializeBasicConfig(config: BasicConfig) {
   const lines: string[] = []
   const name = config.name.trim()
 

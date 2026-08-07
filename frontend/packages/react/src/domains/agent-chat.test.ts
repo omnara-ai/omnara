@@ -1176,6 +1176,96 @@ describe('projectAgentChat delta previews', () => {
     expect(status).toBe('error')
     expect(isWorking).toBe(true)
   })
+
+  it('keeps part ids unique and stable when settled output and previews share a turn', () => {
+    const deltas = [
+      delta(
+        1,
+        { kind: 'block_start', block_index: 0, block: { kind: 'text' } },
+        { model_call_context_id: 'preview-call' },
+      ),
+      delta(
+        2,
+        { kind: 'text_delta', block_index: 0, delta: 'Streaming' },
+        {
+          model_call_context_id: 'preview-call',
+        },
+      ),
+      delta(
+        3,
+        { kind: 'block_start', block_index: 1, block: { kind: 'thinking' } },
+        { model_call_context_id: 'preview-call' },
+      ),
+    ]
+    const data = {
+      ...emptyData,
+      events: [
+        event({
+          id: 'settled-output',
+          content_blocks: [{ type: 'text' as const, text: 'Settled' }],
+        }),
+      ],
+      deltas,
+    }
+
+    const firstParts = projectAgentChat(data).messages.at(-1)?.parts ?? []
+    const firstIds = firstParts.map((part) => part.id)
+    const updatedParts = projectAgentChat({
+      ...data,
+      deltas: [
+        ...deltas,
+        delta(
+          4,
+          { kind: 'thinking_delta', block_index: 1, delta: 'Planning' },
+          {
+            model_call_context_id: 'preview-call',
+          },
+        ),
+      ],
+    }).messages.at(-1)?.parts
+
+    expect(firstIds).toEqual(['mcc:block:0', 'preview-call:block:0', 'preview-call:block:1'])
+    expect(new Set(firstIds).size).toBe(firstIds.length)
+    expect(updatedParts?.map((part) => part.id)).toEqual(firstIds)
+    expect(updatedParts?.at(-1)).toMatchObject({ type: 'reasoning', text: 'Planning' })
+  })
+
+  it('keeps part ids stable when a streamed model call settles', () => {
+    const deltas = [
+      delta(1, { kind: 'block_start', block_index: 0, block: { kind: 'thinking' } }),
+      delta(2, { kind: 'thinking_delta', block_index: 0, delta: 'Planning' }),
+      delta(3, {
+        kind: 'block_start',
+        block_index: 1,
+        block: { kind: 'tool_use', tool_call_id: 'call', tool_name: 'shell' },
+      }),
+      delta(4, { kind: 'tool_arguments_delta', block_index: 1, delta: '{"command":"pwd"}' }),
+    ]
+    const previewParts = projectAgentChat({
+      ...emptyData,
+      events: [userInputEvent()],
+      deltas,
+    }).messages.at(-1)?.parts
+    const settledParts = projectAgentChat({
+      ...emptyData,
+      events: [
+        userInputEvent(),
+        event({
+          id: 'settled-output',
+          sequence: 12,
+          content_blocks: [{ type: 'reasoning', text: 'Planning' }, toolCallBlock()],
+        }),
+      ],
+      deltas: [],
+    }).messages.at(-1)?.parts
+
+    expect(previewParts?.map((part) => part.id)).toEqual(['mcc:block:0', 'mcc:block:1'])
+    expect(settledParts?.map((part) => part.id)).toEqual(previewParts?.map((part) => part.id))
+    expect(settledParts).toMatchObject([
+      { type: 'reasoning', text: 'Planning' },
+      { type: 'dynamic-tool', toolCallId: 'call', input: { command: 'pwd' } },
+    ])
+  })
 })
 
 describe('agentEventsToMessages', () => {

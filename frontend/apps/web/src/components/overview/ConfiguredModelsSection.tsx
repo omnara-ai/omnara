@@ -4,7 +4,7 @@ import {
   useModelProviders,
 } from '@omnara/react'
 import { ApiError, type ConfiguredModel } from '@omnara/sdk'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
@@ -61,14 +61,10 @@ export function ConfiguredModelsSection() {
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
   const list = useResourceList<string>('-created_at')
   // Newest first for the overview; the hook's name ordering is for pickers.
-  const models = useMemo(
-    () =>
-      [...(modelsQuery.data ?? [])].sort((left, right) => {
-        const createdAt = Date.parse(right.model.created_at) - Date.parse(left.model.created_at)
-        return createdAt || right.model.id.localeCompare(left.model.id)
-      }),
-    [modelsQuery.data],
-  )
+  const models = [...(modelsQuery.data ?? [])].sort((left, right) => {
+    const createdAt = Date.parse(right.model.created_at) - Date.parse(left.model.created_at)
+    return createdAt || right.model.id.localeCompare(left.model.id)
+  })
 
   const newModelButton = () =>
     canManage && tenantProviders.length > 0 ? (
@@ -110,61 +106,75 @@ export function ConfiguredModelsSection() {
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Name' },
-            { header: 'Provider' },
-            { header: 'Model' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (option) => (
+                <span className="inline-flex max-w-full items-center gap-2">
+                  <span className="truncate font-medium">{option.model.name}</span>
+                  {option.provider.management_kind === 'cluster' && (
+                    <Badge variant="secondary">cluster</Badge>
+                  )}
+                </span>
+              ),
+            },
+            { id: 'provider', header: 'Provider', cell: (option) => option.provider.name },
+            {
+              id: 'model',
+              header: 'Model',
+              cell: (option) => (
+                <span className="text-muted-foreground">{option.model.provider_model_slug}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (option) =>
+                canManage ? (
+                  <ResourceRowActions
+                    onEdit={
+                      option.provider.management_kind === 'tenant'
+                        ? () => {
+                            setActiveDialog({ kind: 'edit', model: option.model })
+                          }
+                        : undefined
+                    }
+                    onGrant={() => {
+                      setActiveDialog({ kind: 'grant', model: option.model })
+                    }}
+                    onDelete={
+                      option.provider.management_kind === 'tenant'
+                        ? () => {
+                            if (!window.confirm(`Delete configured model ${option.model.name}?`))
+                              return
+                            deleteModel.mutate(
+                              {
+                                modelProviderConfigID: option.provider.id,
+                                configuredModelID: option.model.id,
+                              },
+                              {
+                                onError: (error) => {
+                                  window.alert(
+                                    error instanceof ApiError
+                                      ? error.message
+                                      : 'Could not delete configured model',
+                                  )
+                                },
+                              },
+                            )
+                          }
+                        : undefined
+                    }
+                  />
+                ) : null,
+            },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(option) => option.model.id}
-          rowCells={(option) => [
-            <span className="inline-flex max-w-full items-center gap-2">
-              <span className="truncate font-medium">{option.model.name}</span>
-              {option.provider.management_kind === 'cluster' && (
-                <Badge variant="secondary">cluster</Badge>
-              )}
-            </span>,
-            option.provider.name,
-            <span className="text-muted-foreground">{option.model.provider_model_slug}</span>,
-            canManage ? (
-              <ResourceRowActions
-                onEdit={
-                  option.provider.management_kind === 'tenant'
-                    ? () => {
-                        setActiveDialog({ kind: 'edit', model: option.model })
-                      }
-                    : undefined
-                }
-                onGrant={() => {
-                  setActiveDialog({ kind: 'grant', model: option.model })
-                }}
-                onDelete={
-                  option.provider.management_kind === 'tenant'
-                    ? () => {
-                        if (!window.confirm(`Delete configured model ${option.model.name}?`)) return
-                        deleteModel.mutate(
-                          {
-                            modelProviderConfigID: option.provider.id,
-                            configuredModelID: option.model.id,
-                          },
-                          {
-                            onError: (error) => {
-                              window.alert(
-                                error instanceof ApiError
-                                  ? error.message
-                                  : 'Could not delete configured model',
-                              )
-                            },
-                          },
-                        )
-                      }
-                    : undefined
-                }
-              />
-            ) : null,
-          ]}
           rowExpanded={({ model }) => (
             <DetailList
               items={[

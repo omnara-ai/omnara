@@ -40,7 +40,7 @@ export function AgentProfileTypeahead({
       <FieldLabel htmlFor="agent-profile-search">Agent profile</FieldLabel>
       <ProfileCombobox
         items={profiles}
-        value={selectedProfile?.id ?? null}
+        value={selectedProfile}
         onValueChange={(profile) => {
           if (profile) onSelect(profile)
         }}

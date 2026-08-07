@@ -1715,6 +1715,11 @@ export const zCreateMachineRequest = z.object({
     metadata: z.record(z.string(), z.unknown()).optional()
 });
 
+export const zConnectByoMachineRequest = z.object({
+    display_name: z.string().min(1),
+    project_ids: z.array(zProjectId).max(100)
+});
+
 export const zUpdateMachineRequest = z.object({
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
@@ -1885,6 +1890,13 @@ export const zMachineDaemonToken = z.object({
     last_used_at: zTimestamp.nullable(),
     revoked_at: zTimestamp.nullable(),
     revoke_reason: z.string()
+});
+
+export const zConnectByoMachineResponse = z.object({
+    machine: zMachine,
+    token: z.string(),
+    token_record: zMachineDaemonToken,
+    project_grants: z.array(zProjectMachineGrant)
 });
 
 export const zCreateMachineDaemonTokenResponse = z.object({
@@ -2652,6 +2664,11 @@ export const zListVisibleMachinesResponse2 = zListVisibleMachinesResponse;
  * Existing machine returned.
  */
 export const zCreateMachineResponse = zMachine;
+
+/**
+ * Machine, daemon token, and selected project grants created.
+ */
+export const zConnectByoMachineResponse2 = zConnectByoMachineResponse;
 
 /**
  * Resource deleted.

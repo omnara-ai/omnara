@@ -69,43 +69,58 @@ export function AgentProfilesSection({
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Name' },
-            { header: 'Provider' },
-            { header: 'Model' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (profile) => <span className="font-medium">{profile.name}</span>,
+            },
+            {
+              id: 'provider',
+              header: 'Provider',
+              cell: (profile) => profile.current_config.model.provider_config,
+            },
+            {
+              id: 'model',
+              header: 'Model',
+              cell: (profile) => (
+                <span className="text-muted-foreground">{profile.current_config.model.name}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (profile) =>
+                canManage ? (
+                  <ResourceRowActions
+                    onEdit={() => {
+                      setActiveDialog({ kind: 'edit', profile })
+                    }}
+                    onGrant={() => {
+                      setActiveDialog({ kind: 'deploy', profile })
+                    }}
+                    grantLabel="Deploy to app"
+                    onDelete={() => {
+                      if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
+                      deleteProfile.mutate(profile.id, {
+                        onError: (error) => {
+                          window.alert(
+                            error instanceof ApiError
+                              ? error.message
+                              : 'Could not delete agent profile',
+                          )
+                        },
+                      })
+                    }}
+                  />
+                ) : null,
+            },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(profile) => profile.id}
-          rowCells={(profile) => [
-            <span className="font-medium">{profile.name}</span>,
-            profile.current_config.model.provider_config,
-            <span className="text-muted-foreground">{profile.current_config.model.name}</span>,
-            canManage ? (
-              <ResourceRowActions
-                onEdit={() => {
-                  setActiveDialog({ kind: 'edit', profile })
-                }}
-                onGrant={() => {
-                  setActiveDialog({ kind: 'deploy', profile })
-                }}
-                grantLabel="Deploy to app"
-                onDelete={() => {
-                  if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
-                  deleteProfile.mutate(profile.id, {
-                    onError: (error) => {
-                      window.alert(
-                        error instanceof ApiError
-                          ? error.message
-                          : 'Could not delete agent profile',
-                      )
-                    },
-                  })
-                }}
-              />
-            ) : null,
-          ]}
           rowExpanded={(profile) => (
             <div className="flex flex-col gap-4">
               <DetailList

@@ -52,6 +52,16 @@ func TestDeleteOrganizationRequiresOrganizationOwnership(t *testing.T) {
 	}
 }
 
+func TestConnectBYOMachineRequiresBrowserSessionAndOrganizationManage(t *testing.T) {
+	policy := openAPIOperationPolicies[operationConnectBYOMachine]
+	if policy.principal != principalKindBrowserSession {
+		t.Fatalf("connect BYO machine principal = %v, want browser session", policy.principal)
+	}
+	if policy.scope.kind != scopeKindOrg || policy.scope.action != identitystore.OrgActionManage {
+		t.Fatalf("connect BYO machine scope = %+v, want organization manage", policy.scope)
+	}
+}
+
 func TestAuthorizeOperationPrincipalAllowsPublicWithoutPrincipal(t *testing.T) {
 	if err := authorizeOperationPrincipal(context.Background(), principalKindPublic); err != nil {
 		t.Fatalf("public operation without principal should be allowed: %v", err)

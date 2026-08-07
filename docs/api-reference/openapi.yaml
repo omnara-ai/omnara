@@ -4058,6 +4058,48 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /orgs/{orgID}/machines/connect:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+    post:
+      operationId: connectBYOMachine
+      tags: [Machines]
+      summary: Connect a BYO machine
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectBYOMachineRequest'
+      responses:
+        '201':
+          description: Machine, daemon token, and selected project grants created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectBYOMachineResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /orgs/{orgID}/machines/{machineID}:
     parameters:
       - name: orgID
@@ -9198,6 +9240,35 @@ components:
         metadata:
           type: object
           additionalProperties: true
+    ConnectBYOMachineRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name, project_ids]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+        project_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ProjectID'
+    ConnectBYOMachineResponse:
+      type: object
+      additionalProperties: false
+      required: [machine, token, token_record, project_grants]
+      properties:
+        machine:
+          $ref: '#/components/schemas/Machine'
+        token:
+          type: string
+        token_record:
+          $ref: '#/components/schemas/MachineDaemonToken'
+        project_grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectMachineGrant'
     UpdateMachineRequest:
       type: object
       additionalProperties: false

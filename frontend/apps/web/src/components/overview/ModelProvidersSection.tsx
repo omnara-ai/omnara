@@ -63,42 +63,62 @@ export function ModelProvidersSection() {
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Name' },
-            { header: 'API format', className: 'w-36' },
-            { header: 'Base URL' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (provider) => (
+                <span className="inline-flex max-w-full items-center gap-2">
+                  <span className="truncate font-medium">{provider.name}</span>
+                  {provider.management_kind === 'cluster' && (
+                    <Badge variant="secondary">cluster</Badge>
+                  )}
+                </span>
+              ),
+            },
+            {
+              id: 'api-format',
+              header: 'API format',
+              className: 'w-36',
+              cell: (provider) => provider.api_format,
+            },
+            {
+              id: 'base-url',
+              header: 'Base URL',
+              cell: (provider) => (
+                <span className="text-muted-foreground">{provider.base_url}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (provider) =>
+                canManage && provider.management_kind === 'tenant' ? (
+                  <ResourceRowActions
+                    onEdit={() => {
+                      setEditProvider(provider)
+                    }}
+                    onDelete={() => {
+                      if (!window.confirm(`Delete model provider ${provider.name}?`)) return
+                      deleteProvider.mutate(provider.id, {
+                        onError: (error) => {
+                          window.alert(
+                            error instanceof ApiError
+                              ? error.message
+                              : 'Could not delete model provider',
+                          )
+                        },
+                      })
+                    }}
+                  />
+                ) : null,
+            },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(provider) => provider.id}
-          rowCells={(provider) => [
-            <span className="inline-flex max-w-full items-center gap-2">
-              <span className="truncate font-medium">{provider.name}</span>
-              {provider.management_kind === 'cluster' && <Badge variant="secondary">cluster</Badge>}
-            </span>,
-            provider.api_format,
-            <span className="text-muted-foreground">{provider.base_url}</span>,
-            canManage && provider.management_kind === 'tenant' ? (
-              <ResourceRowActions
-                onEdit={() => {
-                  setEditProvider(provider)
-                }}
-                onDelete={() => {
-                  if (!window.confirm(`Delete model provider ${provider.name}?`)) return
-                  deleteProvider.mutate(provider.id, {
-                    onError: (error) => {
-                      window.alert(
-                        error instanceof ApiError
-                          ? error.message
-                          : 'Could not delete model provider',
-                      )
-                    },
-                  })
-                }}
-              />
-            ) : null,
-          ]}
           rowExpanded={(provider) => (
             <DetailList
               items={[

@@ -22,10 +22,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { collectGrantFailures } from '@/lib/grant-failures'
 import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { savePendingMcpSecretGrants } from '@/lib/pending-mcp-secret-grants'
-import { errorMessage } from '@/lib/submit-status'
 
 import {
   isSecretKind,
@@ -33,6 +31,7 @@ import {
   secretDialogReducer,
   secretKinds,
 } from './CreateSecretDialogState'
+import { submitSecretTransaction } from './createSecretSubmission'
 import { McpOAuthSecretFields } from './McpOAuthSecretFields'
 import { OAuthTokenFields } from './OAuthTokenFields'
 
@@ -69,66 +68,41 @@ export function CreateSecretDialog({
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     dispatch({ type: 'submit-start' })
-    let navigating = false
-    try {
-      if (state.secret.kind === 'mcp_oauth' && !state.createdSecret) {
-        const trimmedMcpServerUrl = state.secret.serverUrl.trim()
-        const trimmedClientId = state.secret.clientId.trim()
-        const trimmedClientSecret = state.secret.clientSecret?.trim() ?? ''
-        const response = await startMcpOAuth.mutateAsync({
-          owner,
-          name: state.name,
-          mcp_url: trimmedMcpServerUrl,
-          return_to: window.location.pathname + window.location.search + window.location.hash,
-          ...(trimmedClientId !== '' ? { client_id: trimmedClientId } : {}),
-          ...(trimmedClientSecret !== '' ? { client_secret: trimmedClientSecret } : {}),
-        })
-        savePendingMcpSecretGrants(orgId, state.projectGrantIds)
-        navigating = true
-        window.location.assign(response.authorization_url)
-        return
-      }
+    const result = await submitSecretTransaction({
+      state,
+      owner,
+      returnTo: window.location.pathname + window.location.search + window.location.hash,
+      operations: {
+        createSecret: createSecret.mutateAsync,
+        grantSecret: grantSecret.mutateAsync,
+        startMcpOAuth: startMcpOAuth.mutateAsync,
+        savePendingMcpGrants: (projectIds) => {
+          savePendingMcpSecretGrants(orgId, projectIds)
+        },
+      },
+    })
 
-      let secret = state.createdSecret
-      if (!secret) {
-        if (state.secret.kind === 'mcp_oauth') return
-        const material =
-          state.secret.kind === 'generic'
-            ? ({ kind: 'generic', value: state.secret.value } as const)
-            : oauthTokenSetMaterial(state.secret.entries)
-        if (material === undefined) {
-          throw new Error('OAuth token material is incomplete')
-        }
-        secret = await createSecret.mutateAsync({
-          owner,
-          name: state.name,
-          material,
-        })
-        dispatch({ type: 'created', secret })
-      }
-      const secretID = secret.id
-      const grantResults = await Promise.allSettled(
-        state.projectGrantIds.map((targetProjectID) =>
-          grantSecret.mutateAsync({ secretID, projectID: targetProjectID }),
-        ),
-      )
-      const failures = collectGrantFailures(state.projectGrantIds, grantResults)
-      if (failures) {
+    if ('secret' in result && result.secret && !state.createdSecret) {
+      dispatch({ type: 'created', secret: result.secret })
+    }
+    switch (result.kind) {
+      case 'redirect':
+        window.location.assign(result.authorizationUrl)
+        return
+      case 'failed':
+        dispatch({ type: 'submit-fail', message: result.message })
+        return
+      case 'grant-failures':
         dispatch({
           type: 'grant-failures',
-          failedProjectIds: failures.failedProjectIds,
-          message: `The secret was created, but ${failures.message}`,
+          failedProjectIds: result.failedProjectIds,
+          message: result.message,
         })
-        return
-      }
-      dispatch({ type: 'reset' })
-      onOpenChange(false)
-    } catch (err) {
-      dispatch({ type: 'submit-fail', message: errorMessage(err, 'Could not create secret') })
-    } finally {
-      if (!navigating) {
         dispatch({ type: 'submit-settled' })
-      }
+        return
+      case 'complete':
+        dispatch({ type: 'reset' })
+        onOpenChange(false)
     }
   }
 

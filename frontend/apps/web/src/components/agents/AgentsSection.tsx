@@ -59,48 +59,64 @@ export function AgentsSection({
       </SearchHeader>
       <DataTable
         columns={[
-          { header: 'Name' },
-          { header: 'Model' },
-          { header: 'Target' },
-          { header: 'State', className: 'w-28' },
-          { header: '', className: 'w-14', isActions: true },
+          {
+            id: 'name',
+            header: 'Name',
+            cell: (agent) => <span className="font-medium">{agent.name || 'Agent'}</span>,
+          },
+          {
+            id: 'model',
+            header: 'Model',
+            cell: (agent) =>
+              agent.model ? (
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{agent.model.name}</span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    {agent.model.provider_config}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              ),
+          },
+          { id: 'target', header: 'Target', cell: (agent) => <TargetCell agent={agent} /> },
+          {
+            id: 'state',
+            header: 'State',
+            className: 'w-28',
+            cell: (agent) => (
+              <Badge variant="outline" className="capitalize">
+                {agent.state}
+              </Badge>
+            ),
+          },
+          {
+            id: 'actions',
+            header: '',
+            className: 'w-14',
+            isActions: true,
+            cell: (agent) =>
+              canManage ? (
+                <ResourceRowActions
+                  deleteLabel="Archive"
+                  onDelete={() => {
+                    if (!window.confirm(`Archive ${agent.name || 'this agent'}?`)) return
+                    archiveAgent.mutate(agent.id, {
+                      onError: (error) => {
+                        window.alert(
+                          error instanceof ApiError ? error.message : 'Could not archive agent',
+                        )
+                      },
+                    })
+                  }}
+                />
+              ) : null,
+          },
         ]}
         data={paged.rows}
         isFiltered={list.isFiltering}
         pagination={paged.pagination}
         getRowId={(agent) => agent.id}
-        rowCells={(agent) => [
-          <span className="font-medium">{agent.name || 'Agent'}</span>,
-          agent.model ? (
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate">{agent.model.name}</span>
-              <span className="text-muted-foreground truncate text-xs">
-                {agent.model.provider_config}
-              </span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          ),
-          <TargetCell agent={agent} />,
-          <Badge variant="outline" className="capitalize">
-            {agent.state}
-          </Badge>,
-          canManage ? (
-            <ResourceRowActions
-              deleteLabel="Archive"
-              onDelete={() => {
-                if (!window.confirm(`Archive ${agent.name || 'this agent'}?`)) return
-                archiveAgent.mutate(agent.id, {
-                  onError: (error) => {
-                    window.alert(
-                      error instanceof ApiError ? error.message : 'Could not archive agent',
-                    )
-                  },
-                })
-              }}
-            />
-          ) : null,
-        ]}
         onRowClick={(agent) => {
           void navigate({
             to: '/projects/$projectId/agents/$agentId',

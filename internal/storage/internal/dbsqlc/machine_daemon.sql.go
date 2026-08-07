@@ -1067,6 +1067,40 @@ func (q *Queries) ListActiveProjectMachineGrantsForMachine(ctx context.Context, 
 	return items, nil
 }
 
+const listActiveProjectsForMachineConnection = `-- name: ListActiveProjectsForMachineConnection :many
+SELECT id
+FROM projects
+WHERE org_id = $1
+  AND id = ANY($2::uuid[])
+  AND deleted_at IS NULL
+ORDER BY id
+`
+
+type ListActiveProjectsForMachineConnectionParams struct {
+	OrgID      uuid.UUID
+	ProjectIds []uuid.UUID
+}
+
+func (q *Queries) ListActiveProjectsForMachineConnection(ctx context.Context, arg ListActiveProjectsForMachineConnectionParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listActiveProjectsForMachineConnection, arg.OrgID, arg.ProjectIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllMachineDaemonTokens = `-- name: ListAllMachineDaemonTokens :many
 SELECT id, org_id, machine_id, name, token_hash, metadata, created_at, last_used_at, revoked_at, revoke_reason
 FROM machine_daemon_tokens
@@ -2192,7 +2226,9 @@ FROM projects project
 JOIN machines machine ON machine.org_id = project.org_id
   AND machine.id = $6
   AND machine.deleted_at IS NULL
-WHERE project.org_id = $7 AND project.id = $8
+WHERE project.org_id = $7
+  AND project.id = $8
+  AND project.deleted_at IS NULL
   AND (
     (
       $1::text = 'explicit'

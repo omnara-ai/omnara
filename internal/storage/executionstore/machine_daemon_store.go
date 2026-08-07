@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -211,12 +212,9 @@ type MachineFailureReportInput struct {
 }
 
 func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachineInput) (MachineRecord, error) {
-	input.DisplayName = strings.TrimSpace(input.DisplayName)
-	if isNilID(input.OrgID) || input.DisplayName == "" {
-		return MachineRecord{}, errors.New("org and display name are required")
-	}
+	var environment MachineEnvironment
 	var err error
-	input.Metadata, err = normalizedJSONObject(input.Metadata, "machine metadata")
+	input, environment, err = prepareDaemonMachineCreate(input)
 	if err != nil {
 		return MachineRecord{}, err
 	}
@@ -226,13 +224,63 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	record, err := createDaemonMachineTx(ctx, qtx, input, environment)
+	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return MachineRecord{}, fmt.Errorf("commit create machine: %w", err)
+		}
+		return record, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) || input.IdempotencyKey == "" {
+		return MachineRecord{}, err
+	}
+	replay, err := qtx.GetMachineByIdempotency(
+		ctx,
+		dbsqlc.GetMachineByIdempotencyParams{
+			OrgID:          input.OrgID,
+			IdempotencyKey: input.IdempotencyKey,
+		},
+	)
+	if err != nil {
+		return MachineRecord{}, fmt.Errorf("get machine by idempotency: %w", err)
+	}
+	record = machineRecordFromIdempotencySQLC(replay)
+	if err := tx.Commit(ctx); err != nil {
+		return MachineRecord{}, fmt.Errorf("commit replay create machine: %w", err)
+	}
+	return record, nil
+}
+
+func prepareDaemonMachineCreate(
+	input CreateDaemonMachineInput,
+) (CreateDaemonMachineInput, MachineEnvironment, error) {
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	if isNilID(input.OrgID) || input.DisplayName == "" {
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, errors.New(
+			"org and display name are required",
+		)
+	}
+	var err error
+	input.Metadata, err = normalizedJSONObject(input.Metadata, "machine metadata")
+	if err != nil {
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, err
+	}
 	if strings.ContainsRune(input.Cwd, 0) {
-		return MachineRecord{}, errors.New("cwd cannot contain NUL")
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, errors.New("cwd cannot contain NUL")
 	}
 	environment, err := MachineEnvironmentFromColumns(input.Env, input.SecretEnv)
 	if err != nil {
-		return MachineRecord{}, err
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, err
 	}
+	return input, environment, nil
+}
+
+func createDaemonMachineTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateDaemonMachineInput,
+	environment MachineEnvironment,
+) (MachineRecord, error) {
 	env, secretEnv, err := machineEnvironmentToColumns(environment)
 	if err != nil {
 		return MachineRecord{}, err
@@ -256,34 +304,17 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 			Metadata:               input.Metadata,
 		},
 	)
-	if err == nil {
-		if err := validateMachineEnvironmentSecretsTx(ctx, qtx, input.OrgID, NilID, environment); err != nil {
-			return MachineRecord{}, err
+	if err != nil {
+		if storeutil.IsUniqueViolation(err) {
+			return MachineRecord{}, storeerr.ErrConflict
 		}
-		record := machineRecordFromInsertSQLC(row)
-		record.Created = true
-		if err := tx.Commit(ctx); err != nil {
-			return MachineRecord{}, fmt.Errorf("commit create machine: %w", err)
-		}
-		return record, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) || input.IdempotencyKey == "" {
 		return MachineRecord{}, fmt.Errorf("insert machine: %w", err)
 	}
-	replay, err := qtx.GetMachineByIdempotency(
-		ctx,
-		dbsqlc.GetMachineByIdempotencyParams{
-			OrgID:          input.OrgID,
-			IdempotencyKey: input.IdempotencyKey,
-		},
-	)
-	if err != nil {
-		return MachineRecord{}, fmt.Errorf("get machine by idempotency: %w", err)
+	if err := validateMachineEnvironmentSecretsTx(ctx, qtx, input.OrgID, NilID, environment); err != nil {
+		return MachineRecord{}, err
 	}
-	record := machineRecordFromIdempotencySQLC(replay)
-	if err := tx.Commit(ctx); err != nil {
-		return MachineRecord{}, fmt.Errorf("commit replay create machine: %w", err)
-	}
+	record := machineRecordFromInsertSQLC(row)
+	record.Created = true
 	return record, nil
 }
 
@@ -609,6 +640,9 @@ func (s *Store) CreateProjectMachineGrant(
 		ctx,
 		dbsqlc.GetMachineParams{OrgID: input.OrgID, ID: input.MachineID},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
 			"get machine for project grant: %w",
@@ -616,22 +650,8 @@ func (s *Store) CreateProjectMachineGrant(
 		)
 	}
 	machine := machineRecordFromGetSQLC(machineRow)
-	grantRow, err := qtx.UpsertProjectMachineGrant(
-		ctx,
-		dbsqlc.UpsertProjectMachineGrantParams{
-			OrgID:                     input.OrgID,
-			ProjectID:                 input.ProjectID,
-			MachineID:                 input.MachineID,
-			SourceKind:                string(ProjectMachineGrantSourceKindExplicit),
-			ProjectMachinePoolGrantID: nil,
-			Description:               input.Description,
-			IdempotencyKey:            sqlcTextFromEmpty(input.IdempotencyKey),
-			Metadata:                  input.Metadata,
-		},
-	)
+	grant, err := upsertExplicitProjectMachineGrantTx(ctx, qtx, input)
 	if err == nil {
-		grant := projectMachineGrantFromUpsert(grantRow)
-		grant.Created = true
 		if err := tx.Commit(ctx); err != nil {
 			return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
 				"commit create project machine grant: %w",
@@ -673,6 +693,69 @@ func (s *Store) CreateProjectMachineGrant(
 		}
 	}
 	return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.ErrIdempotencyConflict
+}
+
+func upsertExplicitProjectMachineGrantTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateProjectMachineGrantInput,
+) (ProjectMachineGrantRecord, error) {
+	row, err := upsertProjectMachineGrantTx(
+		ctx,
+		qtx,
+		dbsqlc.UpsertProjectMachineGrantParams{
+			OrgID:                     input.OrgID,
+			ProjectID:                 input.ProjectID,
+			MachineID:                 input.MachineID,
+			SourceKind:                string(ProjectMachineGrantSourceKindExplicit),
+			ProjectMachinePoolGrantID: nil,
+			Description:               input.Description,
+			IdempotencyKey:            sqlcTextFromEmpty(input.IdempotencyKey),
+			Metadata:                  input.Metadata,
+		},
+	)
+	if err != nil {
+		return ProjectMachineGrantRecord{}, err
+	}
+	grant := projectMachineGrantFromUpsert(row)
+	grant.Created = true
+	return grant, nil
+}
+
+func upsertProjectMachineGrantTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input dbsqlc.UpsertProjectMachineGrantParams,
+) (dbsqlc.UpsertProjectMachineGrantRow, error) {
+	row, err := qtx.UpsertProjectMachineGrant(ctx, input)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return row, err
+	}
+	if _, projectErr := qtx.GetProject(
+		ctx,
+		dbsqlc.GetProjectParams{OrgID: input.OrgID, ID: input.ProjectID},
+	); errors.Is(projectErr, pgx.ErrNoRows) {
+		return dbsqlc.UpsertProjectMachineGrantRow{}, storeerr.ErrNotFound
+	} else if projectErr != nil {
+		return dbsqlc.UpsertProjectMachineGrantRow{}, fmt.Errorf(
+			"get project for machine grant: %w",
+			projectErr,
+		)
+	}
+	machine, machineErr := qtx.GetMachine(
+		ctx,
+		dbsqlc.GetMachineParams{OrgID: input.OrgID, ID: input.MachineID},
+	)
+	if errors.Is(machineErr, pgx.ErrNoRows) || machine.DeletedAt != nil {
+		return dbsqlc.UpsertProjectMachineGrantRow{}, storeerr.ErrNotFound
+	}
+	if machineErr != nil {
+		return dbsqlc.UpsertProjectMachineGrantRow{}, fmt.Errorf(
+			"get machine for project grant: %w",
+			machineErr,
+		)
+	}
+	return row, err
 }
 
 func (s *Store) ListProjectMachineGrants(

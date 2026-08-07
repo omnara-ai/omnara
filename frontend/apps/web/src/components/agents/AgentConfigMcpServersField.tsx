@@ -1,4 +1,4 @@
-import { useProjectAvailableSecrets } from '@omnara/react'
+import { useProjectAvailableSecret, useProjectAvailableSecrets } from '@omnara/react'
 import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
 import { Trash2Icon } from 'lucide-react'
 
@@ -227,6 +227,12 @@ function permissionModeLabel(profile: ToolPermissionProfile | undefined, value: 
   return profile?.permission_modes.find((mode) => mode.name === value)?.label ?? value
 }
 
+function matchesMcpSecret(secret: Secret, oauth: boolean, serverUrl: string) {
+  return oauth
+    ? secret.kind === 'oauth_token_set' && secret.metadata.mcp_url === serverUrl
+    : secret.kind === 'generic'
+}
+
 function McpSecretCombobox({
   orgId,
   projectId,
@@ -240,22 +246,31 @@ function McpSecretCombobox({
 }) {
   const search = useTypeaheadSearch()
   const oauth = server.authType === 'oauth'
+  const serverUrl = server.url.trim()
   const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
     filters: {
       ...search.filters,
-      ...(oauth ? { metadata: { mcp_url: server.url.trim() } } : {}),
+      ...(oauth ? { metadata: { mcp_url: serverUrl } } : {}),
     },
     sort: 'name',
     pageSize: 25,
   })
-  const secrets = useInfiniteQueryItems(secretsQuery)
-    .map((access) => access.secret)
-    .filter((secret) => (oauth ? secret.kind === 'oauth_token_set' : secret.kind === 'generic'))
+  const secrets = useInfiniteQueryItems(secretsQuery).flatMap((access) => {
+    const secret = access.secret
+    return matchesMcpSecret(secret, oauth, serverUrl) ? [secret] : []
+  })
+  const selectedSecretQuery = useProjectAvailableSecret(orgId, projectId, server.secretId)
+  const resolvedSecret = selectedSecretQuery.data?.secret
+  const selectedSecret =
+    secrets.find((secret) => secret.id === server.secretId) ??
+    (resolvedSecret?.id === server.secretId && matchesMcpSecret(resolvedSecret, oauth, serverUrl)
+      ? resolvedSecret
+      : null)
 
   return (
     <SecretCombobox
       items={secrets}
-      value={server.secretId || null}
+      value={selectedSecret}
       onValueChange={(secret) => {
         onChange(secret?.id ?? '')
       }}

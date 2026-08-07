@@ -2,7 +2,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { PanelLeftIcon } from 'lucide-react'
 import { Slot as SlotPrimitive } from 'radix-ui'
 import type { ComponentProps, CSSProperties } from 'react'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, use, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +26,16 @@ const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b'
 
+function commitDesktopSidebarOpen(
+  open: boolean,
+  onOpenChange: ((open: boolean) => void) | undefined,
+  setInternalOpen: (open: boolean) => void,
+) {
+  if (onOpenChange) onOpenChange(open)
+  else setInternalOpen(open)
+  document.cookie = `${SIDEBAR_COOKIE_NAME}=${String(open)}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+}
+
 interface SidebarContextProps {
   state: 'expanded' | 'collapsed'
   open: boolean
@@ -39,7 +49,7 @@ interface SidebarContextProps {
 const SidebarContext = createContext<SidebarContextProps | null>(null)
 
 function useSidebar() {
-  const context = useContext(SidebarContext)
+  const context = use(SidebarContext)
   if (!context) {
     throw new Error('useSidebar must be used within a SidebarProvider.')
   }
@@ -64,46 +74,43 @@ function SidebarProvider({
   const [internalOpen, setInternalOpen] = useState(defaultOpen)
   const open = openProp ?? internalOpen
 
-  const setOpen = useCallback(
-    (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === 'function' ? value(open) : value
-      if (setOpenProp) {
-        setOpenProp(openState)
-      } else {
-        setInternalOpen(openState)
-      }
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${String(openState)}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
-    },
-    [setOpenProp, open],
-  )
+  const setOpen = (nextOpen: boolean) => {
+    commitDesktopSidebarOpen(nextOpen, setOpenProp, setInternalOpen)
+  }
 
-  const toggleSidebar = useCallback(() => {
+  const toggleSidebar = () => {
     if (isMobile) {
       setOpenMobile((value) => !value)
     } else {
-      setOpen((value) => !value)
+      commitDesktopSidebarOpen(!open, setOpenProp, setInternalOpen)
     }
-  }, [isMobile, setOpen])
+  }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
-        toggleSidebar()
+        if (isMobile) setOpenMobile((value) => !value)
+        else commitDesktopSidebarOpen(!open, setOpenProp, setInternalOpen)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [toggleSidebar])
+  }, [isMobile, open, setOpenProp])
 
   const state = open ? 'expanded' : 'collapsed'
 
-  const contextValue = useMemo<SidebarContextProps>(
-    () => ({ state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar],
-  )
+  const contextValue: SidebarContextProps = {
+    state,
+    open,
+    setOpen,
+    isMobile,
+    openMobile,
+    setOpenMobile,
+    toggleSidebar,
+  }
 
   return (
     <SidebarContext.Provider value={contextValue}>
@@ -544,7 +551,6 @@ function SidebarMenuSkeleton({
   showIcon = false,
   ...props
 }: ComponentProps<'div'> & { showIcon?: boolean }) {
-  const width = useMemo(() => `${Math.floor(Math.random() * 40) + 50}%`, [])
   return (
     <div
       data-slot="sidebar-menu-skeleton"
@@ -556,7 +562,7 @@ function SidebarMenuSkeleton({
       <Skeleton
         className="max-w-(--skeleton-width) h-4 flex-1"
         data-sidebar="menu-skeleton-text"
-        style={{ '--skeleton-width': width } as CSSProperties}
+        style={{ '--skeleton-width': '70%' } as CSSProperties}
       />
     </div>
   )

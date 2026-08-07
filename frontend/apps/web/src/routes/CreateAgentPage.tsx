@@ -1,9 +1,14 @@
 import { useAgentProfiles, useCreateAgent, useCreateAgentConfig } from '@omnara/react'
 import type { AgentProfile } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { type SyntheticEvent, useCallback, useEffect, useReducer, useState } from 'react'
+import { type SyntheticEvent, useReducer, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import {
+  type BasicConfigDraft,
+  createEmptyBasicConfigDraft,
+  serializeBasicConfigDraft,
+} from '@/components/agents/agentConfigBasicSerialization'
 import {
   agentConfigModeReducer,
   initialAgentConfigModeState,
@@ -31,6 +36,7 @@ interface CreateAgentDraft {
   selectedProfile: AgentProfile | null
   name: string
   message: string
+  basicConfig: BasicConfigDraft
   status: SubmitStatus
 }
 
@@ -57,20 +63,9 @@ export function CreateAgentPage() {
     selectedProfile: null,
     name: '',
     message: '',
+    basicConfig: createEmptyBasicConfigDraft(),
     status: idle,
   })
-  // Stable identity: the builder's serialize effect depends on this callback.
-  const handleBuilderYamlChange = useCallback((value: string) => {
-    dispatchMode({ type: 'builder-yaml-changed', yaml: value })
-  }, [])
-  const defaultProfile =
-    draft.selectedProfile === null && profileSearch.search === '' ? profiles[0] : undefined
-  useEffect(() => {
-    if (!defaultProfile) return
-    setDraft((prev) =>
-      prev.selectedProfile === null ? { ...prev, selectedProfile: defaultProfile } : prev,
-    )
-  }, [defaultProfile])
 
   if (projectIsPending) return <FullPageSpinner />
 
@@ -90,10 +85,13 @@ export function CreateAgentPage() {
   }
 
   const activeTab = mode.mode
+  const builderYaml = serializeBasicConfigDraft(draft.name, draft.basicConfig)
+  const editorYaml = mode.editorYaml ?? builderYaml
   const isSubmitting = draft.status.phase === 'submitting'
   const errorMessage = statusError(draft.status)
-  const selectedProfile = draft.selectedProfile
-  const yaml = activeTab === 'builder' ? mode.builderYaml : mode.editorYaml
+  const selectedProfile =
+    draft.selectedProfile ?? (profileSearch.search === '' ? (profiles[0] ?? null) : null)
+  const yaml = activeTab === 'builder' ? builderYaml : editorYaml
   const canSubmit =
     !isSubmitting &&
     (activeTab === 'profile'
@@ -214,18 +212,20 @@ export function CreateAgentPage() {
             <AgentConfigBasicForm
               orgId={activeOrg.id}
               projectId={projectId}
-              name={draft.name}
-              onYamlChange={handleBuilderYamlChange}
+              value={draft.basicConfig}
+              onChange={(basicConfig) => {
+                setDraft((current) => ({ ...current, basicConfig }))
+              }}
             />
           </div>
           {activeTab === 'yaml' && (
             <AgentConfigYamlField
               id="agent-yaml"
-              value={mode.editorYaml}
+              value={editorYaml}
               showNamePlaceholder
               className="h-[28rem]"
               onChange={(value) => {
-                dispatchMode({ type: 'editor-yaml-changed', yaml: value })
+                dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml })
               }}
             />
           )}
@@ -242,7 +242,7 @@ export function CreateAgentPage() {
           </Field>
         </FieldGroup>
         {activeTab === 'builder' && (
-          <AgentConfigYamlPreview id="agent-yaml-preview" value={mode.builderYaml} />
+          <AgentConfigYamlPreview id="agent-yaml-preview" value={builderYaml} />
         )}
       </div>
       <ConfirmDiscardYamlDialog

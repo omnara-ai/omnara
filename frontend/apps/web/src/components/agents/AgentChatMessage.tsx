@@ -94,14 +94,14 @@ export function AgentChatMessage({
   return (
     <Message align={mine ? 'end' : 'start'}>
       <MessageContent>
-        {message.parts.map((part, index) => {
+        {message.parts.map((part) => {
           if (part.type === 'text') {
             if (message.role === 'assistant') {
-              return <AssistantMarkdown key={index}>{part.text}</AssistantMarkdown>
+              return <AssistantMarkdown key={part.id}>{part.text}</AssistantMarkdown>
             }
             return (
               <Bubble
-                key={index}
+                key={part.id}
                 align={mine ? 'end' : 'start'}
                 variant={mine ? 'default' : 'secondary'}
               >
@@ -111,7 +111,7 @@ export function AgentChatMessage({
           }
           if (part.type === 'reasoning') {
             return (
-              <Collapsible key={index} className="group/reasoning max-w-[90%]">
+              <Collapsible key={part.id} className="group/reasoning max-w-[90%]">
                 <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs">
                   <Brain className="size-3.5" /> Reasoning
                   <ChevronRight className="size-3.5 transition-transform group-data-[state=open]/reasoning:rotate-90" />
@@ -126,7 +126,7 @@ export function AgentChatMessage({
             if (!part.data.active) return null
             return (
               <div
-                key={part.id ?? index}
+                key={part.id}
                 className="text-muted-foreground flex items-center gap-2 py-0.5 text-xs"
                 role="status"
               >
@@ -136,12 +136,12 @@ export function AgentChatMessage({
             )
           }
           if (part.type === 'data-agent-config') {
-            return <AgentConfigDivider key={part.id ?? index} action={part.data.action} />
+            return <AgentConfigDivider key={part.id} action={part.data.action} />
           }
           if (part.type === 'data-media') {
-            return <AgentAttachment key={part.id ?? index} artifactId={part.data.artifactId} />
+            return <AgentAttachment key={part.id} artifactId={part.data.artifactId} />
           }
-          if (part.type === 'dynamic-tool') return <ToolPart key={part.toolCallId} part={part} />
+          if (part.type === 'dynamic-tool') return <ToolPart key={part.id} part={part} />
           return null
         })}
       </MessageContent>

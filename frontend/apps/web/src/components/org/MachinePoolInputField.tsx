@@ -45,7 +45,7 @@ export function MachinePoolInputField({
               rel="noreferrer"
               className="text-foreground underline underline-offset-2"
             >
-              Learn more
+              View {label.toLowerCase()} documentation
             </a>
           )}
         </FieldDescription>
