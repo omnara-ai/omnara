@@ -17,7 +17,6 @@ CREATE TABLE machine_pools (
     default_cwd text NOT NULL DEFAULT '',
     provider_config jsonb NOT NULL DEFAULT '{}'::jsonb,
     provider_auth_secret_id uuid,
-    deletion_provider_auth_secret_version_id uuid,
     provider_auth_env_var text NOT NULL DEFAULT '',
     max_total_machines integer NOT NULL,
     max_total_cpu integer,
@@ -44,14 +43,6 @@ CREATE TABLE machine_pools (
         (management_kind = 'tenant' AND (provider_auth_secret_id IS NOT NULL OR deleted_at IS NOT NULL) AND provider_auth_env_var = '') OR
         (management_kind = 'cluster' AND provider_auth_secret_id IS NULL AND provider_auth_env_var <> '')
     ),
-    CHECK (
-        deletion_provider_auth_secret_version_id IS NULL OR
-        (management_kind = 'tenant' AND provider_auth_secret_id IS NOT NULL AND deleted_at IS NOT NULL)
-    ),
-    CHECK (
-        management_kind <> 'tenant' OR deleted_at IS NULL OR provider_auth_secret_id IS NULL OR
-        deletion_provider_auth_secret_version_id IS NOT NULL
-    ),
     CHECK (max_total_machines >= 0),
     CHECK (max_total_cpu IS NULL OR max_total_cpu >= 0),
     CHECK (max_total_memory_mb IS NULL OR max_total_memory_mb >= 0),
@@ -61,8 +52,6 @@ CREATE TABLE machine_pools (
     CHECK (default_machine_memory_mb IS NULL OR max_machine_memory_mb IS NULL OR default_machine_memory_mb <= max_machine_memory_mb),
     CHECK (jsonb_typeof(metadata) = 'object'),
     FOREIGN KEY (org_id, provider_auth_secret_id, management_kind) REFERENCES secrets(org_id, id, management_kind),
-    FOREIGN KEY (provider_auth_secret_id, deletion_provider_auth_secret_version_id)
-        REFERENCES secret_versions(secret_id, id),
     UNIQUE (org_id, id)
 );
 
