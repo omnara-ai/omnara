@@ -7294,7 +7294,7 @@ components:
             type: string
             nullable: true
         secret_env_overlay:
-          description: Secret env overlay applied to processes launched through this binding; a null entry removes the key.
+          description: Secret env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
           type: object
           additionalProperties:
             allOf:
