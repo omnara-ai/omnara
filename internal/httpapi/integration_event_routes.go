@@ -333,8 +333,9 @@ func (s *Server) processIntegrationInboundEvent(
 	}
 	if skippedFileSummary != "" {
 		contentBlockPayload = append(contentBlockPayload, map[string]any{
-			"type": "text",
-			"text": "\n" + skippedFileSummary,
+			"type":     "text",
+			"text":     "\n" + skippedFileSummary,
+			"metadata": map[string]any{"omnara_display_text": skippedFileSummary},
 		})
 	}
 	contentBlockPayload = append(contentBlockPayload, fileIngest.Blocks...)
