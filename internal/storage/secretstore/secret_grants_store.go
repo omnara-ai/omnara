@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -54,7 +55,29 @@ func (s *Store) CreateSecretGrant(
 	if err != nil {
 		return SecretGrantRecord{}, err
 	}
-	row, err := s.q.InsertSecretGrant(
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return SecretGrantRecord{}, fmt.Errorf("begin create secret grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	projectIDs := []ID{input.TargetProjectID}
+	if secret.OwnerKind == SecretOwnerProject {
+		projectIDs = append(projectIDs, secret.OwnerProjectID)
+	}
+	if err := lifecyclelock.EnterActiveProjects(ctx, tx, input.OrgID, projectIDs); err != nil {
+		return SecretGrantRecord{}, err
+	}
+	if _, err := qtx.LockSecret(
+		ctx,
+		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SecretGrantRecord{}, storeerr.ErrNotFound
+		}
+		return SecretGrantRecord{}, fmt.Errorf("lock secret for grant: %w", err)
+	}
+	row, err := qtx.InsertSecretGrant(
 		ctx,
 		dbsqlc.InsertSecretGrantParams{
 			ID:              grantID,
@@ -73,6 +96,9 @@ func (s *Store) CreateSecretGrant(
 		return SecretGrantRecord{}, fmt.Errorf("insert secret grant: %w", err)
 	}
 	grant := secretGrantFromInsert(row)
+	if err := tx.Commit(ctx); err != nil {
+		return SecretGrantRecord{}, fmt.Errorf("commit create secret grant: %w", err)
+	}
 	return grant, nil
 }
 

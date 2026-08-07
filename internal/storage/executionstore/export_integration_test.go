@@ -359,6 +359,7 @@ func IntegrationCreatePoolMachineBindingTx(
 
 func (s *Store) IntegrationResolveLaunchMachineSourcesTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	orgID, projectID ID,
 	sources []IntegrationLaunchMachineSource,
@@ -367,7 +368,7 @@ func (s *Store) IntegrationResolveLaunchMachineSourcesTx(
 	for index := range sources {
 		ownerSources[index] = launchMachineSource(sources[index])
 	}
-	if err := s.resolveLaunchMachineSourcesTx(ctx, qtx, orgID, projectID, ownerSources); err != nil {
+	if err := s.resolveLaunchMachineSourcesTx(ctx, tx, qtx, orgID, projectID, ownerSources); err != nil {
 		return err
 	}
 	for index := range ownerSources {
@@ -484,7 +485,13 @@ func IntegrationActivateAgentConfigTx(
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) (AgentConfigChangeRecord, error) {
-	return activateAgentConfigTx(ctx, txNotifications, tx, qtx, input)
+	if err := lockAgentForConfigActivationTx(ctx, qtx, input); err != nil {
+		return AgentConfigChangeRecord{}, err
+	}
+	if err := authorizeAgentConfigChangeTx(ctx, qtx, input); err != nil {
+		return AgentConfigChangeRecord{}, err
+	}
+	return activateLockedAuthorizedAgentConfigTx(ctx, txNotifications, tx, qtx, input)
 }
 
 func (s *Store) IntegrationCompleteDaemonProcessAction(
@@ -567,4 +574,44 @@ func IntegrationAppendToolResultEventTx(
 	record ToolCallRecord,
 ) (events.Event, error) {
 	return appendToolResultEventTx(ctx, txNotifications, tx, record)
+}
+
+func (s *Store) IntegrationExecuteToolCallOnce(
+	ctx context.Context,
+	input ExecuteToolCallInput,
+	command ToolCallCommand,
+) (ExecuteToolCallResult, error) {
+	return s.executeToolCallOnce(
+		ctx,
+		input,
+		func(*ToolCallReader) (ToolCallCommand, error) { return command, nil },
+	)
+}
+
+func (s *Store) IntegrationLaunchAgentOnce(
+	ctx context.Context,
+	input LaunchAgentInput,
+) (LaunchAgentResult, error) {
+	return s.launchAgentOnce(ctx, input)
+}
+
+func (s *Store) IntegrationChangeAgentConfigOnce(
+	ctx context.Context,
+	input ChangeAgentConfigInput,
+) (ChangeAgentConfigResult, error) {
+	return s.changeAgentConfigOnce(ctx, input)
+}
+
+func (s *Store) IntegrationDeleteMachineOnce(
+	ctx context.Context,
+	input DeleteMachineInput,
+) (MachineRecord, error) {
+	return s.deleteMachineOnce(ctx, input)
+}
+
+func (s *Store) IntegrationDeleteProjectMachineGrantOnce(
+	ctx context.Context,
+	orgID, projectID, grantID ID,
+) (ProjectMachineGrantRecord, error) {
+	return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, grantID)
 }

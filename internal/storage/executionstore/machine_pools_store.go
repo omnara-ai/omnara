@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -266,6 +267,9 @@ func (s *Store) CreateMachinePool(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachinePoolRecord{}, err
+	}
 	record, err := insertMachinePool(ctx, qtx, input)
 	if err == nil {
 		if err := lockResourceCreation(ctx, qtx, resourceMachinePools, input.OrgID.String()); err != nil {
@@ -527,6 +531,9 @@ func (s *Store) UpdateMachinePool(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachinePoolRecord{}, err
+	}
 	locked, err := qtx.LockMachinePoolForUpdate(
 		ctx,
 		dbsqlc.LockMachinePoolForUpdateParams{OrgID: input.OrgID, ID: input.ID},
@@ -745,12 +752,21 @@ func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id ID) ([]MachineR
 	if pool.ManagementKind == management.Cluster {
 		return nil, fmt.Errorf("cluster-managed machine pools cannot be deleted: %w", storeerr.ErrStateTransitionConflict)
 	}
+	return storeutil.RetryTransaction(ctx, func() ([]MachineRecord, error) {
+		return s.deleteMachinePoolOnce(ctx, orgID, id)
+	})
+}
+
+func (s *Store) deleteMachinePoolOnce(ctx context.Context, orgID, id ID) ([]MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin delete machine pool: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	txNotifications := s.newTxNotifications()
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, orgID); err != nil {
+		return nil, err
+	}
 	machines, err := s.DeleteMachinePoolTx(ctx, tx, txNotifications, orgID, id)
 	if err != nil {
 		return nil, err
@@ -774,11 +790,55 @@ func (s *Store) DeleteMachinePoolTx(
 	); err != nil {
 		return nil, fmt.Errorf("lock machine pool for delete: %w", err)
 	}
-	if _, err := qtx.LockMachinePoolMachinesForUpdate(
+	poolGrantRefs, err := qtx.ListProjectMachinePoolGrantRefsForMachinePool(
 		ctx,
-		dbsqlc.LockMachinePoolMachinesForUpdateParams{OrgID: orgID, MachinePoolID: &id},
-	); err != nil {
-		return nil, fmt.Errorf("lock machine pool machines for archive: %w", err)
+		dbsqlc.ListProjectMachinePoolGrantRefsForMachinePoolParams{
+			OrgID:         orgID,
+			MachinePoolID: id,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list project machine pool grants for machine pool: %w", err)
+	}
+	grantRefs := make([]lifecyclelock.PoolGrantRef, 0, len(poolGrantRefs))
+	for _, grantRef := range poolGrantRefs {
+		grantRefs = append(grantRefs, lifecyclelock.PoolGrantRef{
+			OrgID: orgID, ProjectID: grantRef.ProjectID, PoolID: id, GrantID: grantRef.ID,
+		})
+	}
+	if err := lifecyclelock.PoolGrants(ctx, tx, grantRefs); err != nil {
+		return nil, err
+	}
+	machineIDs, err := qtx.ListMachinePoolMachineIDsForLifecycle(
+		ctx,
+		dbsqlc.ListMachinePoolMachineIDsForLifecycleParams{OrgID: orgID, MachinePoolID: id},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list machine pool machines for lifecycle: %w", err)
+	}
+	machineRefs := make([]lifecyclelock.MachineRef, 0, len(machineIDs))
+	for _, machineID := range machineIDs {
+		machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: machineID})
+	}
+	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+		return nil, err
+	}
+	agentRows, err := qtx.ListMachinePoolAgentRefsForLifecycle(
+		ctx,
+		dbsqlc.ListMachinePoolAgentRefsForLifecycleParams{OrgID: orgID, MachinePoolID: id},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list machine pool agents for lifecycle: %w", err)
+	}
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentRows))
+	for _, agentRow := range agentRows {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{
+			ProjectID: agentRow.ProjectID,
+			AgentID:   agentRow.AgentID,
+		})
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+		return nil, err
 	}
 	if _, err := qtx.DeleteMachinePool(
 		ctx,
@@ -794,16 +854,6 @@ func (s *Store) DeleteMachinePoolTx(
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mark machine pool machines deleting: %w", err)
-	}
-	poolGrantRefs, err := qtx.ListProjectMachinePoolGrantRefsForMachinePool(
-		ctx,
-		dbsqlc.ListProjectMachinePoolGrantRefsForMachinePoolParams{
-			OrgID:         orgID,
-			MachinePoolID: id,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list project machine pool grants for machine pool: %w", err)
 	}
 	// Process completion joins the grant rows, so it runs before the deletes.
 	for _, poolGrantRef := range poolGrantRefs {

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -372,6 +373,9 @@ func (s *Store) AddProjectMembership(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return ProjectMembershipRecord{}, err
+	}
 	membership, err := qtx.GetOrgMembershipForUser(
 		ctx,
 		dbsqlc.GetOrgMembershipForUserParams{OrgID: input.OrgID, UserID: input.UserID},
@@ -394,6 +398,9 @@ func (s *Store) AddProjectMembership(
 		},
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || storeutil.IsForeignKeyViolation(err) {
+			return ProjectMembershipRecord{}, storeerr.ErrNotFound
+		}
 		return ProjectMembershipRecord{}, fmt.Errorf("add project membership: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -421,6 +428,9 @@ func (s *Store) AddOrgMembership(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return OrgMembershipRecord{}, err
+	}
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return OrgMembershipRecord{}, storeerr.ErrNotFound

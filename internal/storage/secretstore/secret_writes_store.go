@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -20,7 +21,7 @@ func (s *Store) CreateTx(
 	tx pgx.Tx,
 	input CreateSecretInput,
 ) (SecretRecord, SecretVersionRecord, error) {
-	return s.createSecretTx(ctx, s.q.WithTx(tx), input)
+	return s.createSecretTx(ctx, tx, s.q.WithTx(tx), input)
 }
 
 func (s *Store) CreateSecret(
@@ -45,7 +46,7 @@ func (s *Store) CreateSecret(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	record, version, err := s.createSecretTx(ctx, qtx, input)
+	record, version, err := s.createSecretTx(ctx, tx, qtx, input)
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
@@ -91,9 +92,22 @@ func (s *Store) CreateSecret(
 
 func (s *Store) createSecretTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input CreateSecretInput,
 ) (SecretRecord, SecretVersionRecord, error) {
+	if isNilID(input.OwnerProjectID) {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return SecretRecord{}, SecretVersionRecord{}, err
+		}
+	} else if err := lifecyclelock.EnterActiveProject(
+		ctx,
+		tx,
+		input.OrgID,
+		input.OwnerProjectID,
+	); err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
 	material, err := secrets.CanonicalizeMaterial(input.Material)
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
@@ -233,6 +247,22 @@ func (s *Store) UpdateSecretMetadata(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	secret, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+	if err != nil {
+		return SecretRecord{}, err
+	}
+	if isNilID(secret.OwnerProjectID) {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return SecretRecord{}, err
+		}
+	} else if err := lifecyclelock.EnterActiveProject(
+		ctx,
+		tx,
+		input.OrgID,
+		secret.OwnerProjectID,
+	); err != nil {
+		return SecretRecord{}, err
+	}
 	if _, err := qtx.LockSecret(
 		ctx,
 		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
@@ -299,6 +329,22 @@ func (s *Store) CreateSecretVersion(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	secret, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+	if err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
+	if isNilID(secret.OwnerProjectID) {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return SecretRecord{}, SecretVersionRecord{}, err
+		}
+	} else if err := lifecyclelock.EnterActiveProject(
+		ctx,
+		tx,
+		input.OrgID,
+		secret.OwnerProjectID,
+	); err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
 	if _, err := qtx.LockSecret(
 		ctx,
 		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
@@ -308,7 +354,7 @@ func (s *Store) CreateSecretVersion(
 		}
 		return SecretRecord{}, SecretVersionRecord{}, fmt.Errorf("lock secret: %w", err)
 	}
-	secret, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+	secret, err = getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}

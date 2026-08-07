@@ -132,7 +132,9 @@ FROM projects project
 JOIN machines machine ON machine.org_id = project.org_id
   AND machine.id = sqlc.arg(machine_id)
   AND machine.deleted_at IS NULL
-WHERE project.org_id = sqlc.arg(org_id) AND project.id = sqlc.arg(project_id)
+WHERE project.org_id = sqlc.arg(org_id)
+  AND project.id = sqlc.arg(project_id)
+  AND project.deleted_at IS NULL
   AND (
     (
       sqlc.arg(source_kind)::text = 'explicit'

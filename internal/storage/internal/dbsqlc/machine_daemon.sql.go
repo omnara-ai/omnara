@@ -2192,7 +2192,9 @@ FROM projects project
 JOIN machines machine ON machine.org_id = project.org_id
   AND machine.id = $6
   AND machine.deleted_at IS NULL
-WHERE project.org_id = $7 AND project.id = $8
+WHERE project.org_id = $7
+  AND project.id = $8
+  AND project.deleted_at IS NULL
   AND (
     (
       $1::text = 'explicit'

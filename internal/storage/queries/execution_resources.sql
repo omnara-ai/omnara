@@ -8,6 +8,7 @@ LEFT JOIN secrets provider_auth_secret ON provider_auth_secret.org_id = orgs.id
   AND provider_auth_secret.owner_kind = 'org'
   AND provider_auth_secret.kind = 'generic'
 WHERE orgs.id = sqlc.arg(org_id)
+  AND orgs.deleted_at IS NULL
   AND (
     (sqlc.arg(management_kind) = 'tenant' AND provider_auth_secret.id IS NOT NULL AND sqlc.arg(provider_auth_env_var) = '') OR
     (sqlc.arg(management_kind) = 'cluster' AND sqlc.narg(provider_auth_secret_id)::uuid IS NULL AND sqlc.arg(provider_auth_env_var) <> '')
@@ -50,16 +51,6 @@ WHERE org_id = sqlc.arg(org_id)
   AND management_kind = 'tenant'
   AND deleted_at IS NULL
 RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at;
-
--- name: LockMachinePoolMachinesForUpdate :many
-SELECT machine.id
-FROM machines machine
-WHERE machine.org_id = sqlc.arg(org_id)
-  AND machine.machine_pool_id = sqlc.arg(machine_pool_id)
-  AND machine.source_kind = 'pool'
-  AND machine.deleted_at IS NULL
-ORDER BY machine.id
-FOR UPDATE OF machine;
 
 -- name: DeleteMachinePool :one
 UPDATE machine_pools
@@ -127,6 +118,14 @@ RETURNING id, project_id;
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id);
+
+-- name: LockMachinePoolForLifecycle :one
+-- @sqlc-vet-disable machine-pools-deleted-at
+SELECT id
+FROM machine_pools
+WHERE org_id = sqlc.arg(org_id)
+  AND id = sqlc.arg(id)
+FOR UPDATE;
 
 -- name: ListMachinePools :many
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu,
@@ -198,6 +197,13 @@ ORDER BY id;
 SELECT id
 FROM machines
 WHERE org_id = sqlc.arg(org_id) AND source_kind = 'byo' AND deleted_at IS NULL
+ORDER BY id;
+
+-- name: ListOrganizationMachineIDsForLifecycle :many
+SELECT id
+FROM machines
+WHERE org_id = sqlc.arg(org_id)
+  AND deleted_at IS NULL
 ORDER BY id;
 
 -- name: GetMachinePoolByName :one
@@ -332,12 +338,32 @@ WHERE machine_grant.org_id = sqlc.arg(org_id)
   AND machine.source_kind = 'pool'
   AND machine.deleted_at IS NULL;
 
+-- name: ListMachinePoolMachineIDsForLifecycle :many
+SELECT id
+FROM machines
+WHERE org_id = sqlc.arg(org_id)
+  AND machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND source_kind = 'pool'
+  AND deleted_at IS NULL
+ORDER BY id;
+
+-- name: ListProjectMachineIDsForLifecycle :many
+SELECT machine.id
+FROM machines machine
+JOIN project_machine_grants machine_grant ON machine_grant.org_id = machine.org_id
+  AND machine_grant.machine_id = machine.id
+WHERE machine_grant.org_id = sqlc.arg(org_id)
+  AND machine_grant.project_id = sqlc.arg(project_id)
+  AND machine.deleted_at IS NULL
+ORDER BY machine.id;
+
 -- name: InsertMachine :one
 INSERT INTO machines(org_id, machine_pool_id, source_kind, display_name, description, provider, lifecycle_state, provider_resource_id, cpu, memory_mb, cwd, env, secret_env, provider_options, idempotency_key, lifecycle_changed_at, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, created_at, updated_at)
 SELECT orgs.id, sqlc.narg(machine_pool_id)::uuid, sqlc.arg(source_kind), sqlc.arg(display_name), sqlc.arg(description), sqlc.arg(provider), sqlc.arg(lifecycle_state), sqlc.narg(provider_resource_id), sqlc.narg(cpu)::integer, sqlc.narg(memory_mb)::integer, sqlc.arg(cwd)::text, sqlc.arg(env)::jsonb, sqlc.arg(secret_env)::jsonb, sqlc.narg(provider_options)::jsonb, sqlc.narg(idempotency_key), statement_timestamp(), sqlc.narg(lifecycle_reason_code), sqlc.arg(lifecycle_reason_message), CASE WHEN sqlc.arg(source_kind)::text = 'pool' THEN statement_timestamp() END, sqlc.arg(provision_attempts)::integer, sqlc.arg(delete_attempts)::integer, sqlc.arg(metadata), statement_timestamp(), statement_timestamp()
 FROM orgs
 LEFT JOIN machine_pools pool ON pool.org_id = orgs.id AND pool.id = sqlc.narg(machine_pool_id)::uuid
 WHERE orgs.id = sqlc.arg(org_id)
+  AND orgs.deleted_at IS NULL
   AND (
     sqlc.narg(machine_pool_id)::uuid IS NULL
     OR (
@@ -590,6 +616,15 @@ WHERE org_id = sqlc.arg(org_id)
   AND delete_attempts = sqlc.arg(delete_attempt)::integer
   AND deleted_at IS NULL
 FOR UPDATE;
+
+-- name: GetPoolMachinePoolIDForLifecycle :one
+-- @sqlc-vet-disable machines-deleted-at
+SELECT machine_pool_id
+FROM machines
+WHERE org_id = sqlc.arg(org_id)
+  AND id = sqlc.arg(id)
+  AND source_kind = 'pool'
+  AND machine_pool_id IS NOT NULL;
 
 -- name: DeletePoolMachine :one
 UPDATE machines

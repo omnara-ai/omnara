@@ -211,11 +211,16 @@ INSERT INTO agents(
     org_id, project_id, state, name, current_config_id,
     idempotency_key, created_at, updated_at
 )
-VALUES (
+SELECT
     $1, $2, 'active', $3,
     $4, $5,
     transaction_timestamp(), transaction_timestamp()
-)
+FROM projects project
+JOIN orgs org ON org.id = project.org_id
+WHERE project.org_id = $1
+  AND project.id = $2
+  AND project.deleted_at IS NULL
+  AND org.deleted_at IS NULL
 ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
 RETURNING id, org_id, project_id, state, name,
           current_config_id, integration_target_id,
@@ -626,33 +631,5 @@ type LockAgentLaunchIdempotencyKeyParams struct {
 
 func (q *Queries) LockAgentLaunchIdempotencyKey(ctx context.Context, arg LockAgentLaunchIdempotencyKeyParams) error {
 	_, err := q.db.Exec(ctx, lockAgentLaunchIdempotencyKey, arg.ProjectID, arg.IdempotencyKey)
-	return err
-}
-
-const lockProjectAgentLifecycleExclusive = `-- name: LockProjectAgentLifecycleExclusive :exec
-SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
-`
-
-type LockProjectAgentLifecycleExclusiveParams struct {
-	ProjectID string
-}
-
-func (q *Queries) LockProjectAgentLifecycleExclusive(ctx context.Context, arg LockProjectAgentLifecycleExclusiveParams) error {
-	_, err := q.db.Exec(ctx, lockProjectAgentLifecycleExclusive, arg.ProjectID)
-	return err
-}
-
-const lockProjectAgentLifecycleShared = `-- name: LockProjectAgentLifecycleShared :exec
-SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text, 0))
-`
-
-type LockProjectAgentLifecycleSharedParams struct {
-	ProjectID string
-}
-
-// Agent creation takes the shared side: creates never conflict with each
-// other, only with project/org deletion, which holds the exclusive side.
-func (q *Queries) LockProjectAgentLifecycleShared(ctx context.Context, arg LockProjectAgentLifecycleSharedParams) error {
-	_, err := q.db.Exec(ctx, lockProjectAgentLifecycleShared, arg.ProjectID)
 	return err
 }

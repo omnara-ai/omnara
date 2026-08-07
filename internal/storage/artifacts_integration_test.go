@@ -16,9 +16,11 @@ import (
 )
 
 type recordingBlobStore struct {
-	putKeys    []string
-	deleteKeys []string
-	content    map[string][]byte
+	putKeys             []string
+	deleteKeys          []string
+	deleteContextErrors []error
+	content             map[string][]byte
+	afterPut            func()
 }
 
 func newRecordingBlobStore() *recordingBlobStore {
@@ -29,6 +31,9 @@ func (s *recordingBlobStore) PutBlob(ctx context.Context, key string, content []
 	_ = ctx
 	s.putKeys = append(s.putKeys, key)
 	s.content[key] = append([]byte(nil), content...)
+	if s.afterPut != nil {
+		s.afterPut()
+	}
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
 }
 
@@ -47,8 +52,8 @@ func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, b
 }
 
 func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
-	_ = ctx
 	s.deleteKeys = append(s.deleteKeys, key)
+	s.deleteContextErrors = append(s.deleteContextErrors, ctx.Err())
 	delete(s.content, key)
 	return nil
 }
@@ -169,12 +174,42 @@ func TestCreateArtifactCleansUploadedBlobWhenDBInsertFails(t *testing.T) {
 	}
 }
 
+func TestCreateArtifactCleanupSurvivesRequestCancellation(t *testing.T) {
+	t.Parallel()
+	setupCtx := context.Background()
+	pool := openIntegrationDB(t, setupCtx)
+	seedMigratedDB(t, setupCtx, pool)
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	agentID := mustCreateAgent(t, setupCtx, store, now)
+	ctx, cancel := context.WithCancel(setupCtx)
+	blobs.afterPut = cancel
+
+	_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+		ProjectID:   testProjectID,
+		AgentID:     agentID,
+		ContentType: "image/png",
+		Content:     []byte("png bytes"),
+	})
+	if err == nil {
+		t.Fatal("expected create artifact to fail after request cancellation")
+	}
+	if len(blobs.deleteKeys) != 1 {
+		t.Fatalf("deleted blobs = %v, want one", blobs.deleteKeys)
+	}
+	if len(blobs.deleteContextErrors) != 1 || blobs.deleteContextErrors[0] != nil {
+		t.Fatalf("delete context errors = %v, want [nil]", blobs.deleteContextErrors)
+	}
+}
+
 func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	agentID := mustCreateAgent(t, ctx, store, now)
 
@@ -200,10 +235,77 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 	if replayed.Created {
 		t.Fatal("replay should not report created")
 	}
+	if len(blobs.putKeys) != 2 || len(blobs.deleteKeys) != 1 ||
+		blobs.deleteKeys[0] != blobs.putKeys[1] {
+		t.Fatalf("replay blob writes=%v deletes=%v, want second upload deleted", blobs.putKeys, blobs.deleteKeys)
+	}
+	if _, ok := blobs.content[blobs.putKeys[0]]; !ok {
+		t.Fatal("replay deleted the original artifact blob")
+	}
 
 	input.Content = []byte("different bytes")
 	if _, err := store.Artifacts().CreateArtifact(ctx, input); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting replay error = %v, want ErrIdempotencyConflict", err)
+	}
+	if len(blobs.putKeys) != 3 || len(blobs.deleteKeys) != 2 ||
+		blobs.deleteKeys[1] != blobs.putKeys[2] {
+		t.Fatalf("conflict blob writes=%v deletes=%v, want third upload deleted", blobs.putKeys, blobs.deleteKeys)
+	}
+}
+
+func TestCreateArtifactRejectsArchivedAgentButReplaysExisting(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	agentID := mustCreateAgent(t, ctx, store, now)
+	user := mustCreateProjectOperatorUser(t, ctx, store, "artifact-archived@example.com", "Artifact Archived")
+	input := artifactstore.CreateArtifactInput{
+		ProjectID:      testProjectID,
+		AgentID:        agentID,
+		ContentType:    "image/png",
+		Filename:       "shot.png",
+		Content:        []byte("same bytes"),
+		IdempotencyKey: "upload:archived:0",
+	}
+	first, err := store.Artifacts().CreateArtifact(ctx, input)
+	if err != nil {
+		t.Fatalf("create artifact: %v", err)
+	}
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx,
+		testProjectID,
+		agentID,
+		userPrincipal(user.ID),
+	); err != nil {
+		t.Fatalf("archive agent: %v", err)
+	}
+
+	replayed, err := store.Artifacts().CreateArtifact(ctx, input)
+	if err != nil {
+		t.Fatalf("replay archived agent artifact: %v", err)
+	}
+	if replayed.Created || replayed.ID != first.ID {
+		t.Fatalf("archived replay = %+v, want existing artifact %s", replayed, first.ID)
+	}
+	input.IdempotencyKey = "upload:archived:1"
+	_, err = store.Artifacts().CreateArtifact(ctx, input)
+	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("new archived agent artifact error = %v, want ErrStateTransitionConflict", err)
+	}
+	if len(blobs.putKeys) != 3 || len(blobs.deleteKeys) != 2 ||
+		blobs.deleteKeys[0] != blobs.putKeys[1] || blobs.deleteKeys[1] != blobs.putKeys[2] {
+		t.Fatalf("artifact blob writes=%v deletes=%v, want both post-archive uploads deleted", blobs.putKeys, blobs.deleteKeys)
+	}
+	var created int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM artifacts WHERE agent_id = $1 AND idempotency_key = $2`, agentID, input.IdempotencyKey).Scan(&created); err != nil {
+		t.Fatalf("count post-archive artifacts: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("post-archive artifacts = %d, want 0", created)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -13,6 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -50,6 +51,15 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
 		return ChangeAgentConfigResult{}, errors.New("project and agent are required")
 	}
+	return storeutil.RetryTransaction(ctx, func() (ChangeAgentConfigResult, error) {
+		return s.changeAgentConfigOnce(ctx, input)
+	})
+}
+
+func (s *Store) changeAgentConfigOnce(
+	ctx context.Context,
+	input ChangeAgentConfigInput,
+) (ChangeAgentConfigResult, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -57,6 +67,13 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
 	if err := qtx.LockAgentMachineSources(
 		ctx,
 		dbsqlc.LockAgentMachineSourcesParams{AgentID: input.AgentID},
@@ -69,10 +86,6 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 	)
 	if err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("load agent for config change: %w", err)
-	}
-	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
-	if err != nil {
-		return ChangeAgentConfigResult{}, err
 	}
 	configInput := input.CreateAgentConfigInput
 	configInput.OrgID = project.OrgID
@@ -91,39 +104,7 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	if !reflect.DeepEqual(currentContract.MachineSources, nextContract.MachineSources) {
-		nextSources, err := decodeLaunchMachineSources(nextContract)
-		if err != nil {
-			return ChangeAgentConfigResult{}, err
-		}
-		poolIDs := make([]ID, 0, len(nextSources))
-		for _, source := range nextSources {
-			if source.MachinePoolID != NilID {
-				poolIDs = append(poolIDs, source.MachinePoolID)
-			}
-		}
-		sort.Slice(poolIDs, func(i, j int) bool {
-			return poolIDs[i].String() < poolIDs[j].String()
-		})
-		for _, poolID := range poolIDs {
-			if _, err := qtx.LockMachinePoolForUpdate(
-				ctx,
-				dbsqlc.LockMachinePoolForUpdateParams{OrgID: project.OrgID, ID: poolID},
-			); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return ChangeAgentConfigResult{}, fmt.Errorf("lock machine pool for config change: %w", err)
-			}
-		}
-		if err := qtx.LockAttachedAgentPoolMachines(
-			ctx,
-			dbsqlc.LockAttachedAgentPoolMachinesParams{
-				ProjectID: input.ProjectID,
-				AgentID:   input.AgentID,
-			},
-		); err != nil {
-			return ChangeAgentConfigResult{}, fmt.Errorf("lock pool machines for config change: %w", err)
-		}
-	}
-	configChange, err := activateAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
+	activationInput := ActivateAgentConfigInput{
 		ProjectID:      input.ProjectID,
 		AgentID:        input.AgentID,
 		AgentConfigID:  config.ID,
@@ -131,12 +112,89 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 		ActorID:        input.ActorID,
 		Reason:         input.Reason,
 		IdempotencyKey: input.IdempotencyKey,
-	})
+	}
+	idempotentReplay := false
+	if input.IdempotencyKey != "" {
+		_, replayErr := qtx.GetAgentInputByIdempotency(
+			ctx,
+			dbsqlc.GetAgentInputByIdempotencyParams{
+				ProjectID:           input.ProjectID,
+				AgentID:             input.AgentID,
+				IdempotencyScope:    "agent_config_change",
+				InputIdempotencyKey: input.IdempotencyKey,
+			},
+		)
+		switch {
+		case replayErr == nil:
+			idempotentReplay = true
+		case !errors.Is(replayErr, pgx.ErrNoRows):
+			return ChangeAgentConfigResult{}, fmt.Errorf("load idempotent config change: %w", replayErr)
+		}
+	}
+	var nextSources []launchMachineSource
+	if !idempotentReplay && !reflect.DeepEqual(currentContract.MachineSources, nextContract.MachineSources) {
+		nextSources, err = decodeLaunchMachineSources(nextContract)
+		if err != nil {
+			return ChangeAgentConfigResult{}, err
+		}
+		if err := s.resolveLaunchPoolMachineSourcesTx(
+			ctx,
+			qtx,
+			project.OrgID,
+			input.ProjectID,
+			nextSources,
+		); err != nil {
+			return ChangeAgentConfigResult{}, err
+		}
+		attachedMachineIDs, err := qtx.ListAttachedAgentPoolMachineIDsForLifecycle(
+			ctx,
+			dbsqlc.ListAttachedAgentPoolMachineIDsForLifecycleParams{
+				ProjectID: input.ProjectID,
+				AgentID:   input.AgentID,
+			},
+		)
+		if err != nil {
+			return ChangeAgentConfigResult{}, fmt.Errorf("list agent pool machines for config change: %w", err)
+		}
+		if err := lockLaunchMachineSourcesTx(
+			ctx,
+			tx,
+			project.OrgID,
+			nextSources,
+			attachedMachineIDs,
+		); err != nil {
+			return ChangeAgentConfigResult{}, err
+		}
+	}
+	if err := lockAgentForConfigActivationTx(ctx, qtx, activationInput); err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	if err := authorizeAgentConfigChangeTx(ctx, qtx, activationInput); err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	if len(nextSources) > 0 {
+		if err := s.resolveLaunchExplicitMachineSourcesTx(
+			ctx,
+			qtx,
+			project.OrgID,
+			input.ProjectID,
+			nextSources,
+		); err != nil {
+			return ChangeAgentConfigResult{}, err
+		}
+	}
+	configChange, err := activateLockedAuthorizedAgentConfigTx(
+		ctx,
+		txNotifications,
+		tx,
+		qtx,
+		activationInput,
+	)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
 	var deleteMachines []MachineRecord
-	if agent.CurrentConfigID != config.ID {
+	if !idempotentReplay && agent.CurrentConfigID != config.ID {
 		currentAgent, err := qtx.GetAgentInProject(
 			ctx,
 			dbsqlc.GetAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
@@ -155,6 +213,7 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 				input.AgentID,
 				currentContract,
 				nextContract,
+				nextSources,
 			)
 			if err != nil {
 				return ChangeAgentConfigResult{}, err
@@ -228,22 +287,6 @@ func validateLiveAgentConfigChangeTx(
 
 	}
 	return currentContract, nextContract, nil
-}
-
-func activateAgentConfigTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	input ActivateAgentConfigInput,
-) (AgentConfigChangeRecord, error) {
-	if err := lockAgentForConfigActivationTx(ctx, qtx, input); err != nil {
-		return AgentConfigChangeRecord{}, err
-	}
-	if err := authorizeAgentConfigChangeTx(ctx, qtx, input); err != nil {
-		return AgentConfigChangeRecord{}, err
-	}
-	return activateLockedAuthorizedAgentConfigTx(ctx, txNotifications, tx, qtx, input)
 }
 
 func activateInitialAgentConfigTx(

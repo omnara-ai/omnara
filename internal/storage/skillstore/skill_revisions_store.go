@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -96,6 +97,18 @@ func (s *Store) insertSkillRevision(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if isNilUUID(input.OwnerProjectID) {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return skillRevisionInsertResult{}, err
+		}
+	} else if err := lifecyclelock.EnterActiveProject(
+		ctx,
+		tx,
+		input.OrgID,
+		input.OwnerProjectID,
+	); err != nil {
+		return skillRevisionInsertResult{}, err
+	}
 	if createIdentity {
 		if err := resourceguard.Lock(
 			ctx,

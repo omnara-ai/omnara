@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -36,6 +37,9 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 		return AgentConfigRecord{}, err
 	}
 	input.OrgID = project.OrgID
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+		return AgentConfigRecord{}, err
+	}
 	record, err := insertAgentConfigTx(ctx, qtx, input)
 	if err != nil {
 		return AgentConfigRecord{}, err

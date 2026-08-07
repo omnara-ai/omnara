@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -32,6 +33,16 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachineDaemonTokenRecord{}, err
+	}
+	if err := lifecyclelock.Machines(
+		ctx,
+		tx,
+		[]lifecyclelock.MachineRef{{OrgID: input.OrgID, MachineID: input.MachineID}},
+	); err != nil {
+		return MachineDaemonTokenRecord{}, err
+	}
 	row, err := qtx.CreateBYOMachineDaemonToken(
 		ctx,
 		dbsqlc.CreateBYOMachineDaemonTokenParams{

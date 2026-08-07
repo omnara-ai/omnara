@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -818,6 +819,26 @@ func (s *Store) CompletePoolMachineDeletion(
 	defer func() { _ = tx.Rollback(ctx) }()
 	txNotifications := s.newTxNotifications()
 	qtx := dbsqlc.New(tx)
+	poolID, err := qtx.GetPoolMachinePoolIDForLifecycle(
+		ctx,
+		dbsqlc.GetPoolMachinePoolIDForLifecycleParams{OrgID: orgID, ID: machineID},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storeerr.ErrStateTransitionConflict
+	}
+	if err != nil {
+		return fmt.Errorf("load machine pool for deletion completion: %w", err)
+	}
+	if poolID == nil {
+		return errors.New("pool machine has no machine pool")
+	}
+	if err := lifecyclelock.Pools(
+		ctx,
+		tx,
+		[]lifecyclelock.PoolRef{{OrgID: orgID, PoolID: *poolID}},
+	); err != nil {
+		return err
+	}
 	lockedMachine, err := qtx.LockPoolMachineDeletionAttemptForLifecycle(
 		ctx,
 		dbsqlc.LockPoolMachineDeletionAttemptForLifecycleParams{
@@ -831,6 +852,9 @@ func (s *Store) CompletePoolMachineDeletion(
 	}
 	if err != nil {
 		return fmt.Errorf("lock machine for deletion completion: %w", err)
+	}
+	if lockedMachine.MachinePoolID == nil || *lockedMachine.MachinePoolID != *poolID {
+		return errors.New("pool machine changed machine pool during deletion completion")
 	}
 	active, err := qtx.ListActiveDaemonRuntimesForUpdate(
 		ctx,
@@ -896,22 +920,17 @@ func (s *Store) CompletePoolMachineDeletion(
 	}); err != nil {
 		return fmt.Errorf("delete machine for deletion completion: %w", err)
 	}
-	if lockedMachine.MachinePoolID != nil {
-		if err := qtx.ReleaseMachinePoolCredentialIfIdle(ctx, dbsqlc.ReleaseMachinePoolCredentialIfIdleParams{
-			OrgID:         orgID,
-			MachinePoolID: *lockedMachine.MachinePoolID,
-		}); err != nil {
-			return fmt.Errorf("release machine pool credential for deletion completion: %w", err)
-		}
-		// If this org was deleted while teardown still needed the pool
-		// credential, the release above may have dropped the last reference;
-		// destroy the now-unreferenced ciphertext in the same transaction.
-		if _, err := qtx.DestroyUnreferencedSecretVersionsForDeletedOrg(
-			ctx,
-			dbsqlc.DestroyUnreferencedSecretVersionsForDeletedOrgParams{OrgID: orgID},
-		); err != nil {
-			return fmt.Errorf("destroy deleted-org secret versions for deletion completion: %w", err)
-		}
+	if err := qtx.ReleaseMachinePoolCredentialIfIdle(ctx, dbsqlc.ReleaseMachinePoolCredentialIfIdleParams{
+		OrgID:         orgID,
+		MachinePoolID: *poolID,
+	}); err != nil {
+		return fmt.Errorf("release machine pool credential for deletion completion: %w", err)
+	}
+	if _, err := qtx.DestroyUnreferencedSecretVersionsForDeletedOrg(
+		ctx,
+		dbsqlc.DestroyUnreferencedSecretVersionsForDeletedOrgParams{OrgID: orgID},
+	); err != nil {
+		return fmt.Errorf("destroy deleted-org secret versions for deletion completion: %w", err)
 	}
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "complete pool machine deletion"); err != nil {
 		return err

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -75,7 +76,7 @@ func (s *Store) CreateArtifact(
 		return ArtifactRecord{}, fmt.Errorf("upload artifact content: %w", err)
 	}
 	cleanupUploadedBlob := func(cause error) error {
-		if err := s.blobs.DeleteBlob(ctx, artifactKey); err != nil {
+		if err := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey); err != nil {
 			return errors.Join(cause, fmt.Errorf("cleanup uploaded artifact content: %w", err))
 		}
 		return cause
@@ -88,6 +89,43 @@ func (s *Store) CreateArtifact(
 		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("begin create artifact: %w", err))
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: input.ProjectID,
+		AgentID:   input.AgentID,
+	}}); err != nil {
+		return ArtifactRecord{}, cleanupUploadedBlob(err)
+	}
+	if input.IdempotencyKey != "" {
+		replay, found, err := findArtifactReplayTx(ctx, qtx, input)
+		if err != nil {
+			return ArtifactRecord{}, cleanupUploadedBlob(err)
+		}
+		if found {
+			if err := tx.Commit(ctx); err != nil {
+				return ArtifactRecord{}, cleanupUploadedBlob(
+					fmt.Errorf("commit idempotent create artifact: %w", err),
+				)
+			}
+			if err := cleanupUploadedBlob(nil); err != nil {
+				return ArtifactRecord{}, err
+			}
+			return replay, nil
+		}
+	}
+	agent, err := qtx.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
+		ProjectID: input.ProjectID,
+		ID:        input.AgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ArtifactRecord{}, cleanupUploadedBlob(storeerr.ErrNotFound)
+	}
+	if err != nil {
+		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("revalidate artifact agent: %w", err))
+	}
+	if agent.State != "active" {
+		return ArtifactRecord{}, cleanupUploadedBlob(storeerr.ErrStateTransitionConflict)
+	}
 	record, inserted, err := insertArtifactTx(ctx, tx, artifactID, input)
 	if err != nil {
 		return ArtifactRecord{}, cleanupUploadedBlob(err)
@@ -101,12 +139,38 @@ func (s *Store) CreateArtifact(
 				fmt.Errorf("commit idempotent create artifact: %w", err),
 			)
 		}
+		if err := cleanupUploadedBlob(nil); err != nil {
+			return ArtifactRecord{}, err
+		}
 		return record, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("commit create artifact: %w", err))
 	}
 	return record, nil
+}
+
+func findArtifactReplayTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateArtifactInput,
+) (ArtifactRecord, bool, error) {
+	row, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+		ProjectID:      input.ProjectID,
+		AgentID:        input.AgentID,
+		IdempotencyKey: input.IdempotencyKey,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ArtifactRecord{}, false, nil
+	}
+	if err != nil {
+		return ArtifactRecord{}, false, fmt.Errorf("load artifact replay: %w", err)
+	}
+	record := artifactRecordFromIdempotencySQLC(row)
+	if err := validateArtifactReplay(record, input); err != nil {
+		return ArtifactRecord{}, false, err
+	}
+	return record, true, nil
 }
 
 func (s *Store) GetArtifact(

@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -70,22 +70,9 @@ func (s *Store) ExecuteToolCall(
 	if plan == nil {
 		return ExecuteToolCallResult{}, errors.New("tool call plan is required")
 	}
-	var lastErr error
-	for attempt := range 3 {
-		result, err := s.executeToolCallOnce(ctx, input, plan)
-		if err == nil || !isRetryableTransactionError(err) {
-			return result, err
-		}
-		lastErr = err
-		timer := time.NewTimer(time.Duration(attempt+1) * 25 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ExecuteToolCallResult{}, ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return ExecuteToolCallResult{}, lastErr
+	return storeutil.RetryTransaction(ctx, func() (ExecuteToolCallResult, error) {
+		return s.executeToolCallOnce(ctx, input, plan)
+	})
 }
 
 func (s *Store) executeToolCallOnce(

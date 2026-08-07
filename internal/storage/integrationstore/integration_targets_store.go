@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -26,7 +27,51 @@ func (s *Store) CreateIntegrationTarget(
 			"project, agent, integration install, provider ref, and provider ref kind are required",
 		)
 	}
-	install, err := s.GetIntegrationInstall(ctx, input.ProjectID, input.IntegrationInstallID)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return IntegrationTargetRecord{}, fmt.Errorf("begin create integration target: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	install, err := getIntegrationInstall(ctx, qtx, input.ProjectID, input.IntegrationInstallID)
+	if err != nil {
+		return IntegrationTargetRecord{}, err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, input.ProjectID); err != nil {
+		return IntegrationTargetRecord{}, err
+	}
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: input.ProjectID,
+		AgentID:   input.AgentID,
+	}}); err != nil {
+		return IntegrationTargetRecord{}, err
+	}
+	agent, err := qtx.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
+		ProjectID: input.ProjectID,
+		ID:        input.AgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationTargetRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return IntegrationTargetRecord{}, fmt.Errorf("revalidate integration target agent: %w", err)
+	}
+	if agent.State != "active" {
+		return IntegrationTargetRecord{}, storeerr.ErrStateTransitionConflict
+	}
+	if _, err := qtx.LockIntegrationInstallForMutation(
+		ctx,
+		dbsqlc.LockIntegrationInstallForMutationParams{
+			ProjectID: input.ProjectID,
+			ID:        input.IntegrationInstallID,
+		},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return IntegrationTargetRecord{}, storeerr.ErrNotFound
+		}
+		return IntegrationTargetRecord{}, fmt.Errorf("lock integration install for target: %w", err)
+	}
+	install, err = getIntegrationInstall(ctx, qtx, input.ProjectID, input.IntegrationInstallID)
 	if err != nil {
 		return IntegrationTargetRecord{}, err
 	}
@@ -42,7 +87,7 @@ func (s *Store) CreateIntegrationTarget(
 		if refErr != nil {
 			return IntegrationTargetRecord{}, refErr
 		}
-		row, err = s.q.InsertIntegrationTarget(ctx, dbsqlc.InsertIntegrationTargetParams{
+		row, err = qtx.InsertIntegrationTarget(ctx, dbsqlc.InsertIntegrationTargetParams{
 			ProjectID:            input.ProjectID,
 			AgentID:              input.AgentID,
 			IntegrationInstallID: input.IntegrationInstallID,
@@ -56,7 +101,7 @@ func (s *Store) CreateIntegrationTarget(
 		}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
-		existing, getErr := s.q.GetIntegrationTargetByProviderRef(
+		existing, getErr := qtx.GetIntegrationTargetByProviderRef(
 			ctx,
 			dbsqlc.GetIntegrationTargetByProviderRefParams{
 				ProjectID:            input.ProjectID,
@@ -74,6 +119,9 @@ func (s *Store) CreateIntegrationTarget(
 		if record.AgentID != input.AgentID || record.ProviderRefKind != input.ProviderRefKind {
 			return IntegrationTargetRecord{}, storeerr.ErrConflict
 		}
+		if err := tx.Commit(ctx); err != nil {
+			return IntegrationTargetRecord{}, fmt.Errorf("commit existing integration target: %w", err)
+		}
 		return record, nil
 	}
 	if err != nil {
@@ -81,6 +129,9 @@ func (s *Store) CreateIntegrationTarget(
 	}
 	record := integrationTargetRecordFromInsertSQLC(row, install.OrgID)
 	record.Created = true
+	if err := tx.Commit(ctx); err != nil {
+		return IntegrationTargetRecord{}, fmt.Errorf("commit create integration target: %w", err)
+	}
 	return record, nil
 }
 

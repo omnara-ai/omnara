@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -31,6 +32,9 @@ func (s *Store) UpsertIntegrationInstall(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return IntegrationInstallRecord{}, err
+	}
 	if err := s.access.ValidateInstallBinding(
 		ctx,
 		tx,
@@ -140,7 +144,15 @@ func (s *Store) GetIntegrationInstall(
 	ctx context.Context,
 	projectID, id ID,
 ) (IntegrationInstallRecord, error) {
-	row, err := s.q.GetIntegrationInstall(
+	return getIntegrationInstall(ctx, s.q, projectID, id)
+}
+
+func getIntegrationInstall(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, id ID,
+) (IntegrationInstallRecord, error) {
+	row, err := q.GetIntegrationInstall(
 		ctx,
 		dbsqlc.GetIntegrationInstallParams{ProjectID: projectID, ID: id},
 	)
@@ -329,6 +341,18 @@ func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id ID) 
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
 	if err := s.access.ClearInstallTargetsFromAgents(ctx, tx, projectID, id); err != nil {
+		return err
+	}
+	if _, err := q.LockIntegrationInstallForMutation(
+		ctx,
+		dbsqlc.LockIntegrationInstallForMutationParams{ProjectID: projectID, ID: id},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("lock integration install for deletion: %w", err)
+	}
+	if _, err := getIntegrationInstall(ctx, q, projectID, id); err != nil {
 		return err
 	}
 	if err := q.DeleteIntegrationTargets(ctx, dbsqlc.DeleteIntegrationTargetsParams{

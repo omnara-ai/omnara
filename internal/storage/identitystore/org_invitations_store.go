@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -37,6 +38,9 @@ func (s *Store) CreateOrgInvitation(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return OrgInvitationRecord{}, err
+	}
 	emailUser, err := qtx.GetVerifiedUserEmailByNormalizedEmail(
 		ctx,
 		dbsqlc.GetVerifiedUserEmailByNormalizedEmailParams{NormalizedEmail: normalizedEmail},
@@ -284,6 +288,19 @@ func (s *Store) answerOrgInvitation(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	invitation, err := qtx.GetOrgInvitationForLifecycle(
+		ctx,
+		dbsqlc.GetOrgInvitationForLifecycleParams{ID: id},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OrgInvitationRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return OrgInvitationRecord{}, fmt.Errorf("load organization invitation lifecycle: %w", err)
+	}
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, invitation.OrgID); err != nil {
+		return OrgInvitationRecord{}, err
+	}
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: userID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return OrgInvitationRecord{}, storeerr.ErrNotFound
@@ -313,16 +330,6 @@ func (s *Store) answerOrgInvitation(
 		return OrgInvitationRecord{}, storeerr.ErrNotFound
 	}
 	if accept {
-		orgActive, err := qtx.OrgExistsActive(ctx, dbsqlc.OrgExistsActiveParams{ID: answered.OrgID})
-		if err != nil {
-			return OrgInvitationRecord{}, fmt.Errorf("check org for invitation accept: %w", err)
-		}
-		if !orgActive {
-			// A pending invitation must never mint a membership in a deleted
-			// organization; deletion also revokes invitations, but the accept
-			// path guards against races.
-			return OrgInvitationRecord{}, storeerr.ErrNotFound
-		}
 		_, membershipErr := qtx.LockUserOrgMembership(
 			ctx,
 			dbsqlc.LockUserOrgMembershipParams{OrgID: answered.OrgID, UserID: userID},

@@ -775,6 +775,27 @@ func (q *Queries) LockIntegrationInstallForDisable(ctx context.Context, arg Lock
 	return i, err
 }
 
+const lockIntegrationInstallForMutation = `-- name: LockIntegrationInstallForMutation :one
+SELECT id
+FROM integration_installs
+WHERE project_id = $1
+  AND id = $2
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockIntegrationInstallForMutationParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) LockIntegrationInstallForMutation(ctx context.Context, arg LockIntegrationInstallForMutationParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationInstallForMutation, arg.ProjectID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const setAgentIntegrationTarget = `-- name: SetAgentIntegrationTarget :one
 UPDATE agents
 SET integration_target_id = $1::uuid,

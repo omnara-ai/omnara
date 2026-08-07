@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -38,6 +39,9 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return CreatedOrgAPIKey{}, err
+	}
 	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return CreatedOrgAPIKey{}, storeerr.ErrNotFound
@@ -403,6 +407,9 @@ func (s *Store) SetOrgAPIKeyProjectRole(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return ProjectMembershipRecord{}, err
+	}
 	if _, err := lockActiveOrgAPIKeyTx(ctx, qtx, input.OrgID, input.KeyID, input.ActorPrincipal); err != nil {
 		return ProjectMembershipRecord{}, err
 	}
@@ -423,7 +430,7 @@ func (s *Store) SetOrgAPIKeyProjectRole(
 		},
 	)
 	if err != nil {
-		if storeutil.IsForeignKeyViolation(err) {
+		if errors.Is(err, pgx.ErrNoRows) || storeutil.IsForeignKeyViolation(err) {
 			return ProjectMembershipRecord{}, storeerr.ErrNotFound
 		}
 		return ProjectMembershipRecord{}, fmt.Errorf("add org api key project membership: %w", err)

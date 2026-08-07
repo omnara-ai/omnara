@@ -265,7 +265,7 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 			EnvOverlay: map[string]*string{"TOKEN": &literal},
 		},
 	}}
-	if err := store.Execution().IntegrationResolveLaunchMachineSourcesTx(ctx, qtx, testOrgID, testProjectID, sources); err != nil {
+	if err := store.Execution().IntegrationResolveLaunchMachineSourcesTx(ctx, bindingTx, qtx, testOrgID, testProjectID, sources); err != nil {
 		t.Fatalf("resolve binding environment: %v", err)
 	}
 	envOverlay, secretEnvOverlay, err := executionstore.MachineEnvironmentOverlayToColumns(
@@ -308,7 +308,7 @@ SELECT count(*)::integer
 FROM pg_stat_activity
 WHERE datname = current_database()
   AND wait_event_type = 'Lock'
-  AND query LIKE '%machine_environment:%'
+  AND query LIKE '%LockMachineExecutionDefaults%'
 `).Scan(&waiters); err != nil {
 			t.Fatalf("count machine environment lock waiters: %v", err)
 		}
@@ -428,6 +428,27 @@ func TestReleasedAgentMachineBindingRejectsReplay(t *testing.T) {
 			afterReplay.UpdatedAt,
 			releasedAt,
 		)
+	}
+}
+
+func TestCreateProjectMachineGrantMissingMachineReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+
+	_, _, err := store.Execution().CreateProjectMachineGrant(
+		ctx,
+		executionstore.CreateProjectMachineGrantInput{
+			OrgID:          testOrgID,
+			ProjectID:      testProjectID,
+			MachineID:      testID("missing_project_machine_grant_machine"),
+			IdempotencyKey: "idem-missing-project-machine-grant-machine",
+		},
+	)
+	if err != storeerr.ErrNotFound {
+		t.Fatalf("create project machine grant error = %v, want ErrNotFound", err)
 	}
 }
 

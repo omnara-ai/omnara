@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
 type AgentFixtureInput struct {
@@ -36,16 +37,16 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if err != nil {
 		return AgentRecord{}, err
 	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+		return AgentRecord{}, err
+	}
 	if _, err := qtx.GetAgentConfig(
 		ctx,
 		dbsqlc.GetAgentConfigParams{ProjectID: input.ProjectID, ID: input.CurrentConfigID},
 	); err != nil {
 		return AgentRecord{}, fmt.Errorf("load agent config: %w", err)
 	}
-	if err := lockProjectAgentLifecycleSharedTx(ctx, qtx, input.ProjectID); err != nil {
-		return AgentRecord{}, err
-	}
-	record, _, err := insertAgentWithProjectLifecycleLockTx(ctx, tx, qtx, insertAgentInput{
+	record, _, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
 		Name:            input.Name,
@@ -54,7 +55,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if err != nil {
 		return AgentRecord{}, err
 	}
-	if _, err := activateAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
+	if _, err := activateInitialAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
 		ProjectID:      input.ProjectID,
 		AgentID:        record.ID,
 		AgentConfigID:  input.CurrentConfigID,

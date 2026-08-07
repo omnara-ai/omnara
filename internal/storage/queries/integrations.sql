@@ -74,6 +74,14 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL;
 
+-- name: LockIntegrationInstallForMutation :one
+SELECT id
+FROM integration_installs
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL
+FOR UPDATE;
+
 -- name: GetIntegrationInstallByID :one
 SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,

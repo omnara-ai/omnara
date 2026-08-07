@@ -40,60 +40,6 @@ type MCPConnectionRecord struct {
 	UpdatedAt          time.Time          `json:"updated_at"`
 }
 
-type GetOrCreateMCPConnectionInput struct {
-	ProjectID   ID
-	AgentID     ID
-	ServerKey   string
-	EndpointURL string
-	ConfigHash  string
-}
-
-func (s *Store) GetOrCreateMCPConnection(
-	ctx context.Context,
-	input GetOrCreateMCPConnectionInput,
-) (MCPConnectionRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
-		return MCPConnectionRecord{}, errors.New("project and agent are required")
-	}
-	if input.ServerKey == "" || input.EndpointURL == "" || input.ConfigHash == "" {
-		return MCPConnectionRecord{}, errors.New(
-			"server key, endpoint url, and config hash are required",
-		)
-	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return MCPConnectionRecord{}, fmt.Errorf("begin get or create mcp connection: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return MCPConnectionRecord{}, storeerr.ErrNotFound
-		}
-		return MCPConnectionRecord{}, fmt.Errorf("lock agent for mcp connection: %w", err)
-	}
-	row, err := qtx.GetOrCreateMCPConnection(ctx, dbsqlc.GetOrCreateMCPConnectionParams{
-		ProjectID:   input.ProjectID,
-		AgentID:     input.AgentID,
-		ServerKey:   input.ServerKey,
-		EndpointUrl: input.EndpointURL,
-		ConfigHash:  input.ConfigHash,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return MCPConnectionRecord{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return MCPConnectionRecord{}, fmt.Errorf("get or create mcp connection: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return MCPConnectionRecord{}, fmt.Errorf("commit get or create mcp connection: %w", err)
-	}
-	return mcpConnectionRecordFromSQLC(row), nil
-}
-
 func (s *Store) GetMCPConnection(
 	ctx context.Context,
 	projectID, agentID ID,
