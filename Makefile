@@ -49,8 +49,10 @@ SERVICE_E2E_SHARD_INDEX ?= 0
 SERVICE_E2E_SHARD_TOTAL ?= 1
 LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 
+.DEFAULT_GOAL := help
+
 .PHONY: \
-	ci test-all test verify verify-go verify-static fmt-check golangci-version-check golangci-lint govulncheck race-machinedaemon \
+	help ci test-all test verify verify-go verify-static fmt-check golangci-version-check golangci-lint govulncheck race-machinedaemon \
 	go-modules-check integration-packages-check tagged-packages-check \
 	openapi-generate openapi-check \
 	migration-create state-migration-create migration-fix migration-check goose-version-check sqlite-libc-check \
@@ -62,13 +64,18 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	test-live-api-format-switching test-live \
 	docs-openapi docs-openapi-check
 
-ci: test-all
+help:
+	@printf 'Usage:\n  make <target>\n\nCommon targets:\n'
+	@grep -E '^[a-zA-Z0-9_-]+:.*## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*## "}; {printf "  %-20s %s\n", $$1, $$2}'
+
+ci: test-all ## Run the complete suite, including live provider tests
 
 test-all: verify web-e2e test-integration test-service-e2e migrate-test-db sqlc-vet-db govulncheck test-live
 
 test: sqlc-check sql-rules sqlc-vet unit test-integration
 
-verify: verify-go web-check
+verify: verify-go web-check ## Run the fast repository gate
 
 verify-go: verify-static unit race-machinedaemon
 
@@ -242,7 +249,7 @@ unit:
 coverage:
 	$(GO) test -covermode=atomic -coverprofile=coverage.out ./...
 
-test-integration: clean-integration-dbs
+test-integration: clean-integration-dbs ## Run database-backed integration tests
 	@run_id="$$(perl -MTime::HiRes=time -e 'printf "%x\n", int(time() * 1000000000)')"; \
 	status=0; cleanup_status=0; \
 	$(TEST_INFRA_ENV) OMNARA_TEST_DATABASE_RUN_ID="$$run_id" $(GO) test -count=1 -p $${INTEGRATION_TEST_P:-4} -parallel $${INTEGRATION_TEST_PARALLEL:-4} -tags=integration $(INTEGRATION_PACKAGES) || status=$$?; \
@@ -303,10 +310,10 @@ db-up:
 db-down:
 	docker compose down
 
-stack-up:
+stack-up: ## Start the local development stack
 	docker compose --profile app up -d --build --wait
 
-stack-down:
+stack-down: ## Stop the local development stack
 	docker compose --profile app down
 
 fmt:
@@ -390,7 +397,7 @@ run-worker:
 run-maintenance:
 	@$(call RUN_SERVICE,maintenance)
 
-test-service-e2e: db-up
+test-service-e2e: db-up ## Run deterministic service end-to-end tests
 	@tests="$$( $(GO) test -tags='integration servicee2e' -list '^Test' ./internal/e2e \
 		| awk -v shard="$(SERVICE_E2E_SHARD_INDEX)" -v total="$(SERVICE_E2E_SHARD_TOTAL)" \
 			'/^Test/ { if ((count++ % total) == shard) { printf "%s%s", separator, $$0; separator = "|" } }' \
