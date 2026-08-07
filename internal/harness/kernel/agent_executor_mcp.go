@@ -31,7 +31,8 @@ func shouldInitializeMCPConnection(mode mcpInitializationMode, state executionst
 	case mcpInitializationOpening:
 		return mcp.ShouldInitialize(state)
 	case mcpInitializationResume:
-		return state == executionstore.MCPConnectionStateInitializing
+		return state == executionstore.MCPConnectionStateInitializing ||
+			state == executionstore.MCPConnectionStateExpired
 	default:
 		return false
 	}

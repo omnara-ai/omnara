@@ -182,16 +182,12 @@ func TestShouldInitializeMCPConnectionPreservesRetryRecoveryWithoutRevivingFailu
 			t.Fatalf("opening mode excluded %q connection", state)
 		}
 	}
-	if !shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateInitializing) {
-		t.Fatal("resume mode excluded interrupted initializing connection")
+	if !shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateInitializing) ||
+		!shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateExpired) {
+		t.Fatal("resume mode excluded recoverable connection")
 	}
-	for _, state := range []executionstore.MCPConnectionState{
-		executionstore.MCPConnectionStateFailed,
-		executionstore.MCPConnectionStateExpired,
-	} {
-		if shouldInitializeMCPConnection(mcpInitializationResume, state) {
-			t.Fatalf("resume mode revived %q connection", state)
-		}
+	if shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateFailed) {
+		t.Fatal("resume mode revived failed connection")
 	}
 }
 
