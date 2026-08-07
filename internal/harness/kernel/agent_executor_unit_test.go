@@ -172,18 +172,7 @@ func TestMCPInitializationRetryableFailureClassification(t *testing.T) {
 	}
 }
 
-func TestMCPInitializationModePreservesRetryRecoveryWithoutRevivingFailures(t *testing.T) {
-	contextID := unitKernelID("mcp-context")
-	if mode := mcpInitializationForExecution(0, storage.NilID); mode != mcpInitializationOpening {
-		t.Fatalf("fresh turn mode = %d, want opening", mode)
-	}
-	if mode := mcpInitializationForExecution(0, contextID); mode != mcpInitializationResume {
-		t.Fatalf("first-context retry mode = %d, want resume", mode)
-	}
-	if mode := mcpInitializationForExecution(1, contextID); mode != mcpInitializationNone {
-		t.Fatalf("tool continuation mode = %d, want none", mode)
-	}
-
+func TestShouldInitializeMCPConnectionPreservesRetryRecoveryWithoutRevivingFailures(t *testing.T) {
 	for _, state := range []executionstore.MCPConnectionState{
 		executionstore.MCPConnectionStateInitializing,
 		executionstore.MCPConnectionStateFailed,

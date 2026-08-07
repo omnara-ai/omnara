@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -386,7 +385,7 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 	}
 }
 
-func TestPublicAgentConfigChangeRejectsLiveMCPDiff(t *testing.T) {
+func TestPublicAgentConfigChangeAcceptsLiveMCPDiff(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -443,14 +442,11 @@ mcp:
 		project.ProjectPath+"/agents/"+agentID+"/config",
 		`{"source_format":"yaml","source":`+quotedJSONString(changedYAML)+`}`,
 		"idem-config-policy-mcp-change",
-		http.StatusBadRequest,
+		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if got := response["code"]; got != string(openapi.ErrorCodeInvalidRequest) {
-		t.Fatalf("unexpected config policy error code: %+v", response)
-	}
-	if got := response["error"]; got != "invalid request: live config changes cannot change mcp declarations yet" {
-		t.Fatalf("unexpected config policy error: %+v", response)
+	if response["agent_config"] == nil || response["agent_input"] == nil {
+		t.Fatalf("unexpected config change response: %+v", response)
 	}
 }
 

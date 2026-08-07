@@ -26,16 +26,6 @@ const (
 	mcpInitializationResume
 )
 
-func mcpInitializationForExecution(toolRounds int, continuationContextID storage.ID) mcpInitializationMode {
-	if toolRounds != 0 {
-		return mcpInitializationNone
-	}
-	if continuationContextID == storage.NilID {
-		return mcpInitializationOpening
-	}
-	return mcpInitializationResume
-}
-
 func shouldInitializeMCPConnection(mode mcpInitializationMode, state executionstore.MCPConnectionState) bool {
 	switch mode {
 	case mcpInitializationOpening:
@@ -55,9 +45,20 @@ func (e AgentExecutor) ensureMCPConnections(
 	mode mcpInitializationMode,
 ) error {
 	if len(contract.MCPServers) == 0 {
-		return nil
+		connections, err := e.Store.Execution().ListAgentMCPConnections(ctx, input.ProjectID, input.AgentID)
+		if err != nil {
+			return err
+		}
+		if len(connections) == 0 {
+			return nil
+		}
 	}
-	connections, err := e.Store.Execution().ListAgentMCPConnections(ctx, input.ProjectID, input.AgentID)
+	connections, err := e.Store.Execution().ReconcileAgentMCPConnections(
+		ctx,
+		input.ProjectID,
+		input.AgentID,
+		contract.MCPServers,
+	)
 	if err != nil {
 		return err
 	}
