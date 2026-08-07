@@ -16,13 +16,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func TestDaemonBootstrapFailureRoute(t *testing.T) {
+func TestMachineFailureRoute(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
 	handler := newIntegrationHTTPHandler(mustNewServer(t, store).Handler(), pool, store)
-	project := bootstrapPublicHTTPProject(t, handler, "daemon-bootstrap-failure")
+	project := bootstrapPublicHTTPProject(t, handler, "machine-failure-report")
 	now := time.Now().UTC()
 
 	var machinePoolID storage.ID
@@ -32,7 +32,7 @@ func TestDaemonBootstrapFailureRoute(t *testing.T) {
 			provider_auth_env_var, max_total_machines, max_total_memory_mb,
 			max_machine_memory_mb, created_at, updated_at
 		)
-		VALUES ($1, 'daemon-bootstrap-failure', 'cluster', 'test', 1024,
+		VALUES ($1, 'machine-failure-report', 'cluster', 'test', 1024,
 			'TEST_PROVIDER_TOKEN', 1, 1024, 1024, $2, $2)
 		RETURNING id
 	`, project.OrgUUID, now).Scan(&machinePoolID); err != nil {
@@ -45,7 +45,7 @@ func TestDaemonBootstrapFailureRoute(t *testing.T) {
 			lifecycle_changed_at, memory_mb, cwd, env, secret_env, provider_options, metadata,
 			next_reconcile_after, provision_attempts, created_at, updated_at
 		)
-		VALUES ($1, $2, 'pool', 'bootstrap failure machine', 'test', 'provisioning',
+		VALUES ($1, $2, 'pool', 'failure report machine', 'test', 'provisioning',
 			$3, 1024, '', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
 			$3, 1, $3, $3)
 		RETURNING id
@@ -58,13 +58,13 @@ func TestDaemonBootstrapFailureRoute(t *testing.T) {
 			OrgID:            project.OrgUUID,
 			MachineID:        machineID,
 			ProvisionAttempt: 1,
-			TokenName:        "bootstrap failure reporter",
+			TokenName:        "failure reporter",
 		},
 	)
 	if err != nil {
 		t.Fatalf("begin provider provisioning: %v", err)
 	}
-	path := "/api/v1/daemon/bootstrap/failures"
+	path := "/api/v1/daemon/failures"
 	requestFailure := func(stage string, exitStatus, captureStatus int, output, token string, wantStatus int) {
 		t.Helper()
 		req := httptest.NewRequest(
@@ -90,17 +90,17 @@ func TestDaemonBootstrapFailureRoute(t *testing.T) {
 	}
 	firstOutput := "zfirst\x00\xff" + strings.Repeat(
 		"x",
-		executionstore.MaxMachineBootstrapFailureOutputBytes-len("first\x00\xff"),
+		executionstore.MaxMachineFailureReportOutputBytes-len("first\x00\xff"),
 	)
 	requestFailure("startup_script", 7, 0, firstOutput, provisioning.DaemonToken.Token, http.StatusNoContent)
 	var firstFailure []byte
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT bootstrap_failure FROM machines WHERE org_id = $1 AND id = $2`,
+		`SELECT failure_report FROM machines WHERE org_id = $1 AND id = $2`,
 		project.OrgUUID,
 		machineID,
 	).Scan(&firstFailure); err != nil {
-		t.Fatalf("load bootstrap failure: %v", err)
+		t.Fatalf("load failure report: %v", err)
 	}
 	var stored struct {
 		Stage           string    `json:"stage"`
@@ -110,38 +110,38 @@ func TestDaemonBootstrapFailureRoute(t *testing.T) {
 		ReportedAt      time.Time `json:"reported_at"`
 	}
 	if err := json.Unmarshal(firstFailure, &stored); err != nil {
-		t.Fatalf("decode bootstrap failure: %v", err)
+		t.Fatalf("decode failure report: %v", err)
 	}
 	if stored.Stage != "startup_script" || stored.ExitStatus != 7 ||
-		len(stored.OutputTail) != executionstore.MaxMachineBootstrapFailureOutputBytes ||
+		len(stored.OutputTail) != executionstore.MaxMachineFailureReportOutputBytes ||
 		!strings.HasPrefix(stored.OutputTail, "first??") || strings.ContainsRune(stored.OutputTail, '\x00') ||
 		!stored.OutputTruncated || stored.ReportedAt.IsZero() {
-		t.Fatalf("stored bootstrap failure = %+v", stored)
+		t.Fatalf("stored failure report = %+v", stored)
 	}
 
 	requestFailure("daemon_install", 9, 0, "", provisioning.DaemonToken.Token, http.StatusNoContent)
 	var replayedFailure []byte
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT bootstrap_failure FROM machines WHERE org_id = $1 AND id = $2`,
+		`SELECT failure_report FROM machines WHERE org_id = $1 AND id = $2`,
 		project.OrgUUID,
 		machineID,
 	).Scan(&replayedFailure); err != nil {
-		t.Fatalf("load replayed bootstrap failure: %v", err)
+		t.Fatalf("load replayed failure report: %v", err)
 	}
 	if err := json.Unmarshal(replayedFailure, &stored); err != nil {
-		t.Fatalf("decode replayed bootstrap failure: %v", err)
+		t.Fatalf("decode replayed failure report: %v", err)
 	}
 	if stored.Stage != "daemon_install" || stored.ExitStatus != 9 || stored.OutputTail != "" ||
 		stored.OutputTruncated {
-		t.Fatalf("stored replayed bootstrap failure = %+v", stored)
+		t.Fatalf("stored replayed failure report = %+v", stored)
 	}
 
 	requestFailure(
 		"startup_script",
 		7,
 		0,
-		strings.Repeat("x", executionstore.MaxMachineBootstrapFailureOutputBytes+2),
+		strings.Repeat("x", executionstore.MaxMachineFailureReportOutputBytes+2),
 		provisioning.DaemonToken.Token,
 		http.StatusBadRequest,
 	)
@@ -172,13 +172,54 @@ func TestDaemonBootstrapFailureRoute(t *testing.T) {
 	var activeFailure []byte
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT bootstrap_failure FROM machines WHERE org_id = $1 AND id = $2`,
+		`SELECT failure_report FROM machines WHERE org_id = $1 AND id = $2`,
 		project.OrgUUID,
 		machineID,
 	).Scan(&activeFailure); err != nil {
-		t.Fatalf("load active machine bootstrap failure: %v", err)
+		t.Fatalf("load active machine failure report: %v", err)
 	}
 	if string(activeFailure) != string(replayedFailure) {
-		t.Fatalf("provisioning completion changed bootstrap failure: before=%s after=%s", replayedFailure, activeFailure)
+		t.Fatalf("provisioning completion changed failure report: before=%s after=%s", replayedFailure, activeFailure)
+	}
+
+	byoMachine, err := store.Execution().CreateDaemonMachine(
+		ctx,
+		executionstore.CreateDaemonMachineInput{
+			OrgID:          project.OrgUUID,
+			DisplayName:    "BYO failure report machine",
+			IdempotencyKey: "byo-failure-report-machine",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create BYO machine: %v", err)
+	}
+	byoToken := executionstore.MachineDaemonTokenPlaintextPrefix + "byo-failure-report"
+	if _, err := store.Execution().CreateBYOMachineDaemonToken(
+		ctx,
+		executionstore.CreateBYOMachineDaemonTokenInput{
+			OrgID:     project.OrgUUID,
+			MachineID: byoMachine.ID,
+			Name:      "failure reporter",
+			Token:     byoToken,
+		},
+	); err != nil {
+		t.Fatalf("create BYO machine token: %v", err)
+	}
+	requestFailure("daemon_install", 11, 0, "BYO install failed", byoToken, http.StatusNoContent)
+	var byoFailure []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT failure_report FROM machines WHERE org_id = $1 AND id = $2`,
+		project.OrgUUID,
+		byoMachine.ID,
+	).Scan(&byoFailure); err != nil {
+		t.Fatalf("load BYO machine failure report: %v", err)
+	}
+	if err := json.Unmarshal(byoFailure, &stored); err != nil {
+		t.Fatalf("decode BYO machine failure report: %v", err)
+	}
+	if stored.Stage != "daemon_install" || stored.ExitStatus != 11 ||
+		stored.OutputTail != "BYO install failed" || stored.OutputTruncated || stored.ReportedAt.IsZero() {
+		t.Fatalf("stored BYO machine failure report = %+v", stored)
 	}
 }

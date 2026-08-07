@@ -200,7 +200,7 @@ type MachineBootstrapRecord struct {
 	MachineID      ID
 }
 
-type MachineBootstrapFailureInput struct {
+type MachineFailureReportInput struct {
 	OrgID           ID
 	MachineID       ID
 	DaemonTokenID   ID

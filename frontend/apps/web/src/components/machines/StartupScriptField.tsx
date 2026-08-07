@@ -24,8 +24,9 @@ export function StartupScriptField({
       </FieldDescription>
       {provider === 'unikraft' && (
         <FieldDescription>
-          Unikraft only supports short startup scripts—about 1 KB in the default configuration, with
-          less room when environment variables are added. Use a custom image for larger setup.
+          Unikraft only supports short startup scripts—a few hundred bytes in the default
+          configuration, with less room when environment variables are added. Use a custom image for
+          larger setup.
         </FieldDescription>
       )}
       <Textarea

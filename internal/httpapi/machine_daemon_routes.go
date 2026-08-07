@@ -54,10 +54,10 @@ func (s strictOpenAPIServer) BootstrapDaemon(
 	return openapi.BootstrapDaemon200JSONResponse(response), nil
 }
 
-func (s strictOpenAPIServer) RecordDaemonBootstrapFailure(
+func (s strictOpenAPIServer) RecordMachineFailure(
 	ctx context.Context,
-	request openapi.RecordDaemonBootstrapFailureRequestObject,
-) (openapi.RecordDaemonBootstrapFailureResponseObject, error) {
+	request openapi.RecordMachineFailureRequestObject,
+) (openapi.RecordMachineFailureResponseObject, error) {
 	scope, scopeErr := machineDaemonScopeFromContext(ctx)
 	if scopeErr != nil {
 		return nil, *scopeErr
@@ -67,26 +67,25 @@ func (s strictOpenAPIServer) RecordDaemonBootstrapFailure(
 		outputTail = []byte(*request.Body)
 	}
 	outputTruncated := request.Params.CaptureStatus != 0 ||
-		len(outputTail) > executionstore.MaxMachineBootstrapFailureOutputBytes
-	if len(outputTail) > executionstore.MaxMachineBootstrapFailureOutputBytes {
-		outputTail = outputTail[len(outputTail)-executionstore.MaxMachineBootstrapFailureOutputBytes:]
+		len(outputTail) > executionstore.MaxMachineFailureReportOutputBytes
+	if len(outputTail) > executionstore.MaxMachineFailureReportOutputBytes {
+		outputTail = outputTail[len(outputTail)-executionstore.MaxMachineFailureReportOutputBytes:]
 	}
-	err := s.server.store.Execution().RecordMachineBootstrapFailure(
-		ctx,
-		executionstore.MachineBootstrapFailureInput{
-			OrgID:           scope.OrgID,
-			MachineID:       scope.MachineID,
-			DaemonTokenID:   scope.DaemonTokenID,
-			Stage:           string(request.Params.Stage),
-			ExitStatus:      request.Params.ExitStatus,
-			OutputTail:      outputTail,
-			OutputTruncated: outputTruncated,
-		},
-	)
+	report := executionstore.MachineFailureReportInput{
+		OrgID:           scope.OrgID,
+		MachineID:       scope.MachineID,
+		DaemonTokenID:   scope.DaemonTokenID,
+		Stage:           string(request.Params.Stage),
+		ExitStatus:      request.Params.ExitStatus,
+		OutputTail:      outputTail,
+		OutputTruncated: outputTruncated,
+	}
+	err := s.server.store.Execution().RecordMachineFailureReport(ctx, report)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	return openapi.RecordDaemonBootstrapFailure204Response{}, nil
+	logent.MachineFailureReport(ctx, report)
+	return openapi.RecordMachineFailure204Response{}, nil
 }
 
 func daemonBootstrapResponse(bootstrap executionstore.MachineBootstrapRecord) (openapi.BootstrapDaemonResponse, error) {

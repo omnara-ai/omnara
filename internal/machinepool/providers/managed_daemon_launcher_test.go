@@ -143,7 +143,7 @@ func TestManagedDaemonLauncherReportsInstallFailures(t *testing.T) {
 					installerRequests.Add(1)
 					w.WriteHeader(tc.statusCode)
 					_, _ = w.Write([]byte(tc.installer))
-				case "/api/v1/daemon/bootstrap/failures":
+				case "/api/v1/daemon/failures":
 					if r.Header.Get("Authorization") != "Bearer machine-token" {
 						http.Error(w, "unauthorized", http.StatusUnauthorized)
 						return

@@ -404,9 +404,9 @@ WHERE token.org_id = sqlc.arg(org_id)
     )
   );
 
--- name: RecordPoolMachineBootstrapFailure :one
+-- name: RecordMachineFailureReport :one
 UPDATE machines machine
-SET bootstrap_failure = jsonb_build_object(
+SET failure_report = jsonb_build_object(
       'stage', sqlc.arg(stage)::text,
       'exit_status', sqlc.arg(exit_status)::integer,
       'output_tail', sqlc.arg(output_tail)::text,
@@ -417,14 +417,13 @@ SET bootstrap_failure = jsonb_build_object(
 FROM machine_daemon_tokens token
 WHERE machine.org_id = sqlc.arg(org_id)
   AND machine.id = sqlc.arg(machine_id)
-  AND machine.source_kind = 'pool'
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state IN ('provisioning', 'provision_failed', 'active')
   AND token.org_id = machine.org_id
   AND token.machine_id = machine.id
   AND token.id = sqlc.arg(daemon_token_id)
   AND token.revoked_at IS NULL
-RETURNING machine.bootstrap_failure;
+RETURNING machine.failure_report;
 
 -- name: RevokeBYOMachineDaemonToken :one
 UPDATE machine_daemon_tokens

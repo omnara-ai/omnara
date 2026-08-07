@@ -832,7 +832,7 @@ SELECT binding.id,
        machine.description AS machine_description,
        machine.provider,
        machine.lifecycle_state,
-       machine.bootstrap_failure,
+       machine.failure_report,
        machine.provider_resource_id,
        machine.provider_provision_attempted_at,
        connection.connection_state,
@@ -904,7 +904,7 @@ type SelectPoolMachinesRow struct {
 	MachineDescription           string
 	Provider                     string
 	LifecycleState               string
-	BootstrapFailure             *json.RawMessage
+	FailureReport                *json.RawMessage
 	ProviderResourceID           *string
 	ProviderProvisionAttemptedAt *time.Time
 	ConnectionState              string
@@ -969,7 +969,7 @@ func (q *Queries) SelectPoolMachines(ctx context.Context, arg SelectPoolMachines
 			&i.MachineDescription,
 			&i.Provider,
 			&i.LifecycleState,
-			&i.BootstrapFailure,
+			&i.FailureReport,
 			&i.ProviderResourceID,
 			&i.ProviderProvisionAttemptedAt,
 			&i.ConnectionState,

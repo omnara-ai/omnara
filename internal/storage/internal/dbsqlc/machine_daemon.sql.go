@@ -1845,9 +1845,9 @@ func (q *Queries) OnlineDaemonRuntimeExists(ctx context.Context, arg OnlineDaemo
 	return exists, err
 }
 
-const recordPoolMachineBootstrapFailure = `-- name: RecordPoolMachineBootstrapFailure :one
+const recordMachineFailureReport = `-- name: RecordMachineFailureReport :one
 UPDATE machines machine
-SET bootstrap_failure = jsonb_build_object(
+SET failure_report = jsonb_build_object(
       'stage', $1::text,
       'exit_status', $2::integer,
       'output_tail', $3::text,
@@ -1858,17 +1858,16 @@ SET bootstrap_failure = jsonb_build_object(
 FROM machine_daemon_tokens token
 WHERE machine.org_id = $5
   AND machine.id = $6
-  AND machine.source_kind = 'pool'
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state IN ('provisioning', 'provision_failed', 'active')
   AND token.org_id = machine.org_id
   AND token.machine_id = machine.id
   AND token.id = $7
   AND token.revoked_at IS NULL
-RETURNING machine.bootstrap_failure
+RETURNING machine.failure_report
 `
 
-type RecordPoolMachineBootstrapFailureParams struct {
+type RecordMachineFailureReportParams struct {
 	Stage           string
 	ExitStatus      int32
 	OutputTail      string
@@ -1878,8 +1877,8 @@ type RecordPoolMachineBootstrapFailureParams struct {
 	DaemonTokenID   uuid.UUID
 }
 
-func (q *Queries) RecordPoolMachineBootstrapFailure(ctx context.Context, arg RecordPoolMachineBootstrapFailureParams) (*json.RawMessage, error) {
-	row := q.db.QueryRow(ctx, recordPoolMachineBootstrapFailure,
+func (q *Queries) RecordMachineFailureReport(ctx context.Context, arg RecordMachineFailureReportParams) (*json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, recordMachineFailureReport,
 		arg.Stage,
 		arg.ExitStatus,
 		arg.OutputTail,
@@ -1888,9 +1887,9 @@ func (q *Queries) RecordPoolMachineBootstrapFailure(ctx context.Context, arg Rec
 		arg.MachineID,
 		arg.DaemonTokenID,
 	)
-	var bootstrap_failure *json.RawMessage
-	err := row.Scan(&bootstrap_failure)
-	return bootstrap_failure, err
+	var failure_report *json.RawMessage
+	err := row.Scan(&failure_report)
+	return failure_report, err
 }
 
 const refreshDaemonRuntimeRegistration = `-- name: RefreshDaemonRuntimeRegistration :one

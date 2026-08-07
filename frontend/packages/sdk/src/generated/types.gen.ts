@@ -2723,7 +2723,7 @@ export type BootstrapDaemonResponses = {
 
 export type BootstrapDaemonResponse2 = BootstrapDaemonResponses[keyof BootstrapDaemonResponses];
 
-export type RecordDaemonBootstrapFailureData = {
+export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
@@ -2731,10 +2731,10 @@ export type RecordDaemonBootstrapFailureData = {
         exit_status: number;
         capture_status: number;
     };
-    url: '/api/v1/daemon/bootstrap/failures';
+    url: '/api/v1/daemon/failures';
 };
 
-export type RecordDaemonBootstrapFailureErrors = {
+export type RecordMachineFailureErrors = {
     /**
      * The request was invalid.
      */
@@ -2749,16 +2749,16 @@ export type RecordDaemonBootstrapFailureErrors = {
     403: Error;
 };
 
-export type RecordDaemonBootstrapFailureError = RecordDaemonBootstrapFailureErrors[keyof RecordDaemonBootstrapFailureErrors];
+export type RecordMachineFailureError = RecordMachineFailureErrors[keyof RecordMachineFailureErrors];
 
-export type RecordDaemonBootstrapFailureResponses = {
+export type RecordMachineFailureResponses = {
     /**
-     * Bootstrap failure recorded.
+     * Machine failure recorded.
      */
     204: void;
 };
 
-export type RecordDaemonBootstrapFailureResponse = RecordDaemonBootstrapFailureResponses[keyof RecordDaemonBootstrapFailureResponses];
+export type RecordMachineFailureResponse = RecordMachineFailureResponses[keyof RecordMachineFailureResponses];
 
 export type CreateOrganizationData = {
     body: CreateOrganizationRequest;

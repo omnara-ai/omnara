@@ -456,7 +456,7 @@ type machineListResult struct {
 
 type machineInspectionPayload struct {
 	machineObservationPayload
-	BootstrapFailure json.RawMessage `json:"bootstrap_failure,omitempty"`
+	FailureReport json.RawMessage `json:"failure_report,omitempty"`
 }
 
 type machineProvisioningAcceptedPayload struct {
@@ -515,7 +515,7 @@ func machineObservation(record executionstore.PoolMachineRecord) machineObservat
 func machineInspection(record executionstore.PoolMachineRecord) machineInspectionPayload {
 	return machineInspectionPayload{
 		machineObservationPayload: machineObservation(record),
-		BootstrapFailure:          record.BootstrapFailure,
+		FailureReport:             record.FailureReport,
 	}
 }
 

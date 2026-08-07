@@ -148,7 +148,7 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 	}
 	reports := make(chan failureReport, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/daemon/bootstrap/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
+		if r.URL.Path != "/api/v1/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
 			r.Header.Get("Content-Type") != "text/plain" {
 			http.NotFound(w, r)
 			return
@@ -351,7 +351,7 @@ func TestManagedMachineStartupDoesNotWaitForBackgroundOutput(t *testing.T) {
 		}
 		reports := make(chan failureReport, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/api/v1/daemon/bootstrap/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
+			if r.URL.Path != "/api/v1/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
 				r.Header.Get("Content-Type") != "text/plain" {
 				http.NotFound(w, r)
 				return
@@ -421,7 +421,7 @@ func TestManagedBootstrapPreludeIncludesStartupOrchestration(t *testing.T) {
 func TestManagedBootScriptWithoutStartupScript(t *testing.T) {
 	script := ManagedBootScript()
 	if !strings.Contains(script, "r daemon_install") || !strings.Contains(script, "r startup_script") {
-		t.Fatal("managed boot script without startup payload must retain bootstrap failure reporting")
+		t.Fatal("managed boot script without startup payload must retain failure reporting")
 	}
 }
 

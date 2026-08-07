@@ -21,6 +21,14 @@ const (
 	startupScriptEnvVar          = "OMNARA_STARTUP_SCRIPT_PAYLOAD"
 	managedDaemonSeedPath        = "/usr/local/bin/omnarad"
 	maxManagedStartupScriptBytes = 64 * 1024
+	managedDaemonLauncherCommand = `m=$(umask);` +
+		`umask${IFS}077;` +
+		`b=/tmp/omnarad-bootstrap;` +
+		`printf${IFS}%s${IFS}${OMNARA_BOOTSTRAP_SCRIPT:?}` +
+		`|base64${IFS}-d>$b` +
+		`&&unset${IFS}OMNARA_BOOTSTRAP_SCRIPT` +
+		`&&umask${IFS}"$m"` +
+		`&&exec${IFS}/bin/sh${IFS}$b`
 )
 
 func BuildManagedMachineEnv(
@@ -71,7 +79,7 @@ func ManagedDaemonLauncherArgs() []string {
 	return []string{
 		"/bin/sh",
 		"-c",
-		`m=$(umask);umask${IFS}077;b=/tmp/omnarad-bootstrap;printf${IFS}%s${IFS}${OMNARA_BOOTSTRAP_SCRIPT:?}|base64${IFS}-d>$b&&unset${IFS}OMNARA_BOOTSTRAP_SCRIPT&&umask${IFS}"$m"&&exec${IFS}/bin/sh${IFS}$b`,
+		managedDaemonLauncherCommand,
 	}
 }
 

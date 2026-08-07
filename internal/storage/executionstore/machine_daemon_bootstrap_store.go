@@ -412,11 +412,11 @@ func (s *Store) BootstrapMachineDaemon(
 	}, nil
 }
 
-const MaxMachineBootstrapFailureOutputBytes = 4 * 1024
+const MaxMachineFailureReportOutputBytes = 4 * 1024
 
-func (s *Store) RecordMachineBootstrapFailure(
+func (s *Store) RecordMachineFailureReport(
 	ctx context.Context,
-	input MachineBootstrapFailureInput,
+	input MachineFailureReportInput,
 ) error {
 	if isNilID(input.OrgID) || isNilID(input.MachineID) || isNilID(input.DaemonTokenID) {
 		return errors.New("org, machine, and daemon token are required")
@@ -425,19 +425,19 @@ func (s *Store) RecordMachineBootstrapFailure(
 		return storeerr.InvalidRequest(errors.New("exit status must be between 1 and 255"))
 	}
 	if input.Stage != "startup_script" && input.Stage != "daemon_install" {
-		return storeerr.InvalidRequest(errors.New("invalid bootstrap failure stage"))
+		return storeerr.InvalidRequest(errors.New("invalid failure report stage"))
 	}
-	if len(input.OutputTail) > MaxMachineBootstrapFailureOutputBytes {
+	if len(input.OutputTail) > MaxMachineFailureReportOutputBytes {
 		return storeerr.InvalidRequest(fmt.Errorf(
 			"output tail must be at most %d bytes",
-			MaxMachineBootstrapFailureOutputBytes,
+			MaxMachineFailureReportOutputBytes,
 		))
 	}
 	outputTail := strings.ToValidUTF8(string(input.OutputTail), "?")
 	outputTail = strings.ReplaceAll(outputTail, "\x00", "?")
-	_, err := s.q.RecordPoolMachineBootstrapFailure(
+	_, err := s.q.RecordMachineFailureReport(
 		ctx,
-		dbsqlc.RecordPoolMachineBootstrapFailureParams{
+		dbsqlc.RecordMachineFailureReportParams{
 			Stage:           input.Stage,
 			ExitStatus:      int32(input.ExitStatus),
 			OutputTail:      outputTail,
@@ -451,7 +451,7 @@ func (s *Store) RecordMachineBootstrapFailure(
 		return storeerr.ErrUnauthorized
 	}
 	if err != nil {
-		return fmt.Errorf("record machine bootstrap failure: %w", err)
+		return fmt.Errorf("record machine failure report: %w", err)
 	}
 	return nil
 }
