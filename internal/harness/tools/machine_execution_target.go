@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -10,6 +11,11 @@ import (
 var ErrNoActiveAgentMachineBinding = errors.New("no_active_agent_machine_binding")
 var ErrMachineSelectionRequired = errors.New("machine_selection_required")
 var ErrMachineRefUnavailable = errors.New("machine_ref_unavailable")
+
+const (
+	defaultMachineBindingWaitTimeout  = 30 * time.Second
+	defaultMachineBindingPollInterval = 250 * time.Millisecond
+)
 
 func (e Executor) ResolveMachineExecutionTarget(
 	ctx context.Context,
@@ -24,6 +30,52 @@ func (e Executor) ResolveMachineExecutionTarget(
 		return executionstore.AgentMachineBindingRecord{}, err
 	}
 	return selectMachineExecutionTarget(bindings, machineRef)
+}
+
+func (e Executor) waitForMachineExecutionTarget(
+	ctx context.Context,
+	turn Turn,
+	machineRef string,
+) (executionstore.AgentMachineBindingRecord, error) {
+	if e.Store == nil {
+		return executionstore.AgentMachineBindingRecord{}, errors.New("tool executor store is required")
+	}
+	timeout := e.MachineBindingWaitTimeout
+	if timeout <= 0 {
+		timeout = defaultMachineBindingWaitTimeout
+	}
+	interval := e.MachineBindingPollInterval
+	if interval <= 0 {
+		interval = defaultMachineBindingPollInterval
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		bindings, err := e.Store.Execution().ListExecutableAgentMachineBindings(
+			waitCtx,
+			turn.ProjectID,
+			turn.AgentID,
+		)
+		if err != nil {
+			if waitCtx.Err() != nil && ctx.Err() == nil {
+				return executionstore.AgentMachineBindingRecord{}, ErrNoActiveAgentMachineBinding
+			}
+			return executionstore.AgentMachineBindingRecord{}, err
+		}
+		if len(bindings) > 0 {
+			return selectMachineExecutionTarget(bindings, machineRef)
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-waitCtx.Done():
+			timer.Stop()
+			if ctx.Err() != nil {
+				return executionstore.AgentMachineBindingRecord{}, ctx.Err()
+			}
+			return executionstore.AgentMachineBindingRecord{}, ErrNoActiveAgentMachineBinding
+		case <-timer.C:
+		}
+	}
 }
 
 func resolveMachineExecutionTargetForToolCall(

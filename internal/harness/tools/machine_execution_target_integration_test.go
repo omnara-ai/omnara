@@ -191,6 +191,55 @@ func TestResolveMachineExecutionTargetUsesMachineRefSelection(t *testing.T) {
 	_ = secondAgentBinding
 }
 
+func TestWaitForMachineExecutionTargetPollsUntilBindingIsActive(t *testing.T) {
+	ctx := context.Background()
+	fixture := newMachineDispatchFixture(t, ctx, "wait-for-binding")
+	machine := createExecutableBinding(
+		t,
+		ctx,
+		fixture.Store,
+		fixture.UserID,
+		"wait-for-binding",
+		fixture.Now.Add(5*time.Second),
+	)
+	insertDone := make(chan error, 1)
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		_, err := fixture.Pool.Exec(
+			ctx,
+			`INSERT INTO agent_machine_bindings(
+			   org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at
+			 )
+			 VALUES ($1, $2, $3, $4, 'mchr-waited', 'explicit', 'attached', $5, $5)`,
+			toolsTestOrgID,
+			toolsTestProjectID,
+			fixture.Launch.Agent.ID,
+			machine.MachineID,
+			fixture.Now.Add(6*time.Second),
+		)
+		insertDone <- err
+	}()
+	executor := Executor{
+		Store:                      fixture.Store,
+		MachineBindingWaitTimeout:  time.Second,
+		MachineBindingPollInterval: 10 * time.Millisecond,
+	}
+	binding, err := executor.waitForMachineExecutionTarget(
+		ctx,
+		Turn{ProjectID: toolsTestProjectID, AgentID: fixture.Launch.Agent.ID},
+		"mchr-waited",
+	)
+	if err != nil {
+		t.Fatalf("wait for machine target: %v", err)
+	}
+	if err := <-insertDone; err != nil {
+		t.Fatalf("attach delayed machine: %v", err)
+	}
+	if binding.MachineID != machine.MachineID || binding.MachineRef != "mchr-waited" {
+		t.Fatalf("resolved delayed binding = %+v", binding)
+	}
+}
+
 func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 	ctx := context.Background()
 	fixture := newMachineDispatchFixture(t, ctx, "approved-machine-target-change")

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
+	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -1233,7 +1234,11 @@ func TestWorkerKernelMachineToolWithoutBindingFailsBeforeApproval(t *testing.T) 
 		Store:          store,
 		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
 		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		ToolExecutor: tools.Executor{
+			MachineBindingWaitTimeout:  time.Millisecond,
+			MachineBindingPollInterval: time.Millisecond,
+		},
+		Now: func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist no-machine command output")

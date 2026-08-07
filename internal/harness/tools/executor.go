@@ -54,6 +54,26 @@ func (e Executor) Dispatch(ctx context.Context, turn Turn, call model.ToolCall) 
 			proposal.State == executionstore.ToolCallStateAwaitingPermission) {
 		return Result{}, ErrActionRequired
 	}
+	if execErr == nil && call.Name == toolcatalog.ToolNameRunCommand {
+		resolved, resolveErr := resolveRunCommandRequest(call.Input)
+		if resolveErr != nil {
+			return Result{}, resolveErr
+		}
+		_, resolveErr = e.waitForMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+		if resolveErr != nil {
+			if !errors.Is(resolveErr, ErrNoActiveAgentMachineBinding) &&
+				!errors.Is(resolveErr, ErrMachineRefUnavailable) &&
+				!errors.Is(resolveErr, ErrMachineSelectionRequired) {
+				return Result{}, resolveErr
+			}
+			unavailable, unavailableErr := machineUnavailableToolResult(resolveErr)
+			if unavailableErr != nil {
+				return Result{}, unavailableErr
+			}
+			content = unavailable.Content
+			execErr = unavailable.Cause
+		}
+	}
 	if execErr == nil {
 		dispatchResult, err = e.dispatchToolHandler(
 			ctx,

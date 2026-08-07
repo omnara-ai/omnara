@@ -379,7 +379,7 @@ func runCommandPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	binding, err := executor.waitForMachineExecutionTarget(ctx, turn, resolved.MachineRef)
 	if err != nil {
 		return toolpermission.Request{}, executor.machinePreparationError(err)
 	}
