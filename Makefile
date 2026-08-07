@@ -62,7 +62,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	test-live-api-format-switching test-live \
 	docs-openapi docs-openapi-check
 
-ci: test-all
+ci: $(if $(CODEQL_ACTION_VERSION),,test-all)
 
 test-all: verify web-e2e test-integration test-service-e2e migrate-test-db sqlc-vet-db govulncheck test-live
 
