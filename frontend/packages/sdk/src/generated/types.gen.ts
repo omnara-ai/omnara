@@ -1080,13 +1080,13 @@ export type AgentMachineBinding = {
     description: string;
     cwd: string;
     /**
-     * Env overlay applied to processes launched through this binding; it does not change the machine environment applied to the provider machine at provisioning. A null entry removes the key.
+     * Env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
      */
     env_overlay: {
         [key: string]: string | null;
     };
     /**
-     * Secret env overlay applied to processes launched through this binding; a null entry removes the key.
+     * Secret env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
      */
     secret_env_overlay: {
         [key: string]: SecretId | null;
