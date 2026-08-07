@@ -210,6 +210,8 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 		candidates,
 		boundaryInput.DesiredRetainFromSequence,
 		func(retainFrom int64) (bool, error) {
+			capabilities := model.CapabilitiesForClient(client)
+			policy := model.RequestPolicyFromCapabilities(capabilities)
 			bundle, buildErr := e.contextBuilder().Build(ctx, modelcontext.BuildInput{
 				ProjectID:           contextRow.ProjectID,
 				AgentID:             contextRow.AgentID,
@@ -218,6 +220,7 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 				Now:                 input.Now,
 				AgentConfigSnapshot: &snapshot,
 				MediaProjector:      model.MediaProjectorForClient(client),
+				ModelWindow:         model.ModelWindowForRequest(capabilities, policy),
 				CheckpointOverride: &modelcontext.CheckpointRef{
 					SummarizedThroughEventSequence: retainFrom - 1,
 					Summary:                        projectionSummary,
@@ -230,7 +233,7 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 				ctx,
 				client,
 				bundle,
-				model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
+				policy,
 				modelErrorSourceForClient(client),
 			)
 			if prepareErr == nil {

@@ -17,7 +17,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-const maxMCPToolResultMediaBytes int64 = 10 * 1024 * 1024
+const (
+	maxMCPToolResultMediaBytes = 10 * 1024 * 1024
+	maxMCPToolResultParts      = 100
+)
 
 func runMCPToolAsync(
 	ctx context.Context,
@@ -236,6 +239,17 @@ func (e Executor) mcpToolResultContent(
 ) (toolResultContent, error) {
 	if result == nil {
 		return toolResultContent{}, errors.New("MCP tool returned no result")
+	}
+	partCount := len(result.Content)
+	if result.StructuredContent != nil {
+		partCount++
+	}
+	if partCount > maxMCPToolResultParts {
+		return toolResultContent{}, fmt.Errorf(
+			"MCP tool returned %d content parts; maximum is %d",
+			partCount,
+			maxMCPToolResultParts,
+		)
 	}
 	parts := make([]toolResultPart, 0, len(result.Content)+1)
 	for ordinal, content := range result.Content {

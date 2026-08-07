@@ -185,6 +185,7 @@ func (e AgentExecutor) executeModelStep(
 		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
 	}
 	capabilities := model.CapabilitiesForClient(client)
+	policy := model.RequestPolicyFromCapabilities(capabilities)
 	if err := ensureModelSupportsContractTools(client, capabilities, contract); err != nil {
 		cause := model.ProviderError{
 			Kind:    model.ErrorKindInvalidRequest,
@@ -202,6 +203,7 @@ func (e AgentExecutor) executeModelStep(
 		Now:                 input.Now,
 		AgentConfigSnapshot: &snapshot,
 		MediaProjector:      model.MediaProjectorForClient(client),
+		ModelWindow:         model.ModelWindowForRequest(capabilities, policy),
 	})
 	if errors.Is(err, modelcontext.ErrOpeningMediaBudgetExceeded) {
 		cause := model.ProviderError{
@@ -223,7 +225,6 @@ func (e AgentExecutor) executeModelStep(
 		)
 	}
 
-	policy := model.RequestPolicyFromCapabilities(capabilities)
 	policy.SuppressProviderReplay, err = e.Store.Execution().ModelCallOperationHasFailedWithErrorKind(
 		ctx,
 		input.ProjectID,

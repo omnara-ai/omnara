@@ -7119,6 +7119,25 @@ components:
           enum: [media_ref]
         artifact_id:
           $ref: '#/components/schemas/ArtifactID'
+    ArtifactRefContentBlock:
+      type: object
+      additionalProperties: false
+      required: [type, artifact_id, content_type, size_bytes, line_count]
+      properties:
+        type:
+          type: string
+          enum: [artifact_ref]
+        artifact_id:
+          $ref: '#/components/schemas/ArtifactID'
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+        line_count:
+          type: integer
+          minimum: 1
     ReasoningContentBlock:
       type: object
       additionalProperties: false
@@ -7202,12 +7221,14 @@ components:
       oneOf:
         - $ref: '#/components/schemas/TextContentBlock'
         - $ref: '#/components/schemas/MediaRefContentBlock'
+        - $ref: '#/components/schemas/ArtifactRefContentBlock'
         - $ref: '#/components/schemas/StructuredDataContentBlock'
       discriminator:
         propertyName: type
         mapping:
           text: '#/components/schemas/TextContentBlock'
           media_ref: '#/components/schemas/MediaRefContentBlock'
+          artifact_ref: '#/components/schemas/ArtifactRefContentBlock'
           structured_data: '#/components/schemas/StructuredDataContentBlock'
     SubmitToolResultContentBlock:
       description: >-

@@ -7,11 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
-
-const webFetchInlineContentChars = 30_000
 
 type webFetchRequest struct {
 	URL            string          `json:"url"`
@@ -137,22 +134,15 @@ func runWebFetch(
 func webFetchToolResultContent(
 	result webaccess.FetchResult,
 ) (toolResultContent, error) {
-	content := result.Content
-	inlineTruncated := false
-	if len(content) > webFetchInlineContentChars {
-		content = textutil.TruncateRunes(content, webFetchInlineContentChars)
-		inlineTruncated = true
-	}
 	var rendered strings.Builder
 	if result.Title != "" {
 		fmt.Fprintf(&rendered, "# %s\n\n", result.Title)
 	}
-	rendered.WriteString(content)
-	if inlineTruncated || result.Truncated {
+	rendered.WriteString(result.Content)
+	if result.Truncated {
 		fmt.Fprintf(
 			&rendered,
-			"\n\n[content truncated: showing the first %d characters]",
-			len(content),
+			"\n\n[the upstream extractor truncated this response; all extracted content is shown]",
 		)
 	}
 	structured := map[string]any{
@@ -161,7 +151,7 @@ func webFetchToolResultContent(
 		"status_code":  result.StatusCode,
 		"content_type": result.ContentType,
 		"bytes":        result.Bytes,
-		"truncated":    result.Truncated || inlineTruncated,
+		"truncated":    result.Truncated,
 	}
 	if result.Title != "" {
 		structured["title"] = result.Title

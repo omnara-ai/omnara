@@ -71,6 +71,8 @@ func parseToolResultContentBlocks(
 			block, err = parseMediaRefContentBlock(fields)
 		case "structured_data":
 			block, err = parseStructuredDataContentBlock(fields)
+		case "artifact_ref":
+			block, err = parseArtifactRefContentBlock(fields)
 		default:
 			err = fmt.Errorf("unsupported type %q", kind)
 		}
@@ -171,6 +173,52 @@ func parseStructuredDataContentBlock(
 	}, nil
 }
 
+type artifactRefMetadata struct {
+	PartKind    string `json:"part_kind"`
+	ContentType string `json:"content_type"`
+	SizeBytes   int64  `json:"size_bytes"`
+	LineCount   int    `json:"line_count"`
+}
+
+func parseArtifactRefContentBlock(
+	fields map[string]json.RawMessage,
+) (CreateContentBlockInput, error) {
+	if err := rejectContentBlockFields(
+		fields,
+		"type",
+		"artifact_id",
+		"content_type",
+		"size_bytes",
+		"line_count",
+	); err != nil {
+		return CreateContentBlockInput{}, err
+	}
+	artifactID, err := requiredArtifactID(fields["artifact_id"])
+	if err != nil {
+		return CreateContentBlockInput{}, err
+	}
+	var metadata artifactRefMetadata
+	if err := json.Unmarshal(fields["content_type"], &metadata.ContentType); err != nil || metadata.ContentType == "" {
+		return CreateContentBlockInput{}, errors.New("content_type is required")
+	}
+	if err := json.Unmarshal(fields["size_bytes"], &metadata.SizeBytes); err != nil || metadata.SizeBytes <= 0 {
+		return CreateContentBlockInput{}, errors.New("size_bytes must be positive")
+	}
+	if err := json.Unmarshal(fields["line_count"], &metadata.LineCount); err != nil || metadata.LineCount <= 0 {
+		return CreateContentBlockInput{}, errors.New("line_count must be positive")
+	}
+	metadata.PartKind = artifactRefPartKind
+	rawMetadata, err := marshalJSON(metadata)
+	if err != nil {
+		return CreateContentBlockInput{}, err
+	}
+	return CreateContentBlockInput{
+		BlockKind:  ContentBlockKindArtifact,
+		ArtifactID: artifactID,
+		Metadata:   rawMetadata,
+	}, nil
+}
+
 func rejectContentBlockFields(
 	fields map[string]json.RawMessage,
 	allowed ...string,
@@ -249,7 +297,6 @@ func marshalAgentInputContentBlock(
 		return nil, fmt.Errorf("unsupported block kind %q", block.BlockKind)
 	}
 }
-
 func marshalToolResultContentBlocks(
 	blocks []CreateContentBlockInput,
 ) (json.RawMessage, error) {
@@ -291,6 +338,21 @@ func marshalToolResultContentBlock(
 		if isNilID(block.ArtifactID) {
 			return nil, errors.New("media_ref requires an artifact")
 		}
+		if metadata, ok := parseArtifactRefMetadata(block.Metadata); ok {
+			return marshalJSON(struct {
+				Type        string `json:"type"`
+				ArtifactID  string `json:"artifact_id"`
+				ContentType string `json:"content_type"`
+				SizeBytes   int64  `json:"size_bytes"`
+				LineCount   int    `json:"line_count"`
+			}{
+				Type:        artifactRefPartKind,
+				ArtifactID:  block.ArtifactID.String(),
+				ContentType: metadata.ContentType,
+				SizeBytes:   metadata.SizeBytes,
+				LineCount:   metadata.LineCount,
+			})
+		}
 		return marshalJSON(struct {
 			Type       string `json:"type"`
 			ArtifactID string `json:"artifact_id"`
@@ -301,4 +363,14 @@ func marshalToolResultContentBlock(
 	default:
 		return nil, fmt.Errorf("unsupported block kind %q", block.BlockKind)
 	}
+}
+
+func parseArtifactRefMetadata(raw json.RawMessage) (artifactRefMetadata, bool) {
+	var metadata artifactRefMetadata
+	if len(raw) == 0 || json.Unmarshal(raw, &metadata) != nil ||
+		metadata.PartKind != artifactRefPartKind || metadata.ContentType == "" ||
+		metadata.SizeBytes <= 0 || metadata.LineCount <= 0 {
+		return artifactRefMetadata{}, false
+	}
+	return metadata, true
 }

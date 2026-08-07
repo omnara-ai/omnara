@@ -32,6 +32,27 @@ func TestToolResultContentBlocksCanonicalizeToPersistedShape(t *testing.T) {
 	}
 }
 
+func TestToolResultArtifactRefCanonicalRoundTrip(t *testing.T) {
+	input := json.RawMessage(`[{"type":"artifact_ref",` +
+		`"artifact_id":"018ffc6b-7f1a-7828-8687-93aa210f5f4a",` +
+		`"content_type":"text/plain; charset=utf-8","size_bytes":1234,"line_count":42}]`)
+	blocks, err := parseToolResultContentBlocks(input)
+	if err != nil {
+		t.Fatalf("parse artifact ref: %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].BlockKind != ContentBlockKindArtifact ||
+		len(blocks[0].Metadata) == 0 {
+		t.Fatalf("artifact ref block = %+v", blocks)
+	}
+	canonical, err := marshalToolResultContentBlocks(blocks)
+	if err != nil {
+		t.Fatalf("marshal artifact ref: %v", err)
+	}
+	if !sameJSON(canonical, input) {
+		t.Fatalf("artifact ref round trip = %s, want %s", canonical, input)
+	}
+}
+
 func TestToolResultContentBlocksRejectUnpersistedEnvelopeFields(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -8,6 +8,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type askQuestionInput struct {
@@ -76,6 +77,12 @@ func askQuestionForm(raw json.RawMessage) (interactionform.Form, error) {
 	var input askQuestionInput
 	if err := decodeSingleStrictJSON(raw, &input, "ask_question input"); err != nil {
 		return interactionform.Form{}, fmt.Errorf("decode ask_question input: %w", err)
+	}
+	if len(input.Questions) > toolcatalog.MaxAskQuestions {
+		return interactionform.Form{}, fmt.Errorf(
+			"ask_question accepts at most %d questions",
+			toolcatalog.MaxAskQuestions,
+		)
 	}
 	questions := make([]interactionform.Question, 0, len(input.Questions))
 	for _, question := range input.Questions {

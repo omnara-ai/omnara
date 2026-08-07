@@ -2,12 +2,15 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
 
 var errDaemonReportValidation = errors.New("daemon report validation failed")
@@ -17,6 +20,9 @@ type daemonReportedEvent = daemonprotocol.ReportedEvent
 func validateDaemonReportedEvent(event daemonReportedEvent) error {
 	if event.Type == "" || event.ProcessID == "" {
 		return fmt.Errorf("%w: type and process are required", errDaemonReportValidation)
+	}
+	if err := validateDaemonReportedResult(event.Result); err != nil {
+		return err
 	}
 	switch event.Type {
 	case daemonprotocol.EventProcessStarted:
@@ -100,6 +106,43 @@ func validateDaemonReportedEvent(event daemonReportedEvent) error {
 		}
 	default:
 		return fmt.Errorf("%w: unsupported daemon reported event type", errDaemonReportValidation)
+	}
+	return nil
+}
+
+func validateDaemonReportedResult(raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	if len(raw) > tooloutput.MaxStoredToolResultBytes {
+		return fmt.Errorf(
+			"%w: result exceeds %d serialized bytes",
+			errDaemonReportValidation,
+			tooloutput.MaxStoredToolResultBytes,
+		)
+	}
+	var result struct {
+		Output     *string `json:"output"`
+		Cursor     *int64  `json:"cursor"`
+		NextCursor *int64  `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return fmt.Errorf("%w: result must be a JSON object", errDaemonReportValidation)
+	}
+	if result.Output != nil && len([]byte(*result.Output)) > processaction.MaxObservationBytes {
+		return fmt.Errorf(
+			"%w: result output exceeds %d bytes",
+			errDaemonReportValidation,
+			processaction.MaxObservationBytes,
+		)
+	}
+	if result.Cursor != nil && result.NextCursor != nil &&
+		*result.NextCursor-*result.Cursor > int64(processaction.MaxObservationBytes) {
+		return fmt.Errorf(
+			"%w: result cursor range exceeds %d bytes",
+			errDaemonReportValidation,
+			processaction.MaxObservationBytes,
+		)
 	}
 	return nil
 }

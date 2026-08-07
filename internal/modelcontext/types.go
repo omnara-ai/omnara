@@ -20,6 +20,7 @@ type BuildInput struct {
 	AgentConfigSnapshot *executionstore.AgentConfigSnapshotRecord
 	CheckpointOverride  *CheckpointRef
 	MediaProjector      MediaProjector
+	ModelWindow         ModelWindow
 }
 
 type Bundle struct {

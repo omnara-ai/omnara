@@ -334,6 +334,12 @@ func renderAnthropicContent(
 			}
 			continue
 		}
+		if partType == "artifact_ref" {
+			if text := modelcontext.ArtifactRefText(part); text != "" {
+				blocks = append(blocks, textBlock{Type: "text", Text: text})
+			}
+			continue
+		}
 		if partType == "reasoning" {
 			continue
 		}

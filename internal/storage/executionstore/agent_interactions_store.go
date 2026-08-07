@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -245,6 +246,8 @@ func (s *Store) ResolveAgentInteraction(
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) {
 		return AgentInteractionRecord{}, errors.New("project, agent, and interaction are required")
 	}
+	ctx, artifactScope := withArtifactRollbackScope(ctx)
+	defer artifactScope.rollback(ctx)
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -369,7 +372,7 @@ func (s *Store) ResolveAgentInteraction(
 		if err := applyPermissionInteractionResolutionTx(ctx, txNotifications, tx, qtx, record); err != nil {
 			return AgentInteractionRecord{}, err
 		}
-		if err := completeQuestionToolCallTx(ctx, txNotifications, tx, qtx, record); err != nil {
+		if err := s.completeQuestionToolCallTx(ctx, txNotifications, tx, qtx, record); err != nil {
 			return AgentInteractionRecord{}, err
 		}
 	} else {
@@ -397,7 +400,7 @@ func (s *Store) ResolveAgentInteraction(
 			responseInput.ActorID != requestActorID {
 			return AgentInteractionRecord{}, storeerr.ErrIdempotencyConflict
 		}
-		if err := completeQuestionToolCallTx(ctx, txNotifications, tx, qtx, record); err != nil {
+		if err := s.completeQuestionToolCallTx(ctx, txNotifications, tx, qtx, record); err != nil {
 			return AgentInteractionRecord{}, err
 		}
 	}
@@ -414,6 +417,7 @@ func (s *Store) ResolveAgentInteraction(
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "resolve agent interaction"); err != nil {
 		return AgentInteractionRecord{}, err
 	}
+	artifactScope.commit()
 	return record, nil
 }
 
@@ -553,6 +557,17 @@ func completeQuestionToolCallTx(
 	qtx *dbsqlc.Queries,
 	interaction AgentInteractionRecord,
 ) error {
+	var store *Store
+	return store.completeQuestionToolCallTx(ctx, txNotifications, tx, qtx, interaction)
+}
+
+func (s *Store) completeQuestionToolCallTx(
+	ctx context.Context,
+	txNotifications *notifications.TxNotifications,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	interaction AgentInteractionRecord,
+) error {
 	if interaction.InteractionKind != AgentInteractionKindQuestion {
 		return nil
 	}
@@ -588,6 +603,19 @@ func completeQuestionToolCallTx(
 	contentParts, err := ToolResultContentParts(result)
 	if err != nil {
 		return err
+	}
+	contentParts, err = s.prepareToolResult(
+		ctx,
+		tx,
+		interaction.ProjectID,
+		interaction.AgentID,
+		interaction.ToolCallID,
+		toolcatalog.ToolNameAskQuestion,
+		outcome,
+		contentParts,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare question tool result: %w", err)
 	}
 	row, err := qtx.CompleteToolCallFromQuestionInteraction(
 		ctx,

@@ -28,6 +28,14 @@ type storedMediaRefContentBlock struct {
 	ArtifactID string `json:"artifact_id"`
 }
 
+type storedArtifactRefContentBlock struct {
+	Type        string `json:"type"`
+	ArtifactID  string `json:"artifact_id"`
+	ContentType string `json:"content_type"`
+	SizeBytes   int64  `json:"size_bytes"`
+	LineCount   int    `json:"line_count"`
+}
+
 type storedToolCallContentBlock struct {
 	Type       string          `json:"type"`
 	ToolCallID string          `json:"tool_call_id"`
@@ -234,6 +242,14 @@ func publicToolResultContentBlocks(
 			if err := public.FromMediaRefContentBlock(media); err != nil {
 				return nil, err
 			}
+		case "artifact_ref":
+			artifact, err := publicArtifactRefContentBlock(block, index)
+			if err != nil {
+				return nil, err
+			}
+			if err := public.FromArtifactRefContentBlock(artifact); err != nil {
+				return nil, err
+			}
 		case "structured_data":
 			var stored storedStructuredDataContentBlock
 			if err := decodeStoredContentBlock(block, index, &stored); err != nil {
@@ -331,6 +347,40 @@ func publicMediaRefContentBlock(
 		return openapi.MediaRefContentBlock{}, err
 	}
 	return openapi.MediaRefContentBlock{ArtifactId: artifactID}, nil
+}
+
+func publicArtifactRefContentBlock(
+	raw json.RawMessage,
+	index int,
+) (openapi.ArtifactRefContentBlock, error) {
+	var block storedArtifactRefContentBlock
+	if err := decodeStoredContentBlock(raw, index, &block); err != nil {
+		return openapi.ArtifactRefContentBlock{}, err
+	}
+	if block.Type != "artifact_ref" || block.ContentType == "" ||
+		block.SizeBytes <= 0 || block.LineCount <= 0 {
+		return openapi.ArtifactRefContentBlock{}, fmt.Errorf(
+			"artifact reference content block %d is invalid",
+			index,
+		)
+	}
+	id, err := storage.ParseID(block.ArtifactID)
+	if err != nil || id == storage.NilID {
+		return openapi.ArtifactRefContentBlock{}, fmt.Errorf(
+			"artifact reference content block %d has invalid artifact id",
+			index,
+		)
+	}
+	artifactID, err := publicID(publicid.KindArtifact, id)
+	if err != nil {
+		return openapi.ArtifactRefContentBlock{}, err
+	}
+	return openapi.ArtifactRefContentBlock{
+		ArtifactId:  artifactID,
+		ContentType: block.ContentType,
+		SizeBytes:   block.SizeBytes,
+		LineCount:   block.LineCount,
+	}, nil
 }
 
 func publicModelToolCallContentBlock(

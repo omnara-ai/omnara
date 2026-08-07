@@ -51,6 +51,9 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
+	readArtifactToolDescription = "Read a text artifact referenced by a tool result. Page by lines for normal text, " +
+		"or by bytes when a single line is too large."
+	searchArtifactToolDescription = "Search the complete contents of a text artifact with a Go/RE2 regular expression."
 )
 
 type Catalog struct {
@@ -255,6 +258,12 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameReadArtifact], err = readArtifactTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameSearchArtifact], err = searchArtifactTool(); err != nil {
+		return Catalog{}, err
+	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
 		return Catalog{}, err
 	}
@@ -294,6 +303,7 @@ func askQuestionTool() (Entry, error) {
 			"questions": map[string]any{
 				"type":     "array",
 				"minItems": 1,
+				"maxItems": MaxAskQuestions,
 				"items": map[string]any{
 					"type":                 "object",
 					"required":             []string{"prompt", "options"},
@@ -336,6 +346,73 @@ func askQuestionTool() (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func readArtifactTool() (Entry, error) {
+	return toolEntry(
+		ToolNameReadArtifact,
+		readArtifactToolDescription,
+		[]string{"artifact_id"},
+		map[string]any{
+			"artifact_id": map[string]any{
+				"type":        "string",
+				"description": "Public artifact_id from an artifact_ref content part.",
+			},
+			"offset_line": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"description": "1-based first line to return. Defaults to 1.",
+			},
+			"limit_lines": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     2000,
+				"description": "Maximum lines to return. Defaults to 2000.",
+			},
+			"offset_byte": map[string]any{
+				"type":        "integer",
+				"minimum":     0,
+				"description": "Zero-based byte offset for byte paging. Cannot be combined with line paging.",
+			},
+			"limit_bytes": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     65536,
+				"description": "Maximum bytes for byte paging. Defaults to 65536.",
+			},
+		},
+	)
+}
+
+func searchArtifactTool() (Entry, error) {
+	return toolEntry(
+		ToolNameSearchArtifact,
+		searchArtifactToolDescription,
+		[]string{"artifact_id", "pattern"},
+		map[string]any{
+			"artifact_id": map[string]any{
+				"type":        "string",
+				"description": "Public artifact_id from an artifact_ref content part.",
+			},
+			"pattern": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Go/RE2 regular expression to search for.",
+			},
+			"max_matches": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     100,
+				"description": "Maximum matching lines to return. Defaults to 20.",
+			},
+			"context_lines": map[string]any{
+				"type":        "integer",
+				"minimum":     0,
+				"maximum":     5,
+				"description": "Adjacent lines to include around each match. Defaults to 0.",
+			},
+		},
+	)
 }
 
 func integrationSendTool() (Entry, error) {

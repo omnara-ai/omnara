@@ -88,6 +88,13 @@ func userChatContentFromParts(raw json.RawMessage, media map[string]modelcontext
 			}
 			continue
 		}
+		if partType == "artifact_ref" {
+			if text := modelcontext.ArtifactRefText(part); text != "" {
+				texts = append(texts, text)
+				blocks = append(blocks, map[string]any{"type": "text", "text": text})
+			}
+			continue
+		}
 		if text := textFromPart(part, partType); strings.TrimSpace(text) != "" {
 			texts = append(texts, text)
 			blocks = append(blocks, map[string]any{"type": "text", "text": text})
@@ -137,6 +144,12 @@ func textContentFromParts(
 				continue
 			}
 			if text := modelcontext.MediaRefText(part); text != "" {
+				emit(text)
+			}
+			continue
+		}
+		if partType == "artifact_ref" {
+			if text := modelcontext.ArtifactRefText(part); text != "" {
 				emit(text)
 			}
 			continue

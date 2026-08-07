@@ -416,25 +416,26 @@ inserted AS (
   INSERT INTO content_blocks(
     agent_id, owner_kind, owner_agent_input_id,
     owner_model_output_id, owner_tool_call_result_id, ordinal, block_kind,
-    text_content, structured_data, artifact_id, tool_call_id, created_at
+    text_content, structured_data, artifact_id, tool_call_id, metadata, created_at
   )
   SELECT
     $2, $6,
     $3::uuid, $4::uuid,
     $5::uuid, $7, $8,
     $9, $10::jsonb, $11::uuid, $12::uuid,
+    $13::jsonb,
     content_owner.created_at
   FROM content_owner
   RETURNING id, agent_id, owner_kind, owner_agent_input_id,
             owner_model_output_id, owner_tool_call_result_id, ordinal, block_kind,
             coalesce(text_content, '') AS text_content, structured_data,
-            artifact_id, tool_call_id, created_at
+            artifact_id, tool_call_id, metadata, created_at
 )
 SELECT inserted.id, agent.project_id, inserted.agent_id, inserted.owner_kind,
        inserted.owner_agent_input_id, inserted.owner_model_output_id,
        inserted.owner_tool_call_result_id, inserted.ordinal, inserted.block_kind,
        inserted.text_content, inserted.structured_data, inserted.artifact_id,
-       inserted.tool_call_id, inserted.created_at
+       inserted.tool_call_id, inserted.metadata, inserted.created_at
 FROM inserted
 JOIN agents agent ON agent.id = inserted.agent_id
 `
@@ -452,6 +453,7 @@ type InsertContentBlockParams struct {
 	StructuredData        *json.RawMessage
 	ArtifactID            *uuid.UUID
 	ToolCallID            *uuid.UUID
+	Metadata              json.RawMessage
 }
 
 type InsertContentBlockRow struct {
@@ -468,6 +470,7 @@ type InsertContentBlockRow struct {
 	StructuredData        *json.RawMessage
 	ArtifactID            *uuid.UUID
 	ToolCallID            *uuid.UUID
+	Metadata              json.RawMessage
 	CreatedAt             time.Time
 }
 
@@ -485,6 +488,7 @@ func (q *Queries) InsertContentBlock(ctx context.Context, arg InsertContentBlock
 		arg.StructuredData,
 		arg.ArtifactID,
 		arg.ToolCallID,
+		arg.Metadata,
 	)
 	var i InsertContentBlockRow
 	err := row.Scan(
@@ -501,6 +505,7 @@ func (q *Queries) InsertContentBlock(ctx context.Context, arg InsertContentBlock
 		&i.StructuredData,
 		&i.ArtifactID,
 		&i.ToolCallID,
+		&i.Metadata,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -888,7 +893,7 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.created_at
+       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = $1
@@ -917,6 +922,7 @@ type ListContentBlocksForAgentInputRow struct {
 	StructuredData        *json.RawMessage
 	ArtifactID            *uuid.UUID
 	ToolCallID            *uuid.UUID
+	Metadata              json.RawMessage
 	CreatedAt             time.Time
 }
 
@@ -943,6 +949,7 @@ func (q *Queries) ListContentBlocksForAgentInput(ctx context.Context, arg ListCo
 			&i.StructuredData,
 			&i.ArtifactID,
 			&i.ToolCallID,
+			&i.Metadata,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -960,7 +967,7 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.created_at
+       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = $1
@@ -989,6 +996,7 @@ type ListContentBlocksForModelOutputRow struct {
 	StructuredData        *json.RawMessage
 	ArtifactID            *uuid.UUID
 	ToolCallID            *uuid.UUID
+	Metadata              json.RawMessage
 	CreatedAt             time.Time
 }
 
@@ -1015,6 +1023,7 @@ func (q *Queries) ListContentBlocksForModelOutput(ctx context.Context, arg ListC
 			&i.StructuredData,
 			&i.ArtifactID,
 			&i.ToolCallID,
+			&i.Metadata,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -1032,7 +1041,7 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.created_at
+       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = $1
@@ -1061,6 +1070,7 @@ type ListToolCallResultContentBlocksRow struct {
 	StructuredData        *json.RawMessage
 	ArtifactID            *uuid.UUID
 	ToolCallID            *uuid.UUID
+	Metadata              json.RawMessage
 	CreatedAt             time.Time
 }
 
@@ -1087,6 +1097,7 @@ func (q *Queries) ListToolCallResultContentBlocks(ctx context.Context, arg ListT
 			&i.StructuredData,
 			&i.ArtifactID,
 			&i.ToolCallID,
+			&i.Metadata,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

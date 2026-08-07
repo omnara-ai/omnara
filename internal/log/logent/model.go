@@ -4,7 +4,27 @@ import (
 	"context"
 
 	"github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
+
+func ModelContextToolResultsReduced(
+	ctx context.Context,
+	count, originalBytes, maxResultBytes int,
+) {
+	if count <= 0 {
+		return
+	}
+	log.Attach(ctx, log.Fields{
+		"model_context.tool_results_reduced.count":          count,
+		"model_context.tool_results_reduced.original_bytes": originalBytes,
+		"model_context.tool_result_max_bytes":               maxResultBytes,
+	})
+	if maxResultBytes >= tooloutput.MaxInlineToolResultBytes {
+		log.Level(ctx, log.WarnLevel)
+	} else {
+		log.Level(ctx, log.InfoLevel)
+	}
+}
 
 func ModelContextMediaOmitted(ctx context.Context, count int, bytes int64, budget int64) {
 	if count <= 0 {

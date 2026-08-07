@@ -93,6 +93,8 @@ func (s *Store) executeToolCallOnce(
 	input ExecuteToolCallInput,
 	plan ToolCallPlan,
 ) (ExecuteToolCallResult, error) {
+	ctx, artifactScope := withArtifactRollbackScope(ctx)
+	defer artifactScope.rollback(ctx)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ExecuteToolCallResult{}, fmt.Errorf("begin tool call execution: %w", err)
@@ -134,6 +136,7 @@ func (s *Store) executeToolCallOnce(
 	if err := s.commitTxWithNotifications(ctx, tx, toolTx.notifications, "execute tool call"); err != nil {
 		return ExecuteToolCallResult{}, err
 	}
+	artifactScope.commit()
 	return ExecuteToolCallResult{
 		Disposition:   toolTx.disposition,
 		Applied:       toolTx.applied,
@@ -258,13 +261,42 @@ func (t *toolCallTransaction) completeToolCall(
 	if t.disposition != 0 {
 		return ToolCallRecord{}, storeerr.ErrStateTransitionConflict
 	}
+	if !input.Outcome.IsTerminal() {
+		return ToolCallRecord{}, fmt.Errorf("invalid tool result outcome %q", input.Outcome)
+	}
+	if err := t.lockForMutation(ctx); err != nil {
+		return ToolCallRecord{}, err
+	}
+	toolCall, err := getToolCallTx(
+		ctx,
+		t.tx,
+		t.input.ProjectID,
+		t.input.AgentID,
+		t.input.ToolCallID,
+	)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	prepared, err := t.store.prepareToolResult(
+		ctx,
+		t.tx,
+		t.input.ProjectID,
+		t.input.AgentID,
+		t.input.ToolCallID,
+		toolCall.Name,
+		input.Outcome,
+		input.ResultContentParts,
+	)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
 	record, err := completeToolCallTx(ctx, t.notifications, t.tx, CompleteToolCallInput{
 		ProjectID:          t.input.ProjectID,
 		AgentID:            t.input.AgentID,
 		ID:                 t.input.ToolCallID,
 		Outcome:            input.Outcome,
 		RuntimeLockID:      t.input.RuntimeLockID,
-		ResultContentParts: input.ResultContentParts,
+		ResultContentParts: prepared,
 	})
 	if err != nil {
 		return ToolCallRecord{}, err

@@ -338,8 +338,9 @@ func TestWebFetchHandlerFailuresPreserveStructuredContent(t *testing.T) {
 	}
 }
 
-func TestWebFetchToolResultContentRendersTitleAndTruncatesOnRuneBoundary(t *testing.T) {
-	content := strings.Repeat("é", webFetchInlineContentChars+5)
+func TestWebFetchToolResultContentRendersTitleAndPreservesFullExtractedContent(t *testing.T) {
+	const runeCount = 30_005
+	content := strings.Repeat("é", runeCount)
 	result, err := webFetchToolResultContent(webaccess.FetchResult{
 		URL:         "https://example.com/start",
 		FinalURL:    "https://example.com/final",
@@ -358,10 +359,10 @@ func TestWebFetchToolResultContentRendersTitleAndTruncatesOnRuneBoundary(t *test
 	}
 	parts := decodeParts(t, contentParts)
 	text := partText(t, parts, "text", "text")
-	if !strings.HasPrefix(text, "# Example Title\n\n") || !strings.Contains(text, "[content truncated:") {
-		t.Fatalf("rendered text missing title or truncation marker: %q", text[:min(len(text), 120)])
+	if !strings.HasPrefix(text, "# Example Title\n\n") || strings.Contains(text, "[content truncated:") {
+		t.Fatalf("rendered text missing title or was unexpectedly truncated: %q", text[:min(len(text), 120)])
 	}
-	if !utf8.ValidString(text) || strings.Count(text, "é") != webFetchInlineContentChars {
+	if !utf8.ValidString(text) || strings.Count(text, "é") != runeCount {
 		t.Fatalf(
 			"rendered text invalid or wrong rune count: valid=%v count=%d",
 			utf8.ValidString(text),
@@ -384,7 +385,7 @@ func TestWebFetchToolResultContentRendersTitleAndTruncatesOnRuneBoundary(t *test
 		if err := json.Unmarshal(part["value"], &value); err != nil {
 			t.Fatalf("decode structured value: %v", err)
 		}
-		if value.Title != "Example Title" || value.StatusCode != http.StatusOK || !value.Truncated {
+		if value.Title != "Example Title" || value.StatusCode != http.StatusOK || value.Truncated {
 			t.Fatalf("structured value = %+v", value)
 		}
 	}
