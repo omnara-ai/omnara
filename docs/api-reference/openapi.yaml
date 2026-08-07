@@ -7069,6 +7069,12 @@ components:
         - ModelOutputStopReasonRefusal
         - ModelOutputStopReasonContentFilter
         - ModelOutputStopReasonError
+    ContentBlockMetadata:
+      type: object
+      description: Opaque application metadata. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+      x-go-type: json.RawMessage
+      x-go-type-skip-optional-pointer: true
+      additionalProperties: true
     TextContentBlock:
       type: object
       additionalProperties: false
@@ -7079,6 +7085,8 @@ components:
           enum: [text]
         text:
           type: string
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     InlineMediaContentBlock:
       type: object
       additionalProperties: false
@@ -7109,6 +7117,8 @@ components:
           type: string
           format: byte
           minLength: 1
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     MediaRefContentBlock:
       type: object
       additionalProperties: false
@@ -7119,6 +7129,8 @@ components:
           enum: [media_ref]
         artifact_id:
           $ref: '#/components/schemas/ArtifactID'
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     ReasoningContentBlock:
       type: object
       additionalProperties: false
@@ -7129,6 +7141,8 @@ components:
           enum: [reasoning]
         text:
           type: string
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     ErrorContentBlock:
       type: object
       additionalProperties: false
@@ -7139,6 +7153,8 @@ components:
           enum: [error]
         text:
           type: string
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     StructuredDataContentBlock:
       type: object
       additionalProperties: false
@@ -7149,6 +7165,8 @@ components:
           enum: [structured_data]
         value:
           $ref: '#/components/schemas/JSONBlob'
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     ModelToolCallContentBlock:
       type: object
       additionalProperties: false
@@ -7165,6 +7183,8 @@ components:
           type: string
         input:
           $ref: '#/components/schemas/ToolInput'
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     CreateAgentInputContentBlock:
       oneOf:
         - $ref: '#/components/schemas/TextContentBlock'

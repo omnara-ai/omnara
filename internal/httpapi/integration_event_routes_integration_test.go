@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -560,6 +561,7 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 		"This message directly mentioned the agent inside a Slack thread that is already attached to this agent.\n\n"+
 			"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) follow up",
+		[]bool{true, false},
 	)
 }
 
@@ -624,7 +626,21 @@ func TestSlackEventsResolvesMentionedUserDisplayNameInMemory(t *testing.T) {
 		"The agent was mentioned in a Slack channel, so this message starts a new Slack thread for communicating with the agent.\n\n"+
 			"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) ask <@U456> (Ben) to review this",
+		[]bool{true, false},
 	)
+	var displayText string
+	if err := pool.QueryRow(ctx, `
+		SELECT coalesce(metadata->>'omnara_display_text', '')
+		FROM content_blocks
+		WHERE agent_id = $1
+		  AND owner_agent_input_id = $2
+		  AND ordinal = 1
+	`, input.AgentID, input.ID).Scan(&displayText); err != nil {
+		t.Fatalf("load Slack input display text: %v", err)
+	}
+	if displayText != "@Omnara ask @Ben to review this" {
+		t.Fatalf("Slack input display text = %q", displayText)
+	}
 	mentionedNames, err := fixture.Project.Store.Execution().ListActorDisplayNames(
 		ctx,
 		fixture.Project.ProjectUUID,
@@ -781,6 +797,7 @@ func TestSlackEventsMentionedMessageCopyDefersToAppMention(t *testing.T) {
 		"This message directly mentioned the agent inside a Slack thread that is already attached to this agent.\n\n"+
 			"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) important follow up",
+		[]bool{true, false},
 	)
 }
 
@@ -1797,6 +1814,7 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 		pool,
 		input,
 		"<@U123> (Ada) in Slack DM:\nwhat is this?",
+		[]bool{true, false},
 	)
 	artifactID := assertAgentInputArtifactBlock(t, ctx, pool, input)
 	content, artifact, err := fixture.Project.Store.Artifacts().GetArtifactBlob(
@@ -1901,6 +1919,7 @@ func TestSlackEventsSkippedFileCreatesInputWithoutArtifact(t *testing.T) {
 		pool,
 		input,
 		"<@U123> (Ada) in Slack DM:\nplease inspect\n\nSlack files not included:\n- large.png skipped: too large",
+		[]bool{true, false, true},
 	)
 	var artifactBlocks int64
 	if err := pool.QueryRow(ctx, `
@@ -2055,6 +2074,7 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 		"This message was posted in a Slack thread that is already attached to this agent. It may be part of the ongoing conversation even if it does not directly mention the agent.\n\n"+
 			"<@U123> (Ada) in <#CDELAY> (#delayed), thread 222.333:\n"+
 			"Files for the previous Slack message.",
+		[]bool{true, true},
 	)
 	assertAgentInputArtifactBlock(t, ctx, pool, input)
 	response = requestJSONWithHeaders(
@@ -2283,6 +2303,7 @@ func TestSlackEventsMentionedThreadFileShareCreatesArtifactInput(t *testing.T) {
 		"This message was routed to a Slack thread attached to this agent.\n\n"+
 			"<@U123> (Ada) in <#CTHREADFILE> (#thread-file), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) inspect this",
+		[]bool{true, false},
 	)
 	artifactID := assertAgentInputArtifactBlock(t, ctx, pool, input)
 	if _, _, err := fixture.Project.Store.Artifacts().GetArtifactBlob(
@@ -2561,6 +2582,7 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 			"<@U999> (Grace): earlier\n\n"+
 			"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) use the prior context",
+		[]bool{true, false},
 	)
 }
 
@@ -2930,6 +2952,7 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 		"The agent was mentioned in a Slack channel, so this message starts a new Slack thread for communicating with the agent.\n\n"+
 			"<@U123> in <#C123>, thread 111.222:\n"+
 			"<@U_BOT> (Omnara) hello",
+		[]bool{true, false},
 	)
 }
 
@@ -3630,12 +3653,14 @@ func assertAgentInputText(
 	pool *pgxpool.Pool,
 	input executionstore.AgentInputRecord,
 	want string,
+	wantHidden []bool,
 ) {
 	t.Helper()
 	var got string
-	var blocks int64
+	var hidden []bool
 	if err := pool.QueryRow(ctx, `
-		SELECT coalesce(string_agg(text_content, '' ORDER BY ordinal), ''), count(*)::bigint
+		SELECT coalesce(string_agg(text_content, E'\n' ORDER BY ordinal), ''),
+		       array_agg(coalesce(block.metadata->'omnara_hidden' = 'true'::jsonb, false) ORDER BY ordinal)
 			FROM content_blocks block
 			JOIN agent_inputs owner
 			  ON owner.agent_id = block.agent_id
@@ -3644,14 +3669,17 @@ func assertAgentInputText(
 			  AND block.agent_id = $2
 			  AND block.owner_agent_input_id = $3
 			  AND block.block_kind = 'text'
-	`, input.ProjectID, input.AgentID, input.ID).Scan(&got, &blocks); err != nil {
+	`, input.ProjectID, input.AgentID, input.ID).Scan(&got, &hidden); err != nil {
 		t.Fatalf("load agent input text content: %v", err)
 	}
-	if blocks != 1 {
-		t.Fatalf("agent input text blocks = %d, want 1", blocks)
+	if len(hidden) == 0 {
+		t.Fatal("agent input has no text blocks")
 	}
 	if got != want {
 		t.Fatalf("agent input text =\n%s\nwant\n%s", got, want)
+	}
+	if !slices.Equal(hidden, wantHidden) {
+		t.Fatalf("agent input text block visibility = %v, want %v", hidden, wantHidden)
 	}
 }
 

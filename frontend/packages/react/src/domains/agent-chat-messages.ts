@@ -70,11 +70,21 @@ function mediaPart(block: MediaRefContentBlock): OmnaraUIMessage['parts'][number
   }
 }
 
+function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): boolean {
+  return block.metadata?.omnara_hidden === true
+}
+
 function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
   const parts: OmnaraUIMessage['parts'] = []
   for (const block of event.content_blocks) {
+    if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
-      parts.push({ type: 'text', text: block.text, state: 'done' })
+      const displayText = block.metadata?.omnara_display_text
+      parts.push({
+        type: 'text',
+        text: typeof displayText === 'string' ? displayText : block.text,
+        state: 'done',
+      })
     }
     if (block.type === 'media_ref') {
       parts.push(mediaPart(block))
@@ -86,6 +96,7 @@ function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
 function modelOutputParts(event: ModelOutputEvent): OmnaraUIMessage['parts'] {
   const parts: OmnaraUIMessage['parts'] = []
   for (const block of event.content_blocks) {
+    if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
       parts.push({ type: 'text', text: block.text, state: 'done' })
     }
@@ -189,7 +200,7 @@ export function agentEventsToMessages(
       input: part.input,
       output: {
         outcome: event.outcome,
-        contentBlocks: event.content_blocks,
+        contentBlocks: event.content_blocks.filter((block) => !isHiddenContentBlock(block)),
       },
     }
     message.metadata = eventMetadata(event)

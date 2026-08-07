@@ -60,7 +60,12 @@ export function AgentView() {
       </header>
 
       <main className="min-h-0 flex-1">
-        <AgentConversation chat={chat} currentActorId={currentActorId} />
+        <AgentConversation
+          chat={chat}
+          currentActorId={currentActorId}
+          orgID={activeOrg.id}
+          projectID={projectId}
+        />
       </main>
 
       <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3">

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -295,17 +296,15 @@ func (s *Server) processIntegrationInboundEvent(
 	if siblingEventAlreadyAccepted {
 		visibleEvent.Text = slack.AttachmentOnlyMessageText
 	}
-	modelVisibleText := slack.ModelVisibleText(
+	messageText, hiddenText := slack.ModelInputTextParts(
 		visibleEvent,
 		route,
 		newlyMapped,
 		historyText,
 		labels,
 	)
-	contentText := modelVisibleText
-	if skippedFileSummary := slack.SkippedFileSummary(fileIngest.Files); skippedFileSummary != "" {
-		contentText += "\n\n" + skippedFileSummary
-	}
+	displayText := labels.RenderDisplayText(strings.TrimSpace(visibleEvent.Text))
+	skippedFileSummary := slack.SkippedFileSummary(fileIngest.Files)
 	metadata, err := slack.InboundEventMetadata(
 		integrationstore.IntegrationProviderSlack,
 		envelope,
@@ -316,10 +315,30 @@ func (s *Server) processIntegrationInboundEvent(
 	if err != nil {
 		return true, err
 	}
-	contentBlockPayload := append(
-		[]map[string]any{{"type": "text", "text": contentText}},
-		fileIngest.Blocks...,
-	)
+	hiddenMetadata := map[string]any{"omnara_hidden": true}
+	contentBlockPayload := make([]map[string]any, 0, 3+len(fileIngest.Blocks))
+	contentBlockPayload = append(contentBlockPayload, map[string]any{
+		"type":     "text",
+		"text":     hiddenText,
+		"metadata": hiddenMetadata,
+	})
+	if messageText != "" {
+		block := map[string]any{"type": "text", "text": messageText}
+		if siblingEventAlreadyAccepted {
+			block["metadata"] = hiddenMetadata
+		} else if displayText != messageText {
+			block["metadata"] = map[string]any{"omnara_display_text": displayText}
+		}
+		contentBlockPayload = append(contentBlockPayload, block)
+	}
+	if skippedFileSummary != "" {
+		contentBlockPayload = append(contentBlockPayload, map[string]any{
+			"type":     "text",
+			"text":     "\n" + skippedFileSummary,
+			"metadata": hiddenMetadata,
+		})
+	}
+	contentBlockPayload = append(contentBlockPayload, fileIngest.Blocks...)
 	contentBlocks, err := marshalJSON(contentBlockPayload)
 	if err != nil {
 		return true, err

@@ -429,27 +429,27 @@ func textMentionsBot(text, botUserID string) bool {
 	return false
 }
 
-func ModelVisibleText(
+func ModelInputTextParts(
 	event Event,
 	route InboundRoute,
 	newlyMapped bool,
 	history string,
 	labels DisplayLabels,
-) string {
+) (string, string) {
 	location := labels.ChannelLocation(event.Channel, event.ChannelType)
 	if threadTS := routeThreadTS(route); threadTS != "" {
 		location += ", thread " + threadTS
 	}
-	current := labels.UserReference(event.User) + " in " + location + ":\n" +
-		labels.RenderText(strings.TrimSpace(event.Text))
+	prefix := labels.UserReference(event.User) + " in " + location + ":"
+	message := labels.RenderText(strings.TrimSpace(event.Text))
 	if event.ChannelType == "im" {
-		return current
+		return message, prefix
 	}
 	context := modelVisibleContext(event, route, newlyMapped)
 	if history != "" {
-		return context + "\n\n" + history + "\n\n" + current
+		context += "\n\n" + history
 	}
-	return context + "\n\n" + current
+	return message, context + "\n\n" + prefix
 }
 
 func routeThreadTS(route InboundRoute) string {
@@ -504,6 +504,14 @@ func (labels DisplayLabels) ChannelReference(channelID string) string {
 }
 
 func (labels DisplayLabels) RenderText(text string) string {
+	return labels.renderText(text, true)
+}
+
+func (labels DisplayLabels) RenderDisplayText(text string) string {
+	return labels.renderText(text, false)
+}
+
+func (labels DisplayLabels) renderText(text string, includeIDs bool) string {
 	text = userMentionPattern.ReplaceAllStringFunc(text, func(raw string) string {
 		match := userMentionPattern.FindStringSubmatch(raw)
 		if len(match) < 2 {
@@ -511,6 +519,9 @@ func (labels DisplayLabels) RenderText(text string) string {
 		}
 		value := labelOrFallback(label(labels.Users, match[1]), match, 2)
 		if value := validUserDisplayLabel(value, match[1]); value != "" {
+			if !includeIDs {
+				return "@" + strings.TrimPrefix(value, "@")
+			}
 			return userReference(match[1], value)
 		}
 		return raw
@@ -521,6 +532,9 @@ func (labels DisplayLabels) RenderText(text string) string {
 			return raw
 		}
 		if value := labelOrFallback(label(labels.Channels, match[1]), match, 2); value != "" {
+			if !includeIDs {
+				return "#" + strings.TrimPrefix(value, "#")
+			}
 			return channelReference(match[1], value)
 		}
 		return raw

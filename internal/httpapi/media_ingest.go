@@ -36,13 +36,15 @@ type pendingAttachment struct {
 	mediaType string
 	filename  string
 	content   []byte
+	metadata  json.RawMessage
 }
 
 type inboundBlock struct {
-	Type      string `json:"type"`
-	Data      string `json:"data,omitempty"`
-	MediaType string `json:"media_type,omitempty"`
-	Filename  string `json:"filename,omitempty"`
+	Type      string          `json:"type"`
+	Data      string          `json:"data,omitempty"`
+	MediaType string          `json:"media_type,omitempty"`
+	Filename  string          `json:"filename,omitempty"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
 }
 
 func (s *Server) extractInlineMedia(
@@ -78,6 +80,15 @@ func (s *Server) extractInlineMedia(
 			nonAttachmentBytes += len(raw)
 			continue
 		}
+		if len(block.Metadata) > 0 {
+			var metadata map[string]json.RawMessage
+			if err := json.Unmarshal(block.Metadata, &metadata); err != nil || metadata == nil {
+				return nil, mediaIngestError{
+					fmt.Sprintf("content block %d: metadata must be a JSON object", ordinal),
+				}
+			}
+		}
+		nonAttachmentBytes += len(block.Metadata)
 		if block.Data == "" {
 			return nil, mediaIngestError{
 				fmt.Sprintf(
@@ -140,6 +151,7 @@ func (s *Server) extractInlineMedia(
 			mediaType: block.MediaType,
 			filename:  block.Filename,
 			content:   content,
+			metadata:  block.Metadata,
 		}
 	}
 	if nonAttachmentBytes > maxContentBlockBytes {
@@ -176,9 +188,14 @@ func (s *Server) extractInlineMedia(
 		if err != nil {
 			return nil, fmt.Errorf("store attachment %d: %w", ordinal, err)
 		}
-		rewritten, err := json.Marshal(
-			map[string]any{"type": "media_ref", "artifact_id": artifact.ID.String()},
-		)
+		rewrittenBlock := map[string]any{
+			"type":        "media_ref",
+			"artifact_id": artifact.ID.String(),
+		}
+		if len(attachment.metadata) > 0 {
+			rewrittenBlock["metadata"] = attachment.metadata
+		}
+		rewritten, err := json.Marshal(rewrittenBlock)
 		if err != nil {
 			return nil, fmt.Errorf("encode attachment block %d: %w", ordinal, err)
 		}
