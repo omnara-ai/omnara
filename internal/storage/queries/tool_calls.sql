@@ -88,6 +88,11 @@ LEFT JOIN LATERAL (
     CASE
       WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', block.text_content)
       WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
+      WHEN block.block_kind = 'artifact' AND block.metadata->>'part_kind' = 'artifact_ref' THEN
+        jsonb_build_object('type', 'artifact_ref', 'artifact_id', block.artifact_id::text,
+          'content_type', block.metadata->>'content_type',
+          'size_bytes', (block.metadata->>'size_bytes')::bigint,
+          'line_count', (block.metadata->>'line_count')::int)
       WHEN block.block_kind = 'artifact' THEN jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text)
     END
     ORDER BY block.ordinal, block.id
@@ -115,6 +120,11 @@ LEFT JOIN LATERAL (
     CASE
       WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', block.text_content)
       WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
+      WHEN block.block_kind = 'artifact' AND block.metadata->>'part_kind' = 'artifact_ref' THEN
+        jsonb_build_object('type', 'artifact_ref', 'artifact_id', block.artifact_id::text,
+          'content_type', block.metadata->>'content_type',
+          'size_bytes', (block.metadata->>'size_bytes')::bigint,
+          'line_count', (block.metadata->>'line_count')::int)
       WHEN block.block_kind = 'artifact' THEN jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text)
     END
     ORDER BY block.ordinal, block.id
@@ -141,6 +151,11 @@ LEFT JOIN LATERAL (
     CASE
       WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', block.text_content)
       WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
+      WHEN block.block_kind = 'artifact' AND block.metadata->>'part_kind' = 'artifact_ref' THEN
+        jsonb_build_object('type', 'artifact_ref', 'artifact_id', block.artifact_id::text,
+          'content_type', block.metadata->>'content_type',
+          'size_bytes', (block.metadata->>'size_bytes')::bigint,
+          'line_count', (block.metadata->>'line_count')::int)
       WHEN block.block_kind = 'artifact' THEN
         jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text)
     END
@@ -727,6 +742,11 @@ LEFT JOIN LATERAL (
     CASE
       WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', block.text_content)
       WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
+      WHEN block.block_kind = 'artifact' AND block.metadata->>'part_kind' = 'artifact_ref' THEN
+        jsonb_build_object('type', 'artifact_ref', 'artifact_id', block.artifact_id::text,
+          'content_type', block.metadata->>'content_type',
+          'size_bytes', (block.metadata->>'size_bytes')::bigint,
+          'line_count', (block.metadata->>'line_count')::int)
       WHEN block.block_kind = 'artifact' THEN
         jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text)
     END

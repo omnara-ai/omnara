@@ -58,7 +58,7 @@ func TestPrepareBuildsImagePartsAndTextFallbacks(t *testing.T) {
 	if content[1].ImageURL.URL != "data:image/png;base64,"+mediaTestImageData {
 		t.Fatalf("unexpected image URL: %+v", content[1].ImageURL)
 	}
-	if !strings.Contains(content[2].Text, mediaTestDocumentID) {
+	if !strings.Contains(content[2].Text, "art_") || strings.Contains(content[2].Text, mediaTestDocumentID) {
 		t.Fatalf("document fallback lost media ref: %+v", content[2])
 	}
 	if prepared.InputTokenEstimate < 25_000 || prepared.InputTokenEstimate >= 30_000 {
@@ -81,7 +81,7 @@ func TestPrepareKeepsUnresolvedMediaAsText(t *testing.T) {
 	if strings.Contains(body, "image_url") {
 		t.Fatalf("unresolved media must not render as image_url: %s", prepared.Body)
 	}
-	if !strings.Contains(body, mediaTestImageID) {
+	if !strings.Contains(body, "art_") || strings.Contains(body, mediaTestImageID) {
 		t.Fatalf("unresolved media ref missing textual fallback: %s", prepared.Body)
 	}
 }
@@ -98,7 +98,7 @@ func TestPrepareKeepsAssistantMediaReferenceWhenSwitchingFormats(t *testing.T) {
 		t.Fatalf("prepare: %v", err)
 	}
 	body := string(prepared.Body)
-	if !strings.Contains(body, mediaTestImageID) {
+	if !strings.Contains(body, "art_") || strings.Contains(body, mediaTestImageID) {
 		t.Fatalf("assistant media reference was lost during canonical format conversion: %s", prepared.Body)
 	}
 	if strings.Contains(body, "provider_item_id") {
@@ -116,7 +116,8 @@ func TestToolResultPreservesResolvedImageAsTextualReference(t *testing.T) {
 		Name:         "inspect_image",
 		ContentParts: content,
 	})
-	if !strings.Contains(got, "before image") || !strings.Contains(got, mediaTestImageID) ||
+	if !strings.Contains(got, "before image") || !strings.Contains(got, "art_") ||
+		strings.Contains(got, mediaTestImageID) ||
 		!strings.Contains(got, "after image") {
 		t.Fatalf("resolved image tool result lost content: %q", got)
 	}

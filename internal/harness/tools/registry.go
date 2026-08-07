@@ -269,6 +269,18 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
+			name:                   toolcatalog.ToolNameReadArtifact,
+			semanticInputValidator: validateReadArtifactInput,
+			handler:                toolHandler{Async: runReadArtifactAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameSearchArtifact,
+			semanticInputValidator: validateSearchArtifactInput,
+			handler:                toolHandler{Async: runSearchArtifactAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameSkill,
 			semanticInputValidator: validateSkillInput,
 			handler:                toolHandler{Async: runSkillTool},

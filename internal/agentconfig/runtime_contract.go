@@ -100,8 +100,12 @@ func RuntimeContractFromCompiled(
 			return RuntimeContract{}, errors.New("skill tool is not registered")
 		}
 		tools = append(tools, runtimeBuiltInTool(entry, entry.DefaultPermission))
-		sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	}
+	tools, err = appendArtifactRetrievalTools(compiled, tools, len(mcpServers) > 0)
+	if err != nil {
+		return RuntimeContract{}, err
+	}
+	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	return RuntimeContract{
 		Instruction:    compiled.Instruction,
 		Model:          compiled.Model,
@@ -110,6 +114,47 @@ func RuntimeContractFromCompiled(
 		MCPServers:     mcpServers,
 		Skills:         compiled.Skills,
 	}, nil
+}
+
+func appendArtifactRetrievalTools(
+	compiled Compiled,
+	tools []RuntimeTool,
+	hasMCP bool,
+) ([]RuntimeTool, error) {
+	hasCapability := hasMCP
+	for _, tool := range tools {
+		if tool.Name != toolcatalog.ToolNameReadArtifact &&
+			tool.Name != toolcatalog.ToolNameSearchArtifact {
+			hasCapability = true
+			break
+		}
+	}
+	if !hasCapability {
+		return tools, nil
+	}
+	catalog, err := toolcatalog.Default()
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range []string{
+		toolcatalog.ToolNameReadArtifact,
+		toolcatalog.ToolNameSearchArtifact,
+	} {
+		if configured, explicitlyConfigured := compiled.Tools[name]; explicitlyConfigured {
+			// runtimeTools already included an explicitly enabled entry and
+			// deliberately omitted an explicitly disabled one.
+			if !configured.Enabled {
+				continue
+			}
+		} else {
+			entry, ok := catalog.Lookup(name)
+			if !ok {
+				return nil, fmt.Errorf("%s tool is not registered", name)
+			}
+			tools = append(tools, runtimeBuiltInTool(entry, entry.DefaultPermission))
+		}
+	}
+	return tools, nil
 }
 
 func runtimeMachineSources(compiled []MachineSourceCompiled) []RuntimeMachine {

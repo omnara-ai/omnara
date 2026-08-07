@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -114,12 +116,19 @@ func TestBuildResolvesMediaMetadata(t *testing.T) {
 }
 
 func TestMediaRefTextContainsOnlyCanonicalReference(t *testing.T) {
+	rawID := testIDN(133)
+	publicID, err := publicid.Encode(publicid.KindArtifact, rawID)
+	if err != nil {
+		t.Fatalf("encode artifact id: %v", err)
+	}
 	text := MediaRefText(map[string]json.RawMessage{
 		"type":            json.RawMessage(`"media_ref"`),
-		"artifact_id":     json.RawMessage(`"artifact_1"`),
+		"artifact_id":     json.RawMessage(`"` + rawID.String() + `"`),
 		"provider_replay": json.RawMessage(`{"item":{"opaque":true}}`),
 	})
-	if text != "A prior attachment with artifact ID artifact_1 is not included in the current model context." {
+	if text != "Attachment "+publicID+
+		" could not be shown to this model; its binary content is downloadable through the artifacts API." ||
+		strings.Contains(text, rawID.String()) {
 		t.Fatalf("media ref text = %s", text)
 	}
 }

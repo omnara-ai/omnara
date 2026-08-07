@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
 
 type TypedAgentEventRecord struct {
@@ -38,6 +39,7 @@ type CreateContentBlockInput struct {
 	StructuredData        json.RawMessage
 	ArtifactID            ID
 	ToolCallID            ID
+	Metadata              json.RawMessage
 }
 
 type ContentBlockRecord struct {
@@ -54,6 +56,7 @@ type ContentBlockRecord struct {
 	StructuredData        json.RawMessage
 	ArtifactID            ID
 	ToolCallID            ID
+	Metadata              json.RawMessage
 	CreatedAt             time.Time
 }
 
@@ -94,6 +97,10 @@ func createContentBlockTx(
 			"project, agent, owner kind, and block kind are required",
 		)
 	}
+	metadata, err := normalizedJSONObject(input.Metadata, "content block metadata")
+	if err != nil {
+		return ContentBlockRecord{}, err
+	}
 	var textContent *string
 	if input.BlockKind == ContentBlockKindText ||
 		input.BlockKind == ContentBlockKindReasoning ||
@@ -114,6 +121,7 @@ func createContentBlockTx(
 		StructuredData:        sqlcRawMessageFromEmpty(input.StructuredData),
 		ArtifactID:            sqlcIDFromNil(input.ArtifactID),
 		ToolCallID:            sqlcIDFromNil(input.ToolCallID),
+		Metadata:              metadata,
 	})
 	if err != nil {
 		return ContentBlockRecord{}, fmt.Errorf("create content block: %w", err)
@@ -337,6 +345,12 @@ func admitToolCallResultTx(
 	if err != nil {
 		return admittedToolCallResult{}, err
 	}
+	if len(canonical) > tooloutput.MaxStoredToolResultBytes {
+		return admittedToolCallResult{}, storeerr.InvalidRequest(fmt.Errorf(
+			"tool result content exceeds %d serialized bytes",
+			tooloutput.MaxStoredToolResultBytes,
+		))
+	}
 	input.ResultContentParts = canonical
 	result, inserted, err := createToolCallResultAuthorityTx(ctx, tx, input)
 	if err != nil {
@@ -409,6 +423,16 @@ func toolCallResultContentBlocksTx(
 		case ContentBlockKindArtifact:
 			if row.ArtifactID == nil {
 				return nil, errors.New("stored artifact block has no artifact")
+			}
+			if metadata, ok := parseArtifactRefMetadata(row.Metadata); ok {
+				parts = append(parts, map[string]any{
+					"type":         artifactRefPartKind,
+					"artifact_id":  row.ArtifactID.String(),
+					"content_type": metadata.ContentType,
+					"size_bytes":   metadata.SizeBytes,
+					"line_count":   metadata.LineCount,
+				})
+				continue
 			}
 			parts = append(parts, map[string]any{
 				"type":        "media_ref",
@@ -617,6 +641,7 @@ func contentBlockFromInsertSQLC(row dbsqlc.InsertContentBlockRow) ContentBlockRe
 		StructuredData:        rawMessageFromSQLCPtr(row.StructuredData),
 		ArtifactID:            idFromSQLCPtr(row.ArtifactID),
 		ToolCallID:            idFromSQLCPtr(row.ToolCallID),
+		Metadata:              row.Metadata,
 		CreatedAt:             row.CreatedAt,
 	}
 }

@@ -252,7 +252,7 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.created_at
+       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -290,25 +290,26 @@ inserted AS (
   INSERT INTO content_blocks(
     agent_id, owner_kind, owner_agent_input_id,
     owner_model_output_id, owner_tool_call_result_id, ordinal, block_kind,
-    text_content, structured_data, artifact_id, tool_call_id, created_at
+    text_content, structured_data, artifact_id, tool_call_id, metadata, created_at
   )
   SELECT
     sqlc.arg(agent_id), sqlc.arg(owner_kind),
     sqlc.narg(owner_agent_input_id)::uuid, sqlc.narg(owner_model_output_id)::uuid,
     sqlc.narg(owner_tool_call_result_id)::uuid, sqlc.arg(ordinal), sqlc.arg(block_kind),
     sqlc.narg(text_content), sqlc.narg(structured_data)::jsonb, sqlc.narg(artifact_id)::uuid, sqlc.narg(tool_call_id)::uuid,
+    sqlc.arg(metadata)::jsonb,
     content_owner.created_at
   FROM content_owner
   RETURNING id, agent_id, owner_kind, owner_agent_input_id,
             owner_model_output_id, owner_tool_call_result_id, ordinal, block_kind,
             coalesce(text_content, '') AS text_content, structured_data,
-            artifact_id, tool_call_id, created_at
+            artifact_id, tool_call_id, metadata, created_at
 )
 SELECT inserted.id, agent.project_id, inserted.agent_id, inserted.owner_kind,
        inserted.owner_agent_input_id, inserted.owner_model_output_id,
        inserted.owner_tool_call_result_id, inserted.ordinal, inserted.block_kind,
        inserted.text_content, inserted.structured_data, inserted.artifact_id,
-       inserted.tool_call_id, inserted.created_at
+       inserted.tool_call_id, inserted.metadata, inserted.created_at
 FROM inserted
 JOIN agents agent ON agent.id = inserted.agent_id;
 
@@ -317,7 +318,7 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.created_at
+       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -330,7 +331,7 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.created_at
+       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)

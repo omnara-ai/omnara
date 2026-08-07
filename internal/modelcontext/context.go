@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -223,6 +224,9 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 			IsCurrent:       target.IsCurrent,
 		})
 	}
+	reducer := ProjectionReducerForWindow(input.ModelWindow)
+	reducedResults := 0
+	reducedBytes := 0
 	for _, toolCall := range toolCalls {
 		parts := toolCall.ResultContentParts
 		if len(parts) == 0 {
@@ -231,6 +235,14 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		parts, err = modelToolResultContentParts(toolCall.Outcome, parts)
 		if err != nil {
 			return Bundle{}, fmt.Errorf("project tool result %s: %w", toolCall.ID, err)
+		}
+		parts, reduced, err := reducer.Reduce(parts, toolCall.Name)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("reduce projected tool result %s: %w", toolCall.ID, err)
+		}
+		if reduced {
+			reducedResults++
+			reducedBytes += len(toolCall.ResultContentParts)
 		}
 		bundle.ToolResults = append(bundle.ToolResults, ToolResultRef{
 			ToolCallID:          toolCall.ID.String(),
@@ -246,6 +258,12 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 			ContentParts:        parts,
 		})
 	}
+	logent.ModelContextToolResultsReduced(
+		ctx,
+		reducedResults,
+		reducedBytes,
+		reducer.MaxResultBytes,
+	)
 	if err := b.resolveMedia(ctx, &bundle, input.MediaProjector); err != nil {
 		return Bundle{}, err
 	}

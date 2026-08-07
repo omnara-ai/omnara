@@ -166,7 +166,7 @@ func TestPrepareDropsOldestMediaToFitProviderBodyLimit(t *testing.T) {
 	if !strings.Contains(body, base64.StdEncoding.EncodeToString(newData)) {
 		t.Fatalf("newest media should remain in bounded request: %s", body)
 	}
-	if !strings.Contains(body, oldID) {
+	if !strings.Contains(body, "art_") || strings.Contains(body, oldID) {
 		t.Fatalf("removed media must remain as a textual reference: %s", body)
 	}
 	if len(prepared.Body) > len(oneMediaPrepared.Body) {
@@ -235,7 +235,7 @@ func TestPrepareDropsOneHistoricalOccurrenceWhenOpeningReusesArtifact(t *testing
 	if got := strings.Count(string(prepared.Body), encoded); got != 3 {
 		t.Fatalf("rendered repeated-artifact occurrences = %d, want three: %s", got, prepared.Body)
 	}
-	if !strings.Contains(string(prepared.Body), artifactID) {
+	if !strings.Contains(string(prepared.Body), "art_") || strings.Contains(string(prepared.Body), artifactID) {
 		t.Fatalf("dropped historical occurrence must remain textual: %s", prepared.Body)
 	}
 	if len(prepared.Body) > len(targetPrepared.Body) {
@@ -376,7 +376,7 @@ func TestPrepareRendersNonResolvedMediaPartsAsText(t *testing.T) {
 	if !strings.Contains(string(prepared.Body), "hello") {
 		t.Fatalf("text content lost: %s", prepared.Body)
 	}
-	if !strings.Contains(string(prepared.Body), mediaTestImageID) {
+	if !strings.Contains(string(prepared.Body), "art_") || strings.Contains(string(prepared.Body), mediaTestImageID) {
 		t.Fatalf("non-resolved media_ref must keep its textual form: %s", prepared.Body)
 	}
 }
@@ -470,7 +470,7 @@ func TestPrepareAssistantMediaStaysTextual(t *testing.T) {
 	if strings.Contains(assistant, `"type":"image"`) {
 		t.Fatalf("assistant turns must not carry image blocks: %s", assistant)
 	}
-	if !strings.Contains(assistant, mediaTestImageID) {
+	if !strings.Contains(assistant, "art_") || strings.Contains(assistant, mediaTestImageID) {
 		t.Fatalf("assistant media_ref must keep its textual form: %s", assistant)
 	}
 }
@@ -543,7 +543,7 @@ func TestPrepareDegradesUnsupportedDocumentTypesToText(t *testing.T) {
 	if strings.Contains(body, `"type":"document"`) {
 		t.Fatalf("unsupported document types must not render as document blocks: %s", body)
 	}
-	if !strings.Contains(body, docxID) {
+	if !strings.Contains(body, "art_") || strings.Contains(body, docxID) {
 		t.Fatalf("unsupported document types must keep the textual ref: %s", body)
 	}
 	if prepared.InputTokenEstimate >= 10_000 {

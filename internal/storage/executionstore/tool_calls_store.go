@@ -148,12 +148,36 @@ func (s *Store) CompleteToolCall(
 	ctx context.Context,
 	input CompleteToolCallInput,
 ) (ToolCallRecord, error) {
+	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) ||
+		isNilID(input.RuntimeLockID) {
+		return ToolCallRecord{}, errors.New(
+			"project, agent, tool call id, and runtime lock are required",
+		)
+	}
+	if !input.Outcome.IsTerminal() {
+		return ToolCallRecord{}, fmt.Errorf("invalid tool result outcome %q", input.Outcome)
+	}
+	ctx, artifactScope := withArtifactRollbackScope(ctx)
+	defer artifactScope.rollback(ctx)
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ToolCallRecord{}, fmt.Errorf("begin complete tool call: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	prepared, err := s.prepareToolResultByID(
+		ctx,
+		tx,
+		input.ProjectID,
+		input.AgentID,
+		input.ID,
+		input.Outcome,
+		input.ResultContentParts,
+	)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	input.ResultContentParts = prepared
 	record, err := completeToolCallTx(ctx, txNotifications, tx, input)
 	if err != nil {
 		return ToolCallRecord{}, err
@@ -161,6 +185,7 @@ func (s *Store) CompleteToolCall(
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "complete tool call"); err != nil {
 		return ToolCallRecord{}, err
 	}
+	artifactScope.commit()
 	return record, nil
 }
 
@@ -458,12 +483,39 @@ func (s *Store) CompleteRuntimeToolCall(
 	ctx context.Context,
 	input CompleteRuntimeToolCallInput,
 ) (ToolCallRecord, error) {
+	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) ||
+		isNilID(input.RuntimeLockID) {
+		return ToolCallRecord{}, errors.New(
+			"project, agent, tool call id, and runtime lock are required",
+		)
+	}
+	if !input.Outcome.IsTerminal() || input.Outcome == ToolResultOutcomeDenied {
+		return ToolCallRecord{}, fmt.Errorf(
+			"invalid runtime tool result outcome %q",
+			input.Outcome,
+		)
+	}
+	ctx, artifactScope := withArtifactRollbackScope(ctx)
+	defer artifactScope.rollback(ctx)
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	prepared, err := s.prepareToolResultByID(
+		ctx,
+		tx,
+		input.ProjectID,
+		input.AgentID,
+		input.ID,
+		input.Outcome,
+		input.ResultContentParts,
+	)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	input.ResultContentParts = prepared
 	record, err := completeRuntimeToolCallTx(ctx, txNotifications, tx, input)
 	if err != nil {
 		return ToolCallRecord{}, err
@@ -476,6 +528,7 @@ func (s *Store) CompleteRuntimeToolCall(
 	); err != nil {
 		return ToolCallRecord{}, err
 	}
+	artifactScope.commit()
 	return record, nil
 }
 
@@ -632,12 +685,39 @@ func (s *Store) CompleteCustomToolCall(
 	ctx context.Context,
 	input CompleteCustomToolCallInput,
 ) (CompleteCustomToolCallResult, error) {
+	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) {
+		return CompleteCustomToolCallResult{}, errors.New(
+			"project, agent, and tool call ids are required",
+		)
+	}
+	switch input.Outcome {
+	case ToolResultOutcomeSucceeded, ToolResultOutcomeFailed:
+	default:
+		return CompleteCustomToolCallResult{}, errors.New(
+			"custom tool result outcome must be succeeded or failed",
+		)
+	}
+	ctx, artifactScope := withArtifactRollbackScope(ctx)
+	defer artifactScope.rollback(ctx)
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	prepared, err := s.prepareToolResultByID(
+		ctx,
+		tx,
+		input.ProjectID,
+		input.AgentID,
+		input.ID,
+		input.Outcome,
+		input.ContentBlocks,
+	)
+	if err != nil {
+		return CompleteCustomToolCallResult{}, err
+	}
+	input.ContentBlocks = prepared
 	result, err := completeCustomToolCallTx(ctx, txNotifications, tx, input)
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
@@ -650,6 +730,7 @@ func (s *Store) CompleteCustomToolCall(
 	); err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
+	artifactScope.commit()
 	return result, nil
 }
 

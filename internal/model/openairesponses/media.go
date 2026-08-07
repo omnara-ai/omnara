@@ -105,6 +105,12 @@ func renderOpenAIContent(
 			}
 			continue
 		}
+		if partType == "artifact_ref" {
+			if text := modelcontext.ArtifactRefText(part); text != "" {
+				out = append(out, map[string]any{"type": textType, "text": text})
+			}
+			continue
+		}
 		if partType == "reasoning" {
 			continue
 		}

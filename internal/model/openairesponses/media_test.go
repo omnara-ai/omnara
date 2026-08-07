@@ -142,7 +142,7 @@ func TestPrepareRendersNonResolvedMediaPartsAsText(t *testing.T) {
 	if strings.Contains(string(prepared.Body), "input_image") {
 		t.Fatalf("non-resolved media must not render as image parts: %s", prepared.Body)
 	}
-	if !strings.Contains(string(prepared.Body), svgID) {
+	if !strings.Contains(string(prepared.Body), "art_") || strings.Contains(string(prepared.Body), svgID) {
 		t.Fatalf("non-resolved media must keep the textual ref: %s", prepared.Body)
 	}
 }
@@ -185,7 +185,8 @@ func TestPrepareCanonicalAssistantMediaRefUsesOutputTextFallback(t *testing.T) {
 			t.Fatalf("canonical assistant media content = %+v, want only output_text", payload.Input[0].Content)
 		}
 	}
-	if !strings.Contains(payload.Input[0].Content[0].Text, mediaTestImageID) ||
+	if !strings.Contains(payload.Input[0].Content[0].Text, "art_") ||
+		strings.Contains(payload.Input[0].Content[0].Text, mediaTestImageID) ||
 		payload.Input[0].Content[1].Text != "historical media" {
 		t.Fatalf("canonical assistant media fallback lost history: %+v", payload.Input[0].Content)
 	}

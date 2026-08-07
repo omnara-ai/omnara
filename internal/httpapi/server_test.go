@@ -923,6 +923,24 @@ func TestPublicContentBlocksRewritesArtifactReferenceIDs(t *testing.T) {
 	}
 }
 
+func TestPublicToolResultRewritesArtifactRefID(t *testing.T) {
+	publicArtifactID := testPublicID(t, publicid.KindArtifact, httpTestArtifactID)
+	blocks, err := publicToolResultContentBlocks(json.RawMessage(
+		`[{"type":"artifact_ref","artifact_id":"` + httpTestArtifactID.String() +
+			`","content_type":"text/plain; charset=utf-8","size_bytes":1234,"line_count":42}]`,
+	))
+	if err != nil {
+		t.Fatalf("project public artifact ref: %v", err)
+	}
+	block, err := blocks[0].AsArtifactRefContentBlock()
+	if err != nil {
+		t.Fatalf("decode public artifact ref: %v", err)
+	}
+	if block.ArtifactId != publicArtifactID || block.SizeBytes != 1234 || block.LineCount != 42 {
+		t.Fatalf("public artifact ref = %+v", block)
+	}
+}
+
 func TestPublicContentBlocksRewritesToolCallReferenceIDs(t *testing.T) {
 	publicToolCallID := testPublicID(t, publicid.KindToolCall, httpTestToolCallID)
 	blocks, err := publicModelOutputContentBlocks(json.RawMessage(

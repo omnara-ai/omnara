@@ -261,6 +261,10 @@ func modelWindowForRequest(capabilities Capabilities, policy RequestPolicy) mode
 	}
 }
 
+func ModelWindowForRequest(capabilities Capabilities, policy RequestPolicy) modelcontext.ModelWindow {
+	return modelWindowForRequest(capabilities, policy)
+}
+
 func UsableInputTokensForRequest(capabilities Capabilities, policy RequestPolicy) int {
 	return modelWindowForRequest(capabilities, policy).UsableInputTokens()
 }

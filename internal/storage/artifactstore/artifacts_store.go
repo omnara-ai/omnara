@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,6 +41,10 @@ type CreateArtifactInput struct {
 	MaxBytes       int64
 	IdempotencyKey string
 }
+
+// RollbackCleanup removes a blob uploaded for an artifact row that was later
+// rolled back with its caller's transaction.
+type RollbackCleanup func(context.Context)
 
 func artifactObjectKey(agentID, artifactID ID) string {
 	return "artifacts/" + agentID.String() + "/" + artifactID.String()
@@ -101,12 +106,110 @@ func (s *Store) CreateArtifact(
 				fmt.Errorf("commit idempotent create artifact: %w", err),
 			)
 		}
+		// The replay record is durable at this point. A best-effort cleanup
+		// failure must not turn an idempotent success into a client-visible
+		// failure that encourages yet another upload.
+		if err := s.blobs.DeleteBlob(ctx, artifactKey); err != nil {
+			slog.WarnContext(
+				ctx,
+				"cleanup duplicate artifact upload after idempotent replay",
+				"artifact_id", artifactID,
+				"error", err,
+			)
+		}
 		return record, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("commit create artifact: %w", err))
 	}
 	return record, nil
+}
+
+// CreateArtifactInTx records the artifact in the caller's transaction. The
+// returned cleanup must run if that transaction does not commit; it is nil for
+// idempotent replays that did not upload a new blob.
+func (s *Store) CreateArtifactInTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	input CreateArtifactInput,
+) (ArtifactRecord, RollbackCleanup, error) {
+	if tx == nil {
+		return ArtifactRecord{}, nil, errors.New("artifact transaction is required")
+	}
+	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
+		return ArtifactRecord{}, nil, errors.New("project id and agent id are required")
+	}
+	if input.ContentType == "" {
+		return ArtifactRecord{}, nil, errors.New("artifact content type is required")
+	}
+	if len(input.Content) == 0 {
+		return ArtifactRecord{}, nil, errors.New("artifact content is required")
+	}
+	if input.MaxBytes > 0 && int64(len(input.Content)) > input.MaxBytes {
+		return ArtifactRecord{}, nil, fmt.Errorf(
+			"artifact content exceeds %d bytes",
+			input.MaxBytes,
+		)
+	}
+	if s.blobs == nil {
+		return ArtifactRecord{}, nil, ErrBlobStoreNotConfigured
+	}
+	input.Digest = blobstore.ContentDigest(input.Content)
+	sizeBytes := int64(len(input.Content))
+	input.SizeBytes = &sizeBytes
+	if input.IdempotencyKey != "" {
+		existing, err := loadArtifactForReplayTx(
+			ctx,
+			tx,
+			input.ProjectID,
+			input.AgentID,
+			input.IdempotencyKey,
+		)
+		if err == nil {
+			if err := validateArtifactReplay(existing, input); err != nil {
+				return ArtifactRecord{}, nil, err
+			}
+			return existing, nil, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return ArtifactRecord{}, nil, err
+		}
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return ArtifactRecord{}, nil, fmt.Errorf("generate artifact id: %w", err)
+	}
+	artifactKey := artifactObjectKey(input.AgentID, id)
+	metadata, err := s.blobs.PutBlob(ctx, artifactKey, input.Content)
+	if err != nil {
+		return ArtifactRecord{}, nil, fmt.Errorf("upload artifact content: %w", err)
+	}
+	cleanup := func(cleanupCtx context.Context) {
+		if err := s.blobs.DeleteBlob(cleanupCtx, artifactKey); err != nil {
+			slog.WarnContext(
+				cleanupCtx,
+				"cleanup artifact upload after transaction rollback",
+				"artifact_id", id,
+				"error", err,
+			)
+		}
+	}
+	input.Digest = metadata.Digest
+	input.SizeBytes = &metadata.SizeBytes
+	record, inserted, err := insertArtifactTx(ctx, tx, id, input)
+	if err != nil {
+		cleanup(context.WithoutCancel(ctx))
+		return ArtifactRecord{}, nil, err
+	}
+	if !inserted {
+		if err := validateArtifactReplay(record, input); err != nil {
+			cleanup(context.WithoutCancel(ctx))
+			return ArtifactRecord{}, nil, err
+		}
+		cleanup(context.WithoutCancel(ctx))
+		return record, nil, nil
+	}
+	return record, cleanup, nil
 }
 
 func (s *Store) GetArtifact(

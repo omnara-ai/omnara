@@ -11,6 +11,8 @@ const (
 	ContentBlockKindError          ContentBlockKind = "error"
 )
 
+const artifactRefPartKind = "artifact_ref"
+
 type ContentBlockOwnerKind string
 
 const (

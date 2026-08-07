@@ -17,6 +17,7 @@ const (
 	canonicalContentBlockError          canonicalContentBlockType = "error"
 	canonicalContentBlockToolCall       canonicalContentBlockType = "tool_call"
 	canonicalContentBlockStructuredData canonicalContentBlockType = "structured_data"
+	canonicalContentBlockArtifactRef    canonicalContentBlockType = "artifact_ref"
 )
 
 func validateMessageContentBlocks(role modelprotocol.MessageRole, content json.RawMessage) error {
@@ -67,10 +68,38 @@ func validateToolResultContentBlocks(content json.RawMessage) error {
 			return validateMediaRefContentBlock(fields)
 		case canonicalContentBlockStructuredData:
 			return validateStructuredDataContentBlock(fields)
+		case canonicalContentBlockArtifactRef:
+			return validateArtifactRefContentBlock(fields)
 		default:
 			return fmt.Errorf("unsupported type %q", kind)
 		}
 	})
+}
+
+func validateArtifactRefContentBlock(fields map[string]json.RawMessage) error {
+	if err := requireOnlyContentBlockFields(
+		fields,
+		"type",
+		"artifact_id",
+		"content_type",
+		"size_bytes",
+		"line_count",
+	); err != nil {
+		return err
+	}
+	for _, field := range []string{"artifact_id", "content_type"} {
+		value, err := requiredContentBlockString(fields, field)
+		if err != nil || value == "" {
+			return fmt.Errorf("%s is required", field)
+		}
+	}
+	for _, field := range []string{"size_bytes", "line_count"} {
+		var value int64
+		if len(fields[field]) == 0 || json.Unmarshal(fields[field], &value) != nil || value <= 0 {
+			return fmt.Errorf("%s must be a positive integer", field)
+		}
+	}
+	return nil
 }
 
 func validateContentBlockArray(

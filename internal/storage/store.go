@@ -95,6 +95,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 		MachinePoolProviders:  config.machinePoolProviders,
 		Identity:              store.identity,
 		Secrets:               store.secrets,
+		Artifacts:             store.artifacts,
 	})
 	store.organizations = orglifecycle.New(pool, orglifecycle.Config{
 		Blobs:               config.blobs,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/jsonschema"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -400,7 +401,7 @@ func (e Executor) completeAsyncToolSuccess(
 	if err != nil {
 		return fmt.Errorf("marshal async tool success content parts: %w", err)
 	}
-	return retryAsyncToolPersistence(ctx, func(ctx context.Context) error {
+	err = retryAsyncToolPersistence(ctx, func(ctx context.Context) error {
 		_, err := e.Store.Execution().CompleteRuntimeToolCall(
 			ctx,
 			executionstore.CompleteRuntimeToolCallInput{
@@ -414,4 +415,30 @@ func (e Executor) completeAsyncToolSuccess(
 		)
 		return err
 	})
+	if err == nil {
+		return nil
+	}
+	logpkg.LoggerFromContext(ctx).Error(
+		"persist async tool success",
+		"tool_call_id", toolCallID,
+		"error", err,
+	)
+	const message = "The tool ran successfully, but its result could not be stored."
+	fallback, fallbackErr := structuredToolResultContent(map[string]any{
+		"code":    "tool_result_persistence_failed",
+		"message": message,
+	})
+	if fallbackErr != nil {
+		return errors.Join(err, fallbackErr)
+	}
+	if fallbackErr := e.completeAsyncToolFailure(
+		ctx,
+		turn,
+		toolCallID,
+		fallback,
+		errors.New("tool result persistence failed"),
+	); fallbackErr != nil {
+		return errors.Join(err, fallbackErr)
+	}
+	return nil
 }

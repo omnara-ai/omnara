@@ -19,6 +19,7 @@ type recordingBlobStore struct {
 	putKeys    []string
 	deleteKeys []string
 	content    map[string][]byte
+	deleteErr  error
 }
 
 func newRecordingBlobStore() *recordingBlobStore {
@@ -49,8 +50,40 @@ func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, b
 func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
 	_ = ctx
 	s.deleteKeys = append(s.deleteKeys, key)
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
 	delete(s.content, key)
 	return nil
+}
+
+func TestCreateArtifactReplayCleanupFailureRemainsSuccessful(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
+	agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+	input := artifactstore.CreateArtifactInput{
+		ProjectID:      testProjectID,
+		AgentID:        agentID,
+		ContentType:    "text/plain",
+		Content:        []byte("same bytes"),
+		IdempotencyKey: "replay-cleanup-failure",
+	}
+	first, err := store.Artifacts().CreateArtifact(ctx, input)
+	if err != nil {
+		t.Fatalf("create artifact: %v", err)
+	}
+	blobs.deleteErr = errors.New("simulated cleanup failure")
+	replayed, err := store.Artifacts().CreateArtifact(ctx, input)
+	if err != nil {
+		t.Fatalf("cleanup failure changed durable replay success: %v", err)
+	}
+	if replayed.ID != first.ID || replayed.Created {
+		t.Fatalf("unexpected replay record: %+v", replayed)
+	}
 }
 
 func TestCreateArtifactContentRoundTrip(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -421,6 +422,36 @@ func TestDaemonReportValidationErrorsArePermanentRejects(t *testing.T) {
 			"bad process id report error = %v, want errDaemonReportValidation",
 			err,
 		)
+	}
+}
+
+func TestDaemonReportRejectsOversizedOutputAtProtocolBoundary(t *testing.T) {
+	t.Parallel()
+	result, err := json.Marshal(map[string]any{
+		"output":      strings.Repeat("x", processaction.MaxObservationBytes+1),
+		"cursor":      0,
+		"next_cursor": processaction.MaxObservationBytes + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = validateDaemonReportedEvent(daemonReportedEvent{
+		Type:      daemonprotocol.EventProcessFinished,
+		ProcessID: "prc_test",
+		State:     daemonprotocol.ProcessStateExited,
+		StartedAt: time.Now().UTC().Add(-time.Second),
+		EndedAt:   time.Now().UTC(),
+		Result:    result,
+	})
+	if !errors.Is(err, errDaemonReportValidation) {
+		t.Fatalf("oversized result error = %v, want permanent validation error", err)
+	}
+	ack := errorResponseForMessage(
+		daemonprotocol.Message{Type: daemonprotocol.MessageReport},
+		err,
+	)
+	if ack.AckStatus != daemonprotocol.AckStatusPermanentReject {
+		t.Fatalf("oversized result ack = %+v, want permanent reject", ack)
 	}
 }
 

@@ -286,6 +286,10 @@ func (r Runner) run(
 		Now:                 r.now(),
 		AgentConfigSnapshot: &snapshot,
 		MediaProjector:      model.MediaProjectorForClient(client),
+		ModelWindow: model.ModelWindowForRequest(
+			model.CapabilitiesForClient(client),
+			model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
+		),
 		CheckpointOverride: &modelcontext.CheckpointRef{
 			SummarizedThroughEventSequence: input.Plan.EventSequenceEnd,
 			Summary:                        summary,
