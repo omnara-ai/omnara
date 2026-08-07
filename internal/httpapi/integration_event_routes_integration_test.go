@@ -1918,8 +1918,8 @@ func TestSlackEventsSkippedFileCreatesInputWithoutArtifact(t *testing.T) {
 		ctx,
 		pool,
 		input,
-		"<@U123> (Ada) in Slack DM:\nplease inspect\n\nSlack files not included:\n- large.png skipped: too large",
-		[]bool{true, false, true},
+		"<@U123> (Ada) in Slack DM:\nplease inspect\nSlack files not included:\n- large.png skipped: too large",
+		[]bool{true, false, false},
 	)
 	var artifactBlocks int64
 	if err := pool.QueryRow(ctx, `
@@ -3659,7 +3659,7 @@ func assertAgentInputText(
 	var got string
 	var hidden []bool
 	if err := pool.QueryRow(ctx, `
-		SELECT coalesce(string_agg(text_content, E'\n' ORDER BY ordinal), ''),
+		SELECT coalesce(string_agg(text_content, '' ORDER BY ordinal), ''),
 		       array_agg(coalesce(block.metadata->'omnara_hidden' = 'true'::jsonb, false) ORDER BY ordinal)
 			FROM content_blocks block
 			JOIN agent_inputs owner

@@ -40,7 +40,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 			},
 			route:       InboundRoute{ProviderRef: "D123", ProviderRefKind: "dm"},
 			wantMessage: "hello",
-			wantHidden:  "<@U123> (Ada) in Slack DM:",
+			wantHidden:  "<@U123> (Ada) in Slack DM:\n",
 		},
 		{
 			name: "new root mention with channel history",
@@ -60,7 +60,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 				"a new Slack thread for communicating with the agent.\n\n" +
 				"Recent Slack context:\n" +
 				"<@U999> (Grace): earlier channel note\n\n" +
-				"<@U123> (Ada) in <#C123>, thread 111.222:",
+				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{
 			name: "new thread mention with thread history",
@@ -80,7 +80,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 			wantHidden: "This message directly mentioned the agent inside an existing Slack thread.\n\n" +
 				"Recent Slack context:\n" +
 				"<@U999> (Grace): earlier thread note\n\n" +
-				"<@U123> (Ada) in <#C123>, thread 111.222:",
+				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{
 			name: "already mapped thread reply",
@@ -98,7 +98,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 			wantHidden: "This message was posted in a Slack thread that is already attached " +
 				"to this agent. It may be part of the ongoing conversation even if it does not " +
 				"directly mention the agent.\n\n" +
-				"<@U123> (Ada) in <#C123>, thread 111.222:",
+				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{
 			name: "root mention without fetched history",
@@ -115,7 +115,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 			wantMessage: "<@U_BOT> run",
 			wantHidden: "The agent was mentioned in a Slack channel, so this message starts " +
 				"a new Slack thread for communicating with the agent.\n\n" +
-				"<@U123> (Ada) in <#C123>, thread 111.222:",
+				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 	}
 	for _, test := range tests {
@@ -165,7 +165,7 @@ func TestModelInputTextPartsRenderSlackNames(t *testing.T) {
 	display := labels.RenderDisplayText(strings.TrimSpace(event.Text))
 	wantHidden := "The agent was mentioned in a Slack channel, so this message starts a new Slack thread " +
 		"for communicating with the agent.\n\n" +
-		"<@U123> (Ada) in <#C123> (#general), thread 111.222:"
+		"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"
 	wantMessage := "<@U_BOT> (Omnara) ask <@U456> (Ben) about <#C999> (#eng)"
 	wantDisplay := "@Omnara ask @Ben about #eng"
 	if message != wantMessage || hidden != wantHidden || display != wantDisplay {

@@ -333,9 +333,8 @@ func (s *Server) processIntegrationInboundEvent(
 	}
 	if skippedFileSummary != "" {
 		contentBlockPayload = append(contentBlockPayload, map[string]any{
-			"type":     "text",
-			"text":     "\n" + skippedFileSummary,
-			"metadata": hiddenMetadata,
+			"type": "text",
+			"text": "\n" + skippedFileSummary,
 		})
 	}
 	contentBlockPayload = append(contentBlockPayload, fileIngest.Blocks...)

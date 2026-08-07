@@ -440,7 +440,7 @@ func ModelInputTextParts(
 	if threadTS := routeThreadTS(route); threadTS != "" {
 		location += ", thread " + threadTS
 	}
-	prefix := labels.UserReference(event.User) + " in " + location + ":"
+	prefix := labels.UserReference(event.User) + " in " + location + ":\n"
 	message := labels.RenderText(strings.TrimSpace(event.Text))
 	if event.ChannelType == "im" {
 		return message, prefix
