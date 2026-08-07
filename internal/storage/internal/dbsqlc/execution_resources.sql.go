@@ -167,6 +167,7 @@ WITH claimed AS (
       lifecycle_version = machine.lifecycle_version + 1,
       lifecycle_reason_code = NULL,
       lifecycle_reason_message = '',
+      failure_report = NULL,
       next_reconcile_after = statement_timestamp() + $1::bigint * interval '1 second',
       provision_attempts = machine.provision_attempts + 1,
       updated_at = statement_timestamp()

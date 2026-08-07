@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -409,4 +410,48 @@ func (s *Store) BootstrapMachineDaemon(
 		OrgID:          row.OrgID,
 		MachineID:      row.MachineID,
 	}, nil
+}
+
+const MaxMachineFailureReportOutputBytes = 4 * 1024
+
+func (s *Store) RecordMachineFailureReport(
+	ctx context.Context,
+	input MachineFailureReportInput,
+) error {
+	if isNilID(input.OrgID) || isNilID(input.MachineID) || isNilID(input.DaemonTokenID) {
+		return errors.New("org, machine, and daemon token are required")
+	}
+	if input.ExitStatus < 1 || input.ExitStatus > 255 {
+		return storeerr.InvalidRequest(errors.New("exit status must be between 1 and 255"))
+	}
+	if input.Stage != "startup_script" && input.Stage != "daemon_install" {
+		return storeerr.InvalidRequest(errors.New("invalid failure report stage"))
+	}
+	if len(input.OutputTail) > MaxMachineFailureReportOutputBytes {
+		return storeerr.InvalidRequest(fmt.Errorf(
+			"output tail must be at most %d bytes",
+			MaxMachineFailureReportOutputBytes,
+		))
+	}
+	outputTail := strings.ToValidUTF8(string(input.OutputTail), "?")
+	outputTail = strings.ReplaceAll(outputTail, "\x00", "?")
+	_, err := s.q.RecordMachineFailureReport(
+		ctx,
+		dbsqlc.RecordMachineFailureReportParams{
+			Stage:           input.Stage,
+			ExitStatus:      int32(input.ExitStatus),
+			OutputTail:      outputTail,
+			OutputTruncated: input.OutputTruncated,
+			OrgID:           input.OrgID,
+			MachineID:       input.MachineID,
+			DaemonTokenID:   input.DaemonTokenID,
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storeerr.ErrUnauthorized
+	}
+	if err != nil {
+		return fmt.Errorf("record machine failure report: %w", err)
+	}
+	return nil
 }

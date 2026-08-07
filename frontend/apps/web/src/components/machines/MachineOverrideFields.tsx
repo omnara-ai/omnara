@@ -17,7 +17,8 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+
+import { StartupScriptField } from './StartupScriptField'
 
 export function OverridesCollapsible({
   title = 'Overrides',
@@ -105,21 +106,16 @@ export function ProviderOptionsOverrideFields({
           </Field>
         </div>
       )}
-      <Field>
-        <FieldLabel htmlFor={`${idPrefix}-startup-script`}>Startup script</FieldLabel>
-        <FieldDescription>
-          Shell script that runs on each new machine before the daemon starts.
-        </FieldDescription>
-        <Textarea
-          id={`${idPrefix}-startup-script`}
-          value={values.startupScript}
-          placeholder={placeholders.startupScript}
-          className="min-h-20 resize-y font-mono text-xs"
-          onChange={(event) => {
-            onChange({ ...values, startupScript: event.target.value })
-          }}
-        />
-      </Field>
+      <StartupScriptField
+        id={`${idPrefix}-startup-script`}
+        label="Startup script"
+        provider={pool.provider}
+        value={values.startupScript}
+        placeholder={placeholders.startupScript}
+        onChange={(startupScript) => {
+          onChange({ ...values, startupScript })
+        }}
+      />
     </>
   )
 }

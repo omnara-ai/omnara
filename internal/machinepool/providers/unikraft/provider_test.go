@@ -129,8 +129,8 @@ func TestUnikraftProviderProvisionIncludesStartupScriptOrchestration(t *testing.
 			t,
 			map[string]any{"provider_options": map[string]any{"startup_script": "echo startup-ready\n"}},
 		),
-		"machine-token",
-		nil,
+		"omnara_daemon_"+strings.Repeat("a", 64),
+		map[string]string{"USER_TOKEN": strings.Repeat("b", 256)},
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -150,6 +150,20 @@ func TestUnikraftProviderProvisionIncludesStartupScriptOrchestration(t *testing.
 		!strings.Contains(bootstrapScript, "/install/omnarad.sh") {
 		t.Fatalf("bootstrap script does not include startup orchestration and daemon launcher")
 	}
+	if size := unikraftApplicationCommandLineBytes(create.Args, create.Env); size > 2560 {
+		t.Fatalf("managed application command line is %d bytes, want at most 2560", size)
+	}
+}
+
+func unikraftApplicationCommandLineBytes(args []string, env map[string]string) int {
+	size := len("env.vars=[ ] -- ")
+	for key, value := range env {
+		size += len(key) + len(value) + 4
+	}
+	for _, arg := range args {
+		size += len(arg) + 1
+	}
+	return size
 }
 
 func TestUnikraftProviderProvisionIncludesMachineEnv(t *testing.T) {

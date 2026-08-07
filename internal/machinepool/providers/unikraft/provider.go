@@ -2,7 +2,6 @@ package unikraft
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -104,9 +103,7 @@ func (p *provider) ProvisionMachine(
 			strconv.Itoa(daemonprotocol.WakeListenerPort)
 		env[daemonprotocol.SleepPlatformEnvVar] = daemonprotocol.SleepPlatformUnikraft
 	}
-	env[providers.ManagedBootstrapScriptEnvVar] = base64.StdEncoding.EncodeToString(
-		[]byte(providers.ManagedBootScript(options.StartupScript)),
-	)
+	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
 	args := providers.ManagedDaemonLauncherArgs()
 	if options.SleepAfterMS > 0 {
 		args[2] = unikraftScaleToZeroBootGuardScript() + args[2]

@@ -10,8 +10,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 )
 
-//go:embed managed_machine_startup.sh
-var managedMachineStartupScriptBody string
+//go:embed managed_bootstrap_prelude.sh
+var managedBootstrapPreludeScriptBody string
 
 //go:embed managed_daemon_launcher.sh
 var managedDaemonLauncherScriptBody string
@@ -21,6 +21,14 @@ const (
 	startupScriptEnvVar          = "OMNARA_STARTUP_SCRIPT_PAYLOAD"
 	managedDaemonSeedPath        = "/usr/local/bin/omnarad"
 	maxManagedStartupScriptBytes = 64 * 1024
+	managedDaemonLauncherCommand = `m=$(umask);` +
+		`umask${IFS}077;` +
+		`b=/tmp/omnarad-bootstrap;` +
+		`printf${IFS}%s${IFS}${OMNARA_BOOTSTRAP_SCRIPT:?}` +
+		`|base64${IFS}-d>$b` +
+		`&&unset${IFS}OMNARA_BOOTSTRAP_SCRIPT` +
+		`&&umask${IFS}"$m"` +
+		`&&exec${IFS}/bin/sh${IFS}$b`
 )
 
 func BuildManagedMachineEnv(
@@ -59,27 +67,28 @@ func ValidateManagedStartupScript(what, startupScript string) error {
 	return nil
 }
 
-func ManagedBootScript(startupScript string) string {
-	if startupScript == "" {
-		return managedDaemonLauncherScript()
-	}
-	return managedMachineStartupScript() + "\n\n" + managedDaemonLauncherScript()
+func ManagedBootScript() string {
+	return managedBootstrapPreludeScript() + "\n\n" + managedDaemonLauncherScript()
+}
+
+func ManagedBootScriptPayload() string {
+	return base64.StdEncoding.EncodeToString([]byte(ManagedBootScript()))
 }
 
 func ManagedDaemonLauncherArgs() []string {
 	return []string{
 		"/bin/sh",
 		"-c",
-		`original_umask=$(umask);umask${IFS}077;bootstrap=/tmp/omnarad-bootstrap;printf${IFS}%s${IFS}${OMNARA_BOOTSTRAP_SCRIPT:?}|base64${IFS}-d>$bootstrap&&unset${IFS}OMNARA_BOOTSTRAP_SCRIPT&&umask${IFS}"$original_umask"&&exec${IFS}/bin/sh${IFS}$bootstrap`,
+		managedDaemonLauncherCommand,
 	}
 }
 
-func managedMachineStartupScript() string {
-	return strings.TrimSpace(managedMachineStartupScriptBody)
+func managedBootstrapPreludeScript() string {
+	return strings.TrimSpace(managedBootstrapPreludeScriptBody)
 }
 
 func managedDaemonLauncherScript() string {
-	return "omnara_daemon_home_dir=" + localstore.DefaultDirName + "\n" +
-		"omnara_daemon_seed_path=" + managedDaemonSeedPath + "\n" +
+	return "n=" + localstore.DefaultDirName + "\n" +
+		"b=" + managedDaemonSeedPath + "\n" +
 		strings.TrimSpace(managedDaemonLauncherScriptBody)
 }

@@ -3,11 +3,13 @@ package providers
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,12 +32,11 @@ umask > "$HOME/daemon-umask"
 	cmd.Env = []string{
 		"HOME=" + home,
 		"PATH=" + os.Getenv("PATH"),
-		managedBootstrapScriptTestEnv(managedDaemonLauncherScript()),
+		managedBootstrapScriptTestEnv(ManagedBootScript()),
 		"OMNARA_API_URL=" + server.URL,
 		"OMNARA_MACHINE_TOKEN=machine-secret",
 		"OMNARA_NO_UPDATE=1",
 		"OMNARA_RUNNER_PATH=/runner/bin",
-		"OMNARA_STARTUP_SCRIPT_PAYLOAD=startup-secret",
 		"OMNARA_DAEMON_SEED_PATH=/image/omnarad",
 		"OMNARA_DAEMON_RELEASE_URL=https://releases.example/omnarad/latest",
 		"USER_SECRET=user-secret",
@@ -67,7 +68,6 @@ umask > "$HOME/daemon-umask"
 		}
 	}
 	for _, key := range []string{
-		"OMNARA_STARTUP_SCRIPT_PAYLOAD=",
 		ManagedBootstrapScriptEnvVar + "=",
 	} {
 		if strings.Contains(installerEnv, key) {
@@ -94,7 +94,6 @@ umask > "$HOME/daemon-umask"
 		}
 	}
 	for _, key := range []string{
-		"OMNARA_STARTUP_SCRIPT_PAYLOAD=",
 		ManagedBootstrapScriptEnvVar + "=",
 	} {
 		if strings.Contains(daemonEnv, key) {
@@ -110,32 +109,89 @@ umask > "$HOME/daemon-umask"
 	}
 }
 
-func TestManagedDaemonLauncherDoesNotRetryInstallerDownload(t *testing.T) {
+func TestManagedDaemonLauncherReportsInstallFailures(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("curl is required")
 	}
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		http.Error(w, "unavailable", http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(server.Close)
+	tests := []struct {
+		name       string
+		statusCode int
+		installer  string
+		wantStatus int
+	}{
+		{name: "download", statusCode: http.StatusServiceUnavailable, wantStatus: 22},
+		{
+			name:       "installer",
+			statusCode: http.StatusOK,
+			installer:  "#!/bin/sh\necho install-failed >&2\nexit 13\n",
+			wantStatus: 13,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			type failureReport struct {
+				Stage         string
+				ExitStatus    int
+				CaptureStatus int
+				OutputTail    string
+			}
+			var installerRequests atomic.Int32
+			reports := make(chan failureReport, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/install/omnarad.sh":
+					installerRequests.Add(1)
+					w.WriteHeader(tc.statusCode)
+					_, _ = w.Write([]byte(tc.installer))
+				case "/api/v1/daemon/failures":
+					if r.Header.Get("Authorization") != "Bearer machine-token" {
+						http.Error(w, "unauthorized", http.StatusUnauthorized)
+						return
+					}
+					exitStatus, _ := strconv.Atoi(r.URL.Query().Get("exit_status"))
+					captureStatus, _ := strconv.Atoi(r.URL.Query().Get("capture_status"))
+					output, _ := io.ReadAll(r.Body)
+					reports <- failureReport{
+						Stage:         r.URL.Query().Get("stage"),
+						ExitStatus:    exitStatus,
+						CaptureStatus: captureStatus,
+						OutputTail:    string(output),
+					}
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(server.Close)
 
-	args := ManagedDaemonLauncherArgs()
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Env = []string{
-		"HOME=" + t.TempDir(),
-		"PATH=" + os.Getenv("PATH"),
-		managedBootstrapScriptTestEnv(managedDaemonLauncherScript()),
-		"OMNARA_API_URL=" + server.URL,
-		"NO_PROXY=127.0.0.1",
-		"no_proxy=127.0.0.1",
-	}
-	if out, err := cmd.CombinedOutput(); err == nil {
-		t.Fatalf("launcher succeeded after installer download failure:\n%s", out)
-	}
-	if got := requests.Load(); got != 1 {
-		t.Fatalf("installer requests = %d, want 1", got)
+			args := ManagedDaemonLauncherArgs()
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Env = []string{
+				"HOME=" + t.TempDir(),
+				"PATH=" + os.Getenv("PATH"),
+				managedBootstrapScriptTestEnv(ManagedBootScript()),
+				"OMNARA_API_URL=" + server.URL,
+				"OMNARA_MACHINE_TOKEN=machine-token",
+				"NO_PROXY=127.0.0.1",
+				"no_proxy=127.0.0.1",
+			}
+			out, err := cmd.CombinedOutput()
+			if err == nil {
+				t.Fatalf("launcher succeeded after install failure:\n%s", out)
+			}
+			if got := installerRequests.Load(); got != 1 {
+				t.Fatalf("installer requests = %d, want 1", got)
+			}
+			select {
+			case report := <-reports:
+				if report.Stage != "daemon_install" || report.ExitStatus != tc.wantStatus ||
+					report.CaptureStatus != 0 || report.OutputTail == "" {
+					t.Fatalf("install failure report = %+v", report)
+				}
+			default:
+				t.Fatal("install failure report was not sent")
+			}
+		})
 	}
 }
 
@@ -158,7 +214,7 @@ func TestManagedDaemonLauncherRejectsInsecureInstallerRedirect(t *testing.T) {
 	cmd.Env = []string{
 		"HOME=" + t.TempDir(),
 		"PATH=" + os.Getenv("PATH"),
-		managedBootstrapScriptTestEnv(managedDaemonLauncherScript()),
+		managedBootstrapScriptTestEnv(ManagedBootScript()),
 		"OMNARA_API_URL=" + server.URL,
 		"NO_PROXY=127.0.0.1",
 		"no_proxy=127.0.0.1",
@@ -173,8 +229,8 @@ func TestManagedDaemonLauncherRejectsInsecureInstallerRedirect(t *testing.T) {
 
 func TestManagedDaemonLauncherShape(t *testing.T) {
 	args := ManagedDaemonLauncherArgs()
-	wantCommand := `original_umask=$(umask);umask${IFS}077;bootstrap=/tmp/omnarad-bootstrap;printf${IFS}%s${IFS}${OMNARA_BOOTSTRAP_SCRIPT:?}` +
-		`|base64${IFS}-d>$bootstrap&&unset${IFS}OMNARA_BOOTSTRAP_SCRIPT&&umask${IFS}"$original_umask"&&exec${IFS}/bin/sh${IFS}$bootstrap`
+	wantCommand := `m=$(umask);umask${IFS}077;b=/tmp/omnarad-bootstrap;printf${IFS}%s${IFS}${OMNARA_BOOTSTRAP_SCRIPT:?}` +
+		`|base64${IFS}-d>$b&&unset${IFS}OMNARA_BOOTSTRAP_SCRIPT&&umask${IFS}"$m"&&exec${IFS}/bin/sh${IFS}$b`
 	if len(args) != 3 || args[0] != "/bin/sh" || args[1] != "-c" ||
 		args[2] != wantCommand {
 		t.Fatalf("launcher args = %#v", args)
@@ -185,16 +241,19 @@ func TestManagedDaemonLauncherShape(t *testing.T) {
 	if len(strings.Join(args, " ")) >= 1024 {
 		t.Fatalf("launcher args exceed conservative Unikraft command limit: %#v", args)
 	}
+	if size := len(ManagedBootScriptPayload()); size > 1936 {
+		t.Fatalf("bootstrap payload is %d bytes, exceeds pre-failure-reporting size 1936", size)
+	}
 	script := managedDaemonLauncherScript()
 	for _, value := range []string{
 		"/install/omnarad.sh",
 		"--install-only",
-		"omnara_daemon_seed_path=/usr/local/bin/omnarad",
-		`OMNARA_DAEMON_SEED_PATH="${OMNARA_DAEMON_SEED_PATH:-$omnara_daemon_seed_path}"`,
-		"omnara_daemon_home_dir=.omnarad",
-		`daemon_home=${OMNARA_HOME:-"${home%/}/$omnara_daemon_home_dir"}`,
-		`export PATH="$daemon_home/bin${PATH:+:$PATH}"`,
-		`exec "$daemon_home/bin/omnarad" start --no-service`,
+		"b=/usr/local/bin/omnarad",
+		`OMNARA_DAEMON_SEED_PATH="${OMNARA_DAEMON_SEED_PATH:-$b}"`,
+		"n=.omnarad",
+		`h=${OMNARA_HOME:-"${h%/}/$n"}`,
+		`export PATH="$h/bin${PATH:+:$PATH}"`,
+		`exec "$h/bin/omnarad" start --no-service`,
 	} {
 		if !strings.Contains(script, value) {
 			t.Fatalf("launcher script missing %q", value)
@@ -237,7 +296,7 @@ printf 'started\n' > "$OMNARA_HOME/daemon-started"
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
-		managedBootstrapScriptTestEnv(managedDaemonLauncherScript()),
+		managedBootstrapScriptTestEnv(ManagedBootScript()),
 		"OMNARA_API_URL=" + server.URL,
 		"OMNARA_HOME=" + omnaraHome,
 		"NO_PROXY=127.0.0.1",

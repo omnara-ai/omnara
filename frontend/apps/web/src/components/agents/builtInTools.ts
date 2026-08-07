@@ -4,6 +4,8 @@ export const machineExecutionTools = [
   'read_process',
   'stop_process',
   'list_processes',
+  'list_machines',
+  'inspect_machine',
 ] as const
 
 export const integrationTools = ['send_integration_message', 'set_integration_target'] as const

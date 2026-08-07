@@ -244,7 +244,7 @@ func inspectMachine(
 	); err != nil {
 		return nil, err
 	}
-	content, err := structuredToolResultContent(machineObservation(record))
+	content, err := structuredToolResultContent(machineInspection(record))
 	if err != nil {
 		return nil, err
 	}
@@ -454,6 +454,11 @@ type machineListResult struct {
 	Machines []machineObservationPayload `json:"machines"`
 }
 
+type machineInspectionPayload struct {
+	machineObservationPayload
+	FailureReport json.RawMessage `json:"failure_report,omitempty"`
+}
+
 type machineProvisioningAcceptedPayload struct {
 	machineObservationPayload
 	Created bool `json:"created"`
@@ -504,6 +509,13 @@ func machineObservation(record executionstore.PoolMachineRecord) machineObservat
 		LifecycleReasonMessage: record.Machine.LifecycleReasonMessage,
 		CreatedAt:              record.Binding.CreatedAt,
 		UpdatedAt:              record.Binding.UpdatedAt,
+	}
+}
+
+func machineInspection(record executionstore.PoolMachineRecord) machineInspectionPayload {
+	return machineInspectionPayload{
+		machineObservationPayload: machineObservation(record),
+		FailureReport:             record.FailureReport,
 	}
 }
 

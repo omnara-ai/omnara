@@ -116,6 +116,28 @@ func TestLogEntitiesAttachCanonicalFields(t *testing.T) {
 			banned: []string{"machine.provider_options", "machine.metadata", "provider_options", "metadata"},
 		},
 		{
+			name: "MachineFailureReport includes searchable failure fields",
+			attach: func(ctx context.Context) {
+				MachineFailureReport(ctx, executionstore.MachineFailureReportInput{
+					OrgID:           orgID,
+					MachineID:       machineID,
+					Stage:           "startup_script",
+					ExitStatus:      7,
+					OutputTail:      []byte("startup failed"),
+					OutputTruncated: true,
+				})
+			},
+			want: map[string]any{
+				"level":                                   "warn",
+				"org.id":                                  orgID.String(),
+				"machine.id":                              machineID.String(),
+				"machine.failure_report.stage":            "startup_script",
+				"machine.failure_report.exit_status":      float64(7),
+				"machine.failure_report.output_tail":      "startup failed",
+				"machine.failure_report.output_truncated": true,
+			},
+		},
+		{
 			name: "DaemonRuntime includes version and skips state blobs",
 			attach: func(ctx context.Context) {
 				DaemonRuntime(ctx, executionstore.DaemonRuntimeRecord{
@@ -193,6 +215,7 @@ func TestLogEntitiesNoopOnEmptyContext(t *testing.T) {
 	AgentInput(ctx, executionstore.AgentInputRecord{})
 	Machine(ctx, executionstore.MachineRecord{})
 	MachineBootstrap(ctx, executionstore.MachineBootstrapRecord{})
+	MachineFailureReport(ctx, executionstore.MachineFailureReportInput{})
 	DaemonRuntime(ctx, executionstore.DaemonRuntimeRecord{})
 	DaemonRuntimeRegistration(ctx, executionstore.DaemonRuntimeRegistrationRecord{})
 }

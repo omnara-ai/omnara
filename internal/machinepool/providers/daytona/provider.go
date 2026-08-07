@@ -228,7 +228,7 @@ func ensureDaemonSession(
 		target,
 		daemonSessionName,
 		sessionExecuteRequest{
-			Command:  providers.ManagedBootScript(startupScript),
+			Command:  providers.ManagedBootScript(),
 			RunAsync: true,
 		},
 	)

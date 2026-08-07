@@ -184,7 +184,7 @@ func ensureDaemonProcess(
 	sleepEnabled bool,
 ) (sandboxProcess, error) {
 	expectedKeepAlive := !sleepEnabled
-	command := providers.ManagedBootScript(startupScript)
+	command := providers.ManagedBootScript()
 	if sleepEnabled {
 		command = managedBootScriptWithAwakeProcess(command)
 	}

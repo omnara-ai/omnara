@@ -2723,6 +2723,43 @@ export type BootstrapDaemonResponses = {
 
 export type BootstrapDaemonResponse2 = BootstrapDaemonResponses[keyof BootstrapDaemonResponses];
 
+export type RecordMachineFailureData = {
+    body?: string;
+    path?: never;
+    query: {
+        stage: 'startup_script' | 'daemon_install';
+        exit_status: number;
+        capture_status: number;
+    };
+    url: '/api/v1/daemon/failures';
+};
+
+export type RecordMachineFailureErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+};
+
+export type RecordMachineFailureError = RecordMachineFailureErrors[keyof RecordMachineFailureErrors];
+
+export type RecordMachineFailureResponses = {
+    /**
+     * Machine failure recorded.
+     */
+    204: void;
+};
+
+export type RecordMachineFailureResponse = RecordMachineFailureResponses[keyof RecordMachineFailureResponses];
+
 export type CreateOrganizationData = {
     body: CreateOrganizationRequest;
     headers?: {

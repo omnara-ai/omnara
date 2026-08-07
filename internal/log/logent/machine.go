@@ -28,3 +28,15 @@ func MachineBootstrap(ctx context.Context, r executionstore.MachineBootstrapReco
 		"machine.id":      r.MachineID,
 	})
 }
+
+func MachineFailureReport(ctx context.Context, input executionstore.MachineFailureReportInput) {
+	log.Attach(ctx, log.Fields{
+		"org.id":                                  input.OrgID,
+		"machine.id":                              input.MachineID,
+		"machine.failure_report.stage":            input.Stage,
+		"machine.failure_report.exit_status":      input.ExitStatus,
+		"machine.failure_report.output_tail":      string(input.OutputTail),
+		"machine.failure_report.output_truncated": input.OutputTruncated,
+	})
+	log.Level(ctx, log.WarnLevel)
+}

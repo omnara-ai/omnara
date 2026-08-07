@@ -2199,6 +2199,11 @@ export const zRevokePersonalAccessTokenResponse = zPersonalAccessToken;
 export const zBootstrapDaemonResponse2 = zBootstrapDaemonResponse;
 
 /**
+ * Machine failure recorded.
+ */
+export const zRecordMachineFailureResponse = z.void();
+
+/**
  * Idempotent replay of an existing organization creation.
  */
 export const zCreateOrganizationResponse2 = zCreateOrganizationResponse;

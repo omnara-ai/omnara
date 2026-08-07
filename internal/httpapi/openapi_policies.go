@@ -162,6 +162,7 @@ const (
 	operationMoveQueuedBacklogInput        operationID = "MoveQueuedBacklogInput"
 	operationPromoteQueuedInputToSteering  operationID = "PromoteQueuedInputToSteering"
 	operationRegisterMachineDaemonRuntime  operationID = "RegisterMachineDaemonRuntime"
+	operationRecordMachineFailure          operationID = "RecordMachineFailure"
 	operationRemoveMemberProjectAccess     operationID = "RemoveMemberProjectAccess"
 	operationRemoveOrgMember               operationID = "RemoveOrgMember"
 	operationResolveAgentInteraction       operationID = "ResolveAgentInteraction"
@@ -357,6 +358,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 		customScope("project access-manage + machine manage on the grant's machine"),
 	),
 	operationBootstrapDaemon: machineDaemonPolicy(customScope("machine daemon token (bootstrap derives binding)")),
+	operationRecordMachineFailure: machineDaemonPolicy(
+		customScope("machine daemon token (token-derived machine)"),
+	),
 	operationRegisterMachineDaemonRuntime: machineDaemonPolicy(
 		customScope("machine daemon token (token-derived machine)"),
 	),
