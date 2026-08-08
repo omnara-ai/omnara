@@ -19,7 +19,7 @@ import (
 const (
 	openRouterCatalogURL       = "https://openrouter.ai/api/v1/models"
 	catalogRequestTimeout      = 8 * time.Second
-	catalogMaxResponseSize     = 16 << 20
+	catalogMaxResponseSize     = 16 * 1024 * 1024
 	catalogRefreshInterval     = time.Hour
 	catalogFailureRetryBackoff = time.Minute
 )
@@ -122,7 +122,9 @@ func (c *LimitsCatalog) snapshot(ctx context.Context) map[string]catalogLimits {
 }
 
 func (c *LimitsCatalog) fetch(ctx context.Context) (map[string]catalogLimits, error) {
-	ctx, cancel := context.WithTimeout(ctx, catalogRequestTimeout)
+	// Detach from the caller's cancelation so an abandoned or short-deadline
+	// request cannot poison the shared cache's failure backoff.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), catalogRequestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
 	if err != nil {
@@ -183,6 +185,11 @@ func parseCatalogEntries(body []byte) (map[string]catalogLimits, error) {
 			continue
 		}
 		entries[bare] = limits
+	}
+	if len(entries) == 0 {
+		// Treat a degenerate success as a failure so it cannot replace a warm
+		// cache and gets the failure retry backoff instead of the refresh TTL.
+		return nil, errors.New("model limits catalog returned no usable entries")
 	}
 	return entries, nil
 }

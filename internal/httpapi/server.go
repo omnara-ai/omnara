@@ -286,6 +286,14 @@ func WithAllowInsecureModelProviderEndpoints() Option {
 	}
 }
 
+// WithModelDiscoverer replaces the default provider-native model discovery,
+// e.g. to add catalog enrichment in production or stub discovery in tests.
+func WithModelDiscoverer(discoverer modelprovider.DiscoverFunc) Option {
+	return func(s *Server) {
+		s.modelDiscoverer = discoverer
+	}
+}
+
 // WithAllowInsecureLocalHostBypass exempts loopback and Docker's
 // host.docker.internal alias from the public-host guard, so local
 // daemons/containers can reach the API without a matching Host header. Only
@@ -309,7 +317,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		daemonRuntimeLeaseDuration:        executionstore.DaemonRuntimeLeaseDuration,
 		daemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		daemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
-		modelDiscoverer:                   modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog()),
+		modelDiscoverer:                   modelprovider.DiscoverModels,
 	}
 	var authStore httpauth.Store
 	var compromiseRevoker httpauth.CompromiseRevoker

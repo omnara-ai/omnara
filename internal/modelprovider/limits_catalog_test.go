@@ -111,6 +111,37 @@ func TestFillMissingLimitsIsBestEffortAndBacksOff(t *testing.T) {
 	}
 }
 
+func TestFillMissingLimitsTreatsEmptyCatalogAsFailure(t *testing.T) {
+	t.Parallel()
+	catalog, requests := testLimitsCatalog(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+
+	input := []DiscoveredModel{{Slug: "gpt-test"}}
+	models := catalog.FillMissingLimits(context.Background(), input)
+	if models[0].ContextWindowTokens != nil {
+		t.Fatalf("empty catalog should not enrich models: %+v", models)
+	}
+	catalog.FillMissingLimits(context.Background(), input)
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("catalog fetches after empty response = %d, want 1", got)
+	}
+}
+
+func TestFillMissingLimitsSurvivesCanceledCaller(t *testing.T) {
+	t.Parallel()
+	catalog, _ := testLimitsCatalog(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(catalogTestResponse))
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	models := catalog.FillMissingLimits(ctx, []DiscoveredModel{{Slug: "gpt-test"}})
+	if models[0].ContextWindowTokens == nil || *models[0].ContextWindowTokens != 128000 {
+		t.Fatalf("canceled caller context should not block enrichment: %+v", models)
+	}
+}
+
 func TestNewDiscovererEnrichesProviderModels(t *testing.T) {
 	t.Parallel()
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

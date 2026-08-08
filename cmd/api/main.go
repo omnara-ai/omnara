@@ -297,6 +297,7 @@ func apiOptions(
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
 		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),
+		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog())),
 		httpapi.WithHostedCredentialProvisioner(modelprovider.HTTPHostedCredentialProvisioner{
 			BaseURL:    cfg.HostedAPIURL,
 			Token:      cfg.HostedAPIToken,
