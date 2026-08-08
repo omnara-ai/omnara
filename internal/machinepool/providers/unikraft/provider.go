@@ -88,7 +88,7 @@ func (p *provider) ProvisionMachine(
 		return p.provisionResult(ctx, api, options, existing.UUID)
 	}
 
-	env, err := providers.BuildManagedMachineEnv(
+	bootEnvironment, err := providers.BuildManagedBootEnvironment(
 		p.omnaraPublicURL,
 		machineToken,
 		options.StartupScript,
@@ -97,6 +97,7 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	env := bootEnvironment.CombinedEnv()
 	if options.SleepAfterMS > 0 {
 		env[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
 		env[daemonprotocol.WakeListenAddrEnvVar] = ":" +

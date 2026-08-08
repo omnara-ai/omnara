@@ -240,8 +240,18 @@ func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
 		"env_empty":  {base: MachineEnvironment{Env: map[string]string{"": "value"}}},
 		"env_equals": {base: MachineEnvironment{Env: map[string]string{"BAD=KEY": "value"}}},
 		"env_nul":    {base: MachineEnvironment{Env: map[string]string{"BAD\x00KEY": "value"}}},
+		"env_leading_digit": {
+			base: MachineEnvironment{Env: map[string]string{"1APP": "value"}},
+		},
+		"env_hyphen":  {base: MachineEnvironment{Env: map[string]string{"APP-NAME": "value"}}},
+		"env_dot":     {base: MachineEnvironment{Env: map[string]string{"APP.NAME": "value"}}},
+		"env_space":   {base: MachineEnvironment{Env: map[string]string{"APP NAME": "value"}}},
+		"env_newline": {base: MachineEnvironment{Env: map[string]string{"APP\nNAME": "value"}}},
 		"secret_equals": {
 			base: MachineEnvironment{SecretEnv: map[string]string{"BAD=KEY": secretID}},
+		},
+		"secret_dot": {
+			base: MachineEnvironment{SecretEnv: map[string]string{"BAD.KEY": secretID}},
 		},
 		"overlay_equals": {
 			overlays: []MachineEnvironmentOverlay{{
@@ -250,6 +260,9 @@ func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
 		},
 		"overlay_secret": {
 			overlays: []MachineEnvironmentOverlay{{SecretEnv: map[string]*string{"BAD=KEY": &secretID}}},
+		},
+		"overlay_secret_hyphen": {
+			overlays: []MachineEnvironmentOverlay{{SecretEnv: map[string]*string{"BAD-KEY": &secretID}}},
 		},
 		"reserved_case": {
 			base: MachineEnvironment{Env: map[string]string{"omnara_machine_token": "value"}},
@@ -263,13 +276,11 @@ func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
 		})
 	}
 
-	if _, err := resolveMachineEnvironment(
-		MachineEnvironment{
-			Env:       map[string]string{"1.lower-name has space": "value"},
-			SecretEnv: map[string]string{"lower.name": secretID},
-		},
-	); err != nil {
-		t.Fatalf("resolve machine environment with raw process env names: %v", err)
+	if _, err := resolveMachineEnvironment(MachineEnvironment{
+		Env:       map[string]string{"lower_name": "value"},
+		SecretEnv: map[string]string{"_lower2": secretID},
+	}); err != nil {
+		t.Fatalf("resolve machine environment with shell-compatible env names: %v", err)
 	}
 }
 

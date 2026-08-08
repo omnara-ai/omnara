@@ -224,6 +224,24 @@ machine_sources:
     secret_env_overlay:
       "BAD=KEY": sec_aaaaaaaaaaaaaaaaaaaaaaaaaa
 `,
+		"env_leading_digit": `
+machine_sources:
+  - machine_pool_name: Build Pool
+    env_overlay:
+      "1APP": value
+`,
+		"env_hyphen": `
+machine_sources:
+  - machine_pool_name: Build Pool
+    env_overlay:
+      "APP-NAME": value
+`,
+		"secret_env_dot": `
+machine_sources:
+  - machine_pool_name: Build Pool
+    secret_env_overlay:
+      "APP.NAME": sec_aaaaaaaaaaaaaaaaaaaaaaaaaa
+`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseSource(SourceFormatYAML, []byte(validAgentSource(source))); err == nil {
@@ -236,12 +254,12 @@ machine_sources:
 machine_sources:
   - machine_pool_name: Build Pool
     env_overlay:
-      "1.lower-name has space": value
+      "lower_name": value
     secret_env_overlay:
-      "lower.name": sec_aaaaaaaaaaaaaaaaaaaaaaaaaa
+      "_lower2": sec_aaaaaaaaaaaaaaaaaaaaaaaaaa
 `)))
 	if err != nil {
-		t.Fatalf("parse source with raw process env names: %v", err)
+		t.Fatalf("parse source with shell-compatible env names: %v", err)
 	}
 }
 

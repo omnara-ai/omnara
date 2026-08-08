@@ -158,7 +158,7 @@ Machine pool templates define the provider, default machine configuration, and l
 | `blaxel` | Omit `default_machine_cpu`, `max_total_cpu`, and `max_machine_cpu` | Required `workspace`; optional `allowed_images` and `allowed_regions` | Blaxel sandbox `image`, `region`, and optional `startup_script` and `sleep_after_ms` |
 | `daytona` | Required | Optional `api_base_url`, `allowed_snapshots`, and `allowed_targets` | Daytona snapshot name, `target`, and optional `startup_script` |
 
-Blaxel images must be sandbox images built or pushed through Blaxel, not arbitrary registry images. Custom images must include `sandbox-api`. The Omnara launcher used by Blaxel images and Daytona snapshots requires a POSIX shell, standard Unix utilities, `curl`, and `sha256sum` or `shasum`; `startup_script` additionally requires `base64`.
+Blaxel images must be sandbox images built or pushed through Blaxel, not arbitrary registry images. Custom images must include `sandbox-api` and satisfy the [Blaxel image requirements](/machines/pools#blaxel-image-requirements), including privileged process/filesystem execution and compatible shell settings. The Omnara launcher used by Daytona snapshots requires a POSIX shell, standard Unix utilities, `curl`, and `sha256sum` or `shasum`; `startup_script` additionally requires `base64`.
 
 Custom pool images must provide `HOME` or `OMNARA_HOME`, and the selected location must be writable by the daemon process.
 

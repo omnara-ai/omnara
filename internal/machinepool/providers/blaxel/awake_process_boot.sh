@@ -1,10 +1,11 @@
-set -eu
-omnara_supervisor_pid=$$
+omnara_start_blaxel_awake_process(){
+unset omnara_supervisor_pid omnara_supervisor_start omnara_awake_process_name omnara_awake_process_response
+omnara_supervisor_pid=$1
 omnara_supervisor_start=$(sed 's/^.*) //' /proc/$omnara_supervisor_pid/stat | cut -d ' ' -f 20)
 case "$omnara_supervisor_start" in
   ''|*[!0-9]*)
     echo "omnara could not read the Blaxel daemon process start time" >&2
-    exit 1
+    return 1
     ;;
 esac
 omnara_awake_process_name=$omnara_awake_process_name_prefix$omnara_supervisor_pid
@@ -28,16 +29,17 @@ if ! omnara_awake_process_response=$(
       "$omnara_blaxel_process_api_url/$omnara_awake_process_name"
   ); then
     echo "omnara could not create the Blaxel awake process" >&2
-    exit 1
+    return 1
   fi
 fi
 if ! printf '%s' "$omnara_awake_process_response" | \
   grep -Eq '"status"[[:space:]]*:[[:space:]]*"running"'; then
   echo "omnara Blaxel awake process is not running" >&2
-  exit 1
+  return 1
 fi
 if ! printf '%s' "$omnara_awake_process_response" | \
   grep -Eq '"keepAlive"[[:space:]]*:[[:space:]]*true'; then
   echo "omnara Blaxel awake process is not keeping the sandbox awake" >&2
-  exit 1
+  return 1
 fi
+}

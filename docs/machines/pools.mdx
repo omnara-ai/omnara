@@ -86,6 +86,12 @@ Every pool requires `max_total_machines`. Resource requirements then depend on t
 - **Unikraft:** CPU and memory defaults and limits are required.
 - **Daytona:** CPU and memory limits are required; defaults are optional because the snapshot defines the machine size.
 
+### Blaxel image requirements
+
+Custom Blaxel images must leave Blaxel's process and filesystem APIs privileged; the managed bootstrap does not yet support `BL_SANDBOX_USER_ENABLED`. Blaxel's global `SHELL` and `SHELL_ARGS` settings must execute process requests as POSIX-compatible shell command strings (the normal `/bin/sh -c` behavior). Merely installing `/bin/sh` is not enough if those settings select an incompatible shell or argument mode.
+
+Images must provide `/bin/sh`, `/dev/fd`, and a normal Linux userspace with `curl`, `base64`, `mktemp`, `mkfifo`, `tee`, `tail`, `sed`, `cut`, `grep`, `sleep`, `rm`, `rmdir`, and either `sha256sum` or `shasum`. The startup environment is sourced by Blaxel's configured bootstrap shell, while the startup script itself runs under `/bin/sh`. A name that the bootstrap shell treats as read-only or special—for example `UID` when that shell is Bash—can make startup fail, so avoid shell-special names in pool and binding environments.
+
 ## Grant a pool to a project
 
 Pools belong to the organization. A project needs a grant to use one. The grant can use the pool defaults or set lower capacity limits and project-specific environment variables.
@@ -128,7 +134,9 @@ When Omnara creates a pool machine, it combines the machine size, working direct
 2. The project grant can narrow or override those defaults.
 3. The agent config can customize them for that agent.
 
-Later values replace earlier ones. A project grant or agent config can remove an environment variable inherited from the pool by setting it to `null`. Pool and project limits remain hard ceilings.
+Later values replace earlier ones. A project grant or agent config can remove an environment variable inherited from the pool by setting it to `null`. Environment variable names must be shell-compatible identifiers such as `APP_ENV` or `_token2`; names containing dots, hyphens, spaces, or a leading digit are rejected, and the `OMNARA_` prefix is reserved. Pool and project limits remain hard ceilings.
+
+Blaxel keeps this resolved startup environment out of the managed daemon's environment. Daytona and Unikraft currently use an unscoped compatibility bootstrap, so their managed daemon also inherits the resolved environment.
 
 ## Use it from a config
 

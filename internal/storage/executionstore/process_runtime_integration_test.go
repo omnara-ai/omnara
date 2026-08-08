@@ -599,6 +599,53 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	}
 }
 
+func TestStartProcessRejectsLegacyInvalidStoredMachineEnvironment(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "legacy_invalid_machine_env")
+	if _, err := fixture.Store.pool.Exec(
+		ctx,
+		`UPDATE machines SET env = '{"BAD-NAME":"legacy"}'::jsonb WHERE id = $1`,
+		fixture.MachineID,
+	); err != nil {
+		t.Fatalf("seed legacy invalid machine environment: %v", err)
+	}
+	toolCallID := createToolCallForProcessTest(
+		t,
+		ctx,
+		fixture,
+		"legacy_invalid_machine_env_process",
+		"run_command",
+	)
+	_, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessInput{
+		AgentMachineBindingID: fixture.BindingID,
+		Command:               "echo should-not-run",
+		ShellSelector:         "sh",
+	})
+	if err == nil || !strings.Contains(
+		err.Error(),
+		`resolve process environment: env key "BAD-NAME" must match`,
+	) {
+		t.Fatalf("start process error = %v, want legacy environment validation failure", err)
+	}
+	var processCount int
+	if err := fixture.Store.pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM processes WHERE tool_call_id = $1`,
+		toolCallID,
+	).Scan(&processCount); err != nil {
+		t.Fatalf("count processes after legacy environment failure: %v", err)
+	}
+	if processCount != 0 {
+		t.Fatalf("processes created after legacy environment failure = %d, want zero", processCount)
+	}
+}
+
 func TestMachineExecutionDefaultUpdatesApplyOnlyToNewProcesses(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

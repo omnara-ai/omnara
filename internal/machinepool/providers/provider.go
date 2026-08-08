@@ -47,14 +47,17 @@ type Provider interface {
 		executionstore.MachineProvisioningConfig,
 	) (executionstore.MachineResourceFacts, error)
 	// ProvisionMachine must be idempotent by installation and machine identity.
+	// Calls for the same machine must be serialized. The standard machine-pool
+	// manager enforces this with its durable per-machine provisioning claim.
 	// Calling it is the external side-effect boundary and must be recorded durably first.
 	// Retries for the same machine must converge on one canonical live provider
 	// resource, usually by using a deterministic allocation name. A provider must
 	// not create more than one live sandbox for one Omnara machine. The result must
 	// include any trusted resource id observed before a later readiness error.
-	// machineEnv is the machine's resolved environment and is applied to the
-	// provider resource at creation; retries that adopt an existing resource
-	// keep the environment it was created with.
+	// machineEnv is the machine's resolved startup and process environment.
+	// Each provider chooses the narrowest startup-time delivery mechanism it
+	// supports; retries that adopt an existing resource must preserve the
+	// original provisioning intent.
 	ProvisionMachine(
 		ctx context.Context,
 		installationID, machineID storage.ID,

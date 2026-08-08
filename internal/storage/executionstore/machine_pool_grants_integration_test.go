@@ -548,7 +548,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	}
 }
 
-func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
+func TestMachineConfigEnvRejectsInvalidAndReservedNames(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -576,6 +576,16 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 				DefaultMachineProviderOptions: json.RawMessage(`{}`),
 			},
 			wantErr: "machine pool default_machine fields env cannot set reserved OMNARA_ key OMNARA_MACHINE_TOKEN",
+		},
+		{
+			name: "Invalid Pool Env Name",
+			fields: defaultMachineFieldsForTest{
+				DefaultMachineCPU:             1,
+				DefaultMachineMemoryMB:        1024,
+				DefaultMachineEnv:             json.RawMessage(`{"BAD-NAME":"bad"}`),
+				DefaultMachineProviderOptions: json.RawMessage(`{}`),
+			},
+			wantErr: `machine pool default_machine fields env key "BAD-NAME" must match`,
 		},
 		{
 			name: "Reserved Pool Env Null",
@@ -658,6 +668,20 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "env cannot set reserved OMNARA_ key OMNARA_FUTURE_SETTING") {
 		t.Fatalf("project grant reserved env error = %v", err)
+	}
+	_, err = store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
+		executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID:          testOrgID,
+			ProjectID:      testProjectID,
+			MachinePoolID:  machinePool.ID,
+			IdempotencyKey: "idem-invalid-project-pool-env",
+		},
+		defaultMachineOverlayFieldsForTest{
+			DefaultMachineSecretEnvOverlay: json.RawMessage(`{"BAD.NAME":null}`),
+		},
+	))
+	if err == nil || !strings.Contains(err.Error(), `secret_env key "BAD.NAME" must match`) {
+		t.Fatalf("project grant invalid secret env error = %v", err)
 	}
 	clearGrant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
 		executionstore.CreateProjectMachinePoolGrantInput{

@@ -186,6 +186,16 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/machine-pools",
+		`{"name":"invalid-env-name","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"BAD-NAME":"bad"},"default_machine_provider_options":{"image":"test","metro":"sfo"},"default_cwd":"/workspace","provider_config":{}`+providerAuthSecretField+`,"max_total_machines":1`+requiredPoolCaps+`}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools",
 		`{"name":"reserved-env-namespace","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"OMNARA_FUTURE_SETTING":"bad"},"default_machine_provider_options":{"image":"test","metro":"sfo"},"default_cwd":"/workspace","provider_config":{}`+providerAuthSecretField+`,"max_total_machines":1`+requiredPoolCaps+`}`,
 		"",
 		http.StatusBadRequest,

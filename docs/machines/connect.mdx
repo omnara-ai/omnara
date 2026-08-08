@@ -46,7 +46,7 @@ A machine starts as a record in the control plane — the daemon attaches to it 
   }
   ```
 
-  `display_name` is what agent configs reference as `machine_name`, so pick something stable. `cwd`, `env`, and `secret_env` are execution defaults for every process on this machine; `secret_env` injects [secret](/organization/secrets) values by `sec_…` reference at process launch, so credentials never sit in the machine record.
+  `display_name` is what agent configs reference as `machine_name`, so pick something stable. `cwd`, `env`, and `secret_env` are execution defaults for every process on this machine; `secret_env` injects [secret](/organization/secrets) values by `sec_…` reference at process launch, so credentials never sit in the machine record. Environment variable names must be shell-compatible identifiers such as `APP_ENV` or `_token2`, and the `OMNARA_` prefix is reserved.
 </Tab>
 </Tabs>
 

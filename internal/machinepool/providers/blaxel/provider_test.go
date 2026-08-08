@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -53,14 +54,12 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 		create.Spec.Runtime.Memory != 1024 || len(create.Spec.Runtime.Ports) != 0 {
 		t.Fatalf("unexpected create request: %+v", create)
 	}
-	env := sandboxEnvMap(create.Spec.Runtime.Envs)
-	if len(env) != 2 ||
-		env["OMNARA_API_URL"] != "https://app.omnara.test" ||
-		env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
-		t.Fatalf("unexpected sandbox env: %+v", create.Spec.Runtime.Envs)
-	}
-	if _, ok := env[testStartupScriptEnvVar]; ok {
-		t.Fatalf("startup payload should be omitted: %+v", create.Spec.Runtime.Envs)
+	if len(api.directoryCreates) != 0 || len(api.fileUploads) != 0 {
+		t.Fatalf(
+			"startup transport without startup script: directories=%v files=%+v",
+			api.directoryCreates,
+			api.fileUploads,
+		)
 	}
 	if len(api.processRequests) != 1 {
 		t.Fatalf("process requests = %d, want 1", len(api.processRequests))
@@ -70,8 +69,15 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 		process.Timeout != 0 || process.WaitForCompletion {
 		t.Fatalf("unexpected process request: %+v", process)
 	}
-	if process.Command != providers.ManagedBootScript() {
+	if process.Command != providers.ManagedScopedBootScript("") {
 		t.Fatalf("process command = %q, want daemon launcher", process.Command)
+	}
+	if process.Env["OMNARA_API_URL"] != "https://app.omnara.test" ||
+		process.Env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
+		process.Env["OMNARA_STARTUP_ENV_FILE"] != "" ||
+		process.Env["OMNARA_DAEMON_ENV_KEYS"] != "" ||
+		process.Env[testStartupScriptEnvVar] != "" {
+		t.Fatalf("unexpected daemon process env: %+v", process.Env)
 	}
 }
 
@@ -95,7 +101,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 	if provider.ProvisioningTimeout() != 15*time.Second {
 		t.Fatalf("provisioning timeout = %s", provider.ProvisioningTimeout())
 	}
-	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)
+	env := api.processRequests[0].Env
 	if env[daemonprotocol.SleepAfterEnvVar] != "45000" ||
 		env[daemonprotocol.WakeListenAddrEnvVar] != ":"+
 			strconv.Itoa(daemonprotocol.WakeListenerPort) ||
@@ -116,8 +122,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 		process.WaitForCompletion {
 		t.Fatalf("unexpected daemon process: %+v", process)
 	}
-	managedBoot := providers.ManagedBootScript()
-	if !strings.HasSuffix(process.Command, managedBoot) ||
+	if process.Command != providers.ManagedScopedBootScript(managedAwakeProcessSetupScript()) ||
 		!strings.Contains(
 			process.Command,
 			"omnara_awake_process_name_prefix="+daemonprotocol.BlaxelAwakeProcessNamePrefix,
@@ -129,6 +134,35 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 	if !found || processStatus(awakeProcess.Status) != processStatusRunning ||
 		!awakeProcess.KeepAlive {
 		t.Fatalf("initial awake process = %+v found=%t", awakeProcess, found)
+	}
+}
+
+func TestBlaxelProviderStartupManifestIncludesSleepControls(t *testing.T) {
+	api := newFakeAPI()
+	provider := newTestProvider(api)
+	_, err := provider.ProvisionMachine(
+		context.Background(),
+		testInstallationID(),
+		uuid.New(),
+		testMachineProvisioning(t, map[string]any{
+			"sleep_after_ms": 45000,
+			"startup_script": "true",
+		}),
+		"machine-token",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("provision sleeping blaxel machine with startup: %v", err)
+	}
+	manifest := strings.Fields(api.processRequests[0].Env["OMNARA_DAEMON_ENV_KEYS"])
+	for _, name := range []string{
+		daemonprotocol.SleepAfterEnvVar,
+		daemonprotocol.SleepPlatformEnvVar,
+		daemonprotocol.WakeListenAddrEnvVar,
+	} {
+		if !slices.Contains(manifest, name) {
+			t.Fatalf("daemon env manifest %v omitted sleep control %s", manifest, name)
+		}
 	}
 }
 
@@ -154,7 +188,7 @@ func TestBlaxelProviderWakeUsesSandboxPort(t *testing.T) {
 	}
 }
 
-func TestBlaxelProviderProvisionIncludesMachineEnv(t *testing.T) {
+func TestBlaxelProviderProvisionIsolatesMachineEnvInStartupFile(t *testing.T) {
 	api := newFakeAPI()
 	provider := newTestProvider(api)
 
@@ -162,22 +196,51 @@ func TestBlaxelProviderProvisionIncludesMachineEnv(t *testing.T) {
 		context.Background(),
 		testInstallationID(),
 		uuid.New(),
-		testMachineProvisioning(t, nil),
+		testMachineProvisioning(t, map[string]any{"startup_script": "test \"$APP_ENV\" = production"}),
 		"machine-token",
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
 	)
 	if err != nil {
 		t.Fatalf("provision blaxel machine: %v", err)
 	}
-	if len(api.createRequests) != 1 {
-		t.Fatalf("create requests = %d, want 1", len(api.createRequests))
+	if len(api.fileUploads) != 1 {
+		t.Fatalf("file uploads = %d, want 1", len(api.fileUploads))
 	}
-	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)
-	if env["APP_ENV"] != "production" || env["GITHUB_TOKEN"] != "resolved-secret" {
-		t.Fatalf("sandbox env missing machine env: %+v", env)
+	if len(api.directoryCreates) != 1 ||
+		api.directoryCreates[0] != path.Dir(api.fileUploads[0].path) {
+		t.Fatalf("startup environment directories = %v", api.directoryCreates)
 	}
-	if env["OMNARA_API_URL"] == "" || env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
-		t.Fatalf("sandbox env missing bootstrap env: %+v", env)
+	relativePath, hasPrefix := strings.CutPrefix(
+		api.fileUploads[0].path,
+		startupEnvironmentDirectoryPrefix,
+	)
+	attemptID, hasSuffix := strings.CutSuffix(relativePath, "/"+startupEnvironmentFileName)
+	if !hasPrefix || !hasSuffix || len(attemptID) != startupEnvironmentRandomBytes*2 {
+		t.Fatalf("startup environment path = %q", api.fileUploads[0].path)
+	}
+	if !strings.Contains(
+		api.processRequests[0].Command,
+		bootstrapAttemptMarkerPrefix+attemptID+"\n",
+	) {
+		t.Fatalf(
+			"process command attempt marker does not match startup path %q",
+			api.fileUploads[0].path,
+		)
+	}
+	wantEnvironment, err := providers.RenderManagedStartupEnvironment(map[string]string{
+		"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret",
+	})
+	if err != nil {
+		t.Fatalf("render expected startup environment: %v", err)
+	}
+	if api.fileUploads[0].content != wantEnvironment {
+		t.Fatalf("startup environment = %q, want %q", api.fileUploads[0].content, wantEnvironment)
+	}
+	processEnv := api.processRequests[0].Env
+	if processEnv["APP_ENV"] != "" || processEnv["GITHUB_TOKEN"] != "" ||
+		processEnv["OMNARA_API_URL"] == "" || processEnv["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
+		processEnv["OMNARA_STARTUP_ENV_FILE"] != api.fileUploads[0].path {
+		t.Fatalf("unexpected daemon process env: %+v", processEnv)
 	}
 }
 
@@ -198,14 +261,13 @@ func TestBlaxelProviderProvisionRunsStartupScriptBeforeDaemon(t *testing.T) {
 		t.Fatalf("provision blaxel machine: %v", err)
 	}
 	process := api.processRequests[0]
-	wantCommand := providers.ManagedBootScript()
-	if process.Command != wantCommand {
+	if !providers.IsManagedScopedBootScript(process.Command) ||
+		!strings.Contains(process.Command, bootstrapAttemptMarkerPrefix) {
 		t.Fatalf("process command does not run startup before daemon")
 	}
-	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)
 	wantPayload := base64.StdEncoding.EncodeToString([]byte(startupScript))
-	if env[testStartupScriptEnvVar] != wantPayload {
-		t.Fatalf("startup payload = %q, want %q", env[testStartupScriptEnvVar], wantPayload)
+	if process.Env[testStartupScriptEnvVar] != wantPayload {
+		t.Fatalf("startup payload = %q, want %q", process.Env[testStartupScriptEnvVar], wantPayload)
 	}
 }
 
@@ -229,6 +291,7 @@ func TestBlaxelProviderProvisionRetryConvergesOnExistingSandbox(t *testing.T) {
 	}
 	api.sandboxesByName[name] = target
 	api.processesByName[name+"/"+daemonProcessName] = sandboxProcess{
+		Name: daemonProcessName, Command: providers.ManagedScopedBootScript(""),
 		Status: processStatusRunning, KeepAlive: true,
 	}
 
@@ -236,7 +299,7 @@ func TestBlaxelProviderProvisionRetryConvergesOnExistingSandbox(t *testing.T) {
 		context.Background(),
 		testInstallationID(),
 		machineID,
-		testMachineProvisioning(t, nil),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
 		"retry-token",
 		nil,
 	)
@@ -244,13 +307,52 @@ func TestBlaxelProviderProvisionRetryConvergesOnExistingSandbox(t *testing.T) {
 		t.Fatalf("provision existing blaxel machine: %v", err)
 	}
 	if result.ProviderResourceID != name || len(api.sandboxesByName) != 1 ||
-		len(api.processRequests) != 0 {
+		len(api.processRequests) != 0 || len(api.fileUploads) != 0 {
 		t.Fatalf(
 			"result=%q sandboxes=%d process requests=%d",
 			result.ProviderResourceID,
 			len(api.sandboxesByName),
 			len(api.processRequests),
 		)
+	}
+}
+
+func TestBlaxelProviderProvisionRejectsIncompatibleExistingDaemon(t *testing.T) {
+	api := newFakeAPI()
+	provider := newTestProvider(api)
+	machineID := uuid.New()
+	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
+	if err != nil {
+		t.Fatalf("blaxel sandbox name: %v", err)
+	}
+	api.sandboxesByName[name] = sandbox{
+		Metadata: resourceMetadata{
+			Name: name, URL: "https://sbx-existing.test.bl.run",
+			Labels: map[string]string{
+				"omnara-installation": testInstallationID().String(),
+				"omnara-machine":      machineID.String(),
+			},
+		},
+		Status: "DEPLOYED",
+	}
+	api.processesByName[name+"/"+daemonProcessName] = sandboxProcess{
+		Name: daemonProcessName, Command: "legacy bootstrap",
+		Status: processStatusRunning, KeepAlive: true,
+	}
+
+	_, err = provider.ProvisionMachine(
+		context.Background(),
+		testInstallationID(),
+		machineID,
+		testMachineProvisioning(t, nil),
+		"retry-token",
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "incompatible bootstrap version") {
+		t.Fatalf("provision error = %v, want incompatible bootstrap error", err)
+	}
+	if len(api.processRequests) != 0 {
+		t.Fatalf("process requests = %d, want no unsafe adoption or replacement", len(api.processRequests))
 	}
 }
 
@@ -290,15 +392,277 @@ func TestBlaxelProviderProvisionReturnsDaemonStartError(t *testing.T) {
 		context.Background(),
 		testInstallationID(),
 		uuid.New(),
-		testMachineProvisioning(t, nil),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
 		"machine-token",
-		nil,
+		map[string]string{"SECRET": "resolved"},
 	)
 	if !errors.Is(err, startErr) {
 		t.Fatalf("provision error = %v, want %v", err, startErr)
 	}
 	if result.ProviderResourceID == "" {
 		t.Fatal("daemon start error omitted the observed provider resource id")
+	}
+	if len(api.fileUploads) != 1 || !slices.Equal(api.deletedPaths, []string{
+		api.fileUploads[0].path,
+		path.Dir(api.fileUploads[0].path),
+	}) {
+		t.Fatalf("startup file cleanup uploads=%+v deletes=%v", api.fileUploads, api.deletedPaths)
+	}
+}
+
+func TestBlaxelProviderCleanupOutlivesCanceledProvisionContext(t *testing.T) {
+	api := newFakeAPI()
+	startErr := errors.New("start failed")
+	api.startProcessErr = startErr
+	provider := newTestProvider(api)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := provider.ProvisionMachine(
+		ctx,
+		testInstallationID(),
+		uuid.New(),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
+		"machine-token",
+		map[string]string{"SECRET": "resolved"},
+	)
+	if !errors.Is(err, startErr) {
+		t.Fatalf("provision error = %v, want %v", err, startErr)
+	}
+	if len(api.deletedPathContextErrors) != 2 {
+		t.Fatalf("cleanup context observations = %v, want two", api.deletedPathContextErrors)
+	}
+	for i, contextErr := range api.deletedPathContextErrors {
+		if contextErr != nil {
+			t.Fatalf("cleanup context %d error = %v, want live detached context", i, contextErr)
+		}
+	}
+}
+
+func TestBlaxelProviderProvisionRetainsFileWhenOwnStartWasAmbiguous(t *testing.T) {
+	api := newFakeAPI()
+	api.startProcessErr = errors.New("ambiguous start")
+	api.createProcessOnStartError = true
+	provider := newTestProvider(api)
+
+	result, err := provider.ProvisionMachine(
+		context.Background(),
+		testInstallationID(),
+		uuid.New(),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
+		"machine-token",
+		map[string]string{"SECRET": "resolved"},
+	)
+	if err != nil {
+		t.Fatalf("provision after ambiguous accepted start: %v", err)
+	}
+	if result.ProviderResourceID == "" || len(api.fileUploads) != 1 ||
+		len(api.deletedPaths) != 0 {
+		t.Fatalf(
+			"result=%+v uploads=%+v deletes=%v",
+			result,
+			api.fileUploads,
+			api.deletedPaths,
+		)
+	}
+}
+
+func TestBlaxelProviderProvisionCleansFileWhenConcurrentStartWins(t *testing.T) {
+	api := newFakeAPI()
+	api.startProcessErr = errors.New("concurrent start")
+	api.createProcessOnStartError = true
+	api.startErrorProcessCommand = providers.ManagedScopedBootScript("")
+	provider := newTestProvider(api)
+
+	result, err := provider.ProvisionMachine(
+		context.Background(),
+		testInstallationID(),
+		uuid.New(),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
+		"machine-token",
+		map[string]string{"SECRET": "resolved"},
+	)
+	if err != nil {
+		t.Fatalf("provision after concurrent start: %v", err)
+	}
+	if result.ProviderResourceID == "" || len(api.fileUploads) != 1 ||
+		!slices.Equal(api.deletedPaths, []string{
+			api.fileUploads[0].path,
+			path.Dir(api.fileUploads[0].path),
+		}) {
+		t.Fatalf(
+			"result=%+v uploads=%+v deletes=%v",
+			result,
+			api.fileUploads,
+			api.deletedPaths,
+		)
+	}
+}
+
+func TestBlaxelProviderProvisionRejectsIncompatibleProcessAfterStartError(t *testing.T) {
+	api := newFakeAPI()
+	api.startProcessErr = errors.New("ambiguous start")
+	api.createProcessOnStartError = true
+	api.startErrorProcessCommand = "legacy bootstrap"
+	provider := newTestProvider(api)
+
+	result, err := provider.ProvisionMachine(
+		context.Background(),
+		testInstallationID(),
+		uuid.New(),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
+		"machine-token",
+		map[string]string{"SECRET": "resolved"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "incompatible bootstrap version") {
+		t.Fatalf("provision error = %v, want incompatible bootstrap error", err)
+	}
+	if result.ProviderResourceID == "" || len(api.fileUploads) != 1 ||
+		!slices.Equal(api.deletedPaths, []string{
+			api.fileUploads[0].path,
+			path.Dir(api.fileUploads[0].path),
+		}) {
+		t.Fatalf(
+			"result=%+v uploads=%+v deletes=%v",
+			result,
+			api.fileUploads,
+			api.deletedPaths,
+		)
+	}
+}
+
+func TestBlaxelProviderProvisionReturnsStartupEnvironmentUploadError(t *testing.T) {
+	api := newFakeAPI()
+	uploadErr := errors.New("upload failed")
+	api.uploadFileErr = uploadErr
+	provider := newTestProvider(api)
+
+	result, err := provider.ProvisionMachine(
+		context.Background(),
+		testInstallationID(),
+		uuid.New(),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
+		"machine-token",
+		map[string]string{"SECRET": "resolved"},
+	)
+	if !errors.Is(err, uploadErr) {
+		t.Fatalf("provision error = %v, want %v", err, uploadErr)
+	}
+	if result.ProviderResourceID == "" || len(api.processRequests) != 0 {
+		t.Fatalf("result=%+v process requests=%d", result, len(api.processRequests))
+	}
+	if len(api.fileUploads) != 1 || !slices.Equal(api.deletedPaths, []string{
+		api.fileUploads[0].path,
+		path.Dir(api.fileUploads[0].path),
+	}) {
+		t.Fatalf("failed upload cleanup uploads=%+v deletes=%v", api.fileUploads, api.deletedPaths)
+	}
+}
+
+func TestBlaxelProviderProvisionReturnsStartupEnvironmentDirectoryError(t *testing.T) {
+	api := newFakeAPI()
+	directoryErr := errors.New("create directory failed")
+	api.createDirectoryErr = directoryErr
+	provider := newTestProvider(api)
+
+	result, err := provider.ProvisionMachine(
+		context.Background(),
+		testInstallationID(),
+		uuid.New(),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
+		"machine-token",
+		map[string]string{"SECRET": "resolved"},
+	)
+	if !errors.Is(err, directoryErr) {
+		t.Fatalf("provision error = %v, want %v", err, directoryErr)
+	}
+	if result.ProviderResourceID == "" || len(api.directoryCreates) != 1 ||
+		len(api.fileUploads) != 0 || len(api.processRequests) != 0 ||
+		!slices.Equal(api.deletedPaths, []string{
+			path.Join(api.directoryCreates[0], startupEnvironmentFileName),
+			api.directoryCreates[0],
+		}) {
+		t.Fatalf(
+			"result=%+v directories=%v uploads=%+v processes=%d deletes=%v",
+			result,
+			api.directoryCreates,
+			api.fileUploads,
+			len(api.processRequests),
+			api.deletedPaths,
+		)
+	}
+}
+
+func TestWaitForInitialAwakeProcessUsesCappedBackoff(t *testing.T) {
+	api := newFakeAPI()
+	target := sandbox{Metadata: resourceMetadata{Name: "sandbox"}}
+	name := daemonprotocol.BlaxelAwakeProcessName(4242)
+	var delays []time.Duration
+	err := waitForInitialAwakeProcessWithDelay(
+		context.Background(),
+		api,
+		target,
+		name,
+		func(_ context.Context, delay time.Duration) error {
+			delays = append(delays, delay)
+			if len(delays) == 6 {
+				api.processesByName[target.Metadata.Name+"/"+name] = sandboxProcess{
+					Status: processStatusRunning, KeepAlive: true,
+				}
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("wait for initial awake process: %v", err)
+	}
+	want := []time.Duration{
+		100 * time.Millisecond,
+		200 * time.Millisecond,
+		400 * time.Millisecond,
+		800 * time.Millisecond,
+		time.Second,
+		time.Second,
+	}
+	if !slices.Equal(delays, want) {
+		t.Fatalf("poll delays = %v, want %v", delays, want)
+	}
+}
+
+func TestWaitForInitialAwakeProcessHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := waitForInitialAwakeProcessWithDelay(
+		ctx,
+		newFakeAPI(),
+		sandbox{Metadata: resourceMetadata{Name: "sandbox"}},
+		daemonprotocol.BlaxelAwakeProcessName(4242),
+		waitForPollInterval,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait error = %v, want context cancellation", err)
+	}
+}
+
+func TestWaitForInitialAwakeProcessRejectsNonKeepingAliveProcess(t *testing.T) {
+	api := newFakeAPI()
+	target := sandbox{Metadata: resourceMetadata{Name: "sandbox"}}
+	name := daemonprotocol.BlaxelAwakeProcessName(4242)
+	api.processesByName[target.Metadata.Name+"/"+name] = sandboxProcess{
+		Status: processStatusRunning,
+	}
+	err := waitForInitialAwakeProcessWithDelay(
+		context.Background(),
+		api,
+		target,
+		name,
+		func(context.Context, time.Duration) error {
+			t.Fatal("terminal awake process state unexpectedly polled again")
+			return nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "not running with keep-alive enabled") {
+		t.Fatalf("wait error = %v, want terminal readiness error", err)
 	}
 }
 
@@ -311,15 +675,21 @@ func TestBlaxelProviderProvisionRejectsNonRunningDaemonProcess(t *testing.T) {
 		context.Background(),
 		testInstallationID(),
 		uuid.New(),
-		testMachineProvisioning(t, nil),
+		testMachineProvisioning(t, map[string]any{"startup_script": "echo ready"}),
 		"machine-token",
-		nil,
+		map[string]string{"SECRET": "resolved"},
 	)
 	if err == nil || !strings.Contains(err.Error(), `started with status "completed"`) {
 		t.Fatalf("provision error = %v, want non-running daemon process error", err)
 	}
 	if result.ProviderResourceID == "" {
 		t.Fatal("daemon status error omitted the observed provider resource id")
+	}
+	if len(api.fileUploads) != 1 || !slices.Equal(api.deletedPaths, []string{
+		api.fileUploads[0].path,
+		path.Dir(api.fileUploads[0].path),
+	}) {
+		t.Fatalf("startup file cleanup uploads=%+v deletes=%v", api.fileUploads, api.deletedPaths)
 	}
 }
 
@@ -341,6 +711,7 @@ func TestEnsureDaemonProcessRejectsMismatchedKeepAlive(t *testing.T) {
 			target := sandbox{Metadata: resourceMetadata{Name: "sandbox"}}
 			if test.existing {
 				api.processesByName["sandbox/"+daemonProcessName] = sandboxProcess{
+					Name: daemonProcessName, Command: providers.ManagedScopedBootScript(""),
 					Status: processStatusRunning, KeepAlive: test.keepAlive,
 				}
 			} else {
@@ -348,10 +719,32 @@ func TestEnsureDaemonProcessRejectsMismatchedKeepAlive(t *testing.T) {
 			}
 
 			_, err := ensureDaemonProcess(
-				context.Background(), api, target, "", test.sleepEnabled,
+				context.Background(), api, target, map[string]string{}, "/tmp/startup-env", "", test.sleepEnabled,
 			)
 			if err == nil || !strings.Contains(err.Error(), "keep-alive") {
 				t.Fatalf("ensure daemon process error = %v, want keep-alive mismatch", err)
+			}
+			if test.existing {
+				if len(api.directoryCreates) != 0 || len(api.fileUploads) != 0 ||
+					len(api.deletedPaths) != 0 {
+					t.Fatalf(
+						"existing mismatch touched startup payload: directories=%v uploads=%+v deletes=%v",
+						api.directoryCreates,
+						api.fileUploads,
+						api.deletedPaths,
+					)
+				}
+				return
+			}
+			if len(api.fileUploads) != 1 || !slices.Equal(api.deletedPaths, []string{
+				api.fileUploads[0].path,
+				path.Dir(api.fileUploads[0].path),
+			}) {
+				t.Fatalf(
+					"started mismatch cleanup uploads=%+v deletes=%v",
+					api.fileUploads,
+					api.deletedPaths,
+				)
 			}
 		})
 	}
@@ -659,17 +1052,30 @@ func newTestProvider(api apiClient) *provider {
 }
 
 type fakeAPI struct {
-	sandboxesByName  map[string]sandbox
-	processesByName  map[string]sandboxProcess
-	createRequests   []createSandboxRequest
-	processRequests  []processRequest
-	wakeTarget       sandbox
-	deletedNames     []string
-	createErr        error
-	startProcessErr  error
-	wakeErr          error
-	processStatus    string
-	processKeepAlive *bool
+	sandboxesByName           map[string]sandbox
+	processesByName           map[string]sandboxProcess
+	createRequests            []createSandboxRequest
+	processRequests           []processRequest
+	directoryCreates          []string
+	fileUploads               []fakeFileUpload
+	deletedPaths              []string
+	deletedPathContextErrors  []error
+	wakeTarget                sandbox
+	deletedNames              []string
+	createErr                 error
+	startProcessErr           error
+	createProcessOnStartError bool
+	startErrorProcessCommand  string
+	createDirectoryErr        error
+	uploadFileErr             error
+	wakeErr                   error
+	processStatus             string
+	processKeepAlive          *bool
+}
+
+type fakeFileUpload struct {
+	path    string
+	content string
 }
 
 func newFakeAPI() *fakeAPI {
@@ -722,6 +1128,35 @@ func (f *fakeAPI) DeleteSandbox(_ context.Context, name string) error {
 	return nil
 }
 
+func (f *fakeAPI) UploadSandboxFile(
+	_ context.Context,
+	_ sandbox,
+	path string,
+	content string,
+) error {
+	f.fileUploads = append(f.fileUploads, fakeFileUpload{path: path, content: content})
+	return f.uploadFileErr
+}
+
+func (f *fakeAPI) CreateSandboxDirectory(
+	_ context.Context,
+	_ sandbox,
+	path string,
+) error {
+	f.directoryCreates = append(f.directoryCreates, path)
+	return f.createDirectoryErr
+}
+
+func (f *fakeAPI) DeleteSandboxPath(
+	ctx context.Context,
+	_ sandbox,
+	path string,
+) error {
+	f.deletedPaths = append(f.deletedPaths, path)
+	f.deletedPathContextErrors = append(f.deletedPathContextErrors, ctx.Err())
+	return nil
+}
+
 func (f *fakeAPI) StartSandboxProcess(
 	_ context.Context,
 	target sandbox,
@@ -729,6 +1164,16 @@ func (f *fakeAPI) StartSandboxProcess(
 ) (sandboxProcess, error) {
 	f.processRequests = append(f.processRequests, request)
 	if f.startProcessErr != nil {
+		if f.createProcessOnStartError {
+			command := request.Command
+			if f.startErrorProcessCommand != "" {
+				command = f.startErrorProcessCommand
+			}
+			f.processesByName[target.Metadata.Name+"/"+request.Name] = sandboxProcess{
+				PID: "4242", Name: request.Name, Command: command,
+				Status: processStatusRunning, KeepAlive: request.KeepAlive,
+			}
+		}
 		return sandboxProcess{}, f.startProcessErr
 	}
 	key := target.Metadata.Name + "/" + request.Name
@@ -738,6 +1183,8 @@ func (f *fakeAPI) StartSandboxProcess(
 	}
 	process := sandboxProcess{
 		PID:       "4242",
+		Name:      request.Name,
+		Command:   request.Command,
 		Status:    f.processStatus,
 		KeepAlive: keepAlive,
 	}

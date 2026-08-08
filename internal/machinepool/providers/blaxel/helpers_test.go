@@ -41,11 +41,3 @@ func mustRawJSON(t *testing.T, value any) json.RawMessage {
 	}
 	return raw
 }
-
-func sandboxEnvMap(envs []sandboxEnv) map[string]string {
-	env := make(map[string]string, len(envs))
-	for _, entry := range envs {
-		env[entry.Name] = entry.Value
-	}
-	return env
-}

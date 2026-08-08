@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
+	"github.com/omnara-ai/omnara/internal/envname"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"gopkg.in/yaml.v3"
@@ -373,7 +374,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 }
 
 func envNameSchema() *kjsonschema.Schema {
-	return kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern("^[^=\x00]+$"))
+	return kjsonschema.String(kjsonschema.Pattern(envname.Pattern))
 }
 
 func validationErrors(result *kjsonschema.EvaluationResult) string {

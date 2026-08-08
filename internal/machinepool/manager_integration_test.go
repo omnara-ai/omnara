@@ -714,6 +714,50 @@ func TestManagerDeletesMachineWhenMachineEnvIsPermanentlyUnresolvable(t *testing
 	if provider.provisioning != nil {
 		t.Fatalf("provider machine provisioning = %+v, want provider not called", provider.provisioning)
 	}
+
+	legacyMachineID := insertPoolMachineForManagerTest(
+		t,
+		ctx,
+		pool,
+		machinePool,
+		"provisioning",
+		"",
+		now.Add(time.Second),
+	)
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at) VALUES ($1, $2, $3, 'pool', $4, 'legacy invalid env machine', '{}'::jsonb, $5, $5)`,
+		orgID,
+		projectID,
+		legacyMachineID,
+		poolGrant.ID,
+		now.Add(time.Second),
+	); err != nil {
+		t.Fatalf("insert legacy machine project grant: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE machines SET env = '{"BAD-NAME":"legacy"}'::jsonb WHERE id = $1`,
+		legacyMachineID,
+	); err != nil {
+		t.Fatalf("seed legacy invalid machine environment: %v", err)
+	}
+	err = manager.ProvisionMachine(ctx, orgID, legacyMachineID)
+	if err == nil || !strings.Contains(err.Error(), `env key "BAD-NAME" must match`) ||
+		!errors.Is(err, storeerr.ErrPermanentEnvironment) {
+		t.Fatalf("provision legacy environment error = %v, want permanent name-validation failure", err)
+	}
+	legacyMachine, err := store.Execution().GetMachine(ctx, orgID, legacyMachineID)
+	if err != nil {
+		t.Fatalf("get legacy environment machine: %v", err)
+	}
+	if legacyMachine.LifecycleState != "deleted" || legacyMachine.DeletedAt == nil ||
+		legacyMachine.ProvisionAttempts != 1 || legacyMachine.ProviderProvisionAttemptedAt != nil {
+		t.Fatalf("legacy environment machine was not deleted before provider call: %+v", legacyMachine)
+	}
+	if provider.provisioning != nil {
+		t.Fatalf("provider saw legacy invalid environment: %+v", provider.provisioning)
+	}
 }
 
 func TestManagerUsesArchivedPoolProviderConfigForCleanup(t *testing.T) {

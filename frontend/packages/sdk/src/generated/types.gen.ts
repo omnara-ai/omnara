@@ -1094,13 +1094,13 @@ export type AgentMachineBinding = {
     description: string;
     cwd: string;
     /**
-     * Env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
+     * Env overlay applied to processes launched through this binding. For pool bindings it is also applied to the provider_options startup_script when the pool machine is provisioned. Blaxel isolates the managed daemon in a separate internal bootstrap environment; Daytona and Unikraft currently pass this environment to the daemon for compatibility. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix. A null entry removes the key.
      */
     env_overlay: {
         [key: string]: string | null;
     };
     /**
-     * Secret env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
+     * Secret env overlay applied to processes launched through this binding. For pool bindings it is also applied to the provider_options startup_script when the pool machine is provisioned. Blaxel isolates the managed daemon in a separate internal bootstrap environment; Daytona and Unikraft currently pass this environment to the daemon for compatibility. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix. A null entry removes the key.
      */
     secret_env_overlay: {
         [key: string]: SecretId | null;
@@ -1900,13 +1900,13 @@ export type CreateMachinePoolRequestBase = {
     default_machine_cpu?: number;
     default_machine_memory_mb?: number;
     /**
-     * Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
+     * Default environment for pool machines. It is applied to the provider_options startup_script at provisioning and resolved again for each process at launch. Blaxel isolates the managed daemon from this environment; Daytona and Unikraft currently pass it to the daemon for compatibility. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix.
      */
     default_machine_env?: {
         [key: string]: string;
     };
     /**
-     * Default secret environment for pool machines, mapping env names to generic secret references. References are resolved to secret values wherever the machine environment is applied.
+     * Default secret environment for pool machines, mapping shell-compatible env names to generic secret references. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix. References are resolved to secret values wherever the machine environment is applied.
      */
     default_machine_secret_env?: {
         [key: string]: SecretId;
@@ -1935,13 +1935,13 @@ export type UpdateMachinePoolRequest = {
     default_machine_cpu?: number | null;
     default_machine_memory_mb?: number | null;
     /**
-     * Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
+     * Default environment for pool machines. It is applied to the provider_options startup_script at provisioning and resolved again for each process at launch. Blaxel isolates the managed daemon from this environment; Daytona and Unikraft currently pass it to the daemon for compatibility. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix.
      */
     default_machine_env?: {
         [key: string]: string;
     };
     /**
-     * Default secret environment for pool machines, mapping env names to generic secret references. References are resolved to secret values wherever the machine environment is applied.
+     * Default secret environment for pool machines, mapping shell-compatible env names to generic secret references. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix. References are resolved to secret values wherever the machine environment is applied.
      */
     default_machine_secret_env?: {
         [key: string]: SecretId;
@@ -1974,13 +1974,13 @@ export type MachinePool = {
     default_machine_cpu: number | null;
     default_machine_memory_mb: number | null;
     /**
-     * Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
+     * Default environment for pool machines. It is applied to the provider_options startup_script at provisioning and resolved again for each process at launch. Blaxel isolates the managed daemon from this environment; Daytona and Unikraft currently pass it to the daemon for compatibility. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix.
      */
     default_machine_env: {
         [key: string]: string;
     };
     /**
-     * Default secret environment for pool machines, mapping env names to generic secret references. References are resolved to secret values wherever the machine environment is applied.
+     * Default secret environment for pool machines, mapping shell-compatible env names to generic secret references. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix. References are resolved to secret values wherever the machine environment is applied.
      */
     default_machine_secret_env: {
         [key: string]: SecretId;
@@ -2032,9 +2032,15 @@ export type Machine = {
     connection_state: MachineConnectionState;
     last_observed_at: Timestamp | null;
     cwd: string;
+    /**
+     * Environment keyed by shell-compatible names matching [A-Za-z_][A-Za-z0-9_]*. The reserved OMNARA_ prefix cannot be used.
+     */
     env: {
         [key: string]: string;
     };
+    /**
+     * Secret references keyed by shell-compatible names matching [A-Za-z_][A-Za-z0-9_]*. The reserved OMNARA_ prefix cannot be used.
+     */
     secret_env: {
         [key: string]: SecretId;
     };
@@ -2055,9 +2061,15 @@ export type CreateMachineRequest = {
     display_name: string;
     description?: string;
     cwd?: string;
+    /**
+     * Environment keyed by shell-compatible names matching [A-Za-z_][A-Za-z0-9_]*. The reserved OMNARA_ prefix cannot be used.
+     */
     env?: {
         [key: string]: string;
     };
+    /**
+     * Secret references keyed by shell-compatible names matching [A-Za-z_][A-Za-z0-9_]*. The reserved OMNARA_ prefix cannot be used.
+     */
     secret_env?: {
         [key: string]: SecretId;
     };
@@ -2068,9 +2080,15 @@ export type CreateMachineRequest = {
 
 export type UpdateMachineRequest = {
     cwd?: string;
+    /**
+     * Environment keyed by shell-compatible names matching [A-Za-z_][A-Za-z0-9_]*. The reserved OMNARA_ prefix cannot be used.
+     */
     env?: {
         [key: string]: string;
     };
+    /**
+     * Secret references keyed by shell-compatible names matching [A-Za-z_][A-Za-z0-9_]*. The reserved OMNARA_ prefix cannot be used.
+     */
     secret_env?: {
         [key: string]: SecretId;
     };
@@ -2159,13 +2177,13 @@ export type ProjectMachinePoolGrant = {
     default_machine_cpu: number | null;
     default_machine_memory_mb: number | null;
     /**
-     * Env overlay merged over the pool's default_machine_env for machines materialized through this grant; a null entry removes the key.
+     * Env overlay merged over the pool's default_machine_env for machines materialized through this grant. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix; a null entry removes the key.
      */
     default_machine_env_overlay: {
         [key: string]: string | null;
     };
     /**
-     * Secret env overlay merged over the pool's default_machine_secret_env for machines materialized through this grant; a null entry removes the key.
+     * Secret env overlay merged over the pool's default_machine_secret_env for machines materialized through this grant. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix; a null entry removes the key.
      */
     default_machine_secret_env_overlay: {
         [key: string]: string | null;
@@ -2192,13 +2210,13 @@ export type CreateProjectMachinePoolGrantRequest = {
     default_machine_cpu?: number;
     default_machine_memory_mb?: number;
     /**
-     * Env overlay merged over the pool's default_machine_env for machines materialized through this grant; a null entry removes the key.
+     * Env overlay merged over the pool's default_machine_env for machines materialized through this grant. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix; a null entry removes the key.
      */
     default_machine_env_overlay?: {
         [key: string]: string | null;
     };
     /**
-     * Secret env overlay merged over the pool's default_machine_secret_env for machines materialized through this grant; a null entry removes the key.
+     * Secret env overlay merged over the pool's default_machine_secret_env for machines materialized through this grant. Keys must match [A-Za-z_][A-Za-z0-9_]* and cannot use the reserved OMNARA_ prefix; a null entry removes the key.
      */
     default_machine_secret_env_overlay?: {
         [key: string]: string | null;
@@ -2224,9 +2242,15 @@ export type UpdateProjectMachinePoolGrantRequest = {
     description?: string;
     default_machine_cpu?: number | null;
     default_machine_memory_mb?: number | null;
+    /**
+     * Env overlay keyed by shell-compatible names matching [A-Za-z_][A-Za-z0-9_]*. The reserved OMNARA_ prefix cannot be used; a null entry removes the key.
+     */
     default_machine_env_overlay?: {
         [key: string]: string | null;
     };
+    /**
+     * Secret env overlay keyed by shell-compatible names matching [A-Za-z_][A-Za-z0-9_]*. The reserved OMNARA_ prefix cannot be used; a null entry removes the key.
+     */
     default_machine_secret_env_overlay?: {
         [key: string]: string | null;
     };
@@ -2741,7 +2765,7 @@ export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
-        stage: 'startup_script' | 'daemon_install';
+        stage: 'provider_setup' | 'startup_script' | 'daemon_install';
         exit_status: number;
         capture_status: number;
     };

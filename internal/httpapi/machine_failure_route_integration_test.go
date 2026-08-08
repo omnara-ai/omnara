@@ -118,6 +118,23 @@ func TestMachineFailureRoute(t *testing.T) {
 		!stored.OutputTruncated || stored.ReportedAt.IsZero() {
 		t.Fatalf("stored failure report = %+v", stored)
 	}
+	requestFailure("provider_setup", 8, 0, "awake setup failed", provisioning.DaemonToken.Token, http.StatusNoContent)
+	var providerFailure []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT failure_report FROM machines WHERE org_id = $1 AND id = $2`,
+		project.OrgUUID,
+		machineID,
+	).Scan(&providerFailure); err != nil {
+		t.Fatalf("load provider failure report: %v", err)
+	}
+	if err := json.Unmarshal(providerFailure, &stored); err != nil {
+		t.Fatalf("decode provider failure report: %v", err)
+	}
+	if stored.Stage != "provider_setup" || stored.ExitStatus != 8 ||
+		stored.OutputTail != "awake setup failed" || stored.OutputTruncated {
+		t.Fatalf("stored provider failure report = %+v", stored)
+	}
 
 	requestFailure("daemon_install", 9, 0, "", provisioning.DaemonToken.Token, http.StatusNoContent)
 	var replayedFailure []byte

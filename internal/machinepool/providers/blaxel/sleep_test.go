@@ -8,13 +8,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 )
 
-func TestManagedBootScriptWithAwakeProcess(t *testing.T) {
-	managedBoot := "echo managed-boot\nexec /test/omnarad start --no-service"
-	script := managedBootScriptWithAwakeProcess(managedBoot)
+func TestManagedAwakeProcessSetupScript(t *testing.T) {
+	script := managedAwakeProcessSetupScript()
 	awakeProcessIndex := strings.Index(script, daemonprotocol.BlaxelLocalAPIURL+"/process")
-	managedBootIndex := strings.Index(script, managedBoot)
-	if awakeProcessIndex < 0 || managedBootIndex < 0 || awakeProcessIndex >= managedBootIndex {
-		t.Fatalf("boot script does not create the awake process before managed boot:\n%s", script)
+	reporterIndex := strings.Index(script, "r provider_setup omnara_start_blaxel_awake_process")
+	if awakeProcessIndex < 0 || reporterIndex < 0 || awakeProcessIndex >= reporterIndex {
+		t.Fatalf("setup script does not define awake setup before running it:\n%s", script)
 	}
 	for _, value := range []string{
 		"omnara_awake_process_name_prefix=" + daemonprotocol.BlaxelAwakeProcessNamePrefix,
@@ -25,6 +24,8 @@ func TestManagedBootScriptWithAwakeProcess(t *testing.T) {
 		`"waitForCompletion":false`,
 		`"status"[[:space:]]*:[[:space:]]*"running"`,
 		`"keepAlive"[[:space:]]*:[[:space:]]*true`,
+		`omnara_supervisor_pid=$$`,
+		`return 1`,
 	} {
 		if !strings.Contains(script, value) {
 			t.Fatalf("boot script does not contain %q:\n%s", value, script)

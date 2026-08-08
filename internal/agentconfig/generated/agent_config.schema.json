@@ -126,8 +126,7 @@
                 ]
               },
               "propertyNames": {
-                "minLength": 1,
-                "pattern": "^[^=\u0000]+$",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
                 "type": "string"
               },
               "type": "object"
@@ -190,8 +189,7 @@
                 ]
               },
               "propertyNames": {
-                "minLength": 1,
-                "pattern": "^[^=\u0000]+$",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
                 "type": "string"
               },
               "type": "object"

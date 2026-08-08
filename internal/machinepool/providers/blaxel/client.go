@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -24,6 +25,9 @@ type apiClient interface {
 	CreateSandbox(context.Context, createSandboxRequest) (sandbox, error)
 	GetSandbox(context.Context, string) (sandbox, bool, error)
 	DeleteSandbox(context.Context, string) error
+	CreateSandboxDirectory(context.Context, sandbox, string) error
+	UploadSandboxFile(context.Context, sandbox, string, string) error
+	DeleteSandboxPath(context.Context, sandbox, string) error
 	StartSandboxProcess(context.Context, sandbox, processRequest) (sandboxProcess, error)
 	GetSandboxProcess(context.Context, sandbox, string) (sandboxProcess, bool, error)
 	WakeSandbox(context.Context, sandbox) error
@@ -48,13 +52,7 @@ type sandboxSpec struct {
 type sandboxRuntime struct {
 	Image  string        `json:"image"`
 	Memory int           `json:"memory"`
-	Envs   []sandboxEnv  `json:"envs,omitempty"`
 	Ports  []sandboxPort `json:"ports,omitempty"`
-}
-
-type sandboxEnv struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
 }
 
 type sandboxPort struct {
@@ -69,15 +67,24 @@ type sandbox struct {
 }
 
 type processRequest struct {
-	Name              string `json:"name"`
-	Command           string `json:"command"`
-	KeepAlive         bool   `json:"keepAlive"`
-	Timeout           int    `json:"timeout"`
-	WaitForCompletion bool   `json:"waitForCompletion"`
+	Name              string            `json:"name"`
+	Command           string            `json:"command"`
+	Env               map[string]string `json:"env,omitempty"`
+	KeepAlive         bool              `json:"keepAlive"`
+	Timeout           int               `json:"timeout"`
+	WaitForCompletion bool              `json:"waitForCompletion"`
+}
+
+type fileRequest struct {
+	Content     string `json:"content"`
+	IsDirectory bool   `json:"isDirectory"`
+	Permissions string `json:"permissions"`
 }
 
 type sandboxProcess struct {
 	PID       string `json:"pid"`
+	Name      string `json:"name"`
+	Command   string `json:"command"`
 	Status    string `json:"status"`
 	KeepAlive bool   `json:"keepAlive"`
 }
@@ -140,6 +147,72 @@ func (c *restClient) DeleteSandbox(ctx context.Context, name string) error {
 		return nil
 	}
 	return err
+}
+
+func (c *restClient) UploadSandboxFile(
+	ctx context.Context,
+	target sandbox,
+	filePath string,
+	content string,
+) error {
+	requestURL, err := sandboxFilesystemURL(target, filePath)
+	if err != nil {
+		return err
+	}
+	_, err = c.doDataPlaneRequest(
+		ctx,
+		http.MethodPut,
+		requestURL,
+		fileRequest{Content: content, Permissions: "0600"},
+		nil,
+	)
+	return err
+}
+
+func (c *restClient) CreateSandboxDirectory(
+	ctx context.Context,
+	target sandbox,
+	directoryPath string,
+) error {
+	requestURL, err := sandboxFilesystemURL(target, directoryPath)
+	if err != nil {
+		return err
+	}
+	_, err = c.doDataPlaneRequest(
+		ctx,
+		http.MethodPut,
+		requestURL,
+		fileRequest{IsDirectory: true, Permissions: "0700"},
+		nil,
+	)
+	return err
+}
+
+func (c *restClient) DeleteSandboxPath(
+	ctx context.Context,
+	target sandbox,
+	targetPath string,
+) error {
+	requestURL, err := sandboxFilesystemURL(target, targetPath)
+	if err != nil {
+		return err
+	}
+	_, err = c.doDataPlaneRequest(ctx, http.MethodDelete, requestURL, nil, nil)
+	if isNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+func sandboxFilesystemURL(target sandbox, filePath string) (string, error) {
+	if !path.IsAbs(filePath) || path.Clean(filePath) != filePath {
+		return "", errors.New("blaxel sandbox filesystem path must be a clean absolute path")
+	}
+	sandboxURL, err := sandboxDataPlaneURL(target)
+	if err != nil {
+		return "", err
+	}
+	return sandboxURL + "/filesystem/" + url.PathEscape(filePath), nil
 }
 
 func (c *restClient) StartSandboxProcess(

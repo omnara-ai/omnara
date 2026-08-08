@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/envname"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -430,8 +431,8 @@ func validateEnvName(field, key string) error {
 	if key == "" {
 		return fmt.Errorf("%s key is required", field)
 	}
-	if strings.Contains(key, "=") || strings.ContainsRune(key, 0) {
-		return fmt.Errorf("%s key %q is invalid", field, key)
+	if !envname.Valid(key) {
+		return fmt.Errorf("%s key %q must match %s", field, key, envname.Pattern)
 	}
 	if strings.HasPrefix(strings.ToUpper(key), "OMNARA_") {
 		return fmt.Errorf("%s cannot set reserved OMNARA_ key %s", field, key)

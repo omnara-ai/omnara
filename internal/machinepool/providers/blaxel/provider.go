@@ -2,9 +2,11 @@ package blaxel
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"maps"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +25,15 @@ const (
 	processStatusRunning            = "running"
 	provisioningTimeout             = 15 * time.Second
 	initialAwakeProcessPollInterval = 100 * time.Millisecond
+	maxAwakeProcessPollInterval     = time.Second
+	// Blaxel's filesystem write follows symlinks and does not repair modes on
+	// existing paths. Make the final directory component unpredictable beneath
+	// the trusted root home, then create the fixed-name file inside it.
+	startupEnvironmentDirectoryPrefix = "/root/.omnara-bootstrap-"
+	startupEnvironmentFileName        = "startup-env"
+	bootstrapAttemptMarkerPrefix      = "# omnara-blaxel-bootstrap-attempt:"
+	startupEnvironmentRandomBytes     = 16
+	startupEnvironmentCleanupTimeout  = 3 * time.Second
 )
 
 type provider struct {
@@ -77,7 +88,7 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	env, err := providers.BuildManagedMachineEnv(
+	bootEnvironment, err := providers.BuildManagedBootEnvironment(
 		p.omnaraPublicURL,
 		machineToken,
 		options.StartupScript,
@@ -87,10 +98,26 @@ func (p *provider) ProvisionMachine(
 		return providers.ProvisionMachineResult{}, err
 	}
 	if options.SleepAfterMS > 0 {
-		env[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
-		env[daemonprotocol.WakeListenAddrEnvVar] = ":" +
+		bootEnvironment.DaemonEnv[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
+		bootEnvironment.DaemonEnv[daemonprotocol.WakeListenAddrEnvVar] = ":" +
 			strconv.Itoa(daemonprotocol.WakeListenerPort)
-		env[daemonprotocol.SleepPlatformEnvVar] = daemonprotocol.SleepPlatformBlaxel
+		bootEnvironment.DaemonEnv[daemonprotocol.SleepPlatformEnvVar] = daemonprotocol.SleepPlatformBlaxel
+	}
+	startupEnvironmentPath := ""
+	startupEnvironment := ""
+	if options.StartupScript != "" {
+		startupEnvironment, err = providers.RenderManagedStartupEnvironment(bootEnvironment.StartupEnv)
+		if err != nil {
+			return providers.ProvisionMachineResult{}, err
+		}
+		startupEnvironmentPath, err = newStartupEnvironmentPath()
+		if err != nil {
+			return providers.ProvisionMachineResult{}, err
+		}
+	}
+	daemonEnv, err := bootEnvironment.ScopedDaemonEnv(startupEnvironmentPath)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
 	}
 	request := createSandboxRequest{
 		Metadata: resourceMetadata{
@@ -105,7 +132,6 @@ func (p *provider) ProvisionMachine(
 			Runtime: sandboxRuntime{
 				Image:  options.Image,
 				Memory: *machineProvisioning.MemoryMB,
-				Envs:   sandboxEnvsFromMap(env),
 			},
 		},
 	}
@@ -156,7 +182,9 @@ func (p *provider) ProvisionMachine(
 		ctx,
 		api,
 		target,
-		options.StartupScript,
+		daemonEnv,
+		startupEnvironmentPath,
+		startupEnvironment,
 		options.SleepAfterMS > 0,
 	)
 	if err != nil {
@@ -180,27 +208,58 @@ func ensureDaemonProcess(
 	ctx context.Context,
 	api apiClient,
 	target sandbox,
-	startupScript string,
+	daemonEnv map[string]string,
+	startupEnvironmentPath string,
+	startupEnvironment string,
 	sleepEnabled bool,
 ) (sandboxProcess, error) {
+	// Blaxel does not atomically reserve process names. The machine-pool
+	// manager's provisioning claim therefore must serialize calls for one
+	// machine; this function handles retries and ambiguous responses, not
+	// concurrent successful starts outside that contract.
 	expectedKeepAlive := !sleepEnabled
-	command := providers.ManagedBootScript()
+	providerSetup := ""
 	if sleepEnabled {
-		command = managedBootScriptWithAwakeProcess(command)
+		providerSetup = managedAwakeProcessSetupScript()
 	}
+	command := managedDaemonCommand(providerSetup, startupEnvironmentPath)
 	existing, found, err := api.GetSandboxProcess(ctx, target, daemonProcessName)
 	if err != nil {
 		return sandboxProcess{}, err
 	}
 	if found && processStatus(existing.Status) == processStatusRunning {
-		if err := validateDaemonProcessKeepAlive(existing, expectedKeepAlive); err != nil {
+		if err := validateAdoptableDaemonProcess(existing, expectedKeepAlive); err != nil {
 			return sandboxProcess{}, err
 		}
 		return existing, nil
 	}
+	if startupEnvironmentPath != "" {
+		// Do not sweep sibling attempt directories: another serialized attempt may
+		// still own one after an ambiguous provider response. An abrupt backend or
+		// sandbox crash can therefore leave a small root-only orphan for sandbox
+		// lifetime; ordinary failure paths clean up their own attempt below.
+		if err := api.CreateSandboxDirectory(
+			ctx,
+			target,
+			path.Dir(startupEnvironmentPath),
+		); err != nil {
+			deleteStartupEnvironmentBestEffort(ctx, api, target, startupEnvironmentPath)
+			return sandboxProcess{}, err
+		}
+		if err := api.UploadSandboxFile(
+			ctx,
+			target,
+			startupEnvironmentPath,
+			startupEnvironment,
+		); err != nil {
+			deleteStartupEnvironmentBestEffort(ctx, api, target, startupEnvironmentPath)
+			return sandboxProcess{}, err
+		}
+	}
 	process, startErr := api.StartSandboxProcess(ctx, target, processRequest{
 		Name:              daemonProcessName,
 		Command:           command,
+		Env:               daemonEnv,
 		KeepAlive:         expectedKeepAlive,
 		Timeout:           0,
 		WaitForCompletion: false,
@@ -208,20 +267,91 @@ func ensureDaemonProcess(
 	if startErr != nil {
 		existing, found, getErr := api.GetSandboxProcess(ctx, target, daemonProcessName)
 		if getErr == nil && found && processStatus(existing.Status) == processStatusRunning {
-			if err := validateDaemonProcessKeepAlive(existing, expectedKeepAlive); err != nil {
+			if err := validateAdoptableDaemonProcess(existing, expectedKeepAlive); err != nil {
+				deleteStartupEnvironmentBestEffort(ctx, api, target, startupEnvironmentPath)
 				return sandboxProcess{}, err
+			}
+			if existing.Command != command {
+				deleteStartupEnvironmentBestEffort(ctx, api, target, startupEnvironmentPath)
 			}
 			return existing, nil
 		}
+		deleteStartupEnvironmentBestEffort(ctx, api, target, startupEnvironmentPath)
 		return sandboxProcess{}, startErr
 	}
 	if processStatus(process.Status) != processStatusRunning {
+		// sandbox-api sets running synchronously after cmd.Start succeeds; it has
+		// no intermediate starting state.
+		deleteStartupEnvironmentBestEffort(ctx, api, target, startupEnvironmentPath)
 		return sandboxProcess{}, fmt.Errorf("blaxel daemon process started with status %q", process.Status)
 	}
 	if err := validateDaemonProcessKeepAlive(process, expectedKeepAlive); err != nil {
+		deleteStartupEnvironmentBestEffort(ctx, api, target, startupEnvironmentPath)
 		return sandboxProcess{}, err
 	}
 	return process, nil
+}
+
+func managedDaemonCommand(providerSetup string, startupEnvironmentPath string) string {
+	command := providers.ManagedScopedBootScript(providerSetup)
+	if startupEnvironmentPath == "" {
+		return command
+	}
+	relativePath, ok := strings.CutPrefix(
+		startupEnvironmentPath,
+		startupEnvironmentDirectoryPrefix,
+	)
+	if !ok {
+		return command
+	}
+	attemptID, ok := strings.CutSuffix(relativePath, "/"+startupEnvironmentFileName)
+	if !ok || attemptID == "" || strings.Contains(attemptID, "/") {
+		return command
+	}
+	// Keep the version header first so compatibility checks remain independent
+	// of this per-attempt reconciliation marker.
+	return strings.Replace(
+		command,
+		"\n",
+		"\n"+bootstrapAttemptMarkerPrefix+attemptID+"\n",
+		1,
+	)
+}
+
+func newStartupEnvironmentPath() (string, error) {
+	var suffix [startupEnvironmentRandomBytes]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", fmt.Errorf("generate blaxel startup environment path: %w", err)
+	}
+	return startupEnvironmentDirectoryPrefix + hex.EncodeToString(suffix[:]) +
+		"/" + startupEnvironmentFileName, nil
+}
+
+func deleteStartupEnvironmentBestEffort(
+	ctx context.Context,
+	api apiClient,
+	target sandbox,
+	startupEnvironmentPath string,
+) {
+	if startupEnvironmentPath == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		startupEnvironmentCleanupTimeout,
+	)
+	defer cancel()
+	_ = api.DeleteSandboxPath(cleanupCtx, target, startupEnvironmentPath)
+	// Use non-recursive deletion deliberately. If anything unexpected appeared
+	// in this random directory, leave it in place rather than removing it.
+	_ = api.DeleteSandboxPath(cleanupCtx, target, path.Dir(startupEnvironmentPath))
+}
+
+func validateAdoptableDaemonProcess(process sandboxProcess, expectedKeepAlive bool) error {
+	if !providers.IsManagedScopedBootScript(process.Command) {
+		return errors.New("existing Blaxel daemon process uses an incompatible bootstrap version")
+	}
+	return validateDaemonProcessKeepAlive(process, expectedKeepAlive)
 }
 
 func validateDaemonProcessKeepAlive(process sandboxProcess, expected bool) error {
@@ -241,6 +371,17 @@ func waitForInitialAwakeProcess(
 	target sandbox,
 	name string,
 ) error {
+	return waitForInitialAwakeProcessWithDelay(ctx, api, target, name, waitForPollInterval)
+}
+
+func waitForInitialAwakeProcessWithDelay(
+	ctx context.Context,
+	api apiClient,
+	target sandbox,
+	name string,
+	wait func(context.Context, time.Duration) error,
+) error {
+	delay := initialAwakeProcessPollInterval
 	for {
 		process, found, err := api.GetSandboxProcess(ctx, target, name)
 		if err != nil {
@@ -255,13 +396,21 @@ func waitForInitialAwakeProcess(
 				name,
 			)
 		}
-		timer := time.NewTimer(initialAwakeProcessPollInterval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("wait for initial blaxel awake process %q: %w", name, ctx.Err())
-		case <-timer.C:
+		if err := wait(ctx, delay); err != nil {
+			return fmt.Errorf("wait for initial blaxel awake process %q: %w", name, err)
 		}
+		delay = min(delay*2, maxAwakeProcessPollInterval)
+	}
+}
+
+func waitForPollInterval(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -326,17 +475,6 @@ func (p *provider) DeleteMachine(
 		return err
 	}
 	return p.apiClient().DeleteSandbox(ctx, resourceID)
-}
-
-func sandboxEnvsFromMap(env map[string]string) []sandboxEnv {
-	if len(env) == 0 {
-		return nil
-	}
-	envs := make([]sandboxEnv, 0, len(env))
-	for _, name := range slices.Sorted(maps.Keys(env)) {
-		envs = append(envs, sandboxEnv{Name: name, Value: env[name]})
-	}
-	return envs
 }
 
 func sandboxOwnedBy(

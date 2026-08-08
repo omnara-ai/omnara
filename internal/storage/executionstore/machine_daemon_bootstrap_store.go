@@ -424,7 +424,8 @@ func (s *Store) RecordMachineFailureReport(
 	if input.ExitStatus < 1 || input.ExitStatus > 255 {
 		return storeerr.InvalidRequest(errors.New("exit status must be between 1 and 255"))
 	}
-	if input.Stage != "startup_script" && input.Stage != "daemon_install" {
+	if input.Stage != "provider_setup" && input.Stage != "startup_script" &&
+		input.Stage != "daemon_install" {
 		return storeerr.InvalidRequest(errors.New("invalid failure report stage"))
 	}
 	if len(input.OutputTail) > MaxMachineFailureReportOutputBytes {

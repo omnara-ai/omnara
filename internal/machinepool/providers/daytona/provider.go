@@ -111,7 +111,7 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	env, err := providers.BuildManagedMachineEnv(
+	bootEnvironment, err := providers.BuildManagedBootEnvironment(
 		p.omnaraPublicURL,
 		machineToken,
 		options.StartupScript,
@@ -120,6 +120,7 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	env := bootEnvironment.CombinedEnv()
 	request := createSandboxRequest{
 		Name:               name,
 		Snapshot:           options.Snapshot,
