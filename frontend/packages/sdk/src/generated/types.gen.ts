@@ -1654,11 +1654,25 @@ export type OAuthTokenSetSecretMaterial = {
     token_type?: string;
 };
 
+export type AwsCredentialsSecretMaterial = {
+    kind: 'aws_credentials';
+    access_key_id: string;
+    secret_access_key: string;
+    session_token?: string;
+    role_arn?: string;
+    /**
+     * Requires role_arn.
+     */
+    external_id?: string;
+};
+
 export type SecretMaterial = ({
     kind: 'generic';
 } & GenericSecretMaterial) | ({
     kind: 'oauth_token_set';
-} & OAuthTokenSetSecretMaterial);
+} & OAuthTokenSetSecretMaterial) | ({
+    kind: 'aws_credentials';
+} & AwsCredentialsSecretMaterial);
 
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
@@ -1684,7 +1698,7 @@ export type SecretGrantCreateRequest = {
     target_project_id: ProjectId;
 };
 
-export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials';
+export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials';
 
 export type Secret = {
     id: SecretId;

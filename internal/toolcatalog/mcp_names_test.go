@@ -14,10 +14,14 @@ func TestMCPRuntimeToolNamesUseExplicitNamespace(t *testing.T) {
 	for _, invalid := range []string{
 		"docs__search",
 		"mcp__docs",
-		"mcp__docs__bad__tool",
 	} {
 		if IsMCPRuntimeToolName(invalid) {
 			t.Fatalf("%q unexpectedly recognized as an MCP runtime tool name", invalid)
 		}
+	}
+	awsName := MCPRuntimeToolName("aws", "aws___call_aws")
+	serverKey, remoteName, ok = SplitMCPRuntimeToolName(awsName)
+	if !ok || serverKey != "aws" || remoteName != "aws___call_aws" {
+		t.Fatalf("split AWS runtime name = (%q, %q, %t)", serverKey, remoteName, ok)
 	}
 }

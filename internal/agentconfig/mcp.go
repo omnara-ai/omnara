@@ -18,6 +18,7 @@ import (
 const (
 	MCPAuthTypeBearer = "bearer"
 	MCPAuthTypeOAuth  = "oauth"
+	MCPAuthTypeSigV4  = "sigv4"
 )
 
 type RuntimeMCPServer struct {
@@ -32,6 +33,8 @@ type RuntimeMCPServer struct {
 type RuntimeMCPAuth struct {
 	Type     string
 	SecretID string
+	Service  string
+	Region   string
 }
 
 type RuntimeMCPTool struct {
@@ -117,12 +120,32 @@ func compileMCPAuth(source *AgentConfigMCPAuthSource, opts CompileOptions) (*MCP
 	if err != nil {
 		return nil, fmt.Errorf("auth.type: %w", err)
 	}
+	service := strings.TrimSpace(source.Service)
+	region := strings.TrimSpace(source.Region)
+	switch source.Type {
+	case MCPAuthTypeSigV4:
+		if service == "" {
+			return nil, errors.New("auth.service is required for sigv4")
+		}
+		if region == "" {
+			return nil, errors.New("auth.region is required for sigv4")
+		}
+	default:
+		if service != "" || region != "" {
+			return nil, errors.New("auth.service and auth.region require auth.type sigv4")
+		}
+	}
 	if opts.ValidateSecretID != nil {
 		if err := opts.ValidateSecretID(secretID, expectedKind); err != nil {
 			return nil, fmt.Errorf("auth.secret_id: %w", err)
 		}
 	}
-	return &MCPAuthCompiled{Type: source.Type, SecretID: secretID}, nil
+	return &MCPAuthCompiled{
+		Type:     source.Type,
+		SecretID: secretID,
+		Service:  service,
+		Region:   region,
+	}, nil
 }
 
 func mcpAuthSecretKind(authType string) (secrets.Kind, error) {
@@ -131,6 +154,8 @@ func mcpAuthSecretKind(authType string) (secrets.Kind, error) {
 		return secrets.KindGeneric, nil
 	case MCPAuthTypeOAuth:
 		return secrets.KindOAuthTokenSet, nil
+	case MCPAuthTypeSigV4:
+		return secrets.KindAWSCredentials, nil
 	default:
 		return "", fmt.Errorf("unsupported mcp auth type %q", authType)
 	}
@@ -239,7 +264,12 @@ func runtimeMCPServers(compiled map[string]MCPServerCompiled) ([]RuntimeMCPServe
 			Tools:          map[string]RuntimeMCPTool{},
 		}
 		if server.Auth != nil {
-			runtime.Auth = &RuntimeMCPAuth{Type: server.Auth.Type, SecretID: server.Auth.SecretID}
+			runtime.Auth = &RuntimeMCPAuth{
+				Type:     server.Auth.Type,
+				SecretID: server.Auth.SecretID,
+				Service:  server.Auth.Service,
+				Region:   server.Auth.Region,
+			}
 		}
 		toolNames := make([]string, 0, len(server.Tools))
 		for remoteName := range server.Tools {

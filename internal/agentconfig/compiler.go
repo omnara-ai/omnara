@@ -102,6 +102,8 @@ type MCPServerCompiled struct {
 type MCPAuthCompiled struct {
 	Type     string `json:"type"`
 	SecretID string `json:"secret_id"`
+	Service  string `json:"service,omitempty"`
+	Region   string `json:"region,omitempty"`
 }
 
 type MCPToolCompiled struct {

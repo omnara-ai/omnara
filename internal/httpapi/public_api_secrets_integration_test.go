@@ -27,10 +27,11 @@ func TestPublicCanonicalSecretsAndProjectAvailability(t *testing.T) {
 	store := integrationStoreForHandler(t, handler)
 	project := bootstrapPublicHTTPProject(t, handler, "canonical-secrets")
 	for name, body := range map[string]string{
-		"missing owner":       `{"name":"bad","material":{"kind":"generic","value":"x"}}`,
-		"missing project id":  `{"owner":{"kind":"project"},"name":"bad","material":{"kind":"generic","value":"x"}}`,
-		"user id not allowed": `{"owner":{"kind":"user","user_id":"usr_agjaaaaaaaaaaaaaaaaaaaaaae"},"name":"bad","material":{"kind":"generic","value":"x"}}`,
-		"incomplete refresh":  `{"owner":{"kind":"org"},"name":"bad","material":{"kind":"oauth_token_set","access_token":"access","refresh":{"refresh_token":"refresh"}}}`,
+		"missing owner":                `{"name":"bad","material":{"kind":"generic","value":"x"}}`,
+		"missing project id":           `{"owner":{"kind":"project"},"name":"bad","material":{"kind":"generic","value":"x"}}`,
+		"user id not allowed":          `{"owner":{"kind":"user","user_id":"usr_agjaaaaaaaaaaaaaaaaaaaaaae"},"name":"bad","material":{"kind":"generic","value":"x"}}`,
+		"incomplete refresh":           `{"owner":{"kind":"org"},"name":"bad","material":{"kind":"oauth_token_set","access_token":"access","refresh":{"refresh_token":"refresh"}}}`,
+		"aws external id without role": `{"owner":{"kind":"org"},"name":"bad","material":{"kind":"aws_credentials","access_key_id":"AKIAEXAMPLE","secret_access_key":"secret","external_id":"external"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			requestJSONWithHeaders(t, handler, http.MethodPost, "/api/v1/orgs/"+project.OrgID+"/secrets",
@@ -79,6 +80,14 @@ func TestPublicCanonicalSecretsAndProjectAvailability(t *testing.T) {
 	if rotatedOrg["current_version_number"] != float64(2) {
 		t.Fatalf("org rotation = %+v", rotatedOrg)
 	}
+	awsSecret := requestJSONWithHeaders(t, handler, http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"aws-read-only","material":{"kind":"aws_credentials","access_key_id":"AKIAEXAMPLE","secret_access_key":"secret","session_token":"session-token","role_arn":"arn:aws:iam::123456789012:role/ReadOnly"}}`,
+		"", http.StatusCreated, authHeaders(project.AdminToken))
+	if awsSecret["kind"] != "aws_credentials" {
+		t.Fatalf("aws secret = %+v", awsSecret)
+	}
+	assertSecretRedacted(t, awsSecret)
 
 	projectSecret := requestJSONWithHeaders(t, handler, http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/secrets",

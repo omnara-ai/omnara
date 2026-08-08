@@ -71,6 +71,7 @@ type Conn struct {
 	MCPSessionID    string
 	ProtocolVersion string
 	BearerToken     string
+	prepareRequest  func(context.Context, *http.Request, []byte) error
 }
 
 func (c Conn) HasSession() bool { return c.MCPSessionID != "" }
@@ -339,6 +340,11 @@ func (c *httpClient) buildHTTP(ctx context.Context, conn Conn, body []byte) (*ht
 	}
 	if conn.BearerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+conn.BearerToken)
+	}
+	if conn.prepareRequest != nil {
+		if err := conn.prepareRequest(ctx, req, body); err != nil {
+			return nil, fmt.Errorf("mcp: prepare request: %w", err)
+		}
 	}
 	return req, nil
 }
