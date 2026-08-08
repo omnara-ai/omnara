@@ -181,10 +181,6 @@ func jsonObject(value json.RawMessage) bool {
 	return json.Unmarshal(value, &object) == nil && object != nil
 }
 
-// discoveredModelEntry accepts the union of the model-listing payloads that
-// supported providers return. Providers spell the same two token limits with
-// different keys; contextWindowTokens and maxOutputTokens collapse each group
-// in declaration order.
 type discoveredModelEntry struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"` // Anthropic

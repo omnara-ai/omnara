@@ -55,12 +55,10 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 			t.Fatalf("model %q was not enriched: %+v", model.Slug, model)
 		}
 	}
-	// The catalog reports max output equal to the context window; keep only the window.
 	if models[2].ContextWindowTokens == nil || *models[2].ContextWindowTokens != 200000 ||
 		models[2].MaxOutputTokens != nil {
 		t.Fatalf("equal max output should be dropped: %+v", models[2])
 	}
-	// A bare slug listed by multiple providers with different limits is ambiguous.
 	if models[4].ContextWindowTokens != nil {
 		t.Fatalf("ambiguous shared slug should stay unenriched: %+v", models[4])
 	}
@@ -85,7 +83,6 @@ func TestFillMissingLimitsCachesCatalogFetch(t *testing.T) {
 		t.Fatalf("catalog fetches = %d, want 1", got)
 	}
 
-	// Fully limited models never need the catalog at all.
 	fresh, freshRequests := testLimitsCatalog(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(catalogTestResponse))
 	})
@@ -108,7 +105,6 @@ func TestFillMissingLimitsIsBestEffortAndBacksOff(t *testing.T) {
 	if len(models) != 1 || models[0].ContextWindowTokens != nil {
 		t.Fatalf("failed fetch should leave models unenriched: %+v", models)
 	}
-	// A failed fetch is not retried immediately on the next discovery.
 	catalog.FillMissingLimits(context.Background(), input)
 	if got := requests.Load(); got != 1 {
 		t.Fatalf("catalog fetches after failure = %d, want 1", got)

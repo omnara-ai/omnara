@@ -16,9 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
-// OpenRouter's public model catalog reports context windows and output caps
-// for models across providers, including ones whose own APIs omit them
-// (notably OpenAI). It requires no credentials.
 const (
 	openRouterCatalogURL       = "https://openrouter.ai/api/v1/models"
 	catalogRequestTimeout      = 8 * time.Second
@@ -27,8 +24,6 @@ const (
 	catalogFailureRetryBackoff = time.Minute
 )
 
-// Dated releases such as gpt-4o-2024-08-06 fall back to their base slug when
-// the catalog only lists the family.
 var catalogDateSuffixPattern = regexp.MustCompile(`-\d{4}-\d{2}-\d{2}$`)
 
 type catalogLimits struct {
@@ -36,10 +31,6 @@ type catalogLimits struct {
 	maxOutputTokens     *int
 }
 
-// LimitsCatalog is a lazily fetched, periodically refreshed snapshot of the
-// OpenRouter model catalog used to fill in token limits that a provider's
-// own models endpoint does not report. All lookups are best-effort: a fetch
-// failure leaves discovered models unenriched rather than failing discovery.
 type LimitsCatalog struct {
 	url    string
 	client *http.Client
@@ -60,9 +51,6 @@ func NewLimitsCatalog() *LimitsCatalog {
 	}
 }
 
-// FillMissingLimits populates context window and max output tokens on models
-// the provider reported without a context window. Provider-reported limits
-// always win; models absent from the catalog are returned unchanged.
 func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []DiscoveredModel) []DiscoveredModel {
 	if !anyModelMissingContextWindow(models) {
 		return models
@@ -113,9 +101,6 @@ func lookupCatalogLimits(entries map[string]catalogLimits, slug string) (catalog
 	return catalogLimits{}, false
 }
 
-// snapshot returns the cached catalog entries, refreshing them when stale.
-// Holding the mutex across the fetch intentionally serializes concurrent
-// refreshes; discovery is a rare administrative operation.
 func (c *LimitsCatalog) snapshot(ctx context.Context) map[string]catalogLimits {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -165,11 +150,6 @@ func (c *LimitsCatalog) fetch(ctx context.Context) (map[string]catalogLimits, er
 	return parseCatalogEntries(body)
 }
 
-// parseCatalogEntries indexes catalog models by their full slug (for example
-// openai/gpt-4o) and by the bare slug after the provider prefix (gpt-4o),
-// which is how the provider's own models endpoint reports them. Bare slugs
-// claimed by multiple catalog entries with different limits are dropped as
-// ambiguous.
 func parseCatalogEntries(body []byte) (map[string]catalogLimits, error) {
 	var decoded struct {
 		Data []discoveredModelEntry `json:"data"`
@@ -219,8 +199,6 @@ func equalIntPtr(a, b *int) bool {
 	return *a == *b
 }
 
-// NewDiscoverer wraps native provider discovery with best-effort catalog
-// enrichment for models whose provider omitted token limits.
 func NewDiscoverer(catalog *LimitsCatalog) DiscoverFunc {
 	return func(
 		ctx context.Context,
