@@ -245,6 +245,34 @@ mcp:
 	if _, found, err := store.Execution().GetMCPConnection(ctx, wrongProjectID, launch.Agent.ID, "docs"); err != nil || found {
 		t.Fatalf("wrong project lookup should not find connection, found=%t err=%v", found, err)
 	}
+	removed, err := store.Execution().ReconcileAgentMCPConnections(ctx, testProjectID, launch.Agent.ID, nil)
+	if err != nil {
+		t.Fatalf("reconcile removed server: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("removed reconciliation returned connections: %+v", removed)
+	}
+	expired, found, err = store.Execution().GetMCPConnection(ctx, testProjectID, launch.Agent.ID, "docs")
+	if err != nil || !found {
+		t.Fatalf("load removed connection: found=%t err=%v", found, err)
+	}
+	if expired.State != executionstore.MCPConnectionStateExpired || expired.Generation != current.Generation+1 {
+		t.Fatalf("removed connection was not expired: %+v", expired)
+	}
+
+	readded, err := store.Execution().ReconcileAgentMCPConnections(
+		ctx,
+		testProjectID,
+		launch.Agent.ID,
+		launch.MCPServers,
+	)
+	if err != nil {
+		t.Fatalf("reconcile re-added server: %v", err)
+	}
+	if len(readded) != 1 || readded[0].State != executionstore.MCPConnectionStateExpired ||
+		readded[0].MCPSessionID != "" || !readded[0].UpdatedAt.Equal(expired.UpdatedAt) {
+		t.Fatalf("re-added server reused stale connection: %+v", readded)
+	}
 }
 
 func TestRuntimeMCPServerResolveTool(t *testing.T) {

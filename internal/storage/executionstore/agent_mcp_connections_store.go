@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -40,58 +41,77 @@ type MCPConnectionRecord struct {
 	UpdatedAt          time.Time          `json:"updated_at"`
 }
 
-type GetOrCreateMCPConnectionInput struct {
-	ProjectID   ID
-	AgentID     ID
-	ServerKey   string
-	EndpointURL string
-	ConfigHash  string
-}
-
-func (s *Store) GetOrCreateMCPConnection(
+func (s *Store) ReconcileAgentMCPConnections(
 	ctx context.Context,
-	input GetOrCreateMCPConnectionInput,
-) (MCPConnectionRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
-		return MCPConnectionRecord{}, errors.New("project and agent are required")
+	projectID, agentID ID,
+	servers []agentconfig.RuntimeMCPServer,
+) ([]MCPConnectionRecord, error) {
+	if isNilID(projectID) || isNilID(agentID) {
+		return nil, errors.New("project and agent are required")
 	}
-	if input.ServerKey == "" || input.EndpointURL == "" || input.ConfigHash == "" {
-		return MCPConnectionRecord{}, errors.New(
-			"server key, endpoint url, and config hash are required",
-		)
+	desired := make(map[string]string, len(servers))
+	serverKeys := make([]string, 0, len(servers))
+	for _, server := range servers {
+		configHash, err := mcpServerConfigHash(server)
+		if err != nil {
+			return nil, fmt.Errorf("hash mcp server %q config: %w", server.ServerKey, err)
+		}
+		desired[server.ServerKey] = configHash
+		serverKeys = append(serverKeys, server.ServerKey)
+	}
+	current, err := s.ListAgentMCPConnections(ctx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	connections := make([]MCPConnectionRecord, 0, len(servers))
+	reconciled := true
+	for _, connection := range current {
+		configHash, configured := desired[connection.ServerKey]
+		if configured {
+			if connection.ConfigHash == configHash {
+				connections = append(connections, connection)
+			} else {
+				reconciled = false
+			}
+			continue
+		}
+		if connection.State != MCPConnectionStateExpired {
+			reconciled = false
+		}
+	}
+	if reconciled && len(connections) == len(servers) && len(current) > 0 {
+		return connections, nil
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return MCPConnectionRecord{}, fmt.Errorf("begin get or create mcp connection: %w", err)
+		return nil, fmt.Errorf("begin reconcile agent mcp connections: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
 	if _, err := qtx.LockAgentInProject(
 		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
+		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return MCPConnectionRecord{}, storeerr.ErrNotFound
+			return nil, storeerr.ErrNotFound
 		}
-		return MCPConnectionRecord{}, fmt.Errorf("lock agent for mcp connection: %w", err)
+		return nil, fmt.Errorf("lock agent for mcp reconciliation: %w", err)
 	}
-	row, err := qtx.GetOrCreateMCPConnection(ctx, dbsqlc.GetOrCreateMCPConnectionParams{
-		ProjectID:   input.ProjectID,
-		AgentID:     input.AgentID,
-		ServerKey:   input.ServerKey,
-		EndpointUrl: input.EndpointURL,
-		ConfigHash:  input.ConfigHash,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return MCPConnectionRecord{}, storeerr.ErrNotFound
-	}
+	connections, err = createAgentMCPConnectionsTx(ctx, qtx, projectID, agentID, servers)
 	if err != nil {
-		return MCPConnectionRecord{}, fmt.Errorf("get or create mcp connection: %w", err)
+		return nil, err
+	}
+	if err := qtx.ExpireRemovedMCPConnections(ctx, dbsqlc.ExpireRemovedMCPConnectionsParams{
+		ProjectID:  projectID,
+		AgentID:    agentID,
+		ServerKeys: serverKeys,
+	}); err != nil {
+		return nil, fmt.Errorf("expire removed mcp connections: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return MCPConnectionRecord{}, fmt.Errorf("commit get or create mcp connection: %w", err)
+		return nil, fmt.Errorf("commit agent mcp reconciliation: %w", err)
 	}
-	return mcpConnectionRecordFromSQLC(row), nil
+	return connections, nil
 }
 
 func (s *Store) GetMCPConnection(

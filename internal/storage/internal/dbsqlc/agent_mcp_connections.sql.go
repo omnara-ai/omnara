@@ -64,6 +64,35 @@ func (q *Queries) BeginMCPConnectionInitialization(ctx context.Context, arg Begi
 	return i, err
 }
 
+const expireRemovedMCPConnections = `-- name: ExpireRemovedMCPConnections :exec
+UPDATE agent_mcp_connections connection
+SET state = 'expired',
+    protocol_version = '',
+    mcp_session_id = '',
+    server_capabilities = '{}'::jsonb,
+    server_info = '{}'::jsonb,
+    tools_snapshot = '[]'::jsonb,
+    generation = connection.generation + 1,
+    updated_at = transaction_timestamp()
+FROM agents agent
+WHERE agent.project_id = $1
+  AND agent.id = connection.agent_id
+  AND connection.agent_id = $2
+  AND connection.server_key <> ALL($3::text[])
+  AND connection.state <> 'expired'
+`
+
+type ExpireRemovedMCPConnectionsParams struct {
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
+	ServerKeys []string
+}
+
+func (q *Queries) ExpireRemovedMCPConnections(ctx context.Context, arg ExpireRemovedMCPConnectionsParams) error {
+	_, err := q.db.Exec(ctx, expireRemovedMCPConnections, arg.ProjectID, arg.AgentID, arg.ServerKeys)
+	return err
+}
+
 const getMCPConnection = `-- name: GetMCPConnection :one
 SELECT connection.id, connection.agent_id, connection.server_key,
        connection.endpoint_url, connection.config_hash, connection.state,

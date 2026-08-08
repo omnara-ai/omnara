@@ -45,12 +45,6 @@ func (e Executor) dispatchMCPTool(
 	if !ok {
 		return toolResultContent{}, fmt.Errorf("invalid mcp tool name %q", call.Name)
 	}
-	// Dispatch resolves the connection by current server key. This is safe only
-	// because live config changes cannot alter MCP declarations yet
-	// (validateLiveAgentConfigChangeTx rejects MCP diffs), so the connection a
-	// pending call observes is always the one that produced it. When live MCP
-	// changes land, tool calls must record their producing MCP connection
-	// id/generation and dispatch must use that recorded identity instead.
 	conn, found, err := e.Store.Execution().GetMCPConnection(ctx, turn.ProjectID, turn.AgentID, serverKey)
 	if err != nil {
 		return toolResultContent{}, err
