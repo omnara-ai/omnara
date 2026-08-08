@@ -732,9 +732,15 @@ export const zModelOutputStopReason = z.enum([
     'error'
 ]);
 
+/**
+ * String key-value metadata. Maximum 16 pairs, keys up to 64 characters, and values up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ */
+export const zContentBlockMetadata = z.record(z.string(), z.string().max(512));
+
 export const zTextContentBlock = z.object({
     type: z.enum(['text']),
-    text: z.string()
+    text: z.string(),
+    metadata: zContentBlockMetadata.optional()
 });
 
 export const zInlineMediaContentBlock = z.object({
@@ -754,22 +760,26 @@ export const zInlineMediaContentBlock = z.object({
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     ]),
     filename: z.string().max(255).optional(),
-    data: z.string().min(1)
+    data: z.string().min(1),
+    metadata: zContentBlockMetadata.optional()
 });
 
 export const zMediaRefContentBlock = z.object({
     type: z.enum(['media_ref']),
-    artifact_id: zArtifactId
+    artifact_id: zArtifactId,
+    metadata: zContentBlockMetadata.optional()
 });
 
 export const zReasoningContentBlock = z.object({
     type: z.enum(['reasoning']),
-    text: z.string()
+    text: z.string(),
+    metadata: zContentBlockMetadata.optional()
 });
 
 export const zErrorContentBlock = z.object({
     type: z.enum(['error']),
-    text: z.string()
+    text: z.string(),
+    metadata: zContentBlockMetadata.optional()
 });
 
 export const zCreateAgentInputContentBlock = z.discriminatedUnion('type', [
@@ -841,7 +851,8 @@ export const zJsonBlob = z.unknown();
 
 export const zStructuredDataContentBlock = z.object({
     type: z.enum(['structured_data']),
-    value: zJsonBlob
+    value: zJsonBlob,
+    metadata: zContentBlockMetadata.optional()
 });
 
 export const zToolResultContentBlock = z.discriminatedUnion('type', [
@@ -882,7 +893,8 @@ export const zModelToolCallContentBlock = z.object({
     tool_call_id: zToolCallId,
     tool_type: zToolCallType,
     name: z.string(),
-    input: zToolInput
+    input: zToolInput,
+    metadata: zContentBlockMetadata.optional()
 });
 
 export const zModelOutputContentBlock = z.discriminatedUnion('type', [

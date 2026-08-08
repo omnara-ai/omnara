@@ -17,9 +17,13 @@ import { Spinner } from '@/components/ui/spinner'
 export function AgentConversation({
   chat,
   currentActorId,
+  orgID,
+  projectID,
 }: {
   chat: UseAgentChatResult
   currentActorId?: string
+  orgID: string
+  projectID: string
 }) {
   return (
     <MessageScrollerProvider>
@@ -69,7 +73,12 @@ export function AgentConversation({
                     messageId={message.id}
                     scrollAnchor={index === chat.messages.length - 1}
                   >
-                    <AgentChatMessage message={message} currentActorId={currentActorId} />
+                    <AgentChatMessage
+                      message={message}
+                      currentActorId={currentActorId}
+                      orgID={orgID}
+                      projectID={projectID}
+                    />
                   </MessageScrollerItem>
                 ))}
               </>

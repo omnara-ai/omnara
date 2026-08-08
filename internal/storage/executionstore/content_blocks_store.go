@@ -22,7 +22,7 @@ func parseAgentInputContentBlocks(
 	}
 	blocks := make([]CreateContentBlockInput, 0, len(rawBlocks))
 	for ordinal, raw := range rawBlocks {
-		kind, fields, err := decodeContentBlock(raw)
+		kind, metadata, fields, err := decodeContentBlock(raw)
 		if err != nil {
 			return nil, storeerr.InvalidRequest(
 				fmt.Errorf("agent input content block %d: %w", ordinal, err),
@@ -43,6 +43,7 @@ func parseAgentInputContentBlocks(
 			)
 		}
 		block.Ordinal = int32(ordinal)
+		block.Metadata = metadata
 		blocks = append(blocks, block)
 	}
 	return blocks, nil
@@ -57,7 +58,7 @@ func parseToolResultContentBlocks(
 	}
 	blocks := make([]CreateContentBlockInput, 0, len(rawBlocks))
 	for ordinal, raw := range rawBlocks {
-		kind, fields, err := decodeContentBlock(raw)
+		kind, metadata, fields, err := decodeContentBlock(raw)
 		if err != nil {
 			return nil, storeerr.InvalidRequest(
 				fmt.Errorf("tool result content block %d: %w", ordinal, err),
@@ -80,6 +81,7 @@ func parseToolResultContentBlocks(
 			)
 		}
 		block.Ordinal = int32(ordinal)
+		block.Metadata = metadata
 		blocks = append(blocks, block)
 	}
 	return blocks, nil
@@ -100,29 +102,33 @@ func contentBlockArray(contentBlocks json.RawMessage) ([]json.RawMessage, error)
 
 func decodeContentBlock(
 	raw json.RawMessage,
-) (string, map[string]json.RawMessage, error) {
+) (string, json.RawMessage, map[string]json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return "", nil, errors.New("must be a JSON object")
+		return "", nil, nil, errors.New("must be a JSON object")
 	}
 	rawType, ok := fields["type"]
 	if !ok {
-		return "", nil, errors.New("requires type")
+		return "", nil, nil, errors.New("requires type")
 	}
 	var kind string
 	if err := json.Unmarshal(rawType, &kind); err != nil {
-		return "", nil, errors.New("type must be a string")
+		return "", nil, nil, errors.New("type must be a string")
 	}
 	if kind == "" {
-		return "", nil, errors.New("requires type")
+		return "", nil, nil, errors.New("requires type")
 	}
-	return kind, fields, nil
+	metadata, err := normalizedJSONObject(fields["metadata"], "metadata")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return kind, metadata, fields, nil
 }
 
 func parseTextContentBlock(
 	fields map[string]json.RawMessage,
 ) (CreateContentBlockInput, error) {
-	if err := rejectContentBlockFields(fields, "type", "text"); err != nil {
+	if err := rejectContentBlockFields(fields, "text"); err != nil {
 		return CreateContentBlockInput{}, err
 	}
 	rawText, ok := fields["text"]
@@ -142,7 +148,7 @@ func parseTextContentBlock(
 func parseMediaRefContentBlock(
 	fields map[string]json.RawMessage,
 ) (CreateContentBlockInput, error) {
-	if err := rejectContentBlockFields(fields, "type", "artifact_id"); err != nil {
+	if err := rejectContentBlockFields(fields, "artifact_id"); err != nil {
 		return CreateContentBlockInput{}, err
 	}
 	artifactID, err := requiredArtifactID(fields["artifact_id"])
@@ -158,7 +164,7 @@ func parseMediaRefContentBlock(
 func parseStructuredDataContentBlock(
 	fields map[string]json.RawMessage,
 ) (CreateContentBlockInput, error) {
-	if err := rejectContentBlockFields(fields, "type", "value"); err != nil {
+	if err := rejectContentBlockFields(fields, "value"); err != nil {
 		return CreateContentBlockInput{}, err
 	}
 	value, ok := fields["value"]
@@ -176,6 +182,9 @@ func rejectContentBlockFields(
 	allowed ...string,
 ) error {
 	for field := range fields {
+		if field == "type" || field == "metadata" {
+			continue
+		}
 		found := false
 		for _, allowedField := range allowed {
 			if field == allowedField {
@@ -225,25 +234,30 @@ func marshalAgentInputContentBlocks(
 func marshalAgentInputContentBlock(
 	block CreateContentBlockInput,
 ) (json.RawMessage, error) {
+	metadata := contentBlockMetadataForOutput(block.Metadata)
 	switch block.BlockKind {
 	case ContentBlockKindText:
 		return marshalJSON(struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string          `json:"type"`
+			Text     string          `json:"text"`
+			Metadata json.RawMessage `json:"metadata,omitempty"`
 		}{
-			Type: "text",
-			Text: block.TextContent,
+			Type:     "text",
+			Text:     block.TextContent,
+			Metadata: metadata,
 		})
 	case ContentBlockKindArtifact:
 		if isNilID(block.ArtifactID) {
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
-			Type       string `json:"type"`
-			ArtifactID string `json:"artifact_id"`
+			Type       string          `json:"type"`
+			ArtifactID string          `json:"artifact_id"`
+			Metadata   json.RawMessage `json:"metadata,omitempty"`
 		}{
 			Type:       "media_ref",
 			ArtifactID: block.ArtifactID.String(),
+			Metadata:   metadata,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported block kind %q", block.BlockKind)
@@ -267,38 +281,52 @@ func marshalToolResultContentBlocks(
 func marshalToolResultContentBlock(
 	block CreateContentBlockInput,
 ) (json.RawMessage, error) {
+	metadata := contentBlockMetadataForOutput(block.Metadata)
 	switch block.BlockKind {
 	case ContentBlockKindText:
 		return marshalJSON(struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string          `json:"type"`
+			Text     string          `json:"text"`
+			Metadata json.RawMessage `json:"metadata,omitempty"`
 		}{
-			Type: "text",
-			Text: block.TextContent,
+			Type:     "text",
+			Text:     block.TextContent,
+			Metadata: metadata,
 		})
 	case ContentBlockKindStructuredData:
 		if len(block.StructuredData) == 0 {
 			return nil, errors.New("structured_data requires a value")
 		}
 		return marshalJSON(struct {
-			Type  string          `json:"type"`
-			Value json.RawMessage `json:"value"`
+			Type     string          `json:"type"`
+			Value    json.RawMessage `json:"value"`
+			Metadata json.RawMessage `json:"metadata,omitempty"`
 		}{
-			Type:  "structured_data",
-			Value: block.StructuredData,
+			Type:     "structured_data",
+			Value:    block.StructuredData,
+			Metadata: metadata,
 		})
 	case ContentBlockKindArtifact:
 		if isNilID(block.ArtifactID) {
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
-			Type       string `json:"type"`
-			ArtifactID string `json:"artifact_id"`
+			Type       string          `json:"type"`
+			ArtifactID string          `json:"artifact_id"`
+			Metadata   json.RawMessage `json:"metadata,omitempty"`
 		}{
 			Type:       "media_ref",
 			ArtifactID: block.ArtifactID.String(),
+			Metadata:   metadata,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported block kind %q", block.BlockKind)
 	}
+}
+
+func contentBlockMetadataForOutput(metadata json.RawMessage) json.RawMessage {
+	if sameJSON(normalizedJSON(metadata), json.RawMessage(`{}`)) {
+		return nil
+	}
+	return metadata
 }

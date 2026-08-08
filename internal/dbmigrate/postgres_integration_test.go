@@ -5,6 +5,7 @@ package dbmigrate_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -568,8 +569,9 @@ func TestPostgresMigrationFailureRollsBack(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
+	nextVersion := currentPostgresMigrationVersion(t, ctx, db) + 1
 	failing := fstest.MapFS{
-		"000011_failing.sql": {
+		fmt.Sprintf("%06d_failing.sql", nextVersion): {
 			Data: []byte(`-- +goose Up
 CREATE TABLE migration_transaction_probe(id bigint PRIMARY KEY);
 SELECT missing_migration_function();
@@ -598,8 +600,9 @@ func TestPostgresMigrationsSerializeConcurrentRunners(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
+	nextVersion := currentPostgresMigrationVersion(t, ctx, db) + 1
 	locked := fstest.MapFS{
-		"000011_locked.sql": {
+		fmt.Sprintf("%06d_locked.sql", nextVersion): {
 			Data: []byte(`-- +goose Up
 SELECT pg_sleep(0.2);
 CREATE TABLE migration_lock_probe(id bigint PRIMARY KEY);
@@ -630,7 +633,8 @@ CREATE TABLE migration_lock_probe(id bigint PRIMARY KEY);
 		ctx,
 		`SELECT count(*)
 		 FROM goose_db_version
-		 WHERE version_id = 11 AND is_applied`,
+		 WHERE version_id = $1 AND is_applied`,
+		nextVersion,
 	).Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
@@ -645,10 +649,12 @@ func TestPostgresRejectsNewerDatabaseVersion(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
+	newerVersion := currentPostgresMigrationVersion(t, ctx, db) + 1
 	if _, err := db.ExecContext(
 		ctx,
 		`INSERT INTO goose_db_version(version_id, is_applied)
-		 VALUES(11, true)`,
+		 VALUES($1, true)`,
+		newerVersion,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -664,18 +670,20 @@ func TestPostgresOlderMigratorSeesConcurrentNewerVersion(t *testing.T) {
 	defer cancel()
 
 	pool, db := openPostgresMigrationTestDB(t, ctx)
-	versionEleven := []byte(`-- +goose Up
+	nextVersion := currentPostgresMigrationVersion(t, ctx, db) + 1
+	newerVersion := nextVersion + 1
+	nextMigration := []byte(`-- +goose Up
 SELECT pg_sleep(1) /* omnara_concurrent_migration_probe */;
-CREATE TABLE concurrent_migration_eleven(id bigint PRIMARY KEY);
+CREATE TABLE concurrent_migration_next(id bigint PRIMARY KEY);
 `)
 	older := fstest.MapFS{
-		"000011_concurrent.sql": {Data: versionEleven},
+		fmt.Sprintf("%06d_concurrent.sql", nextVersion): {Data: nextMigration},
 	}
 	newer := fstest.MapFS{
-		"000011_concurrent.sql": {Data: versionEleven},
-		"000012_newer.sql": {
+		fmt.Sprintf("%06d_concurrent.sql", nextVersion): {Data: nextMigration},
+		fmt.Sprintf("%06d_newer.sql", newerVersion): {
 			Data: []byte(`-- +goose Up
-CREATE TABLE concurrent_migration_twelve(id bigint PRIMARY KEY);
+CREATE TABLE concurrent_migration_newer(id bigint PRIMARY KEY);
 `),
 		},
 	}
@@ -730,4 +738,18 @@ func openPostgresMigrationTestDB(
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
 	return pool, db
+}
+
+func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.DB) int64 {
+	t.Helper()
+	var version int64
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT coalesce(max(version_id), 0)
+		 FROM goose_db_version
+		 WHERE is_applied`,
+	).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	return version
 }

@@ -293,6 +293,7 @@ func agentInputContentBlocksTx(
 			Ordinal:     row.Ordinal,
 			BlockKind:   ContentBlockKind(row.BlockKind),
 			TextContent: row.TextContent,
+			Metadata:    row.Metadata,
 		}
 		if row.ArtifactID != nil {
 			block.ArtifactID = *row.ArtifactID

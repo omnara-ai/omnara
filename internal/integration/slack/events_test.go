@@ -18,14 +18,15 @@ func (panicRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	panic("transport failure")
 }
 
-func TestModelVisibleTextIncludesSlackContext(t *testing.T) {
+func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 	tests := []struct {
 		name        string
 		event       Event
 		route       InboundRoute
 		newlyMapped bool
 		history     string
-		want        string
+		wantMessage string
+		wantHidden  string
 	}{
 		{
 			name: "dm",
@@ -37,9 +38,9 @@ func TestModelVisibleTextIncludesSlackContext(t *testing.T) {
 				ChannelType: "im",
 				TS:          "111.222",
 			},
-			route: InboundRoute{ProviderRef: "D123", ProviderRefKind: "dm"},
-			want: "<@U123> (Ada) in Slack DM:\n" +
-				"hello",
+			route:       InboundRoute{ProviderRef: "D123", ProviderRefKind: "dm"},
+			wantMessage: "hello",
+			wantHidden:  "<@U123> (Ada) in Slack DM:\n",
 		},
 		{
 			name: "new root mention with channel history",
@@ -54,11 +55,12 @@ func TestModelVisibleTextIncludesSlackContext(t *testing.T) {
 			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread"},
 			newlyMapped: true,
 			history:     "Recent Slack context:\n<@U999> (Grace): earlier channel note",
-			want: "The agent was mentioned in a Slack channel, so this message starts a new Slack thread for communicating with the agent.\n\n" +
+			wantMessage: "<@U_BOT> run",
+			wantHidden: "The agent was mentioned in a Slack channel, so this message starts " +
+				"a new Slack thread for communicating with the agent.\n\n" +
 				"Recent Slack context:\n" +
 				"<@U999> (Grace): earlier channel note\n\n" +
-				"<@U123> (Ada) in <#C123>, thread 111.222:\n" +
-				"<@U_BOT> run",
+				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{
 			name: "new thread mention with thread history",
@@ -74,11 +76,11 @@ func TestModelVisibleTextIncludesSlackContext(t *testing.T) {
 			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread"},
 			newlyMapped: true,
 			history:     "Recent Slack context:\n<@U999> (Grace): earlier thread note",
-			want: "This message directly mentioned the agent inside an existing Slack thread.\n\n" +
+			wantMessage: "<@U_BOT> use the prior context",
+			wantHidden: "This message directly mentioned the agent inside an existing Slack thread.\n\n" +
 				"Recent Slack context:\n" +
 				"<@U999> (Grace): earlier thread note\n\n" +
-				"<@U123> (Ada) in <#C123>, thread 111.222:\n" +
-				"<@U_BOT> use the prior context",
+				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{
 			name: "already mapped thread reply",
@@ -91,10 +93,12 @@ func TestModelVisibleTextIncludesSlackContext(t *testing.T) {
 				TS:          "333.444",
 				ThreadTS:    "111.222",
 			},
-			route: InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread", AppendOnly: true},
-			want: "This message was posted in a Slack thread that is already attached to this agent. It may be part of the ongoing conversation even if it does not directly mention the agent.\n\n" +
-				"<@U123> (Ada) in <#C123>, thread 111.222:\n" +
-				"one more thing",
+			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread", AppendOnly: true},
+			wantMessage: "one more thing",
+			wantHidden: "This message was posted in a Slack thread that is already attached " +
+				"to this agent. It may be part of the ongoing conversation even if it does not " +
+				"directly mention the agent.\n\n" +
+				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{
 			name: "root mention without fetched history",
@@ -108,27 +112,35 @@ func TestModelVisibleTextIncludesSlackContext(t *testing.T) {
 			},
 			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread"},
 			newlyMapped: true,
-			want: "The agent was mentioned in a Slack channel, so this message starts a new Slack thread for communicating with the agent.\n\n" +
-				"<@U123> (Ada) in <#C123>, thread 111.222:\n" +
-				"<@U_BOT> run",
+			wantMessage: "<@U_BOT> run",
+			wantHidden: "The agent was mentioned in a Slack channel, so this message starts " +
+				"a new Slack thread for communicating with the agent.\n\n" +
+				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := ModelVisibleText(
+			message, hidden := ModelInputTextParts(
 				test.event,
 				test.route,
 				test.newlyMapped,
 				test.history,
 				DisplayLabels{Users: map[string]string{"U123": "Ada"}},
-			); got != test.want {
-				t.Fatalf("ModelVisibleText =\n%s\nwant\n%s", got, test.want)
+			)
+			if message != test.wantMessage || hidden != test.wantHidden {
+				t.Fatalf(
+					"ModelInputTextParts = (%q, %q), want (%q, %q)",
+					message,
+					hidden,
+					test.wantMessage,
+					test.wantHidden,
+				)
 			}
 		})
 	}
 }
 
-func TestModelVisibleTextRendersSlackNames(t *testing.T) {
+func TestModelInputTextPartsRenderSlackNames(t *testing.T) {
 	event := Event{
 		Type:        "app_mention",
 		User:        "U123",
@@ -149,13 +161,23 @@ func TestModelVisibleTextRendersSlackNames(t *testing.T) {
 			"C999": "eng",
 		},
 	}
-	got := ModelVisibleText(event, route, true, "", labels)
-	want := "The agent was mentioned in a Slack channel, so this message starts a new Slack thread " +
+	message, hidden := ModelInputTextParts(event, route, true, "", labels)
+	display := labels.RenderDisplayText(strings.TrimSpace(event.Text))
+	wantHidden := "The agent was mentioned in a Slack channel, so this message starts a new Slack thread " +
 		"for communicating with the agent.\n\n" +
-		"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n" +
-		"<@U_BOT> (Omnara) ask <@U456> (Ben) about <#C999> (#eng)"
-	if got != want {
-		t.Fatalf("ModelVisibleText =\n%s\nwant\n%s", got, want)
+		"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"
+	wantMessage := "<@U_BOT> (Omnara) ask <@U456> (Ben) about <#C999> (#eng)"
+	wantDisplay := "@Omnara ask @Ben about #eng"
+	if message != wantMessage || hidden != wantHidden || display != wantDisplay {
+		t.Fatalf(
+			"Slack text parts = (%q, %q, %q), want (%q, %q, %q)",
+			message,
+			hidden,
+			display,
+			wantMessage,
+			wantHidden,
+			wantDisplay,
+		)
 	}
 }
 

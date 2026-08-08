@@ -967,9 +967,17 @@ export type ModelStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal'
  */
 export type ModelOutputStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal' | 'content_filter' | 'error';
 
+/**
+ * String key-value metadata. Maximum 16 pairs, keys up to 64 characters, and values up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ */
+export type ContentBlockMetadata = {
+    [key: string]: string;
+};
+
 export type TextContentBlock = {
     type: 'text';
     text: string;
+    metadata?: ContentBlockMetadata;
 };
 
 export type InlineMediaContentBlock = {
@@ -977,26 +985,31 @@ export type InlineMediaContentBlock = {
     media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     filename?: string;
     data: string;
+    metadata?: ContentBlockMetadata;
 };
 
 export type MediaRefContentBlock = {
     type: 'media_ref';
     artifact_id: ArtifactId;
+    metadata?: ContentBlockMetadata;
 };
 
 export type ReasoningContentBlock = {
     type: 'reasoning';
     text: string;
+    metadata?: ContentBlockMetadata;
 };
 
 export type ErrorContentBlock = {
     type: 'error';
     text: string;
+    metadata?: ContentBlockMetadata;
 };
 
 export type StructuredDataContentBlock = {
     type: 'structured_data';
     value: JsonBlob;
+    metadata?: ContentBlockMetadata;
 };
 
 export type ModelToolCallContentBlock = {
@@ -1005,6 +1018,7 @@ export type ModelToolCallContentBlock = {
     tool_type: ToolCallType;
     name: string;
     input: ToolInput;
+    metadata?: ContentBlockMetadata;
 };
 
 export type CreateAgentInputContentBlock = ({
