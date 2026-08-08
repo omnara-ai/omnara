@@ -181,18 +181,29 @@ func jsonObject(value json.RawMessage) bool {
 	return json.Unmarshal(value, &object) == nil && object != nil
 }
 
+// discoveredModelEntry accepts the union of the model-listing payloads that
+// supported providers return. Providers spell the same two token limits with
+// different keys; contextWindowTokens and maxOutputTokens collapse each group
+// in declaration order.
 type discoveredModelEntry struct {
-	ID                  string          `json:"id"`
-	DisplayName         string          `json:"display_name"`
-	Name                string          `json:"name"`
-	Created             int64           `json:"created"`
-	CreatedAt           string          `json:"created_at"`
-	ContextLength       json.RawMessage `json:"context_length"`
-	MaxInputTokens      json.RawMessage `json:"max_input_tokens"`
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"` // Anthropic
+	Name        string `json:"name"`         // OpenRouter
+	Created     int64  `json:"created"`      // OpenAI, OpenRouter (unix seconds)
+	CreatedAt   string `json:"created_at"`   // Anthropic (RFC 3339)
+
+	// Context window, one concept: OpenRouter reports context_length,
+	// Anthropic reports max_input_tokens.
+	ContextLength  json.RawMessage `json:"context_length"`
+	MaxInputTokens json.RawMessage `json:"max_input_tokens"`
+
+	// Max output tokens, one concept: OpenAI-compatible endpoints report
+	// max_output_tokens or max_completion_tokens, Anthropic reports max_tokens.
 	MaxOutputTokens     json.RawMessage `json:"max_output_tokens"`
 	MaxCompletionTokens json.RawMessage `json:"max_completion_tokens"`
 	MaxTokens           json.RawMessage `json:"max_tokens"`
-	Architecture        *struct {
+
+	Architecture *struct {
 		OutputModalities []string `json:"output_modalities"`
 	} `json:"architecture"`
 	SupportedParameters []string `json:"supported_parameters"`
@@ -203,7 +214,6 @@ type discoveredModelEntry struct {
 }
 
 func (e discoveredModelEntry) contextWindowTokens() *int {
-	// max_input_tokens is Anthropic's name for the model's context window.
 	for _, raw := range []json.RawMessage{e.ContextLength, e.MaxInputTokens} {
 		if value := modelTokenCount(raw); value != nil && *value >= 2 {
 			return value
@@ -218,7 +228,6 @@ func (e discoveredModelEntry) contextWindowTokens() *int {
 }
 
 func (e discoveredModelEntry) maxOutputTokens() *int {
-	// max_tokens is Anthropic's cap on the max_tokens request parameter.
 	for _, raw := range []json.RawMessage{e.MaxOutputTokens, e.MaxCompletionTokens, e.MaxTokens} {
 		if value := modelTokenCount(raw); value != nil {
 			return value
