@@ -1,4 +1,5 @@
 import { useCreateOrganization } from '@omnara/react'
+import { useNavigate } from '@tanstack/react-router'
 import { type SyntheticEvent, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,7 @@ export function CreateOrgDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const createOrganization = useCreateOrganization()
+  const navigate = useNavigate()
   const { setActiveOrgId } = useActiveOrg()
   const [state, setState] = useState<CreateOrgState>(initialState)
   const errorMessage = statusError(state.status)
@@ -47,6 +49,7 @@ export function CreateOrgDialog({
         body: { name: state.name },
         idempotencyKey: state.idempotencyKey,
       })
+      await navigate({ to: '/', replace: true })
       setActiveOrgId(result.org.id)
       setState(initialState())
       onOpenChange(false)
