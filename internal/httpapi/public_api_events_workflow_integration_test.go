@@ -369,6 +369,22 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(authorPAT.Token),
 	)
+	for index, metadata := range []string{
+		`{"flag":true}`,
+		`{"value":"` + strings.Repeat("v", 513) + `"}`,
+		`{"a":"","b":"","c":"","d":"","e":"","f":"","g":"","h":"","i":"","j":"","k":"","l":"","m":"","n":"","o":"","p":"","q":""}`,
+	} {
+		requestJSONWithHeaders(
+			t,
+			handler,
+			http.MethodPost,
+			project.ProjectPath+"/agents/"+agentID+"/inputs",
+			`{"content_blocks":[{"type":"text","text":"invalid metadata","metadata":`+metadata+`}]}`,
+			"idem-input-invalid-metadata-"+strconv.Itoa(index),
+			http.StatusBadRequest,
+			authHeaders(authorPAT.Token),
+		)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -710,7 +726,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents/"+agentPublicID+"/inputs",
-		`{"content_blocks":[{"type":"text","text":"visible user input","metadata":{"omnara_hidden":true,"source":{"kind":"test"}}}]}`,
+		`{"content_blocks":[{"type":"text","text":"visible user input","metadata":{"omnara_hidden":"true","source":"test"}}]}`,
 		"idem-visible-input",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
@@ -819,7 +835,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		ID:                 toolCalls[0].ID,
 		RuntimeLockID:      runtime.ID,
 		Outcome:            executionstore.ToolResultOutcomeSucceeded,
-		ResultContentParts: json.RawMessage(`[{"type":"text","text":"visible tool result","metadata":{"tool_result":true}}]`),
+		ResultContentParts: json.RawMessage(`[{"type":"text","text":"visible tool result","metadata":{"tool_result":"true"}}]`),
 	})
 	if err != nil {
 		t.Fatalf("complete tool call: %v", err)
@@ -927,12 +943,11 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		t.Fatalf("events should expose canonical content blocks: %+v", eventData)
 	}
 	inputMetadata := eventData[1].(map[string]any)["content_blocks"].([]any)[0].(map[string]any)["metadata"].(map[string]any)
-	inputSource, ok := inputMetadata["source"].(map[string]any)
-	if inputMetadata["omnara_hidden"] != true || !ok || inputSource["kind"] != "test" {
+	if inputMetadata["omnara_hidden"] != "true" || inputMetadata["source"] != "test" {
 		t.Fatalf("input content block metadata = %+v", inputMetadata)
 	}
 	toolResultMetadata := eventData[3].(map[string]any)["content_blocks"].([]any)[0].(map[string]any)["metadata"].(map[string]any)
-	if toolResultMetadata["tool_result"] != true {
+	if toolResultMetadata["tool_result"] != "true" {
 		t.Fatalf("tool result content block metadata = %+v", toolResultMetadata)
 	}
 	contextEvents, err := store.Execution().ListContextEvents(

@@ -42,15 +42,15 @@ func TestContentBlockMetadataCanonicalizesToPersistedShape(t *testing.T) {
 	}{
 		{
 			name:    "agent input",
-			input:   json.RawMessage(`[{"type":"text","text":"hello","metadata":{"omnara_hidden":true}}]`),
+			input:   json.RawMessage(`[{"type":"text","text":"hello","metadata":{"omnara_hidden":"true"}}]`),
 			parse:   parseAgentInputContentBlocks,
 			marshal: marshalAgentInputContentBlocks,
 		},
 		{
 			name: "tool result",
 			input: json.RawMessage(`[` +
-				`{"type":"structured_data","value":{"ok":true},"metadata":{"source":{"kind":"test"}}},` +
-				`{"type":"media_ref","artifact_id":"` + artifactID + `","metadata":{"position":2}}` +
+				`{"type":"structured_data","value":{"ok":true},"metadata":{"source":"test"}},` +
+				`{"type":"media_ref","artifact_id":"` + artifactID + `","metadata":{"position":"2"}}` +
 				`]`),
 			parse:   parseToolResultContentBlocks,
 			marshal: marshalToolResultContentBlocks,

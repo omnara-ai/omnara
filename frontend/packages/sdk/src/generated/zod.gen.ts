@@ -733,9 +733,9 @@ export const zModelOutputStopReason = z.enum([
 ]);
 
 /**
- * Opaque application metadata. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ * String key-value metadata. Maximum 16 pairs, keys up to 64 characters, and values up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
  */
-export const zContentBlockMetadata = z.record(z.string(), z.unknown());
+export const zContentBlockMetadata = z.record(z.string(), z.string().max(512));
 
 export const zTextContentBlock = z.object({
     type: z.enum(['text']),

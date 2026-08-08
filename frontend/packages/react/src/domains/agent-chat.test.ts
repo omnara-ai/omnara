@@ -428,7 +428,7 @@ describe('AgentChatSession', () => {
             {
               type: 'text',
               text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
-              metadata: { omnara_hidden: true },
+              metadata: { omnara_hidden: 'true' },
             },
             { type: 'text', text: 'Hello' },
           ],
@@ -1215,12 +1215,12 @@ describe('agentEventsToMessages', () => {
         id: 'input',
         sequence: 10,
         content_blocks: [
-          { type: 'text', text: 'Slack context', metadata: { omnara_hidden: true } },
+          { type: 'text', text: 'Slack context', metadata: { omnara_hidden: 'true' } },
           { type: 'text', text: 'Inspect the workspace' },
           {
             type: 'media_ref',
             artifact_id: 'hidden_input_media',
-            metadata: { omnara_hidden: true },
+            metadata: { omnara_hidden: 'true' },
           },
         ],
       }),
@@ -1228,7 +1228,7 @@ describe('agentEventsToMessages', () => {
         id: 'call-event',
         sequence: 11,
         content_blocks: [
-          { type: 'reasoning', text: 'private', metadata: { omnara_hidden: true } },
+          { type: 'reasoning', text: 'private', metadata: { omnara_hidden: 'true' } },
           toolCallBlock(),
           { type: 'text', text: 'Working' },
         ],
@@ -1240,7 +1240,7 @@ describe('agentEventsToMessages', () => {
           {
             type: 'structured_data',
             value: { private: true },
-            metadata: { omnara_hidden: true },
+            metadata: { omnara_hidden: 'true' },
           },
           { type: 'text', text: 'visible result' },
         ],

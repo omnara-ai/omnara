@@ -7070,10 +7070,17 @@ components:
         - ModelOutputStopReasonError
     ContentBlockMetadata:
       type: object
-      description: Opaque application metadata. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+      description: >-
+        String key-value metadata. Maximum 16 pairs, keys up to 64 characters,
+        and values up to 512 characters. Keys beginning with `omnara_` are
+        reserved for Omnara and may affect product behavior; use them only when
+        intentionally invoking Omnara-defined behavior.
       x-go-type: json.RawMessage
       x-go-type-skip-optional-pointer: true
-      additionalProperties: true
+      maxProperties: 16
+      additionalProperties:
+        type: string
+        maxLength: 512
     TextContentBlock:
       type: object
       additionalProperties: false

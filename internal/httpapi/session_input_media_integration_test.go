@@ -63,7 +63,7 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 	pngBase64 := base64.StdEncoding.EncodeToString(testPNGBytes)
 	body := `{"content_blocks":[` +
 		`{"type":"text","text":"what is in this image?"},` +
-		`{"type":"media","media_type":"image/png","filename":"pixel.png","data":"` + pngBase64 + `","metadata":{"omnara_hidden":true}}` +
+		`{"type":"media","media_type":"image/png","filename":"pixel.png","data":"` + pngBase64 + `","metadata":{"omnara_hidden":"true"}}` +
 		`]}`
 	created := requestJSONWithHeaders(
 		t,
@@ -86,7 +86,7 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 		t.Fatalf("expected media_ref block, got %+v", mediaBlock)
 	}
 	blockMetadata, ok := mediaBlock["metadata"].(map[string]any)
-	if !ok || blockMetadata["omnara_hidden"] != true {
+	if !ok || blockMetadata["omnara_hidden"] != "true" {
 		t.Fatalf("media metadata was not preserved: %+v", mediaBlock)
 	}
 	artifactID, _ := mediaBlock["artifact_id"].(string)

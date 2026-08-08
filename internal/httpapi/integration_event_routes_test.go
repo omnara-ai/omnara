@@ -62,6 +62,19 @@ func TestSlackEventsURLVerificationDoesNotRequireInstall(t *testing.T) {
 	}
 }
 
+func TestDisplayTextMetadata(t *testing.T) {
+	if metadata := displayTextMetadata("same", "same"); metadata != nil {
+		t.Fatalf("unchanged display metadata = %#v, want nil", metadata)
+	}
+	value := strings.Repeat("🙂", contentBlockMetadataValueMaxRunes)
+	if metadata := displayTextMetadata("model", value); metadata["omnara_display_text"] != value {
+		t.Fatalf("bounded display metadata = %#v", metadata)
+	}
+	if metadata := displayTextMetadata("model", value+"🙂"); metadata != nil {
+		t.Fatalf("oversized display metadata = %#v, want nil", metadata)
+	}
+}
+
 func TestSlackInboundRouting(t *testing.T) {
 	botUserID := "U_BOT"
 	tests := []struct {

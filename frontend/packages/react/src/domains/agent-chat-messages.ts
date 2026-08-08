@@ -71,7 +71,7 @@ function mediaPart(block: MediaRefContentBlock): OmnaraUIMessage['parts'][number
 }
 
 function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): boolean {
-  return block.metadata?.omnara_hidden === true
+  return block.metadata?.omnara_hidden === 'true'
 }
 
 function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {

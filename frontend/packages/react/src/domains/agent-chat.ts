@@ -166,7 +166,7 @@ export class AgentChatSession {
             {
               type: 'text',
               text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
-              metadata: { omnara_hidden: true },
+              metadata: { omnara_hidden: 'true' },
             },
             { type: 'text', text },
           ],

@@ -3660,7 +3660,7 @@ func assertAgentInputText(
 	var hidden []bool
 	if err := pool.QueryRow(ctx, `
 		SELECT coalesce(string_agg(text_content, '' ORDER BY ordinal), ''),
-		       array_agg(coalesce(block.metadata->'omnara_hidden' = 'true'::jsonb, false) ORDER BY ordinal)
+		       array_agg(coalesce(block.metadata->>'omnara_hidden' = 'true', false) ORDER BY ordinal)
 			FROM content_blocks block
 			JOIN agent_inputs owner
 			  ON owner.agent_id = block.agent_id
