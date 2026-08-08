@@ -309,7 +309,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		daemonRuntimeLeaseDuration:        executionstore.DaemonRuntimeLeaseDuration,
 		daemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		daemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
-		modelDiscoverer:                   modelprovider.DiscoverModels,
+		modelDiscoverer:                   modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog()),
 	}
 	var authStore httpauth.Store
 	var compromiseRevoker httpauth.CompromiseRevoker
