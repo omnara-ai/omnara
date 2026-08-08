@@ -1251,6 +1251,25 @@ mcp:
 	if loaded.CurrentConfigID != changed.AgentConfig.ID {
 		t.Fatalf("current config = %s, want %s", loaded.CurrentConfigID, changed.AgentConfig.ID)
 	}
+	currentConfig, found, err := store.Execution().GetAgentConfig(ctx, testProjectID, loaded.CurrentConfigID)
+	if err != nil {
+		t.Fatalf("load current config: %v", err)
+	}
+	if !found {
+		t.Fatal("current config not found")
+	}
+	contract, err := agentconfig.RuntimeContractFromCompiled(
+		currentConfig.CompiledDefinition,
+		currentConfig.CompilerVersion,
+		currentConfig.EffectiveDefinitionHash,
+	)
+	if err != nil {
+		t.Fatalf("load current runtime contract: %v", err)
+	}
+	if len(contract.MCPServers) != 1 || contract.MCPServers[0].ServerKey != "docs" ||
+		contract.MCPServers[0].URL != "https://mcp.example.com" {
+		t.Fatalf("current MCP servers = %+v, want docs at https://mcp.example.com", contract.MCPServers)
+	}
 }
 
 func TestChangeAgentConfigReconcilesExplicitMachineSources(t *testing.T) {

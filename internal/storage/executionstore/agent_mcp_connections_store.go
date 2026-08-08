@@ -50,12 +50,14 @@ func (s *Store) ReconcileAgentMCPConnections(
 		return nil, errors.New("project and agent are required")
 	}
 	desired := make(map[string]string, len(servers))
+	serverKeys := make([]string, 0, len(servers))
 	for _, server := range servers {
 		configHash, err := mcpServerConfigHash(server)
 		if err != nil {
 			return nil, fmt.Errorf("hash mcp server %q config: %w", server.ServerKey, err)
 		}
 		desired[server.ServerKey] = configHash
+		serverKeys = append(serverKeys, server.ServerKey)
 	}
 	current, err := s.ListAgentMCPConnections(ctx, projectID, agentID)
 	if err != nil {
@@ -99,26 +101,12 @@ func (s *Store) ReconcileAgentMCPConnections(
 	if err != nil {
 		return nil, err
 	}
-	rows, err := qtx.ListAgentMCPConnections(
-		ctx,
-		dbsqlc.ListAgentMCPConnectionsParams{ProjectID: projectID, AgentID: agentID},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list agent mcp connections for reconciliation: %w", err)
-	}
-	for _, row := range rows {
-		if _, ok := desired[row.ServerKey]; ok || MCPConnectionState(row.State) == MCPConnectionStateExpired {
-			continue
-		}
-		_, err := qtx.MarkMCPConnectionExpired(ctx, dbsqlc.MarkMCPConnectionExpiredParams{
-			ProjectID:          projectID,
-			AgentID:            agentID,
-			ID:                 row.ID,
-			GenerationObserved: row.Generation,
-		})
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("expire removed mcp connection %q: %w", row.ServerKey, err)
-		}
+	if err := qtx.ExpireRemovedMCPConnections(ctx, dbsqlc.ExpireRemovedMCPConnectionsParams{
+		ProjectID:  projectID,
+		AgentID:    agentID,
+		ServerKeys: serverKeys,
+	}); err != nil {
+		return nil, fmt.Errorf("expire removed mcp connections: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit agent mcp reconciliation: %w", err)
