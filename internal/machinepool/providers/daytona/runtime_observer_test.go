@@ -78,6 +78,21 @@ func TestDaytonaObserveRuntimeStatesPaginatesAndNormalizesMatches(t *testing.T) 
 	}
 }
 
+func TestDaytonaObserveRuntimeStatesDoesNotListWithoutValidTargets(t *testing.T) {
+	targets := []providers.RuntimeTarget{{}}
+	api := newFakeAPI()
+	observations, err := newTestProvider(api).ObserveRuntimeStates(context.Background(), targets)
+	if err != nil {
+		t.Fatalf("observe invalid Daytona runtime target: %v", err)
+	}
+	if len(observations) != 1 || observations[0].State != providers.RuntimeStateUnknown {
+		t.Fatalf("observations = %+v, want one unknown observation", observations)
+	}
+	if len(api.listQueries) != 0 {
+		t.Fatalf("list queries = %+v, want none", api.listQueries)
+	}
+}
+
 func TestDaytonaObserveRuntimeStateUsesFreshExactRead(t *testing.T) {
 	t.Run("running and owned", func(t *testing.T) {
 		target, current := runtimeTargetAndSandbox(t, "sandbox-1", "started")

@@ -42,6 +42,9 @@ func (p *provider) observeRuntimeStatesByList(
 			requestedResourceIDs[target.ProviderResourceID] = struct{}{}
 		}
 	}
+	if len(requestedResourceIDs) == 0 {
+		return daytonaObservationsForMatches(targets, nil), nil
+	}
 
 	matches := make(map[string][]sandbox, len(requestedResourceIDs))
 	seenCursors := map[string]struct{}{}

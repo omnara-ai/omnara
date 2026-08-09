@@ -113,10 +113,24 @@ func TestDaytonaRESTClientListsSandboxesWithCursorAndStateFilters(t *testing.T) 
 		if len(states) != 2 || states[0] != "started" || states[1] != "stopped" {
 			t.Fatalf("state filters = %#v", states)
 		}
-		_ = json.NewEncoder(w).Encode(sandboxPage{
-			Items:      []sandbox{{ID: "sandbox-1", State: "started"}},
-			NextCursor: &nextCursor,
-		})
+		_, _ = w.Write([]byte(`{
+			"items":[{
+				"id":"sandbox-1",
+				"organizationId":"organization-1",
+				"name":"omnara-mch-example",
+				"target":"us",
+				"user":"daytona",
+				"state":"started",
+				"public":false,
+				"cpu":2,
+				"gpu":0,
+				"memory":4,
+				"disk":10,
+				"labels":{"omnara-machine":"omnara-mch-example"},
+				"toolboxProxyUrl":"https://proxy.app.daytona.io/toolbox"
+			}],
+			"nextCursor":"next-page"
+		}`))
 	}))
 	defer server.Close()
 
@@ -130,6 +144,10 @@ func TestDaytonaRESTClientListsSandboxesWithCursorAndStateFilters(t *testing.T) 
 		t.Fatalf("list sandboxes: %v", err)
 	}
 	if len(page.Items) != 1 || page.Items[0].ID != "sandbox-1" ||
+		page.Items[0].Name != "omnara-mch-example" ||
+		page.Items[0].State != sandboxStateStarted ||
+		page.Items[0].Target != "us" ||
+		page.Items[0].Labels["omnara-machine"] != "omnara-mch-example" ||
 		page.NextCursor == nil || *page.NextCursor != nextCursor {
 		t.Fatalf("list response = %+v", page)
 	}

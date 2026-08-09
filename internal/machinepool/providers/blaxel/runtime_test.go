@@ -29,6 +29,10 @@ func TestBlaxelObserveRuntimeState(t *testing.T) {
 			name: "terminated takes precedence over standby", state: "STANDBY",
 			status: "terminated", want: providers.RuntimeStateTerminated,
 		},
+		{
+			name: "deactivating takes precedence over running", state: "RUNNING",
+			status: "deactivating", want: providers.RuntimeStateTransitional,
+		},
 		{name: "unknown runtime state", state: "PAUSED", status: "DEPLOYED", want: providers.RuntimeStateUnknown},
 		{name: "missing runtime state", status: "DEPLOYED", want: providers.RuntimeStateUnknown},
 		{
@@ -47,9 +51,9 @@ func TestBlaxelObserveRuntimeState(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			target := newRuntimeTarget(t)
 			api := newRuntimeTestAPI()
-			owned := ownedRuntimeSandbox(target, test.state, test.status)
+			owned := ownedRuntimeSandbox(t, target, test.state, test.status)
 			if test.wrongOwner {
-				owned.Metadata.Labels["omnara-machine"] = uuid.NewString()
+				owned.Metadata.Labels[machineLabel] = uuid.NewString()
 			}
 			api.sandboxesByName[target.ProviderResourceID] = owned
 
@@ -101,7 +105,7 @@ func TestBlaxelObserveRuntimeStatesUsesTargetedGetsForSmallScope(t *testing.T) {
 	targets := []providers.RuntimeTarget{newRuntimeTarget(t), newRuntimeTarget(t)}
 	api := newRuntimeTestAPI()
 	api.sandboxesByName[targets[0].ProviderResourceID] = ownedRuntimeSandbox(
-		targets[0], "RUNNING", "DEPLOYED",
+		t, targets[0], "RUNNING", "DEPLOYED",
 	)
 
 	observations, err := newTestProvider(api).ObserveRuntimeStates(context.Background(), targets)
@@ -123,22 +127,22 @@ func TestBlaxelObserveRuntimeStatesPaginatesAndIntersectsTargets(t *testing.T) {
 	api := newRuntimeTestAPI()
 	api.listPages[""] = sandboxListPage{
 		Sandboxes: []sandbox{
-			ownedRuntimeSandbox(targets[0], "RUNNING", "DEPLOYED"),
-			ownedRuntimeSandbox(targets[1], "STANDBY", "DEPLOYED"),
-			ownedRuntimeSandbox(targets[2], "RUNNING", "DEPLOYED"),
-			ownedRuntimeSandbox(targets[3], "", "DEPLOYED"),
-			ownedRuntimeSandbox(targets[4], "RUNNING", "DEPLOYED"),
+			ownedRuntimeSandbox(t, targets[0], "RUNNING", "DEPLOYED"),
+			ownedRuntimeSandbox(t, targets[1], "STANDBY", "DEPLOYED"),
+			ownedRuntimeSandbox(t, targets[2], "RUNNING", "DEPLOYED"),
+			ownedRuntimeSandbox(t, targets[3], "", "DEPLOYED"),
+			ownedRuntimeSandbox(t, targets[4], "RUNNING", "DEPLOYED"),
 			{Metadata: resourceMetadata{Name: "unrelated"}, State: "RUNNING", Status: "DEPLOYED"},
 		},
 		HasMore: true, NextCursor: "next+/=",
 	}
 	api.listPages["next+/="] = sandboxListPage{Sandboxes: []sandbox{
-		ownedRuntimeSandbox(targets[2], "STANDBY", "DEPLOYED"),
-		ownedRuntimeSandbox(targets[5], "RUNNING", "DELETING"),
+		ownedRuntimeSandbox(t, targets[2], "STANDBY", "DEPLOYED"),
+		ownedRuntimeSandbox(t, targets[5], "RUNNING", "DELETING"),
 	}}
-	api.listPages[""].Sandboxes[4].Metadata.Labels["omnara-installation"] = uuid.NewString()
+	api.listPages[""].Sandboxes[4].Metadata.Labels[installationLabel] = uuid.NewString()
 	api.sandboxesByName[targets[3].ProviderResourceID] = ownedRuntimeSandbox(
-		targets[3], "RUNNING", "DEPLOYED",
+		t, targets[3], "RUNNING", "DEPLOYED",
 	)
 
 	observations, err := newTestProvider(api).ObserveRuntimeStates(context.Background(), targets)
@@ -226,7 +230,7 @@ func TestBlaxelObserveRuntimeStatesShrinksOversizedListPages(t *testing.T) {
 	api := newRuntimeTestAPI()
 	api.maxListLimit = 25
 	api.listPages[""] = sandboxListPage{Sandboxes: []sandbox{
-		ownedRuntimeSandbox(targets[0], "RUNNING", "DEPLOYED"),
+		ownedRuntimeSandbox(t, targets[0], "RUNNING", "DEPLOYED"),
 	}}
 
 	observations, err := newTestProvider(api).ObserveRuntimeStates(
@@ -246,7 +250,7 @@ func TestBlaxelObserveRuntimeStatesDuplicateRequestIsUnknown(t *testing.T) {
 	target := newRuntimeTarget(t)
 	api := newRuntimeTestAPI()
 	api.sandboxesByName[target.ProviderResourceID] = ownedRuntimeSandbox(
-		target, "RUNNING", "DEPLOYED",
+		t, target, "RUNNING", "DEPLOYED",
 	)
 	observations, err := newTestProvider(api).ObserveRuntimeStates(
 		context.Background(), []providers.RuntimeTarget{target, target},
@@ -328,16 +332,14 @@ func newRuntimeTarget(t *testing.T) providers.RuntimeTarget {
 }
 
 func ownedRuntimeSandbox(
+	t testing.TB,
 	target providers.RuntimeTarget,
 	state, status string,
 ) sandbox {
 	return sandbox{
 		Metadata: resourceMetadata{
-			Name: target.ProviderResourceID,
-			Labels: map[string]string{
-				"omnara-installation": target.InstallationID.String(),
-				"omnara-machine":      target.MachineID.String(),
-			},
+			Name:   target.ProviderResourceID,
+			Labels: mustSandboxOwnershipLabels(t, target.InstallationID, target.MachineID),
 		},
 		State: sandboxRuntimeState(state), Status: sandboxDeploymentStatus(status),
 	}

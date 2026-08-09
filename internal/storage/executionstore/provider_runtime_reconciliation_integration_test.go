@@ -23,7 +23,6 @@ func TestProviderRuntimeCandidateStorageLifecycleAndPagination(t *testing.T) {
 	first := fixture.insertInactiveMachine(t, ctx, "first")
 	second := fixture.insertInactiveMachine(t, ctx, "second")
 
-	// These rows exercise the discovery exclusions without widening the result.
 	fixture.insertNeverConnectedMachine(t, ctx, "never-connected")
 	fixture.insertInactiveBYOMachine(t, ctx, "byo")
 	online := fixture.insertInactiveMachine(t, ctx, "online")

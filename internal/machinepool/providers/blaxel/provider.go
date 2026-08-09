@@ -12,6 +12,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -22,17 +23,20 @@ const (
 	wakePortProtocol                          = "HTTP"
 	processStatusRunning sandboxProcessStatus = "running"
 
-	sandboxDeploymentDeployed    sandboxDeploymentStatus = "DEPLOYED"
-	sandboxDeploymentDeleting    sandboxDeploymentStatus = "DELETING"
-	sandboxDeploymentFailed      sandboxDeploymentStatus = "FAILED"
-	sandboxDeploymentTerminated  sandboxDeploymentStatus = "TERMINATED"
-	sandboxDeploymentDeactivated sandboxDeploymentStatus = "DEACTIVATED"
+	sandboxDeploymentDeployed     sandboxDeploymentStatus = "DEPLOYED"
+	sandboxDeploymentDeactivating sandboxDeploymentStatus = "DEACTIVATING"
+	sandboxDeploymentDeleting     sandboxDeploymentStatus = "DELETING"
+	sandboxDeploymentFailed       sandboxDeploymentStatus = "FAILED"
+	sandboxDeploymentTerminated   sandboxDeploymentStatus = "TERMINATED"
+	sandboxDeploymentDeactivated  sandboxDeploymentStatus = "DEACTIVATED"
 
 	sandboxRuntimeRunning sandboxRuntimeState = "RUNNING"
 	sandboxRuntimeStandby sandboxRuntimeState = "STANDBY"
 
 	provisioningTimeout             = 15 * time.Second
 	initialAwakeProcessPollInterval = 100 * time.Millisecond
+	installationLabel               = "omnara-installation"
+	machineLabel                    = "omnara-machine"
 )
 
 type sandboxDeploymentStatus string
@@ -106,12 +110,19 @@ func (p *provider) ProvisionMachine(
 			strconv.Itoa(daemonprotocol.WakeListenerPort)
 		env[daemonprotocol.SleepPlatformEnvVar] = daemonprotocol.SleepPlatformBlaxel
 	}
+	installationOwner, machineOwner, err := sandboxOwnershipLabelValues(
+		installationID,
+		machineID,
+	)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
+	}
 	request := createSandboxRequest{
 		Metadata: resourceMetadata{
 			Name: name,
 			Labels: map[string]string{
-				"omnara-installation": installationID.String(),
-				"omnara-machine":      machineID.String(),
+				installationLabel: installationOwner,
+				machineLabel:      machineOwner,
 			},
 		},
 		Spec: sandboxSpec{
@@ -358,9 +369,34 @@ func sandboxOwnedBy(
 	name string,
 	installationID, machineID storage.ID,
 ) bool {
-	return target.Metadata.Name == name &&
-		target.Metadata.Labels["omnara-installation"] == installationID.String() &&
-		target.Metadata.Labels["omnara-machine"] == machineID.String()
+	if target.Metadata.Name != name {
+		return false
+	}
+	installationOwner, machineOwner, err := sandboxOwnershipLabelValues(
+		installationID,
+		machineID,
+	)
+	if err != nil {
+		return false
+	}
+	return (target.Metadata.Labels[installationLabel] == installationOwner &&
+		target.Metadata.Labels[machineLabel] == machineOwner) ||
+		(target.Metadata.Labels[installationLabel] == installationID.String() &&
+			target.Metadata.Labels[machineLabel] == machineID.String())
+}
+
+func sandboxOwnershipLabelValues(
+	installationID, machineID storage.ID,
+) (string, string, error) {
+	installationPublicID, err := publicid.Encode(publicid.KindInstallation, installationID)
+	if err != nil {
+		return "", "", err
+	}
+	machinePublicID, err := publicid.Encode(publicid.KindMachine, machineID)
+	if err != nil {
+		return "", "", err
+	}
+	return installationPublicID, machinePublicID, nil
 }
 
 func sandboxReplaceable(status sandboxDeploymentStatus) bool {

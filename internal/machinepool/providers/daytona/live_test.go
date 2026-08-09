@@ -2,24 +2,28 @@ package daytona
 
 import (
 	"context"
-	"os"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/testutil/providercontract"
 )
 
 func TestDaytonaProviderLiveSmoke(t *testing.T) {
-	if os.Getenv("OMNARA_DAYTONA_LIVE") != "1" {
-		t.Skip("set OMNARA_DAYTONA_LIVE=1 to run live Daytona smoke test")
+	token := providercontract.FirstEnv("DAYTONA_API_KEY", "OMNARA_DAYTONA_API_TOKEN")
+	if token == "" {
+		t.Skip("a Daytona API key is required")
 	}
-	token := os.Getenv("DAYTONA_API_KEY")
-	snapshotName := os.Getenv("OMNARA_DAYTONA_TEST_SNAPSHOT")
-	target := os.Getenv("OMNARA_DAYTONA_TEST_TARGET")
-	if token == "" || snapshotName == "" || target == "" {
-		t.Skip("DAYTONA_API_KEY, OMNARA_DAYTONA_TEST_SNAPSHOT, and OMNARA_DAYTONA_TEST_TARGET are required")
+	snapshotName := providercontract.FirstEnv("OMNARA_DAYTONA_TEST_SNAPSHOT")
+	if snapshotName == "" {
+		snapshotName = "daytona-small"
+	}
+	target := providercontract.FirstEnv("OMNARA_DAYTONA_TEST_TARGET", "DAYTONA_TARGET")
+	if target == "" {
+		target = "us"
 	}
 	config := mustRawJSON(t, map[string]any{
 		"allowed_snapshots": []string{"*"},
@@ -28,18 +32,23 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 	provisional := executionstore.MachineProvisioningConfig{
 		ProviderOptions: testOptions(t, snapshotName, target, ""),
 	}
-	omnaraPublicURL := os.Getenv("OMNARA_PUBLIC_URL")
+	omnaraPublicURL := providercontract.FirstEnv("OMNARA_PUBLIC_URL")
 	if omnaraPublicURL == "" {
 		omnaraPublicURL = "https://app.omnara.com"
 	}
-	provider, err := (Definition{}).NewProvider(
+	machineProvider, err := (Definition{}).NewProvider(
 		config,
 		providers.RuntimeConfig{PublicURL: omnaraPublicURL, ProviderAuthToken: token},
 	)
 	if err != nil {
 		t.Fatalf("new live daytona provider: %v", err)
 	}
-	facts, err := provider.PrepareProvisioning(context.Background(), provisional)
+	concreteProvider, ok := machineProvider.(*provider)
+	if !ok {
+		t.Fatal("Daytona provider has an unexpected implementation")
+	}
+	concreteProvider.api = liveTestAPI{apiClient: concreteProvider.api}
+	facts, err := machineProvider.PrepareProvisioning(context.Background(), provisional)
 	if err != nil {
 		t.Fatalf("prepare live daytona provisioning: %v", err)
 	}
@@ -55,7 +64,7 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cleanupCancel()
-		if err := provider.DeleteMachine(
+		if err := machineProvider.DeleteMachine(
 			cleanupCtx,
 			installationID,
 			machineID,
@@ -66,7 +75,7 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 		}
 	})
 	provisionCtx, provisionCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	resourceID, err := provider.ProvisionMachine(
+	resourceID, err := machineProvider.ProvisionMachine(
 		provisionCtx,
 		installationID,
 		machineID,
@@ -79,8 +88,17 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 		t.Fatalf("provision live daytona sandbox: %v", err)
 	}
 	cleanupResourceID = resourceID.ProviderResourceID
+	markerCtx, markerCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	created, found, err := concreteProvider.api.GetSandbox(markerCtx, cleanupResourceID)
+	markerCancel()
+	if err != nil || !found {
+		t.Fatalf("get marked live Daytona sandbox = found %v error %v", found, err)
+	}
+	if created.Labels[providercontract.LiveResourceLabel] != providercontract.LiveResourceValue {
+		t.Fatalf("live Daytona sandbox is missing its test marker: %+v", created.Labels)
+	}
 	reprovisionCtx, reprovisionCancel := context.WithTimeout(context.Background(), provisioningTimeout)
-	reprovisionedResourceID, err := provider.ProvisionMachine(
+	reprovisionedResourceID, err := machineProvider.ProvisionMachine(
 		reprovisionCtx,
 		installationID,
 		machineID,
@@ -101,7 +119,7 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 	}
 	inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer inspectCancel()
-	_, found, err := provider.InspectMachine(
+	_, found, err = machineProvider.InspectMachine(
 		inspectCtx,
 		installationID,
 		machineID,
@@ -111,7 +129,7 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("inspect live daytona sandbox = found %v error %v", found, err)
 	}
-	observer, ok := provider.(providers.RuntimeStateObserver)
+	observer, ok := machineProvider.(providers.RuntimeStateObserver)
 	if !ok {
 		t.Fatal("daytona provider does not implement runtime observation")
 	}
@@ -121,35 +139,48 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 		ProviderResourceID:  resourceID.ProviderResourceID,
 		MachineProvisioning: provisioning,
 	}
-	observationCtx, observationCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	observationCtx, observationCancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer observationCancel()
-	observation, err := observer.ObserveRuntimeState(observationCtx, runtimeTarget)
-	if err != nil {
-		t.Fatalf("observe live daytona sandbox runtime: %v", err)
-	}
-	assertLiveRuntimeObservation(t, runtimeTarget, observation)
-	observations, err := observer.ObserveRuntimeStates(
+	providercontract.WaitForPresentRuntimeObservation(
+		t,
 		observationCtx,
-		[]providers.RuntimeTarget{runtimeTarget},
+		runtimeTarget,
+		func() (providers.RuntimeObservation, error) {
+			return observer.ObserveRuntimeState(observationCtx, runtimeTarget)
+		},
 	)
-	if err != nil {
-		t.Fatalf("bulk observe live daytona sandbox runtime: %v", err)
-	}
-	if len(observations) != 1 {
-		t.Fatalf("bulk live daytona runtime observations = %d, want 1", len(observations))
-	}
-	assertLiveRuntimeObservation(t, runtimeTarget, observations[0])
+	providercontract.WaitForPresentRuntimeObservation(
+		t,
+		observationCtx,
+		runtimeTarget,
+		func() (providers.RuntimeObservation, error) {
+			observations, err := observer.ObserveRuntimeStates(
+				observationCtx,
+				[]providers.RuntimeTarget{runtimeTarget},
+			)
+			if err != nil {
+				return providers.RuntimeObservation{}, err
+			}
+			if len(observations) != 1 {
+				return providers.RuntimeObservation{}, fmt.Errorf(
+					"bulk live Daytona runtime observations = %d, want 1",
+					len(observations),
+				)
+			}
+			return observations[0], nil
+		},
+	)
 }
 
-func assertLiveRuntimeObservation(
-	t *testing.T,
-	target providers.RuntimeTarget,
-	observation providers.RuntimeObservation,
-) {
-	t.Helper()
-	if observation.MachineID != target.MachineID ||
-		observation.ProviderResourceID != target.ProviderResourceID ||
-		!observation.State.Valid() || observation.State == providers.RuntimeStateUnknown {
-		t.Fatalf("unexpected live runtime observation: %+v", observation)
-	}
+type liveTestAPI struct {
+	apiClient
+}
+
+func (a liveTestAPI) CreateSandbox(
+	ctx context.Context,
+	request createSandboxRequest,
+) (sandbox, error) {
+	request.Labels[providercontract.LiveResourceLabel] = providercontract.LiveResourceValue
+	request.Env[providercontract.LiveResourceEnv] = providercontract.LiveResourceValue
+	return a.apiClient.CreateSandbox(ctx, request)
 }

@@ -2,37 +2,36 @@ package blaxel
 
 import (
 	"context"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/testutil/providercontract"
 )
 
 func TestBlaxelProviderLiveSmoke(t *testing.T) {
-	if os.Getenv("OMNARA_BLAXEL_LIVE") != "1" {
-		t.Skip("set OMNARA_BLAXEL_LIVE=1 to run live Blaxel smoke test")
+	token := providercontract.FirstEnv("OMNARA_BLAXEL_API_TOKEN", "BL_API_KEY")
+	workspace := providercontract.FirstEnv("OMNARA_BLAXEL_WORKSPACE", "BL_WORKSPACE")
+	if token == "" || workspace == "" {
+		t.Skip("Blaxel API token and workspace are required")
 	}
-	token := strings.TrimSpace(os.Getenv("OMNARA_BLAXEL_API_TOKEN"))
-	workspace := strings.TrimSpace(os.Getenv("OMNARA_BLAXEL_WORKSPACE"))
-	image := strings.TrimSpace(os.Getenv("OMNARA_BLAXEL_TEST_IMAGE"))
-	region := strings.TrimSpace(os.Getenv("OMNARA_BLAXEL_TEST_REGION"))
-	if token == "" || workspace == "" || image == "" || region == "" {
-		t.Skip(
-			"OMNARA_BLAXEL_API_TOKEN, OMNARA_BLAXEL_WORKSPACE, " +
-				"OMNARA_BLAXEL_TEST_IMAGE, and OMNARA_BLAXEL_TEST_REGION are required",
-		)
+	image := providercontract.FirstEnv("OMNARA_BLAXEL_TEST_IMAGE")
+	if image == "" {
+		image = "blaxel/base-image:latest"
 	}
-	omnaraPublicURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_URL"))
+	region := providercontract.FirstEnv("OMNARA_BLAXEL_TEST_REGION")
+	if region == "" {
+		region = "us-pdx-1"
+	}
+	omnaraPublicURL := providercontract.FirstEnv("OMNARA_PUBLIC_URL")
 	if omnaraPublicURL == "" {
 		omnaraPublicURL = "https://app.omnara.com"
 	}
 	machineProvisioning := testMachineProvisioning(t, map[string]any{
 		"image": image, "region": region,
 	})
-	provider, err := (Definition{}).NewProvider(
+	machineProvider, err := (Definition{}).NewProvider(
 		mustRawJSON(t, map[string]any{
 			"workspace":       workspace,
 			"allowed_images":  []string{image},
@@ -43,6 +42,16 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new blaxel provider: %v", err)
 	}
+	concreteProvider, ok := machineProvider.(*provider)
+	if !ok {
+		t.Fatal("Blaxel provider has an unexpected implementation")
+	}
+	providerAPI := concreteProvider.apiClient()
+	lister, ok := providerAPI.(sandboxLister)
+	if !ok {
+		t.Fatal("blaxel API client does not implement sandbox listing")
+	}
+	concreteProvider.api = liveTestAPI{apiClient: providerAPI, sandboxLister: lister}
 	machineID := uuid.New()
 	providerResourceID, err := providers.MachineAllocationName(testInstallationID(), machineID)
 	if err != nil {
@@ -55,7 +64,7 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		if err := provider.DeleteMachine(
+		if err := machineProvider.DeleteMachine(
 			cleanupCtx,
 			testInstallationID(),
 			machineID,
@@ -66,10 +75,10 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 		}
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	bootstrap := "live-smoke-token"
-	firstResourceID, err := provider.ProvisionMachine(
+	firstResourceID, err := machineProvider.ProvisionMachine(
 		ctx,
 		testInstallationID(),
 		machineID,
@@ -83,7 +92,14 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 	if firstResourceID.ProviderResourceID != providerResourceID {
 		t.Fatalf("provider resource id = %q, want %q", firstResourceID.ProviderResourceID, providerResourceID)
 	}
-	secondResourceID, err := provider.ProvisionMachine(
+	created, found, err := concreteProvider.apiClient().GetSandbox(ctx, providerResourceID)
+	if err != nil || !found {
+		t.Fatalf("get marked live Blaxel sandbox = found %v error %v", found, err)
+	}
+	if created.Metadata.Labels[providercontract.LiveResourceLabel] != providercontract.LiveResourceValue {
+		t.Fatalf("live Blaxel sandbox is missing its test marker: %+v", created.Metadata.Labels)
+	}
+	secondResourceID, err := machineProvider.ProvisionMachine(
 		ctx,
 		testInstallationID(),
 		machineID,
@@ -101,7 +117,7 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 			providerResourceID,
 		)
 	}
-	inspectedResourceID, found, err := provider.InspectMachine(
+	inspectedResourceID, found, err := machineProvider.InspectMachine(
 		ctx,
 		testInstallationID(),
 		machineID,
@@ -114,7 +130,7 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 	if !found || inspectedResourceID != providerResourceID {
 		t.Fatalf("inspect live blaxel sandbox = (%q, %t), want (%q, true)", inspectedResourceID, found, providerResourceID)
 	}
-	observer, ok := provider.(providers.RuntimeStateObserver)
+	observer, ok := machineProvider.(providers.RuntimeStateObserver)
 	if !ok {
 		t.Fatal("blaxel provider does not implement runtime observation")
 	}
@@ -124,20 +140,62 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 		ProviderResourceID:  providerResourceID,
 		MachineProvisioning: machineProvisioning,
 	}
-	observation, err := observer.ObserveRuntimeState(ctx, runtimeTarget)
+	providercontract.WaitForPresentRuntimeObservation(t, ctx, runtimeTarget, func() (
+		providers.RuntimeObservation,
+		error,
+	) {
+		return observer.ObserveRuntimeState(ctx, runtimeTarget)
+	})
+	bulkTargets := liveBulkRuntimeTargets(t, runtimeTarget)
+	validIndexes := make([]int, len(bulkTargets))
+	for index := range validIndexes {
+		validIndexes[index] = index
+	}
+	providercontract.WaitForPresentRuntimeObservation(t, ctx, runtimeTarget, func() (
+		providers.RuntimeObservation,
+		error,
+	) {
+		listed, err := listTargetSandboxes(ctx, lister, bulkTargets, validIndexes)
+		if err != nil {
+			return providers.RuntimeObservation{}, err
+		}
+		matches := listed[runtimeTarget.ProviderResourceID]
+		observation := unknownRuntimeObservation(runtimeTarget)
+		if len(matches) == 1 && sandboxOwnedBy(
+			matches[0],
+			runtimeTarget.ProviderResourceID,
+			runtimeTarget.InstallationID,
+			runtimeTarget.MachineID,
+		) {
+			observation.State = normalizedSandboxRuntimeState(matches[0])
+		}
+		return observation, nil
+	})
+	observations, err := observer.ObserveRuntimeStates(ctx, bulkTargets)
 	if err != nil {
-		t.Fatalf("observe live blaxel sandbox runtime: %v", err)
+		t.Fatalf("bulk observe live Blaxel sandbox runtime: %v", err)
 	}
-	assertLiveRuntimeObservation(t, runtimeTarget, observation)
-	observations, err := observer.ObserveRuntimeStates(ctx, []providers.RuntimeTarget{runtimeTarget})
-	if err != nil {
-		t.Fatalf("bulk observe live blaxel sandbox runtime: %v", err)
+	if len(observations) != len(bulkTargets) {
+		t.Fatal(
+			"Blaxel bulk runtime observation returned an unexpected result count",
+		)
 	}
-	if len(observations) != 1 {
-		t.Fatalf("bulk live blaxel runtime observations = %d, want 1", len(observations))
+	providercontract.AssertRuntimeObservation(
+		t,
+		runtimeTarget,
+		observations[0],
+		providers.RuntimeStateRunning,
+		providers.RuntimeStateInactive,
+	)
+	for index := 1; index < len(observations); index++ {
+		providercontract.AssertRuntimeObservation(
+			t,
+			bulkTargets[index],
+			observations[index],
+			providers.RuntimeStateUnknown,
+		)
 	}
-	assertLiveRuntimeObservation(t, runtimeTarget, observations[0])
-	if err := provider.DeleteMachine(
+	if err := machineProvider.DeleteMachine(
 		ctx,
 		testInstallationID(),
 		machineID,
@@ -149,15 +207,41 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 	deleted = true
 }
 
-func assertLiveRuntimeObservation(
+type liveTestAPI struct {
+	apiClient
+	sandboxLister
+}
+
+func (a liveTestAPI) CreateSandbox(
+	ctx context.Context,
+	request createSandboxRequest,
+) (sandbox, error) {
+	request.Metadata.Labels[providercontract.LiveResourceLabel] = providercontract.LiveResourceValue
+	request.Spec.Runtime.Envs = append(request.Spec.Runtime.Envs, sandboxEnv{
+		Name:  providercontract.LiveResourceEnv,
+		Value: providercontract.LiveResourceValue,
+	})
+	return a.apiClient.CreateSandbox(ctx, request)
+}
+
+func liveBulkRuntimeTargets(
 	t *testing.T,
-	target providers.RuntimeTarget,
-	observation providers.RuntimeObservation,
-) {
+	existing providers.RuntimeTarget,
+) []providers.RuntimeTarget {
 	t.Helper()
-	if observation.MachineID != target.MachineID ||
-		observation.ProviderResourceID != target.ProviderResourceID ||
-		!observation.State.Valid() || observation.State == providers.RuntimeStateUnknown {
-		t.Fatalf("unexpected live runtime observation: %+v", observation)
+	targets := make([]providers.RuntimeTarget, targetedRuntimeObservationLimit+1)
+	targets[0] = existing
+	for index := 1; index < len(targets); index++ {
+		machineID := uuid.New()
+		name, err := providers.MachineAllocationName(existing.InstallationID, machineID)
+		if err != nil {
+			t.Fatalf("build live Blaxel bulk target: %v", err)
+		}
+		targets[index] = providers.RuntimeTarget{
+			InstallationID:     existing.InstallationID,
+			MachineID:          machineID,
+			ProviderResourceID: name,
+		}
 	}
+	return targets
 }

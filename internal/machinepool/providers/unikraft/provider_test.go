@@ -552,7 +552,9 @@ type fakeAPI struct {
 	batchGetRequests            [][]string
 	batchGetResults             []instance
 	batchGetErr                 error
-	batchGetNonAuthoritative    bool
+	batchGetMaxSize             int
+	batchEnvelopeStatus         responseStatus
+	batchHasEnvelopeErrors      bool
 	getByUUIDRequests           []string
 	getByUUIDErr                error
 	createRequests              []createInstanceRequest
@@ -582,13 +584,21 @@ func (f *fakeAPI) GetInstancesByUUIDs(
 	uuids []string,
 ) (instanceBatch, error) {
 	f.batchGetRequests = append(f.batchGetRequests, append([]string(nil), uuids...))
+	if f.batchGetMaxSize > 0 && len(uuids) > f.batchGetMaxSize {
+		return instanceBatch{}, providers.ErrResponseTooLarge
+	}
 	if f.batchGetErr != nil {
 		return instanceBatch{}, f.batchGetErr
 	}
+	envelopeStatus := f.batchEnvelopeStatus
+	if envelopeStatus == "" {
+		envelopeStatus = responseStatusSuccess
+	}
 	if f.batchGetResults != nil {
 		return instanceBatch{
-			Instances:     append([]instance(nil), f.batchGetResults...),
-			Authoritative: !f.batchGetNonAuthoritative,
+			Instances:         append([]instance(nil), f.batchGetResults...),
+			EnvelopeStatus:    envelopeStatus,
+			HasEnvelopeErrors: f.batchHasEnvelopeErrors,
 		}, nil
 	}
 	results := make([]instance, 0, len(uuids))
@@ -607,8 +617,9 @@ func (f *fakeAPI) GetInstancesByUUIDs(
 		}
 	}
 	return instanceBatch{
-		Instances:     results,
-		Authoritative: !f.batchGetNonAuthoritative,
+		Instances:         results,
+		EnvelopeStatus:    envelopeStatus,
+		HasEnvelopeErrors: f.batchHasEnvelopeErrors,
 	}, nil
 }
 

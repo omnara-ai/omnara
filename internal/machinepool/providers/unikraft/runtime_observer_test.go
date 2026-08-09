@@ -13,8 +13,8 @@ import (
 
 func TestUnikraftObserveRuntimeStatesGroupsByMetroAndChunks(t *testing.T) {
 	api := &fakeAPI{instancesByUUID: map[string]instance{}}
-	targets := make([]providers.RuntimeTarget, 0, runtimeObservationBatchSize+3)
-	for index := range runtimeObservationBatchSize + 1 {
+	targets := make([]providers.RuntimeTarget, 0, runtimeObservationInitialBatchSize+3)
+	for index := range runtimeObservationInitialBatchSize + 1 {
 		target := runtimeTargetForTest(t, fmt.Sprintf("sfo-%03d", index), "sfo")
 		targets = append(targets, target)
 		api.instancesByUUID[target.ProviderResourceID] = ownedInstanceForTarget(
@@ -40,7 +40,7 @@ func TestUnikraftObserveRuntimeStatesGroupsByMetroAndChunks(t *testing.T) {
 	if len(api.batchGetRequests) != 3 {
 		t.Fatalf("batch requests = %d, want 3", len(api.batchGetRequests))
 	}
-	for index, wantSize := range []int{runtimeObservationBatchSize, 1, 2} {
+	for index, wantSize := range []int{runtimeObservationInitialBatchSize, 1, 2} {
 		if got := len(api.batchGetRequests[index]); got != wantSize {
 			t.Fatalf("batch request %d size = %d, want %d", index, got, wantSize)
 		}
@@ -54,6 +54,35 @@ func TestUnikraftObserveRuntimeStatesGroupsByMetroAndChunks(t *testing.T) {
 	}
 }
 
+func TestUnikraftObserveRuntimeStatesSplitsOversizedDetailedBatches(t *testing.T) {
+	api := &fakeAPI{
+		instancesByUUID: map[string]instance{},
+		batchGetMaxSize: 2,
+	}
+	targets := make([]providers.RuntimeTarget, 7)
+	for index := range targets {
+		targets[index] = runtimeTargetForTest(t, fmt.Sprintf("large-%02d", index), "sfo")
+		api.instancesByUUID[targets[index].ProviderResourceID] = ownedInstanceForTarget(
+			t,
+			targets[index],
+			instanceStateRunning,
+		)
+	}
+
+	observations, err := newTestProvider(api).ObserveRuntimeStates(context.Background(), targets)
+	if err != nil {
+		t.Fatalf("observe split runtime batches: %v", err)
+	}
+	if len(api.batchGetRequests) <= 1 || len(api.batchGetRequests[0]) != len(targets) {
+		t.Fatalf("batch requests = %+v, want an oversized request followed by splits", api.batchGetRequests)
+	}
+	for index, observation := range observations {
+		if observation.State != providers.RuntimeStateRunning {
+			t.Fatalf("observation %d = %+v, want running", index, observation)
+		}
+	}
+}
+
 func TestUnikraftObserveRuntimeStatesFailsOpenOnAmbiguousResults(t *testing.T) {
 	good := runtimeTargetForTest(t, "good", "sfo")
 	missing := runtimeTargetForTest(t, "missing", "sfo")
@@ -63,20 +92,23 @@ func TestUnikraftObserveRuntimeStatesFailsOpenOnAmbiguousResults(t *testing.T) {
 	itemError := runtimeTargetForTest(t, "item-error", "sfo")
 	targets := []providers.RuntimeTarget{good, missing, duplicate, foreign, notFound, itemError}
 	duplicateResult := ownedInstanceForTarget(t, duplicate, "running")
-	api := &fakeAPI{batchGetResults: []instance{
-		ownedInstanceForTarget(t, good, "running"),
-		duplicateResult,
-		duplicateResult,
-		{
-			Status: "success",
-			UUID:   foreign.ProviderResourceID,
-			Name:   "someone-elses-instance",
-			State:  "running",
+	api := &fakeAPI{
+		batchGetResults: []instance{
+			ownedInstanceForTarget(t, good, "running"),
+			duplicateResult,
+			duplicateResult,
+			{
+				Status: "success",
+				UUID:   foreign.ProviderResourceID,
+				Name:   "someone-elses-instance",
+				State:  "running",
+			},
+			{Status: "error", Error: instanceNotFoundErrorCode, UUID: notFound.ProviderResourceID},
+			{Status: "error", Error: 17, UUID: itemError.ProviderResourceID},
+			{Status: "success", UUID: "unrequested", Name: "unrequested", State: "running"},
 		},
-		{Status: "error", Error: instanceNotFoundErrorCode, UUID: notFound.ProviderResourceID},
-		{Status: "error", Error: 17, UUID: itemError.ProviderResourceID},
-		{Status: "success", UUID: "unrequested", Name: "unrequested", State: "running"},
-	}}
+		batchEnvelopeStatus: responseStatusPartialSuccess,
+	}
 
 	observations, err := newTestProvider(api).ObserveRuntimeStates(context.Background(), targets)
 	if err != nil {
@@ -95,6 +127,111 @@ func TestUnikraftObserveRuntimeStatesFailsOpenOnAmbiguousResults(t *testing.T) {
 			t.Fatalf("observation %d state = %q, want %q", index, got, wantState)
 		}
 	}
+}
+
+func TestUnikraftObserveRuntimeStatesUsesPerItemAuthority(t *testing.T) {
+	running := runtimeTargetForTest(t, "running", "sfo")
+	inactive := runtimeTargetForTest(t, "inactive", "sfo")
+	missing := runtimeTargetForTest(t, "missing", "sfo")
+	targets := []providers.RuntimeTarget{running, inactive, missing}
+	results := []instance{
+		ownedInstanceForTarget(t, running, instanceStateRunning),
+		ownedInstanceForTarget(t, inactive, instanceStateStandby),
+		{
+			Status: responseStatusError,
+			UUID:   missing.ProviderResourceID,
+			Error:  instanceNotFoundErrorCode,
+		},
+	}
+
+	t.Run("partial success preserves authoritative item results", func(t *testing.T) {
+		api := &fakeAPI{
+			batchGetResults:     results,
+			batchEnvelopeStatus: responseStatusPartialSuccess,
+		}
+		observations, err := newTestProvider(api).ObserveRuntimeStates(
+			context.Background(),
+			targets,
+		)
+		if err != nil {
+			t.Fatalf("observe partial-success batch: %v", err)
+		}
+		want := []providers.RuntimeState{
+			providers.RuntimeStateRunning,
+			providers.RuntimeStateInactive,
+			providers.RuntimeStateTerminated,
+		}
+		for index, wantState := range want {
+			if got := observations[index].State; got != wantState {
+				t.Fatalf("observation %d state = %q, want %q", index, got, wantState)
+			}
+		}
+	})
+
+	t.Run("error envelope trusts only typed not found", func(t *testing.T) {
+		api := &fakeAPI{
+			batchGetResults:     results,
+			batchEnvelopeStatus: responseStatusError,
+		}
+		observations, err := newTestProvider(api).ObserveRuntimeStates(
+			context.Background(),
+			targets,
+		)
+		if err != nil {
+			t.Fatalf("observe error batch: %v", err)
+		}
+		want := []providers.RuntimeState{
+			providers.RuntimeStateUnknown,
+			providers.RuntimeStateUnknown,
+			providers.RuntimeStateTerminated,
+		}
+		for index, wantState := range want {
+			if got := observations[index].State; got != wantState {
+				t.Fatalf("observation %d state = %q, want %q", index, got, wantState)
+			}
+		}
+	})
+
+	t.Run("success envelope makes typed not found ambiguous", func(t *testing.T) {
+		api := &fakeAPI{batchGetResults: results}
+		observations, err := newTestProvider(api).ObserveRuntimeStates(
+			context.Background(),
+			targets,
+		)
+		if err != nil {
+			t.Fatalf("observe contradictory success batch: %v", err)
+		}
+		want := []providers.RuntimeState{
+			providers.RuntimeStateRunning,
+			providers.RuntimeStateInactive,
+			providers.RuntimeStateUnknown,
+		}
+		for index, wantState := range want {
+			if got := observations[index].State; got != wantState {
+				t.Fatalf("observation %d state = %q, want %q", index, got, wantState)
+			}
+		}
+	})
+
+	t.Run("envelope errors make every item ambiguous", func(t *testing.T) {
+		api := &fakeAPI{
+			batchGetResults:        results,
+			batchEnvelopeStatus:    responseStatusPartialSuccess,
+			batchHasEnvelopeErrors: true,
+		}
+		observations, err := newTestProvider(api).ObserveRuntimeStates(
+			context.Background(),
+			targets,
+		)
+		if err != nil {
+			t.Fatalf("observe batch with envelope errors: %v", err)
+		}
+		for index, observation := range observations {
+			if observation.State != providers.RuntimeStateUnknown {
+				t.Fatalf("observation %d state = %q, want unknown", index, observation.State)
+			}
+		}
+	})
 }
 
 func TestUnikraftObserveRuntimeStatesRejectsDuplicateTargets(t *testing.T) {
@@ -153,7 +290,7 @@ func TestUnikraftRuntimeObservationDecodesOnlyMetroFromStoredProvisioning(t *tes
 	}
 	if len(api.batchGetRequests) != 2 || len(api.getByUUIDRequests) != 0 {
 		t.Fatalf(
-			"provider calls batch=%v detailed=%v, want two lightweight batches",
+			"provider calls batch=%v exact=%v, want two runtime batches",
 			api.batchGetRequests,
 			api.getByUUIDRequests,
 		)
@@ -223,9 +360,22 @@ func TestUnikraftRuntimeStateMapping(t *testing.T) {
 			want:   providers.RuntimeStateUnknown,
 		},
 		{
-			name:   "typed not found",
-			result: instance{Status: "error", Error: instanceNotFoundErrorCode, State: "running"},
-			want:   providers.RuntimeStateTerminated,
+			name: "typed not found",
+			result: instance{
+				Status: responseStatusError,
+				Error:  instanceNotFoundErrorCode,
+				State:  instanceStateRunning,
+			},
+			want: providers.RuntimeStateTerminated,
+		},
+		{
+			name: "not-found code without error status",
+			result: instance{
+				Status: responseStatusSuccess,
+				Error:  instanceNotFoundErrorCode,
+				State:  instanceStateStopped,
+			},
+			want: providers.RuntimeStateUnknown,
 		},
 		{
 			name:   "other item error",
@@ -246,15 +396,16 @@ func TestUnikraftObserveRuntimeStateUsesFreshUUIDReadAndValidatesOwnership(t *te
 	target := runtimeTargetForTest(t, "fresh", "sfo")
 	running := ownedInstanceForTarget(t, target, "running")
 	tests := []struct {
-		name             string
-		result           instance
-		found            bool
-		apiErr           error
-		nonAuthoritative bool
-		provision        providers.RuntimeTarget
-		want             providers.RuntimeState
-		wantErr          bool
-		wantCall         bool
+		name           string
+		result         instance
+		found          bool
+		apiErr         error
+		envelopeStatus responseStatus
+		envelopeErrors bool
+		provision      providers.RuntimeTarget
+		want           providers.RuntimeState
+		wantErr        bool
+		wantCall       bool
 	}{
 		{
 			name:     "owned running",
@@ -282,13 +433,26 @@ func TestUnikraftObserveRuntimeStateUsesFreshUUIDReadAndValidatesOwnership(t *te
 				UUID:   running.UUID,
 				Error:  instanceNotFoundErrorCode,
 			},
+			found:          true,
+			envelopeStatus: responseStatusError,
+			want:           providers.RuntimeStateTerminated,
+			wantCall:       true,
+		},
+		{
+			name: "success envelope makes typed missing ambiguous",
+			result: instance{
+				Status: "error",
+				UUID:   running.UUID,
+				Error:  instanceNotFoundErrorCode,
+			},
 			found:    true,
-			want:     providers.RuntimeStateTerminated,
+			want:     providers.RuntimeStateUnknown,
 			wantCall: true,
 		},
 		{
-			name:     "missing result is unknown",
+			name:     "missing result is an ambiguous provider response",
 			want:     providers.RuntimeStateUnknown,
+			wantErr:  true,
 			wantCall: true,
 		},
 		{
@@ -323,13 +487,13 @@ func TestUnikraftObserveRuntimeStateUsesFreshUUIDReadAndValidatesOwnership(t *te
 			wantCall: true,
 		},
 		{
-			name:             "error envelope with successful-looking running item",
-			result:           running,
-			found:            true,
-			nonAuthoritative: true,
-			want:             providers.RuntimeStateUnknown,
-			wantErr:          true,
-			wantCall:         true,
+			name:           "error envelope with successful-looking running item",
+			result:         running,
+			found:          true,
+			envelopeStatus: responseStatusError,
+			want:           providers.RuntimeStateUnknown,
+			wantErr:        true,
+			wantCall:       true,
 		},
 		{
 			name: "error envelope with typed missing item",
@@ -338,10 +502,23 @@ func TestUnikraftObserveRuntimeStateUsesFreshUUIDReadAndValidatesOwnership(t *te
 				UUID:   running.UUID,
 				Error:  instanceNotFoundErrorCode,
 			},
-			found:            true,
-			nonAuthoritative: true,
-			want:             providers.RuntimeStateTerminated,
-			wantCall:         true,
+			found:          true,
+			envelopeStatus: responseStatusError,
+			want:           providers.RuntimeStateTerminated,
+			wantCall:       true,
+		},
+		{
+			name: "envelope errors make typed missing ambiguous",
+			result: instance{
+				Status: "error",
+				UUID:   running.UUID,
+				Error:  instanceNotFoundErrorCode,
+			},
+			found:          true,
+			envelopeStatus: responseStatusError,
+			envelopeErrors: true,
+			want:           providers.RuntimeStateUnknown,
+			wantCall:       true,
 		},
 		{
 			name: "malformed provisioning",
@@ -356,9 +533,10 @@ func TestUnikraftObserveRuntimeStateUsesFreshUUIDReadAndValidatesOwnership(t *te
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			api := &fakeAPI{
-				instancesByUUID:          map[string]instance{},
-				batchGetErr:              tt.apiErr,
-				batchGetNonAuthoritative: tt.nonAuthoritative,
+				instancesByUUID:        map[string]instance{},
+				batchGetErr:            tt.apiErr,
+				batchEnvelopeStatus:    tt.envelopeStatus,
+				batchHasEnvelopeErrors: tt.envelopeErrors,
 			}
 			if tt.found {
 				api.instancesByUUID[target.ProviderResourceID] = tt.result
@@ -377,10 +555,10 @@ func TestUnikraftObserveRuntimeStateUsesFreshUUIDReadAndValidatesOwnership(t *te
 			if tt.wantCall {
 				if len(api.batchGetRequests) != 1 || len(api.batchGetRequests[0]) != 1 ||
 					api.batchGetRequests[0][0] != target.ProviderResourceID {
-					t.Fatalf("fresh lightweight requests = %v, want [[%s]]", api.batchGetRequests, target.ProviderResourceID)
+					t.Fatalf("exact runtime requests = %v, want [[%s]]", api.batchGetRequests, target.ProviderResourceID)
 				}
 			} else if len(api.batchGetRequests) != 0 {
-				t.Fatalf("fresh lightweight requests = %v, want none", api.batchGetRequests)
+				t.Fatalf("exact runtime requests = %v, want none", api.batchGetRequests)
 			}
 		})
 	}

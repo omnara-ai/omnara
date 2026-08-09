@@ -99,8 +99,6 @@ func (p *provider) ObserveRuntimeStates(
 			continue
 		}
 
-		// A targeted GET is the safe fallback when a bulk row omits runtime
-		// state; it repeats ownership validation.
 		observation, err := observeRuntimeState(ctx, api, target)
 		if err != nil {
 			return nil, err
@@ -204,8 +202,9 @@ func normalizedSandboxRuntimeState(target sandbox) providers.RuntimeState {
 	switch normalizeSandboxDeploymentStatus(target.Status) {
 	case sandboxDeploymentDeleting, sandboxDeploymentTerminated:
 		return providers.RuntimeStateTerminated
+	case sandboxDeploymentDeactivating:
+		return providers.RuntimeStateTransitional
 	case sandboxDeploymentDeployed:
-		// Only a ready deployment makes the runtime state authoritative.
 	default:
 		return providers.RuntimeStateUnknown
 	}

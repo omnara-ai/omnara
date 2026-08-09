@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
@@ -11,7 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const runtimeObservationBatchSize = 100
+const runtimeObservationInitialBatchSize = 100
 
 var _ providers.RuntimeStateObserver = (*provider)(nil)
 
@@ -56,21 +57,58 @@ func (p *provider) ObserveRuntimeStates(
 
 	for _, group := range groups {
 		api := p.apiForMetro(group.metro)
-		for start := 0; start < len(group.indices); start += runtimeObservationBatchSize {
-			end := min(start+runtimeObservationBatchSize, len(group.indices))
-			indices := group.indices[start:end]
-			uuids := make([]string, len(indices))
-			for index, targetIndex := range indices {
-				uuids[index] = targets[targetIndex].ProviderResourceID
-			}
-			batch, err := api.GetInstancesByUUIDs(ctx, uuids)
-			if err != nil {
+		for start := 0; start < len(group.indices); start += runtimeObservationInitialBatchSize {
+			end := min(start+runtimeObservationInitialBatchSize, len(group.indices))
+			if err := observeRuntimeStateBatch(
+				ctx,
+				api,
+				observations,
+				targets,
+				group.indices[start:end],
+			); err != nil {
 				return nil, err
 			}
-			applyRuntimeObservationBatch(observations, targets, indices, batch.Instances)
 		}
 	}
 	return observations, nil
+}
+
+func observeRuntimeStateBatch(
+	ctx context.Context,
+	api apiClient,
+	observations []providers.RuntimeObservation,
+	targets []providers.RuntimeTarget,
+	indices []int,
+) error {
+	uuids := make([]string, len(indices))
+	for index, targetIndex := range indices {
+		uuids[index] = targets[targetIndex].ProviderResourceID
+	}
+	batch, err := api.GetInstancesByUUIDs(ctx, uuids)
+	if errors.Is(err, providers.ErrResponseTooLarge) && len(indices) > 1 {
+		middle := len(indices) / 2
+		if err := observeRuntimeStateBatch(
+			ctx,
+			api,
+			observations,
+			targets,
+			indices[:middle],
+		); err != nil {
+			return err
+		}
+		return observeRuntimeStateBatch(
+			ctx,
+			api,
+			observations,
+			targets,
+			indices[middle:],
+		)
+	}
+	if err != nil {
+		return err
+	}
+	applyRuntimeObservationBatch(observations, targets, indices, batch)
+	return nil
 }
 
 func (p *provider) ObserveRuntimeState(
@@ -94,24 +132,24 @@ func (p *provider) ObserveRuntimeState(
 		return observation, err
 	}
 	if len(batch.Instances) != 1 {
-		return observation, nil
+		return observation, fmt.Errorf(
+			"unikraft exact runtime lookup returned %d instances, want exactly one",
+			len(batch.Instances),
+		)
 	}
 	result := batch.Instances[0]
-	if !batch.Authoritative {
-		if result.UUID == target.ProviderResourceID &&
-			result.Error == instanceNotFoundErrorCode {
+	if result.UUID == target.ProviderResourceID && result.isNotFound() {
+		if batch.notFoundItemsAuthoritative() {
 			observation.State = providers.RuntimeStateTerminated
-			return observation, nil
 		}
+		return observation, nil
+	}
+	if !batch.cleanEnvelope() {
 		return observation, errors.New(
 			"unikraft exact runtime lookup returned a non-authoritative response",
 		)
 	}
 	if result.UUID != target.ProviderResourceID || !ownsRuntimeInstance(target, result) {
-		if result.UUID == target.ProviderResourceID &&
-			result.Error == instanceNotFoundErrorCode {
-			observation.State = providers.RuntimeStateTerminated
-		}
 		return observation, nil
 	}
 	observation.State = normalizeRuntimeState(result)
@@ -122,16 +160,16 @@ func applyRuntimeObservationBatch(
 	observations []providers.RuntimeObservation,
 	targets []providers.RuntimeTarget,
 	indices []int,
-	instances []instance,
+	batch instanceBatch,
 ) {
 	indicesByUUID := make(map[string][]int, len(indices))
 	for _, index := range indices {
 		resourceID := targets[index].ProviderResourceID
 		indicesByUUID[resourceID] = append(indicesByUUID[resourceID], index)
 	}
-	instanceByUUID := make(map[string]instance, len(instances))
+	instanceByUUID := make(map[string]instance, len(batch.Instances))
 	duplicateUUIDs := make(map[string]struct{})
-	for _, result := range instances {
+	for _, result := range batch.Instances {
 		if result.UUID == "" {
 			continue
 		}
@@ -153,9 +191,16 @@ func applyRuntimeObservationBatch(
 		if !exists {
 			continue
 		}
+		if result.isNotFound() {
+			if !batch.notFoundItemsAuthoritative() {
+				continue
+			}
+		} else if !batch.successfulItemsAuthoritative() {
+			continue
+		}
 		state := normalizeRuntimeState(result)
 		for _, index := range targetIndices {
-			if result.Error != instanceNotFoundErrorCode &&
+			if !result.isNotFound() &&
 				!ownsRuntimeInstance(targets[index], result) {
 				continue
 			}
@@ -188,7 +233,7 @@ func existingMachineMetro(
 }
 
 func normalizeRuntimeState(result instance) providers.RuntimeState {
-	if result.Error == instanceNotFoundErrorCode {
+	if result.isNotFound() {
 		return providers.RuntimeStateTerminated
 	}
 	if result.Error != 0 || result.Status != responseStatusSuccess {
