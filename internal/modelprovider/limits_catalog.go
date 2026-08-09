@@ -128,8 +128,6 @@ func (c *LimitsCatalog) snapshot(ctx context.Context) map[string]catalogLimits {
 }
 
 func (c *LimitsCatalog) fetch(ctx context.Context) (map[string]catalogLimits, error) {
-	// Detach from the caller's cancelation so an abandoned or short-deadline
-	// request cannot poison the shared cache's failure backoff.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), catalogRequestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
@@ -203,13 +201,8 @@ func parseCatalogEntries(body []byte) (map[string]catalogLimits, error) {
 			add(bare, limits)
 		}
 	}
-	// Serving variants such as openai/gpt-5-codex:batch describe the same
-	// underlying model; use them only for names the plain listing left
-	// uncovered, so a variant can never override or invalidate a plain entry.
 	mergeVariantCatalogEntries(entries, ambiguous, variants)
 	if len(entries) == 0 {
-		// Treat a degenerate success as a failure so it cannot replace a warm
-		// cache and gets the failure retry backoff instead of the refresh TTL.
 		return nil, errors.New("model limits catalog returned no usable entries")
 	}
 	return entries, nil
