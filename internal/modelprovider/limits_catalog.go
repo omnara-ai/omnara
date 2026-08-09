@@ -73,13 +73,14 @@ func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []Discover
 			continue
 		}
 		models[i].ContextWindowTokens = limits.contextWindowTokens
-		if models[i].MaxOutputTokens == nil {
-			maxOutput := limits.maxOutputTokens
-			if maxOutput != nil && *maxOutput >= *limits.contextWindowTokens {
-				maxOutput = nil
-			}
-			models[i].MaxOutputTokens = maxOutput
+		maxOutput := models[i].MaxOutputTokens
+		if maxOutput == nil {
+			maxOutput = limits.maxOutputTokens
 		}
+		if maxOutput != nil && *maxOutput >= *limits.contextWindowTokens {
+			maxOutput = nil
+		}
+		models[i].MaxOutputTokens = maxOutput
 	}
 	return models
 }

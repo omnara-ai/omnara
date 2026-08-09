@@ -50,6 +50,8 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 		{Slug: "unknown-model"},
 		{Slug: "gpt-test", ContextWindowTokens: intPtr(4096), MaxOutputTokens: intPtr(1024)},
 		{Slug: "codex-test"},
+		{Slug: "gpt-test", MaxOutputTokens: intPtr(128000)},
+		{Slug: "gpt-test", MaxOutputTokens: intPtr(1024)},
 	})
 
 	for _, index := range []int{0, 1, 3} {
@@ -81,6 +83,13 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 	// entry must win (checked via models[0] above keeping 128000).
 	if *models[0].ContextWindowTokens != 128000 {
 		t.Fatalf("plain catalog entry must beat serving variants: %+v", models[0])
+	}
+	if *models[8].ContextWindowTokens != 128000 || models[8].MaxOutputTokens != nil {
+		t.Fatalf("max output at the filled context window should be dropped: %+v", models[8])
+	}
+	if *models[9].ContextWindowTokens != 128000 ||
+		models[9].MaxOutputTokens == nil || *models[9].MaxOutputTokens != 1024 {
+		t.Fatalf("sane provider max output should be kept: %+v", models[9])
 	}
 }
 
