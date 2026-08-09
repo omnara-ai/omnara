@@ -31,6 +31,11 @@ type catalogLimits struct {
 	maxOutputTokens     *int
 }
 
+type catalogModel struct {
+	slug   string
+	limits catalogLimits
+}
+
 type LimitsCatalog struct {
 	url    string
 	client *http.Client
@@ -161,6 +166,23 @@ func parseCatalogEntries(body []byte) (map[string]catalogLimits, error) {
 	}
 	entries := make(map[string]catalogLimits, len(decoded.Data)*2)
 	ambiguous := make(map[string]struct{})
+	add := func(key string, limits catalogLimits) {
+		if key == "" {
+			return
+		}
+		if _, dropped := ambiguous[key]; dropped {
+			return
+		}
+		if existing, found := entries[key]; found {
+			if !sameCatalogLimits(existing, limits) {
+				delete(entries, key)
+				ambiguous[key] = struct{}{}
+			}
+			return
+		}
+		entries[key] = limits
+	}
+	var variants []catalogModel
 	for _, entry := range decoded.Data {
 		slug := strings.TrimSpace(entry.ID)
 		contextWindowTokens := entry.contextWindowTokens()
@@ -171,27 +193,65 @@ func parseCatalogEntries(body []byte) (map[string]catalogLimits, error) {
 			contextWindowTokens: contextWindowTokens,
 			maxOutputTokens:     entry.maxOutputTokens(),
 		}
-		entries[slug] = limits
-		_, bare, hasPrefix := strings.Cut(slug, "/")
-		if !hasPrefix || bare == "" {
+		if base, _, isVariant := strings.Cut(slug, ":"); isVariant {
+			variants = append(variants, catalogModel{slug: base, limits: limits})
 			continue
 		}
-		if _, dropped := ambiguous[bare]; dropped {
-			continue
+		add(slug, limits)
+		if _, bare, hasPrefix := strings.Cut(slug, "/"); hasPrefix {
+			add(bare, limits)
 		}
-		if existing, found := entries[bare]; found && !sameCatalogLimits(existing, limits) {
-			delete(entries, bare)
-			ambiguous[bare] = struct{}{}
-			continue
-		}
-		entries[bare] = limits
 	}
+	// Serving variants such as openai/gpt-5-codex:batch describe the same
+	// underlying model; use them only for names the plain listing left
+	// uncovered, so a variant can never override or invalidate a plain entry.
+	mergeVariantCatalogEntries(entries, ambiguous, variants)
 	if len(entries) == 0 {
 		// Treat a degenerate success as a failure so it cannot replace a warm
 		// cache and gets the failure retry backoff instead of the refresh TTL.
 		return nil, errors.New("model limits catalog returned no usable entries")
 	}
 	return entries, nil
+}
+
+func mergeVariantCatalogEntries(
+	entries map[string]catalogLimits,
+	ambiguous map[string]struct{},
+	variants []catalogModel,
+) {
+	variantEntries := make(map[string]catalogLimits)
+	variantAmbiguous := make(map[string]struct{})
+	add := func(key string, limits catalogLimits) {
+		if key == "" {
+			return
+		}
+		if _, taken := entries[key]; taken {
+			return
+		}
+		if _, dropped := ambiguous[key]; dropped {
+			return
+		}
+		if _, dropped := variantAmbiguous[key]; dropped {
+			return
+		}
+		if existing, found := variantEntries[key]; found {
+			if !sameCatalogLimits(existing, limits) {
+				delete(variantEntries, key)
+				variantAmbiguous[key] = struct{}{}
+			}
+			return
+		}
+		variantEntries[key] = limits
+	}
+	for _, variant := range variants {
+		add(variant.slug, variant.limits)
+		if _, bare, hasPrefix := strings.Cut(variant.slug, "/"); hasPrefix {
+			add(bare, variant.limits)
+		}
+	}
+	for key, limits := range variantEntries {
+		entries[key] = limits
+	}
 }
 
 func sameCatalogLimits(a, b catalogLimits) bool {

@@ -14,8 +14,11 @@ import (
 const catalogTestResponse = `{"data":[
 	{"id":"openai/gpt-test","context_length":128000,
 	 "top_provider":{"context_length":128000,"max_completion_tokens":16384}},
+	{"id":"openai/gpt-test:free","context_length":8192},
 	{"id":"openai/o-test","context_length":200000,
 	 "top_provider":{"context_length":200000,"max_completion_tokens":200000}},
+	{"id":"openai/codex-test:batch","context_length":400000,
+	 "top_provider":{"context_length":400000,"max_completion_tokens":128000}},
 	{"id":"maker-a/shared-slug","context_length":32768},
 	{"id":"maker-b/shared-slug","context_length":65536},
 	{"id":"maker/limitless"}
@@ -46,6 +49,7 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 		{Slug: "shared-slug"},
 		{Slug: "unknown-model"},
 		{Slug: "gpt-test", ContextWindowTokens: intPtr(4096), MaxOutputTokens: intPtr(1024)},
+		{Slug: "codex-test"},
 	})
 
 	for _, index := range []int{0, 1, 3} {
@@ -67,6 +71,16 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 	}
 	if *models[6].ContextWindowTokens != 4096 || *models[6].MaxOutputTokens != 1024 {
 		t.Fatalf("provider-reported limits must win over the catalog: %+v", models[6])
+	}
+	// codex-test only exists in the catalog as the :batch serving variant.
+	if models[7].ContextWindowTokens == nil || *models[7].ContextWindowTokens != 400000 ||
+		models[7].MaxOutputTokens == nil || *models[7].MaxOutputTokens != 128000 {
+		t.Fatalf("variant-only model was not enriched: %+v", models[7])
+	}
+	// gpt-test also has a :free variant with smaller limits; the plain
+	// entry must win (checked via models[0] above keeping 128000).
+	if *models[0].ContextWindowTokens != 128000 {
+		t.Fatalf("plain catalog entry must beat serving variants: %+v", models[0])
 	}
 }
 
