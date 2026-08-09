@@ -379,10 +379,8 @@ func sandboxOwnedBy(
 	if err != nil {
 		return false
 	}
-	return (target.Metadata.Labels[installationLabel] == installationOwner &&
-		target.Metadata.Labels[machineLabel] == machineOwner) ||
-		(target.Metadata.Labels[installationLabel] == installationID.String() &&
-			target.Metadata.Labels[machineLabel] == machineID.String())
+	return target.Metadata.Labels[installationLabel] == installationOwner &&
+		target.Metadata.Labels[machineLabel] == machineOwner
 }
 
 func sandboxOwnershipLabelValues(

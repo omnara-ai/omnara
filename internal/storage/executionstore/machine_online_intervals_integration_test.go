@@ -15,7 +15,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-func TestMachineOnlineIntervalMigrationStartsAtCutover(t *testing.T) {
+func TestMachineOnlineIntervalTrackingStartsWithoutHistoricalUsage(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
@@ -34,38 +34,38 @@ func TestMachineOnlineIntervalMigrationStartsAtCutover(t *testing.T) {
 		t.Fatalf("migrate through version 11: %v", err)
 	}
 
-	machineID := testID("machine-online-cutover")
-	tokenID := testID("machine-online-cutover-token")
-	runtimeID := testID("machine-online-cutover-runtime")
+	machineID := testID("machine-online-tracking-start")
+	tokenID := testID("machine-online-tracking-start-token")
+	runtimeID := testID("machine-online-tracking-start-runtime")
 	mustExec := func(label, query string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, query, args...); err != nil {
 			t.Fatalf("%s: %v", label, err)
 		}
 	}
-	mustExec("create pre-cutover org", `
+	mustExec("create existing org", `
 INSERT INTO orgs(id, name, created_at, updated_at)
-VALUES ($1, 'Machine online cutover', statement_timestamp(), statement_timestamp())
+VALUES ($1, 'Machine online tracking start', statement_timestamp(), statement_timestamp())
 `, testOrgID)
-	mustExec("create pre-cutover machine", `
+	mustExec("create existing machine", `
 INSERT INTO machines(
     id, org_id, source_kind, display_name, provider, lifecycle_state,
     lifecycle_changed_at, env, secret_env, created_at, updated_at
 ) VALUES (
-    $2, $1, 'byo', 'Machine online cutover', 'daemon', 'active',
+    $2, $1, 'byo', 'Machine online tracking start', 'daemon', 'active',
     statement_timestamp(), '{}'::jsonb, '{}'::jsonb,
     statement_timestamp(), statement_timestamp()
 )
 `, testOrgID, machineID)
-	mustExec("create pre-cutover daemon token", `
+	mustExec("create existing daemon token", `
 INSERT INTO machine_daemon_tokens(
     id, org_id, machine_id, name, token_hash, created_at
 ) VALUES (
-    $3, $1, $2, 'cutover daemon', 'machine-online-cutover-token-hash',
+    $3, $1, $2, 'tracking-start daemon', 'machine-online-tracking-start-token-hash',
     statement_timestamp()
 )
 `, testOrgID, machineID, tokenID)
-	mustExec("create pre-cutover daemon runtime", `
+	mustExec("create existing daemon runtime", `
 INSERT INTO daemon_runtimes(
     id, org_id, machine_id, daemon_token_id, daemon_instance_id,
     daemon_version, state, capacity, metadata, created_at, last_seen_at,
@@ -76,37 +76,34 @@ INSERT INTO daemon_runtimes(
     statement_timestamp() - interval '1 hour',
     statement_timestamp() + interval '1 hour', statement_timestamp()
 )
-`, testOrgID, machineID, tokenID, runtimeID, testID("machine-online-cutover-instance"))
+`, testOrgID, machineID, tokenID, runtimeID, testID("machine-online-tracking-start-instance"))
 	mustExec(
-		"select pre-cutover daemon runtime",
+		"select existing daemon runtime",
 		`UPDATE machines SET current_daemon_runtime_id = $2 WHERE id = $1`,
 		machineID,
 		runtimeID,
 	)
 
-	cutoverStartedAt := time.Now()
+	trackingStartedAt := time.Now()
 	if _, err := migrator.UpTo(ctx, 12); err != nil {
 		t.Fatalf("migrate through version 12: %v", err)
 	}
-	cutoverFinishedAt := time.Now()
+	trackingFinishedAt := time.Now()
 
 	var startedAt time.Time
-	var startReason string
 	if err := pool.QueryRow(ctx, `
-SELECT started_at, start_reason_code
+SELECT started_at
 FROM machine_online_intervals
 WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
-`, testOrgID, machineID, runtimeID).Scan(&startedAt, &startReason); err != nil {
-		t.Fatalf("load cutover online interval: %v", err)
+`, testOrgID, machineID, runtimeID).Scan(&startedAt); err != nil {
+		t.Fatalf("load initial online interval: %v", err)
 	}
-	if startReason != "migration_cutover" || startedAt.Before(cutoverStartedAt) ||
-		startedAt.After(cutoverFinishedAt) {
+	if startedAt.Before(trackingStartedAt) || startedAt.After(trackingFinishedAt) {
 		t.Fatalf(
-			"cutover interval started at %s with reason %q, migration ran from %s through %s",
+			"initial interval started at %s, tracking began from %s through %s",
 			startedAt,
-			startReason,
-			cutoverStartedAt,
-			cutoverFinishedAt,
+			trackingStartedAt,
+			trackingFinishedAt,
 		)
 	}
 }
@@ -279,8 +276,7 @@ func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
 
 	intervals := loadMachineOnlineIntervals(t, ctx, pool, machine.ID)
 	if len(intervals) != 1 || intervals[0].DaemonRuntimeID != runtime.ID ||
-		intervals[0].StartedAt.After(runtime.LastSeenAt) || intervals[0].EndedAt != nil ||
-		intervals[0].StartReason != "daemon_runtime_registered" {
+		intervals[0].StartedAt.After(runtime.LastSeenAt) || intervals[0].EndedAt != nil {
 		t.Fatalf("initial online intervals = %+v", intervals)
 	}
 
@@ -324,9 +320,8 @@ func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 INSERT INTO machine_online_intervals(
     org_id, machine_id, daemon_runtime_id, started_at,
-    start_reason_code, created_at, updated_at
-) VALUES ($1, $2, $3, statement_timestamp(),
-          'daemon_runtime_registered', statement_timestamp(), statement_timestamp())
+    created_at, updated_at
+) VALUES ($1, $2, $3, statement_timestamp(), statement_timestamp(), statement_timestamp())
 `, testOrgID, machine.ID, runtime.ID); err == nil {
 		t.Fatal("second open machine interval was accepted")
 	}
@@ -380,7 +375,6 @@ RETURNING last_seen_at, lease_expires_at
 	}
 	intervals = loadMachineOnlineIntervals(t, ctx, pool, machine.ID)
 	if len(intervals) != 2 || intervals[1].EndedAt != nil ||
-		intervals[1].StartReason != "daemon_runtime_revived" ||
 		!intervals[1].StartedAt.Equal(revivedLastSeen) {
 		t.Fatalf("revived online intervals = %+v", intervals)
 	}
@@ -410,7 +404,6 @@ RETURNING last_seen_at, lease_expires_at
 		!intervals[1].EndedAt.Equal(revivedLeaseExpires) ||
 		intervals[1].EndReason != "daemon_lease_expired" ||
 		intervals[2].EndedAt != nil ||
-		intervals[2].StartReason != "daemon_lease_renewed_after_expiry" ||
 		!intervals[2].StartedAt.Equal(renewedLastSeen) {
 		t.Fatalf("post-lapse online intervals = %+v", intervals)
 	}
@@ -471,7 +464,6 @@ type machineOnlineIntervalTestRecord struct {
 	DaemonRuntimeID ID
 	StartedAt       time.Time
 	EndedAt         *time.Time
-	StartReason     string
 	EndReason       string
 }
 
@@ -483,7 +475,7 @@ func loadMachineOnlineIntervals(
 ) []machineOnlineIntervalTestRecord {
 	t.Helper()
 	rows, err := pool.Query(ctx, `
-SELECT id, daemon_runtime_id, started_at, ended_at, start_reason_code, coalesce(end_reason_code, '')
+SELECT id, daemon_runtime_id, started_at, ended_at, coalesce(end_reason_code, '')
 FROM machine_online_intervals
 WHERE org_id = $1 AND machine_id = $2
 ORDER BY started_at, id
@@ -500,7 +492,6 @@ ORDER BY started_at, id
 			&interval.DaemonRuntimeID,
 			&interval.StartedAt,
 			&interval.EndedAt,
-			&interval.StartReason,
 			&interval.EndReason,
 		); err != nil {
 			t.Fatalf("scan machine online interval: %v", err)

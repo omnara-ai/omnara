@@ -21,16 +21,9 @@ CREATE TABLE machine_online_intervals (
     daemon_runtime_id uuid NOT NULL,
     started_at timestamptz NOT NULL,
     ended_at timestamptz,
-    start_reason_code text NOT NULL,
     end_reason_code text,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
-    CHECK (start_reason_code IN (
-        'daemon_runtime_registered',
-        'daemon_runtime_revived',
-        'daemon_lease_renewed_after_expiry',
-        'migration_cutover'
-    )),
     CHECK (end_reason_code IS NULL OR end_reason_code <> ''),
     CHECK ((ended_at IS NULL) = (end_reason_code IS NULL)),
     CHECK (ended_at IS NULL OR ended_at >= started_at),
@@ -61,7 +54,6 @@ BEGIN
                 machine_id,
                 daemon_runtime_id,
                 started_at,
-                start_reason_code,
                 created_at,
                 updated_at
             ) VALUES (
@@ -69,7 +61,6 @@ BEGIN
                 NEW.machine_id,
                 NEW.id,
                 NEW.last_seen_at,
-                'daemon_runtime_registered',
                 statement_timestamp(),
                 statement_timestamp()
             );
@@ -83,7 +74,6 @@ BEGIN
             machine_id,
             daemon_runtime_id,
             started_at,
-            start_reason_code,
             created_at,
             updated_at
         ) VALUES (
@@ -91,7 +81,6 @@ BEGIN
             NEW.machine_id,
             NEW.id,
             NEW.last_seen_at,
-            'daemon_runtime_revived',
             statement_timestamp(),
             statement_timestamp()
         );
@@ -128,7 +117,6 @@ BEGIN
             machine_id,
             daemon_runtime_id,
             started_at,
-            start_reason_code,
             created_at,
             updated_at
         ) VALUES (
@@ -136,7 +124,6 @@ BEGIN
             NEW.machine_id,
             NEW.id,
             NEW.last_seen_at,
-            'daemon_lease_renewed_after_expiry',
             statement_timestamp(),
             statement_timestamp()
         );
@@ -182,7 +169,6 @@ BEGIN
        OR NEW.machine_id IS DISTINCT FROM OLD.machine_id
        OR NEW.daemon_runtime_id IS DISTINCT FROM OLD.daemon_runtime_id
        OR NEW.started_at IS DISTINCT FROM OLD.started_at
-       OR NEW.start_reason_code IS DISTINCT FROM OLD.start_reason_code
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
        OR NEW.ended_at IS NULL
        OR NEW.end_reason_code IS NULL THEN
@@ -199,7 +185,7 @@ CREATE TRIGGER machine_online_intervals_append_only
     FOR EACH ROW
     EXECUTE FUNCTION machine_online_intervals_reject_mutation();
 
-WITH cutover AS (
+WITH tracking_start AS (
     SELECT statement_timestamp() AS observed_at
 )
 INSERT INTO machine_online_intervals(
@@ -207,19 +193,17 @@ INSERT INTO machine_online_intervals(
     machine_id,
     daemon_runtime_id,
     started_at,
-    start_reason_code,
     created_at,
     updated_at
 )
 SELECT runtime.org_id,
        runtime.machine_id,
        runtime.id,
-       cutover.observed_at,
-       'migration_cutover',
-       cutover.observed_at,
-       cutover.observed_at
+       tracking_start.observed_at,
+       tracking_start.observed_at,
+       tracking_start.observed_at
 FROM online_daemon_runtimes runtime
-CROSS JOIN cutover;
+CROSS JOIN tracking_start;
 
 CREATE VIEW machine_online_interval_facts AS
 SELECT online_interval.id,
@@ -228,7 +212,6 @@ SELECT online_interval.id,
        online_interval.daemon_runtime_id,
        online_interval.started_at,
        online_interval.ended_at,
-       online_interval.start_reason_code,
        online_interval.end_reason_code,
        online_interval.created_at,
        online_interval.updated_at,

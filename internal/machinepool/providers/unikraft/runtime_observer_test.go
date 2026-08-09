@@ -260,11 +260,11 @@ func TestUnikraftObserveRuntimeStatesRejectsDuplicateTargets(t *testing.T) {
 }
 
 func TestUnikraftRuntimeObservationDecodesOnlyMetroFromStoredProvisioning(t *testing.T) {
-	target := runtimeTargetForTest(t, "legacy-options", "sfo")
+	target := runtimeTargetForTest(t, "stored-options", "sfo")
 	target.MachineProvisioning.CPU = nil
 	target.MachineProvisioning.MemoryMB = nil
-	target.MachineProvisioning.ProviderOptions["image"] = json.RawMessage(`{"legacy":"shape"}`)
-	target.MachineProvisioning.ProviderOptions["startup_script"] = json.RawMessage(`["legacy"]`)
+	target.MachineProvisioning.ProviderOptions["image"] = json.RawMessage(`{"stored":"shape"}`)
+	target.MachineProvisioning.ProviderOptions["startup_script"] = json.RawMessage(`["stored"]`)
 	target.MachineProvisioning.ProviderOptions["removed_option"] = json.RawMessage(`true`)
 	api := &fakeAPI{instancesByUUID: map[string]instance{
 		target.ProviderResourceID: ownedInstanceForTarget(t, target, "running"),
@@ -276,14 +276,14 @@ func TestUnikraftRuntimeObservationDecodesOnlyMetroFromStoredProvisioning(t *tes
 		[]providers.RuntimeTarget{target},
 	)
 	if err != nil {
-		t.Fatalf("bulk observation with legacy provisioning: %v", err)
+		t.Fatalf("bulk observation with stored provisioning: %v", err)
 	}
 	if len(observations) != 1 || observations[0].State != providers.RuntimeStateRunning {
 		t.Fatalf("bulk observations = %+v, want running", observations)
 	}
 	observation, err := provider.ObserveRuntimeState(context.Background(), target)
 	if err != nil {
-		t.Fatalf("fresh observation with legacy provisioning: %v", err)
+		t.Fatalf("fresh observation with stored provisioning: %v", err)
 	}
 	if observation.State != providers.RuntimeStateRunning {
 		t.Fatalf("fresh observation = %+v, want running", observation)

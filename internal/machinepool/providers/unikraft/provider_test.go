@@ -515,14 +515,14 @@ func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *t
 		t.Fatal(err)
 	}
 	api := &fakeAPI{instancesByUUID: map[string]instance{
-		"uuid-legacy": {UUID: "uuid-legacy", Name: name},
+		"uuid-existing": {UUID: "uuid-existing", Name: name},
 	}}
 	provider := &provider{api: api, omnaraPublicURL: "https://app.omnara.test"}
 	machineProvisioning := testMachineProvisioning(t, nil)
 	machineProvisioning.CPU = nil
 	machineProvisioning.MemoryMB = nil
-	machineProvisioning.ProviderOptions["image"] = json.RawMessage(`{"legacy":"shape"}`)
-	machineProvisioning.ProviderOptions["startup_script"] = json.RawMessage(`["legacy"]`)
+	machineProvisioning.ProviderOptions["image"] = json.RawMessage(`{"stored":"shape"}`)
+	machineProvisioning.ProviderOptions["startup_script"] = json.RawMessage(`["stored"]`)
 	machineProvisioning.ProviderOptions["removed_option"] = json.RawMessage(`true`)
 
 	if err := provider.DeleteMachine(
@@ -530,12 +530,12 @@ func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *t
 		testInstallationID(),
 		machineID,
 		machineProvisioning,
-		"uuid-legacy",
+		"uuid-existing",
 	); err != nil {
-		t.Fatalf("delete machine with legacy stored provisioning: %v", err)
+		t.Fatalf("delete machine with stored provisioning: %v", err)
 	}
-	if len(api.deletedUUIDs) != 1 || api.deletedUUIDs[0] != "uuid-legacy" {
-		t.Fatalf("deleted instances = %v, want uuid-legacy", api.deletedUUIDs)
+	if len(api.deletedUUIDs) != 1 || api.deletedUUIDs[0] != "uuid-existing" {
+		t.Fatalf("deleted instances = %v, want uuid-existing", api.deletedUUIDs)
 	}
 }
 

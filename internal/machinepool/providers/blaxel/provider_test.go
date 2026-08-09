@@ -532,7 +532,7 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 		{"failed", "FAILED", installationOwner, machineOwner, true, true, false},
 		{"deactivating", "DEACTIVATING", installationOwner, machineOwner, true, true, false},
 		{"terminated", "TERMINATED", installationOwner, machineOwner, true, true, false},
-		{"legacy labels", "DEPLOYED", testInstallationID().String(), machineID.String(), true, true, false},
+		{"raw UUID labels", "DEPLOYED", testInstallationID().String(), machineID.String(), true, false, true},
 		{"missing", "", "", "", false, false, false},
 		{"missing ownership labels", "DEPLOYED", "", "", true, false, true},
 		{"foreign installation label", "DEPLOYED", "other", machineOwner, true, false, true},
