@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -469,13 +470,13 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		)
 	}
 	agentID := project.createAgent(t, ctx)
-	nonce := "ARCHIVAL_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
+	projectLabel := "PROJECT_LABEL_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	bridgeToken := "BRIDGE_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	rawPaddingToken := "RAW_PADDING_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	firstPrompt := strings.Join([]string{
-		"Critical durable fact for future recall: the archival verification code is " + nonce + ".",
-		"Preserve this exact code if the conversation is summarized or compacted.",
-		"Reply with exactly ACK_" + nonce + " and no other words.",
+		"The fictional project label for this conversation is " + projectLabel + ".",
+		"Remember this exact label if the conversation is summarized or compacted.",
+		"Reply with exactly ACK_" + projectLabel + " and no other words.",
 		"Disposable context padding for the first turn: " + strings.Repeat(rawPaddingToken+" ", 250),
 	}, "\n")
 	project.createInput(t, ctx, agentID, firstPrompt)
@@ -485,22 +486,23 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	})
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
-	waitForLiveModelOutputText(t, ctx, env, project.projectID, agentID, nonce, worker)
+	waitForLiveModelOutputText(t, ctx, env, project.projectID, agentID, projectLabel, worker)
 
 	secondPrompt := strings.Join([]string{
 		"Create enough ordinary context pressure that the system may compact older history before this turn completes.",
-		"Do not mention any earlier archival code in this response.",
+		"Do not mention the earlier project label in this response.",
 		"Reply with exactly " + bridgeToken + " and no other words.",
 		"Additional current-turn padding: " + strings.Repeat("fresh continuation detail ", 1100),
 	}, "\n")
+	var beforeBridgeSequence int64
+	if err := env.db.QueryRow(ctx, `SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`, projectUUID, agentUUID).
+		Scan(&beforeBridgeSequence); err != nil {
+		t.Fatalf("query pre-bridge event sequence: %v", err)
+	}
 	project.createInput(t, ctx, agentID, secondPrompt)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
-		var bridgeOutputs, checkpoints, compactedContexts, failedBudgetContexts int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $3 || '%' AND block.text_content NOT LIKE '%' || $4 || '%'`, projectUUID, agentUUID, bridgeToken, nonce).
-			Scan(&bridgeOutputs); err != nil {
-			return false, err.Error()
-		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summary LIKE '%' || $3 || '%' AND checkpoint.summary NOT LIKE '%' || $4 || '%'`, projectUUID, agentUUID, nonce, rawPaddingToken).
+		var checkpoints, compactedContexts, failedBudgetContexts int
+		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summary LIKE '%' || $3 || '%' AND checkpoint.summary NOT LIKE '%' || $4 || '%'`, projectUUID, agentUUID, projectLabel, rawPaddingToken).
 			Scan(&checkpoints); err != nil {
 			return false, err.Error()
 		}
@@ -510,7 +512,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			env,
 			projectUUID,
 			agentUUID,
-			nonce,
+			projectLabel,
 			rawPaddingToken,
 		)
 		if err != nil {
@@ -520,20 +522,43 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			Scan(&failedBudgetContexts); err != nil {
 			return false, err.Error()
 		}
-		if bridgeOutputs == 1 && checkpoints == 1 && compactedContexts >= 1 && failedBudgetContexts == 1 {
+		latestOutput, err := latestModelOutputTextAfterSequence(
+			ctx,
+			env,
+			projectUUID,
+			agentUUID,
+			beforeBridgeSequence,
+		)
+		if err != nil {
+			return false, err.Error()
+		}
+		outputMatches := strings.Contains(latestOutput, bridgeToken) && !strings.Contains(latestOutput, projectLabel)
+		if outputMatches && checkpoints == 1 && compactedContexts >= 1 && failedBudgetContexts == 1 {
 			return true, ""
 		}
 		var locks, wakeups int
-		_ = env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).
-			Scan(&locks)
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
-			Scan(&wakeups)
-		return false, "live compaction bridge not complete outputs=" + itoa(bridgeOutputs) +
-			" checkpoints=" + itoa(checkpoints) +
+		if err := env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).
+			Scan(&locks); err != nil {
+			return false, err.Error()
+		}
+		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+			Scan(&wakeups); err != nil {
+			return false, err.Error()
+		}
+		if checkpoints == 1 && compactedContexts >= 1 && failedBudgetContexts == 1 && locks == 0 && wakeups == 0 {
+			t.Fatalf(
+				"post-compaction model output violated bridge contract: output=%q want_contains=%q want_excludes=%q",
+				latestOutput,
+				bridgeToken,
+				projectLabel,
+			)
+		}
+		return false, "live compaction bridge not complete checkpoints=" + itoa(checkpoints) +
 			" compacted_contexts=" + itoa(compactedContexts) +
 			" failed_budget_contexts=" + itoa(failedBudgetContexts) +
 			" locks=" + itoa(locks) +
 			" wakeups=" + itoa(wakeups) +
+			" latest_output=" + strconv.Quote(latestOutput) +
 			" worker_logs=" + worker.logExcerpt()
 	})
 
@@ -546,21 +571,17 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		t,
 		ctx,
 		agentID,
-		"What is the archival verification code from earlier? Reply with the exact code and no explanation.",
+		"What is the fictional project label from earlier? Reply with the exact label and no explanation.",
 	)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
-		var recallOutputs, compactedContexts, locks, wakeups int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.sequence > $3 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $4 || '%'`, projectUUID, agentUUID, beforeRecallSequence, nonce).
-			Scan(&recallOutputs); err != nil {
-			return false, err.Error()
-		}
+		var compactedContexts, locks, wakeups int
 		var err error
 		compactedContexts, err = successfulContextsUsingSummaryCheckpoint(
 			ctx,
 			env,
 			projectUUID,
 			agentUUID,
-			nonce,
+			projectLabel,
 			rawPaddingToken,
 		)
 		if err != nil {
@@ -574,15 +595,59 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
-		if recallOutputs >= 1 && compactedContexts >= 2 && locks == 0 && wakeups == 0 {
+		latestOutput, err := latestModelOutputTextAfterSequence(
+			ctx,
+			env,
+			projectUUID,
+			agentUUID,
+			beforeRecallSequence,
+		)
+		if err != nil {
+			return false, err.Error()
+		}
+		if strings.Contains(latestOutput, projectLabel) && compactedContexts >= 2 && locks == 0 && wakeups == 0 {
 			return true, ""
 		}
-		return false, "live compaction recall not complete recall_outputs=" + itoa(recallOutputs) +
-			" compacted_contexts=" + itoa(compactedContexts) +
+		if compactedContexts >= 2 && locks == 0 && wakeups == 0 {
+			t.Fatalf(
+				"post-compaction recall output omitted durable fact: output=%q want_contains=%q",
+				latestOutput,
+				projectLabel,
+			)
+		}
+		return false, "live compaction recall not complete compacted_contexts=" + itoa(compactedContexts) +
 			" locks=" + itoa(locks) +
 			" wakeups=" + itoa(wakeups) +
+			" latest_output=" + strconv.Quote(latestOutput) +
 			" worker_logs=" + worker.logExcerpt()
 	})
+}
+
+func latestModelOutputTextAfterSequence(
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectUUID, agentUUID string,
+	afterSequence int64,
+) (string, error) {
+	var latestOutput string
+	err := env.db.QueryRow(ctx, `
+SELECT coalesce((
+  SELECT string_agg(block.text_content, '' ORDER BY block.ordinal)
+  FROM agent_events event
+  JOIN agents agent ON agent.id = event.agent_id
+  JOIN content_blocks block
+    ON block.agent_id = event.agent_id
+   AND block.owner_model_output_id = event.model_output_id
+  WHERE agent.project_id = $1
+    AND event.agent_id = $2
+    AND event.sequence > $3
+    AND event.event_kind = 'model_output'
+    AND block.block_kind = 'text'
+  GROUP BY event.sequence
+  ORDER BY event.sequence DESC
+  LIMIT 1
+), '')`, projectUUID, agentUUID, afterSequence).Scan(&latestOutput)
+	return latestOutput, err
 }
 
 func waitForLiveModelOutputText(
@@ -596,16 +661,15 @@ func waitForLiveModelOutputText(
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(3*time.Minute), func() (bool, string) {
-		var messages int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $3 || '%'`, projectUUID, agentUUID, contains).
-			Scan(&messages)
+		latestOutput, err := latestModelOutputTextAfterSequence(ctx, env, projectUUID, agentUUID, 0)
 		if err != nil {
 			return false, err.Error()
 		}
-		if messages > 0 {
+		if strings.Contains(latestOutput, contains) {
 			return true, ""
 		}
-		return false, "live model output missing " + contains + " worker_logs=" + worker.logExcerpt()
+		return false, "latest live model output=" + strconv.Quote(latestOutput) +
+			" missing=" + contains + " worker_logs=" + worker.logExcerpt()
 	})
 }
 
@@ -623,24 +687,13 @@ func waitForLiveModelOutputContaining(
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	var matchedOutput string
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(3*time.Minute), func() (bool, string) {
-		var latestOutput string
-		err := env.db.QueryRow(ctx, `
-SELECT coalesce((
-  SELECT string_agg(block.text_content, '' ORDER BY block.ordinal)
-  FROM agent_events event
-  JOIN agents agent ON agent.id = event.agent_id
-  JOIN content_blocks block
-    ON block.agent_id = event.agent_id
-   AND block.owner_model_output_id = event.model_output_id
-  WHERE agent.project_id = $1
-    AND event.agent_id = $2
-    AND event.sequence > $3
-    AND event.event_kind = 'model_output'
-    AND block.block_kind = 'text'
-  GROUP BY event.sequence
-  ORDER BY event.sequence DESC
-  LIMIT 1
-), '')`, projectUUID, agentUUID, afterSequence).Scan(&latestOutput)
+		latestOutput, err := latestModelOutputTextAfterSequence(
+			ctx,
+			env,
+			projectUUID,
+			agentUUID,
+			afterSequence,
+		)
 		if err != nil {
 			return false, err.Error()
 		}
