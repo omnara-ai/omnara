@@ -16,16 +16,17 @@ import (
 )
 
 type PublishContextCheckpointInput struct {
-	ProjectID          ID
-	AgentID            ID
-	RuntimeLockID      ID
-	ModelCallContextID ID
-	Summary            string
-	APIFormat          modelprotocol.APIFormat
-	APIVariant         modelprotocol.APIVariant
-	ProviderRequestID  string
-	ProviderResponseID string
-	Usage              modelenvelope.Usage
+	ProjectID               ID
+	AgentID                 ID
+	RuntimeLockID           ID
+	ModelCallContextID      ID
+	Summary                 string
+	APIFormat               modelprotocol.APIFormat
+	APIVariant              modelprotocol.APIVariant
+	ProviderRequestID       string
+	ProviderResponseID      string
+	Usage                   modelenvelope.Usage
+	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 }
 
 func (s *Store) PublishContextCheckpoint(
@@ -183,16 +184,17 @@ func (s *Store) PublishContextCheckpoint(
 		return ContextCheckpointRecord{}, err
 	}
 	if _, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		ModelCallContextID: input.ModelCallContextID,
-		RuntimeLockID:      input.RuntimeLockID,
-		ToState:            ModelCallContextSucceeded,
-		APIFormat:          input.APIFormat,
-		APIVariant:         input.APIVariant,
-		ProviderRequestID:  input.ProviderRequestID,
-		ProviderResponseID: input.ProviderResponseID,
-		Usage:              input.Usage,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		ModelCallContextID:      input.ModelCallContextID,
+		RuntimeLockID:           input.RuntimeLockID,
+		ToState:                 ModelCallContextSucceeded,
+		APIFormat:               input.APIFormat,
+		APIVariant:              input.APIVariant,
+		ProviderRequestID:       input.ProviderRequestID,
+		ProviderResponseID:      input.ProviderResponseID,
+		Usage:                   input.Usage,
+		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
 	}); err != nil {
 		return ContextCheckpointRecord{}, err
 	}
@@ -260,13 +262,17 @@ func sameContextCheckpointPublication(
 		contextRecord.APIVariant == input.APIVariant &&
 		contextRecord.ProviderRequestID == input.ProviderRequestID &&
 		contextRecord.ProviderResponseID == input.ProviderResponseID &&
-		contextRecord.Usage == modelUsageForStorage(input.Usage)
+		contextRecord.Usage == modelUsageForStorage(input.Usage) &&
+		contextRecord.ProviderReportedCostUSD == input.ProviderReportedCostUSD
 }
 
 func validatePublishContextCheckpointInput(input PublishContextCheckpointInput) error {
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
 		isNilID(input.ModelCallContextID) || input.Summary == "" {
 		return errors.New("project, agent, runtime, context, and summary are required")
+	}
+	if err := modelenvelope.ValidateProviderReportedCostUSD(input.ProviderReportedCostUSD); err != nil {
+		return fmt.Errorf("provider-reported cost: %w", err)
 	}
 	return nil
 }

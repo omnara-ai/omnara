@@ -30,6 +30,7 @@ type RecordModelCallErrorAndCompleteContextInput struct {
 	ErrorMessage            string
 	ErrorDetails            json.RawMessage
 	Usage                   modelenvelope.Usage
+	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 }
 
 func (s *Store) RecordModelCallErrorAndCompleteContext(
@@ -115,6 +116,7 @@ func recordTerminalModelCallFailureTx(
 		input.ProviderRequestID,
 		input.ProviderResponseID,
 		normalizedUsage != (modelenvelope.Usage{}),
+		input.ProviderReportedCostUSD,
 	); err != nil {
 		return events.Event{}, err
 	}
@@ -132,20 +134,21 @@ func recordTerminalModelCallFailureTx(
 		return events.Event{}, storeerr.ErrRuntimeLockInactive
 	}
 	finishedContext, err := finishModelCallContextWithAuthorityTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		ModelCallContextID: input.ModelCallContextID,
-		RuntimeLockID:      input.RuntimeLockID,
-		ToState:            ModelCallContextFailed,
-		APIFormat:          input.APIFormat,
-		APIVariant:         input.APIVariant,
-		ProviderRequestID:  input.ProviderRequestID,
-		ProviderResponseID: input.ProviderResponseID,
-		ErrorKind:          input.ErrorKind,
-		ErrorCode:          input.ErrorCode,
-		ErrorMessage:       input.ErrorMessage,
-		ErrorDetails:       input.ErrorDetails,
-		Usage:              normalizedUsage,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		ModelCallContextID:      input.ModelCallContextID,
+		RuntimeLockID:           input.RuntimeLockID,
+		ToState:                 ModelCallContextFailed,
+		APIFormat:               input.APIFormat,
+		APIVariant:              input.APIVariant,
+		ProviderRequestID:       input.ProviderRequestID,
+		ProviderResponseID:      input.ProviderResponseID,
+		ErrorKind:               input.ErrorKind,
+		ErrorCode:               input.ErrorCode,
+		ErrorMessage:            input.ErrorMessage,
+		ErrorDetails:            input.ErrorDetails,
+		Usage:                   normalizedUsage,
+		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
 	}, runtimeAuthority)
 	if err != nil {
 		return events.Event{}, err
@@ -184,7 +187,8 @@ func sameTerminalModelCallErrorContextIntent(
 		contextRecord.ErrorMessage == input.ErrorMessage &&
 		sameJSON(contextRecord.ErrorDetails, input.ErrorDetails) &&
 		contextRecord.RetryAt == nil &&
-		contextRecord.Usage == usage
+		contextRecord.Usage == usage &&
+		contextRecord.ProviderReportedCostUSD == input.ProviderReportedCostUSD
 }
 
 type modelCallErrorOutputInput struct {

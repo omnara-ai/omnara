@@ -122,7 +122,7 @@ func TestChatCompletionsConsumeStreamEmitsDeltasAndParsesResponse(t *testing.T) 
 		`{"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"run_command","arguments":"{\"command\":"}}]}}]}`,
 		`{"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"pwd\"}"}}]}}]}`,
 		`{"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
-		`{"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":2},"completion_tokens_details":{"reasoning_tokens":1}}}`,
+		`{"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.0000125,"prompt_tokens_details":{"cached_tokens":2},"completion_tokens_details":{"reasoning_tokens":1}}}`,
 		`[DONE]`,
 	)
 	sink := &chatRecordingSink{}
@@ -144,6 +144,9 @@ func TestChatCompletionsConsumeStreamEmitsDeltasAndParsesResponse(t *testing.T) 
 		resp.Usage.CacheReadTokens != 2 ||
 		resp.Usage.ReasoningTokens != 1 {
 		t.Fatalf("unexpected usage: %+v", resp.Usage)
+	}
+	if resp.ProviderReportedCostUSD != "0.0000125" {
+		t.Fatalf("provider-reported cost = %q, want 0.0000125", resp.ProviderReportedCostUSD)
 	}
 	if len(resp.Content) != 3 ||
 		resp.Content[0].Type != model.ResponsePartTypeReasoning ||
@@ -219,6 +222,33 @@ func TestChatCompletionsConsumeStreamEmitsDeltasAndParsesResponse(t *testing.T) 
 		sink.events[6].Block.ToolCallID != "call_1" ||
 		sink.events[6].Block.ToolName != "run_command" {
 		t.Fatalf("tool block metadata missing: %+v", sink.events[6])
+	}
+}
+
+func TestChatCompletionsConsumeStreamIgnoresUnrecognizedCost(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_cost","model":"gpt-test","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}`,
+		`{"id":"chatcmpl_cost","model":"gpt-test","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":{"total":0.01}}}`,
+		`[DONE]`,
+	)
+	for _, variant := range []modelprotocol.APIVariant{
+		modelprotocol.APIVariantDefault,
+		modelprotocol.APIVariantOpenRouter,
+	} {
+		t.Run(string(variant), func(t *testing.T) {
+			response, err := consumeChatCompletionsStream(
+				t,
+				stream,
+				&chatRecordingSink{},
+				variant,
+			)
+			if err != nil {
+				t.Fatalf("consume stream with unrecognized cost extension: %v", err)
+			}
+			if response.ProviderReportedCostUSD != "" {
+				t.Fatalf("provider-reported cost = %q, want unknown", response.ProviderReportedCostUSD)
+			}
+		})
 	}
 }
 
@@ -455,7 +485,7 @@ func TestChatCompletionsConsumeStreamClassifiesOpenRouterMidStreamError(t *testi
 			`"message":"Provider disconnected unexpectedly","request_id":"req_error","retry_after":38,`+
 			`"metadata":{"error_type":"provider_unavailable","request_id":"req_metadata","retry_after":39}},`+
 			`"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error"}],`+
-			`"usage":{"prompt_tokens":29,"completion_tokens":4}}`,
+			`"usage":{"prompt_tokens":29,"completion_tokens":4,"cost":0.0000042}}`,
 		`{"id":`,
 	)
 	resp, err := consumeChatCompletionsStream(t, stream, &chatRecordingSink{}, modelprotocol.APIVariantOpenRouter)
@@ -473,7 +503,8 @@ func TestChatCompletionsConsumeStreamClassifiesOpenRouterMidStreamError(t *testi
 		t.Fatalf("typed mid-stream error must be explicit: %T %v", err, err)
 	}
 	if resp.ID != "chatcmpl_err" || resp.ServedProviderModelSlug != "openai/gpt-5" ||
-		resp.Usage.InputTokens != 29 || resp.Usage.OutputTokens != 4 {
+		resp.Usage.InputTokens != 29 || resp.Usage.OutputTokens != 4 ||
+		resp.ProviderReportedCostUSD != "0.0000042" {
 		t.Fatalf("failed stream evidence = %+v", resp)
 	}
 }

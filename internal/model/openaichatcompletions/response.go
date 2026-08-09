@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model.Response, error) {
@@ -23,10 +24,10 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	}
 	var decoded chatCompletionsResponse
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return chatResponseEvidence(decoded), p.invalidResponseError(resp, decoded, err)
+		return p.chatResponseEvidence(decoded), p.invalidResponseError(resp, decoded, err)
 	}
 	if decoded.Error.present() {
-		return chatResponseEvidence(decoded), classifyProviderError(
+		return p.chatResponseEvidence(decoded), classifyProviderError(
 			p.errorSource(),
 			resp.StatusCode,
 			resp.Header,
@@ -35,14 +36,14 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 		)
 	}
 	if decoded.ID == "" {
-		return chatResponseEvidence(decoded), p.invalidResponseError(
+		return p.chatResponseEvidence(decoded), p.invalidResponseError(
 			resp,
 			decoded,
 			errors.New("openai chat completions response is missing id"),
 		)
 	}
 	if len(decoded.Choices) != 1 {
-		return chatResponseEvidence(decoded), p.invalidResponseError(
+		return p.chatResponseEvidence(decoded), p.invalidResponseError(
 			resp,
 			decoded,
 			fmt.Errorf(
@@ -52,7 +53,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 		)
 	}
 	if decoded.Choices[0].Index != 0 {
-		return chatResponseEvidence(decoded), p.invalidResponseError(
+		return p.chatResponseEvidence(decoded), p.invalidResponseError(
 			resp,
 			decoded,
 			fmt.Errorf(
@@ -61,7 +62,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 			),
 		)
 	}
-	out := chatResponseEvidence(decoded)
+	out := p.chatResponseEvidence(decoded)
 	for _, choice := range decoded.Choices {
 		if !choice.hasError() && strings.TrimSpace(choice.FinishReason) == "" {
 			return out, p.invalidResponseError(
@@ -133,12 +134,18 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	return out, nil
 }
 
-func chatResponseEvidence(response chatCompletionsResponse) model.Response {
-	return model.Response{
+func (p protocol) chatResponseEvidence(response chatCompletionsResponse) model.Response {
+	out := model.Response{
 		ID:                      response.ID,
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
+	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter && len(response.Usage.Cost) != 0 {
+		out.ProviderReportedCostUSD, _ = modelenvelope.ParseProviderReportedCostUSD(
+			string(response.Usage.Cost),
+		)
+	}
+	return out
 }
 
 type chatCompletionsResponse struct {
@@ -268,6 +275,7 @@ func reasoningTextFromDetails(details []json.RawMessage) string {
 type chatUsage struct {
 	PromptTokens            int              `json:"prompt_tokens"`
 	CompletionTokens        int              `json:"completion_tokens"`
+	Cost                    json.RawMessage  `json:"cost,omitempty"`
 	PromptTokensDetails     chatTokenDetails `json:"prompt_tokens_details"`
 	CompletionTokensDetails chatTokenDetails `json:"completion_tokens_details"`
 }

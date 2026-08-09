@@ -172,11 +172,11 @@ type chatStreamAccumulator struct {
 }
 
 func (a *chatStreamAccumulator) partialResponse() model.Response {
-	return model.Response{
-		ID:                      a.id,
-		ServedProviderModelSlug: a.servedModel,
-		Usage:                   usageFromResponse(a.usage),
-	}
+	return a.protocol.chatResponseEvidence(chatCompletionsResponse{
+		ID:    a.id,
+		Model: a.servedModel,
+		Usage: a.usage,
+	})
 }
 
 type chatStreamChoiceState struct {

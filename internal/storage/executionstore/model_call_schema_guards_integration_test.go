@@ -143,6 +143,27 @@ func TestModelCallContextDatabaseGuardsRejectRebinding(t *testing.T) {
 	}
 }
 
+func TestModelCallContextDatabaseGuardsRejectNaNCost(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "provider_cost_nan_guard")
+	_, err := fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts
+SET state = 'succeeded',
+    api_format = 'openai-chat-completions',
+    api_variant = 'openrouter',
+    provider_reported_cost_usd = 'NaN'::numeric,
+    completed_at = statement_timestamp()
+WHERE id = $1
+`, claim.Context.ID)
+	assertPgConstraint(
+		t,
+		err,
+		"23514",
+		"model_call_contexts_provider_reported_cost_usd_check",
+	)
+}
+
 func TestModelCallContextIdentityIndexesRejectDuplicateLogicalContexts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

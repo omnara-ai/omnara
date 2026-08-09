@@ -15,6 +15,7 @@ type ResponseEnvelope struct {
 	ServedProviderModelSlug    string                   `json:"served_provider_model_slug,omitempty"`
 	APIFormat                  modelprotocol.APIFormat  `json:"api_format"`
 	APIVariant                 modelprotocol.APIVariant `json:"api_variant"`
+	ProviderReportedCostUSD    ProviderReportedCostUSD  `json:"provider_reported_cost_usd,omitempty"`
 	ProviderReplay             json.RawMessage          `json:"provider_replay,omitempty"`
 	Normalized                 ResponseNormalized       `json:"normalized"`
 }
@@ -94,6 +95,9 @@ func (e ResponseEnvelope) Validate() error {
 	}
 	if len(e.ProviderReplay) != 0 && !validReplayPayload(e.ProviderReplay) {
 		return errors.New("provider replay must be valid non-null JSON")
+	}
+	if err := ValidateProviderReportedCostUSD(e.ProviderReportedCostUSD); err != nil {
+		return fmt.Errorf("provider-reported cost: %w", err)
 	}
 	for index, part := range e.Normalized.Content {
 		if err := validateResponsePart(part); err != nil {

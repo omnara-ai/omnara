@@ -117,8 +117,9 @@ func TestRunnerRetriesDatabaseUnsafeSummaryAsMalformedProviderResponse(t *testin
 		textCompactionEvent(1, strings.Repeat("closed source context ", 20)),
 	}}
 	client := &summaryModel{results: []summaryResult{{response: model.Response{
-		ID:         "resp_malformed",
-		StopReason: model.StopReasonEndTurn,
+		ID:                      "resp_malformed",
+		ProviderReportedCostUSD: "0.0000015",
+		StopReason:              model.StopReasonEndTurn,
 		Content: []model.ResponsePart{{
 			Type: model.ResponsePartTypeText,
 			Text: "unsafe\x00summary",
@@ -144,6 +145,7 @@ func TestRunnerRetriesDatabaseUnsafeSummaryAsMalformedProviderResponse(t *testin
 	}
 	retryFailure := store.retryFailures[0]
 	if retryFailure.ProviderResponseID != "resp_malformed" ||
+		retryFailure.ProviderReportedCostUSD != "0.0000015" ||
 		strings.Contains(retryFailure.ErrorMessage, "\x00") {
 		t.Fatalf("malformed response evidence was not safely retained: %+v", retryFailure)
 	}
@@ -156,6 +158,7 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 	client := &summaryModel{results: []summaryResult{{response: model.Response{
 		ID:                      "resp\x00malformed",
 		ServedProviderModelSlug: "served\x00malformed",
+		ProviderReportedCostUSD: "0.0000015",
 		StopReason:              model.StopReasonEndTurn,
 		Content: []model.ResponsePart{{
 			Type: model.ResponsePartTypeText,
@@ -179,6 +182,7 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 	client.results = []summaryResult{{response: model.Response{
 		ID:                      "resp\x00malformed",
 		ServedProviderModelSlug: "served\x00malformed",
+		ProviderReportedCostUSD: "0.0000015",
 		StopReason:              model.StopReasonEndTurn,
 		Content: []model.ResponsePart{{
 			Type: model.ResponsePartTypeText,
@@ -198,6 +202,7 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 	}
 	terminalFailure := store.terminalFailures[0]
 	if terminalFailure.ServedProviderModelSlug != "" || terminalFailure.ProviderResponseID != "" ||
+		terminalFailure.ProviderReportedCostUSD != "" ||
 		terminalFailure.ErrorCode != "malformed_success_response" ||
 		strings.Contains(terminalFailure.ErrorMessage, "\x00") {
 		t.Fatalf("terminal malformed response evidence was not cleared: %+v", terminalFailure)

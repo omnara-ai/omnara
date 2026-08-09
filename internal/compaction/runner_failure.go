@@ -116,21 +116,22 @@ func (r Runner) recordFailure(
 		failedContext, err := r.Store.RecordRetryableModelCallFailure(
 			ctx,
 			executionstore.RecordRecoverableModelCallFailureInput{
-				ProjectID:          input.Plan.ProjectID,
-				AgentID:            input.Plan.AgentID,
-				ModelCallContextID: claim.Context.ID,
-				RuntimeLockID:      input.RuntimeLockID,
-				RecoveryKind:       executionstore.ModelCallRecoveryRetry,
-				APIFormat:          providerAttempt.APIFormat,
-				APIVariant:         providerAttempt.APIVariant,
-				ProviderRequestID:  providerRequestID,
-				ProviderResponseID: providerResponseIDAfter(providerAttempt),
-				ErrorKind:          evidence.Kind,
-				ErrorCode:          evidence.Code,
-				ErrorMessage:       evidence.Message,
-				ErrorDetails:       evidence.Details,
-				RetryDelay:         decision.RetryDelay,
-				Usage:              usageAfter(providerAttempt),
+				ProjectID:               input.Plan.ProjectID,
+				AgentID:                 input.Plan.AgentID,
+				ModelCallContextID:      claim.Context.ID,
+				RuntimeLockID:           input.RuntimeLockID,
+				RecoveryKind:            executionstore.ModelCallRecoveryRetry,
+				APIFormat:               providerAttempt.APIFormat,
+				APIVariant:              providerAttempt.APIVariant,
+				ProviderRequestID:       providerRequestID,
+				ProviderResponseID:      providerResponseIDAfter(providerAttempt),
+				ErrorKind:               evidence.Kind,
+				ErrorCode:               evidence.Code,
+				ErrorMessage:            evidence.Message,
+				ErrorDetails:            evidence.Details,
+				RetryDelay:              decision.RetryDelay,
+				Usage:                   usageAfter(providerAttempt),
+				ProviderReportedCostUSD: providerReportedCostUSDAfter(providerAttempt),
 			},
 		)
 		if err != nil {
@@ -162,6 +163,7 @@ func (r Runner) recordFailure(
 			ErrorMessage:            evidence.Message,
 			ErrorDetails:            evidence.Details,
 			Usage:                   usageAfter(providerAttempt),
+			ProviderReportedCostUSD: providerReportedCostUSDAfter(providerAttempt),
 		},
 	); err != nil {
 		return RunResult{}, errors.Join(cause, err)
@@ -199,6 +201,7 @@ func (r Runner) replaceCompactionSource(
 			ErrorMessage:               evidence.Message,
 			ErrorDetails:               evidence.Details,
 			Usage:                      usageAfter(providerAttempt),
+			ProviderReportedCostUSD:    providerReportedCostUSDAfter(providerAttempt),
 			NextSourceEventSequenceEnd: nextEnd,
 		},
 	)
@@ -437,4 +440,13 @@ func usageAfter(providerAttempt providerAttemptEvidence) modelenvelope.Usage {
 		return modelenvelope.Usage{}
 	}
 	return providerAttempt.Response.Usage
+}
+
+func providerReportedCostUSDAfter(
+	providerAttempt providerAttemptEvidence,
+) modelenvelope.ProviderReportedCostUSD {
+	if !providerAttempt.ProviderRequestStarted {
+		return ""
+	}
+	return providerAttempt.Response.ProviderReportedCostUSD
 }

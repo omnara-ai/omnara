@@ -185,7 +185,11 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 	); err != nil {
 		return events.Event{}, nil, err
 	}
-	if completionReplay && contextRow.ProviderRequestID != input.ProviderRequestID {
+	if completionReplay && !sameSuccessfulModelCallCompletionEvidence(
+		contextRow,
+		input.ProviderRequestID,
+		input.ProviderResponse,
+	) {
 		return events.Event{}, nil, storeerr.ErrIdempotencyConflict
 	}
 	authorityInput := modelOutputAuthorityInputFromToolSourceContext(input)
@@ -436,7 +440,11 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 	); err != nil {
 		return events.Event{}, err
 	}
-	if completionReplay && contextRow.ProviderRequestID != input.ProviderRequestID {
+	if completionReplay && !sameSuccessfulModelCallCompletionEvidence(
+		contextRow,
+		input.ProviderRequestID,
+		input.ProviderResponse,
+	) {
 		return events.Event{}, storeerr.ErrIdempotencyConflict
 	}
 	authorityInput := modelOutputAuthorityInputFromContext(input)
@@ -593,6 +601,15 @@ func validateNormalModelCallCompletionState(
 	return false, storeerr.ErrStateTransitionConflict
 }
 
+func sameSuccessfulModelCallCompletionEvidence(
+	contextRow ModelCallContextRecord,
+	providerRequestID string,
+	envelope modelenvelope.ResponseEnvelope,
+) bool {
+	return contextRow.ProviderRequestID == providerRequestID &&
+		contextRow.ProviderReportedCostUSD == envelope.ProviderReportedCostUSD
+}
+
 func completeSuccessfulNormalModelCallTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
@@ -606,16 +623,17 @@ func completeSuccessfulNormalModelCallTx(
 		return storeerr.ErrStateTransitionConflict
 	}
 	if _, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          contextRow.ProjectID,
-		AgentID:            contextRow.AgentID,
-		ModelCallContextID: contextRow.ID,
-		RuntimeLockID:      runtimeLockID,
-		ToState:            ModelCallContextSucceeded,
-		APIFormat:          envelope.APIFormat,
-		APIVariant:         envelope.APIVariant,
-		ProviderRequestID:  providerRequestID,
-		ProviderResponseID: envelope.Normalized.ID,
-		Usage:              envelope.Normalized.Usage,
+		ProjectID:               contextRow.ProjectID,
+		AgentID:                 contextRow.AgentID,
+		ModelCallContextID:      contextRow.ID,
+		RuntimeLockID:           runtimeLockID,
+		ToState:                 ModelCallContextSucceeded,
+		APIFormat:               envelope.APIFormat,
+		APIVariant:              envelope.APIVariant,
+		ProviderRequestID:       providerRequestID,
+		ProviderResponseID:      envelope.Normalized.ID,
+		Usage:                   envelope.Normalized.Usage,
+		ProviderReportedCostUSD: envelope.ProviderReportedCostUSD,
 	}); err != nil {
 		return err
 	}

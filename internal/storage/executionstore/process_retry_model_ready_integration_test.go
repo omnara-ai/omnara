@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -538,14 +539,19 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	}
 	modelClaim := claimTestNormalModelCallForWork(t, ctx, fixture, claim, now.Add(2*time.Second))
 	terminalErrorInput := executionstore.RecordModelCallErrorAndCompleteContextInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      claim.RuntimeLock.ID,
-		ModelCallContextID: modelClaim.Context.ID,
-		ErrorKind:          "auth",
-		ErrorCode:          "invalid_api_key",
-		ErrorMessage:       "The model provider rejected its credentials.",
-		ErrorDetails:       json.RawMessage(`{"retryable":false}`),
+		ProjectID:               testProjectID,
+		AgentID:                 fixture.AgentID,
+		RuntimeLockID:           claim.RuntimeLock.ID,
+		ModelCallContextID:      modelClaim.Context.ID,
+		APIFormat:               modelprotocol.APIFormatOpenAIChatCompletions,
+		APIVariant:              modelprotocol.APIVariantOpenRouter,
+		ProviderRequestID:       "req_terminal_model_error",
+		ProviderResponseID:      "resp_terminal_model_error",
+		ErrorKind:               modelprotocol.ErrorKindAuth,
+		ErrorCode:               "invalid_api_key",
+		ErrorMessage:            "The model provider rejected its credentials.",
+		ErrorDetails:            json.RawMessage(`{"retryable":false}`),
+		ProviderReportedCostUSD: "0.0000015",
 	}
 	errorEvent, err := fixture.Store.Execution().RecordModelCallErrorAndCompleteContext(ctx, terminalErrorInput)
 	if err != nil {
@@ -618,15 +624,19 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	assertJSONRawEqual(t, forwardEvents[0].ContentBlocks, publicErrorBlock)
 	assertJSONRawEqual(t, backwardEvents[0].ContentBlocks, publicErrorBlock)
 	var contextErrorDetails json.RawMessage
+	var hasProviderReportedCost bool
 	if err := fixture.Store.pool.QueryRow(ctx, `
-		SELECT error_details
+		SELECT error_details, provider_reported_cost_usd = 0.0000015
 		FROM model_call_contexts
 		WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
 		testProjectID, fixture.AgentID, modelClaim.Context.ID,
-	).Scan(&contextErrorDetails); err != nil {
+	).Scan(&contextErrorDetails, &hasProviderReportedCost); err != nil {
 		t.Fatalf("load terminal context error details: %v", err)
 	}
 	assertJSONRawEqual(t, contextErrorDetails, `{"retryable":false}`)
+	if !hasProviderReportedCost {
+		t.Fatal("terminal context did not retain provider-reported cost")
+	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx,
 		testProjectID,

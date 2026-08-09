@@ -541,6 +541,7 @@ func (e AgentExecutor) recordNormalFailure(
 	providerRequestID := ""
 	providerResponseID := ""
 	usage := modelenvelope.Usage{}
+	var providerReportedCostUSD modelenvelope.ProviderReportedCostUSD
 	if providerRequestStarted {
 		servedSlug = response.ServedProviderModelSlug
 		providerRequestID = evidence.RequestID
@@ -549,6 +550,7 @@ func (e AgentExecutor) recordNormalFailure(
 		}
 		providerResponseID = response.ID
 		usage = response.Usage
+		providerReportedCostUSD = response.ProviderReportedCostUSD
 	}
 	if decision.Action == modelretry.ActionRetry || decision.Action == modelretry.ActionCompact {
 		recoveryKind := executionstore.ModelCallRecoveryRetry
@@ -556,21 +558,22 @@ func (e AgentExecutor) recordNormalFailure(
 			recoveryKind = executionstore.ModelCallRecoveryCompact
 		}
 		failureInput := executionstore.RecordRecoverableModelCallFailureInput{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			ModelCallContextID: claim.Context.ID,
-			RuntimeLockID:      input.RuntimeLockID,
-			RecoveryKind:       recoveryKind,
-			APIFormat:          apiFormat,
-			APIVariant:         apiVariant,
-			ProviderRequestID:  providerRequestID,
-			ProviderResponseID: providerResponseID,
-			ErrorKind:          evidence.Kind,
-			ErrorCode:          evidence.Code,
-			ErrorMessage:       evidence.Message,
-			ErrorDetails:       evidence.Details,
-			RetryDelay:         decision.RetryDelay,
-			Usage:              usage,
+			ProjectID:               input.ProjectID,
+			AgentID:                 input.AgentID,
+			ModelCallContextID:      claim.Context.ID,
+			RuntimeLockID:           input.RuntimeLockID,
+			RecoveryKind:            recoveryKind,
+			APIFormat:               apiFormat,
+			APIVariant:              apiVariant,
+			ProviderRequestID:       providerRequestID,
+			ProviderResponseID:      providerResponseID,
+			ErrorKind:               evidence.Kind,
+			ErrorCode:               evidence.Code,
+			ErrorMessage:            evidence.Message,
+			ErrorDetails:            evidence.Details,
+			RetryDelay:              decision.RetryDelay,
+			Usage:                   usage,
+			ProviderReportedCostUSD: providerReportedCostUSD,
 		}
 		var (
 			contextRecord executionstore.ModelCallContextRecord
@@ -633,6 +636,7 @@ func (e AgentExecutor) recordNormalFailure(
 			ErrorMessage:            evidence.Message,
 			ErrorDetails:            evidence.Details,
 			Usage:                   usage,
+			ProviderReportedCostUSD: providerReportedCostUSD,
 		},
 	)
 	if err != nil {

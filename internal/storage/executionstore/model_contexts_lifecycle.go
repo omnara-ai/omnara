@@ -43,6 +43,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 		input.ProviderRequestID,
 		input.ProviderResponseID,
 		input.Usage != (modelenvelope.Usage{}),
+		input.ProviderReportedCostUSD,
 	); err != nil {
 		return ModelCallContextRecord{}, err
 	}
@@ -76,22 +77,23 @@ func (s *Store) RecordRetryableModelCallFailure(
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	contextRecord, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		ModelCallContextID: input.ModelCallContextID,
-		RuntimeLockID:      input.RuntimeLockID,
-		ToState:            ModelCallContextFailed,
-		RecoveryKind:       ModelCallRecoveryRetry,
-		APIFormat:          input.APIFormat,
-		APIVariant:         input.APIVariant,
-		ProviderRequestID:  input.ProviderRequestID,
-		ProviderResponseID: input.ProviderResponseID,
-		ErrorKind:          input.ErrorKind,
-		ErrorCode:          input.ErrorCode,
-		ErrorMessage:       input.ErrorMessage,
-		ErrorDetails:       input.ErrorDetails,
-		RetryDelay:         &input.RetryDelay,
-		Usage:              input.Usage,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		ModelCallContextID:      input.ModelCallContextID,
+		RuntimeLockID:           input.RuntimeLockID,
+		ToState:                 ModelCallContextFailed,
+		RecoveryKind:            ModelCallRecoveryRetry,
+		APIFormat:               input.APIFormat,
+		APIVariant:              input.APIVariant,
+		ProviderRequestID:       input.ProviderRequestID,
+		ProviderResponseID:      input.ProviderResponseID,
+		ErrorKind:               input.ErrorKind,
+		ErrorCode:               input.ErrorCode,
+		ErrorMessage:            input.ErrorMessage,
+		ErrorDetails:            input.ErrorDetails,
+		RetryDelay:              &input.RetryDelay,
+		Usage:                   input.Usage,
+		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
 	})
 	if err != nil {
 		return ModelCallContextRecord{}, err
@@ -131,34 +133,39 @@ func validateModelCallFailureEvidence(
 	providerRequestID,
 	providerResponseID string,
 	hasUsage bool,
+	providerReportedCostUSD modelenvelope.ProviderReportedCostUSD,
 ) error {
+	if err := modelenvelope.ValidateProviderReportedCostUSD(providerReportedCostUSD); err != nil {
+		return fmt.Errorf("provider-reported cost: %w", err)
+	}
 	if (apiFormat == "") != (apiVariant == "") {
 		return errors.New("model call API format and variant must be recorded together")
 	}
 	if apiFormat == "" && (servedProviderModelSlug != "" || providerRequestID != "" ||
-		providerResponseID != "" || hasUsage) {
+		providerResponseID != "" || hasUsage || providerReportedCostUSD != "") {
 		return errors.New("provider evidence requires a model call API identity")
 	}
 	return nil
 }
 
 type finishModelCallContextInput struct {
-	ProjectID          ID
-	AgentID            ID
-	ModelCallContextID ID
-	RuntimeLockID      ID
-	ToState            ModelCallState
-	RecoveryKind       ModelCallRecoveryKind
-	APIFormat          modelprotocol.APIFormat
-	APIVariant         modelprotocol.APIVariant
-	ProviderRequestID  string
-	ProviderResponseID string
-	ErrorKind          modelprotocol.ErrorKind
-	ErrorCode          string
-	ErrorMessage       string
-	ErrorDetails       json.RawMessage
-	RetryDelay         *time.Duration
-	Usage              modelenvelope.Usage
+	ProjectID               ID
+	AgentID                 ID
+	ModelCallContextID      ID
+	RuntimeLockID           ID
+	ToState                 ModelCallState
+	RecoveryKind            ModelCallRecoveryKind
+	APIFormat               modelprotocol.APIFormat
+	APIVariant              modelprotocol.APIVariant
+	ProviderRequestID       string
+	ProviderResponseID      string
+	ErrorKind               modelprotocol.ErrorKind
+	ErrorCode               string
+	ErrorMessage            string
+	ErrorDetails            json.RawMessage
+	RetryDelay              *time.Duration
+	Usage                   modelenvelope.Usage
+	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 }
 
 type modelCallContextRuntimeAuthority uint8
@@ -190,6 +197,9 @@ func finishModelCallContextWithAuthorityTx(
 		return ModelCallContextRecord{}, err
 	}
 	usage := usageColumnsFromModelUsage(input.Usage)
+	if err := modelenvelope.ValidateProviderReportedCostUSD(input.ProviderReportedCostUSD); err != nil {
+		return ModelCallContextRecord{}, fmt.Errorf("provider-reported cost: %w", err)
+	}
 	var retryDelayMicroseconds *int64
 	if input.RetryDelay != nil {
 		if *input.RetryDelay < 0 {
@@ -216,6 +226,7 @@ func finishModelCallContextWithAuthorityTx(
 		CacheWriteInputTokens:               sqlcInt32Ptr(usage.CacheWriteTokens),
 		OutputTokensTotal:                   sqlcInt32Ptr(usage.OutputTokens),
 		ReasoningOutputTokens:               sqlcInt32Ptr(usage.ReasoningTokens),
+		ProviderReportedCostUsd:             providerReportedCostUSDToSQLC(input.ProviderReportedCostUSD),
 		ID:                                  input.ModelCallContextID,
 		ProjectID:                           input.ProjectID,
 		AgentID:                             input.AgentID,

@@ -289,39 +289,6 @@ type MachinePool struct {
 	RuntimeProtectionEnabled      bool
 }
 
-type ModelCallContext struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	AgentID                   uuid.UUID
-	OperationKind             string
-	AttemptNumber             int32
-	AgentConfigID             uuid.UUID
-	ConfiguredModelRevisionID uuid.UUID
-	InputEventSequence        int64
-	SourceEventSequenceEnd    *int64
-	RuntimeLockID             uuid.UUID
-	State                     string
-	RecoveryKind              *string
-	ApiFormat                 string
-	ApiVariant                string
-	ProviderRequestID         string
-	ProviderResponseID        string
-	ErrorKind                 string
-	ErrorCode                 string
-	ErrorMessage              string
-	ErrorDetails              json.RawMessage
-	RetryAt                   *time.Time
-	InputTokensTotal          *int32
-	UncachedInputTokens       *int32
-	CacheReadInputTokens      *int32
-	CacheWriteInputTokens     *int32
-	OutputTokensTotal         *int32
-	ReasoningOutputTokens     *int32
-	CreatedAt                 time.Time
-	CompletedAt               *time.Time
-}
-
 type ModelProviderConfig struct {
 	ID                 uuid.UUID
 	OrgID              uuid.UUID

@@ -176,11 +176,12 @@ func TestContextCheckpointReplayRequiresCompletePublicationEvidence(t *testing.T
 	input := executionstore.PublishContextCheckpointInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID,
 		RuntimeLockID: fixture.Lock.ID, ModelCallContextID: claim.Context.ID,
-		Summary:            "durable replay evidence",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		APIVariant:         modelprotocol.APIVariantDefault,
-		ProviderRequestID:  "req_checkpoint_replay",
-		ProviderResponseID: "resp_checkpoint_replay",
+		Summary:                 "durable replay evidence",
+		APIFormat:               modelprotocol.APIFormatOpenAIResponses,
+		APIVariant:              modelprotocol.APIVariantDefault,
+		ProviderRequestID:       "req_checkpoint_replay",
+		ProviderResponseID:      "resp_checkpoint_replay",
+		ProviderReportedCostUSD: "0.0000025",
 		Usage: modelenvelope.Usage{
 			InputTokens:         11,
 			UncachedInputTokens: 11,
@@ -202,6 +203,9 @@ func TestContextCheckpointReplayRequiresCompletePublicationEvidence(t *testing.T
 	}{
 		{"provider request", func(value *executionstore.PublishContextCheckpointInput) { value.ProviderRequestID = "req_other" }},
 		{"provider response", func(value *executionstore.PublishContextCheckpointInput) { value.ProviderResponseID = "resp_other" }},
+		{"provider cost", func(value *executionstore.PublishContextCheckpointInput) {
+			value.ProviderReportedCostUSD = "0.0000026"
+		}},
 		{"usage", func(value *executionstore.PublishContextCheckpointInput) {
 			value.Usage.InputTokens = 12
 			value.Usage.UncachedInputTokens = 12
