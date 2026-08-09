@@ -437,3 +437,26 @@ func processRunnerEnv(
 	}
 	return slices.Sorted(maps.Values(byName))
 }
+
+func workloadProcessEnv(
+	base []string,
+	runnerPath string,
+	overrides map[string]string,
+) []string {
+	filteredBase := make([]string, 0, len(base))
+	for _, entry := range base {
+		name, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(strings.ToUpper(name), "OMNARA_") {
+			continue
+		}
+		filteredBase = append(filteredBase, entry)
+	}
+	filteredOverrides := make(map[string]string, len(overrides))
+	for name, value := range overrides {
+		if strings.HasPrefix(strings.ToUpper(name), "OMNARA_") {
+			continue
+		}
+		filteredOverrides[name] = value
+	}
+	return processRunnerEnv(filteredBase, runnerPath, filteredOverrides)
+}

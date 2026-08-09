@@ -39,6 +39,56 @@ type MachineWaker interface {
 	WakeMachine(context.Context, WakeMachineInput) error
 }
 
+// RuntimeObservationDefinition marks providers whose control plane can
+// authoritatively report whether an Omnara-managed machine is still running.
+type RuntimeObservationDefinition interface {
+	SupportsRuntimeObservation() bool
+}
+
+type RuntimeState string
+
+const (
+	RuntimeStateRunning      RuntimeState = "running"
+	RuntimeStateInactive     RuntimeState = "inactive"
+	RuntimeStateTransitional RuntimeState = "transitional"
+	RuntimeStateTerminated   RuntimeState = "terminated"
+	RuntimeStateUnknown      RuntimeState = "unknown"
+)
+
+func (state RuntimeState) Valid() bool {
+	switch state {
+	case RuntimeStateRunning,
+		RuntimeStateInactive,
+		RuntimeStateTransitional,
+		RuntimeStateTerminated,
+		RuntimeStateUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+type RuntimeTarget struct {
+	InstallationID      storage.ID
+	MachineID           storage.ID
+	ProviderResourceID  string
+	MachineProvisioning executionstore.MachineProvisioningConfig
+}
+
+type RuntimeObservation struct {
+	MachineID          storage.ID
+	ProviderResourceID string
+	State              RuntimeState
+}
+
+// RuntimeStateObserver supplies normalized provider-control-plane state. Bulk
+// observations are discovery hints; callers must use the fresh single-target
+// observation immediately before a destructive action.
+type RuntimeStateObserver interface {
+	ObserveRuntimeStates(context.Context, []RuntimeTarget) ([]RuntimeObservation, error)
+	ObserveRuntimeState(context.Context, RuntimeTarget) (RuntimeObservation, error)
+}
+
 type Provider interface {
 	ProvisioningTimeout() time.Duration
 	// PrepareProvisioning must be retry-safe and must not mutate external resources.

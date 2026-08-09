@@ -149,7 +149,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 	t.Run("transitional", func(t *testing.T) {
 		api := newFakeAPI()
 		api.sandbox.State = "pulling_snapshot"
-		api.sandboxStates = []string{"starting", "started"}
+		api.sandboxStates = []sandboxState{sandboxStateStarting, sandboxStateStarted}
 		provider := newTestProvider(api)
 		resourceID, err := provider.ProvisionMachine(
 			context.Background(),

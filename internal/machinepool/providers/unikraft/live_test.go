@@ -77,4 +77,40 @@ func TestUnikraftProviderLiveSmoke(t *testing.T) {
 	if !found {
 		t.Fatal("expected live instance to be found")
 	}
+	observer, ok := provider.(providers.RuntimeStateObserver)
+	if !ok {
+		t.Fatal("unikraft provider does not implement runtime observation")
+	}
+	runtimeTarget := providers.RuntimeTarget{
+		InstallationID:      testInstallationID(),
+		MachineID:           machineID,
+		ProviderResourceID:  providerResourceID.ProviderResourceID,
+		MachineProvisioning: machineProvisioning,
+	}
+	observation, err := observer.ObserveRuntimeState(ctx, runtimeTarget)
+	if err != nil {
+		t.Fatalf("observe live unikraft instance runtime: %v", err)
+	}
+	assertLiveRuntimeObservation(t, runtimeTarget, observation)
+	observations, err := observer.ObserveRuntimeStates(ctx, []providers.RuntimeTarget{runtimeTarget})
+	if err != nil {
+		t.Fatalf("bulk observe live unikraft instance runtime: %v", err)
+	}
+	if len(observations) != 1 {
+		t.Fatalf("bulk live unikraft runtime observations = %d, want 1", len(observations))
+	}
+	assertLiveRuntimeObservation(t, runtimeTarget, observations[0])
+}
+
+func assertLiveRuntimeObservation(
+	t *testing.T,
+	target providers.RuntimeTarget,
+	observation providers.RuntimeObservation,
+) {
+	t.Helper()
+	if observation.MachineID != target.MachineID ||
+		observation.ProviderResourceID != target.ProviderResourceID ||
+		!observation.State.Valid() || observation.State == providers.RuntimeStateUnknown {
+		t.Fatalf("unexpected live runtime observation: %+v", observation)
+	}
 }

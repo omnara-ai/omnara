@@ -95,3 +95,42 @@ func TestDaytonaRESTClientUsesMainAndToolboxAPIs(t *testing.T) {
 		t.Fatalf("execute session = %+v error %v", executed, err)
 	}
 }
+
+func TestDaytonaRESTClientListsSandboxesWithCursorAndStateFilters(t *testing.T) {
+	nextCursor := "next-page"
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/sandbox" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		query := r.URL.Query()
+		if query.Get("cursor") != "current-page" || query.Get("limit") != "200" {
+			t.Fatalf("pagination query = %q", r.URL.RawQuery)
+		}
+		states := query["states"]
+		if len(states) != 2 || states[0] != "started" || states[1] != "stopped" {
+			t.Fatalf("state filters = %#v", states)
+		}
+		_ = json.NewEncoder(w).Encode(sandboxPage{
+			Items:      []sandbox{{ID: "sandbox-1", State: "started"}},
+			NextCursor: &nextCursor,
+		})
+	}))
+	defer server.Close()
+
+	client := newRESTClient(server.URL, "test-token", server.Client())
+	page, err := client.ListSandboxes(context.Background(), listSandboxesQuery{
+		Cursor: "current-page",
+		Limit:  200,
+		States: []sandboxState{sandboxStateStarted, sandboxStateStopped},
+	})
+	if err != nil {
+		t.Fatalf("list sandboxes: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].ID != "sandbox-1" ||
+		page.NextCursor == nil || *page.NextCursor != nextCursor {
+		t.Fatalf("list response = %+v", page)
+	}
+}

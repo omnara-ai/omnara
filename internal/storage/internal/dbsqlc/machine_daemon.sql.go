@@ -2162,6 +2162,7 @@ func (q *Queries) UpdateMachineExecutionDefaults(ctx context.Context, arg Update
 const updateMachineObservation = `-- name: UpdateMachineObservation :exec
 UPDATE machines
 SET last_observed_at = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
     metadata = CASE
       WHEN $1::jsonb = '{}'::jsonb THEN metadata
       ELSE jsonb_set(metadata, '{observed_platform}', $1::jsonb, true)

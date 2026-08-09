@@ -203,6 +203,116 @@ func TestUnikraftRESTClientNameLookupInspectsItemDataWithTopLevelErrors(t *testi
 	}
 }
 
+func TestUnikraftRESTClientBatchLookupUsesLightweightUUIDRequestAndPreservesPartialResults(
+	t *testing.T,
+) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/instances" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		if got := r.URL.Query().Get("details"); got != "false" {
+			t.Fatalf("details query = %q, want false", got)
+		}
+		var lookups []instanceUUIDLookup
+		if err := json.NewDecoder(r.Body).Decode(&lookups); err != nil {
+			t.Fatalf("decode batch lookup: %v", err)
+		}
+		if len(lookups) != 2 || lookups[0].UUID != "uuid-running" ||
+			lookups[1].UUID != "uuid-missing" {
+			t.Fatalf("batch lookup = %+v", lookups)
+		}
+		_, _ = w.Write([]byte(
+			`{"status":"partial_success","errors":[{"status":404}],"data":{"instances":[` +
+				`{"status":"success","uuid":"uuid-running","name":"owned","state":"running"},` +
+				`{"status":"error","uuid":"uuid-missing","error":8}]}}`,
+		))
+	}))
+	defer server.Close()
+
+	client, err := newTestRESTClient(server.URL, "test-token", server.Client())
+	if err != nil {
+		t.Fatalf("new rest client: %v", err)
+	}
+	batch, err := client.GetInstancesByUUIDs(
+		context.Background(),
+		[]string{"uuid-running", "uuid-missing"},
+	)
+	if err != nil {
+		t.Fatalf("get instances by uuid: %v", err)
+	}
+	if batch.Authoritative {
+		t.Fatal("partial-success batch must not be authoritative for exact confirmation")
+	}
+	if len(batch.Instances) != 2 || batch.Instances[0].State != "running" ||
+		batch.Instances[0].Status != "success" ||
+		batch.Instances[1].Error != instanceNotFoundErrorCode {
+		t.Fatalf("batch results = %+v", batch.Instances)
+	}
+}
+
+func TestUnikraftRESTClientUUIDLookupTreatsTypedPartialNotFoundAsMissing(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/instances/uuid-missing" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		_, _ = w.Write([]byte(
+			`{"status":"partial_success","errors":[{"status":404}],"data":{"instances":[` +
+				`{"status":"error","uuid":"uuid-missing","error":8}]}}`,
+		))
+	}))
+	defer server.Close()
+
+	client, err := newTestRESTClient(server.URL, "test-token", server.Client())
+	if err != nil {
+		t.Fatalf("new rest client: %v", err)
+	}
+	_, found, err := client.GetInstanceByUUID(context.Background(), "uuid-missing")
+	if err != nil {
+		t.Fatalf("get instance by uuid: %v", err)
+	}
+	if found {
+		t.Fatal("typed per-item not-found must be classified as missing")
+	}
+}
+
+func TestUnikraftRESTClientUUIDLookupRejectsAmbiguousSuccess(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "missing result", data: `{"instances":[]}`},
+		{
+			name: "duplicate results",
+			data: `{"instances":[` +
+				`{"status":"success","uuid":"uuid-1"},` +
+				`{"status":"success","uuid":"uuid-1"}]}`,
+		},
+		{
+			name: "missing uuid",
+			data: `{"instances":[{"status":"success","state":"running"}]}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"status":"success","data":` + tt.data + `}`))
+			}))
+			defer server.Close()
+
+			client, err := newTestRESTClient(server.URL, "test-token", server.Client())
+			if err != nil {
+				t.Fatalf("new rest client: %v", err)
+			}
+			if _, _, err := client.GetInstanceByUUID(
+				context.Background(),
+				"uuid-1",
+			); err == nil {
+				t.Fatal("ambiguous uuid lookup must fail open with an error")
+			}
+		})
+	}
+}
+
 func TestUnikraftRESTClientRejectsLogicalErrorEnvelope(t *testing.T) {
 	tests := []struct {
 		name string

@@ -35,6 +35,8 @@ Each worker generates a random process UUID at startup and uses it only as its R
 
 Workers grant 90-second runtime-lock leases and renew them automatically. PostgreSQL records the absolute `lease_expires_at` deadline, and maintenance evaluates that stored deadline against PostgreSQL statement time. There is no runtime-lock timeout setting to coordinate across processes.
 
+Runtime protection is fail-open: provider errors or unknown/transitional states never authorize deletion. Discovery first records an anomaly; only a fresh provider read after the confirmation grace can delete the exact resource, and the database rechecks that its daemon is still inactive. Provider outages can therefore extend the nominal discovery-plus-grace window.
+
 ## Database and Redis
 
 | Variable | Purpose | Default | Required |

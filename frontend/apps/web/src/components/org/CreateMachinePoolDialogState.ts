@@ -47,6 +47,7 @@ export interface MachinePoolFormValues {
   /** Secret id; '' until one is selected. */
   secretId: string
   projectGrantIds: string[]
+  runtimeProtectionEnabled: boolean
 }
 
 export const machinePoolFormDefaults: MachinePoolFormValues = {
@@ -68,6 +69,7 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   maxMachineMemoryMb: '',
   secretId: '',
   projectGrantIds: [],
+  runtimeProtectionEnabled: true,
 }
 
 const maxInt32 = 2_147_483_647
@@ -160,6 +162,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     default_machine_env: envFromRows(values.envRows),
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows),
     default_cwd: stringOrUndefined(values.cwd),
+    runtime_protection_enabled: values.runtimeProtectionEnabled,
   }
   const startupScript =
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }

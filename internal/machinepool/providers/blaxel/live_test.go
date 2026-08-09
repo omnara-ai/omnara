@@ -114,6 +114,29 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 	if !found || inspectedResourceID != providerResourceID {
 		t.Fatalf("inspect live blaxel sandbox = (%q, %t), want (%q, true)", inspectedResourceID, found, providerResourceID)
 	}
+	observer, ok := provider.(providers.RuntimeStateObserver)
+	if !ok {
+		t.Fatal("blaxel provider does not implement runtime observation")
+	}
+	runtimeTarget := providers.RuntimeTarget{
+		InstallationID:      testInstallationID(),
+		MachineID:           machineID,
+		ProviderResourceID:  providerResourceID,
+		MachineProvisioning: machineProvisioning,
+	}
+	observation, err := observer.ObserveRuntimeState(ctx, runtimeTarget)
+	if err != nil {
+		t.Fatalf("observe live blaxel sandbox runtime: %v", err)
+	}
+	assertLiveRuntimeObservation(t, runtimeTarget, observation)
+	observations, err := observer.ObserveRuntimeStates(ctx, []providers.RuntimeTarget{runtimeTarget})
+	if err != nil {
+		t.Fatalf("bulk observe live blaxel sandbox runtime: %v", err)
+	}
+	if len(observations) != 1 {
+		t.Fatalf("bulk live blaxel runtime observations = %d, want 1", len(observations))
+	}
+	assertLiveRuntimeObservation(t, runtimeTarget, observations[0])
 	if err := provider.DeleteMachine(
 		ctx,
 		testInstallationID(),
@@ -124,4 +147,17 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 		t.Fatalf("delete live blaxel sandbox: %v", err)
 	}
 	deleted = true
+}
+
+func assertLiveRuntimeObservation(
+	t *testing.T,
+	target providers.RuntimeTarget,
+	observation providers.RuntimeObservation,
+) {
+	t.Helper()
+	if observation.MachineID != target.MachineID ||
+		observation.ProviderResourceID != target.ProviderResourceID ||
+		!observation.State.Valid() || observation.State == providers.RuntimeStateUnknown {
+		t.Fatalf("unexpected live runtime observation: %+v", observation)
+	}
 }

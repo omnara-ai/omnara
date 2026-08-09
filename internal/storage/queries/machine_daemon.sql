@@ -158,6 +158,7 @@ RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_
 -- lifecycle_state = 'active' excludes soft-deleted machines.
 UPDATE machines
 SET last_observed_at = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
     metadata = CASE
       WHEN sqlc.arg(observed_platform)::jsonb = '{}'::jsonb THEN metadata
       ELSE jsonb_set(metadata, '{observed_platform}', sqlc.arg(observed_platform)::jsonb, true)

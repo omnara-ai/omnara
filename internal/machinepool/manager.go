@@ -26,10 +26,11 @@ const (
 )
 
 type Manager struct {
-	Execution *executionstore.Store
-	Identity  *identitystore.Store
-	Catalog   Catalog
-	PublicURL string
+	Execution                  *executionstore.Store
+	Identity                   *identitystore.Store
+	Catalog                    Catalog
+	PublicURL                  string
+	runtimeReconciliationState *runtimeReconciliationState
 }
 
 func NewManager(
@@ -38,10 +39,11 @@ func NewManager(
 	publicURL string,
 ) *Manager {
 	return &Manager{
-		Execution: execution,
-		Identity:  identity,
-		Catalog:   DefaultCatalog(),
-		PublicURL: publicURL,
+		Execution:                  execution,
+		Identity:                   identity,
+		Catalog:                    DefaultCatalog(),
+		PublicURL:                  publicURL,
+		runtimeReconciliationState: newRuntimeReconciliationState(),
 	}
 }
 
@@ -58,7 +60,8 @@ func (m Manager) ValidateDefaultMachinePool(defaultPoolTemplate executionstore.D
 		return fmt.Errorf("default machine pool: %w", err)
 	}
 	policy := executionstore.MachinePoolProviderPolicy{
-		DefaultProvisioning: defaultMachineProvisioning,
+		DefaultProvisioning:      defaultMachineProvisioning,
+		RuntimeProtectionEnabled: true,
 		ResourceLimits: executionstore.MachineResourceLimits{
 			MaxTotalCPU:        defaultPoolTemplate.MaxTotalCPU,
 			MaxTotalMemoryMB:   defaultPoolTemplate.MaxTotalMemoryMB,
@@ -332,13 +335,27 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 	if err != nil || !claimed {
 		return err
 	}
+	_, err = m.deleteClaimedMachine(ctx, claim, nil)
+	return err
+}
+
+func (m Manager) deleteClaimedMachine(
+	ctx context.Context,
+	claim executionstore.PoolMachineDeletionClaim,
+	confirmedProvider providers.Provider,
+) (bool, error) {
 	machine := claim.Machine
 	if machine.ProviderResourceID == "" && machine.ProviderProvisionAttemptedAt == nil {
-		return m.Execution.CompletePoolMachineDeletion(ctx, machine.OrgID, machine.ID, machine.DeleteAttempts)
+		return false, m.Execution.CompletePoolMachineDeletion(
+			ctx,
+			machine.OrgID,
+			machine.ID,
+			machine.DeleteAttempts,
+		)
 	}
 	machineProvisioning, err := executionstore.MachineProvisioningFromRecord(machine)
 	if err != nil {
-		return m.markDeleteFailed(
+		return false, m.markDeleteFailed(
 			ctx,
 			machine,
 			deleteBackoff(machine.DeleteAttempts),
@@ -347,20 +364,29 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 			err,
 		)
 	}
-	provider, reasonCode, reasonMessage, err := m.providerForMachine(ctx, machine, machineProvisioning, true)
-	if err != nil {
-		return m.markDeleteFailed(
+	provider := confirmedProvider
+	if provider == nil {
+		var reasonCode, reasonMessage string
+		provider, reasonCode, reasonMessage, err = m.providerForMachine(
 			ctx,
 			machine,
-			deleteBackoff(machine.DeleteAttempts),
-			reasonCode,
-			reasonMessage,
-			err,
+			machineProvisioning,
+			true,
 		)
+		if err != nil {
+			return false, m.markDeleteFailed(
+				ctx,
+				machine,
+				deleteBackoff(machine.DeleteAttempts),
+				reasonCode,
+				reasonMessage,
+				err,
+			)
+		}
 	}
 	installationID, err := m.Identity.GetInstallationID(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	resourceID := machine.ProviderResourceID
 	if resourceID == "" {
@@ -374,7 +400,7 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 		)
 		cancel()
 		if err != nil {
-			return m.markDeleteFailed(
+			return true, m.markDeleteFailed(
 				ctx,
 				machine,
 				deleteBackoff(machine.DeleteAttempts),
@@ -386,7 +412,7 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 		if found {
 			if providerResourceID == "" {
 				err := errors.New("provider inspection returned an empty resource id")
-				return m.markDeleteFailed(
+				return true, m.markDeleteFailed(
 					ctx,
 					machine,
 					deleteBackoff(machine.DeleteAttempts),
@@ -405,16 +431,21 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 				},
 			)
 			if err != nil {
-				return err
+				return false, err
 			}
 			resourceID = observation.ProviderResourceID
 			machine.ProviderResourceID = observation.ProviderResourceID
 			machine.UpdatedAt = observation.UpdatedAt
 		} else if claim.CanFinalizeMissingProviderResource {
-			return m.Execution.CompletePoolMachineDeletion(ctx, machine.OrgID, machine.ID, machine.DeleteAttempts)
+			return false, m.Execution.CompletePoolMachineDeletion(
+				ctx,
+				machine.OrgID,
+				machine.ID,
+				machine.DeleteAttempts,
+			)
 		} else {
 			err := errors.New("provider resource was not found by allocation name")
-			return m.markDeleteFailed(
+			return false, m.markDeleteFailed(
 				ctx,
 				machine,
 				deleteBackoff(machine.DeleteAttempts),
@@ -434,7 +465,7 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 	)
 	cancel()
 	if err != nil {
-		return m.markDeleteFailed(
+		return true, m.markDeleteFailed(
 			ctx,
 			machine,
 			deleteBackoff(machine.DeleteAttempts),
@@ -443,7 +474,12 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 			err,
 		)
 	}
-	return m.Execution.CompletePoolMachineDeletion(ctx, machine.OrgID, machine.ID, machine.DeleteAttempts)
+	return false, m.Execution.CompletePoolMachineDeletion(
+		ctx,
+		machine.OrgID,
+		machine.ID,
+		machine.DeleteAttempts,
+	)
 }
 
 func (m Manager) providerForMachine(

@@ -126,7 +126,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 	}
 	processName := daemonprotocol.BlaxelAwakeProcessName(4242)
 	awakeProcess, found := api.processesByName[result.ProviderResourceID+"/"+processName]
-	if !found || processStatus(awakeProcess.Status) != processStatusRunning ||
+	if !found || normalizeSandboxProcessStatus(awakeProcess.Status) != processStatusRunning ||
 		!awakeProcess.KeepAlive {
 		t.Fatalf("initial awake process = %+v found=%t", awakeProcess, found)
 	}
@@ -375,7 +375,7 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 						"omnara-machine":      machineID.String(),
 					},
 				},
-				Status: status,
+				Status: sandboxDeploymentStatus(status),
 			}
 
 			_, err = provider.ProvisionMachine(
@@ -455,7 +455,7 @@ func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 						"omnara-machine":      machineID.String(),
 					},
 				},
-				Status: test.status,
+				Status: sandboxDeploymentStatus(test.status),
 			}
 
 			_, err = provider.ProvisionMachine(
@@ -494,7 +494,7 @@ func TestBlaxelProviderProvisionRejectsNameCollision(t *testing.T) {
 						"omnara-machine":      "other",
 					},
 				},
-				Status: status,
+				Status: sandboxDeploymentStatus(status),
 			}
 
 			_, err = provider.ProvisionMachine(
@@ -550,7 +550,7 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 				}
 				api.sandboxesByName[name] = sandbox{
 					Metadata: resourceMetadata{Name: name, Labels: labels},
-					Status:   test.status,
+					Status:   sandboxDeploymentStatus(test.status),
 				}
 			}
 			provider := newTestProvider(api)
@@ -668,7 +668,7 @@ type fakeAPI struct {
 	createErr        error
 	startProcessErr  error
 	wakeErr          error
-	processStatus    string
+	processStatus    sandboxProcessStatus
 	processKeepAlive *bool
 }
 
@@ -690,8 +690,8 @@ func (f *fakeAPI) CreateSandbox(
 	}
 	if existing, exists := f.sandboxesByName[request.Metadata.Name]; exists {
 		if slices.Contains(
-			[]string{"FAILED", "TERMINATED", "TERMINATING"},
-			sandboxStatus(existing.Status),
+			[]sandboxDeploymentStatus{"FAILED", "TERMINATED", "TERMINATING"},
+			normalizeSandboxDeploymentStatus(existing.Status),
 		) {
 			return sandbox{}, apiError{StatusCode: http.StatusConflict}
 		}
@@ -743,7 +743,7 @@ func (f *fakeAPI) StartSandboxProcess(
 	}
 	f.processesByName[key] = process
 	if request.Name == daemonProcessName && !request.KeepAlive &&
-		processStatus(process.Status) == processStatusRunning {
+		normalizeSandboxProcessStatus(process.Status) == processStatusRunning {
 		processName := daemonprotocol.BlaxelAwakeProcessName(4242)
 		f.processesByName[target.Metadata.Name+"/"+processName] = sandboxProcess{
 			PID: "4243", Status: processStatusRunning, KeepAlive: true,

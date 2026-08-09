@@ -10,7 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
@@ -20,6 +26,7 @@ interface EditMachinePoolState {
   name: string
   description: string
   maxMachines: string
+  runtimeProtectionEnabled: boolean
   status: SubmitStatus
 }
 
@@ -39,6 +46,7 @@ export function EditMachinePoolDialog({
     name: pool.name,
     description: pool.description,
     maxMachines: String(pool.max_total_machines),
+    runtimeProtectionEnabled: pool.runtime_protection_enabled,
     status: idle,
   })
   const errorMessage = statusError(state.status)
@@ -52,6 +60,7 @@ export function EditMachinePoolDialog({
         name: state.name.trim(),
         description: state.description.trim(),
         max_total_machines: Number(state.maxMachines),
+        runtime_protection_enabled: state.runtimeProtectionEnabled,
       })
       onOpenChange(false)
     } catch (err) {
@@ -78,6 +87,27 @@ export function EditMachinePoolDialog({
                   setState((prev) => ({ ...prev, name: event.target.value }))
                 }}
               />
+            </Field>
+            <Field orientation="horizontal">
+              <input
+                id="edit-mpool-runtime-protection"
+                type="checkbox"
+                className="size-4"
+                checked={state.runtimeProtectionEnabled}
+                onChange={(event) => {
+                  setState((prev) => ({
+                    ...prev,
+                    runtimeProtectionEnabled: event.target.checked,
+                  }))
+                }}
+              />
+              <FieldContent>
+                <FieldLabel htmlFor="edit-mpool-runtime-protection">Runtime protection</FieldLabel>
+                <FieldDescription>
+                  Delete a sandbox if its provider remains running after its Omnara daemon becomes
+                  inactive.
+                </FieldDescription>
+              </FieldContent>
             </Field>
             <Field>
               <FieldLabel>Description</FieldLabel>

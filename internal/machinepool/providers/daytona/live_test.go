@@ -111,4 +111,45 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("inspect live daytona sandbox = found %v error %v", found, err)
 	}
+	observer, ok := provider.(providers.RuntimeStateObserver)
+	if !ok {
+		t.Fatal("daytona provider does not implement runtime observation")
+	}
+	runtimeTarget := providers.RuntimeTarget{
+		InstallationID:      installationID,
+		MachineID:           machineID,
+		ProviderResourceID:  resourceID.ProviderResourceID,
+		MachineProvisioning: provisioning,
+	}
+	observationCtx, observationCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer observationCancel()
+	observation, err := observer.ObserveRuntimeState(observationCtx, runtimeTarget)
+	if err != nil {
+		t.Fatalf("observe live daytona sandbox runtime: %v", err)
+	}
+	assertLiveRuntimeObservation(t, runtimeTarget, observation)
+	observations, err := observer.ObserveRuntimeStates(
+		observationCtx,
+		[]providers.RuntimeTarget{runtimeTarget},
+	)
+	if err != nil {
+		t.Fatalf("bulk observe live daytona sandbox runtime: %v", err)
+	}
+	if len(observations) != 1 {
+		t.Fatalf("bulk live daytona runtime observations = %d, want 1", len(observations))
+	}
+	assertLiveRuntimeObservation(t, runtimeTarget, observations[0])
+}
+
+func assertLiveRuntimeObservation(
+	t *testing.T,
+	target providers.RuntimeTarget,
+	observation providers.RuntimeObservation,
+) {
+	t.Helper()
+	if observation.MachineID != target.MachineID ||
+		observation.ProviderResourceID != target.ProviderResourceID ||
+		!observation.State.Valid() || observation.State == providers.RuntimeStateUnknown {
+		t.Fatalf("unexpected live runtime observation: %+v", observation)
+	}
 }

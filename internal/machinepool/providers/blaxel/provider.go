@@ -17,13 +17,27 @@ import (
 )
 
 const (
-	daemonProcessName               = "omnara-daemon"
-	wakePortName                    = "omnara-wake"
-	wakePortProtocol                = "HTTP"
-	processStatusRunning            = "running"
+	daemonProcessName                         = "omnara-daemon"
+	wakePortName                              = "omnara-wake"
+	wakePortProtocol                          = "HTTP"
+	processStatusRunning sandboxProcessStatus = "running"
+
+	sandboxDeploymentDeployed    sandboxDeploymentStatus = "DEPLOYED"
+	sandboxDeploymentDeleting    sandboxDeploymentStatus = "DELETING"
+	sandboxDeploymentFailed      sandboxDeploymentStatus = "FAILED"
+	sandboxDeploymentTerminated  sandboxDeploymentStatus = "TERMINATED"
+	sandboxDeploymentDeactivated sandboxDeploymentStatus = "DEACTIVATED"
+
+	sandboxRuntimeRunning sandboxRuntimeState = "RUNNING"
+	sandboxRuntimeStandby sandboxRuntimeState = "STANDBY"
+
 	provisioningTimeout             = 15 * time.Second
 	initialAwakeProcessPollInterval = 100 * time.Millisecond
 )
+
+type sandboxDeploymentStatus string
+type sandboxRuntimeState string
+type sandboxProcessStatus string
 
 type provider struct {
 	api             apiClient
@@ -149,7 +163,7 @@ func (p *provider) ProvisionMachine(
 			name,
 		)
 	}
-	if sandboxStatus(target.Status) != "DEPLOYED" {
+	if normalizeSandboxDeploymentStatus(target.Status) != sandboxDeploymentDeployed {
 		return result, fmt.Errorf("blaxel sandbox %q is not ready with status %q", name, target.Status)
 	}
 	daemonProcess, err := ensureDaemonProcess(
@@ -192,7 +206,7 @@ func ensureDaemonProcess(
 	if err != nil {
 		return sandboxProcess{}, err
 	}
-	if found && processStatus(existing.Status) == processStatusRunning {
+	if found && normalizeSandboxProcessStatus(existing.Status) == processStatusRunning {
 		if err := validateDaemonProcessKeepAlive(existing, expectedKeepAlive); err != nil {
 			return sandboxProcess{}, err
 		}
@@ -207,7 +221,7 @@ func ensureDaemonProcess(
 	})
 	if startErr != nil {
 		existing, found, getErr := api.GetSandboxProcess(ctx, target, daemonProcessName)
-		if getErr == nil && found && processStatus(existing.Status) == processStatusRunning {
+		if getErr == nil && found && normalizeSandboxProcessStatus(existing.Status) == processStatusRunning {
 			if err := validateDaemonProcessKeepAlive(existing, expectedKeepAlive); err != nil {
 				return sandboxProcess{}, err
 			}
@@ -215,7 +229,7 @@ func ensureDaemonProcess(
 		}
 		return sandboxProcess{}, startErr
 	}
-	if processStatus(process.Status) != processStatusRunning {
+	if normalizeSandboxProcessStatus(process.Status) != processStatusRunning {
 		return sandboxProcess{}, fmt.Errorf("blaxel daemon process started with status %q", process.Status)
 	}
 	if err := validateDaemonProcessKeepAlive(process, expectedKeepAlive); err != nil {
@@ -247,7 +261,7 @@ func waitForInitialAwakeProcess(
 			return err
 		}
 		if found {
-			if processStatus(process.Status) == processStatusRunning && process.KeepAlive {
+			if normalizeSandboxProcessStatus(process.Status) == processStatusRunning && process.KeepAlive {
 				return nil
 			}
 			return fmt.Errorf(
@@ -349,14 +363,25 @@ func sandboxOwnedBy(
 		target.Metadata.Labels["omnara-machine"] == machineID.String()
 }
 
-func sandboxReplaceable(status string) bool {
-	return slices.Contains([]string{"FAILED", "TERMINATED", "DEACTIVATED"}, sandboxStatus(status))
+func sandboxReplaceable(status sandboxDeploymentStatus) bool {
+	return slices.Contains(
+		[]sandboxDeploymentStatus{
+			sandboxDeploymentFailed,
+			sandboxDeploymentTerminated,
+			sandboxDeploymentDeactivated,
+		},
+		normalizeSandboxDeploymentStatus(status),
+	)
 }
 
-func sandboxStatus(status string) string {
-	return strings.ToUpper(strings.TrimSpace(status))
+func normalizeSandboxDeploymentStatus(status sandboxDeploymentStatus) sandboxDeploymentStatus {
+	return sandboxDeploymentStatus(strings.ToUpper(strings.TrimSpace(string(status))))
 }
 
-func processStatus(status string) string {
-	return strings.ToLower(strings.TrimSpace(status))
+func normalizeSandboxRuntimeState(state sandboxRuntimeState) sandboxRuntimeState {
+	return sandboxRuntimeState(strings.ToUpper(strings.TrimSpace(string(state))))
+}
+
+func normalizeSandboxProcessStatus(status sandboxProcessStatus) sandboxProcessStatus {
+	return sandboxProcessStatus(strings.ToLower(strings.TrimSpace(string(status))))
 }

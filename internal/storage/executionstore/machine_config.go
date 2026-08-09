@@ -24,7 +24,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const MaxResolvedEnvironmentBytes = 1024 * 1024
+const (
+	MaxResolvedEnvironmentBytes   = 1024 * 1024
+	MaxResolvedEnvironmentEntries = 4096
+)
 
 type MachinePoolResources struct {
 	CPU      int64
@@ -43,9 +46,10 @@ type MachineResourceFacts struct {
 }
 
 type MachinePoolProviderPolicy struct {
-	DefaultProvisioning MachineProvisioningConfig
-	ResourceLimits      MachineResourceLimits
-	ProviderConfig      json.RawMessage
+	DefaultProvisioning      MachineProvisioningConfig
+	ResourceLimits           MachineResourceLimits
+	ProviderConfig           json.RawMessage
+	RuntimeProtectionEnabled bool
 }
 
 type MachineProvisioningOverlay struct {
@@ -243,10 +247,32 @@ func (s *Store) ResolveMachineProviderAuthToken(
 	providerAuthSecretID ID,
 	providerAuthEnvVar string,
 ) (string, error) {
+	credential, err := s.ResolveMachineProviderCredential(
+		ctx,
+		orgID,
+		managementKind,
+		providerAuthSecretID,
+		providerAuthEnvVar,
+	)
+	return credential.Token, err
+}
+
+type MachineProviderCredential struct {
+	Token     string
+	VersionID ID
+}
+
+func (s *Store) ResolveMachineProviderCredential(
+	ctx context.Context,
+	orgID ID,
+	managementKind management.Kind,
+	providerAuthSecretID ID,
+	providerAuthEnvVar string,
+) (MachineProviderCredential, error) {
 	switch managementKind {
 	case management.Tenant:
 		if isNilID(providerAuthSecretID) {
-			return "", errors.New("provider_auth_secret_id is required")
+			return MachineProviderCredential{}, errors.New("provider_auth_secret_id is required")
 		}
 		credential, err := s.secrets.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
 			OrgID:    orgID,
@@ -255,23 +281,26 @@ func (s *Store) ResolveMachineProviderAuthToken(
 		})
 		if err != nil {
 			if errors.Is(err, storeerr.ErrNotFound) {
-				return "", errors.New("machine pool provider auth secret is unavailable")
+				return MachineProviderCredential{}, errors.New("machine pool provider auth secret is unavailable")
 			}
-			return "", err
+			return MachineProviderCredential{}, err
 		}
 		token := strings.TrimSpace(credential.Payload[secrets.KeyValue])
 		if token == "" {
-			return "", errors.New("machine pool provider auth secret value is required")
+			return MachineProviderCredential{}, errors.New("machine pool provider auth secret value is required")
 		}
-		return token, nil
+		return MachineProviderCredential{Token: token, VersionID: credential.CurrentVersionID}, nil
 	case management.Cluster:
 		token := strings.TrimSpace(os.Getenv(providerAuthEnvVar))
 		if token == "" {
-			return "", fmt.Errorf("provider auth env var %s is required", providerAuthEnvVar)
+			return MachineProviderCredential{}, fmt.Errorf("provider auth env var %s is required", providerAuthEnvVar)
 		}
-		return token, nil
+		return MachineProviderCredential{Token: token}, nil
 	default:
-		return "", fmt.Errorf("machine pool management kind %q is invalid", managementKind)
+		return MachineProviderCredential{}, fmt.Errorf(
+			"machine pool management kind %q is invalid",
+			managementKind,
+		)
 	}
 }
 
@@ -287,7 +316,8 @@ func (s *Store) validatePoolDefaultsTx(
 	return storeerr.InvalidRequest(s.machinePoolProviders.ValidatePool(
 		input.Provider,
 		MachinePoolProviderPolicy{
-			DefaultProvisioning: defaults.Provisioning,
+			DefaultProvisioning:      defaults.Provisioning,
+			RuntimeProtectionEnabled: runtimeProtectionEnabled(input.RuntimeProtectionEnabled),
 			ResourceLimits: MachineResourceLimits{
 				MaxTotalCPU:        input.MaxTotalCPU,
 				MaxTotalMemoryMB:   input.MaxTotalMemoryMB,
@@ -375,6 +405,9 @@ func validateMachineProvisioning(machineProvisioning MachineProvisioningConfig) 
 }
 
 func validateMachineEnvironment(environment MachineEnvironment) error {
+	if err := validateEnvironmentEntryCount(len(environment.Env), len(environment.SecretEnv)); err != nil {
+		return err
+	}
 	envNames, err := validateEnvNames("env", environment.Env)
 	if err != nil {
 		return err
@@ -402,11 +435,24 @@ func validateMachineEnvironment(environment MachineEnvironment) error {
 }
 
 func validateMachineEnvironmentOverlay(overlay MachineEnvironmentOverlay) error {
+	if err := validateEnvironmentEntryCount(len(overlay.Env), len(overlay.SecretEnv)); err != nil {
+		return err
+	}
 	if _, err := validateEnvNames("env", overlay.Env); err != nil {
 		return err
 	}
 	if _, err := validateEnvNames("secret_env", overlay.SecretEnv); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateEnvironmentEntryCount(envEntries, secretEnvEntries int) error {
+	if envEntries+secretEnvEntries > MaxResolvedEnvironmentEntries {
+		return fmt.Errorf(
+			"env and secret_env may contain at most %d entries combined",
+			MaxResolvedEnvironmentEntries,
+		)
 	}
 	return nil
 }

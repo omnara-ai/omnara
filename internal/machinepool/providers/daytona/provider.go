@@ -18,7 +18,33 @@ import (
 const (
 	daemonSessionName   = "omnara-daemon"
 	provisioningTimeout = time.Minute
+
+	sandboxStateCreating         sandboxState = "creating"
+	sandboxStateRestoring        sandboxState = "restoring"
+	sandboxStateDestroyed        sandboxState = "destroyed"
+	sandboxStateDestroying       sandboxState = "destroying"
+	sandboxStateStarted          sandboxState = "started"
+	sandboxStateStopped          sandboxState = "stopped"
+	sandboxStateStarting         sandboxState = "starting"
+	sandboxStateStopping         sandboxState = "stopping"
+	sandboxStateError            sandboxState = "error"
+	sandboxStateBuildFailed      sandboxState = "build_failed"
+	sandboxStatePendingBuild     sandboxState = "pending_build"
+	sandboxStateBuildingSnapshot sandboxState = "building_snapshot"
+	sandboxStateUnknown          sandboxState = "unknown"
+	sandboxStatePullingSnapshot  sandboxState = "pulling_snapshot"
+	sandboxStateArchived         sandboxState = "archived"
+	sandboxStateArchiving        sandboxState = "archiving"
+	sandboxStateResizing         sandboxState = "resizing"
+	sandboxStateSnapshotting     sandboxState = "snapshotting"
+	sandboxStateForking          sandboxState = "forking"
+	sandboxStatePausing          sandboxState = "pausing"
+	sandboxStatePaused           sandboxState = "paused"
+	sandboxStateResuming         sandboxState = "resuming"
+	snapshotStateActive                       = "active"
 )
+
+type sandboxState string
 
 type provider struct {
 	api             apiClient
@@ -67,7 +93,7 @@ func (p *provider) PrepareProvisioning(
 			options.Snapshot,
 		)
 	}
-	if state(snapshot.State) != "active" {
+	if state(snapshot.State) != snapshotStateActive {
 		return executionstore.MachineResourceFacts{}, fmt.Errorf(
 			"daytona snapshot %q is not active with state %q",
 			options.Snapshot,
@@ -162,7 +188,7 @@ func (p *provider) ProvisionMachine(
 			}
 			result.ProviderResourceID = target.ID
 		}
-		if state(target.State) == "started" {
+		if normalizeSandboxState(target.State) == sandboxStateStarted {
 			break
 		}
 		if sandboxReplaceable(target.State) {
@@ -302,11 +328,21 @@ func sandboxOwnedBy(target sandbox, name string) bool {
 	return target.Name == name && target.Labels["omnara-machine"] == name
 }
 
-func sandboxReplaceable(sandboxState string) bool {
+func sandboxReplaceable(value sandboxState) bool {
 	return slices.Contains(
-		[]string{"archived", "build_failed", "destroyed", "error", "stopped"},
-		state(sandboxState),
+		[]sandboxState{
+			sandboxStateArchived,
+			sandboxStateBuildFailed,
+			sandboxStateDestroyed,
+			sandboxStateError,
+			sandboxStateStopped,
+		},
+		normalizeSandboxState(value),
 	)
+}
+
+func normalizeSandboxState(value sandboxState) sandboxState {
+	return sandboxState(state(string(value)))
 }
 
 func state(value string) string {

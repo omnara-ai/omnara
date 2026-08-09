@@ -28,6 +28,8 @@ type providerOptions struct {
 
 type Definition struct{}
 
+func (Definition) SupportsRuntimeObservation() bool { return true }
+
 func resourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
 		CPU: providers.MachineResourceContract{

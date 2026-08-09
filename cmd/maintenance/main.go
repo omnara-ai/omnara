@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -22,7 +23,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
-const runtimeLockReapBatchSize int32 = 100
+const (
+	runtimeLockReapBatchSize         int32 = 100
+	providerRuntimeDiscoveryInterval       = 5 * time.Minute
+	providerRuntimeRecheckInterval         = 30 * time.Second
+)
 
 func main() {
 	logger := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
@@ -105,11 +110,46 @@ func main() {
 		metrics.ReadyAll(store.Ping, redisClient.Ping),
 	)
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicURL)
+	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
 
 	machineLoopDone := make(chan struct{})
 	go func() {
 		defer close(machineLoopDone)
 		runMachinePoolMaintenanceLoop(ctx, logger, machinePoolManager, cfg.MaintenanceInterval)
+	}()
+	runtimeDiscoveryDone := make(chan struct{})
+	go func() {
+		defer close(runtimeDiscoveryDone)
+		runProviderRuntimeMaintenanceLoop(
+			ctx,
+			logger,
+			runtimeRecorder,
+			providerRuntimeDiscoveryInterval,
+			metrics.ProviderRuntimeOperationDiscovery,
+			func(ctx context.Context) (machinepool.RuntimeReconciliationStats, error) {
+				return machinePoolManager.DiscoverProviderRuntimeMismatches(
+					ctx,
+					machinepool.RuntimeReconciliationConfig{},
+				)
+			},
+		)
+	}()
+	runtimeRecheckDone := make(chan struct{})
+	go func() {
+		defer close(runtimeRecheckDone)
+		runProviderRuntimeMaintenanceLoop(
+			ctx,
+			logger,
+			runtimeRecorder,
+			providerRuntimeRecheckInterval,
+			metrics.ProviderRuntimeOperationConfirmation,
+			func(ctx context.Context) (machinepool.RuntimeReconciliationStats, error) {
+				return machinePoolManager.ConfirmProviderRuntimeMismatches(
+					ctx,
+					machinepool.RuntimeReconciliationConfig{},
+				)
+			},
+		)
 	}()
 
 	exitCode := runCoreMaintenanceLoop(
@@ -122,9 +162,95 @@ func main() {
 	)
 	cancel()
 	<-machineLoopDone
+	<-runtimeDiscoveryDone
+	<-runtimeRecheckDone
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func runProviderRuntimeMaintenanceLoop(
+	ctx context.Context,
+	log *slog.Logger,
+	recorder *metrics.ProviderRuntimeRecorder,
+	interval time.Duration,
+	operation metrics.ProviderRuntimeOperation,
+	run func(context.Context) (machinepool.RuntimeReconciliationStats, error),
+) {
+	for {
+		stats, err := runProviderRuntimeMaintenanceTick(ctx, log, operation, run)
+		recordProviderRuntimePass(recorder, operation, stats, err)
+		if err != nil && ctx.Err() == nil {
+			log.Error("provider runtime reconciliation", "operation", operation, "error", err, "stats", stats)
+		} else if stats.Targets > 0 || stats.MarkersSet > 0 || stats.DeletionClaims > 0 {
+			log.Info("provider runtime reconciliation", "operation", operation, "stats", stats)
+		}
+		timer := time.NewTimer(jitteredMaintenanceDelay(interval))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func runProviderRuntimeMaintenanceTick(
+	ctx context.Context,
+	log *slog.Logger,
+	operation metrics.ProviderRuntimeOperation,
+	run func(context.Context) (machinepool.RuntimeReconciliationStats, error),
+) (stats machinepool.RuntimeReconciliationStats, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("provider runtime %s reconciliation panicked: %v", operation, recovered)
+			log.Error(
+				"provider runtime reconciliation tick panicked",
+				"operation", operation,
+				"error", recovered,
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
+	return run(ctx)
+}
+
+func recordProviderRuntimePass(
+	recorder *metrics.ProviderRuntimeRecorder,
+	operation metrics.ProviderRuntimeOperation,
+	stats machinepool.RuntimeReconciliationStats,
+	err error,
+) {
+	result := metrics.ProviderRuntimeResultSuccess
+	if err != nil {
+		result = metrics.ProviderRuntimeResultError
+	}
+	recorder.RecordPass(operation, result)
+	for event, count := range map[metrics.ProviderRuntimeEvent]int{
+		metrics.ProviderRuntimeEventPages:              stats.Pages,
+		metrics.ProviderRuntimeEventScopes:             stats.Scopes,
+		metrics.ProviderRuntimeEventScopeCooldownSkips: stats.ScopesSkipped,
+		metrics.ProviderRuntimeEventTargets:            stats.Targets,
+		metrics.ProviderRuntimeEventObservations:       stats.Observed,
+		metrics.ProviderRuntimeEventProviderErrors:     stats.ProviderErrors,
+		metrics.ProviderRuntimeEventMarkersSet:         stats.MarkersSet,
+		metrics.ProviderRuntimeEventMarkersCleared:     stats.MarkersCleared,
+		metrics.ProviderRuntimeEventConfirmations:      stats.Confirmations,
+		metrics.ProviderRuntimeEventDeletionClaims:     stats.DeletionClaims,
+		metrics.ProviderRuntimeEventDeletionClaimRaces: stats.DeletionClaimRaces,
+	} {
+		recorder.RecordEvents(operation, event, count)
+	}
+}
+
+func jitteredMaintenanceDelay(interval time.Duration) time.Duration {
+	spread := interval / 10
+	if spread <= 0 {
+		return interval
+	}
+	return interval - spread + time.Duration(rand.Int64N(int64(2*spread)+1))
 }
 
 func runCoreMaintenanceLoop(

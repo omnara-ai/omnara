@@ -1919,6 +1919,10 @@ export type CreateMachinePoolRequestBase = {
         [key: string]: unknown;
     };
     provider_auth_secret_id: SecretId;
+    /**
+     * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to true when omitted.
+     */
+    runtime_protection_enabled?: boolean;
     max_total_machines: number;
     max_total_cpu?: number;
     max_total_memory_mb?: number;
@@ -1954,6 +1958,10 @@ export type UpdateMachinePoolRequest = {
         [key: string]: unknown;
     };
     provider_auth_secret_id?: SecretId;
+    /**
+     * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
+     */
+    runtime_protection_enabled?: boolean;
     max_total_machines?: number;
     max_total_cpu?: number | null;
     max_total_memory_mb?: number | null;
@@ -1993,6 +2001,10 @@ export type MachinePool = {
     provider_config: {
         [key: string]: unknown;
     };
+    /**
+     * Whether Omnara deletes this pool's machines when the provider remains running after the daemon becomes inactive.
+     */
+    runtime_protection_enabled: boolean;
     max_total_machines: number;
     max_total_cpu: number | null;
     max_total_memory_mb: number | null;

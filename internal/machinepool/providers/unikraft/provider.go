@@ -223,11 +223,11 @@ func (p *provider) InspectMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
-	options, err := parseProviderOptions(machineProvisioning.ProviderOptions)
-	if err != nil {
-		return "", false, err
+	metro, valid := existingMachineMetro(machineProvisioning)
+	if !valid {
+		return "", false, errors.New("unikraft stored machine config requires a valid metro")
 	}
-	api := p.apiForMetro(options.Metro)
+	api := p.apiForMetro(metro)
 	expectedName, err := providers.MachineAllocationName(installationID, machineID)
 	if err != nil {
 		return "", false, err
@@ -274,9 +274,9 @@ func (p *provider) DeleteMachine(
 	if err != nil || !found {
 		return err
 	}
-	options, err := parseProviderOptions(machineProvisioning.ProviderOptions)
-	if err != nil {
-		return err
+	metro, valid := existingMachineMetro(machineProvisioning)
+	if !valid {
+		return errors.New("unikraft stored machine config requires a valid metro")
 	}
-	return p.apiForMetro(options.Metro).DeleteInstanceByUUID(ctx, resourceID)
+	return p.apiForMetro(metro).DeleteInstanceByUUID(ctx, resourceID)
 }

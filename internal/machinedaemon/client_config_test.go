@@ -131,3 +131,28 @@ func TestProcessRunnerEnvAppliesConfiguredEnvironment(t *testing.T) {
 		t.Fatalf("process runner env = %q, want %q", got, want)
 	}
 }
+
+func TestWorkloadProcessEnvRemovesAllOmnaraVariables(t *testing.T) {
+	t.Parallel()
+
+	env := workloadProcessEnv(
+		[]string{
+			"HOME=/tmp/home",
+			"OMNARA_HOME=/tmp/home/.omnara",
+			"omnara_machine_token=ambient-secret",
+		},
+		"/bin",
+		map[string]string{
+			"APP_ENV":            "test",
+			"OmNaRa_Api_Url":     "https://forbidden.example",
+			"OMNARA_TEST_SECRET": "explicit-secret",
+		},
+	)
+	got := strings.Join(env, "\n")
+	if strings.Contains(strings.ToUpper(got), "OMNARA_") {
+		t.Fatalf("workload environment contains reserved Omnara variables: %q", got)
+	}
+	if !strings.Contains(got, "APP_ENV=test") || !strings.Contains(got, "HOME=/tmp/home") {
+		t.Fatalf("workload environment dropped ordinary variables: %q", got)
+	}
+}

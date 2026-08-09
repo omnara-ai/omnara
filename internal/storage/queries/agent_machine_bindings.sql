@@ -197,6 +197,7 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_code = sqlc.narg(lifecycle_reason_code),
     lifecycle_reason_message = sqlc.arg(lifecycle_reason_message),
     next_reconcile_after = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
     updated_at = statement_timestamp()
 FROM agent_machine_bindings binding
 WHERE binding.project_id = sqlc.arg(project_id)
@@ -219,6 +220,7 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_code = sqlc.narg(lifecycle_reason_code),
     lifecycle_reason_message = sqlc.arg(lifecycle_reason_message),
     next_reconcile_after = agent.archived_at,
+    provider_runtime_mismatch_since = NULL,
     updated_at = agent.archived_at
 FROM agent_machine_bindings binding
 JOIN agents agent ON agent.org_id = binding.org_id

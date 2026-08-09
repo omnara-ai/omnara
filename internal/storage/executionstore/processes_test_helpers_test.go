@@ -563,14 +563,55 @@ func newProcessMachineFixtureWithoutDaemonRuntime(
 
 func expireDaemonRuntimeForTest(t *testing.T, ctx context.Context, fixture processDaemonFixture) {
 	t.Helper()
-	if _, err := fixture.Store.pool.Exec(ctx, `
+	expireDaemonRuntimeLeaseForTest(
+		t,
+		ctx,
+		fixture.Store,
+		fixture.OrgID,
+		fixture.MachineID,
+		fixture.RuntimeID,
+	)
+}
+
+func expireDaemonRuntimeLeaseForTest(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	orgID, machineID, runtimeID ID,
+) {
+	t.Helper()
+	var startedAt, databaseNow time.Time
+	if err := store.pool.QueryRow(ctx, `
+		SELECT started_at, statement_timestamp()
+		FROM machine_online_intervals
+		WHERE org_id = $1
+		  AND machine_id = $2
+		  AND daemon_runtime_id = $3
+		  AND ended_at IS NULL
+	`, orgID, machineID, runtimeID).Scan(&startedAt, &databaseNow); err != nil {
+		t.Fatalf("load open daemon runtime interval: %v", err)
+	}
+
+	leaseExpiresAt := startedAt.Add(time.Microsecond)
+	if wait := leaseExpiresAt.Sub(databaseNow); wait >= 0 {
+		time.Sleep(wait + time.Millisecond)
+	}
+	commandTag, err := store.pool.Exec(ctx, `
 		UPDATE daemon_runtimes
-		SET last_seen_at = statement_timestamp() - INTERVAL '2 seconds',
-		    lease_expires_at = statement_timestamp() - INTERVAL '1 second',
+		SET last_seen_at = $4,
+		    lease_expires_at = $5,
 		    updated_at = statement_timestamp()
-		WHERE org_id = $1 AND machine_id = $2 AND id = $3
-	`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID); err != nil {
+		WHERE org_id = $1
+		  AND machine_id = $2
+		  AND id = $3
+		  AND state = 'active'
+		  AND $5 < statement_timestamp()
+	`, orgID, machineID, runtimeID, startedAt, leaseExpiresAt)
+	if err != nil {
 		t.Fatalf("expire daemon runtime: %v", err)
+	}
+	if commandTag.RowsAffected() != 1 {
+		t.Fatalf("expire daemon runtime rows = %d, want 1", commandTag.RowsAffected())
 	}
 }
 

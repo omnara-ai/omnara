@@ -99,6 +99,7 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_code = 'pool_grant_revoked',
     lifecycle_reason_message = 'project machine pool grant revoked',
     next_reconcile_after = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
     updated_at = statement_timestamp()
 FROM project_machine_grants pmgrant
 WHERE pmgrant.org_id = sqlc.arg(org_id)

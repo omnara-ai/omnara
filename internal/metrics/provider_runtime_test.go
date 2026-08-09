@@ -1,0 +1,30 @@
+package metrics
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestProviderRuntimeRecorderEmitsLowCardinalityMetrics(t *testing.T) {
+	set := New()
+	recorder := NewProviderRuntimeRecorder(set)
+
+	recorder.RecordPass(ProviderRuntimeOperationDiscovery, ProviderRuntimeResultSuccess)
+	recorder.RecordEvents(ProviderRuntimeOperationDiscovery, ProviderRuntimeEventTargets, 3)
+	recorder.RecordEvents(
+		ProviderRuntimeOperationConfirmation,
+		ProviderRuntimeEventDeletionClaims,
+		1,
+	)
+
+	body := scrapeMetrics(t, set)
+	for _, want := range []string{
+		`omnara_provider_runtime_reconciliation_passes_total{operation="discovery",result="success"} 1`,
+		`omnara_provider_runtime_reconciliation_events_total{event="targets",operation="discovery"} 3`,
+		`omnara_provider_runtime_reconciliation_events_total{event="deletion_claims",operation="confirmation"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metrics missing %q:\n%s", want, body)
+		}
+	}
+}

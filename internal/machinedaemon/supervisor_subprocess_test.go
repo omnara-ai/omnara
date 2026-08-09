@@ -745,11 +745,13 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 	defer cancel()
 
 	const (
-		machineCredential = "machine-credential-must-not-persist-7f51"
-		launchSecret      = "launch-secret-must-not-persist-3a92"
-		actionPayload     = "action-payload-must-not-persist-8c14"
+		machineCredential    = "machine-credential-must-not-persist-7f51"
+		launchSecret         = "launch-secret-must-not-persist-3a92"
+		reservedLaunchSecret = "reserved-launch-secret-must-not-persist-1da4"
+		actionPayload        = "action-payload-must-not-persist-8c14"
 	)
 	root := t.TempDir()
+	workloadEnvMarker := filepath.Join(t.TempDir(), "workload-env-filtered")
 	fixture := newDetachedSupervisorTestFixtureWithConfig(
 		t,
 		ctx,
@@ -760,15 +762,31 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 		ProcessAssignment{
 			ID: "prc_no_persisted_secrets",
 			Process: Process{
-				Command:       "sleep 30",
+				Command: `test -n "$LAUNCH_TEST_SECRET" && ` +
+					`test -z "${OMNARA_TEST_SECRET+x}" && ` +
+					`printf ok > "$WORKLOAD_ENV_MARKER" && sleep 30`,
 				ShellSelector: "default",
 				Cwd:           t.TempDir(),
 				IOMode:        "pipe",
 			},
-			Env: map[string]string{"OMNARA_TEST_SECRET": launchSecret},
+			Env: map[string]string{
+				"LAUNCH_TEST_SECRET":  launchSecret,
+				"OMNARA_TEST_SECRET":  reservedLaunchSecret,
+				"WORKLOAD_ENV_MARKER": workloadEnvMarker,
+			},
 		},
 	)
 	fixture.acceptAndStart(t, ctx)
+	for {
+		if _, err := os.Stat(workloadEnvMarker); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+			t.Fatal("workload did not confirm its filtered environment")
+		}
+	}
 	payload, err := json.Marshal(map[string]string{"data": actionPayload})
 	if err != nil {
 		t.Fatal(err)
@@ -792,7 +810,7 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 		t.Fatalf("close process state before artifact scan: %v", err)
 	}
 
-	sentinels := []string{machineCredential, launchSecret, actionPayload}
+	sentinels := []string{machineCredential, launchSecret, reservedLaunchSecret, actionPayload}
 	if err := filepath.WalkDir(
 		root,
 		func(path string, entry os.DirEntry, walkErr error) error {
