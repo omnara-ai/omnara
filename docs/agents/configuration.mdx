@@ -128,6 +128,8 @@ machine_sources:
 
 `env_overlay` sets environment variables. `secret_env_overlay` references [secrets](/organization/secrets), whose values are resolved when they are injected. Both apply to every process the agent runs on the machine; for pool sources they also apply to the machine environment at provisioning, so the pool's startup script sees them. Pool sources can also set machine size and limits; supported fields vary by provider. See [Machine pools](/machines/pools#create-a-pool) and the [config schema](/api-reference/endpoints/configs-and-profiles/create-agent-config).
 
+Environment names beginning with `OMNARA_` are reserved case-insensitively, so user configuration containing one is rejected. As defense in depth, the daemon also removes reserved values before launching an agent process. The sole process-level exception is the daemon-provided `OMNARA_HOME`, a non-secret path used to locate installed skills; user configuration cannot override it.
+
 ## Skills
 
 `skills` attaches reusable instructions and files that the agent can load with the `skill` tool. The project must own or hold a [grant](/tools/skills#grant-it-to-projects) for each referenced skill.

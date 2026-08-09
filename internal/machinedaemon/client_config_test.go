@@ -132,27 +132,31 @@ func TestProcessRunnerEnvAppliesConfiguredEnvironment(t *testing.T) {
 	}
 }
 
-func TestWorkloadProcessEnvRemovesAllOmnaraVariables(t *testing.T) {
+func TestWorkloadProcessEnvRetainsOnlyTrustedOmnaraHome(t *testing.T) {
 	t.Parallel()
 
 	env := workloadProcessEnv(
 		[]string{
 			"HOME=/tmp/home",
-			"OMNARA_HOME=/tmp/home/.omnara",
+			"oMnArA_HoMe=/tmp/home/.omnara",
 			"omnara_machine_token=ambient-secret",
 		},
 		"/bin",
 		map[string]string{
 			"APP_ENV":            "test",
+			"omnara_home":        "/tmp/untrusted",
 			"OmNaRa_Api_Url":     "https://forbidden.example",
 			"OMNARA_TEST_SECRET": "explicit-secret",
 		},
 	)
 	got := strings.Join(env, "\n")
-	if strings.Contains(strings.ToUpper(got), "OMNARA_") {
-		t.Fatalf("workload environment contains reserved Omnara variables: %q", got)
+	const want = "APP_ENV=test\nHOME=/tmp/home\nOMNARA_HOME=/tmp/home/.omnara\nPATH=/bin"
+	if got != want {
+		t.Fatalf("workload environment = %q, want %q", got, want)
 	}
-	if !strings.Contains(got, "APP_ENV=test") || !strings.Contains(got, "HOME=/tmp/home") {
-		t.Fatalf("workload environment dropped ordinary variables: %q", got)
+	for _, blocked := range []string{"OMNARA_MACHINE_TOKEN", "OMNARA_API_URL", "OMNARA_TEST_SECRET"} {
+		if strings.Contains(strings.ToUpper(got), blocked) {
+			t.Fatalf("workload environment contains reserved variable %s: %q", blocked, got)
+		}
 	}
 }

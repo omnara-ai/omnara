@@ -762,7 +762,8 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 		ProcessAssignment{
 			ID: "prc_no_persisted_secrets",
 			Process: Process{
-				Command: `test -n "$LAUNCH_TEST_SECRET" && ` +
+				Command: `test -n "$OMNARA_HOME" && ` +
+					`test -n "$LAUNCH_TEST_SECRET" && ` +
 					`test -z "${OMNARA_TEST_SECRET+x}" && ` +
 					`printf ok > "$WORKLOAD_ENV_MARKER" && sleep 30`,
 				ShellSelector: "default",
