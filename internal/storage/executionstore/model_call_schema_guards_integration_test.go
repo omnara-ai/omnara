@@ -147,23 +147,20 @@ func TestModelCallContextDatabaseGuardsRejectInvalidProviderCost(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "provider_cost_guard")
-	_, err := fixture.Store.pool.Exec(ctx, `
+	for _, invalidCost := range []string{"NaN", "-0.000001"} {
+		_, err := fixture.Store.pool.Exec(ctx, `
 UPDATE model_call_contexts
 SET state = 'succeeded',
     api_format = 'openai-chat-completions',
     api_variant = 'openrouter',
-    provider_reported_cost_usd = 'NaN'::numeric,
+    provider_reported_cost_usd = $2::numeric,
     completed_at = statement_timestamp()
 WHERE id = $1
-`, claim.Context.ID)
-	assertPgConstraint(
-		t,
-		err,
-		"23514",
-		"model_call_contexts_provider_cost_value_check",
-	)
+`, claim.Context.ID, invalidCost)
+		assertPgConstraint(t, err, "23514", "model_call_contexts_cost_valid")
+	}
 
-	_, err = fixture.Store.pool.Exec(ctx, `
+	_, err := fixture.Store.pool.Exec(ctx, `
 UPDATE model_call_contexts
 SET state = 'failed',
     error_kind = 'provider_unavailable',
@@ -175,7 +172,7 @@ WHERE id = $1
 		t,
 		err,
 		"23514",
-		"model_call_contexts_provider_cost_api_format_check",
+		"model_call_contexts_cost_has_api",
 	)
 }
 

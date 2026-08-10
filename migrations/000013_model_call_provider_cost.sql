@@ -4,7 +4,7 @@ ALTER TABLE model_call_contexts
     ADD COLUMN provider_reported_cost_usd numeric(30, 15);
 
 ALTER TABLE model_call_contexts
-    ADD CONSTRAINT model_call_contexts_provider_cost_value_check
+    ADD CONSTRAINT model_call_contexts_cost_valid
     CHECK (
         provider_reported_cost_usd IS NULL
         OR (
@@ -15,7 +15,7 @@ ALTER TABLE model_call_contexts
     );
 
 ALTER TABLE model_call_contexts
-    ADD CONSTRAINT model_call_contexts_provider_cost_api_format_check
+    ADD CONSTRAINT model_call_contexts_cost_has_api
     CHECK (
         provider_reported_cost_usd IS NULL
         OR api_format <> ''

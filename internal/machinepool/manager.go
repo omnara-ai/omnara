@@ -274,6 +274,8 @@ func (m Manager) WakeMachine(ctx context.Context, orgID, machineID storage.ID) (
 		case executionstore.MachineWakeUnresolved:
 			return false, storeerr.ErrMachineWakeUnresolved
 		case executionstore.MachineWakeReady:
+		default:
+			return false, fmt.Errorf("unsupported machine wake disposition %d", disposition)
 		}
 	}
 	input := providers.WakeMachineInput{
