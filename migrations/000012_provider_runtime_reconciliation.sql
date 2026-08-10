@@ -48,9 +48,6 @@ CREATE UNIQUE INDEX machine_online_intervals_one_open_per_machine_idx
 CREATE INDEX machine_online_intervals_org_started_idx
     ON machine_online_intervals(org_id, started_at, id);
 
-CREATE INDEX machine_online_intervals_machine_started_idx
-    ON machine_online_intervals(org_id, machine_id, started_at, id);
-
 -- +goose StatementBegin
 CREATE FUNCTION sync_machine_online_interval_from_daemon_runtime() RETURNS trigger AS $$
 DECLARE

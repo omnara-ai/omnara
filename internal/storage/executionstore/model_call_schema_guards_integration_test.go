@@ -143,10 +143,10 @@ func TestModelCallContextDatabaseGuardsRejectRebinding(t *testing.T) {
 	}
 }
 
-func TestModelCallContextDatabaseGuardsRejectNaNCost(t *testing.T) {
+func TestModelCallContextDatabaseGuardsRejectInvalidProviderCost(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "provider_cost_nan_guard")
+	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "provider_cost_guard")
 	_, err := fixture.Store.pool.Exec(ctx, `
 UPDATE model_call_contexts
 SET state = 'succeeded',
@@ -160,7 +160,22 @@ WHERE id = $1
 		t,
 		err,
 		"23514",
-		"model_call_contexts_provider_reported_cost_usd_check",
+		"model_call_contexts_provider_cost_value_check",
+	)
+
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts
+SET state = 'failed',
+    error_kind = 'provider_unavailable',
+    provider_reported_cost_usd = 1,
+    completed_at = statement_timestamp()
+WHERE id = $1
+`, claim.Context.ID)
+	assertPgConstraint(
+		t,
+		err,
+		"23514",
+		"model_call_contexts_provider_cost_api_format_check",
 	)
 }
 
