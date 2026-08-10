@@ -821,6 +821,12 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquire runtime lock: %v", err)
 	}
+	seedProviderRuntimeMismatchForTest(
+		t,
+		ctx,
+		pool,
+		result.MachineBindings[0].MachineID,
+	)
 	archivedAgent, archivedMachines, err := store.Execution().ArchiveAgent(
 		ctx,
 		testProjectID,
@@ -868,6 +874,7 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 	if machine.NextReconcileAfter == nil || !machine.NextReconcileAfter.Equal(archivedAt) {
 		t.Fatalf("pool machine next reconcile = %v, want %v", machine.NextReconcileAfter, archivedAt)
 	}
+	assertProviderRuntimeMismatchClearedForTest(t, ctx, pool, machine.ID)
 	directAfter, err := store.Execution().GetMachine(ctx, testOrgID, directMachine.ID)
 	if err != nil {
 		t.Fatalf("get direct machine after archive: %v", err)
@@ -1265,6 +1272,13 @@ WHERE datname = current_database()
 		emptyYAML,
 		now.Add(5*time.Second),
 	)
+	seedProviderRuntimeMismatchForTest(
+		t,
+		ctx,
+		pool,
+		originalMachine.Machine.ID,
+		future.Machine.Machine.ID,
+	)
 	machineTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin machine lock transaction: %v", err)
@@ -1354,6 +1368,13 @@ WHERE datname = current_database()
 	if deleted.LifecycleState != "deleting" || deleted.LifecycleReasonCode != "agent_config_machine_source_removed" {
 		t.Fatalf("removed pool machine = %+v", deleted)
 	}
+	assertProviderRuntimeMismatchClearedForTest(
+		t,
+		ctx,
+		pool,
+		originalMachine.Machine.ID,
+		future.Machine.Machine.ID,
+	)
 	if _, err := store.Execution().DeleteMachinePool(ctx, testOrgID, machinePool.ID); err != nil {
 		t.Fatalf("delete removed machine pool: %v", err)
 	}
@@ -3966,6 +3987,7 @@ func TestPoolProvisioningAttemptFenceRejectsStaleCompletion(t *testing.T) {
 		current.ProviderResourceID != "" || current.ProviderProvisionAttemptedAt == nil {
 		t.Fatalf("stale attempt changed machine: %+v", current)
 	}
+	seedProviderRuntimeMismatchForTest(t, ctx, pool, result.MachineBindings[0].MachineID)
 	recordPoolMachineProvisioningResourceForTest(
 		t,
 		ctx,
@@ -3973,6 +3995,12 @@ func TestPoolProvisioningAttemptFenceRejectsStaleCompletion(t *testing.T) {
 		result.MachineBindings[0].MachineID,
 		secondClaim.Machine.ProvisionAttempts,
 		"current-resource",
+	)
+	assertProviderRuntimeMismatchClearedForTest(
+		t,
+		ctx,
+		pool,
+		result.MachineBindings[0].MachineID,
 	)
 	replayed, err := store.Execution().RecordPoolMachineProvisioningResource(
 		ctx,

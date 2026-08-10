@@ -107,7 +107,7 @@ The full example above defines `create_ticket` as a custom tool. When the agent 
 
 ## MCP servers
 
-`mcp` connects the agent to [Model Context Protocol](https://modelcontextprotocol.io) servers. Each entry sets the server URL, authentication, and permissions. `auth.secret_id` points to a [secret](/organization/secrets) containing a bearer token or OAuth grant. [MCP servers](/tools/mcp) explains the full setup.
+`mcp` connects the agent to [Model Context Protocol](https://modelcontextprotocol.io) servers. Each entry sets the server URL, authentication, and permissions. `auth.secret_id` points to the [secret](/organization/secrets) required by the selected authentication type. [MCP servers](/tools/mcp) explains the full setup.
 
 ## Machines
 
@@ -126,7 +126,9 @@ machine_sources:
     max_machines: 3
 ```
 
-`env_overlay` sets environment variables. `secret_env_overlay` references [secrets](/organization/secrets), whose values are injected only when a process starts. Pool sources can also set machine size and limits; supported fields vary by provider. See [Machine pools](/machines/pools#create-a-pool) and the [config schema](/api-reference/endpoints/configs-and-profiles/create-agent-config).
+`env_overlay` sets environment variables. `secret_env_overlay` references [secrets](/organization/secrets), whose values are resolved when they are injected. Both apply to every process the agent runs on the machine; for pool sources they also apply to the machine environment at provisioning, so the pool's startup script sees them. Pool sources can also set machine size and limits; supported fields vary by provider. See [Machine pools](/machines/pools#create-a-pool) and the [config schema](/api-reference/endpoints/configs-and-profiles/create-agent-config).
+
+Environment names beginning with `OMNARA_` are reserved case-insensitively and cannot be set through agent or machine configuration. Agent processes receive `OMNARA_HOME` from the daemon as the location for Omnara-managed files.
 
 ## Skills
 

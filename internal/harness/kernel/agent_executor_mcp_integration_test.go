@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -64,7 +65,10 @@ mcp:
 	input := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(2*time.Millisecond))
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "test-model",
-		responses:         []model.Response{{ID: "resp-mcp", Content: []model.ResponsePart{{Type: "text", Text: "done"}}, StopReason: model.StopReasonEndTurn}},
+		responses: []model.Response{
+			{ID: "resp-mcp", Content: []model.ResponsePart{{Type: "text", Text: "done"}}, StopReason: model.StopReasonEndTurn},
+			{ID: "resp-mcp-removed", Content: []model.ResponsePart{{Type: "text", Text: "done without mcp"}}, StopReason: model.StopReasonEndTurn},
+		},
 	}
 	mcpClient := &fakeKernelMCPClient{
 		agentID:         "remote-session",
@@ -128,6 +132,71 @@ mcp:
 	}
 	if len(snapshot) != 1 || snapshot[0].Name != "greet" || snapshot[0].Description != "say hi" {
 		t.Fatalf("unexpected tools snapshot: %s", conn.ToolsSnapshot)
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		launch.Agent.ID,
+		input.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release runtime before mcp config removal: %v", err)
+	}
+	nextConfig := fixture.kernelAgentConfigInput(t, ctx, "Kernel MCP Without MCP", "test-model")
+	if _, err := fixture.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: nextConfig,
+		AgentID:                launch.Agent.ID,
+		Reason:                 "test_remove_mcp",
+		IdempotencyKey:         "kernel-mcp-remove-live",
+	}); err != nil {
+		t.Fatalf("remove mcp config: %v", err)
+	}
+	if _, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      kernelTestProjectID,
+			AgentID:        launch.Agent.ID,
+			Actor:          kernelTestOmnaraActorParams(t, kernelTestUserID),
+			ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "continue"}}),
+			IdempotencyKey: "kernel-mcp-remove-input",
+		},
+	); err != nil {
+		t.Fatalf("create input after mcp config removal: %v", err)
+	}
+	claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
+		ctx,
+		kernelTestClaimInput(input.Now.Add(3*time.Second)),
+	)
+	if err != nil {
+		t.Fatalf("claim mcp config removal work: %v", err)
+	}
+	if !found || claim.AgentID != launch.Agent.ID || claim.Kind != executionstore.AgentWorkModel {
+		t.Fatalf("unexpected mcp config removal work: found=%t claim=%+v", found, claim)
+	}
+	next := modelWorkExecutionFromClaimForKernelTest(claim, input.Now.Add(4*time.Second))
+	if err := executor.ExecuteModelWork(ctx, next); err != nil {
+		t.Fatalf("execute mcp config removal work: %v", err)
+	}
+	if modelClient.preparedCount() != 2 || len(modelClient.prepared[1].ToolSpecs) != 0 {
+		t.Fatalf("expected second model prepare without mcp tools, got %+v", modelClient.prepared)
+	}
+	if mcpClient.initializeCount != 3 {
+		t.Fatalf("initialize count after mcp removal = %d, want 3", mcpClient.initializeCount)
+	}
+	removed, found, err := fixture.Store.Execution().GetMCPConnection(
+		ctx,
+		kernelTestProjectID,
+		launch.Agent.ID,
+		"docs",
+	)
+	if err != nil {
+		t.Fatalf("load removed mcp connection: %v", err)
+	}
+	if !found {
+		t.Fatal("expected removed mcp connection history")
+	}
+	if removed.State != executionstore.MCPConnectionStateExpired || removed.MCPSessionID != "" ||
+		string(removed.ToolsSnapshot) != "[]" || removed.Generation != conn.Generation+1 {
+		t.Fatalf("unexpected removed mcp connection: %+v", removed)
 	}
 }
 
@@ -457,6 +526,135 @@ mcp:
 	if conn.State != executionstore.MCPConnectionStateReady || conn.MCPSessionID != "remote-session-2" ||
 		conn.InitializeError != "" {
 		t.Fatalf("unexpected refreshed mcp connection: %+v", conn)
+	}
+}
+
+func TestAgentExecutorAppliesMCPConfigChangeAfterPendingTool(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	oldSource := `
+name: Kernel MCP Config Change
+instruction: Use MCP tools.
+model:
+  provider_config: openai-prod
+  name: test-model
+mcp:
+  docs:
+    url: https://old.example.com/mcp
+    permission:
+      mode: always_allow
+`
+	profile := fixture.createConfigAndProfileBookmark(
+		t,
+		ctx,
+		"Kernel MCP Config Change",
+		"kernel-mcp-config-change",
+		oldSource,
+		now,
+	)
+	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      kernelTestProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     kernelTestUserPrincipal(kernelTestUserID),
+		IdempotencyKey: "kernel-mcp-config-change-launch",
+	})
+	if err != nil {
+		t.Fatalf("launch agent: %v", err)
+	}
+	newSource := strings.Replace(oldSource, "https://old.example.com/mcp", "https://new.example.com/mcp", 1)
+	compiled := fixture.compileAgentYAMLResolved(t, ctx, newSource, now.Add(time.Second))
+	nextConfig := executionstore.CreateAgentConfigInput{
+		ProjectID:               kernelTestProjectID,
+		Definition:              json.RawMessage(compiled.CanonicalJSON),
+		Source:                  newSource,
+		SourceFormat:            "yaml",
+		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
+		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
+		CompilerVersion:         agentconfig.CompilerVersion,
+		EffectiveDefinitionHash: compiled.Hash,
+	}
+	var changeErr error
+	modelClient := &sequenceKernelModel{
+		providerModelSlug: "test-model",
+		responses: []model.Response{
+			{
+				ID:         "resp-mcp-config-change-tool",
+				StopReason: model.StopReasonToolUse,
+				Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{{
+					ID:    "call_mcp_config_change",
+					Name:  toolcatalog.MCPRuntimeToolName("docs", "greet"),
+					Input: json.RawMessage(`{"name":"Ada"}`),
+				}}),
+			},
+			{ID: "resp-mcp-config-change-final", Content: []model.ResponsePart{{Type: "text", Text: "done"}}, StopReason: model.StopReasonEndTurn},
+		},
+		afterRespond: func(response model.Response) {
+			if response.ID != "resp-mcp-config-change-tool" {
+				return
+			}
+			_, changeErr = fixture.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+				CreateAgentConfigInput: nextConfig,
+				AgentID:                launch.Agent.ID,
+				Reason:                 "test_mcp_config_change",
+				IdempotencyKey:         "kernel-mcp-config-change-live",
+			})
+		},
+	}
+	mcpClient := &fakeKernelMCPClient{
+		protocolVersion:    mcp.ProtocolVersion,
+		initializeAgentIDs: []string{"remote-session-1", "remote-session-2"},
+		tools: []*sdkmcp.Tool{
+			{Name: "greet", Description: "say hi", InputSchema: map[string]any{"type": "object"}},
+		},
+		callToolResult: &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "hello"}},
+		},
+	}
+	executor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
+		MCP:           mcpClient,
+		ToolExecutor:  tools.Executor{Store: fixture.Store, MCP: mcpClient},
+		Now:           func() time.Time { return now.Add(3 * time.Millisecond) },
+	}
+	input := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		launch.Agent.ID,
+		kernelTestUserID,
+		"use mcp while its config changes",
+		now.Add(2*time.Millisecond),
+	)
+	executeAsyncToolTurn(t, ctx, fixture, executor, input)
+	if changeErr != nil {
+		t.Fatalf("change mcp config: %v", changeErr)
+	}
+	if mcpClient.initializeCount != 2 || mcpClient.callToolCount != 1 || len(mcpClient.callToolConns) != 1 {
+		t.Fatalf(
+			"unexpected mcp calls: initialize=%d call=%d conns=%+v",
+			mcpClient.initializeCount,
+			mcpClient.callToolCount,
+			mcpClient.callToolConns,
+		)
+	}
+	called := mcpClient.callToolConns[0]
+	if called.EndpointURL != "https://old.example.com/mcp" || called.MCPSessionID != "remote-session-1" {
+		t.Fatalf("pending tool used changed mcp connection: %+v", called)
+	}
+	conn, found, err := fixture.Store.Execution().GetMCPConnection(
+		ctx,
+		kernelTestProjectID,
+		launch.Agent.ID,
+		"docs",
+	)
+	if err != nil || !found {
+		t.Fatalf("load changed mcp connection: found=%t err=%v", found, err)
+	}
+	if conn.EndpointURL != "https://new.example.com/mcp" || conn.State != executionstore.MCPConnectionStateReady ||
+		conn.MCPSessionID != "remote-session-2" {
+		t.Fatalf("new model round did not initialize changed mcp connection: %+v", conn)
 	}
 }
 

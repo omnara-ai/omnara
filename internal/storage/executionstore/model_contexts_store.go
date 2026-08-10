@@ -36,31 +36,32 @@ type ModelCallState string
 type ModelCallRecoveryKind string
 
 type ModelCallContextRecord struct {
-	ID                        ID                       `json:"id"`
-	OrgID                     ID                       `json:"org_id"`
-	ProjectID                 ID                       `json:"project_id"`
-	AgentID                   ID                       `json:"agent_id"`
-	OperationKind             ModelCallOperation       `json:"operation_kind"`
-	AttemptNumber             int                      `json:"attempt_number"`
-	AgentConfigID             ID                       `json:"agent_config_id"`
-	ConfiguredModelRevisionID ID                       `json:"configured_model_revision_id"`
-	InputEventSequence        int64                    `json:"input_event_sequence"`
-	SourceEventSequenceEnd    *int64                   `json:"source_event_sequence_end,omitempty"`
-	RuntimeLockID             ID                       `json:"runtime_lock_id"`
-	State                     ModelCallState           `json:"state"`
-	RecoveryKind              ModelCallRecoveryKind    `json:"recovery_kind,omitempty"`
-	APIFormat                 modelprotocol.APIFormat  `json:"api_format,omitempty"`
-	APIVariant                modelprotocol.APIVariant `json:"api_variant,omitempty"`
-	ProviderRequestID         string                   `json:"provider_request_id,omitempty"`
-	ProviderResponseID        string                   `json:"provider_response_id,omitempty"`
-	ErrorKind                 modelprotocol.ErrorKind  `json:"error_kind,omitempty"`
-	ErrorCode                 string                   `json:"error_code,omitempty"`
-	ErrorMessage              string                   `json:"error_message,omitempty"`
-	ErrorDetails              json.RawMessage          `json:"error_details"`
-	RetryAt                   *time.Time               `json:"retry_at,omitempty"`
-	Usage                     modelenvelope.Usage      `json:"usage"`
-	CreatedAt                 time.Time                `json:"created_at"`
-	CompletedAt               *time.Time               `json:"completed_at,omitempty"`
+	ID                        ID                                    `json:"id"`
+	OrgID                     ID                                    `json:"org_id"`
+	ProjectID                 ID                                    `json:"project_id"`
+	AgentID                   ID                                    `json:"agent_id"`
+	OperationKind             ModelCallOperation                    `json:"operation_kind"`
+	AttemptNumber             int                                   `json:"attempt_number"`
+	AgentConfigID             ID                                    `json:"agent_config_id"`
+	ConfiguredModelRevisionID ID                                    `json:"configured_model_revision_id"`
+	InputEventSequence        int64                                 `json:"input_event_sequence"`
+	SourceEventSequenceEnd    *int64                                `json:"source_event_sequence_end,omitempty"`
+	RuntimeLockID             ID                                    `json:"runtime_lock_id"`
+	State                     ModelCallState                        `json:"state"`
+	RecoveryKind              ModelCallRecoveryKind                 `json:"recovery_kind,omitempty"`
+	APIFormat                 modelprotocol.APIFormat               `json:"api_format,omitempty"`
+	APIVariant                modelprotocol.APIVariant              `json:"api_variant,omitempty"`
+	ProviderRequestID         string                                `json:"provider_request_id,omitempty"`
+	ProviderResponseID        string                                `json:"provider_response_id,omitempty"`
+	ErrorKind                 modelprotocol.ErrorKind               `json:"error_kind,omitempty"`
+	ErrorCode                 string                                `json:"error_code,omitempty"`
+	ErrorMessage              string                                `json:"error_message,omitempty"`
+	ErrorDetails              json.RawMessage                       `json:"error_details"`
+	RetryAt                   *time.Time                            `json:"retry_at,omitempty"`
+	Usage                     modelenvelope.Usage                   `json:"usage"`
+	ProviderReportedCostUSD   modelenvelope.ProviderReportedCostUSD `json:"provider_reported_cost_usd,omitempty"`
+	CreatedAt                 time.Time                             `json:"created_at"`
+	CompletedAt               *time.Time                            `json:"completed_at,omitempty"`
 }
 
 func ModelCallRetryBackoff(attemptNumber int, contextID string) time.Duration {
@@ -133,25 +134,27 @@ type ReplaceCompactionSourceInput struct {
 	ErrorMessage               string
 	ErrorDetails               json.RawMessage
 	Usage                      modelenvelope.Usage
+	ProviderReportedCostUSD    modelenvelope.ProviderReportedCostUSD
 	NextSourceEventSequenceEnd int64
 }
 
 type RecordRecoverableModelCallFailureInput struct {
-	ProjectID          ID
-	AgentID            ID
-	ModelCallContextID ID
-	RuntimeLockID      ID
-	RecoveryKind       ModelCallRecoveryKind
-	APIFormat          modelprotocol.APIFormat
-	APIVariant         modelprotocol.APIVariant
-	ProviderRequestID  string
-	ProviderResponseID string
-	ErrorKind          modelprotocol.ErrorKind
-	ErrorCode          string
-	ErrorMessage       string
-	ErrorDetails       json.RawMessage
-	RetryDelay         time.Duration
-	Usage              modelenvelope.Usage
+	ProjectID               ID
+	AgentID                 ID
+	ModelCallContextID      ID
+	RuntimeLockID           ID
+	RecoveryKind            ModelCallRecoveryKind
+	APIFormat               modelprotocol.APIFormat
+	APIVariant              modelprotocol.APIVariant
+	ProviderRequestID       string
+	ProviderResponseID      string
+	ErrorKind               modelprotocol.ErrorKind
+	ErrorCode               string
+	ErrorMessage            string
+	ErrorDetails            json.RawMessage
+	RetryDelay              time.Duration
+	Usage                   modelenvelope.Usage
+	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 }
 
 type RecordModelCallFailureAndClaimCompactionInput struct {

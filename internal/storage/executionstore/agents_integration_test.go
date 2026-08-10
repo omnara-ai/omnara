@@ -1185,7 +1185,7 @@ func isPgCode(err error, code string) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == code
 }
 
-func TestChangeAgentConfigRejectsLiveMCPDiffs(t *testing.T) {
+func TestChangeAgentConfigAcceptsLiveMCPDiffs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -1214,14 +1214,6 @@ model:
 	if err != nil {
 		t.Fatalf("launch with config: %v", err)
 	}
-	initialAgent, err := store.Execution().GetAgentInProject(ctx, testProjectID, launch.Agent.ID)
-	if err != nil {
-		t.Fatalf("load initial agent: %v", err)
-	}
-	initialEvents, err := store.Execution().ListAgentEventsForRead(ctx, testProjectID, launch.Agent.ID, 0, 100)
-	if err != nil {
-		t.Fatalf("list initial events: %v", err)
-	}
 	yaml := `
 name: Policy Profile
 instruction: Add MCP.
@@ -1233,7 +1225,7 @@ mcp:
     url: https://mcp.example.com
 `
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, yaml, now.Add(2*time.Second))
-	_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
 			Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -1249,22 +1241,34 @@ mcp:
 		Reason:         "policy-test",
 		IdempotencyKey: "idem-config-policy-mcp",
 	})
-	if err == nil || !strings.Contains(err.Error(), "live config changes cannot change mcp declarations yet") {
-		t.Fatalf("change config error=%v, want live MCP rejection", err)
+	if err != nil {
+		t.Fatalf("change config: %v", err)
 	}
 	loaded, err := store.Execution().GetAgentInProject(ctx, testProjectID, launch.Agent.ID)
 	if err != nil {
-		t.Fatalf("load agent after rejected change: %v", err)
+		t.Fatalf("load agent after change: %v", err)
 	}
-	if loaded.CurrentConfigID != initialAgent.CurrentConfigID {
-		t.Fatalf("rejected change advanced current config: before=%+v after=%+v", initialAgent, loaded)
+	if loaded.CurrentConfigID != changed.AgentConfig.ID {
+		t.Fatalf("current config = %s, want %s", loaded.CurrentConfigID, changed.AgentConfig.ID)
 	}
-	events, err := store.Execution().ListAgentEventsForRead(ctx, testProjectID, launch.Agent.ID, 0, 100)
+	currentConfig, found, err := store.Execution().GetAgentConfig(ctx, testProjectID, loaded.CurrentConfigID)
 	if err != nil {
-		t.Fatalf("list events after rejected change: %v", err)
+		t.Fatalf("load current config: %v", err)
 	}
-	if len(events) != len(initialEvents) {
-		t.Fatalf("rejected change appended events: before=%d after=%d events=%+v", len(initialEvents), len(events), events)
+	if !found {
+		t.Fatal("current config not found")
+	}
+	contract, err := agentconfig.RuntimeContractFromCompiled(
+		currentConfig.CompiledDefinition,
+		currentConfig.CompilerVersion,
+		currentConfig.EffectiveDefinitionHash,
+	)
+	if err != nil {
+		t.Fatalf("load current runtime contract: %v", err)
+	}
+	if len(contract.MCPServers) != 1 || contract.MCPServers[0].ServerKey != "docs" ||
+		contract.MCPServers[0].URL != "https://mcp.example.com" {
+		t.Fatalf("current MCP servers = %+v, want docs at https://mcp.example.com", contract.MCPServers)
 	}
 }
 

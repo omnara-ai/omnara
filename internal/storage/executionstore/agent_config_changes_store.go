@@ -281,12 +281,6 @@ func validateLiveAgentConfigChangeTx(
 			err,
 		)
 	}
-	if !reflect.DeepEqual(currentContract.MCPServers, nextContract.MCPServers) {
-		return agentconfig.RuntimeContract{}, agentconfig.RuntimeContract{}, storeerr.InvalidRequest(errors.New(
-			"live config changes cannot change mcp declarations yet",
-		))
-
-	}
 	return currentContract, nextContract, nil
 }
 

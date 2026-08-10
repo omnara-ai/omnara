@@ -278,6 +278,19 @@ func parseSecretMaterial(
 			}
 		}
 		return oauth, nil
+	case secrets.KindAWSCredentials:
+		material, err := input.AsAWSCredentialsSecretMaterial()
+		if err != nil {
+			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid AWS credentials material")
+			return nil, &apiErr
+		}
+		return secrets.AWSCredentialsMaterial{
+			AccessKeyID:     material.AccessKeyId,
+			SecretAccessKey: material.SecretAccessKey,
+			SessionToken:    valueOrEmpty(material.SessionToken),
+			RoleARN:         valueOrEmpty(material.RoleArn),
+			ExternalID:      valueOrEmpty(material.ExternalId),
+		}, nil
 	default:
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "unsupported secret material kind")
 		return nil, &apiErr

@@ -163,6 +163,23 @@ RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.generation, connection.request_sequence,
           connection.created_at, connection.updated_at;
 
+-- name: ExpireRemovedMCPConnections :exec
+UPDATE agent_mcp_connections connection
+SET state = 'expired',
+    protocol_version = '',
+    mcp_session_id = '',
+    server_capabilities = '{}'::jsonb,
+    server_info = '{}'::jsonb,
+    tools_snapshot = '[]'::jsonb,
+    generation = connection.generation + 1,
+    updated_at = transaction_timestamp()
+FROM agents agent
+WHERE agent.project_id = sqlc.arg(project_id)
+  AND agent.id = connection.agent_id
+  AND connection.agent_id = sqlc.arg(agent_id)
+  AND connection.server_key <> ALL(sqlc.arg(server_keys)::text[])
+  AND connection.state <> 'expired';
+
 -- name: MarkMCPConnectionExpired :one
 UPDATE agent_mcp_connections connection
 SET state = 'expired',

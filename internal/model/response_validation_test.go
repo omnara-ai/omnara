@@ -10,6 +10,7 @@ func TestResponseEvidenceForStorageKeepsOnlySafeAuditFields(t *testing.T) {
 		ID:                      "resp_1",
 		ProviderRequestID:       "req_1",
 		ServedProviderModelSlug: "served-model",
+		ProviderReportedCostUSD: "0.0000125",
 		Usage:                   Usage{InputTokens: 12, OutputTokens: 4},
 		Content: []ResponsePart{{
 			Type:     ResponsePartTypeToolCall,
@@ -20,6 +21,7 @@ func TestResponseEvidenceForStorageKeepsOnlySafeAuditFields(t *testing.T) {
 	if evidence.ID != response.ID ||
 		evidence.ProviderRequestID != response.ProviderRequestID ||
 		evidence.ServedProviderModelSlug != response.ServedProviderModelSlug ||
+		evidence.ProviderReportedCostUSD != response.ProviderReportedCostUSD ||
 		evidence.Usage != response.Usage || len(evidence.Content) != 0 {
 		t.Fatalf("response evidence = %+v", evidence)
 	}
@@ -32,7 +34,8 @@ func TestResponseEvidenceForStorageDiscardsUnsafeIdentity(t *testing.T) {
 		Usage:                   Usage{InputTokens: 12, OutputTokens: 4},
 	}
 	if evidence := ResponseEvidenceForStorage(response); evidence.ID != "" ||
-		evidence.ServedProviderModelSlug != "" || evidence.Usage != (Usage{}) ||
+		evidence.ServedProviderModelSlug != "" || evidence.ProviderReportedCostUSD != "" ||
+		evidence.Usage != (Usage{}) ||
 		len(evidence.Content) != 0 {
 		t.Fatalf("unsafe response evidence = %+v", evidence)
 	}

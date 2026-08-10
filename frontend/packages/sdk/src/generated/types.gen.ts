@@ -967,9 +967,17 @@ export type ModelStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal'
  */
 export type ModelOutputStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal' | 'content_filter' | 'error';
 
+/**
+ * String key-value metadata. Maximum 16 pairs, keys up to 64 characters, and values up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ */
+export type ContentBlockMetadata = {
+    [key: string]: string;
+};
+
 export type TextContentBlock = {
     type: 'text';
     text: string;
+    metadata?: ContentBlockMetadata;
 };
 
 export type InlineMediaContentBlock = {
@@ -977,26 +985,31 @@ export type InlineMediaContentBlock = {
     media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     filename?: string;
     data: string;
+    metadata?: ContentBlockMetadata;
 };
 
 export type MediaRefContentBlock = {
     type: 'media_ref';
     artifact_id: ArtifactId;
+    metadata?: ContentBlockMetadata;
 };
 
 export type ReasoningContentBlock = {
     type: 'reasoning';
     text: string;
+    metadata?: ContentBlockMetadata;
 };
 
 export type ErrorContentBlock = {
     type: 'error';
     text: string;
+    metadata?: ContentBlockMetadata;
 };
 
 export type StructuredDataContentBlock = {
     type: 'structured_data';
     value: JsonBlob;
+    metadata?: ContentBlockMetadata;
 };
 
 export type ModelToolCallContentBlock = {
@@ -1005,6 +1018,7 @@ export type ModelToolCallContentBlock = {
     tool_type: ToolCallType;
     name: string;
     input: ToolInput;
+    metadata?: ContentBlockMetadata;
 };
 
 export type CreateAgentInputContentBlock = ({
@@ -1080,13 +1094,13 @@ export type AgentMachineBinding = {
     description: string;
     cwd: string;
     /**
-     * Env overlay applied to processes launched through this binding; it does not change the machine environment applied to the provider machine at provisioning. A null entry removes the key.
+     * Env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
      */
     env_overlay: {
         [key: string]: string | null;
     };
     /**
-     * Secret env overlay applied to processes launched through this binding; a null entry removes the key.
+     * Secret env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
      */
     secret_env_overlay: {
         [key: string]: SecretId | null;
@@ -1640,11 +1654,25 @@ export type OAuthTokenSetSecretMaterial = {
     token_type?: string;
 };
 
+export type AwsCredentialsSecretMaterial = {
+    kind: 'aws_credentials';
+    access_key_id: string;
+    secret_access_key: string;
+    session_token?: string;
+    role_arn?: string;
+    /**
+     * Requires role_arn.
+     */
+    external_id?: string;
+};
+
 export type SecretMaterial = ({
     kind: 'generic';
 } & GenericSecretMaterial) | ({
     kind: 'oauth_token_set';
-} & OAuthTokenSetSecretMaterial);
+} & OAuthTokenSetSecretMaterial) | ({
+    kind: 'aws_credentials';
+} & AwsCredentialsSecretMaterial);
 
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
@@ -1670,7 +1698,7 @@ export type SecretGrantCreateRequest = {
     target_project_id: ProjectId;
 };
 
-export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials';
+export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials';
 
 export type Secret = {
     id: SecretId;
@@ -1905,6 +1933,10 @@ export type CreateMachinePoolRequestBase = {
         [key: string]: unknown;
     };
     provider_auth_secret_id: SecretId;
+    /**
+     * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
+     */
+    runtime_protection_enabled?: boolean;
     max_total_machines: number;
     max_total_cpu?: number;
     max_total_memory_mb?: number;
@@ -1940,6 +1972,10 @@ export type UpdateMachinePoolRequest = {
         [key: string]: unknown;
     };
     provider_auth_secret_id?: SecretId;
+    /**
+     * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
+     */
+    runtime_protection_enabled?: boolean;
     max_total_machines?: number;
     max_total_cpu?: number | null;
     max_total_memory_mb?: number | null;
@@ -1979,6 +2015,10 @@ export type MachinePool = {
     provider_config: {
         [key: string]: unknown;
     };
+    /**
+     * Whether Omnara deletes this pool's machines when the provider remains running after the daemon becomes inactive.
+     */
+    runtime_protection_enabled: boolean;
     max_total_machines: number;
     max_total_cpu: number | null;
     max_total_memory_mb: number | null;

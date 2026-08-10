@@ -391,18 +391,19 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	defaultPools := []executionstore.DefaultMachinePoolTemplate{
 		defaultMachinePoolTemplateWithDefaultMachineForTest(executionstore.DefaultMachinePoolTemplate{
-			Name:               "hosted-pool",
-			Description:        "Cluster pool",
-			Provider:           "unikraft",
-			DefaultCwd:         "/workspace",
-			ProviderConfig:     json.RawMessage(`{"api_base_url":"https://api.kraft.cloud"}`),
-			ProviderAuthEnvVar: "HOSTED_POOL_TOKEN",
-			MaxTotalMachines:   5,
-			MaxTotalCPU:        intPtrForMachinePoolTest(5),
-			MaxTotalMemoryMB:   intPtrForMachinePoolTest(5120),
-			MaxMachineCPU:      intPtrForMachinePoolTest(1),
-			MaxMachineMemoryMB: intPtrForMachinePoolTest(1024),
-			Metadata:           json.RawMessage(`{"source":"test"}`),
+			Name:                     "hosted-pool",
+			Description:              "Cluster pool",
+			Provider:                 "unikraft",
+			DefaultCwd:               "/workspace",
+			ProviderConfig:           json.RawMessage(`{"api_base_url":"https://api.kraft.cloud"}`),
+			ProviderAuthEnvVar:       "HOSTED_POOL_TOKEN",
+			RuntimeProtectionEnabled: true,
+			MaxTotalMachines:         5,
+			MaxTotalCPU:              intPtrForMachinePoolTest(5),
+			MaxTotalMemoryMB:         intPtrForMachinePoolTest(5120),
+			MaxMachineCPU:            intPtrForMachinePoolTest(1),
+			MaxMachineMemoryMB:       intPtrForMachinePoolTest(1024),
+			Metadata:                 json.RawMessage(`{"source":"test"}`),
 		}, defaultMachineFieldsForTest{
 			DefaultMachineCPU:             1,
 			DefaultMachineMemoryMB:        1024,
@@ -451,7 +452,8 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 			t.Fatalf("get default machine pool %q: %v", defaultPool.Name, err)
 		}
 		if poolRecord.Name != defaultPool.Name || poolRecord.ManagementKind != string(management.Cluster) ||
-			poolRecord.Provider != "unikraft" {
+			poolRecord.Provider != "unikraft" ||
+			poolRecord.RuntimeProtectionEnabled != defaultPool.RuntimeProtectionEnabled {
 			t.Fatalf("unexpected default pool: %+v", poolRecord)
 		}
 		assertJSONRawEqual(t, poolRecord.ProviderConfig, string(defaultPool.ProviderConfig))
@@ -663,7 +665,10 @@ func TestCreateOrgForUserCreatesClusterManagedModelProviderAtomically(t *testing
 		t.Fatalf("tenant machine environment with cluster credential error = %v, want not found", err)
 	}
 	payload, err := store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
-		OrgID: created.Org.ID, SecretID: credential.ID, Kind: secretstore.SecretKindGeneric,
+		OrgID:          created.Org.ID,
+		SecretID:       credential.ID,
+		ManagementKind: management.Cluster,
+		Kind:           secretstore.SecretKindGeneric,
 	})
 	if err != nil {
 		t.Fatalf("read default model provider credential: %v", err)

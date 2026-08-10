@@ -24,6 +24,7 @@ type defaultMachinePoolTemplateFile struct {
 	DefaultCwd                    string            `yaml:"default_cwd"`
 	ProviderConfig                map[string]any    `yaml:"provider_config"`
 	ProviderAuthEnvVar            string            `yaml:"provider_auth_env_var"`
+	RuntimeProtectionEnabled      bool              `yaml:"runtime_protection_enabled"`
 	MaxTotalMachines              *int32            `yaml:"max_total_machines"`
 	MaxTotalCPU                   *int              `yaml:"max_total_cpu"`
 	MaxTotalMemoryMB              *int              `yaml:"max_total_memory_mb"`
@@ -215,6 +216,7 @@ func defaultMachinePoolTemplateFromFile(
 		DefaultCwd:                    parsed.DefaultCwd,
 		ProviderConfig:                json.RawMessage(providerConfig),
 		ProviderAuthEnvVar:            parsed.ProviderAuthEnvVar,
+		RuntimeProtectionEnabled:      parsed.RuntimeProtectionEnabled,
 		MaxTotalMachines:              *parsed.MaxTotalMachines,
 		MaxTotalCPU:                   parsed.MaxTotalCPU,
 		MaxTotalMemoryMB:              parsed.MaxTotalMemoryMB,

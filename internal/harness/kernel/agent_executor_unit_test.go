@@ -172,18 +172,7 @@ func TestMCPInitializationRetryableFailureClassification(t *testing.T) {
 	}
 }
 
-func TestMCPInitializationModePreservesRetryRecoveryWithoutRevivingFailures(t *testing.T) {
-	contextID := unitKernelID("mcp-context")
-	if mode := mcpInitializationForExecution(0, storage.NilID); mode != mcpInitializationOpening {
-		t.Fatalf("fresh turn mode = %d, want opening", mode)
-	}
-	if mode := mcpInitializationForExecution(0, contextID); mode != mcpInitializationResume {
-		t.Fatalf("first-context retry mode = %d, want resume", mode)
-	}
-	if mode := mcpInitializationForExecution(1, contextID); mode != mcpInitializationNone {
-		t.Fatalf("tool continuation mode = %d, want none", mode)
-	}
-
+func TestShouldInitializeMCPConnectionPreservesRetryRecoveryWithoutRevivingFailures(t *testing.T) {
 	for _, state := range []executionstore.MCPConnectionState{
 		executionstore.MCPConnectionStateInitializing,
 		executionstore.MCPConnectionStateFailed,
@@ -193,16 +182,12 @@ func TestMCPInitializationModePreservesRetryRecoveryWithoutRevivingFailures(t *t
 			t.Fatalf("opening mode excluded %q connection", state)
 		}
 	}
-	if !shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateInitializing) {
-		t.Fatal("resume mode excluded interrupted initializing connection")
+	if !shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateInitializing) ||
+		!shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateExpired) {
+		t.Fatal("resume mode excluded recoverable connection")
 	}
-	for _, state := range []executionstore.MCPConnectionState{
-		executionstore.MCPConnectionStateFailed,
-		executionstore.MCPConnectionStateExpired,
-	} {
-		if shouldInitializeMCPConnection(mcpInitializationResume, state) {
-			t.Fatalf("resume mode revived %q connection", state)
-		}
+	if shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateFailed) {
+		t.Fatal("resume mode revived failed connection")
 	}
 }
 

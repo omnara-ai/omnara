@@ -3,9 +3,20 @@ package mcp
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestSanitizeInitializationError(t *testing.T) {
+	if got := sanitizeInitializationError(" \xffbad\x00 \n"); got != "\uFFFDbad" {
+		t.Fatalf("sanitized error = %q", got)
+	}
+	got := sanitizeInitializationError(strings.Repeat("é", maxInitializationErrorRunes+1))
+	if !utf8.ValidString(got) || utf8.RuneCountInString(got) != maxInitializationErrorRunes {
+		t.Fatalf("sanitized long error has %d runes and valid UTF-8 %t", utf8.RuneCountInString(got), utf8.ValidString(got))
+	}
+}
 
 func TestValidateDiscoveredTools(t *testing.T) {
 	tests := []struct {
@@ -19,6 +30,10 @@ func TestValidateDiscoveredTools(t *testing.T) {
 				{Name: "search"},
 				{Name: "fetch-result"},
 			},
+		},
+		{
+			name:  "AWS tool name",
+			tools: []*sdkmcp.Tool{{Name: "aws___call_aws"}},
 		},
 		{
 			name:  "null tool",

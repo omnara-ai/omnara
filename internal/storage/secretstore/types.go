@@ -20,6 +20,7 @@ const (
 	SecretKindGeneric             = secrets.KindGeneric
 	SecretKindOAuthTokenSet       = secrets.KindOAuthTokenSet
 	SecretKindSlackAppCredentials = secrets.KindSlackAppCredentials
+	SecretKindAWSCredentials      = secrets.KindAWSCredentials
 
 	MaxSecretMetadataBytes = 16 * 1024
 )
@@ -214,9 +215,10 @@ type ReadProjectAvailableSecretPayloadInput struct {
 }
 
 type ReadOrgOwnedSecretPayloadInput struct {
-	OrgID    ID
-	SecretID ID
-	Kind     secrets.Kind
+	OrgID          ID
+	SecretID       ID
+	ManagementKind management.Kind
+	Kind           secrets.Kind
 }
 
 type ReadMachinePoolDeletionCredentialInput struct {

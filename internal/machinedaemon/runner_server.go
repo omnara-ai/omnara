@@ -1604,7 +1604,7 @@ func prepareLocalRunner(
 		argv[1:]...,
 	)
 	command.Dir = assignment.Process.Cwd
-	command.Env = processRunnerEnv(
+	command.Env = workloadProcessEnv(
 		os.Environ(),
 		os.Getenv("PATH"),
 		assignment.Env,

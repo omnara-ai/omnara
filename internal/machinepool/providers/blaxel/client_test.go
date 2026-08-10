@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestBlaxelRESTClientSandboxLifecycle(t *testing.T) {
@@ -253,6 +255,125 @@ func TestBlaxelRESTClientDoesNotExposeErrorResponse(t *testing.T) {
 	_, _, err := client.GetSandbox(context.Background(), "omnara-mch-test")
 	if err == nil || err.Error() != "blaxel API returned HTTP 500" {
 		t.Fatalf("provider error = %v, want status without response body", err)
+	}
+}
+
+func TestBlaxelRESTClientListsSandboxesWithVersionedCursor(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/sandboxes" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			return
+		}
+		if r.Header.Get("Blaxel-Version") != apiVersion ||
+			r.Header.Get("X-Blaxel-Authorization") != "Bearer api-token" ||
+			r.Header.Get("X-Blaxel-Workspace") != "omnara" {
+			t.Errorf("unexpected headers: %+v", r.Header)
+			return
+		}
+		query := r.URL.Query()
+		if query.Get("cursor") != "cursor+/=" ||
+			query.Get("limit") != "200" ||
+			query.Get("q") != "omnara-mch-" ||
+			query.Has("showTerminated") ||
+			query.Get("sort") != "name:asc" {
+			t.Errorf("unexpected list query: %s", r.URL.RawQuery)
+			return
+		}
+		_, _ = w.Write([]byte(`{
+			"data":[{"metadata":{"name":"omnara-mch-test"},"state":"RUNNING","status":"DEPLOYED"}],
+			"meta":{"hasMore":true,"nextCursor":"next+/=","total":2}
+		}`))
+	}))
+	defer server.Close()
+
+	page, err := newTestRESTClient(server.URL).ListSandboxes(
+		context.Background(), "cursor+/=", maxSandboxListLimit,
+	)
+	if err != nil {
+		t.Fatalf("list sandboxes: %v", err)
+	}
+	if !page.HasMore || page.NextCursor != "next+/=" ||
+		len(page.Sandboxes) != 1 || page.Sandboxes[0].State != "RUNNING" ||
+		page.Sandboxes[0].Status != "DEPLOYED" {
+		t.Fatalf("unexpected page: %+v", page)
+	}
+}
+
+func TestBlaxelRESTClientListFitsMaximumManagedEnvironment(t *testing.T) {
+	machineEnv := make(map[string]string, executionstore.MaxResolvedEnvironmentEntries)
+	usedBytes := 0
+	for index := range executionstore.MaxResolvedEnvironmentEntries {
+		name := fmt.Sprintf("ENTRY_%04d", index)
+		machineEnv[name] = ""
+		usedBytes += len(name)
+	}
+	machineEnv["ENTRY_0000"] = strings.Repeat(
+		"\x01",
+		executionstore.MaxResolvedEnvironmentBytes-usedBytes,
+	)
+	managedEnv, err := providers.BuildManagedMachineEnv(
+		"https://app.omnara.test",
+		"machine-token",
+		strings.Repeat("x", 64*1024),
+		machineEnv,
+	)
+	if err != nil {
+		t.Fatalf("build maximum managed environment: %v", err)
+	}
+	listedEnvs := make([]map[string]any, 0, len(managedEnv))
+	for _, item := range sandboxEnvsFromMap(managedEnv) {
+		listedEnvs = append(listedEnvs, map[string]any{
+			"name": item.Name, "secret": false, "value": item.Value,
+		})
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []any{map[string]any{
+				"metadata": resourceMetadata{Name: "omnara-mch-test"},
+				"spec": map[string]any{
+					"runtime": map[string]any{"envs": listedEnvs},
+				},
+				"state":  "RUNNING",
+				"status": "DEPLOYED",
+			}},
+			"meta": map[string]any{"hasMore": false, "total": 1},
+		})
+	}))
+	defer server.Close()
+
+	page, err := newTestRESTClient(server.URL).ListSandboxes(context.Background(), "", 1)
+	if err != nil {
+		t.Fatalf("list maximum managed sandbox response: %v", err)
+	}
+	if len(page.Sandboxes) != 1 || page.Sandboxes[0].State != sandboxRuntimeRunning {
+		t.Fatalf("maximum managed sandbox page = %+v", page)
+	}
+}
+
+func TestBlaxelRESTClientRejectsMalformedSandboxList(t *testing.T) {
+	for _, response := range []string{
+		`{}`,
+		`{"data":null,"meta":{"hasMore":false,"nextCursor":""}}`,
+		`{"data":[],"meta":{}}`,
+	} {
+		t.Run(response, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(response))
+			}))
+			defer server.Close()
+
+			if _, err := newTestRESTClient(server.URL).ListSandboxes(
+				context.Background(), "", 1,
+			); err == nil || !strings.Contains(err.Error(), "decode blaxel response") {
+				t.Fatalf("malformed list error = %v", err)
+			}
+		})
+	}
+	if _, err := newTestRESTClient("https://api.invalid.test").ListSandboxes(
+		context.Background(), "", maxSandboxListLimit+1,
+	); err == nil || !strings.Contains(err.Error(), "limit must be between") {
+		t.Fatalf("invalid limit error = %v", err)
 	}
 }
 

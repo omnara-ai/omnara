@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -1551,6 +1552,164 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 			poolGrantCount,
 			explicitGrantCount,
 		)
+	}
+}
+
+func TestMCPReconciliationWaitingBehindProjectDeletionRejectsInactiveProject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "mcp-project-delete")
+
+	controlTx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin source lock control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if err := dbsqlc.New(controlTx).LockAgentMachineSources(
+		ctx,
+		dbsqlc.LockAgentMachineSourcesParams{AgentID: fixture.agent.ID},
+	); err != nil {
+		t.Fatalf("lock agent machine sources: %v", err)
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, deleteErr := fixture.store.Organizations().DeleteProject(
+			ctx,
+			testOrgID,
+			testProjectID,
+			PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+		)
+		deleteDone <- deleteErr
+	}()
+	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+
+	reconcileDone := make(chan error, 1)
+	go func() {
+		_, reconcileErr := fixture.store.Execution().ReconcileAgentMCPConnections(
+			ctx,
+			testProjectID,
+			fixture.agent.ID,
+			[]agentconfig.RuntimeMCPServer{{
+				ServerKey: "project-delete-race",
+				URL:       "https://example.com/mcp",
+			}},
+		)
+		reconcileDone <- reconcileErr
+	}()
+	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release source lock control transaction: %v", err)
+	}
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatalf("delete project: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for project deletion")
+	}
+	select {
+	case err := <-reconcileDone:
+		if !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("mcp reconciliation after project deletion error = %v, want not found", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for mcp reconciliation")
+	}
+
+	var connectionCount int
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int
+		 FROM agent_mcp_connections
+		 WHERE agent_id = $1 AND server_key = 'project-delete-race'`,
+		fixture.agent.ID,
+	).Scan(&connectionCount); err != nil {
+		t.Fatalf("count mcp connections after project deletion race: %v", err)
+	}
+	if connectionCount != 0 {
+		t.Fatalf("mcp connections created beneath deleted project = %d, want 0", connectionCount)
+	}
+}
+
+func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "mcp-archive")
+
+	controlTx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin agent lock control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
+		ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
+	); err != nil {
+		t.Fatalf("lock agent before archive: %v", err)
+	}
+
+	archiveDone := make(chan error, 1)
+	go func() {
+		_, _, archiveErr := fixture.store.Execution().ArchiveAgent(
+			ctx,
+			testProjectID,
+			fixture.agent.ID,
+			PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+		)
+		archiveDone <- archiveErr
+	}()
+	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
+
+	reconcileDone := make(chan error, 1)
+	go func() {
+		_, reconcileErr := fixture.store.Execution().ReconcileAgentMCPConnections(
+			ctx,
+			testProjectID,
+			fixture.agent.ID,
+			[]agentconfig.RuntimeMCPServer{{
+				ServerKey: "archive-race",
+				URL:       "https://example.com/mcp",
+			}},
+		)
+		reconcileDone <- reconcileErr
+	}()
+	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 2)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release agent lock control transaction: %v", err)
+	}
+	select {
+	case err := <-archiveDone:
+		if err != nil {
+			t.Fatalf("archive agent: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for agent archival")
+	}
+	select {
+	case err := <-reconcileDone:
+		if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+			t.Fatalf("mcp reconciliation after archive error = %v, want state transition conflict", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for mcp reconciliation")
+	}
+
+	var connectionCount int
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int
+		 FROM agent_mcp_connections
+		 WHERE agent_id = $1 AND server_key = 'archive-race'`,
+		fixture.agent.ID,
+	).Scan(&connectionCount); err != nil {
+		t.Fatalf("count mcp connections after archive race: %v", err)
+	}
+	if connectionCount != 0 {
+		t.Fatalf("mcp connections created beneath archived agent = %d, want 0", connectionCount)
 	}
 }
 

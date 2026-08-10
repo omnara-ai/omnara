@@ -15,6 +15,7 @@ pools:
     description: Cluster pool
     provider: unikraft
     provider_auth_env_var: HOSTED_POOL_TOKEN
+    runtime_protection_enabled: true
     default_machine_cpu: 1
     default_machine_memory_mb: 1024
     default_machine_provider_options:
@@ -55,8 +56,10 @@ pools:
 	if len(cfg.DefaultMachinePools) != 2 || cfg.DefaultMachinePools[0].Name != "hosted-pool" ||
 		cfg.DefaultMachinePools[0].Provider != "unikraft" ||
 		cfg.DefaultMachinePools[0].ProviderAuthEnvVar != "HOSTED_POOL_TOKEN" ||
+		!cfg.DefaultMachinePools[0].RuntimeProtectionEnabled ||
 		cfg.DefaultMachinePools[1].Name != "hosted-pool-large" ||
-		cfg.DefaultMachinePools[1].ProviderAuthEnvVar != "HOSTED_POOL_LARGE_TOKEN" {
+		cfg.DefaultMachinePools[1].ProviderAuthEnvVar != "HOSTED_POOL_LARGE_TOKEN" ||
+		cfg.DefaultMachinePools[1].RuntimeProtectionEnabled {
 		t.Fatalf("unexpected default pool templates: %+v", cfg.DefaultMachinePools)
 	}
 	if cfg.DefaultMachinePools[0].DefaultMachineCPU == nil ||

@@ -1,7 +1,8 @@
 -- name: ListMachineUnreachableMachineCandidates :many
 WITH cutoff AS MATERIALIZED (
-  SELECT transaction_timestamp()
-    - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second') AS unreachable_before
+  SELECT transaction_timestamp() AS observed_at,
+         transaction_timestamp()
+           - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second') AS unreachable_before
 ), process_work AS MATERIALIZED (
   SELECT process.org_id, process.machine_id, process.created_at AS work_at
   FROM processes process
@@ -25,6 +26,10 @@ WITH cutoff AS MATERIALIZED (
     AND tool_call.state = 'waiting'
     AND machine.lifecycle_state = 'active'
     AND machine.deleted_at IS NULL
+    AND (
+      machine.wake_attempt_expires_at IS NULL
+      OR machine.wake_attempt_expires_at <= cutoff.observed_at
+    )
     AND NOT EXISTS (
       SELECT 1
       FROM online_daemon_runtimes online
@@ -68,6 +73,10 @@ WITH cutoff AS MATERIALIZED (
     AND tool_call.state = 'waiting'
     AND machine.lifecycle_state = 'active'
     AND machine.deleted_at IS NULL
+    AND (
+      machine.wake_attempt_expires_at IS NULL
+      OR machine.wake_attempt_expires_at <= cutoff.observed_at
+    )
     AND NOT EXISTS (
       SELECT 1
       FROM online_daemon_runtimes online
@@ -113,6 +122,8 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
   SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
   FROM daemon_runtimes runtime
@@ -129,6 +140,12 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND process.tool_call_id IS NOT NULL
   AND tool_call.type = 'built_in'
   AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+  )
   AND online.id IS NULL
   AND greatest(latest_runtime.unreachable_at, process.created_at) <= transaction_timestamp() - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
 ORDER BY process.created_at, process.id
@@ -137,6 +154,10 @@ LIMIT sqlc.arg(limit_count);
 -- name: CheckMachineUnreachableForToolExpiry :one
 SELECT machine.lifecycle_state = 'active'
   AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= statement_timestamp()
+  )
   AND greatest((
     SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz
     FROM daemon_runtimes runtime
@@ -197,6 +218,8 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
   SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
   FROM daemon_runtimes runtime
@@ -213,6 +236,12 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND process.tool_call_id IS NOT NULL
   AND tool_call.type = 'built_in'
   AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+  )
   AND online.id IS NULL
   AND greatest(latest_runtime.unreachable_at, process.created_at) <= transaction_timestamp() - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
 ORDER BY coalesce(latest_runtime.unreachable_at, process.created_at), process.created_at, process.id
@@ -226,6 +255,8 @@ JOIN processes process ON process.project_id = action.project_id
   AND process.id = action.process_id
 JOIN tool_calls tool_call ON tool_call.agent_id = action.agent_id
   AND tool_call.id = action.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
   SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
   FROM daemon_runtimes runtime
@@ -248,6 +279,12 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND action.state = 'queued'
   AND tool_call.type = 'built_in'
   AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+  )
   AND online.id IS NULL
   AND greatest(latest_runtime.unreachable_at, action.created_at) <= transaction_timestamp() - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
 ORDER BY coalesce(latest_runtime.unreachable_at, action.created_at), action.created_at, action.id
@@ -261,6 +298,8 @@ JOIN processes process ON process.project_id = action.project_id
   AND process.id = action.process_id
 JOIN tool_calls tool_call ON tool_call.agent_id = action.agent_id
   AND tool_call.id = action.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
   SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
   FROM daemon_runtimes runtime
@@ -276,6 +315,12 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND action.state = 'accepted'
   AND tool_call.type = 'built_in'
   AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+  )
   AND online.id IS NULL
   AND greatest(latest_runtime.unreachable_at, action.created_at) <= transaction_timestamp() - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
 ORDER BY action.process_id, action.seq, action.id

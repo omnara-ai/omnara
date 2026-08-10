@@ -45,9 +45,12 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 		t.Fatalf("create requests = %d, want 1", len(api.createRequests))
 	}
 	create := api.createRequests[0]
+	wantLabels := mustSandboxOwnershipLabels(t, testInstallationID(), machineID)
 	if create.Metadata.Name != wantName ||
-		create.Metadata.Labels["omnara-installation"] != testInstallationID().String() ||
-		create.Metadata.Labels["omnara-machine"] != machineID.String() ||
+		create.Metadata.Labels[installationLabel] != wantLabels[installationLabel] ||
+		create.Metadata.Labels[machineLabel] != wantLabels[machineLabel] ||
+		!strings.HasPrefix(create.Metadata.Labels[installationLabel], "inst_") ||
+		!strings.HasPrefix(create.Metadata.Labels[machineLabel], "mch_") ||
 		create.Spec.Region != "us-pdx-1" ||
 		create.Spec.Runtime.Image != "blaxel/base-image:latest" ||
 		create.Spec.Runtime.Memory != 1024 || len(create.Spec.Runtime.Ports) != 0 {
@@ -126,7 +129,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 	}
 	processName := daemonprotocol.BlaxelAwakeProcessName(4242)
 	awakeProcess, found := api.processesByName[result.ProviderResourceID+"/"+processName]
-	if !found || processStatus(awakeProcess.Status) != processStatusRunning ||
+	if !found || normalizeSandboxProcessStatus(awakeProcess.Status) != processStatusRunning ||
 		!awakeProcess.KeepAlive {
 		t.Fatalf("initial awake process = %+v found=%t", awakeProcess, found)
 	}
@@ -220,10 +223,7 @@ func TestBlaxelProviderProvisionRetryConvergesOnExistingSandbox(t *testing.T) {
 	target := sandbox{
 		Metadata: resourceMetadata{
 			Name: name, URL: "https://sbx-existing.test.bl.run",
-			Labels: map[string]string{
-				"omnara-installation": testInstallationID().String(),
-				"omnara-machine":      machineID.String(),
-			},
+			Labels: mustSandboxOwnershipLabels(t, testInstallationID(), machineID),
 		},
 		Status: "DEPLOYED",
 	}
@@ -370,12 +370,9 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 			api.sandboxesByName[name] = sandbox{
 				Metadata: resourceMetadata{
 					Name: name, URL: "https://sbx-old.test.bl.run",
-					Labels: map[string]string{
-						"omnara-installation": testInstallationID().String(),
-						"omnara-machine":      machineID.String(),
-					},
+					Labels: mustSandboxOwnershipLabels(t, testInstallationID(), machineID),
 				},
-				Status: status,
+				Status: sandboxDeploymentStatus(status),
 			}
 
 			_, err = provider.ProvisionMachine(
@@ -433,7 +430,6 @@ func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 		{name: "building", status: "BUILDING"},
 		{name: "built", status: "BUILT"},
 		{name: "deploying", status: "DEPLOYING"},
-		{name: "terminating", status: "TERMINATING"},
 		{name: "deleting", status: "DELETING"},
 		{name: "deactivating", status: "DEACTIVATING"},
 		{name: "empty", status: ""},
@@ -450,12 +446,9 @@ func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 			api.sandboxesByName[name] = sandbox{
 				Metadata: resourceMetadata{
 					Name: name, URL: "https://sbx-old.test.bl.run",
-					Labels: map[string]string{
-						"omnara-installation": testInstallationID().String(),
-						"omnara-machine":      machineID.String(),
-					},
+					Labels: mustSandboxOwnershipLabels(t, testInstallationID(), machineID),
 				},
-				Status: test.status,
+				Status: sandboxDeploymentStatus(test.status),
 			}
 
 			_, err = provider.ProvisionMachine(
@@ -490,11 +483,13 @@ func TestBlaxelProviderProvisionRejectsNameCollision(t *testing.T) {
 				Metadata: resourceMetadata{
 					Name: name, URL: "https://sbx-collision.test.bl.run",
 					Labels: map[string]string{
-						"omnara-installation": testInstallationID().String(),
-						"omnara-machine":      "other",
+						installationLabel: mustSandboxOwnershipLabels(
+							t, testInstallationID(), machineID,
+						)[installationLabel],
+						machineLabel: "other",
 					},
 				},
-				Status: status,
+				Status: sandboxDeploymentStatus(status),
 			}
 
 			_, err = provider.ProvisionMachine(
@@ -517,8 +512,9 @@ func TestBlaxelProviderProvisionRejectsNameCollision(t *testing.T) {
 
 func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 	machineID := uuid.New()
-	installationOwner := testInstallationID().String()
-	machineOwner := machineID.String()
+	owners := mustSandboxOwnershipLabels(t, testInstallationID(), machineID)
+	installationOwner := owners[installationLabel]
+	machineOwner := owners[machineLabel]
 	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
 	if err != nil {
 		t.Fatalf("blaxel sandbox name: %v", err)
@@ -534,7 +530,7 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 	}{
 		{"deployed", "DEPLOYED", installationOwner, machineOwner, true, true, false},
 		{"failed", "FAILED", installationOwner, machineOwner, true, true, false},
-		{"terminating", "TERMINATING", installationOwner, machineOwner, true, true, false},
+		{"deactivating", "DEACTIVATING", installationOwner, machineOwner, true, true, false},
 		{"terminated", "TERMINATED", installationOwner, machineOwner, true, true, false},
 		{"missing", "", "", "", false, false, false},
 		{"missing ownership labels", "DEPLOYED", "", "", true, false, true},
@@ -545,12 +541,12 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 			api := newFakeAPI()
 			if test.exists {
 				labels := map[string]string{
-					"omnara-installation": test.installationOwner,
-					"omnara-machine":      test.machineOwner,
+					installationLabel: test.installationOwner,
+					machineLabel:      test.machineOwner,
 				}
 				api.sandboxesByName[name] = sandbox{
 					Metadata: resourceMetadata{Name: name, Labels: labels},
-					Status:   test.status,
+					Status:   sandboxDeploymentStatus(test.status),
 				}
 			}
 			provider := newTestProvider(api)
@@ -579,8 +575,8 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 		Metadata: resourceMetadata{
 			Name: name,
 			Labels: map[string]string{
-				"omnara-installation": installationOwner,
-				"omnara-machine":      machineOwner,
+				installationLabel: installationOwner,
+				machineLabel:      machineOwner,
 			},
 		},
 	}
@@ -611,8 +607,8 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 		Metadata: resourceMetadata{
 			Name: foreignName,
 			Labels: map[string]string{
-				"omnara-installation": installationOwner,
-				"omnara-machine":      machineOwner,
+				installationLabel: installationOwner,
+				machineLabel:      machineOwner,
 			},
 		},
 	}
@@ -631,8 +627,8 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 	api.sandboxesByName[name] = sandbox{Metadata: resourceMetadata{
 		Name: name,
 		Labels: map[string]string{
-			"omnara-installation": installationOwner,
-			"omnara-machine":      machineOwner,
+			installationLabel: installationOwner,
+			machineLabel:      machineOwner,
 		},
 	}}
 	if err := provider.DeleteMachine(
@@ -646,6 +642,18 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 	}
 	if len(api.deletedNames) != 2 || api.deletedNames[1] != name {
 		t.Fatalf("deleted names = %v", api.deletedNames)
+	}
+	if err := provider.DeleteMachine(
+		context.Background(),
+		testInstallationID(),
+		machineID,
+		executionstore.MachineProvisioningConfig{},
+		"already-absent",
+	); err != nil {
+		t.Fatalf("delete already absent machine: %v", err)
+	}
+	if len(api.deletedNames) != 2 {
+		t.Fatalf("already absent machine caused a delete request: %v", api.deletedNames)
 	}
 }
 
@@ -668,7 +676,7 @@ type fakeAPI struct {
 	createErr        error
 	startProcessErr  error
 	wakeErr          error
-	processStatus    string
+	processStatus    sandboxProcessStatus
 	processKeepAlive *bool
 }
 
@@ -690,8 +698,12 @@ func (f *fakeAPI) CreateSandbox(
 	}
 	if existing, exists := f.sandboxesByName[request.Metadata.Name]; exists {
 		if slices.Contains(
-			[]string{"FAILED", "TERMINATED", "TERMINATING"},
-			sandboxStatus(existing.Status),
+			[]sandboxDeploymentStatus{
+				sandboxDeploymentFailed,
+				sandboxDeploymentTerminated,
+				sandboxDeploymentDeactivating,
+			},
+			normalizeSandboxDeploymentStatus(existing.Status),
 		) {
 			return sandbox{}, apiError{StatusCode: http.StatusConflict}
 		}
@@ -743,7 +755,7 @@ func (f *fakeAPI) StartSandboxProcess(
 	}
 	f.processesByName[key] = process
 	if request.Name == daemonProcessName && !request.KeepAlive &&
-		processStatus(process.Status) == processStatusRunning {
+		normalizeSandboxProcessStatus(process.Status) == processStatusRunning {
 		processName := daemonprotocol.BlaxelAwakeProcessName(4242)
 		f.processesByName[target.Metadata.Name+"/"+processName] = sandboxProcess{
 			PID: "4243", Status: processStatusRunning, KeepAlive: true,

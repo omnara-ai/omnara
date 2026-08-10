@@ -11,13 +11,14 @@ import (
 )
 
 type Response struct {
-	ID                      string                   `json:"id"`
-	ProviderRequestID       string                   `json:"-"`
-	ServedProviderModelSlug string                   `json:"served_provider_model_slug,omitempty"`
-	ProviderReplay          json.RawMessage          `json:"provider_replay,omitempty"`
-	Content                 []ResponsePart           `json:"content_parts,omitempty"`
-	StopReason              modelenvelope.StopReason `json:"stop_reason,omitempty"`
-	Usage                   modelenvelope.Usage      `json:"usage,omitempty"`
+	ID                      string                                `json:"id"`
+	ProviderRequestID       string                                `json:"-"`
+	ServedProviderModelSlug string                                `json:"served_provider_model_slug,omitempty"`
+	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD `json:"provider_reported_cost_usd,omitempty"`
+	ProviderReplay          json.RawMessage                       `json:"provider_replay,omitempty"`
+	Content                 []ResponsePart                        `json:"content_parts,omitempty"`
+	StopReason              modelenvelope.StopReason              `json:"stop_reason,omitempty"`
+	Usage                   modelenvelope.Usage                   `json:"usage,omitempty"`
 }
 
 func (r Response) ToolCalls() []ToolCall {
@@ -215,6 +216,7 @@ func NewResponseEnvelopeForStorage(
 		ServedProviderModelSlug:    strings.TrimSpace(response.ServedProviderModelSlug),
 		APIFormat:                  apiFormat,
 		APIVariant:                 apiVariant,
+		ProviderReportedCostUSD:    response.ProviderReportedCostUSD,
 		ProviderReplay:             providerReplay,
 		Normalized:                 normalized,
 	}

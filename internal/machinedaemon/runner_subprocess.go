@@ -22,6 +22,8 @@ import (
 const (
 	runnerSubcommand                  = "__omnara_process_runner"
 	supervisorIdentityBootstrapPrefix = "supervisor-"
+	omnaraEnvironmentPrefix           = "OMNARA_"
+	omnaraHomeEnvironmentName         = "OMNARA_HOME"
 )
 
 type supervisorIdentityBootstrap struct {
@@ -237,7 +239,7 @@ func (subprocessRunnerLauncher) Prepare(
 	command.Env = processRunnerEnv(
 		os.Environ(),
 		c.cfg.RunnerPath,
-		map[string]string{"OMNARA_HOME": c.cfg.OmnaraHome},
+		map[string]string{omnaraHomeEnvironmentName: c.cfg.OmnaraHome},
 	)
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
@@ -392,7 +394,7 @@ func sanitizedRunnerEnv(
 		"LANG": {}, "LC_ALL": {}, "LC_CTYPE": {}, "TERM": {},
 		"TMPDIR": {}, "TEMP": {}, "TMP": {},
 		"SYSTEMROOT": {}, "WINDIR": {}, "COMSPEC": {}, "PATHEXT": {},
-		"OMNARA_HOME": {},
+		omnaraHomeEnvironmentName: {},
 	}
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
@@ -436,4 +438,35 @@ func processRunnerEnv(
 		byName[foldedName] = name + "=" + value
 	}
 	return slices.Sorted(maps.Values(byName))
+}
+
+func workloadProcessEnv(
+	base []string,
+	runnerPath string,
+	overrides map[string]string,
+) []string {
+	filteredBase := make([]string, 0, len(base))
+	for _, entry := range base {
+		name, value, _ := strings.Cut(entry, "=")
+		upperName := strings.ToUpper(name)
+		if upperName == omnaraHomeEnvironmentName {
+			filteredBase = append(filteredBase, omnaraHomeEnvironmentName+"="+value)
+			continue
+		}
+		if strings.HasPrefix(upperName, omnaraEnvironmentPrefix) {
+			continue
+		}
+		filteredBase = append(filteredBase, entry)
+	}
+	// OMNARA_HOME is the sole workload-safe Omnara variable. Skill paths use
+	// the daemon's canonical value from base; assignments cannot override it
+	// or inject any other control-plane variable.
+	filteredOverrides := make(map[string]string, len(overrides))
+	for name, value := range overrides {
+		if strings.HasPrefix(strings.ToUpper(name), omnaraEnvironmentPrefix) {
+			continue
+		}
+		filteredOverrides[name] = value
+	}
+	return processRunnerEnv(filteredBase, runnerPath, filteredOverrides)
 }

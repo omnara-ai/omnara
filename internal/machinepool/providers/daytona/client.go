@@ -15,6 +15,7 @@ import (
 type apiClient interface {
 	GetSnapshot(context.Context, string) (snapshot, error)
 	CreateSandbox(context.Context, createSandboxRequest) (sandbox, error)
+	ListSandboxes(context.Context, listSandboxesQuery) (sandboxPage, error)
 	GetSandbox(context.Context, string) (sandbox, bool, error)
 	DeleteSandbox(context.Context, string) error
 	CreateSession(context.Context, sandbox, string) error
@@ -54,8 +55,19 @@ type sandbox struct {
 	Target          string            `json:"target"`
 	CPU             float64           `json:"cpu"`
 	Memory          float64           `json:"memory"`
-	State           string            `json:"state"`
+	State           sandboxState      `json:"state"`
 	ToolboxProxyURL string            `json:"toolboxProxyUrl"`
+}
+
+type listSandboxesQuery struct {
+	Cursor string
+	Limit  int
+	States []sandboxState
+}
+
+type sandboxPage struct {
+	Items      []sandbox `json:"items"`
+	NextCursor *string   `json:"nextCursor"`
 }
 
 type session struct {
@@ -111,6 +123,31 @@ func (c *restClient) CreateSandbox(
 ) (sandbox, error) {
 	var response sandbox
 	err := c.doRequest(ctx, http.MethodPost, c.apiBaseURL+"/sandbox", request, &response)
+	return response, err
+}
+
+func (c *restClient) ListSandboxes(
+	ctx context.Context,
+	query listSandboxesQuery,
+) (sandboxPage, error) {
+	requestURL, err := url.Parse(c.apiBaseURL + "/sandbox")
+	if err != nil {
+		return sandboxPage{}, fmt.Errorf("parse daytona sandbox list url: %w", err)
+	}
+	values := requestURL.Query()
+	if query.Cursor != "" {
+		values.Set("cursor", query.Cursor)
+	}
+	if query.Limit > 0 {
+		values.Set("limit", fmt.Sprintf("%d", query.Limit))
+	}
+	for _, sandboxState := range query.States {
+		values.Add("states", string(sandboxState))
+	}
+	requestURL.RawQuery = values.Encode()
+
+	var response sandboxPage
+	err = c.doRequest(ctx, http.MethodGet, requestURL.String(), nil, &response)
 	return response, err
 }
 
@@ -248,7 +285,7 @@ func (c *restClient) doRequest(
 	method, requestURL string,
 	body, out any,
 ) error {
-	statusCode, raw, err := providers.DoHTTPRequest(
+	response, err := providers.DoHTTPResponse(
 		ctx,
 		c.httpClient,
 		providers.Daytona,
@@ -260,8 +297,12 @@ func (c *restClient) doRequest(
 	if err != nil {
 		return err
 	}
+	statusCode, raw := response.StatusCode, response.Body
 	if statusCode < 200 || statusCode >= 300 {
-		return apiError{StatusCode: statusCode}
+		return providers.WithRetryAfter(
+			apiError{StatusCode: statusCode},
+			response.Header,
+		)
 	}
 	if out == nil || len(raw) == 0 {
 		return nil

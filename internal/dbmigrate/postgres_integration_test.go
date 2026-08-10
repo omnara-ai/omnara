@@ -5,6 +5,7 @@ package dbmigrate_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -67,7 +68,7 @@ func TestMachinePoolDeletionCredentialMigrationUpgradesExistingPools(t *testing.
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := dbmigrate.ApplyPostgres(ctx, db, productionMigrationsThrough(t, 10)); err != nil {
+	if err := dbmigrate.ApplyPostgres(ctx, db, productionMigrationsThrough(t, 14)); err != nil {
 		t.Fatalf("apply migrations through current main: %v", err)
 	}
 
@@ -84,7 +85,7 @@ SELECT EXISTS (
 		t.Fatal(err)
 	}
 	if columnExists {
-		t.Fatal("machine pool deletion credential column exists before migration 11")
+		t.Fatal("machine pool deletion credential column exists before migration 15")
 	}
 
 	orgID := uuid.New()
@@ -220,7 +221,7 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions,configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens,machine_pools,machines,model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_memberships,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,projects,secret_grants,secret_oauth_refresh_leases,secret_versions,secrets,skill_grants,skills"
+	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions,configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_memberships,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,projects,secret_grants,secret_oauth_refresh_leases,secret_versions,secrets,skill_grants,skills"
 	var actual string
 	if err := db.QueryRowContext(ctx, `
 SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')
@@ -725,8 +726,9 @@ func TestPostgresMigrationFailureRollsBack(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
+	nextVersion := currentPostgresMigrationVersion(t, ctx, db) + 1
 	failing := fstest.MapFS{
-		"000012_failing.sql": {
+		fmt.Sprintf("%06d_failing.sql", nextVersion): {
 			Data: []byte(`-- +goose Up
 CREATE TABLE migration_transaction_probe(id bigint PRIMARY KEY);
 SELECT missing_migration_function();
@@ -755,8 +757,9 @@ func TestPostgresMigrationsSerializeConcurrentRunners(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
+	nextVersion := currentPostgresMigrationVersion(t, ctx, db) + 1
 	locked := fstest.MapFS{
-		"000012_locked.sql": {
+		fmt.Sprintf("%06d_locked.sql", nextVersion): {
 			Data: []byte(`-- +goose Up
 SELECT pg_sleep(0.2);
 CREATE TABLE migration_lock_probe(id bigint PRIMARY KEY);
@@ -787,7 +790,8 @@ CREATE TABLE migration_lock_probe(id bigint PRIMARY KEY);
 		ctx,
 		`SELECT count(*)
 		 FROM goose_db_version
-		 WHERE version_id = 12 AND is_applied`,
+		 WHERE version_id = $1 AND is_applied`,
+		nextVersion,
 	).Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
@@ -802,10 +806,12 @@ func TestPostgresRejectsNewerDatabaseVersion(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
+	newerVersion := currentPostgresMigrationVersion(t, ctx, db) + 1
 	if _, err := db.ExecContext(
 		ctx,
 		`INSERT INTO goose_db_version(version_id, is_applied)
-		 VALUES(12, true)`,
+		 VALUES($1, true)`,
+		newerVersion,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -821,18 +827,20 @@ func TestPostgresOlderMigratorSeesConcurrentNewerVersion(t *testing.T) {
 	defer cancel()
 
 	pool, db := openPostgresMigrationTestDB(t, ctx)
-	versionTwelve := []byte(`-- +goose Up
+	nextVersion := currentPostgresMigrationVersion(t, ctx, db) + 1
+	newerVersion := nextVersion + 1
+	nextMigration := []byte(`-- +goose Up
 SELECT pg_sleep(1) /* omnara_concurrent_migration_probe */;
-CREATE TABLE concurrent_migration_twelve(id bigint PRIMARY KEY);
+CREATE TABLE concurrent_migration_next(id bigint PRIMARY KEY);
 `)
 	older := fstest.MapFS{
-		"000012_concurrent.sql": {Data: versionTwelve},
+		fmt.Sprintf("%06d_concurrent.sql", nextVersion): {Data: nextMigration},
 	}
 	newer := fstest.MapFS{
-		"000012_concurrent.sql": {Data: versionTwelve},
-		"000013_newer.sql": {
+		fmt.Sprintf("%06d_concurrent.sql", nextVersion): {Data: nextMigration},
+		fmt.Sprintf("%06d_newer.sql", newerVersion): {
 			Data: []byte(`-- +goose Up
-CREATE TABLE concurrent_migration_thirteen(id bigint PRIMARY KEY);
+CREATE TABLE concurrent_migration_newer(id bigint PRIMARY KEY);
 `),
 		},
 	}
@@ -921,4 +929,18 @@ func productionMigrationsThrough(t *testing.T, maxVersion int) fstest.MapFS {
 		t.Fatalf("production migrations through %d = %d, want %d", maxVersion, len(migrations), maxVersion)
 	}
 	return migrations
+}
+
+func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.DB) int64 {
+	t.Helper()
+	var version int64
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT coalesce(max(version_id), 0)
+		 FROM goose_db_version
+		 WHERE is_applied`,
+	).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	return version
 }

@@ -74,13 +74,6 @@ func (t *toolCallTransaction) startProcess(
 		return ProcessRecord{}, fmt.Errorf("load process execution config: %w", err)
 	}
 	cwd := resolveProcessCwd(executionConfig.MachineCwd, executionConfig.BindingCwd, input.Cwd)
-	machineEnvironment, err := MachineEnvironmentFromColumns(
-		executionConfig.MachineEnv,
-		executionConfig.MachineSecretEnv,
-	)
-	if err != nil {
-		return ProcessRecord{}, fmt.Errorf("load machine environment: %w", err)
-	}
 	bindingEnvironmentOverlay, err := machineEnvironmentOverlayFromColumns(
 		executionConfig.BindingEnvOverlay,
 		executionConfig.BindingSecretEnvOverlay,
@@ -88,15 +81,21 @@ func (t *toolCallTransaction) startProcess(
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("load binding environment overlay: %w", err)
 	}
-	processEnvironment, err := resolveMachineEnvironmentTx(
+	processEnvironment, err := effectiveMachineEnvironment(
+		executionConfig.MachineEnv,
+		executionConfig.MachineSecretEnv,
+		bindingEnvironmentOverlay,
+	)
+	if err != nil {
+		return ProcessRecord{}, fmt.Errorf("resolve process environment: %w", err)
+	}
+	if err := validateMachineEnvironmentSecretsTx(
 		ctx,
 		t.q,
 		executionConfig.OrgID,
 		executionConfig.ProjectID,
-		machineEnvironment,
-		bindingEnvironmentOverlay,
-	)
-	if err != nil {
+		processEnvironment,
+	); err != nil {
 		return ProcessRecord{}, fmt.Errorf("resolve process environment: %w", err)
 	}
 	if environmentByteSize(processEnvironment.Env) > MaxResolvedEnvironmentBytes {

@@ -26,6 +26,12 @@ A replacement starts from the pool's original image or snapshot.
 
 The agent's conversation, event history, and uploaded artifacts remain in Omnara after the machine is deleted.
 
+## Runtime protection
+
+Runtime protection is an optional pool setting that defaults to disabled. When enabled, Omnara may delete a provider sandbox that remains running after its daemon becomes inactive. Out-of-band work that keeps a sandbox running without its daemon is therefore not supported on a protected pool.
+
+Blaxel, Daytona, and Unikraft pools support runtime protection. It does not apply to directly connected machines, and provider errors delay enforcement. The setting belongs to the pool and cannot be overridden by a project grant or agent config.
+
 ## Create a pool
 
 <Note>

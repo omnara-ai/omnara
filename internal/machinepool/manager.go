@@ -19,6 +19,7 @@ const (
 	DefaultImmediateProvisioningTimeout = 2 * time.Minute
 	DefaultImmediateDeletionTimeout     = 2 * time.Minute
 	machineWakeAttempts                 = 3
+	machineWakeTimeout                  = 2 * time.Minute
 	providerInspectionTimeout           = 5 * time.Second
 	providerDeletionTimeout             = 5 * time.Second
 	providerFailureRetryDelay           = time.Minute
@@ -26,10 +27,11 @@ const (
 )
 
 type Manager struct {
-	Execution *executionstore.Store
-	Identity  *identitystore.Store
-	Catalog   Catalog
-	PublicURL string
+	Execution                  *executionstore.Store
+	Identity                   *identitystore.Store
+	Catalog                    Catalog
+	PublicURL                  string
+	runtimeReconciliationState *runtimeReconciliationState
 }
 
 func NewManager(
@@ -38,10 +40,11 @@ func NewManager(
 	publicURL string,
 ) *Manager {
 	return &Manager{
-		Execution: execution,
-		Identity:  identity,
-		Catalog:   DefaultCatalog(),
-		PublicURL: publicURL,
+		Execution:                  execution,
+		Identity:                   identity,
+		Catalog:                    DefaultCatalog(),
+		PublicURL:                  publicURL,
+		runtimeReconciliationState: newRuntimeReconciliationState(),
 	}
 }
 
@@ -58,7 +61,8 @@ func (m Manager) ValidateDefaultMachinePool(defaultPoolTemplate executionstore.D
 		return fmt.Errorf("default machine pool: %w", err)
 	}
 	policy := executionstore.MachinePoolProviderPolicy{
-		DefaultProvisioning: defaultMachineProvisioning,
+		DefaultProvisioning:      defaultMachineProvisioning,
+		RuntimeProtectionEnabled: defaultPoolTemplate.RuntimeProtectionEnabled,
 		ResourceLimits: executionstore.MachineResourceLimits{
 			MaxTotalCPU:        defaultPoolTemplate.MaxTotalCPU,
 			MaxTotalMemoryMB:   defaultPoolTemplate.MaxTotalMemoryMB,
@@ -251,6 +255,29 @@ func (m Manager) WakeMachine(ctx context.Context, orgID, machineID storage.ID) (
 	if !ok {
 		return false, storeerr.ErrMachineNotWakeCapable
 	}
+	if machine.SourceKind == executionstore.MachineSourceKindPool {
+		disposition, err := m.Execution.BeginMachineWake(
+			ctx,
+			machine.OrgID,
+			machine.ID,
+			machine.MachinePoolID,
+			machineWakeTimeout,
+		)
+		if err != nil {
+			return false, err
+		}
+		switch disposition {
+		case executionstore.MachineWakeOnline, executionstore.MachineWakePending:
+			return true, nil
+		case executionstore.MachineWakeUnavailable:
+			return false, nil
+		case executionstore.MachineWakeUnresolved:
+			return false, storeerr.ErrMachineWakeUnresolved
+		case executionstore.MachineWakeReady:
+		default:
+			return false, fmt.Errorf("unsupported machine wake disposition %d", disposition)
+		}
+	}
 	input := providers.WakeMachineInput{
 		ProviderResourceID: machine.ProviderResourceID,
 		SandboxURL:         machine.SandboxURL,
@@ -332,13 +359,27 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 	if err != nil || !claimed {
 		return err
 	}
+	_, err = m.deleteClaimedMachine(ctx, claim, nil)
+	return err
+}
+
+func (m Manager) deleteClaimedMachine(
+	ctx context.Context,
+	claim executionstore.PoolMachineDeletionClaim,
+	confirmedDeleter providers.MachineDeleter,
+) (bool, error) {
 	machine := claim.Machine
 	if machine.ProviderResourceID == "" && machine.ProviderProvisionAttemptedAt == nil {
-		return m.Execution.CompletePoolMachineDeletion(ctx, machine.OrgID, machine.ID, machine.DeleteAttempts)
+		return false, m.Execution.CompletePoolMachineDeletion(
+			ctx,
+			machine.OrgID,
+			machine.ID,
+			machine.DeleteAttempts,
+		)
 	}
 	machineProvisioning, err := executionstore.MachineProvisioningFromRecord(machine)
 	if err != nil {
-		return m.markDeleteFailed(
+		return false, m.markDeleteFailed(
 			ctx,
 			machine,
 			deleteBackoff(machine.DeleteAttempts),
@@ -347,23 +388,37 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 			err,
 		)
 	}
-	provider, reasonCode, reasonMessage, err := m.providerForMachine(ctx, machine, machineProvisioning, true)
-	if err != nil {
-		return m.markDeleteFailed(
+	deleter := confirmedDeleter
+	var provider providers.Provider
+	if deleter == nil {
+		var reasonCode, reasonMessage string
+		provider, reasonCode, reasonMessage, err = m.providerForMachine(
 			ctx,
 			machine,
-			deleteBackoff(machine.DeleteAttempts),
-			reasonCode,
-			reasonMessage,
-			err,
+			machineProvisioning,
+			true,
 		)
+		if err != nil {
+			return false, m.markDeleteFailed(
+				ctx,
+				machine,
+				deleteBackoff(machine.DeleteAttempts),
+				reasonCode,
+				reasonMessage,
+				err,
+			)
+		}
+		deleter = provider
 	}
 	installationID, err := m.Identity.GetInstallationID(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	resourceID := machine.ProviderResourceID
 	if resourceID == "" {
+		if provider == nil {
+			return false, errors.New("confirmed machine deletion is missing a provider resource id")
+		}
 		providerCtx, cancel := context.WithTimeout(ctx, providerInspectionTimeout)
 		providerResourceID, found, err := provider.InspectMachine(
 			providerCtx,
@@ -374,7 +429,7 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 		)
 		cancel()
 		if err != nil {
-			return m.markDeleteFailed(
+			return true, m.markDeleteFailed(
 				ctx,
 				machine,
 				deleteBackoff(machine.DeleteAttempts),
@@ -386,7 +441,7 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 		if found {
 			if providerResourceID == "" {
 				err := errors.New("provider inspection returned an empty resource id")
-				return m.markDeleteFailed(
+				return true, m.markDeleteFailed(
 					ctx,
 					machine,
 					deleteBackoff(machine.DeleteAttempts),
@@ -405,16 +460,21 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 				},
 			)
 			if err != nil {
-				return err
+				return false, err
 			}
 			resourceID = observation.ProviderResourceID
 			machine.ProviderResourceID = observation.ProviderResourceID
 			machine.UpdatedAt = observation.UpdatedAt
 		} else if claim.CanFinalizeMissingProviderResource {
-			return m.Execution.CompletePoolMachineDeletion(ctx, machine.OrgID, machine.ID, machine.DeleteAttempts)
+			return false, m.Execution.CompletePoolMachineDeletion(
+				ctx,
+				machine.OrgID,
+				machine.ID,
+				machine.DeleteAttempts,
+			)
 		} else {
 			err := errors.New("provider resource was not found by allocation name")
-			return m.markDeleteFailed(
+			return false, m.markDeleteFailed(
 				ctx,
 				machine,
 				deleteBackoff(machine.DeleteAttempts),
@@ -425,7 +485,7 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 		}
 	}
 	providerCtx, cancel := context.WithTimeout(ctx, providerDeletionTimeout)
-	err = provider.DeleteMachine(
+	err = deleter.DeleteMachine(
 		providerCtx,
 		installationID,
 		machine.ID,
@@ -434,7 +494,7 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 	)
 	cancel()
 	if err != nil {
-		return m.markDeleteFailed(
+		return true, m.markDeleteFailed(
 			ctx,
 			machine,
 			deleteBackoff(machine.DeleteAttempts),
@@ -443,7 +503,12 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 			err,
 		)
 	}
-	return m.Execution.CompletePoolMachineDeletion(ctx, machine.OrgID, machine.ID, machine.DeleteAttempts)
+	return false, m.Execution.CompletePoolMachineDeletion(
+		ctx,
+		machine.OrgID,
+		machine.ID,
+		machine.DeleteAttempts,
+	)
 }
 
 func (m Manager) providerForMachine(

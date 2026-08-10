@@ -14,5 +14,8 @@ export function secretSubtitle(secret: SecretSubtitleInput) {
   if (secret.kind === 'generic') {
     return 'Generic'
   }
+  if (secret.kind === 'aws_credentials') {
+    return 'AWS Credentials'
+  }
   return secret.kind
 }

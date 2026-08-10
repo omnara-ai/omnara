@@ -243,6 +243,8 @@ jobs:
             tools/omnaralint/go.sum
 
       - run: make test-live-web
+        env:
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
 
   live:
     name: Live Provider Tests
@@ -256,37 +258,54 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BL_API_KEY: ${{ secrets.BL_API_KEY }}
+          BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+          UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
         run: |
+          configured=false
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "openai=false" >> "$GITHUB_OUTPUT"
             echo "OPENAI_API_KEY is not configured; skipping live OpenAI tests."
           else
             echo "openai=true" >> "$GITHUB_OUTPUT"
+            configured=true
           fi
           if [ -z "$OPENROUTER_API_KEY" ]; then
             echo "openrouter=false" >> "$GITHUB_OUTPUT"
             echo "OPENROUTER_API_KEY is not configured; skipping live OpenRouter tests."
           else
             echo "openrouter=true" >> "$GITHUB_OUTPUT"
+            configured=true
           fi
           if [ -z "$ANTHROPIC_API_KEY" ]; then
             echo "anthropic=false" >> "$GITHUB_OUTPUT"
             echo "ANTHROPIC_API_KEY is not configured; skipping live Anthropic tests."
           else
             echo "anthropic=true" >> "$GITHUB_OUTPUT"
+            configured=true
           fi
+          if { [ -n "$BL_API_KEY" ] && [ -n "$BL_WORKSPACE" ]; } || \
+             [ -n "$DAYTONA_API_KEY" ] || [ -n "$UNIKRAFT_API_KEY" ]; then
+            echo "sandboxes=true" >> "$GITHUB_OUTPUT"
+            configured=true
+          else
+            echo "sandboxes=false" >> "$GITHUB_OUTPUT"
+            echo "No complete sandbox-provider credentials are configured; skipping live sandbox tests."
+          fi
+          echo "configured=$configured" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+        if: steps.secrets.outputs.configured == 'true'
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+        if: steps.secrets.outputs.configured == 'true'
         with:
           go-version-file: go.mod
           cache: false
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+        if: steps.secrets.outputs.configured == 'true'
         with:
           path: |
             ~/go/pkg/mod
@@ -334,6 +353,14 @@ jobs:
           OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG }}
           OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG }}
           OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG }}
+
+      - run: make test-live-sandbox-providers
+        if: steps.secrets.outputs.sandboxes == 'true'
+        env:
+          BL_API_KEY: ${{ secrets.BL_API_KEY }}
+          BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+          UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
 
       - name: Show database logs on failure
         if: failure() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true')

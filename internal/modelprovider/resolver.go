@@ -153,9 +153,10 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	credential, err := r.Secrets.ReadOrgOwnedSecretPayload(
 		ctx,
 		secretstore.ReadOrgOwnedSecretPayloadInput{
-			OrgID:    orgID,
-			SecretID: providerConfig.CredentialSecretID,
-			Kind:     secretstore.SecretKindGeneric,
+			OrgID:          orgID,
+			SecretID:       providerConfig.CredentialSecretID,
+			ManagementKind: providerConfig.ManagementKind,
+			Kind:           secretstore.SecretKindGeneric,
 		},
 	)
 	if err != nil {

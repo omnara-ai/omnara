@@ -15,6 +15,24 @@ func testInstallationID() storage.ID {
 	return uuid.MustParse("00000000-0000-0000-0000-000000000002")
 }
 
+func mustSandboxOwnershipLabels(
+	t testing.TB,
+	installationID, machineID storage.ID,
+) map[string]string {
+	t.Helper()
+	installationOwner, machineOwner, err := sandboxOwnershipLabelValues(
+		installationID,
+		machineID,
+	)
+	if err != nil {
+		t.Fatalf("build sandbox ownership labels: %v", err)
+	}
+	return map[string]string{
+		installationLabel: installationOwner,
+		machineLabel:      machineOwner,
+	}
+}
+
 func testMachineProvisioning(
 	t *testing.T,
 	providerOptionOverrides map[string]any,
