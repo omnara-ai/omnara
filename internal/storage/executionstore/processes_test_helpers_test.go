@@ -633,16 +633,13 @@ func assertMachineObservedPlatform(t *testing.T, ctx context.Context, store *Sto
 		t.Fatalf("get machine: %v", err)
 	}
 	var metadata struct {
-		ObservedPlatform struct {
-			OS   string `json:"os"`
-			Arch string `json:"arch"`
-		} `json:"observed_platform"`
+		ObservedPlatform string `json:"observed_platform"`
 	}
 	if err := json.Unmarshal(machine.Metadata, &metadata); err != nil {
 		t.Fatalf("parse machine metadata: %v", err)
 	}
-	if metadata.ObservedPlatform.OS != osName || metadata.ObservedPlatform.Arch != arch {
-		t.Fatalf("observed platform = %+v, want %s/%s", metadata.ObservedPlatform, osName, arch)
+	if metadata.ObservedPlatform != osName+"/"+arch {
+		t.Fatalf("observed platform = %q, want %s/%s", metadata.ObservedPlatform, osName, arch)
 	}
 }
 

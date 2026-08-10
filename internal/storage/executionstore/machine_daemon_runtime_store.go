@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -17,6 +18,8 @@ import (
 const (
 	DaemonRuntimeLeaseDuration   = 2 * time.Minute
 	MinDaemonRuntimeLeaseTimeout = 3 * time.Second
+
+	machineObservedPlatformKey = "observed_platform"
 )
 
 const (
@@ -200,7 +203,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 		dbsqlc.UpdateMachineObservationParams{
 			OrgID:            input.OrgID,
 			ID:               input.MachineID,
-			ObservedPlatform: input.ObservedPlatform,
+			ObservedPlatform: observedPlatformString(input.ObservedPlatform),
 		},
 	); err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("update machine observation: %w", err)
@@ -228,6 +231,26 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 		Runtime:        daemonRuntimeFromHeartbeat(finalRow),
 		Reconciliation: reconciliation,
 	}, nil
+}
+
+func observedPlatformString(raw json.RawMessage) string {
+	var platform struct {
+		OS   string `json:"os"`
+		Arch string `json:"arch"`
+	}
+	if err := json.Unmarshal(raw, &platform); err != nil {
+		return ""
+	}
+	value := platform.OS
+	if platform.OS != "" && platform.Arch != "" {
+		value = platform.OS + "/" + platform.Arch
+	} else if platform.OS == "" {
+		value = platform.Arch
+	}
+	if resourcemeta.ValidateEntry(machineObservedPlatformKey, value) != nil {
+		return ""
+	}
+	return value
 }
 
 func (s *Store) HeartbeatDaemonRuntime(
@@ -287,7 +310,7 @@ func (s *Store) HeartbeatDaemonRuntime(
 		dbsqlc.UpdateMachineObservationParams{
 			OrgID:            input.Authority.OrgID,
 			ID:               input.Authority.MachineID,
-			ObservedPlatform: input.ObservedPlatform,
+			ObservedPlatform: observedPlatformString(input.ObservedPlatform),
 		},
 	); err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("update machine heartbeat observation: %w", err)
