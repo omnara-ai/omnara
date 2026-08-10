@@ -40,7 +40,7 @@ func machineRecordFromInsertSQLC(row dbsqlc.InsertMachineRow) MachineRecord {
 }
 
 func machineRecordFromIdempotencySQLC(row dbsqlc.GetMachineByIdempotencyRow) MachineRecord {
-	return machineRecordFromSQLC(
+	record := machineRecordFromSQLC(
 		row.ID,
 		row.OrgID,
 		row.MachinePoolID,
@@ -72,10 +72,12 @@ func machineRecordFromIdempotencySQLC(row dbsqlc.GetMachineByIdempotencyRow) Mac
 		row.LifecycleChangedAt,
 		row.LifecycleVersion,
 	)
+	record.ConnectionStateReason = row.ConnectionStateReason
+	return record
 }
 
 func machineRecordFromGetSQLC(row dbsqlc.GetMachineRow) MachineRecord {
-	return machineRecordFromSQLC(
+	record := machineRecordFromSQLC(
 		row.ID,
 		row.OrgID,
 		row.MachinePoolID,
@@ -107,6 +109,8 @@ func machineRecordFromGetSQLC(row dbsqlc.GetMachineRow) MachineRecord {
 		row.LifecycleChangedAt,
 		row.LifecycleVersion,
 	)
+	record.ConnectionStateReason = row.ConnectionStateReason
+	return record
 }
 
 func machineSummaryFromVisibleSourceSQLC(row dbsqlc.ListVisibleMachineSourcesForPrincipalRow) MachineSummaryRecord {

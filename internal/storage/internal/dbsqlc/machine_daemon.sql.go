@@ -217,6 +217,31 @@ func (q *Queries) ClearMachineSleep(ctx context.Context, arg ClearMachineSleepPa
 	return err
 }
 
+const clearMachineUpdateFailureReport = `-- name: ClearMachineUpdateFailureReport :execrows
+UPDATE machines
+SET failure_report = NULL,
+    updated_at = statement_timestamp()
+WHERE org_id = $1
+  AND id = $2
+  AND deleted_at IS NULL
+  AND failure_report->>'stage' = 'daemon_update'
+  AND failure_report->>'daemon_version' IS DISTINCT FROM $3::text
+`
+
+type ClearMachineUpdateFailureReportParams struct {
+	OrgID         uuid.UUID
+	MachineID     uuid.UUID
+	DaemonVersion string
+}
+
+func (q *Queries) ClearMachineUpdateFailureReport(ctx context.Context, arg ClearMachineUpdateFailureReportParams) (int64, error) {
+	result, err := q.db.Exec(ctx, clearMachineUpdateFailureReport, arg.OrgID, arg.MachineID, arg.DaemonVersion)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createBYOMachineDaemonToken = `-- name: CreateBYOMachineDaemonToken :one
 INSERT INTO machine_daemon_tokens(org_id, machine_id, name, token_hash, metadata, created_at)
 SELECT machine.org_id, machine.id, $1, $2, $3, statement_timestamp()
@@ -1949,31 +1974,35 @@ func (q *Queries) OnlineDaemonRuntimeExists(ctx context.Context, arg OnlineDaemo
 
 const recordMachineFailureReport = `-- name: RecordMachineFailureReport :one
 UPDATE machines machine
-SET failure_report = jsonb_build_object(
+SET failure_report = jsonb_strip_nulls(jsonb_build_object(
       'stage', $1::text,
       'exit_status', $2::integer,
       'output_tail', $3::text,
       'output_truncated', $4::boolean,
+      'daemon_version', nullif($5::text, ''),
+      'target_version', nullif($6::text, ''),
       'reported_at', statement_timestamp()
-    ),
+    )),
     updated_at = statement_timestamp()
 FROM machine_daemon_tokens token
-WHERE machine.org_id = $5
-  AND machine.id = $6
+WHERE machine.org_id = $7
+  AND machine.id = $8
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state IN ('provisioning', 'provision_failed', 'active')
   AND token.org_id = machine.org_id
   AND token.machine_id = machine.id
-  AND token.id = $7
+  AND token.id = $9
   AND token.revoked_at IS NULL
 RETURNING machine.failure_report
 `
 
 type RecordMachineFailureReportParams struct {
 	Stage           string
-	ExitStatus      int32
+	ExitStatus      *int32
 	OutputTail      string
 	OutputTruncated bool
+	DaemonVersion   string
+	TargetVersion   string
 	OrgID           uuid.UUID
 	MachineID       uuid.UUID
 	DaemonTokenID   uuid.UUID
@@ -1985,6 +2014,8 @@ func (q *Queries) RecordMachineFailureReport(ctx context.Context, arg RecordMach
 		arg.ExitStatus,
 		arg.OutputTail,
 		arg.OutputTruncated,
+		arg.DaemonVersion,
+		arg.TargetVersion,
 		arg.OrgID,
 		arg.MachineID,
 		arg.DaemonTokenID,

@@ -2056,6 +2056,7 @@ export type Machine = {
     provider: string;
     lifecycle_state: MachineLifecycleState;
     connection_state: MachineConnectionState;
+    connection_state_reason?: string;
     last_observed_at: Timestamp | null;
     cwd: string;
     env: {
@@ -2767,9 +2768,11 @@ export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
-        stage: 'startup_script' | 'daemon_install';
-        exit_status: number;
-        capture_status: number;
+        stage: 'startup_script' | 'daemon_install' | 'daemon_update';
+        exit_status?: number;
+        capture_status?: number;
+        daemon_version?: string;
+        target_version?: string;
     };
     url: '/api/v1/daemon/failures';
 };

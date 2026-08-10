@@ -118,11 +118,12 @@ func TestLogEntitiesAttachCanonicalFields(t *testing.T) {
 		{
 			name: "MachineFailureReport includes searchable failure fields",
 			attach: func(ctx context.Context) {
+				exitStatus := 7
 				MachineFailureReport(ctx, executionstore.MachineFailureReportInput{
 					OrgID:           orgID,
 					MachineID:       machineID,
 					Stage:           "startup_script",
-					ExitStatus:      7,
+					ExitStatus:      &exitStatus,
 					OutputTail:      []byte("startup failed"),
 					OutputTruncated: true,
 				})

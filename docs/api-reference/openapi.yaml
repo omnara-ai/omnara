@@ -199,21 +199,33 @@ paths:
           required: true
           schema:
             type: string
-            enum: [startup_script, daemon_install]
+            enum: [startup_script, daemon_install, daemon_update]
         - name: exit_status
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             minimum: 1
             maximum: 255
         - name: capture_status
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             minimum: 0
             maximum: 255
+        - name: daemon_version
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: target_version
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
       requestBody:
         content:
           text/plain:
@@ -9200,6 +9212,8 @@ components:
           $ref: '#/components/schemas/MachineLifecycleState'
         connection_state:
           $ref: '#/components/schemas/MachineConnectionState'
+        connection_state_reason:
+          type: string
         last_observed_at:
           allOf:
             - $ref: '#/components/schemas/Timestamp'

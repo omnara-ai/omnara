@@ -275,6 +275,7 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 		Provider:               record.Provider,
 		LifecycleState:         openapi.MachineLifecycleState(record.LifecycleState),
 		ConnectionState:        openapi.MachineConnectionState(record.ConnectionState),
+		ConnectionStateReason:  ptrFromNonEmpty(record.ConnectionStateReason),
 		LastObservedAt:         nullableFromPtr(record.LastObservedAt),
 		Cwd:                    record.Cwd,
 		Env:                    env,

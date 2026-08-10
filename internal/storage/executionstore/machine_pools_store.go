@@ -59,6 +59,7 @@ type MachineRecord struct {
 	ProviderResourceID           string                 `json:"provider_resource_id,omitempty"`
 	ProviderProvisionAttemptedAt *time.Time             `json:"-"`
 	ConnectionState              MachineConnectionState `json:"connection_state"`
+	ConnectionStateReason        string                 `json:"connection_state_reason,omitempty"`
 	SandboxURL                   string                 `json:"-"`
 	LastObservedAt               *time.Time             `json:"last_observed_at,omitempty"`
 	CPU                          *int                   `json:"cpu,omitempty"`
