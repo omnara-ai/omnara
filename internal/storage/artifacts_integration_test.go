@@ -11,6 +11,8 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 )
@@ -307,6 +309,201 @@ func TestCreateArtifactRejectsArchivedAgentButReplaysExisting(t *testing.T) {
 	if created != 0 {
 		t.Fatalf("post-archive artifacts = %d, want 0", created)
 	}
+}
+
+func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
+	t.Parallel()
+	type artifactOutcome struct {
+		record artifactstore.ArtifactRecord
+		err    error
+	}
+
+	t.Run("artifact wins", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		pool := openIntegrationDB(t, ctx)
+		seedMigratedDB(t, ctx, pool)
+		blobs := newRecordingBlobStore()
+		store := newIntegrationStore(pool, WithBlobStore(blobs))
+		agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+		user := mustCreateProjectOperatorUser(
+			t,
+			ctx,
+			store,
+			"artifact-project-delete-create@example.com",
+			"Artifact Project Delete Create",
+		)
+		actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(user.ID))
+		if err != nil {
+			t.Fatalf("build project deletion actor: %v", err)
+		}
+
+		controlTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin artifact creation control transaction: %v", err)
+		}
+		defer func() { _ = controlTx.Rollback(ctx) }()
+		if err := dbsqlc.New(controlTx).LockAgentMachineSources(
+			ctx,
+			dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
+		); err != nil {
+			t.Fatalf("lock agent sources before project deletion: %v", err)
+		}
+		if _, err := controlTx.Exec(ctx, `LOCK TABLE artifacts IN ACCESS EXCLUSIVE MODE`); err != nil {
+			t.Fatalf("lock artifact table: %v", err)
+		}
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+				ctx,
+				testOrgID,
+				testProjectID,
+				actor,
+			)
+			deleteDone <- deleteErr
+		}()
+		waitForNamedLockWaiters(t, ctx, pool, "LockAgentMachineSources", 1)
+
+		artifactDone := make(chan artifactOutcome, 1)
+		go func() {
+			record, createErr := store.Artifacts().CreateArtifact(
+				ctx,
+				artifactstore.CreateArtifactInput{
+					ProjectID:   testProjectID,
+					AgentID:     agentID,
+					ContentType: "image/png",
+					Content:     []byte("artifact wins"),
+				},
+			)
+			artifactDone <- artifactOutcome{record: record, err: createErr}
+		}()
+		waitForNamedLockWaiters(t, ctx, pool, "InsertArtifact", 1)
+		if err := controlTx.Commit(ctx); err != nil {
+			t.Fatalf("release artifact creation control transaction: %v", err)
+		}
+
+		outcome := <-artifactDone
+		if outcome.err != nil {
+			t.Fatalf("create artifact before project deletion: %v", outcome.err)
+		}
+		if err := <-deleteDone; err != nil {
+			t.Fatalf("delete project after artifact creation: %v", err)
+		}
+		var agentState string
+		var projectDeleted, artifactExists bool
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT agent.state,
+			        project.deleted_at IS NOT NULL,
+			        EXISTS (SELECT 1 FROM artifacts WHERE id = $3)
+			 FROM agents agent
+			 JOIN projects project ON project.id = agent.project_id
+			 WHERE agent.id = $1 AND project.id = $2`,
+			agentID,
+			testProjectID,
+			outcome.record.ID,
+		).Scan(&agentState, &projectDeleted, &artifactExists); err != nil {
+			t.Fatalf("load artifact creation winner state: %v", err)
+		}
+		if agentState != "archived" || !projectDeleted || !artifactExists {
+			t.Fatalf(
+				"artifact creation winner state: agent=%s project_deleted=%t artifact_exists=%t",
+				agentState,
+				projectDeleted,
+				artifactExists,
+			)
+		}
+		if len(blobs.putKeys) != 1 || len(blobs.deleteKeys) != 0 {
+			t.Fatalf("artifact creation winner blob writes=%v deletes=%v", blobs.putKeys, blobs.deleteKeys)
+		}
+	})
+
+	t.Run("deletion wins", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		pool := openIntegrationDB(t, ctx)
+		seedMigratedDB(t, ctx, pool)
+		blobs := newRecordingBlobStore()
+		store := newIntegrationStore(pool, WithBlobStore(blobs))
+		agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+		user := mustCreateProjectOperatorUser(
+			t,
+			ctx,
+			store,
+			"artifact-project-delete-delete@example.com",
+			"Artifact Project Delete Delete",
+		)
+		actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(user.ID))
+		if err != nil {
+			t.Fatalf("build project deletion actor: %v", err)
+		}
+
+		controlTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin project deletion control transaction: %v", err)
+		}
+		defer func() { _ = controlTx.Rollback(ctx) }()
+		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
+			ctx,
+			dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID},
+		); err != nil {
+			t.Fatalf("lock agent before project deletion: %v", err)
+		}
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+				ctx,
+				testOrgID,
+				testProjectID,
+				actor,
+			)
+			deleteDone <- deleteErr
+		}()
+		waitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+
+		artifactDone := make(chan artifactOutcome, 1)
+		go func() {
+			record, createErr := store.Artifacts().CreateArtifact(
+				ctx,
+				artifactstore.CreateArtifactInput{
+					ProjectID:   testProjectID,
+					AgentID:     agentID,
+					ContentType: "image/png",
+					Content:     []byte("deletion wins"),
+				},
+			)
+			artifactDone <- artifactOutcome{record: record, err: createErr}
+		}()
+		waitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
+		if err := controlTx.Commit(ctx); err != nil {
+			t.Fatalf("release project deletion control transaction: %v", err)
+		}
+
+		if err := <-deleteDone; err != nil {
+			t.Fatalf("delete project before artifact creation: %v", err)
+		}
+		outcome := <-artifactDone
+		if !errors.Is(outcome.err, storeerr.ErrStateTransitionConflict) {
+			t.Fatalf("artifact after project deletion error = %v, want state transition conflict", outcome.err)
+		}
+		var artifactCount int
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT count(*)::integer FROM artifacts WHERE agent_id = $1`,
+			agentID,
+		).Scan(&artifactCount); err != nil {
+			t.Fatalf("count artifacts after project deletion: %v", err)
+		}
+		if artifactCount != 0 {
+			t.Fatalf("artifacts created after project deletion = %d, want zero", artifactCount)
+		}
+		if len(blobs.putKeys) != 1 || len(blobs.deleteKeys) != 1 ||
+			blobs.deleteKeys[0] != blobs.putKeys[0] {
+			t.Fatalf("project deletion winner blob writes=%v deletes=%v", blobs.putKeys, blobs.deleteKeys)
+		}
+	})
 }
 
 func TestGetArtifactBlobMissingContentFails(t *testing.T) {
