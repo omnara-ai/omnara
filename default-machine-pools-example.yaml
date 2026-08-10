@@ -2,7 +2,7 @@ pools:
   - name: default-pool
     description: Omnara-hosted Unikraft agent machines
     provider: unikraft
-    provider_auth_env_var: UNIKRAFT_API_TOKEN
+    provider_auth_env_var: OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN
     default_machine_cpu: 2
     default_machine_memory_mb: 4096
     default_machine_provider_options:

@@ -133,7 +133,7 @@ Artifact content lives in S3-compatible object storage; a bucket is required.
 | `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_JITTER` | Jitter added to the fallback drain; must not exceed the interval | `10s` | No |
 | `OMNARA_DAEMON_RELEASE_URL` | Platform-manifest directory embedded in the hosted `omnarad.sh` installer | `https://releases.omnara.com/omnarad/latest` | No |
 | `OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES` | Path to a YAML file of default pool templates; when set, new orgs get cluster-managed machine pools | — | No |
-| `UNIKRAFT_API_TOKEN` | Provider token read by the example default-pool template; default-pool provider tokens stay in env | — | No |
+| `OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN` | Provider token read by the example default-pool template; default-pool provider tokens stay in env | — | No |
 
 Daemon runtimes use a fixed two-minute lease recorded in PostgreSQL. The API renews the stored deadline, and maintenance evaluates that deadline without a matching timeout setting.
 
