@@ -59,6 +59,22 @@ func TestSleepDaemonRuntimeLifecycle(t *testing.T) {
 	if record.State != "ended" || record.StateReasonCode != "machine_asleep" {
 		t.Fatalf("sleep runtime record = %s/%s, want ended/machine_asleep", record.State, record.StateReasonCode)
 	}
+	var intervalEndedAt time.Time
+	var intervalEndReason string
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT ended_at, end_reason_code
+FROM machine_online_intervals
+WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID).Scan(
+		&intervalEndedAt,
+		&intervalEndReason,
+	); err != nil {
+		t.Fatalf("load sleeping machine online interval: %v", err)
+	}
+	if record.EndedAt == nil || !intervalEndedAt.Equal(*record.EndedAt) ||
+		intervalEndReason != "machine_asleep" {
+		t.Fatalf("sleeping online interval = %s/%s, runtime = %+v", intervalEndedAt, intervalEndReason, record)
+	}
 	assertMachineState(t, ctx, fixture.Store, fixture.MachineID, "active", "asleep")
 
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "sleep_lifecycle", "run_command")

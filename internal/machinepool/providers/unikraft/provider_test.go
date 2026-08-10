@@ -506,6 +506,50 @@ func TestUnikraftProviderDeleteByUUID(t *testing.T) {
 	if len(api.deletedUUIDs) != 2 || api.deletedUUIDs[1] != "uuid-current" {
 		t.Fatalf("deleted instances: %v", api.deletedUUIDs)
 	}
+	delete(api.instancesByName, name)
+	if err := provider.DeleteMachine(
+		context.Background(),
+		testInstallationID(),
+		machineID,
+		testMachineProvisioning(t, nil),
+		"uuid-already-absent",
+	); err != nil {
+		t.Fatalf("delete already absent machine: %v", err)
+	}
+	if len(api.deletedUUIDs) != 2 {
+		t.Fatalf("already absent machine caused a delete request: %v", api.deletedUUIDs)
+	}
+}
+
+func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *testing.T) {
+	machineID := uuid.New()
+	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := &fakeAPI{instancesByUUID: map[string]instance{
+		"uuid-existing": {UUID: "uuid-existing", Name: name},
+	}}
+	provider := &provider{api: api, omnaraPublicURL: "https://app.omnara.test"}
+	machineProvisioning := testMachineProvisioning(t, nil)
+	machineProvisioning.CPU = nil
+	machineProvisioning.MemoryMB = nil
+	machineProvisioning.ProviderOptions["image"] = json.RawMessage(`{"stored":"shape"}`)
+	machineProvisioning.ProviderOptions["startup_script"] = json.RawMessage(`["stored"]`)
+	machineProvisioning.ProviderOptions["removed_option"] = json.RawMessage(`true`)
+
+	if err := provider.DeleteMachine(
+		context.Background(),
+		testInstallationID(),
+		machineID,
+		machineProvisioning,
+		"uuid-existing",
+	); err != nil {
+		t.Fatalf("delete machine with stored provisioning: %v", err)
+	}
+	if len(api.deletedUUIDs) != 1 || api.deletedUUIDs[0] != "uuid-existing" {
+		t.Fatalf("deleted instances = %v, want uuid-existing", api.deletedUUIDs)
+	}
 }
 
 func newTestProvider(api apiClient) *provider {
@@ -518,6 +562,14 @@ func newTestProvider(api apiClient) *provider {
 type fakeAPI struct {
 	instancesByName             map[string]instance
 	instancesByUUID             map[string]instance
+	batchGetRequests            [][]string
+	batchGetResults             []instance
+	batchGetErr                 error
+	batchGetMaxSize             int
+	batchEnvelopeStatus         responseStatus
+	batchHasEnvelopeErrors      bool
+	getByUUIDRequests           []string
+	getByUUIDErr                error
 	createRequests              []createInstanceRequest
 	deletedUUIDs                []string
 	createErr                   error
@@ -540,7 +592,55 @@ func (f *fakeAPI) CreateInstance(
 	return created, nil
 }
 
+func (f *fakeAPI) GetInstancesByUUIDs(
+	_ context.Context,
+	uuids []string,
+) (instanceBatch, error) {
+	f.batchGetRequests = append(f.batchGetRequests, append([]string(nil), uuids...))
+	if f.batchGetMaxSize > 0 && len(uuids) > f.batchGetMaxSize {
+		return instanceBatch{}, providers.ErrResponseTooLarge
+	}
+	if f.batchGetErr != nil {
+		return instanceBatch{}, f.batchGetErr
+	}
+	envelopeStatus := f.batchEnvelopeStatus
+	if envelopeStatus == "" {
+		envelopeStatus = responseStatusSuccess
+	}
+	if f.batchGetResults != nil {
+		return instanceBatch{
+			Instances:         append([]instance(nil), f.batchGetResults...),
+			EnvelopeStatus:    envelopeStatus,
+			HasEnvelopeErrors: f.batchHasEnvelopeErrors,
+		}, nil
+	}
+	results := make([]instance, 0, len(uuids))
+	for _, uuid := range uuids {
+		result, ok := f.instancesByUUID[uuid]
+		if !ok {
+			for _, candidate := range f.instancesByName {
+				if candidate.UUID == uuid {
+					result, ok = candidate, true
+					break
+				}
+			}
+		}
+		if ok {
+			results = append(results, result)
+		}
+	}
+	return instanceBatch{
+		Instances:         results,
+		EnvelopeStatus:    envelopeStatus,
+		HasEnvelopeErrors: f.batchHasEnvelopeErrors,
+	}, nil
+}
+
 func (f *fakeAPI) GetInstanceByUUID(_ context.Context, uuid string) (instance, bool, error) {
+	f.getByUUIDRequests = append(f.getByUUIDRequests, uuid)
+	if f.getByUUIDErr != nil {
+		return instance{}, false, f.getByUUIDErr
+	}
 	if f.instancesByUUID != nil {
 		result, ok := f.instancesByUUID[uuid]
 		return result, ok, nil

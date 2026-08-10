@@ -137,6 +137,133 @@ func intPtrForMachinePoolTest(value int) *int {
 	return &value
 }
 
+func boolPtrForMachinePoolTest(value bool) *bool {
+	return &value
+}
+
+func TestMachinePoolRuntimeProtectionDefaultsOffAndToggleClearsMarkers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+
+	unprotected, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(
+			t,
+			ctx,
+			store,
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Unprotected By Default",
+				Provider:         "test.provider",
+				MaxTotalMachines: 1,
+			},
+		),
+	)
+	if err != nil {
+		t.Fatalf("create default-unprotected machine pool: %v", err)
+	}
+	if unprotected.RuntimeProtectionEnabled {
+		t.Fatal("omitted runtime protection did not default off")
+	}
+
+	protected, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(
+			t,
+			ctx,
+			store,
+			executionstore.CreateMachinePoolInput{
+				OrgID:                    testOrgID,
+				Name:                     "Explicitly Protected",
+				Provider:                 "test.provider",
+				RuntimeProtectionEnabled: true,
+				MaxTotalMachines:         1,
+			},
+		),
+	)
+	if err != nil {
+		t.Fatalf("create explicitly protected machine pool: %v", err)
+	}
+	if !protected.RuntimeProtectionEnabled {
+		t.Fatal("explicitly enabled runtime protection was disabled")
+	}
+
+	machineID := testID("runtime-protection-marker-machine")
+	now := time.Now().UTC()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO machines(
+    id, org_id, machine_pool_id, source_kind, display_name, provider,
+    lifecycle_state, lifecycle_changed_at, provider_resource_id,
+    provider_provision_attempted_at, cpu, memory_mb, cwd, env, secret_env,
+    provider_options, provider_runtime_mismatch_since, metadata, created_at, updated_at
+) VALUES (
+    $1, $2, $3, 'pool', 'runtime protection marker', $4,
+    'active', $5, 'provider-resource', $5, 1, 1024, '', '{}'::jsonb, '{}'::jsonb,
+    '{}'::jsonb, $5, '{}'::jsonb, $5, $5
+)
+`, machineID, testOrgID, protected.ID, protected.Provider, now); err != nil {
+		t.Fatalf("seed runtime mismatch marker: %v", err)
+	}
+	updated, err := store.Execution().UpdateMachinePool(
+		ctx,
+		executionstore.UpdateMachinePoolInput{
+			OrgID:                    testOrgID,
+			ID:                       protected.ID,
+			RuntimeProtectionEnabled: boolPtrForMachinePoolTest(false),
+		},
+	)
+	if err != nil {
+		t.Fatalf("disable runtime protection: %v", err)
+	}
+	if updated.RuntimeProtectionEnabled {
+		t.Fatal("runtime protection remained enabled")
+	}
+	var mismatchSince *time.Time
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT provider_runtime_mismatch_since FROM machines WHERE org_id = $1 AND id = $2`,
+		testOrgID,
+		machineID,
+	).Scan(&mismatchSince); err != nil {
+		t.Fatalf("load runtime mismatch marker: %v", err)
+	}
+	if mismatchSince != nil {
+		t.Fatalf("runtime mismatch marker survived protection disable: %v", mismatchSince)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE machines SET provider_runtime_mismatch_since = statement_timestamp() WHERE org_id = $1 AND id = $2`,
+		testOrgID,
+		machineID,
+	); err != nil {
+		t.Fatalf("seed stale disabled marker: %v", err)
+	}
+	if _, err := store.Execution().UpdateMachinePool(
+		ctx,
+		executionstore.UpdateMachinePoolInput{
+			OrgID:                    testOrgID,
+			ID:                       protected.ID,
+			RuntimeProtectionEnabled: boolPtrForMachinePoolTest(true),
+		},
+	); err != nil {
+		t.Fatalf("re-enable runtime protection: %v", err)
+	}
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT provider_runtime_mismatch_since FROM machines WHERE org_id = $1 AND id = $2`,
+		testOrgID,
+		machineID,
+	).Scan(&mismatchSince); err != nil {
+		t.Fatalf("reload runtime mismatch marker: %v", err)
+	}
+	if mismatchSince != nil {
+		t.Fatalf("stale mismatch marker survived protection re-enable: %v", mismatchSince)
+	}
+}
+
 func completeMachinePoolCreateInputForTest(
 	t *testing.T,
 	ctx context.Context,
@@ -1589,6 +1716,7 @@ tools:
 	); err != nil {
 		t.Fatalf("complete orphan pool machine provisioning: %v", err)
 	}
+	seedProviderRuntimeMismatchForTest(t, ctx, pool, machineID, orphan.ID)
 	archivedMachines, err := store.Execution().DeleteMachinePool(ctx, testOrgID, machinePool.ID)
 	if err != nil {
 		t.Fatalf("archive machine pool: %v", err)
@@ -1600,6 +1728,7 @@ tools:
 	if len(markedMachineIDs) != 2 || !markedMachineIDs[launch.MachineBindings[0].MachineID] || !markedMachineIDs[orphan.ID] {
 		t.Fatalf("archived machines = %+v", archivedMachines)
 	}
+	assertProviderRuntimeMismatchClearedForTest(t, ctx, pool, machineID, orphan.ID)
 	if _, err := store.Execution().GetMachinePool(ctx, testOrgID, machinePool.ID); !storeerr.IsNotFound(err) {
 		t.Fatalf("get archived machine pool error = %v, want not found", err)
 	}
@@ -1850,6 +1979,7 @@ tools:
 	) {
 		t.Fatalf("direct revoke of generated pool grant error = %v, want ErrStateTransitionConflict", err)
 	}
+	seedProviderRuntimeMismatchForTest(t, ctx, pool, launch.MachineBindings[0].MachineID)
 	revokedResult, err := store.Execution().DeleteProjectMachinePoolGrant(
 		ctx,
 		testOrgID,
@@ -1872,6 +2002,7 @@ tools:
 	if machine.LifecycleState != "deleting" || machine.LifecycleReasonCode != "pool_grant_revoked" {
 		t.Fatalf("machine after pool grant revoke = %+v", machine)
 	}
+	assertProviderRuntimeMismatchClearedForTest(t, ctx, pool, machine.ID)
 	if _, claimed, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
 		testOrgID,

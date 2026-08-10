@@ -40,10 +40,15 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 			},
 		},
 		responses: []model.Response{{
-			ID:         "resp-transient-retry",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "done after retry"}},
-			StopReason: model.StopReasonEndTurn,
+			ID:                      "resp-transient-retry",
+			ProviderReportedCostUSD: "0.000003",
+			Content:                 []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "done after retry"}},
+			StopReason:              model.StopReasonEndTurn,
 		}},
+		errorResponses: []model.Response{
+			{ID: "resp-transient-error-1", ProviderReportedCostUSD: "0.000001"},
+			{ID: "resp-transient-error-2", ProviderReportedCostUSD: "0.000001"},
+		},
 	}
 	currentNow := now.Add(2 * time.Millisecond)
 	executor := AgentExecutor{
@@ -131,7 +136,7 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 			t.Fatalf("retry request %d changed bytes:\nfirst=%s\nretry=%s", index+1, firstRequest, got)
 		}
 	}
-	var failedContexts, contextsWithProviderMetadata, succeededContexts, contexts, operationFrontiers int
+	var failedContexts, contextsWithProviderMetadata, succeededContexts, contextsWithCost, contexts, operationFrontiers int
 	if err := fixture.Pool.QueryRow(ctx, `
 			SELECT count(*) FILTER (
 			         WHERE context.state = 'failed'
@@ -146,6 +151,10 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 			         WHERE context.state = 'succeeded'
 			           AND context.provider_response_id = 'resp-transient-retry'
 			       ),
+			       count(*) FILTER (
+			         WHERE (context.state = 'failed' AND context.provider_reported_cost_usd = 0.000001)
+			            OR (context.state = 'succeeded' AND context.provider_reported_cost_usd = 0.000003)
+			       ),
 			       count(*),
 			       count(DISTINCT context.input_event_sequence)
 		FROM model_call_contexts context
@@ -157,18 +166,20 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 		&failedContexts,
 		&contextsWithProviderMetadata,
 		&succeededContexts,
+		&contextsWithCost,
 		&contexts,
 		&operationFrontiers,
 	); err != nil {
 		t.Fatalf("count durable model call retry contexts: %v", err)
 	}
 	if failedContexts != 2 || contextsWithProviderMetadata != 1 || succeededContexts != 1 ||
-		contexts != 3 || operationFrontiers != 1 {
+		contextsWithCost != 3 || contexts != 3 || operationFrontiers != 1 {
 		t.Fatalf(
-			"model contexts failed/with-metadata/succeeded/total/frontiers = %d/%d/%d/%d/%d, want 2/1/1/3/1",
+			"model contexts failed/with-metadata/succeeded/with-cost/total/frontiers = %d/%d/%d/%d/%d/%d, want 2/1/1/3/3/1",
 			failedContexts,
 			contextsWithProviderMetadata,
 			succeededContexts,
+			contextsWithCost,
 			contexts,
 			operationFrontiers,
 		)

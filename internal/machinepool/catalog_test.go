@@ -3,8 +3,10 @@ package machinepool
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/unikraft"
@@ -75,6 +77,23 @@ func TestValidateProviderConfigRejectsUnknownProvider(t *testing.T) {
 	); err == nil {
 		t.Fatal("expected unknown provider to fail")
 	}
+}
+
+func TestCatalogRejectsProtectedPoolWithoutRuntimeObserver(t *testing.T) {
+	catalog := Catalog{definitions: map[string]providers.Definition{
+		"unsupported": runtimeObservationOmittedDefinition{Definition: blaxel.Definition{}},
+	}}
+	err := catalog.ValidatePool(
+		"unsupported",
+		executionstore.MachinePoolProviderPolicy{RuntimeProtectionEnabled: true},
+	)
+	if err == nil || !strings.Contains(err.Error(), "does not support runtime protection") {
+		t.Fatalf("protected unsupported provider error = %v", err)
+	}
+}
+
+type runtimeObservationOmittedDefinition struct {
+	providers.Definition
 }
 
 func assertJSONEqual(t *testing.T, got, want json.RawMessage) {

@@ -61,7 +61,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	test-service-e2e \
 	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-check web-e2e run-web \
 	test-live-web test-live-openai test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
-	test-live-api-format-switching test-live \
+	test-live-api-format-switching test-live-sandbox-providers test-live \
 	docs-openapi docs-openapi-check
 
 help:
@@ -406,6 +406,7 @@ test-service-e2e: db-up ## Run deterministic service end-to-end tests
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e' -run "^($$tests)$$" ./internal/e2e
 
 test-live-web:
+	@$(LOAD_DOTENV); \
 	$(GO) test -count=1 -v -tags=live ./internal/webaccess
 
 test-live-openai:
@@ -438,7 +439,15 @@ test-live-api-format-switching:
 	: "$${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required for live API-format switching tests}"; \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAPIFormatSwitchingPreservesHistory$$'
 
-test-live: test-live-web test-live-openai test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching
+test-live-sandbox-providers:
+	@$(LOAD_DOTENV); \
+	$(GO) test -count=1 -v \
+		./internal/machinepool/providers/blaxel \
+		./internal/machinepool/providers/daytona \
+		./internal/machinepool/providers/unikraft \
+		-run '^Test(Blaxel|Daytona|Unikraft)ProviderLiveSmoke$$'
+
+test-live: test-live-web test-live-openai test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
 
 # Black-box API suite against a deployed control plane.
 # The -timeout must stay comfortably above the suite's worst-case waits (~9m of

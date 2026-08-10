@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -181,6 +182,38 @@ func TestResolveEnvironmentSecretsRejectsOversizedEnvironment(t *testing.T) {
 	); err == nil || !errors.Is(err, storeerr.ErrPermanentEnvironment) ||
 		!strings.Contains(err.Error(), "resolved environment exceeds size limit") {
 		t.Fatalf("resolve oversized environment error = %v", err)
+	}
+}
+
+func TestResolveMachineEnvironmentBoundsEntryCount(t *testing.T) {
+	env := make(map[string]string, MaxResolvedEnvironmentEntries+1)
+	for index := range MaxResolvedEnvironmentEntries + 1 {
+		env[fmt.Sprintf("ENTRY_%d", index)] = ""
+	}
+	want := fmt.Sprintf(
+		"env and secret_env may contain at most %d entries combined",
+		MaxResolvedEnvironmentEntries,
+	)
+	if _, err := resolveMachineEnvironment(MachineEnvironment{Env: env}); err == nil ||
+		err.Error() != want {
+		t.Fatalf("entry-count validation error = %v", err)
+	}
+}
+
+func TestResolveMachineEnvironmentBoundsMergedEntryCount(t *testing.T) {
+	env := make(map[string]string, MaxResolvedEnvironmentEntries)
+	for index := range MaxResolvedEnvironmentEntries {
+		env[fmt.Sprintf("ENTRY_%d", index)] = ""
+	}
+	want := fmt.Sprintf(
+		"env and secret_env may contain at most %d entries combined",
+		MaxResolvedEnvironmentEntries,
+	)
+	if _, err := resolveMachineEnvironment(
+		MachineEnvironment{Env: env},
+		MachineEnvironmentOverlay{Env: map[string]*string{"OVERFLOW": ptrForMachineTest("")}},
+	); err == nil || err.Error() != want {
+		t.Fatalf("merged entry-count validation error = %v", err)
 	}
 }
 

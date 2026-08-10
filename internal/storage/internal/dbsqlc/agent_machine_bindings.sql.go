@@ -502,6 +502,8 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_code = $1,
     lifecycle_reason_message = $2,
     next_reconcile_after = agent.archived_at,
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = agent.archived_at
 FROM agent_machine_bindings binding
 JOIN agents agent ON agent.org_id = binding.org_id
@@ -625,6 +627,8 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_code = $1,
     lifecycle_reason_message = $2,
     next_reconcile_after = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 FROM agent_machine_bindings binding
 WHERE binding.project_id = $3

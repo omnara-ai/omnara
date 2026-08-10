@@ -1452,15 +1452,14 @@ func TestMachineUnreachableCandidatesUseLatestRuntimeRecency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register replacement runtime: %v", err)
 	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-		UPDATE daemon_runtimes
-		SET last_seen_at = statement_timestamp() - INTERVAL '2 seconds',
-		    lease_expires_at = statement_timestamp() - INTERVAL '1 second',
-		    updated_at = statement_timestamp()
-		WHERE org_id = $1 AND machine_id = $2 AND id = $3
-	`, fixture.OrgID, fixture.MachineID, replacementRuntime.ID); err != nil {
-		t.Fatalf("expire replacement runtime without ending it: %v", err)
-	}
+	expireDaemonRuntimeLeaseForTest(
+		t,
+		ctx,
+		fixture.Store,
+		fixture.OrgID,
+		fixture.MachineID,
+		replacementRuntime.ID,
+	)
 	candidates, err := fixture.Store.q.ListMachineUnreachableMachineCandidates(
 		ctx,
 		dbsqlc.ListMachineUnreachableMachineCandidatesParams{

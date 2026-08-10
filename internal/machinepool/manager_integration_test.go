@@ -969,9 +969,54 @@ func TestManagerWakeMachineRetriesProviderWake(t *testing.T) {
 			t.Fatalf("wake input = %+v", input)
 		}
 	}
+	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+	if err != nil || !shouldRetry {
+		t.Fatalf("repeat pending wake = (%t, %v), want true/nil", shouldRetry, err)
+	}
+	if len(provider.wakeInputs) != machineWakeAttempts {
+		t.Fatalf("pending wake made another provider call: %d attempts", len(provider.wakeInputs))
+	}
+
+	runtimeProtectionEnabled := true
+	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID:                    orgID,
+		ID:                       machinePool.ID,
+		RuntimeProtectionEnabled: &runtimeProtectionEnabled,
+	}); err != nil {
+		t.Fatalf("enable runtime protection: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND id = $2
+`, orgID, machineID); err != nil {
+		t.Fatalf("expire protected wake attempt: %v", err)
+	}
+	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+	if !errors.Is(err, storeerr.ErrMachineWakeUnresolved) || shouldRetry {
+		t.Fatalf("unresolved protected wake = (%t, %v), want false/unresolved", shouldRetry, err)
+	}
+	if len(provider.wakeInputs) != machineWakeAttempts {
+		t.Fatalf("unresolved protected wake made another provider call: %d attempts", len(provider.wakeInputs))
+	}
+	runtimeProtectionEnabled = false
+	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID:                    orgID,
+		ID:                       machinePool.ID,
+		RuntimeProtectionEnabled: &runtimeProtectionEnabled,
+	}); err != nil {
+		t.Fatalf("disable runtime protection: %v", err)
+	}
 
 	provider.wakeInputs = nil
 	provider.wakeErrors = []error{wakeErr, wakeErr, wakeErr}
+	if _, err := pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '5 minutes'
+WHERE org_id = $1 AND id = $2
+`, orgID, machineID); err != nil {
+		t.Fatalf("expire unprotected wake intent: %v", err)
+	}
 	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
 	if !errors.Is(err, wakeErr) {
 		t.Fatalf("wake error = %v, want %v", err, wakeErr)

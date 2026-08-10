@@ -40,6 +40,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 		failure.ProviderRequestID,
 		failure.ProviderResponseID,
 		modelenvelope.NormalizeUsage(failure.Usage) != (modelenvelope.Usage{}),
+		failure.ProviderReportedCostUSD,
 	); err != nil {
 		return TriggeredCompactionHandoff{}, err
 	}
@@ -102,21 +103,22 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 	}
 
 	parentContext, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          failure.ProjectID,
-		AgentID:            failure.AgentID,
-		ModelCallContextID: failure.ModelCallContextID,
-		RuntimeLockID:      failure.RuntimeLockID,
-		ToState:            ModelCallContextFailed,
-		RecoveryKind:       ModelCallRecoveryCompact,
-		APIFormat:          failure.APIFormat,
-		APIVariant:         failure.APIVariant,
-		ProviderRequestID:  failure.ProviderRequestID,
-		ProviderResponseID: failure.ProviderResponseID,
-		ErrorKind:          failure.ErrorKind,
-		ErrorCode:          failure.ErrorCode,
-		ErrorMessage:       failure.ErrorMessage,
-		ErrorDetails:       failure.ErrorDetails,
-		Usage:              failure.Usage,
+		ProjectID:               failure.ProjectID,
+		AgentID:                 failure.AgentID,
+		ModelCallContextID:      failure.ModelCallContextID,
+		RuntimeLockID:           failure.RuntimeLockID,
+		ToState:                 ModelCallContextFailed,
+		RecoveryKind:            ModelCallRecoveryCompact,
+		APIFormat:               failure.APIFormat,
+		APIVariant:              failure.APIVariant,
+		ProviderRequestID:       failure.ProviderRequestID,
+		ProviderResponseID:      failure.ProviderResponseID,
+		ErrorKind:               failure.ErrorKind,
+		ErrorCode:               failure.ErrorCode,
+		ErrorMessage:            failure.ErrorMessage,
+		ErrorDetails:            failure.ErrorDetails,
+		Usage:                   failure.Usage,
+		ProviderReportedCostUSD: failure.ProviderReportedCostUSD,
 	})
 	if err != nil {
 		return TriggeredCompactionHandoff{}, err
@@ -221,6 +223,7 @@ func (s *Store) ReplaceCompactionSource(
 		input.ProviderRequestID,
 		input.ProviderResponseID,
 		input.Usage != (modelenvelope.Usage{}),
+		input.ProviderReportedCostUSD,
 	); err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
@@ -266,21 +269,22 @@ func (s *Store) ReplaceCompactionSource(
 		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
 	}
 	if _, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		ModelCallContextID: input.ModelCallContextID,
-		RuntimeLockID:      input.RuntimeLockID,
-		ToState:            ModelCallContextFailed,
-		RecoveryKind:       ModelCallRecoveryReduceCompactionSource,
-		APIFormat:          input.APIFormat,
-		APIVariant:         input.APIVariant,
-		ProviderRequestID:  input.ProviderRequestID,
-		ProviderResponseID: input.ProviderResponseID,
-		ErrorKind:          input.ErrorKind,
-		ErrorCode:          input.ErrorCode,
-		ErrorMessage:       input.ErrorMessage,
-		ErrorDetails:       input.ErrorDetails,
-		Usage:              input.Usage,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		ModelCallContextID:      input.ModelCallContextID,
+		RuntimeLockID:           input.RuntimeLockID,
+		ToState:                 ModelCallContextFailed,
+		RecoveryKind:            ModelCallRecoveryReduceCompactionSource,
+		APIFormat:               input.APIFormat,
+		APIVariant:              input.APIVariant,
+		ProviderRequestID:       input.ProviderRequestID,
+		ProviderResponseID:      input.ProviderResponseID,
+		ErrorKind:               input.ErrorKind,
+		ErrorCode:               input.ErrorCode,
+		ErrorMessage:            input.ErrorMessage,
+		ErrorDetails:            input.ErrorDetails,
+		Usage:                   input.Usage,
+		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
 	}); err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}

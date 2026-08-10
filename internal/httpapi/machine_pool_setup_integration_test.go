@@ -61,6 +61,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		machinePool["max_machine_memory_mb"].(float64) != 4096 {
 		t.Fatalf("unexpected pool response: %+v", machinePool)
 	}
+	if machinePool["runtime_protection_enabled"] != false {
+		t.Fatalf("default runtime_protection_enabled = %v, want false", machinePool["runtime_protection_enabled"])
+	}
 	defaultProviderOptions := machinePool["default_machine_provider_options"].(map[string]any)
 	if machinePool["default_cwd"] != "/pool" || defaultProviderOptions["image"] != "test" {
 		t.Fatalf("unexpected pool default_machine fields: %+v", machinePool)
@@ -287,7 +290,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if _, err := store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{OrgID: project.OrgUUID, SecretID: providerAuthSecretUUID, TargetProjectID: project.ProjectUUID, Actor: httpUserPrincipal(project.AdminUserUUID)}); err != nil {
 		t.Fatalf("grant pool secret env to project: %v", err)
 	}
-	updatePoolBody := `{"name":"update-target","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{},"default_machine_provider_options":{"image":"update-initial","metro":"sfo"},"default_cwd":"/workspace"` + providerAuthSecretField + `,"max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`
+	updatePoolBody := `{"name":"update-target","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{},"default_machine_provider_options":{"image":"update-initial","metro":"sfo"},"default_cwd":"/workspace"` + providerAuthSecretField + `,"max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,"runtime_protection_enabled":false}`
 	updatePool := requestJSONWithHeaders(
 		t,
 		handler,
@@ -299,6 +302,25 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	updatePoolID := updatePool["id"].(string)
+	if updatePool["runtime_protection_enabled"] != false {
+		t.Fatalf("created runtime_protection_enabled = %v, want false", updatePool["runtime_protection_enabled"])
+	}
+	patchedUnprotectedPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+updatePoolID,
+		`{"description":"still unprotected"}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if patchedUnprotectedPool["runtime_protection_enabled"] != false {
+		t.Fatalf(
+			"omitted update changed runtime_protection_enabled = %v, want false",
+			patchedUnprotectedPool["runtime_protection_enabled"],
+		)
+	}
 	rotatedProviderAuthSecretID := createPublicHTTPMachinePoolProviderAuthSecret(
 		t,
 		handler,
@@ -306,7 +328,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		"machine-pool-provider-auth-rotated",
 		"rotated-token",
 	)
-	poolUpdateBody := `{"name":"updated-target","description":"updated pool","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"updated-pool-value"},"default_machine_provider_options":{"image":"updated","metro":"sfo","startup_script":"echo updated"},"default_cwd":"/pool-updated","provider_auth_secret_id":"` + rotatedProviderAuthSecretID + `","max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,"metadata":{"team":"infra"}}`
+	poolUpdateBody := `{"name":"updated-target","description":"updated pool","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"updated-pool-value"},"default_machine_provider_options":{"image":"updated","metro":"sfo","startup_script":"echo updated"},"default_cwd":"/pool-updated","provider_auth_secret_id":"` + rotatedProviderAuthSecretID + `","max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,"runtime_protection_enabled":true,"metadata":{"team":"infra"}}`
 	updatedPool := requestJSONWithHeaders(
 		t,
 		handler,
@@ -321,7 +343,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		updatedPool["name"] != "updated-target" ||
 		updatedPool["description"] != "updated pool" || updatedPool["default_cwd"] != "/pool-updated" ||
 		updatedPool["provider_auth_secret_id"] != rotatedProviderAuthSecretID ||
-		updatedPool["max_total_cpu"].(float64) != 4 {
+		updatedPool["max_total_cpu"].(float64) != 4 || updatedPool["runtime_protection_enabled"] != true {
 		t.Fatalf("unexpected updated pool response: %+v", updatedPool)
 	}
 	patchedPool := requestJSONWithHeaders(
@@ -335,7 +357,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	if patchedPool["id"] != updatePoolID || patchedPool["description"] != "patched pool" ||
-		patchedPool["default_cwd"] != "/pool-updated" || patchedPool["max_total_cpu"].(float64) != 4 {
+		patchedPool["default_cwd"] != "/pool-updated" || patchedPool["max_total_cpu"].(float64) != 4 ||
+		patchedPool["runtime_protection_enabled"] != true {
 		t.Fatalf("unexpected patched pool response: %+v", patchedPool)
 	}
 	updatedEnv := updatedPool["default_machine_env"].(map[string]any)

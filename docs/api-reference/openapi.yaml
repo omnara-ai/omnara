@@ -8905,6 +8905,10 @@ components:
           additionalProperties: true
         provider_auth_secret_id:
           $ref: '#/components/schemas/SecretID'
+        runtime_protection_enabled:
+          description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
+          type: boolean
+          default: false
         max_total_machines:
           type: integer
           format: int32
@@ -8974,6 +8978,9 @@ components:
           additionalProperties: true
         provider_auth_secret_id:
           $ref: '#/components/schemas/SecretID'
+        runtime_protection_enabled:
+          description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
+          type: boolean
         max_total_machines:
           type: integer
           format: int32
@@ -9009,7 +9016,7 @@ components:
     MachinePool:
       type: object
       additionalProperties: false
-      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachinePoolID'
@@ -9055,6 +9062,9 @@ components:
         provider_config:
           type: object
           additionalProperties: true
+        runtime_protection_enabled:
+          description: Whether Omnara deletes this pool's machines when the provider remains running after the daemon becomes inactive.
+          type: boolean
         max_total_machines:
           type: integer
           format: int32

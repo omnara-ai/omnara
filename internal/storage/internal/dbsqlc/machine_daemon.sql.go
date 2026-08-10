@@ -150,9 +150,56 @@ func (q *Queries) BeginPoolMachineProviderProvisioning(ctx context.Context, arg 
 	return i, err
 }
 
+const claimMachineWakeRequest = `-- name: ClaimMachineWakeRequest :one
+UPDATE machines machine
+SET wake_attempt_expires_at = statement_timestamp()
+      + $1::bigint * interval '1 millisecond',
+    updated_at = statement_timestamp()
+FROM machine_pools pool
+WHERE machine.org_id = $2
+  AND machine.id = $3
+  AND machine.machine_pool_id = $4::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND machine.asleep_since IS NOT NULL
+  AND machine.provider_resource_id IS NOT NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR (
+      NOT pool.runtime_protection_enabled
+      AND machine.wake_attempt_expires_at <= statement_timestamp()
+    )
+  )
+  AND pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+  AND pool.deleted_at IS NULL
+RETURNING machine.wake_attempt_expires_at
+`
+
+type ClaimMachineWakeRequestParams struct {
+	WakeTimeoutMilliseconds int64
+	OrgID                   uuid.UUID
+	MachineID               uuid.UUID
+	MachinePoolID           uuid.UUID
+}
+
+func (q *Queries) ClaimMachineWakeRequest(ctx context.Context, arg ClaimMachineWakeRequestParams) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, claimMachineWakeRequest,
+		arg.WakeTimeoutMilliseconds,
+		arg.OrgID,
+		arg.MachineID,
+		arg.MachinePoolID,
+	)
+	var wake_attempt_expires_at *time.Time
+	err := row.Scan(&wake_attempt_expires_at)
+	return wake_attempt_expires_at, err
+}
+
 const clearMachineSleep = `-- name: ClearMachineSleep :exec
 UPDATE machines
 SET asleep_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $1
   AND id = $2
@@ -713,6 +760,60 @@ func (q *Queries) GetDaemonRuntimeInstanceForUpdate(ctx context.Context, arg Get
 		&i.State,
 		&i.StateReasonCode,
 		&i.DaemonVersion,
+	)
+	return i, err
+}
+
+const getMachineWakeState = `-- name: GetMachineWakeState :one
+SELECT EXISTS (
+         SELECT 1
+         FROM online_daemon_runtimes runtime
+         WHERE runtime.org_id = machine.org_id
+           AND runtime.machine_id = machine.id
+       ) AS online,
+       (machine.asleep_since IS NOT NULL)::boolean AS asleep,
+       pool.runtime_protection_enabled,
+       machine.wake_attempt_expires_at,
+       coalesce(
+         machine.wake_attempt_expires_at > statement_timestamp(),
+         false
+       )::boolean AS wake_attempt_active
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+  AND pool.deleted_at IS NULL
+WHERE machine.org_id = $1
+  AND machine.id = $2
+  AND machine.machine_pool_id = $3::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND machine.provider_resource_id IS NOT NULL
+`
+
+type GetMachineWakeStateParams struct {
+	OrgID         uuid.UUID
+	MachineID     uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+type GetMachineWakeStateRow struct {
+	Online                   bool
+	Asleep                   bool
+	RuntimeProtectionEnabled bool
+	WakeAttemptExpiresAt     *time.Time
+	WakeAttemptActive        bool
+}
+
+func (q *Queries) GetMachineWakeState(ctx context.Context, arg GetMachineWakeStateParams) (GetMachineWakeStateRow, error) {
+	row := q.db.QueryRow(ctx, getMachineWakeState, arg.OrgID, arg.MachineID, arg.MachinePoolID)
+	var i GetMachineWakeStateRow
+	err := row.Scan(
+		&i.Online,
+		&i.Asleep,
+		&i.RuntimeProtectionEnabled,
+		&i.WakeAttemptExpiresAt,
+		&i.WakeAttemptActive,
 	)
 	return i, err
 }
@@ -1794,6 +1895,7 @@ func (q *Queries) MachineHasUnfinishedDaemonWork(ctx context.Context, arg Machin
 const markMachineAsleep = `-- name: MarkMachineAsleep :one
 UPDATE machines
 SET asleep_since = statement_timestamp(),
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $1
   AND id = $2
@@ -2162,6 +2264,8 @@ func (q *Queries) UpdateMachineExecutionDefaults(ctx context.Context, arg Update
 const updateMachineObservation = `-- name: UpdateMachineObservation :exec
 UPDATE machines
 SET last_observed_at = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     metadata = CASE
       WHEN $1::jsonb = '{}'::jsonb THEN metadata
       ELSE jsonb_set(metadata, '{observed_platform}', $1::jsonb, true)

@@ -33,6 +33,7 @@ var (
 	ErrProcessExecutionNotGranted    = errors.New("process execution was not granted")
 	ErrMachineSleepPendingWork       = errors.New("machine has pending daemon work")
 	ErrMachineNotWakeCapable         = errors.New("machine is not wake capable")
+	ErrMachineWakeUnresolved         = errors.New("machine wake outcome is unresolved")
 	ErrProcessActionReportBlocked    = errors.New("process action report is blocked by earlier non-terminal action")
 	ErrStateTransitionConflict       = errors.New("state transition conflict")
 	ErrMachineProviderUnavailable    = errors.New("machine provider unavailable")

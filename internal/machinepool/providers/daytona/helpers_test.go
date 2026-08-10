@@ -53,8 +53,14 @@ type fakeAPI struct {
 	snapshot           snapshot
 	snapshotErr        error
 	sandbox            sandbox
-	sandboxStates      []string
+	sandboxStates      []sandboxState
+	listPages          []sandboxPage
+	listErr            error
+	listErrCall        int
+	listQueries        []listSandboxesQuery
 	getSandboxCalls    int
+	getSandboxErr      error
+	getSandboxLookups  []string
 	createErr          error
 	createRequest      createSandboxRequest
 	session            session
@@ -104,8 +110,28 @@ func (a *fakeAPI) CreateSandbox(
 	return a.sandbox, nil
 }
 
+func (a *fakeAPI) ListSandboxes(
+	_ context.Context,
+	query listSandboxesQuery,
+) (sandboxPage, error) {
+	a.listQueries = append(a.listQueries, query)
+	if a.listErr != nil && (a.listErrCall == 0 || a.listErrCall == len(a.listQueries)) {
+		return sandboxPage{}, a.listErr
+	}
+	if len(a.listPages) == 0 {
+		return sandboxPage{}, nil
+	}
+	page := a.listPages[0]
+	a.listPages = a.listPages[1:]
+	return page, nil
+}
+
 func (a *fakeAPI) GetSandbox(_ context.Context, resourceID string) (sandbox, bool, error) {
 	a.getSandboxCalls++
+	a.getSandboxLookups = append(a.getSandboxLookups, resourceID)
+	if a.getSandboxErr != nil {
+		return sandbox{}, false, a.getSandboxErr
+	}
 	if a.missingSandboxIDs[resourceID] {
 		return sandbox{}, false, nil
 	}

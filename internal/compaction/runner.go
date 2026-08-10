@@ -354,16 +354,17 @@ func (r Runner) run(
 	checkpoint, err := r.Store.PublishContextCheckpoint(
 		ctx,
 		executionstore.PublishContextCheckpointInput{
-			ProjectID:          input.Plan.ProjectID,
-			AgentID:            input.Plan.AgentID,
-			RuntimeLockID:      input.RuntimeLockID,
-			ModelCallContextID: claim.Context.ID,
-			Summary:            summary,
-			APIFormat:          apiFormat,
-			APIVariant:         apiVariant,
-			ProviderRequestID:  response.ProviderRequestID,
-			ProviderResponseID: response.ID,
-			Usage:              response.Usage,
+			ProjectID:               input.Plan.ProjectID,
+			AgentID:                 input.Plan.AgentID,
+			RuntimeLockID:           input.RuntimeLockID,
+			ModelCallContextID:      claim.Context.ID,
+			Summary:                 summary,
+			APIFormat:               apiFormat,
+			APIVariant:              apiVariant,
+			ProviderRequestID:       response.ProviderRequestID,
+			ProviderResponseID:      response.ID,
+			Usage:                   response.Usage,
+			ProviderReportedCostUSD: response.ProviderReportedCostUSD,
 		},
 	)
 	if err != nil {

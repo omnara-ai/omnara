@@ -21,6 +21,7 @@ const (
 	poolMachineDeletionLeaseDuration     = 2 * time.Minute
 	StaleMachineBootstrapAge             = 5 * time.Minute
 	missingProviderResourceFinalityAge   = 24 * time.Hour
+	machineDeletingReason                = "machine_deleting"
 )
 
 type PoolMachineProvisionFailureInput struct {
@@ -650,23 +651,50 @@ func (s *Store) ClaimPoolMachineDeletion(
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, fmt.Errorf("claim pool machine deletion: %w", err)
 	}
-	active, err := qtx.ListActiveDaemonRuntimesForUpdate(
+	claim := poolMachineDeletionClaimFromSQLC(row)
+	claim, err = s.finalizePoolMachineDeletionClaimTx(
 		ctx,
-		dbsqlc.ListActiveDaemonRuntimesForUpdateParams{OrgID: input.OrgID, MachineID: input.MachineID},
+		tx,
+		qtx,
+		txNotifications,
+		claim,
+		"claim pool machine deletion",
+		machineDeletingReason,
 	)
 	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf("list active runtimes for deletion intent: %w", err)
+		return PoolMachineDeletionClaim{}, false, err
+	}
+	return claim, true, nil
+}
+
+func (s *Store) finalizePoolMachineDeletionClaimTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	txNotifications *notifications.TxNotifications,
+	claim PoolMachineDeletionClaim,
+	operation string,
+	terminalWorkReason string,
+) (PoolMachineDeletionClaim, error) {
+	machine := claim.Machine
+	active, err := qtx.ListActiveDaemonRuntimesForUpdate(
+		ctx,
+		dbsqlc.ListActiveDaemonRuntimesForUpdateParams{
+			OrgID: machine.OrgID, MachineID: machine.ID,
+		},
+	)
+	if err != nil {
+		return PoolMachineDeletionClaim{}, fmt.Errorf("list active runtimes for deletion intent: %w", err)
 	}
 	for _, runtime := range active {
 		if _, err := qtx.ForceEndDaemonRuntime(ctx, dbsqlc.ForceEndDaemonRuntimeParams{
-			OrgID:     input.OrgID,
-			MachineID: input.MachineID,
+			OrgID:     machine.OrgID,
+			MachineID: machine.ID,
 			ID:        runtime.ID,
-			Reason:    sqlcTextFromEmpty("machine_deleting"),
+			Reason:    sqlcTextFromEmpty(machineDeletingReason),
 			Message:   "",
-		}); err != nil &&
-			!errors.Is(err, pgx.ErrNoRows) {
-			return PoolMachineDeletionClaim{}, false, fmt.Errorf("end runtime for deletion intent: %w", err)
+		}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return PoolMachineDeletionClaim{}, fmt.Errorf("end runtime for deletion intent: %w", err)
 		}
 		txNotifications.AddDaemonRuntimeEnded(
 			runtime.ID,
@@ -679,18 +707,19 @@ func (s *Store) ClaimPoolMachineDeletion(
 		txNotifications,
 		tx,
 		qtx,
-		input.OrgID,
-		input.MachineID,
-		"machine_deleting",
+		machine.OrgID,
+		machine.ID,
+		terminalWorkReason,
 	); err != nil {
-		return PoolMachineDeletionClaim{}, false, err
+		return PoolMachineDeletionClaim{}, err
 	}
-	if err := qtx.RevokeMachineDaemonTokensForMachine(ctx, dbsqlc.RevokeMachineDaemonTokensForMachineParams{
-		OrgID:     input.OrgID,
-		MachineID: input.MachineID,
-		Reason:    "machine_deleting",
-	}); err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf(
+	if err := qtx.RevokeMachineDaemonTokensForMachine(
+		ctx,
+		dbsqlc.RevokeMachineDaemonTokensForMachineParams{
+			OrgID: machine.OrgID, MachineID: machine.ID, Reason: machineDeletingReason,
+		},
+	); err != nil {
+		return PoolMachineDeletionClaim{}, fmt.Errorf(
 			"revoke machine daemon tokens for deletion intent: %w",
 			err,
 		)
@@ -699,22 +728,21 @@ func (s *Store) ClaimPoolMachineDeletion(
 		ctx,
 		dbsqlc.FinalizePoolMachineDeletionClaimParams{
 			ClaimTimeoutSeconds:      int64(poolMachineDeletionLeaseDuration / time.Second),
-			OrgID:                    input.OrgID,
-			ID:                       input.MachineID,
-			ExpectedLifecycleVersion: row.LifecycleVersion,
-			DeleteAttempt:            row.DeleteAttempts,
+			OrgID:                    machine.OrgID,
+			ID:                       machine.ID,
+			ExpectedLifecycleVersion: machine.LifecycleVersion,
+			DeleteAttempt:            machine.DeleteAttempts,
 		},
 	)
 	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf("finalize pool machine deletion claim: %w", err)
+		return PoolMachineDeletionClaim{}, fmt.Errorf("finalize pool machine deletion claim: %w", err)
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "claim pool machine deletion"); err != nil {
-		return PoolMachineDeletionClaim{}, false, err
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, operation); err != nil {
+		return PoolMachineDeletionClaim{}, err
 	}
-	claim := poolMachineDeletionClaimFromSQLC(row)
 	claim.Machine.NextReconcileAfter = lease.NextReconcileAfter
 	claim.Machine.UpdatedAt = lease.UpdatedAt
-	return claim, true, nil
+	return claim, nil
 }
 
 func (s *Store) RecordPoolMachineDeletionResource(

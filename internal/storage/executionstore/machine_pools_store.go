@@ -113,6 +113,7 @@ type MachinePoolRecord struct {
 	ProviderConfig                json.RawMessage `json:"-"`
 	ProviderAuthSecretID          ID              `json:"provider_auth_secret_id,omitempty"`
 	ProviderAuthEnvVar            string          `json:"-"`
+	RuntimeProtectionEnabled      bool            `json:"runtime_protection_enabled"`
 	MaxTotalMachines              int32           `json:"max_total_machines"`
 	MaxTotalCPU                   *int            `json:"max_total_cpu"`
 	MaxTotalMemoryMB              *int            `json:"max_total_memory_mb"`
@@ -142,7 +143,8 @@ func (record MachinePoolRecord) ProviderPolicy() (MachinePoolProviderPolicy, err
 			MaxMachineCPU:      record.MaxMachineCPU,
 			MaxMachineMemoryMB: record.MaxMachineMemoryMB,
 		},
-		ProviderConfig: record.ProviderConfig,
+		ProviderConfig:           record.ProviderConfig,
+		RuntimeProtectionEnabled: record.RuntimeProtectionEnabled,
 	}, nil
 }
 
@@ -161,6 +163,7 @@ type CreateMachinePoolInput struct {
 	ProviderConfig                json.RawMessage
 	ProviderAuthSecretID          ID
 	ProviderAuthEnvVar            string
+	RuntimeProtectionEnabled      bool
 	MaxTotalMachines              int32
 	MaxTotalCPU                   *int
 	MaxTotalMemoryMB              *int
@@ -182,6 +185,7 @@ type UpdateMachinePoolInput struct {
 	DefaultCwd                    *string
 	ProviderConfig                json.RawMessage
 	ProviderAuthSecretID          *ID
+	RuntimeProtectionEnabled      *bool
 	MaxTotalMachines              *int32
 	MaxTotalCPU                   patch.NullableInt
 	MaxTotalMemoryMB              patch.NullableInt
@@ -202,6 +206,7 @@ type DefaultMachinePoolTemplate struct {
 	DefaultCwd                    string          `json:"default_cwd"`
 	ProviderConfig                json.RawMessage `json:"provider_config"`
 	ProviderAuthEnvVar            string          `json:"provider_auth_env_var"`
+	RuntimeProtectionEnabled      bool            `json:"runtime_protection_enabled"`
 	MaxTotalMachines              int32           `json:"max_total_machines"`
 	MaxTotalCPU                   *int            `json:"max_total_cpu"`
 	MaxTotalMemoryMB              *int            `json:"max_total_memory_mb"`
@@ -225,6 +230,7 @@ func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) Crea
 		DefaultCwd:                    defaultPoolTemplate.DefaultCwd,
 		ProviderConfig:                defaultPoolTemplate.ProviderConfig,
 		ProviderAuthEnvVar:            defaultPoolTemplate.ProviderAuthEnvVar,
+		RuntimeProtectionEnabled:      defaultPoolTemplate.RuntimeProtectionEnabled,
 		MaxTotalMachines:              defaultPoolTemplate.MaxTotalMachines,
 		MaxTotalCPU:                   defaultPoolTemplate.MaxTotalCPU,
 		MaxTotalMemoryMB:              defaultPoolTemplate.MaxTotalMemoryMB,
@@ -319,6 +325,7 @@ func (s *Store) CreateMachinePool(
 		!sameJSON(record.ProviderConfig, input.ProviderConfig) ||
 		record.ProviderAuthSecretID != input.ProviderAuthSecretID ||
 		record.ProviderAuthEnvVar != input.ProviderAuthEnvVar ||
+		record.RuntimeProtectionEnabled != input.RuntimeProtectionEnabled ||
 		record.MaxTotalMachines != input.MaxTotalMachines ||
 		!sameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) ||
 		!sameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) ||
@@ -499,6 +506,7 @@ func insertMachinePool(
 		ProviderConfig:                input.ProviderConfig,
 		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            input.ProviderAuthEnvVar,
+		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
 		MaxTotalMachines:              input.MaxTotalMachines,
 		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
 		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
@@ -555,6 +563,7 @@ func (s *Store) UpdateMachinePool(
 		ProviderConfig:                locked.ProviderConfig,
 		ProviderAuthSecretID:          idFromSQLCPtr(locked.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            locked.ProviderAuthEnvVar,
+		RuntimeProtectionEnabled:      locked.RuntimeProtectionEnabled,
 		MaxTotalMachines:              locked.MaxTotalMachines,
 		MaxTotalCPU:                   intPtrFromSQLC(locked.MaxTotalCpu),
 		MaxTotalMemoryMB:              intPtrFromSQLC(locked.MaxTotalMemoryMb),
@@ -591,6 +600,9 @@ func (s *Store) UpdateMachinePool(
 	}
 	if input.ProviderAuthSecretID != nil {
 		merged.ProviderAuthSecretID = *input.ProviderAuthSecretID
+	}
+	if input.RuntimeProtectionEnabled != nil {
+		merged.RuntimeProtectionEnabled = *input.RuntimeProtectionEnabled
 	}
 	if input.MaxTotalMachines != nil {
 		merged.MaxTotalMachines = *input.MaxTotalMachines
@@ -639,6 +651,7 @@ func (s *Store) UpdateMachinePool(
 		DefaultCwd:                    merged.DefaultCwd,
 		ProviderConfig:                merged.ProviderConfig,
 		ProviderAuthSecretID:          sqlcIDFromNil(merged.ProviderAuthSecretID),
+		RuntimeProtectionEnabled:      merged.RuntimeProtectionEnabled,
 		MaxTotalMachines:              merged.MaxTotalMachines,
 		MaxTotalCpu:                   sqlcInt32Ptr(merged.MaxTotalCPU),
 		MaxTotalMemoryMb:              sqlcInt32Ptr(merged.MaxTotalMemoryMB),
@@ -653,6 +666,14 @@ func (s *Store) UpdateMachinePool(
 		return MachinePoolRecord{}, fmt.Errorf("update machine pool: %w", err)
 	}
 	record := machinePoolRecordFromSQLC(row)
+	if locked.RuntimeProtectionEnabled != record.RuntimeProtectionEnabled {
+		if err := qtx.ClearMachinePoolRuntimeMismatch(ctx, dbsqlc.ClearMachinePoolRuntimeMismatchParams{
+			OrgID:         input.OrgID,
+			MachinePoolID: input.ID,
+		}); err != nil {
+			return MachinePoolRecord{}, fmt.Errorf("clear machine pool runtime mismatch: %w", err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return MachinePoolRecord{}, fmt.Errorf("commit update machine pool: %w", err)
 	}
