@@ -191,8 +191,11 @@ func expectedSandboxName(target providers.RuntimeTarget) (string, bool) {
 }
 
 func normalizedSandboxRuntimeState(target sandbox) providers.RuntimeState {
+	if sandboxDeploymentTerminal(target.Status) {
+		return providers.RuntimeStateTerminated
+	}
 	switch normalizeSandboxDeploymentStatus(target.Status) {
-	case sandboxDeploymentDeleting, sandboxDeploymentTerminated:
+	case sandboxDeploymentDeleting:
 		return providers.RuntimeStateTerminated
 	case sandboxDeploymentDeactivating:
 		return providers.RuntimeStateTransitional

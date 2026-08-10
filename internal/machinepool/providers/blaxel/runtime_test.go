@@ -30,6 +30,14 @@ func TestBlaxelObserveRuntimeState(t *testing.T) {
 			status: "terminated", want: providers.RuntimeStateTerminated,
 		},
 		{
+			name: "failed takes precedence over running", state: "RUNNING",
+			status: "FAILED", want: providers.RuntimeStateTerminated,
+		},
+		{
+			name: "deactivated takes precedence over standby", state: "STANDBY",
+			status: "DEACTIVATED", want: providers.RuntimeStateTerminated,
+		},
+		{
 			name: "deactivating takes precedence over running", state: "RUNNING",
 			status: "deactivating", want: providers.RuntimeStateTransitional,
 		},

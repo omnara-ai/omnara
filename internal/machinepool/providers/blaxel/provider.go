@@ -165,7 +165,7 @@ func (p *provider) ProvisionMachine(
 		)
 	}
 	result := providers.ProvisionMachineResult{ProviderResourceID: name}
-	if sandboxReplaceable(target.Status) {
+	if sandboxDeploymentTerminal(target.Status) {
 		if err := api.DeleteSandbox(ctx, name); err != nil {
 			return result, err
 		}
@@ -397,7 +397,7 @@ func sandboxOwnershipLabelValues(
 	return installationPublicID, machinePublicID, nil
 }
 
-func sandboxReplaceable(status sandboxDeploymentStatus) bool {
+func sandboxDeploymentTerminal(status sandboxDeploymentStatus) bool {
 	return slices.Contains(
 		[]sandboxDeploymentStatus{
 			sandboxDeploymentFailed,
