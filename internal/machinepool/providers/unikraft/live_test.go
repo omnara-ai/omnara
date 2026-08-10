@@ -163,6 +163,16 @@ func TestUnikraftProviderLiveSmoke(t *testing.T) {
 		observations[1],
 		providers.RuntimeStateTerminated,
 	)
+	missingObservation, err := observer.ObserveRuntimeState(ctx, missingTarget)
+	if err != nil {
+		t.Fatalf("exact observe missing live Unikraft instance: %v", err)
+	}
+	providercontract.AssertRuntimeObservation(
+		t,
+		missingTarget,
+		missingObservation,
+		providers.RuntimeStateTerminated,
+	)
 }
 
 type liveTestAPI struct {

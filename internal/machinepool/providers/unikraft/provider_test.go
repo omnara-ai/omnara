@@ -506,6 +506,19 @@ func TestUnikraftProviderDeleteByUUID(t *testing.T) {
 	if len(api.deletedUUIDs) != 2 || api.deletedUUIDs[1] != "uuid-current" {
 		t.Fatalf("deleted instances: %v", api.deletedUUIDs)
 	}
+	delete(api.instancesByName, name)
+	if err := provider.DeleteMachine(
+		context.Background(),
+		testInstallationID(),
+		machineID,
+		testMachineProvisioning(t, nil),
+		"uuid-already-absent",
+	); err != nil {
+		t.Fatalf("delete already absent machine: %v", err)
+	}
+	if len(api.deletedUUIDs) != 2 {
+		t.Fatalf("already absent machine caused a delete request: %v", api.deletedUUIDs)
+	}
 }
 
 func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *testing.T) {

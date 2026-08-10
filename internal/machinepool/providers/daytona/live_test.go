@@ -172,6 +172,21 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 			return observations[0], nil
 		},
 	)
+	missingTarget := runtimeTarget
+	missingTarget.MachineID = uuid.New()
+	missingTarget.ProviderResourceID = uuid.NewString()
+	missingCtx, missingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer missingCancel()
+	missingObservation, err := observer.ObserveRuntimeState(missingCtx, missingTarget)
+	if err != nil {
+		t.Fatalf("exact observe missing live Daytona sandbox: %v", err)
+	}
+	providercontract.AssertRuntimeObservation(
+		t,
+		missingTarget,
+		missingObservation,
+		providers.RuntimeStateTerminated,
+	)
 }
 
 type liveTestAPI struct {

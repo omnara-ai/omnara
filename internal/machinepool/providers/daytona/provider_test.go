@@ -298,4 +298,17 @@ func TestDaytonaProviderInspectAndDelete(t *testing.T) {
 	if api.deleteCalls != 2 || api.deletedResourceID != resourceID {
 		t.Fatalf("delete calls = %d resource id = %q", api.deleteCalls, api.deletedResourceID)
 	}
+	api.missingSandboxIDs = map[string]bool{"already-absent": true, name: true}
+	if err := provider.DeleteMachine(
+		context.Background(),
+		installationID,
+		machineID,
+		testMachineProvisioning(t, "team-snapshot", "us", ""),
+		"already-absent",
+	); err != nil {
+		t.Fatalf("delete already absent machine: %v", err)
+	}
+	if api.deleteCalls != 2 {
+		t.Fatalf("already absent machine caused %d delete calls", api.deleteCalls-2)
+	}
 }

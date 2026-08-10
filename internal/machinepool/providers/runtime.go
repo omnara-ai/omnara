@@ -23,8 +23,9 @@ const (
 	RuntimeStateRunning      RuntimeState = "running"
 	RuntimeStateInactive     RuntimeState = "inactive"
 	RuntimeStateTransitional RuntimeState = "transitional"
-	RuntimeStateTerminated   RuntimeState = "terminated"
-	RuntimeStateUnknown      RuntimeState = "unknown"
+	// RuntimeStateTerminated may describe an absent resource or a terminal resource that still requires deletion.
+	RuntimeStateTerminated RuntimeState = "terminated"
+	RuntimeStateUnknown    RuntimeState = "unknown"
 )
 
 func (state RuntimeState) Valid() bool {

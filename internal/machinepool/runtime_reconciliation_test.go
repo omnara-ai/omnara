@@ -99,6 +99,69 @@ func TestRuntimeReconciliationStatsCountNormalizedStates(t *testing.T) {
 	}
 }
 
+func TestExactRuntimeObservationBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		hasWake   bool
+		expired   bool
+		found     bool
+		state     providers.RuntimeState
+		wantExact bool
+	}{
+		{name: "bulk terminal requires confirmation", found: true, state: providers.RuntimeStateTerminated, wantExact: true},
+		{name: "fresh terminal wake waits", hasWake: true, found: true, state: providers.RuntimeStateTerminated},
+		{
+			name: "expired terminal wake", hasWake: true, expired: true, found: true,
+			state: providers.RuntimeStateTerminated, wantExact: true,
+		},
+		{name: "fresh unresolved wake waits", found: true, state: providers.RuntimeStateUnknown},
+		{name: "expired unknown wake", expired: true, found: true, state: providers.RuntimeStateUnknown, wantExact: true},
+		{
+			name: "expired transitional wake", expired: true, found: true,
+			state: providers.RuntimeStateTransitional, wantExact: true,
+		},
+		{name: "expired missing observation", expired: true, wantExact: true},
+		{name: "expired running wake is decisive", expired: true, found: true, state: providers.RuntimeStateRunning},
+		{name: "expired inactive wake is decisive", expired: true, found: true, state: providers.RuntimeStateInactive},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := testRuntimeCandidate("exact-"+test.name, "resource")
+			if test.hasWake {
+				deadline := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+				candidate.WakeAttemptExpiresAt = &deadline
+			}
+			candidate.WakeAttemptExpired = test.expired
+			observation := providers.RuntimeObservation{
+				MachineID:          candidate.MachineID,
+				ProviderResourceID: candidate.ProviderResourceID,
+				State:              test.state,
+			}
+			if got := exactRuntimeObservationRequired(candidate, observation, test.found); got != test.wantExact {
+				t.Fatalf("exact observation required = %t, want %t", got, test.wantExact)
+			}
+		})
+	}
+}
+
+func TestExactRuntimeObservationTasksInterleaveScopes(t *testing.T) {
+	tasks := interleaveExactRuntimeObservationTasks([][]runtimeExactObservationTask{
+		exactRuntimeTasksForTest("first", 3),
+		exactRuntimeTasksForTest("second", 2),
+		exactRuntimeTasksForTest("third", 1),
+	})
+	want := []executionstore.ProviderRuntimeScopeKey{
+		"first", "second", "third", "first", "second", "first",
+	}
+	if len(tasks) != len(want) {
+		t.Fatalf("exact runtime tasks = %d, want %d", len(tasks), len(want))
+	}
+	for index, task := range tasks {
+		if task.scopeKey != want[index] {
+			t.Fatalf("exact runtime task %d scope = %q, want %q", index, task.scopeKey, want[index])
+		}
+	}
+}
+
 func TestRuntimeConfirmationStripeRotatesFairlyAcrossScopes(t *testing.T) {
 	first := &runtimeConfirmationScope{
 		scopeKey:   "first",
@@ -144,6 +207,17 @@ func TestRuntimeConfirmationStripeRotatesFairlyAcrossScopes(t *testing.T) {
 	if len(tasks) != 1 || tasks[0].scope != first || tasks[0].candidateIndex != 1 || first.next != 3 {
 		t.Fatalf("remaining confirmation tasks = %+v, first next=%d", tasks, first.next)
 	}
+}
+
+func exactRuntimeTasksForTest(
+	scopeKey executionstore.ProviderRuntimeScopeKey,
+	count int,
+) []runtimeExactObservationTask {
+	tasks := make([]runtimeExactObservationTask, count)
+	for index := range tasks {
+		tasks[index].scopeKey = scopeKey
+	}
+	return tasks
 }
 
 func TestRuntimeConfirmationCursorResumesAfterLastAttempt(t *testing.T) {

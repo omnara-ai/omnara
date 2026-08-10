@@ -222,12 +222,13 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 	}
 	stats.Scopes = len(scopeOrder)
 	var statsMu sync.Mutex
+	exactTasksByScope := make([][]runtimeExactObservationTask, len(scopeOrder))
 	_, reconcileErr := runBoundedReconcile(
 		ctx,
 		len(scopeOrder),
 		config.Concurrency,
 		func(ctx context.Context, index int) error {
-			scopeStats, err := m.discoverProviderRuntimeScope(
+			scopeStats, scopeExactTasks, err := m.discoverProviderRuntimeScope(
 				ctx,
 				installationID,
 				scopeCandidates[scopeOrder[index]],
@@ -235,29 +236,56 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 			statsMu.Lock()
 			stats.add(scopeStats)
 			statsMu.Unlock()
+			exactTasksByScope[index] = scopeExactTasks
 			return err
 		},
 	)
-	return stats, reconcileErr
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if reconcileErr != nil {
+			return stats, reconcileErr
+		}
+		return stats, ctxErr
+	}
+	exactTasks := interleaveExactRuntimeObservationTasks(exactTasksByScope)
+	_, exactErr := runBoundedReconcile(
+		ctx,
+		len(exactTasks),
+		config.Concurrency,
+		func(ctx context.Context, index int) error {
+			taskStats, err := m.reconcileExactRuntimeObservation(
+				ctx,
+				installationID,
+				exactTasks[index],
+			)
+			statsMu.Lock()
+			stats.add(taskStats)
+			statsMu.Unlock()
+			return err
+		},
+	)
+	if reconcileErr != nil {
+		return stats, reconcileErr
+	}
+	return stats, exactErr
 }
 
 func (m Manager) discoverProviderRuntimeScope(
 	ctx context.Context,
 	installationID storage.ID,
 	candidates []executionstore.ProviderRuntimeCandidate,
-) (RuntimeReconciliationStats, error) {
+) (RuntimeReconciliationStats, []runtimeExactObservationTask, error) {
 	var stats RuntimeReconciliationStats
 	scopeKey := candidates[0].ScopeKey
 	if m.runtimeReconciliationState.coolingDown(scopeKey, time.Now()) {
 		stats.ScopesSkipped++
-		return stats, nil
+		return stats, nil, nil
 	}
 	runtimeProvider, err := m.providerForRuntimeScope(ctx, candidates[0])
 	if err != nil {
 		if m.recordProviderRuntimeFailure(ctx, scopeKey, err) {
 			stats.ProviderErrors++
 		}
-		return stats, err
+		return stats, nil, err
 	}
 	targets := make([]providers.RuntimeTarget, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -268,42 +296,171 @@ func (m Manager) discoverProviderRuntimeScope(
 		if m.recordProviderRuntimeFailure(ctx, scopeKey, err) {
 			stats.ProviderErrors++
 		}
-		return stats, err
+		return stats, nil, err
 	}
 	valid := validRuntimeObservations(candidates, observations)
+	exactFailed := new(atomic.Bool)
+	exactTasks := make([]runtimeExactObservationTask, 0)
 	for _, candidate := range candidates {
 		observation, ok := valid[candidate.MachineID]
-		if !ok {
+		if exactRuntimeObservationRequired(candidate, observation, ok) {
+			exactTasks = append(exactTasks, runtimeExactObservationTask{
+				scopeKey:        scopeKey,
+				runtimeProvider: runtimeProvider,
+				candidate:       candidate,
+				providerFailed:  exactFailed,
+			})
 			continue
 		}
-		stats.recordObservation(observation.State)
-		switch observation.State {
-		case providers.RuntimeStateRunning:
-			if marked, err := m.Execution.MarkProviderRuntimeMismatch(ctx, candidate); err != nil {
-				return stats, err
-			} else if marked {
-				stats.MarkersSet++
-			}
-		case providers.RuntimeStateInactive, providers.RuntimeStateTerminated:
-			kind := executionstore.ProviderRuntimeInactive
-			if observation.State == providers.RuntimeStateTerminated {
-				kind = executionstore.ProviderRuntimeTerminated
-			}
-			result, err := m.Execution.ApplyProviderRuntimeInactiveObservation(ctx, candidate, kind)
-			if err != nil {
-				return stats, err
-			}
-			if result.Applied && candidate.ProviderRuntimeMismatchSince != nil {
-				stats.MarkersCleared++
-			}
-			if result.WakeAttemptCleared {
-				stats.WakeAttemptsCleared++
-			}
-		case providers.RuntimeStateTransitional, providers.RuntimeStateUnknown:
+		if !ok || observation.State == providers.RuntimeStateTerminated {
 			continue
+		}
+		observationStats, _, err := m.reconcileDiscoveredRuntimeObservation(
+			ctx,
+			scopeKey,
+			runtimeProvider,
+			candidate,
+			observation,
+		)
+		stats.add(observationStats)
+		if err != nil {
+			return stats, exactTasks, err
 		}
 	}
-	return stats, nil
+	return stats, exactTasks, nil
+}
+
+type runtimeExactObservationTask struct {
+	scopeKey        executionstore.ProviderRuntimeScopeKey
+	runtimeProvider providers.RuntimeProvider
+	candidate       executionstore.ProviderRuntimeCandidate
+	providerFailed  *atomic.Bool
+}
+
+func interleaveExactRuntimeObservationTasks(
+	tasksByScope [][]runtimeExactObservationTask,
+) []runtimeExactObservationTask {
+	total := 0
+	positions := make([]int, len(tasksByScope))
+	active := make([]int, 0, len(tasksByScope))
+	for scopeIndex, scopeTasks := range tasksByScope {
+		total += len(scopeTasks)
+		if len(scopeTasks) > 0 {
+			active = append(active, scopeIndex)
+		}
+	}
+	tasks := make([]runtimeExactObservationTask, 0, total)
+	next := make([]int, 0, len(active))
+	for len(active) > 0 {
+		for _, scopeIndex := range active {
+			position := positions[scopeIndex]
+			tasks = append(tasks, tasksByScope[scopeIndex][position])
+			positions[scopeIndex]++
+			if positions[scopeIndex] < len(tasksByScope[scopeIndex]) {
+				next = append(next, scopeIndex)
+			}
+		}
+		active, next = next, active[:0]
+	}
+	return tasks
+}
+
+func (m Manager) reconcileExactRuntimeObservation(
+	ctx context.Context,
+	installationID storage.ID,
+	task runtimeExactObservationTask,
+) (RuntimeReconciliationStats, error) {
+	var stats RuntimeReconciliationStats
+	if task.providerFailed.Load() {
+		return stats, nil
+	}
+	providerCtx, cancel := context.WithTimeout(ctx, providerInspectionTimeout)
+	stats.Confirmations++
+	observation, err := task.runtimeProvider.ObserveRuntimeState(
+		providerCtx,
+		runtimeTarget(installationID, task.candidate),
+	)
+	cancel()
+	if err != nil {
+		task.providerFailed.Store(true)
+		if m.recordProviderRuntimeFailure(ctx, task.scopeKey, err) {
+			stats.ProviderErrors++
+		}
+		return stats, err
+	}
+	if !observation.State.Valid() || !runtimeObservationMatches(task.candidate, observation) {
+		return stats, nil
+	}
+	observationStats, providerFailed, err := m.reconcileDiscoveredRuntimeObservation(
+		ctx,
+		task.scopeKey,
+		task.runtimeProvider,
+		task.candidate,
+		observation,
+	)
+	if providerFailed {
+		task.providerFailed.Store(true)
+	}
+	stats.add(observationStats)
+	return stats, err
+}
+
+func (m Manager) reconcileDiscoveredRuntimeObservation(
+	ctx context.Context,
+	scopeKey executionstore.ProviderRuntimeScopeKey,
+	runtimeProvider providers.RuntimeProvider,
+	candidate executionstore.ProviderRuntimeCandidate,
+	observation providers.RuntimeObservation,
+) (RuntimeReconciliationStats, bool, error) {
+	var stats RuntimeReconciliationStats
+	stats.recordObservation(observation.State)
+	switch observation.State {
+	case providers.RuntimeStateRunning:
+		marked, err := m.Execution.MarkProviderRuntimeMismatch(ctx, candidate)
+		if err != nil {
+			return stats, false, err
+		}
+		if marked {
+			stats.MarkersSet++
+		}
+	case providers.RuntimeStateInactive:
+		result, err := m.Execution.ApplyProviderRuntimeInactiveObservation(ctx, candidate)
+		if err != nil {
+			return stats, false, err
+		}
+		if result.Applied && candidate.ProviderRuntimeMismatchSince != nil {
+			stats.MarkersCleared++
+		}
+		if result.WakeAttemptCleared {
+			stats.WakeAttemptsCleared++
+		}
+	case providers.RuntimeStateTerminated:
+		retirementStats, providerFailed, err := m.retireTerminatedProviderRuntime(
+			ctx,
+			scopeKey,
+			candidate,
+			runtimeProvider,
+		)
+		stats.add(retirementStats)
+		if err != nil {
+			return stats, providerFailed, err
+		}
+	case providers.RuntimeStateTransitional, providers.RuntimeStateUnknown:
+	}
+	return stats, false, nil
+}
+
+func exactRuntimeObservationRequired(
+	candidate executionstore.ProviderRuntimeCandidate,
+	observation providers.RuntimeObservation,
+	found bool,
+) bool {
+	if found && observation.State == providers.RuntimeStateTerminated {
+		return candidate.WakeAttemptExpiresAt == nil || candidate.WakeAttemptExpired
+	}
+	return candidate.WakeAttemptExpired &&
+		(!found || observation.State == providers.RuntimeStateTransitional ||
+			observation.State == providers.RuntimeStateUnknown)
 }
 
 func (m Manager) ConfirmProviderRuntimeMismatches(
@@ -549,12 +706,8 @@ func (m Manager) confirmProviderRuntimeCandidate(
 	}
 	stats.recordObservation(observation.State)
 	switch observation.State {
-	case providers.RuntimeStateInactive, providers.RuntimeStateTerminated:
-		kind := executionstore.ProviderRuntimeInactive
-		if observation.State == providers.RuntimeStateTerminated {
-			kind = executionstore.ProviderRuntimeTerminated
-		}
-		result, err := m.Execution.ApplyProviderRuntimeInactiveObservation(ctx, candidate, kind)
+	case providers.RuntimeStateInactive:
+		result, err := m.Execution.ApplyProviderRuntimeInactiveObservation(ctx, candidate)
 		if err != nil {
 			return stats, false, err
 		}
@@ -565,6 +718,18 @@ func (m Manager) confirmProviderRuntimeCandidate(
 			stats.WakeAttemptsCleared++
 		}
 		return stats, false, nil
+	case providers.RuntimeStateTerminated:
+		retirementStats, providerFailed, err := m.retireTerminatedProviderRuntime(
+			ctx,
+			scope.scopeKey,
+			candidate,
+			scope.runtimeProvider,
+		)
+		stats.add(retirementStats)
+		if err != nil {
+			return stats, providerFailed, err
+		}
+		return stats, providerFailed, nil
 	case providers.RuntimeStateRunning:
 		claim, claimed, err := m.Execution.ClaimProviderRuntimeMismatchDeletion(
 			ctx,
@@ -594,6 +759,31 @@ func (m Manager) confirmProviderRuntimeCandidate(
 		return stats, false, nil
 	}
 	return stats, false, nil
+}
+
+func (m Manager) retireTerminatedProviderRuntime(
+	ctx context.Context,
+	scopeKey executionstore.ProviderRuntimeScopeKey,
+	candidate executionstore.ProviderRuntimeCandidate,
+	deleter providers.MachineDeleter,
+) (RuntimeReconciliationStats, bool, error) {
+	var stats RuntimeReconciliationStats
+	claim, claimed, err := m.Execution.ClaimProviderRuntimeTerminatedDeletion(ctx, candidate)
+	if err != nil || !claimed {
+		if err == nil {
+			stats.DeletionClaimsSkipped++
+		}
+		return stats, false, err
+	}
+	stats.DeletionClaims++
+	providerFailed, err := m.deleteClaimedMachine(ctx, claim, deleter)
+	if providerFailed {
+		providerFailed = m.recordProviderRuntimeFailure(ctx, scopeKey, err)
+		if providerFailed {
+			stats.ProviderErrors++
+		}
+	}
+	return stats, providerFailed, err
 }
 
 func (m Manager) providerForRuntimeScope(

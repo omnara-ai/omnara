@@ -643,6 +643,18 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 	if len(api.deletedNames) != 2 || api.deletedNames[1] != name {
 		t.Fatalf("deleted names = %v", api.deletedNames)
 	}
+	if err := provider.DeleteMachine(
+		context.Background(),
+		testInstallationID(),
+		machineID,
+		executionstore.MachineProvisioningConfig{},
+		"already-absent",
+	); err != nil {
+		t.Fatalf("delete already absent machine: %v", err)
+	}
+	if len(api.deletedNames) != 2 {
+		t.Fatalf("already absent machine caused a delete request: %v", api.deletedNames)
+	}
 }
 
 func newTestProvider(api apiClient) *provider {

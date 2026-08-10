@@ -42,6 +42,7 @@ type MachineWaker interface {
 }
 
 type MachineDeleter interface {
+	// DeleteMachine must be retry-safe and return nil when the owned resource is already absent.
 	DeleteMachine(
 		ctx context.Context,
 		installationID, machineID storage.ID,

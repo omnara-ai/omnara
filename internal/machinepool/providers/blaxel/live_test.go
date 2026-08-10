@@ -197,6 +197,16 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 			providers.RuntimeStateUnknown,
 		)
 	}
+	missingObservation, err := observer.ObserveRuntimeState(ctx, bulkTargets[1])
+	if err != nil {
+		t.Fatalf("exact observe missing live Blaxel sandbox: %v", err)
+	}
+	providercontract.AssertRuntimeObservation(
+		t,
+		bulkTargets[1],
+		missingObservation,
+		providers.RuntimeStateTerminated,
+	)
 	if err := machineProvider.DeleteMachine(
 		ctx,
 		testInstallationID(),

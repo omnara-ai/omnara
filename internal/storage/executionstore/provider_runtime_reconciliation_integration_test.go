@@ -192,7 +192,6 @@ WHERE org_id = $1 AND id = $2
 	result, err := fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
 		ctx,
 		due[0],
-		executionstore.ProviderRuntimeInactive,
 	)
 	if err != nil || !result.Applied || result.WakeAttemptCleared {
 		t.Fatalf("clear mismatch = (%+v, %v)", result, err)
@@ -200,7 +199,6 @@ WHERE org_id = $1 AND id = $2
 	if result, err := fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
 		ctx,
 		due[0],
-		executionstore.ProviderRuntimeInactive,
 	); err != nil || result.Applied {
 		t.Fatalf("repeat mismatch clear = (%+v, %v), want fenced no-op", result, err)
 	}
@@ -215,7 +213,6 @@ WHERE org_id = $1 AND id = $2
 	if result, err := fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
 		ctx,
 		due[1],
-		executionstore.ProviderRuntimeInactive,
 	); err != nil || result.Applied {
 		t.Fatalf("stale inactive observation = (%+v, %v), want fenced no-op", result, err)
 	}
@@ -420,7 +417,17 @@ func TestMachineWakeIntentFencesRuntimeProtectionDeletion(t *testing.T) {
 		t.Fatalf("repeat wake changed deadline from %v to %v", firstWakeExpiresAt, repeatedWakeExpiresAt)
 	}
 
-	candidate := fixture.dueCandidate(t, ctx, machine.machineID)
+	candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
+	if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || !marked {
+		t.Fatalf("mark provider runtime mismatch = (%t, %v), want true/nil", marked, err)
+	}
+	fixture.backdateMismatch(t, ctx, machine.machineID)
+	candidate = fixture.discoveryCandidate(t, ctx, machine.machineID)
+	for _, due := range listDueProviderRuntimeCandidatesForTest(t, ctx, fixture.store, time.Millisecond) {
+		if due.MachineID == machine.machineID {
+			t.Fatal("fresh wake appeared in due provider runtime mismatches")
+		}
+	}
 	if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeMismatchDeletion(
 		ctx,
 		executionstore.ClaimProviderRuntimeMismatchDeletionInput{
@@ -436,7 +443,6 @@ func TestMachineWakeIntentFencesRuntimeProtectionDeletion(t *testing.T) {
 	result, err := fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
 		ctx,
 		candidate,
-		executionstore.ProviderRuntimeInactive,
 	)
 	if err != nil || !result.Applied || result.WakeAttemptCleared {
 		t.Fatalf("apply inactive observation during wake = (%+v, %v)", result, err)
@@ -479,10 +485,32 @@ WHERE org_id = $1 AND id = $2
 		t.Fatalf("wake with unresolved expired attempt = (%v, %v), want unresolved", disposition, err)
 	}
 	candidate = fixture.discoveryCandidate(t, ctx, machine.machineID)
+	if !candidate.WakeAttemptExpired {
+		t.Fatalf("expired wake candidate = %+v, want PostgreSQL-owned expiry", candidate)
+	}
+	straddled := candidate
+	straddled.WakeAttemptExpired = false
+	result, err = fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
+		ctx,
+		straddled,
+	)
+	if err != nil || result.Applied || result.WakeAttemptCleared {
+		t.Fatalf("pre-expiry inactive observation after wake expiry = (%+v, %v)", result, err)
+	}
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT wake_attempt_expires_at FROM machines WHERE org_id = $1 AND id = $2`,
+		testOrgID,
+		machine.machineID,
+	).Scan(&wakeExpiresAt); err != nil {
+		t.Fatalf("load wake deadline after straddled inactive observation: %v", err)
+	}
+	if wakeExpiresAt == nil {
+		t.Fatal("pre-expiry inactive observation cleared wake after its deadline")
+	}
 	result, err = fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
 		ctx,
 		candidate,
-		executionstore.ProviderRuntimeInactive,
 	)
 	if err != nil || !result.Applied || !result.WakeAttemptCleared {
 		t.Fatalf("apply inactive observation after wake expiry = (%+v, %v)", result, err)
@@ -513,7 +541,16 @@ func TestExpiredMachineWakeDoesNotFenceRuntimeProtectionDeletion(t *testing.T) {
 	); err != nil || disposition != executionstore.MachineWakeReady {
 		t.Fatalf("begin machine wake = (%v, %v), want ready", disposition, err)
 	}
-	fixture.dueCandidate(t, ctx, machine.machineID)
+	candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
+	if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || !marked {
+		t.Fatalf("mark provider runtime mismatch = (%t, %v), want true/nil", marked, err)
+	}
+	fixture.backdateMismatch(t, ctx, machine.machineID)
+	for _, due := range listDueProviderRuntimeCandidatesForTest(t, ctx, fixture.store, time.Millisecond) {
+		if due.MachineID == machine.machineID {
+			t.Fatal("fresh wake appeared in due provider runtime mismatches")
+		}
+	}
 	if _, err := fixture.pool.Exec(ctx, `
 UPDATE machines
 SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
@@ -530,7 +567,15 @@ WHERE org_id = $1 AND id = $2
 	); err != nil || disposition != executionstore.MachineWakeUnresolved {
 		t.Fatalf("repeat expired protected wake = (%v, %v), want unresolved", disposition, err)
 	}
-	candidate := fixture.dueCandidate(t, ctx, machine.machineID)
+	candidate = fixture.dueCandidate(t, ctx, machine.machineID)
+	straddled := candidate
+	straddled.WakeAttemptExpired = false
+	if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeMismatchDeletion(
+		ctx,
+		providerRuntimeClaimInput(straddled),
+	); err != nil || claimed {
+		t.Fatalf("pre-expiry observation claimed after wake expiry = (%t, %v), want false/nil", claimed, err)
+	}
 	claim, claimed, err := fixture.store.Execution().ClaimProviderRuntimeMismatchDeletion(
 		ctx,
 		providerRuntimeClaimInput(candidate),
@@ -544,11 +589,11 @@ WHERE org_id = $1 AND id = $2
 	}
 }
 
-func TestProviderRuntimeTerminatedObservationRespectsWakeEpoch(t *testing.T) {
+func TestProviderRuntimeTerminatedDeletionRespectsWakeEpoch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newProviderRuntimeStorageFixture(t, ctx, "stale-inactive-wake", true)
-	machine := fixture.insertInactiveMachine(t, ctx, "stale-inactive-wake")
+	fixture := newProviderRuntimeStorageFixture(t, ctx, "terminated-wake", true)
+	machine := fixture.insertInactiveMachine(t, ctx, "terminated-wake")
 	stale := fixture.discoveryCandidate(t, ctx, machine.machineID)
 	if disposition, err := fixture.store.Execution().BeginMachineWake(
 		ctx,
@@ -559,42 +604,116 @@ func TestProviderRuntimeTerminatedObservationRespectsWakeEpoch(t *testing.T) {
 	); err != nil || disposition != executionstore.MachineWakeReady {
 		t.Fatalf("begin machine wake = (%v, %v), want ready", disposition, err)
 	}
-	if result, err := fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
+	if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeTerminatedDeletion(
 		ctx,
 		stale,
-		executionstore.ProviderRuntimeTerminated,
-	); err != nil || result.Applied {
-		t.Fatalf("stale inactive observation = (%+v, %v), want fenced no-op", result, err)
-	}
-	var wakeExpiresAt *time.Time
-	if err := fixture.pool.QueryRow(ctx, `
-SELECT wake_attempt_expires_at
-FROM machines
-WHERE org_id = $1 AND id = $2
-`, testOrgID, machine.machineID).Scan(&wakeExpiresAt); err != nil {
-		t.Fatalf("load wake deadline after stale observation: %v", err)
-	}
-	if wakeExpiresAt == nil {
-		t.Fatal("stale inactive observation cleared the newer wake deadline")
+	); err != nil || claimed {
+		t.Fatalf("stale terminated claim = (%t, %v), want false/nil", claimed, err)
 	}
 	current := fixture.discoveryCandidate(t, ctx, machine.machineID)
-	if result, err := fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
+	if current.WakeAttemptExpiresAt == nil || current.WakeAttemptExpired {
+		t.Fatalf("fresh wake candidate = %+v, want a future wake deadline", current)
+	}
+	if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeTerminatedDeletion(
 		ctx,
 		current,
-		executionstore.ProviderRuntimeTerminated,
-	); err != nil || !result.Applied || !result.WakeAttemptCleared {
-		t.Fatalf("current terminated observation = (%+v, %v)", result, err)
+	); err != nil || claimed {
+		t.Fatalf("fresh-wake terminated claim = (%t, %v), want false/nil", claimed, err)
 	}
-	if err := fixture.pool.QueryRow(ctx, `
-SELECT wake_attempt_expires_at
-FROM machines
+	if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
 WHERE org_id = $1 AND id = $2
-`, testOrgID, machine.machineID).Scan(&wakeExpiresAt); err != nil {
-		t.Fatalf("reload wake deadline after current terminated observation: %v", err)
+`, testOrgID, machine.machineID); err != nil {
+		t.Fatalf("expire wake attempt: %v", err)
 	}
-	if wakeExpiresAt != nil {
-		t.Fatalf("current terminated observation retained wake deadline: %v", wakeExpiresAt)
+	current = fixture.discoveryCandidate(t, ctx, machine.machineID)
+	if !current.WakeAttemptExpired {
+		t.Fatalf("expired wake candidate = %+v, want PostgreSQL-owned expiry", current)
 	}
+	straddled := current
+	straddled.WakeAttemptExpired = false
+	if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeTerminatedDeletion(
+		ctx,
+		straddled,
+	); err != nil || claimed {
+		t.Fatalf("pre-expiry observation claimed after wake expiry = (%t, %v), want false/nil", claimed, err)
+	}
+	claim, claimed, err := fixture.store.Execution().ClaimProviderRuntimeTerminatedDeletion(
+		ctx,
+		current,
+	)
+	if err != nil || !claimed {
+		t.Fatalf("expired-wake terminated claim = (%t, %v), want true/nil", claimed, err)
+	}
+	if claim.Machine.LifecycleState != executionstore.MachineLifecycleStateDeleting ||
+		claim.Machine.LifecycleReasonCode != "provider_runtime_terminated" {
+		t.Fatalf("terminated claim machine = %+v, want deleting/provider_runtime_terminated", claim.Machine)
+	}
+}
+
+func TestProviderRuntimeTerminatedDeletionRespectsMismatchEpoch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProviderRuntimeStorageFixture(t, ctx, "terminated-mismatch", true)
+
+	t.Run("marker added", func(t *testing.T) {
+		machine := fixture.insertInactiveMachine(t, ctx, "marker-added")
+		stale := fixture.discoveryCandidate(t, ctx, machine.machineID)
+		if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, stale); err != nil || !marked {
+			t.Fatalf("mark provider runtime mismatch = (%t, %v), want true/nil", marked, err)
+		}
+		if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeTerminatedDeletion(
+			ctx,
+			stale,
+		); err != nil || claimed {
+			t.Fatalf("pre-marker terminated claim = (%t, %v), want false/nil", claimed, err)
+		}
+	})
+
+	t.Run("marker cleared", func(t *testing.T) {
+		machine := fixture.insertInactiveMachine(t, ctx, "marker-cleared")
+		candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
+		if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || !marked {
+			t.Fatalf("mark provider runtime mismatch = (%t, %v), want true/nil", marked, err)
+		}
+		marked := fixture.discoveryCandidate(t, ctx, machine.machineID)
+		result, err := fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(ctx, marked)
+		if err != nil || !result.Applied {
+			t.Fatalf("clear provider runtime mismatch = (%+v, %v), want applied/nil", result, err)
+		}
+		if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeTerminatedDeletion(
+			ctx,
+			marked,
+		); err != nil || claimed {
+			t.Fatalf("pre-clear terminated claim = (%t, %v), want false/nil", claimed, err)
+		}
+	})
+
+	t.Run("marker replaced", func(t *testing.T) {
+		machine := fixture.insertInactiveMachine(t, ctx, "marker-replaced")
+		candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
+		if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || !marked {
+			t.Fatalf("mark provider runtime mismatch = (%t, %v), want true/nil", marked, err)
+		}
+		stale := fixture.discoveryCandidate(t, ctx, machine.machineID)
+		if stale.ProviderRuntimeMismatchSince == nil {
+			t.Fatal("marked candidate has no mismatch epoch")
+		}
+		if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET provider_runtime_mismatch_since = $3
+WHERE org_id = $1 AND id = $2
+`, testOrgID, machine.machineID, stale.ProviderRuntimeMismatchSince.Add(time.Second)); err != nil {
+			t.Fatalf("replace provider runtime mismatch epoch: %v", err)
+		}
+		if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeTerminatedDeletion(
+			ctx,
+			stale,
+		); err != nil || claimed {
+			t.Fatalf("replaced-marker terminated claim = (%t, %v), want false/nil", claimed, err)
+		}
+	})
 }
 
 func TestEnablingRuntimeProtectionPreservesInflightWake(t *testing.T) {
@@ -759,7 +878,6 @@ func TestProviderRuntimeDeletionRejectsSupersededMismatch(t *testing.T) {
 	if result, err := fixture.store.Execution().ApplyProviderRuntimeInactiveObservation(
 		ctx,
 		stale,
-		executionstore.ProviderRuntimeInactive,
 	); err != nil || !result.Applied {
 		t.Fatalf("clear original mismatch = (%+v, %v)", result, err)
 	}
