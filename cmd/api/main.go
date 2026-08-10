@@ -256,14 +256,11 @@ func runDefaultReconciliation(
 	}
 	defer db.Close()
 	store := storage.NewStore(db, storage.WithMachinePoolProviders(machinepool.DefaultCatalog()))
-	result, err := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
+	result, reconcileErr := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
 		Apply:                mode == defaultReconciliationApply,
 		DefaultMachinePools:  cfg.DefaultMachinePools,
 		DefaultModelProvider: cfg.DefaultModelProvider,
 	})
-	if err != nil {
-		return err
-	}
 	for _, change := range result.Changes {
 		if _, err := fmt.Fprintf(output, "%s: %s\n", mode, change); err != nil {
 			return err
@@ -273,6 +270,9 @@ func runDefaultReconciliation(
 		if _, err := fmt.Fprintf(output, "%s: warning: %s\n", mode, warning); err != nil {
 			return err
 		}
+	}
+	if reconcileErr != nil {
+		return reconcileErr
 	}
 	if len(result.Changes) == 0 {
 		_, err = fmt.Fprintf(output, "%s: no changes\n", mode)

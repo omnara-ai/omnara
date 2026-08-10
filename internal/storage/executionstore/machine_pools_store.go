@@ -253,13 +253,35 @@ func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) Crea
 	}
 }
 
-func ValidateDefaultMachinePoolTemplate(defaultPoolTemplate DefaultMachinePoolTemplate) error {
+func ValidateDefaultMachinePoolTemplate(
+	defaultPoolTemplate DefaultMachinePoolTemplate,
+	machinePoolProviders MachinePoolProviders,
+) error {
 	input := defaultPoolTemplate.createInput(NilID)
 	if input.Name == "" {
 		return errors.New("name is required")
 	}
-	_, err := prepareMachinePoolConfigInput(&input)
-	return err
+	defaults, err := prepareMachinePoolConfigInput(&input)
+	if err != nil {
+		return err
+	}
+	return machinePoolProviders.ValidatePool(input.Provider, MachinePoolProviderPolicy{
+		DefaultProvisioning:      defaults.Provisioning,
+		RuntimeProtectionEnabled: input.RuntimeProtectionEnabled,
+		ResourceLimits: MachineResourceLimits{
+			MaxTotalCPU:        input.MaxTotalCPU,
+			MaxTotalMemoryMB:   input.MaxTotalMemoryMB,
+			MinMachineCPU:      input.MinMachineCPU,
+			MinMachineMemoryMB: input.MinMachineMemoryMB,
+			MaxMachineCPU:      input.MaxMachineCPU,
+			MaxMachineMemoryMB: input.MaxMachineMemoryMB,
+		},
+		ProviderConfig: input.ProviderConfig,
+	})
+}
+
+func (s *Store) ValidateDefaultMachinePoolTemplate(template DefaultMachinePoolTemplate) error {
+	return ValidateDefaultMachinePoolTemplate(template, s.machinePoolProviders)
 }
 
 func (s *Store) CreateMachinePool(

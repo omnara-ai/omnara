@@ -12,26 +12,17 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	templates []DefaultMachinePoolTemplate,
+	rows []dbsqlc.MachinePool,
 	apply bool,
 ) ([]string, error) {
 	qtx := s.q.WithTx(tx)
 	var changes []string
 	for _, template := range templates {
-		if err := ValidateDefaultMachinePoolTemplate(template); err != nil {
-			return nil, fmt.Errorf("default machine pool: %w", err)
-		}
 		name := template.createInput(NilID).Name
-		rows, err := qtx.ListClusterManagedMachinePoolsByName(
-			ctx,
-			dbsqlc.ListClusterManagedMachinePoolsByNameParams{Name: name},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("list default machine pools %q: %w", name, err)
-		}
-		if len(rows) == 0 {
-			return nil, fmt.Errorf("no cluster-managed machine pools named %q", name)
-		}
 		for _, row := range rows {
+			if row.Name != name {
+				continue
+			}
 			current := machinePoolRecordFromSQLC(row)
 			if apply {
 				locked, err := qtx.LockMachinePoolForUpdate(
@@ -51,17 +42,16 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 			desired.MaxMachineMemoryMB = current.MaxMachineMemoryMB
 			if current.Provider != desired.Provider || current.ProviderAuthEnvVar != desired.ProviderAuthEnvVar {
 				return nil, fmt.Errorf(
-					"org %s: default machine pool %q cannot change provider or provider_auth_env_var",
-					current.OrgID,
+					"default machine pool %q cannot change provider or provider_auth_env_var",
 					name,
 				)
 			}
 			poolDefaults, err := prepareMachinePoolCreateInput(&desired)
 			if err != nil {
-				return nil, fmt.Errorf("org %s: default machine pool %q: %w", current.OrgID, name, err)
+				return nil, fmt.Errorf("default machine pool %q: %w", name, err)
 			}
 			if err := s.validatePoolDefaultsTx(ctx, qtx, desired, poolDefaults); err != nil {
-				return nil, fmt.Errorf("org %s: default machine pool %q: %w", current.OrgID, name, err)
+				return nil, fmt.Errorf("default machine pool %q: %w", name, err)
 			}
 			if sameMachinePoolIntent(current, desired) {
 				continue
@@ -70,6 +60,16 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 			if apply {
 				if _, err := updateMachinePoolRow(ctx, qtx, current.ID, desired); err != nil {
 					return nil, fmt.Errorf("update default machine pool %q: %w", name, err)
+				}
+				if current.RuntimeProtectionEnabled != desired.RuntimeProtectionEnabled {
+					if err := qtx.ClearMachinePoolRuntimeMismatch(
+						ctx,
+						dbsqlc.ClearMachinePoolRuntimeMismatchParams{
+							OrgID: current.OrgID, MachinePoolID: current.ID,
+						},
+					); err != nil {
+						return nil, fmt.Errorf("clear machine pool runtime mismatch: %w", err)
+					}
 				}
 			}
 		}

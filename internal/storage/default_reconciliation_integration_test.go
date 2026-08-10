@@ -18,11 +18,25 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 )
 
+type defaultReconciliationMachinePoolProviders struct {
+	mergingMachinePoolProviders
+}
+
+func (defaultReconciliationMachinePoolProviders) ValidatePool(
+	_ string,
+	policy executionstore.MachinePoolProviderPolicy,
+) error {
+	if policy.ResourceLimits.MaxTotalCPU != nil && *policy.ResourceLimits.MaxTotalCPU == 99 {
+		return errors.New("provider rejects max_total_cpu")
+	}
+	return nil
+}
+
 func TestReconcileDefaults(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	defer pool.Close()
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, WithMachinePoolProviders(defaultReconciliationMachinePoolProviders{}))
 	user := mustCreateIdentityUser(t, ctx, store, "reconcile-defaults@example.com", "Defaults Owner")
 
 	initialPool := defaultMachinePoolTemplateWithDefaultMachineForTest(
@@ -67,6 +81,13 @@ func TestReconcileDefaults(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("create org: %v", err)
+	}
+	providerInvalidPool := initialPool
+	providerInvalidPool.MaxTotalCPU = intPtrForMachinePoolTest(99)
+	if _, err := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
+		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{providerInvalidPool},
+	}); err == nil || !strings.Contains(err.Error(), "provider rejects max_total_cpu") {
+		t.Fatalf("plan with provider-invalid template error = %v", err)
 	}
 	missingPool := initialPool
 	missingPool.Name = "missing-pool"
@@ -266,13 +287,18 @@ func TestReconcileDefaults(t *testing.T) {
 		t.Fatalf("delete default project: %v", err)
 	}
 	desiredPool.Description = "pool without default project"
+	desiredProvider.Models = []modelstore.DefaultConfiguredModelTemplate{
+		{Name: "update-model", ProviderModelSlug: "example/without-project", ContextWindowTokens: 16384, MaxOutputTokens: 2048},
+		{Name: "missing-project-model", ProviderModelSlug: "example/missing-project", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
+	}
 	input.DefaultMachinePools = []executionstore.DefaultMachinePoolTemplate{desiredPool}
+	input.DefaultModelProvider = &desiredProvider
 	result, err = store.Organizations().ReconcileDefaults(ctx, input)
 	if err != nil {
 		t.Fatalf("apply without default project: %v", err)
 	}
-	if len(result.Changes) != 1 || len(result.Warnings) != 1 {
-		t.Fatalf("apply without default project result = %+v, want pool change and warning", result)
+	if len(result.Changes) != 4 || len(result.Warnings) != 1 {
+		t.Fatalf("apply without default project result = %+v, want four changes and one warning", result)
 	}
 	poolRecord, err = testQueries(store).GetMachinePoolByName(ctx, dbsqlc.GetMachinePoolByNameParams{
 		OrgID: created.Org.ID, Name: desiredPool.Name,
@@ -282,5 +308,147 @@ func TestReconcileDefaults(t *testing.T) {
 	}
 	if poolRecord.Description != desiredPool.Description {
 		t.Fatalf("machine pool description = %q, want %q", poolRecord.Description, desiredPool.Description)
+	}
+	updatedModel, err = store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
+	if err != nil || updatedModel.ProviderModelSlug != "example/without-project" {
+		t.Fatalf("unexpected model updated without default project: %+v, err %v", updatedModel, err)
+	}
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx, created.Org.ID, provider.ID, "missing-project-model",
+	); err != nil {
+		t.Fatalf("get model added without default project: %v", err)
+	}
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx, created.Org.ID, provider.ID, "add-model",
+	); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("get model removed without default project error = %v, want no rows", err)
+	}
+	result, err = store.Organizations().ReconcileDefaults(ctx, input)
+	if err != nil {
+		t.Fatalf("second apply without default project: %v", err)
+	}
+	if len(result.Changes) != 0 || len(result.Warnings) != 1 {
+		t.Fatalf("second apply without default project result = %+v, want only retained-model warning", result)
+	}
+}
+
+func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	defer pool.Close()
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	user := mustCreateIdentityUser(t, ctx, store, "reconcile-partial@example.com", "Defaults Owner")
+
+	poolTemplate := func(name string) executionstore.DefaultMachinePoolTemplate {
+		return defaultMachinePoolTemplateWithDefaultMachineForTest(
+			executionstore.DefaultMachinePoolTemplate{
+				Name:               name,
+				Description:        "old",
+				Provider:           "blaxel",
+				ProviderAuthEnvVar: "RECONCILE_POOL_TOKEN",
+				MaxTotalMachines:   1,
+				MaxTotalMemoryMB:   intPtrForMachinePoolTest(4096),
+				MaxMachineMemoryMB: intPtrForMachinePoolTest(2048),
+			},
+			defaultMachineFieldsForTest{
+				DefaultMachineCPU:             1,
+				DefaultMachineMemoryMB:        512,
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"old"}`),
+			},
+		)
+	}
+	initialPools := []executionstore.DefaultMachinePoolTemplate{
+		poolTemplate("partial-pool-a"),
+		poolTemplate("partial-pool-b"),
+	}
+	createOrg := func(name, key string) identitystore.CreateOrgForUserRecord {
+		t.Helper()
+		created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+			UserID:              user.ID,
+			Name:                name,
+			IdempotencyKey:      key,
+			DefaultMachinePools: initialPools,
+		})
+		if err != nil {
+			t.Fatalf("create org %q: %v", name, err)
+		}
+		return created
+	}
+	orgA := createOrg("Defaults Org A", "defaults-org-a")
+	orgB := createOrg("Defaults Org B", "defaults-org-b")
+	failingOrg, successfulOrg := orgA, orgB
+	if failingOrg.Org.ID.String() > successfulOrg.Org.ID.String() {
+		failingOrg, successfulOrg = successfulOrg, failingOrg
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE machine_pools
+		SET max_machine_memory_mb = 512
+		WHERE org_id = $1 AND name = $2
+	`, failingOrg.Org.ID, initialPools[1].Name); err != nil {
+		t.Fatalf("restrict failing org pool: %v", err)
+	}
+
+	desiredPools := append([]executionstore.DefaultMachinePoolTemplate(nil), initialPools...)
+	desiredPools[0].Description = "new"
+	desiredPools[1].DefaultMachineMemoryMB = intPtrForMachinePoolTest(1024)
+	input := orglifecycle.ReconcileDefaultsInput{Apply: true, DefaultMachinePools: desiredPools}
+	result, err := store.Organizations().ReconcileDefaults(ctx, input)
+	if err == nil || !strings.Contains(err.Error(), failingOrg.Org.ID.String()) {
+		t.Fatalf("partial apply error = %v, want failing org ID", err)
+	}
+	if len(result.Changes) != 2 {
+		t.Fatalf("partial apply changes = %v, want two successful-org changes", result.Changes)
+	}
+	for _, change := range result.Changes {
+		if !strings.Contains(change, successfulOrg.Org.ID.String()) {
+			t.Fatalf("partial apply change = %q, want successful org only", change)
+		}
+	}
+	queries := testQueries(store)
+	successfulPoolA, err := queries.GetMachinePoolByName(ctx, dbsqlc.GetMachinePoolByNameParams{
+		OrgID: successfulOrg.Org.ID, Name: initialPools[0].Name,
+	})
+	if err != nil {
+		t.Fatalf("get successful org pool: %v", err)
+	}
+	failingPoolA, err := queries.GetMachinePoolByName(ctx, dbsqlc.GetMachinePoolByNameParams{
+		OrgID: failingOrg.Org.ID, Name: initialPools[0].Name,
+	})
+	if err != nil {
+		t.Fatalf("get failing org pool: %v", err)
+	}
+	if successfulPoolA.Description != "new" || failingPoolA.Description != "old" {
+		t.Fatalf(
+			"pool descriptions after partial apply = successful %q, failing %q",
+			successfulPoolA.Description,
+			failingPoolA.Description,
+		)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE machine_pools
+		SET max_machine_memory_mb = 2048
+		WHERE org_id = $1 AND name = $2
+	`, failingOrg.Org.ID, initialPools[1].Name); err != nil {
+		t.Fatalf("restore failing org pool limit: %v", err)
+	}
+	result, err = store.Organizations().ReconcileDefaults(ctx, input)
+	if err != nil {
+		t.Fatalf("retry apply: %v", err)
+	}
+	if len(result.Changes) != 2 {
+		t.Fatalf("retry changes = %v, want two recovered-org changes", result.Changes)
+	}
+	for _, change := range result.Changes {
+		if !strings.Contains(change, failingOrg.Org.ID.String()) {
+			t.Fatalf("retry change = %q, want recovered org only", change)
+		}
+	}
+	result, err = store.Organizations().ReconcileDefaults(ctx, input)
+	if err != nil {
+		t.Fatalf("idempotent apply: %v", err)
+	}
+	if len(result.Changes) != 0 {
+		t.Fatalf("idempotent apply changes = %v, want none", result.Changes)
 	}
 }

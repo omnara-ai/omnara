@@ -49,33 +49,9 @@ func NewManager(
 }
 
 func (m Manager) ValidateDefaultMachinePool(defaultPoolTemplate executionstore.DefaultMachinePoolTemplate) error {
-	if err := executionstore.ValidateDefaultMachinePoolTemplate(defaultPoolTemplate); err != nil {
-		return fmt.Errorf("default machine pool: %w", err)
-	}
-	defaultMachineProvisioning, err := executionstore.MachineProvisioningFromDefaults(
-		defaultPoolTemplate.DefaultMachineCPU,
-		defaultPoolTemplate.DefaultMachineMemoryMB,
-		defaultPoolTemplate.DefaultMachineProviderOptions,
-	)
-	if err != nil {
-		return fmt.Errorf("default machine pool: %w", err)
-	}
-	policy := executionstore.MachinePoolProviderPolicy{
-		DefaultProvisioning:      defaultMachineProvisioning,
-		RuntimeProtectionEnabled: defaultPoolTemplate.RuntimeProtectionEnabled,
-		ResourceLimits: executionstore.MachineResourceLimits{
-			MaxTotalCPU:        defaultPoolTemplate.MaxTotalCPU,
-			MaxTotalMemoryMB:   defaultPoolTemplate.MaxTotalMemoryMB,
-			MinMachineCPU:      defaultPoolTemplate.MinMachineCPU,
-			MinMachineMemoryMB: defaultPoolTemplate.MinMachineMemoryMB,
-			MaxMachineCPU:      defaultPoolTemplate.MaxMachineCPU,
-			MaxMachineMemoryMB: defaultPoolTemplate.MaxMachineMemoryMB,
-		},
-		ProviderConfig: defaultPoolTemplate.ProviderConfig,
-	}
-	if err := m.Catalog.ValidatePool(
-		defaultPoolTemplate.Provider,
-		policy,
+	if err := executionstore.ValidateDefaultMachinePoolTemplate(
+		defaultPoolTemplate,
+		m.Catalog,
 	); err != nil {
 		return fmt.Errorf("default machine pool: %w", err)
 	}

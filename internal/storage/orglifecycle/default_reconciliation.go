@@ -2,10 +2,13 @@ package orglifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -24,6 +27,81 @@ func (s *Service) ReconcileDefaults(
 	ctx context.Context,
 	input ReconcileDefaultsInput,
 ) (ReconcileDefaultsResult, error) {
+	var orgIDs []ID
+	seen := make(map[ID]bool)
+	pools := make(map[ID][]dbsqlc.MachinePool)
+	providers := make(map[ID][]dbsqlc.ModelProviderConfig)
+	addOrg := func(orgID ID) {
+		if !seen[orgID] {
+			seen[orgID] = true
+			orgIDs = append(orgIDs, orgID)
+		}
+	}
+	for _, template := range input.DefaultMachinePools {
+		if err := s.execution.ValidateDefaultMachinePoolTemplate(template); err != nil {
+			return ReconcileDefaultsResult{}, fmt.Errorf("default machine pool: %w", err)
+		}
+		name := strings.TrimSpace(template.Name)
+		rows, err := s.q.ListClusterManagedMachinePoolsByName(
+			ctx,
+			dbsqlc.ListClusterManagedMachinePoolsByNameParams{Name: name},
+		)
+		if err != nil {
+			return ReconcileDefaultsResult{}, fmt.Errorf("list default machine pools %q: %w", name, err)
+		}
+		if len(rows) == 0 {
+			return ReconcileDefaultsResult{}, fmt.Errorf("no cluster-managed machine pools named %q", name)
+		}
+		for _, row := range rows {
+			addOrg(row.OrgID)
+			pools[row.OrgID] = append(pools[row.OrgID], row)
+		}
+	}
+	if input.DefaultModelProvider != nil {
+		prepared, err := modelstore.PrepareDefaultModelProviderTemplate(*input.DefaultModelProvider)
+		if err != nil {
+			return ReconcileDefaultsResult{}, fmt.Errorf("default model provider %q: %w", input.DefaultModelProvider.Name, err)
+		}
+		rows, err := s.q.ListClusterManagedModelProviderConfigsByName(
+			ctx,
+			dbsqlc.ListClusterManagedModelProviderConfigsByNameParams{Name: prepared.Name},
+		)
+		if err != nil {
+			return ReconcileDefaultsResult{}, fmt.Errorf("list default model providers %q: %w", prepared.Name, err)
+		}
+		if len(rows) == 0 {
+			return ReconcileDefaultsResult{}, fmt.Errorf("no cluster-managed model providers named %q", prepared.Name)
+		}
+		input.DefaultModelProvider = &prepared
+		for _, row := range rows {
+			addOrg(row.OrgID)
+			providers[row.OrgID] = append(providers[row.OrgID], row)
+		}
+	}
+
+	var result ReconcileDefaultsResult
+	var reconcileErrs []error
+	for _, orgID := range orgIDs {
+		orgResult, err := s.reconcileOrgDefaults(ctx, input, pools[orgID], providers[orgID])
+		if err != nil {
+			reconcileErrs = append(reconcileErrs, fmt.Errorf("org %s: %w", orgID, err))
+			if ctx.Err() != nil {
+				break
+			}
+			continue
+		}
+		result.Changes = append(result.Changes, orgResult.Changes...)
+		result.Warnings = append(result.Warnings, orgResult.Warnings...)
+	}
+	return result, errors.Join(reconcileErrs...)
+}
+
+func (s *Service) reconcileOrgDefaults(
+	ctx context.Context,
+	input ReconcileDefaultsInput,
+	pools []dbsqlc.MachinePool,
+	providers []dbsqlc.ModelProviderConfig,
+) (ReconcileDefaultsResult, error) {
 	txOptions := pgx.TxOptions{}
 	if !input.Apply {
 		txOptions.AccessMode = pgx.ReadOnly
@@ -37,6 +115,7 @@ func (s *Service) ReconcileDefaults(
 		ctx,
 		tx,
 		input.DefaultMachinePools,
+		pools,
 		input.Apply,
 	)
 	if err != nil {
@@ -46,6 +125,7 @@ func (s *Service) ReconcileDefaults(
 		ctx,
 		tx,
 		input.DefaultModelProvider,
+		providers,
 		input.Apply,
 	)
 	if err != nil {

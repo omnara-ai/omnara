@@ -7,36 +7,22 @@ import (
 	"math"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 )
 
-const defaultProjectIdempotencyKey = "default"
-
 func (s *Store) ReconcileDefaultModelProviderTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	template *DefaultModelProviderTemplate,
+	prepared *DefaultModelProviderTemplate,
+	rows []dbsqlc.ModelProviderConfig,
 	apply bool,
 ) ([]string, []string, error) {
-	if template == nil {
+	if prepared == nil {
 		return nil, nil, nil
 	}
-	prepared, err := PrepareDefaultModelProviderTemplate(*template)
-	if err != nil {
-		return nil, nil, fmt.Errorf("default model provider %q: %w", template.Name, err)
-	}
 	qtx := s.q.WithTx(tx)
-	rows, err := qtx.ListClusterManagedModelProviderConfigsByName(
-		ctx,
-		dbsqlc.ListClusterManagedModelProviderConfigsByNameParams{Name: prepared.Name},
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list default model providers %q: %w", prepared.Name, err)
-	}
-	if len(rows) == 0 {
-		return nil, nil, fmt.Errorf("no cluster-managed model providers named %q", prepared.Name)
-	}
 	var changes []string
 	var warnings []string
 	for _, row := range rows {
@@ -53,8 +39,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 		}
 		if current.APIFormat != prepared.APIFormat || current.APIVariant != prepared.APIVariant {
 			return nil, nil, fmt.Errorf(
-				"org %s: default model provider %q cannot change api_format or api_variant",
-				current.OrgID,
+				"default model provider %q cannot change api_format or api_variant",
 				prepared.Name,
 			)
 		}
@@ -99,21 +84,17 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 				}
 			}
 		}
+		defaultProjectID := NilID
 		project, err := qtx.GetProjectByIdempotencyKey(
 			ctx,
 			dbsqlc.GetProjectByIdempotencyKeyParams{
-				OrgID: current.OrgID, IdempotencyKey: defaultProjectIdempotencyKey,
+				OrgID: current.OrgID, IdempotencyKey: identitystore.DefaultProjectKey,
 			},
 		)
-		if errors.Is(err, pgx.ErrNoRows) {
-			warnings = append(warnings, fmt.Sprintf(
-				"org %s: skip configured models because the default project is missing",
-				current.OrgID,
-			))
-			continue
-		}
-		if err != nil {
-			return nil, nil, fmt.Errorf("load default project for org %s: %w", current.OrgID, err)
+		if err == nil {
+			defaultProjectID = project.ID
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, fmt.Errorf("load default project: %w", err)
 		}
 		modelRows, err := qtx.ListConfiguredModels(ctx, dbsqlc.ListConfiguredModelsParams{
 			OrgID: current.OrgID, ModelProviderConfigID: current.ID, RowLimit: math.MaxInt64,
@@ -144,15 +125,17 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 					if err != nil {
 						return nil, nil, fmt.Errorf("add default configured model %q: %w", modelTemplate.Name, err)
 					}
-					if err := grantDefaultConfiguredModelToProjectTx(
-						ctx,
-						qtx,
-						current.OrgID,
-						project.ID,
-						current.APIFormat,
-						created,
-					); err != nil {
-						return nil, nil, err
+					if !isNilID(defaultProjectID) {
+						if err := grantDefaultConfiguredModelToProjectTx(
+							ctx,
+							qtx,
+							current.OrgID,
+							defaultProjectID,
+							current.APIFormat,
+							created,
+						); err != nil {
+							return nil, nil, err
+						}
 					}
 				}
 				continue
@@ -196,13 +179,21 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 				}
 				model = locked
 			}
-			state, err := qtx.GetDefaultConfiguredModelRemovalState(
-				ctx,
-				dbsqlc.GetDefaultConfiguredModelRemovalStateParams{
-					TargetConfiguredModelID: model.ID,
-					DefaultProjectID:        project.ID,
-				},
-			)
+			var state dbsqlc.GetDefaultConfiguredModelRemovalStateRow
+			if isNilID(defaultProjectID) {
+				state.GrantedToOtherProject, err = qtx.ConfiguredModelHasActiveGrants(
+					ctx,
+					dbsqlc.ConfiguredModelHasActiveGrantsParams{OrgID: current.OrgID, ID: model.ID},
+				)
+			} else {
+				state, err = qtx.GetDefaultConfiguredModelRemovalState(
+					ctx,
+					dbsqlc.GetDefaultConfiguredModelRemovalStateParams{
+						TargetConfiguredModelID: model.ID,
+						DefaultProjectID:        defaultProjectID,
+					},
+				)
+			}
 			if err != nil {
 				return nil, nil, fmt.Errorf("check removed configured model %q: %w", name, err)
 			}
@@ -214,7 +205,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 						name,
 					))
 					if apply {
-						if err := deleteDefaultProjectModelGrantTx(ctx, qtx, current.OrgID, project.ID, model.ID); err != nil {
+						if err := deleteDefaultProjectModelGrantTx(ctx, qtx, current.OrgID, defaultProjectID, model.ID); err != nil {
 							return nil, nil, fmt.Errorf("remove default grant for configured model %q: %w", name, err)
 						}
 					}
@@ -233,7 +224,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 			))
 			if apply {
 				if state.GrantedToDefaultProject {
-					if err := deleteDefaultProjectModelGrantTx(ctx, qtx, current.OrgID, project.ID, model.ID); err != nil {
+					if err := deleteDefaultProjectModelGrantTx(ctx, qtx, current.OrgID, defaultProjectID, model.ID); err != nil {
 						return nil, nil, fmt.Errorf("remove default grant for configured model %q: %w", name, err)
 					}
 				}
