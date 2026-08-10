@@ -1717,6 +1717,7 @@ export const zMachine = z.object({
     provider: z.string(),
     lifecycle_state: zMachineLifecycleState,
     connection_state: zMachineConnectionState,
+    connection_state_reason: z.string().optional(),
     last_observed_at: zTimestamp.nullable(),
     cwd: z.string(),
     env: z.record(z.string(), z.string()),

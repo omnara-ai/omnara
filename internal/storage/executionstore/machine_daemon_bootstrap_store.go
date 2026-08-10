@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -421,11 +422,35 @@ func (s *Store) RecordMachineFailureReport(
 	if isNilID(input.OrgID) || isNilID(input.MachineID) || isNilID(input.DaemonTokenID) {
 		return errors.New("org, machine, and daemon token are required")
 	}
-	if input.ExitStatus < 1 || input.ExitStatus > 255 {
-		return storeerr.InvalidRequest(errors.New("exit status must be between 1 and 255"))
-	}
-	if input.Stage != "startup_script" && input.Stage != "daemon_install" {
+	switch input.Stage {
+	case MachineFailureStageStartupScript, MachineFailureStageDaemonInstall:
+		if input.ExitStatus == nil {
+			return storeerr.InvalidRequest(errors.New("exit status is required"))
+		}
+		if input.DaemonVersion != "" || input.TargetVersion != "" {
+			return storeerr.InvalidRequest(errors.New(
+				"daemon and target versions are only valid for daemon_update failure reports",
+			))
+		}
+	case MachineFailureStageDaemonUpdate:
+		if input.ExitStatus != nil {
+			return storeerr.InvalidRequest(errors.New(
+				"exit status is not valid for daemon_update failure reports",
+			))
+		}
+		if err := daemonversion.Validate(input.DaemonVersion); err != nil {
+			return storeerr.InvalidRequest(fmt.Errorf("invalid daemon version: %w", err))
+		}
+		if input.TargetVersion != "" {
+			if err := daemonversion.Validate(input.TargetVersion); err != nil {
+				return storeerr.InvalidRequest(fmt.Errorf("invalid target version: %w", err))
+			}
+		}
+	default:
 		return storeerr.InvalidRequest(errors.New("invalid failure report stage"))
+	}
+	if input.ExitStatus != nil && (*input.ExitStatus < 1 || *input.ExitStatus > 255) {
+		return storeerr.InvalidRequest(errors.New("exit status must be between 1 and 255"))
 	}
 	if len(input.OutputTail) > MaxMachineFailureReportOutputBytes {
 		return storeerr.InvalidRequest(fmt.Errorf(
@@ -435,13 +460,20 @@ func (s *Store) RecordMachineFailureReport(
 	}
 	outputTail := strings.ToValidUTF8(string(input.OutputTail), "?")
 	outputTail = strings.ReplaceAll(outputTail, "\x00", "?")
+	var exitStatus *int32
+	if input.ExitStatus != nil {
+		value := int32(*input.ExitStatus)
+		exitStatus = &value
+	}
 	_, err := s.q.RecordMachineFailureReport(
 		ctx,
 		dbsqlc.RecordMachineFailureReportParams{
 			Stage:           input.Stage,
-			ExitStatus:      int32(input.ExitStatus),
+			ExitStatus:      exitStatus,
 			OutputTail:      outputTail,
 			OutputTruncated: input.OutputTruncated,
+			DaemonVersion:   input.DaemonVersion,
+			TargetVersion:   input.TargetVersion,
 			OrgID:           input.OrgID,
 			MachineID:       input.MachineID,
 			DaemonTokenID:   input.DaemonTokenID,

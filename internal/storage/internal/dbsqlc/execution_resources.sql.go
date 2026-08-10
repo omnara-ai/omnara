@@ -799,11 +799,14 @@ func (q *Queries) GetActiveProjectMachinePoolUsage(ctx context.Context, arg GetA
 const getMachine = `-- name: GetMachine :one
 SELECT machine.id, machine.org_id, machine.machine_pool_id, machine.source_kind, machine.display_name, machine.description, machine.provider, machine.lifecycle_state, machine.provider_resource_id, machine.provider_provision_attempted_at,
        connection.connection_state,
+       coalesce(current_runtime.state_reason_code, '') AS connection_state_reason,
        machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at,
        machine.lifecycle_changed_at, machine.lifecycle_version,
        coalesce(machine.sandbox_url, '') AS sandbox_url
 FROM machines machine
 JOIN machine_connection_states connection ON connection.org_id = machine.org_id AND connection.machine_id = machine.id
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
 WHERE machine.org_id = $1 AND machine.id = $2
 `
 
@@ -824,6 +827,7 @@ type GetMachineRow struct {
 	ProviderResourceID           *string
 	ProviderProvisionAttemptedAt *time.Time
 	ConnectionState              string
+	ConnectionStateReason        string
 	LastObservedAt               *time.Time
 	Cpu                          *int32
 	MemoryMb                     *int32
@@ -861,6 +865,7 @@ func (q *Queries) GetMachine(ctx context.Context, arg GetMachineParams) (GetMach
 		&i.ProviderResourceID,
 		&i.ProviderProvisionAttemptedAt,
 		&i.ConnectionState,
+		&i.ConnectionStateReason,
 		&i.LastObservedAt,
 		&i.Cpu,
 		&i.MemoryMb,
@@ -888,9 +893,12 @@ func (q *Queries) GetMachine(ctx context.Context, arg GetMachineParams) (GetMach
 const getMachineByIdempotency = `-- name: GetMachineByIdempotency :one
 SELECT machine.id, machine.org_id, machine.machine_pool_id, machine.source_kind, machine.display_name, machine.description, machine.provider, machine.lifecycle_state, machine.provider_resource_id, machine.provider_provision_attempted_at,
        connection.connection_state,
+       coalesce(current_runtime.state_reason_code, '') AS connection_state_reason,
        machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version
 FROM machines machine
 JOIN machine_connection_states connection ON connection.org_id = machine.org_id AND connection.machine_id = machine.id
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
 WHERE machine.org_id = $1 AND machine.idempotency_key = $2::text
 `
 
@@ -911,6 +919,7 @@ type GetMachineByIdempotencyRow struct {
 	ProviderResourceID           *string
 	ProviderProvisionAttemptedAt *time.Time
 	ConnectionState              string
+	ConnectionStateReason        string
 	LastObservedAt               *time.Time
 	Cpu                          *int32
 	MemoryMb                     *int32
@@ -947,6 +956,7 @@ func (q *Queries) GetMachineByIdempotency(ctx context.Context, arg GetMachineByI
 		&i.ProviderResourceID,
 		&i.ProviderProvisionAttemptedAt,
 		&i.ConnectionState,
+		&i.ConnectionStateReason,
 		&i.LastObservedAt,
 		&i.Cpu,
 		&i.MemoryMb,
