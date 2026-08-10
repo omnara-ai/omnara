@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -205,13 +206,16 @@ func (s *Store) ReadOrgOwnedSecretPayload(
 		return SecretPayloadRecord{}, errors.New("secret key wrapper is required")
 	}
 	if isNilID(input.OrgID) || isNilID(input.SecretID) || input.Kind == "" {
-		return SecretPayloadRecord{}, invalidSecretRequest("org, secret, and kind are required")
+		return SecretPayloadRecord{}, invalidSecretRequest("org, secret, management kind, and kind are required")
+	}
+	if err := management.Validate(input.ManagementKind); err != nil {
+		return SecretPayloadRecord{}, invalidSecretRequest("%v", err)
 	}
 	record, err := s.GetSecret(ctx, input.OrgID, input.SecretID)
 	if err != nil {
 		return SecretPayloadRecord{}, err
 	}
-	if record.OwnerKind != SecretOwnerOrg {
+	if record.OwnerKind != SecretOwnerOrg || record.ManagementKind != input.ManagementKind {
 		return SecretPayloadRecord{}, storeerr.ErrNotFound
 	}
 	if record.Kind != input.Kind {

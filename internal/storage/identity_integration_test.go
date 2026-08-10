@@ -665,7 +665,10 @@ func TestCreateOrgForUserCreatesClusterManagedModelProviderAtomically(t *testing
 		t.Fatalf("tenant machine environment with cluster credential error = %v, want not found", err)
 	}
 	payload, err := store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
-		OrgID: created.Org.ID, SecretID: credential.ID, Kind: secretstore.SecretKindGeneric,
+		OrgID:          created.Org.ID,
+		SecretID:       credential.ID,
+		ManagementKind: management.Cluster,
+		Kind:           secretstore.SecretKindGeneric,
 	})
 	if err != nil {
 		t.Fatalf("read default model provider credential: %v", err)

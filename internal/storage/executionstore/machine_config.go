@@ -275,9 +275,10 @@ func (s *Store) ResolveMachineProviderCredential(
 			return MachineProviderCredential{}, errors.New("provider_auth_secret_id is required")
 		}
 		credential, err := s.secrets.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
-			OrgID:    orgID,
-			SecretID: providerAuthSecretID,
-			Kind:     secretstore.SecretKindGeneric,
+			OrgID:          orgID,
+			SecretID:       providerAuthSecretID,
+			ManagementKind: management.Tenant,
+			Kind:           secretstore.SecretKindGeneric,
 		})
 		if err != nil {
 			if errors.Is(err, storeerr.ErrNotFound) {
@@ -828,9 +829,10 @@ func (s *Store) readEnvironmentSecretPayload(
 ) (secretstore.SecretPayloadRecord, error) {
 	if isNilID(projectID) {
 		return s.secrets.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
-			OrgID:    orgID,
-			SecretID: secretID,
-			Kind:     secretstore.SecretKindGeneric,
+			OrgID:          orgID,
+			SecretID:       secretID,
+			ManagementKind: management.Tenant,
+			Kind:           secretstore.SecretKindGeneric,
 		})
 	}
 	return s.secrets.ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{

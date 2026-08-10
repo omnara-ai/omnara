@@ -215,9 +215,10 @@ type ReadProjectAvailableSecretPayloadInput struct {
 }
 
 type ReadOrgOwnedSecretPayloadInput struct {
-	OrgID    ID
-	SecretID ID
-	Kind     secrets.Kind
+	OrgID          ID
+	SecretID       ID
+	ManagementKind management.Kind
+	Kind           secrets.Kind
 }
 
 type RotateProjectAvailableOAuthSecretInput struct {

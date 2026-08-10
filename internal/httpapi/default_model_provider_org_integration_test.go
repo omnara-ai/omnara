@@ -334,13 +334,24 @@ func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t
 		t.Fatalf("unexpected cluster credential: %+v", credential)
 	}
 	payload, err := store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
-		OrgID: orgID, SecretID: credential.ID, Kind: secretstore.SecretKindGeneric,
+		OrgID:          orgID,
+		SecretID:       credential.ID,
+		ManagementKind: management.Cluster,
+		Kind:           secretstore.SecretKindGeneric,
 	})
 	if err != nil {
 		t.Fatalf("read cluster credential payload: %v", err)
 	}
 	if payload.Payload[secrets.KeyValue] != "sk-cluster-openrouter" {
 		t.Fatalf("cluster credential value = %q", payload.Payload[secrets.KeyValue])
+	}
+	if _, err := store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
+		OrgID:          orgID,
+		SecretID:       credential.ID,
+		ManagementKind: management.Tenant,
+		Kind:           secretstore.SecretKindGeneric,
+	}); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("read cluster credential as tenant-managed error = %v, want not found", err)
 	}
 	models, err := store.Models().ListConfiguredModels(ctx, modelstore.ListConfiguredModelsInput{
 		OrgID: orgID, ProviderConfigID: provider.ID, Limit: 10,
@@ -367,6 +378,15 @@ func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t
 	publicSecretID, err := publicid.Encode(publicid.KindSecret, credential.ID)
 	if err != nil {
 		t.Fatalf("encode credential secret id: %v", err)
+	}
+	if _, err := store.Execution().ResolveEnvironmentSecrets(
+		ctx,
+		orgID,
+		storage.NilID,
+		[]byte(`{}`),
+		[]byte(`{"OPENROUTER_API_KEY":"`+publicSecretID+`"}`),
+	); err == nil || !errors.Is(err, storeerr.ErrPermanentEnvironment) {
+		t.Fatalf("resolve cluster credential in org-scoped environment error = %v, want permanent environment error", err)
 	}
 	requestJSONWithHeaders(
 		t,
@@ -396,6 +416,59 @@ func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t
 		`{"name":"tenant-renamed"}`,
 		"",
 		http.StatusConflict,
+		authHeaders(token),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+publicOrgID+"/model-provider-configs",
+		`{"name":"reused-hosted-key","preset":"openrouter","credential_secret_id":"`+publicSecretID+`"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(token),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+publicOrgID+"/secrets/"+publicSecretID+"/grants",
+		`{"target_project_id":"`+projectResponse["id"].(string)+`"}`,
+		"",
+		http.StatusConflict,
+		authHeaders(token),
+	)
+	grantList := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/orgs/"+publicOrgID+"/secrets/"+publicSecretID+"/grants",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(token),
+	)["data"].([]any)
+	if len(grantList) != 0 {
+		t.Fatalf("cluster credential grants = %+v, want empty", grantList)
+	}
+	poolCredential := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+publicOrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"tenant-pool-key","material":{"kind":"generic","value":"pool-key"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(token),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+publicOrgID+"/machine-pools",
+		`{"name":"hosted-key-env","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{},"default_machine_secret_env":{"OPENROUTER_API_KEY":"`+publicSecretID+`"},"default_machine_provider_options":{"image":"test","metro":"sfo"},"default_cwd":"/workspace","provider_config":{},"provider_auth_secret_id":"`+poolCredential["id"].(string)+`","max_total_machines":1,"max_total_cpu":2,"max_total_memory_mb":4096,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+		"",
+		http.StatusNotFound,
 		authHeaders(token),
 	)
 	requestJSONWithHeaders(
