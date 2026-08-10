@@ -39,7 +39,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		"test-token",
 	)
 	providerAuthSecretField := `,"provider_auth_secret_id":"` + providerAuthSecretID + `"`
-	poolBody := `{"name":"default","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"pool-value","machine_id":"pool-machine"},"default_machine_secret_env":{"API_TOKEN":"` + providerAuthSecretID + `","storage_key":"` + providerAuthSecretID + `"},"default_machine_provider_options":{"image":"test","metro":"sfo","startup_script":"echo setup"},"default_cwd":"/pool","provider_config":{"api_base_url":"https://api.custom.example"}` + providerAuthSecretField + `,"max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`
+	poolBody := `{"name":"default","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"pool-value","machine_id":"pool-machine"},"default_machine_secret_env":{"API_TOKEN":"` + providerAuthSecretID + `","storage_key":"` + providerAuthSecretID + `"},"default_machine_provider_options":{"image":"test","metro":"sfo","startup_script":"echo setup"},"default_cwd":"/pool","provider_config":{"api_base_url":"https://api.custom.example"}` + providerAuthSecretField + `,"max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"min_machine_cpu":1,"min_machine_memory_mb":1024,"max_machine_cpu":2,"max_machine_memory_mb":4096}`
 	requiredPoolCaps := `,"max_total_cpu":2,"max_total_memory_mb":4096,"max_machine_cpu":2,"max_machine_memory_mb":4096`
 	machinePool := requestJSONWithHeaders(
 		t,
@@ -57,6 +57,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("machine pool management_kind = %v, want tenant", machinePool["management_kind"])
 	}
 	if machinePool["provider"] != "unikraft" || machinePool["max_total_machines"].(float64) != 2 ||
+		machinePool["min_machine_cpu"].(float64) != 1 ||
+		machinePool["min_machine_memory_mb"].(float64) != 1024 ||
 		machinePool["max_machine_cpu"].(float64) != 2 ||
 		machinePool["max_machine_memory_mb"].(float64) != 4096 {
 		t.Fatalf("unexpected pool response: %+v", machinePool)
@@ -302,8 +304,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	updatePoolID := updatePool["id"].(string)
-	if updatePool["runtime_protection_enabled"] != false {
-		t.Fatalf("created runtime_protection_enabled = %v, want false", updatePool["runtime_protection_enabled"])
+	if updatePool["runtime_protection_enabled"] != false || updatePool["min_machine_cpu"] != nil ||
+		updatePool["min_machine_memory_mb"] != nil {
+		t.Fatalf("unexpected created pool defaults: %+v", updatePool)
 	}
 	patchedUnprotectedPool := requestJSONWithHeaders(
 		t,
@@ -328,7 +331,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		"machine-pool-provider-auth-rotated",
 		"rotated-token",
 	)
-	poolUpdateBody := `{"name":"updated-target","description":"updated pool","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"updated-pool-value"},"default_machine_provider_options":{"image":"updated","metro":"sfo","startup_script":"echo updated"},"default_cwd":"/pool-updated","provider_auth_secret_id":"` + rotatedProviderAuthSecretID + `","max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,"runtime_protection_enabled":true,"metadata":{"team":"infra"}}`
+	poolUpdateBody := `{"name":"updated-target","description":"updated pool","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"updated-pool-value"},"default_machine_provider_options":{"image":"updated","metro":"sfo","startup_script":"echo updated"},"default_cwd":"/pool-updated","provider_auth_secret_id":"` + rotatedProviderAuthSecretID + `","max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"min_machine_cpu":1,"min_machine_memory_mb":1024,"max_machine_cpu":2,"max_machine_memory_mb":4096,"runtime_protection_enabled":true,"metadata":{"team":"infra"}}`
 	updatedPool := requestJSONWithHeaders(
 		t,
 		handler,
@@ -343,7 +346,10 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		updatedPool["name"] != "updated-target" ||
 		updatedPool["description"] != "updated pool" || updatedPool["default_cwd"] != "/pool-updated" ||
 		updatedPool["provider_auth_secret_id"] != rotatedProviderAuthSecretID ||
-		updatedPool["max_total_cpu"].(float64) != 4 || updatedPool["runtime_protection_enabled"] != true {
+		updatedPool["max_total_cpu"].(float64) != 4 ||
+		updatedPool["min_machine_cpu"].(float64) != 1 ||
+		updatedPool["min_machine_memory_mb"].(float64) != 1024 ||
+		updatedPool["runtime_protection_enabled"] != true {
 		t.Fatalf("unexpected updated pool response: %+v", updatedPool)
 	}
 	patchedPool := requestJSONWithHeaders(
@@ -358,8 +364,37 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	)
 	if patchedPool["id"] != updatePoolID || patchedPool["description"] != "patched pool" ||
 		patchedPool["default_cwd"] != "/pool-updated" || patchedPool["max_total_cpu"].(float64) != 4 ||
+		patchedPool["min_machine_cpu"].(float64) != 1 ||
+		patchedPool["min_machine_memory_mb"].(float64) != 1024 ||
 		patchedPool["runtime_protection_enabled"] != true {
 		t.Fatalf("unexpected patched pool response: %+v", patchedPool)
+	}
+	zeroMinimumPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+updatePoolID,
+		`{"min_machine_cpu":0,"min_machine_memory_mb":0}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if zeroMinimumPool["min_machine_cpu"].(float64) != 0 ||
+		zeroMinimumPool["min_machine_memory_mb"].(float64) != 0 {
+		t.Fatalf("explicit zero minimums were not preserved: %+v", zeroMinimumPool)
+	}
+	clearedMinimumPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+updatePoolID,
+		`{"min_machine_cpu":null,"min_machine_memory_mb":null}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if clearedMinimumPool["min_machine_cpu"] != nil || clearedMinimumPool["min_machine_memory_mb"] != nil {
+		t.Fatalf("null minimums were not cleared: %+v", clearedMinimumPool)
 	}
 	updatedEnv := updatedPool["default_machine_env"].(map[string]any)
 	updatedProviderOptions := updatedPool["default_machine_provider_options"].(map[string]any)
@@ -533,6 +568,16 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/machine-pool-grants",
+		`{"machine_pool_id":"`+poolID+`","min_machine_cpu":2}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/machine-pool-grants",
 		`{"machine_pool_id":"`+poolID+`","default_machine_provider_options_overlay":{"unknown":"bad"}}`,
 		"",
 		http.StatusBadRequest,
@@ -572,7 +617,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("bad project image grant error = %+v, want allowed_images context", badProjectImageGrant)
 	}
 
-	poolGrantBody := `{"machine_pool_id":"` + poolID + `","description":"default project pool","default_machine_memory_mb":2048,"default_machine_env_overlay":{"SECRET_THING":"project-value","PROJECT_ONLY":"yes","uri":"project-uri"},"default_machine_secret_env_overlay":{"process_id":"` + providerAuthSecretID + `"},"default_cwd":"/project","max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":4096,"max_machine_cpu":2,"max_machine_memory_mb":4096}`
+	poolGrantBody := `{"machine_pool_id":"` + poolID + `","description":"default project pool","default_machine_memory_mb":2048,"default_machine_env_overlay":{"SECRET_THING":"project-value","PROJECT_ONLY":"yes","uri":"project-uri"},"default_machine_secret_env_overlay":{"process_id":"` + providerAuthSecretID + `"},"default_cwd":"/project","max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":4096,"min_machine_cpu":1,"min_machine_memory_mb":2048,"max_machine_cpu":2,"max_machine_memory_mb":4096}`
 	poolGrant := requestJSONWithHeaders(
 		t,
 		handler,
@@ -590,6 +635,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if poolGrant["default_cwd"] != "/project" || poolGrant["default_machine_memory_mb"].(float64) != 2048 ||
 		poolGrant["max_total_cpu"].(float64) != 4 ||
 		poolGrant["max_total_memory_mb"].(float64) != 4096 ||
+		poolGrant["min_machine_cpu"].(float64) != 1 ||
+		poolGrant["min_machine_memory_mb"].(float64) != 2048 ||
 		poolGrant["max_machine_cpu"].(float64) != 2 ||
 		poolGrant["max_machine_memory_mb"].(float64) != 4096 {
 		t.Fatalf("unexpected pool grant default_machine fields/caps: %+v", poolGrant)
@@ -762,7 +809,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		handler,
 		http.MethodPatch,
 		project.ProjectPath+"/machine-pool-grants/"+poolGrantID,
-		`{"description":"patched project pool","default_machine_memory_mb":1024,"max_total_cpu":null,"default_machine_env_overlay":{"PATCHED_ONLY":"yes"}}`,
+		`{"description":"patched project pool","default_machine_memory_mb":1024,"min_machine_cpu":null,"min_machine_memory_mb":1024,"max_total_cpu":null,"default_machine_env_overlay":{"PATCHED_ONLY":"yes"}}`,
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
@@ -770,6 +817,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if patchedPoolGrant["id"] != poolGrantID ||
 		patchedPoolGrant["description"] != "patched project pool" ||
 		patchedPoolGrant["default_machine_memory_mb"].(float64) != 1024 ||
+		patchedPoolGrant["min_machine_cpu"] != nil ||
+		patchedPoolGrant["min_machine_memory_mb"].(float64) != 1024 ||
 		patchedPoolGrant["max_total_cpu"] != nil ||
 		patchedPoolGrant["max_machine_cpu"].(float64) != 2 ||
 		patchedPoolGrant["default_cwd"] != "/project" {
@@ -1104,7 +1153,7 @@ func TestPublicBlaxelMachinePoolOmitsCPU(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	for _, field := range []string{"default_machine_cpu", "max_total_cpu", "max_machine_cpu"} {
+	for _, field := range []string{"default_machine_cpu", "max_total_cpu", "min_machine_cpu", "max_machine_cpu"} {
 		value, found := poolResponse[field]
 		if !found || value != nil {
 			t.Fatalf("blaxel pool %s = %#v, want null", field, value)
@@ -1116,8 +1165,15 @@ func TestPublicBlaxelMachinePoolOmitsCPU(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get blaxel machine pool: %v", err)
 	}
-	if stored.DefaultMachineCPU != nil || stored.MaxTotalCPU != nil || stored.MaxMachineCPU != nil {
-		t.Fatalf("stored blaxel cpu fields = default %v total %v machine %v", stored.DefaultMachineCPU, stored.MaxTotalCPU, stored.MaxMachineCPU)
+	if stored.DefaultMachineCPU != nil || stored.MaxTotalCPU != nil || stored.MinMachineCPU != nil ||
+		stored.MaxMachineCPU != nil {
+		t.Fatalf(
+			"stored blaxel cpu fields = default %v total %v minimum %v maximum %v",
+			stored.DefaultMachineCPU,
+			stored.MaxTotalCPU,
+			stored.MinMachineCPU,
+			stored.MaxMachineCPU,
+		)
 	}
 	unsupportedCap := requestJSONWithHeaders(
 		t,
@@ -1155,7 +1211,8 @@ func TestPublicBlaxelMachinePoolOmitsCPU(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if grant["default_machine_cpu"] != nil || grant["max_total_cpu"] != nil || grant["max_machine_cpu"] != nil {
+	if grant["default_machine_cpu"] != nil || grant["max_total_cpu"] != nil ||
+		grant["min_machine_cpu"] != nil || grant["max_machine_cpu"] != nil {
 		t.Fatalf("blaxel grant cpu fields = %+v", grant)
 	}
 }

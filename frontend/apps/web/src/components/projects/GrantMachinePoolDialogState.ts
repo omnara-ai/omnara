@@ -44,6 +44,8 @@ export interface PoolGrantOverrideDraft {
   maxTotalMachines: string
   maxTotalCpu: string
   maxTotalMemoryMb: string
+  minMachineCpu: string
+  minMachineMemoryMb: string
   maxMachineCpu: string
   maxMachineMemoryMb: string
 }
@@ -64,6 +66,8 @@ export function emptyPoolGrantDraft(): PoolGrantOverrideDraft {
     maxTotalMachines: '',
     maxTotalCpu: '',
     maxTotalMemoryMb: '',
+    minMachineCpu: '',
+    minMachineMemoryMb: '',
     maxMachineCpu: '',
     maxMachineMemoryMb: '',
   }
@@ -76,9 +80,13 @@ export function poolGrantOverridesValid(draft: PoolGrantOverrideDraft) {
     [draft.cpu, draft.memoryMb, draft.maxMachineCpu, draft.maxMachineMemoryMb].every(
       optionalPositiveInt32Valid,
     ) &&
-    [draft.maxTotalMachines, draft.maxTotalCpu, draft.maxTotalMemoryMb].every(
-      optionalNonNegativeInt32Valid,
-    )
+    [
+      draft.maxTotalMachines,
+      draft.maxTotalCpu,
+      draft.maxTotalMemoryMb,
+      draft.minMachineCpu,
+      draft.minMachineMemoryMb,
+    ].every(optionalNonNegativeInt32Valid)
   )
 }
 
@@ -145,6 +153,8 @@ export function poolGrantDraftFromGrant(
     maxTotalMachines: numberDraft(grant.max_total_machines),
     maxTotalCpu: numberDraft(grant.max_total_cpu),
     maxTotalMemoryMb: numberDraft(grant.max_total_memory_mb),
+    minMachineCpu: numberDraft(grant.min_machine_cpu),
+    minMachineMemoryMb: numberDraft(grant.min_machine_memory_mb),
     maxMachineCpu: numberDraft(grant.max_machine_cpu),
     maxMachineMemoryMb: numberDraft(grant.max_machine_memory_mb),
   }
@@ -187,6 +197,8 @@ export function poolGrantUpdateRequest(
     max_total_machines: optionalIntOrNull(draft.maxTotalMachines),
     max_total_cpu: optionalIntOrNull(draft.maxTotalCpu),
     max_total_memory_mb: optionalIntOrNull(draft.maxTotalMemoryMb),
+    min_machine_cpu: optionalIntOrNull(draft.minMachineCpu),
+    min_machine_memory_mb: optionalIntOrNull(draft.minMachineMemoryMb),
     max_machine_cpu: optionalIntOrNull(draft.maxMachineCpu),
     max_machine_memory_mb: optionalIntOrNull(draft.maxMachineMemoryMb),
   }
@@ -214,6 +226,8 @@ export function poolGrantCreateRequest(
     max_total_machines: optionalInt(draft.maxTotalMachines),
     max_total_cpu: optionalInt(draft.maxTotalCpu),
     max_total_memory_mb: optionalInt(draft.maxTotalMemoryMb),
+    min_machine_cpu: optionalInt(draft.minMachineCpu),
+    min_machine_memory_mb: optionalInt(draft.minMachineMemoryMb),
     max_machine_cpu: optionalInt(draft.maxMachineCpu),
     max_machine_memory_mb: optionalInt(draft.maxMachineMemoryMb),
   }

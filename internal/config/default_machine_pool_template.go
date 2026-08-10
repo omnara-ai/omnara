@@ -28,6 +28,8 @@ type defaultMachinePoolTemplateFile struct {
 	MaxTotalMachines              *int32            `yaml:"max_total_machines"`
 	MaxTotalCPU                   *int              `yaml:"max_total_cpu"`
 	MaxTotalMemoryMB              *int              `yaml:"max_total_memory_mb"`
+	MinMachineCPU                 *int              `yaml:"min_machine_cpu"`
+	MinMachineMemoryMB            *int              `yaml:"min_machine_memory_mb"`
 	MaxMachineCPU                 *int              `yaml:"max_machine_cpu"`
 	MaxMachineMemoryMB            *int              `yaml:"max_machine_memory_mb"`
 	Metadata                      map[string]any    `yaml:"metadata"`
@@ -131,6 +133,18 @@ func defaultMachinePoolTemplateFromFile(
 			label,
 		)
 	}
+	if parsed.MinMachineCPU != nil && *parsed.MinMachineCPU < 0 {
+		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf(
+			"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES %s.min_machine_cpu cannot be negative",
+			label,
+		)
+	}
+	if parsed.MinMachineMemoryMB != nil && *parsed.MinMachineMemoryMB < 0 {
+		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf(
+			"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES %s.min_machine_memory_mb cannot be negative",
+			label,
+		)
+	}
 	if parsed.MaxMachineCPU != nil && *parsed.MaxMachineCPU <= 0 {
 		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf(
 			"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES %s.max_machine_cpu must be positive when set",
@@ -220,6 +234,8 @@ func defaultMachinePoolTemplateFromFile(
 		MaxTotalMachines:              *parsed.MaxTotalMachines,
 		MaxTotalCPU:                   parsed.MaxTotalCPU,
 		MaxTotalMemoryMB:              parsed.MaxTotalMemoryMB,
+		MinMachineCPU:                 parsed.MinMachineCPU,
+		MinMachineMemoryMB:            parsed.MinMachineMemoryMB,
 		MaxMachineCPU:                 parsed.MaxMachineCPU,
 		MaxMachineMemoryMB:            parsed.MaxMachineMemoryMB,
 		Metadata:                      json.RawMessage(metadata),

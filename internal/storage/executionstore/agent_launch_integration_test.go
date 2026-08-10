@@ -3116,7 +3116,7 @@ tools:
 	}
 }
 
-func TestLaunchAgentPoolPerMachineCPUCapacityRollsBackAllRows(t *testing.T) {
+func TestLaunchAgentPoolPerMachineLimitsRollBackAllRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -3127,8 +3127,8 @@ func TestLaunchAgentPoolPerMachineCPUCapacityRollsBackAllRows(t *testing.T) {
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{
-			Email:       "launch-pool-per-machine-cpu-capacity@example.com",
-			DisplayName: "Launch Pool Per Machine CPU Capacity User",
+			Email:       "launch-pool-per-machine-limits@example.com",
+			DisplayName: "Launch Pool Per Machine Limits User",
 		},
 	)
 	if err != nil {
@@ -3136,6 +3136,7 @@ func TestLaunchAgentPoolPerMachineCPUCapacityRollsBackAllRows(t *testing.T) {
 	}
 	maxCPU := 10
 	maxMachineCPU := 1
+	minMachineMemoryMB := 2048
 	machinePool, err := store.Execution().CreateMachinePool(
 		ctx,
 		completeMachinePoolCreateInputForTest(
@@ -3144,16 +3145,18 @@ func TestLaunchAgentPoolPerMachineCPUCapacityRollsBackAllRows(t *testing.T) {
 			store,
 			machinePoolInputWithDefaultMachineForTest(
 				executionstore.CreateMachinePoolInput{
-					OrgID:            testOrgID,
-					Name:             "Launch Per Machine CPU Capacity Pool",
-					Provider:         "test",
-					MaxTotalMachines: 5,
-					MaxTotalCPU:      &maxCPU,
-					MaxMachineCPU:    &maxMachineCPU,
+					OrgID:              testOrgID,
+					Name:               "Launch Per Machine Limits Pool",
+					Provider:           "test",
+					MaxTotalMachines:   5,
+					MaxTotalCPU:        &maxCPU,
+					MinMachineMemoryMB: &minMachineMemoryMB,
+					MaxMachineCPU:      &maxMachineCPU,
 				},
 				defaultMachineFieldsForTest{
 					DefaultMachineCPU:             1,
-					DefaultMachineProviderOptions: json.RawMessage(`{"image":"per-machine-cpu-capacity"}`),
+					DefaultMachineMemoryMB:        2048,
+					DefaultMachineProviderOptions: json.RawMessage(`{"image":"per-machine-limits"}`),
 				},
 			),
 		))
@@ -3167,75 +3170,101 @@ func TestLaunchAgentPoolPerMachineCPUCapacityRollsBackAllRows(t *testing.T) {
 			OrgID:          testOrgID,
 			ProjectID:      testProjectID,
 			MachinePoolID:  machinePool.ID,
-			IdempotencyKey: "idem-launch-per-machine-cpu-capacity-pool-grant",
+			IdempotencyKey: "idem-launch-per-machine-limits-pool-grant",
 		})
 
 	if err != nil {
 		t.Fatalf("create pool grant: %v", err)
 	}
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t,
-		ctx,
-		store,
-		"launch-per-machine-cpu-capacity-pool",
-		"Launch Per Machine CPU Capacity Pool Agent",
-		`
-name: Launch Per Machine CPU Capacity Pool Agent
-instruction: Use too much cpu on one machine.
+	for _, test := range []struct {
+		name           string
+		profileName    string
+		displayName    string
+		idempotencyKey string
+		machineCPU     int
+		machineMemory  int
+	}{
+		{
+			name:           "maximum cpu",
+			profileName:    "launch-per-machine-maximum-cpu",
+			displayName:    "Launch Per Machine Maximum CPU Agent",
+			idempotencyKey: "idem-launch-per-machine-maximum-cpu-agent",
+			machineCPU:     2,
+			machineMemory:  2048,
+		},
+		{
+			name:           "minimum memory",
+			profileName:    "launch-per-machine-minimum-memory",
+			displayName:    "Launch Per Machine Minimum Memory Agent",
+			idempotencyKey: "idem-launch-per-machine-minimum-memory-agent",
+			machineCPU:     1,
+			machineMemory:  1024,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			profile := mustCreateConfigAndProfileBookmarkFromYAML(
+				t,
+				ctx,
+				store,
+				test.profileName,
+				test.displayName,
+				fmt.Sprintf(`
+name: %s
+instruction: Exercise a per-machine resource limit.
 model:
   provider_config: openai-prod
   name: gpt-test
 machine_sources:
-  - machine_pool_name: `+machinePool.Name+`
+  - machine_pool_name: %s
     max_machines: 1
     initial_num_machines: 1
-    machine_cpu: 2
+    machine_cpu: %d
+    machine_memory_mb: %d
 tools:
   run_command: {}
-`,
-		now,
-	)
+`, test.displayName, machinePool.Name, test.machineCPU, test.machineMemory),
+				now,
+			)
 
-	if _, err := store.Execution().LaunchAgent(
-		ctx,
-		executionstore.LaunchAgentInput{
-			ProjectID:      testProjectID,
-			ProfileID:      profile.ID,
-			AgentConfigID:  profile.CurrentConfigID,
-			LaunchedBy:     userPrincipal(user.ID),
-			IdempotencyKey: "idem-launch-per-machine-cpu-capacity-agent",
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrStateTransitionConflict,
-	) {
-		t.Fatalf("launch per-machine cpu capacity error = %v, want ErrStateTransitionConflict", err)
-	}
-	var agents, machines, grants, bindings int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-per-machine-cpu-capacity-agent'`, testProjectID).
-		Scan(&agents); err != nil {
-		t.Fatalf("count rolled back agents: %v", err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
-		Scan(&machines); err != nil {
-		t.Fatalf("count pool machines: %v", err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
-		Scan(&grants); err != nil {
-		t.Fatalf("count generated grants: %v", err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID).
-		Scan(&bindings); err != nil {
-		t.Fatalf("count machine bindings: %v", err)
-	}
-	if agents != 0 || machines != 0 || grants != 0 || bindings != 0 {
-		t.Fatalf(
-			"per-machine cpu capacity rollback counts agents=%d machines=%d grants=%d bindings=%d, want all zero",
-			agents,
-			machines,
-			grants,
-			bindings,
-		)
+			if _, err := store.Execution().LaunchAgent(
+				ctx,
+				executionstore.LaunchAgentInput{
+					ProjectID:      testProjectID,
+					ProfileID:      profile.ID,
+					AgentConfigID:  profile.CurrentConfigID,
+					LaunchedBy:     userPrincipal(user.ID),
+					IdempotencyKey: test.idempotencyKey,
+				},
+			); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+				t.Fatalf("launch per-machine limit error = %v, want ErrStateTransitionConflict", err)
+			}
+			var agents, machines, grants, bindings int
+			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = $2`, testProjectID, test.idempotencyKey).
+				Scan(&agents); err != nil {
+				t.Fatalf("count rolled back agents: %v", err)
+			}
+			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+				Scan(&machines); err != nil {
+				t.Fatalf("count pool machines: %v", err)
+			}
+			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+				Scan(&grants); err != nil {
+				t.Fatalf("count generated grants: %v", err)
+			}
+			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID).
+				Scan(&bindings); err != nil {
+				t.Fatalf("count machine bindings: %v", err)
+			}
+			if agents != 0 || machines != 0 || grants != 0 || bindings != 0 {
+				t.Fatalf(
+					"per-machine limit rollback counts agents=%d machines=%d grants=%d bindings=%d, want all zero",
+					agents,
+					machines,
+					grants,
+					bindings,
+				)
+			}
+		})
 	}
 }
 

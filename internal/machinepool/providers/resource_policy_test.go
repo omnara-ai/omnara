@@ -119,6 +119,38 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			want: "do not support max_machine_cpu",
 		},
 		{
+			name:     "blaxel forbids per-machine cpu minimum",
+			provider: "blaxel",
+			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
+				policy.ResourceLimits.MinMachineCPU = resourceIntPtr(0)
+			},
+			want: "do not support min_machine_cpu",
+		},
+		{
+			name:     "unikraft rejects minimum above maximum",
+			provider: "unikraft",
+			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
+				policy.ResourceLimits.MinMachineCPU = resourceIntPtr(9)
+			},
+			want: "min_machine_cpu cannot exceed max_machine_cpu",
+		},
+		{
+			name:     "unikraft rejects negative minimum",
+			provider: "unikraft",
+			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
+				policy.ResourceLimits.MinMachineCPU = resourceIntPtr(-1)
+			},
+			want: "min_machine_cpu cannot be negative",
+		},
+		{
+			name:     "unikraft rejects default below minimum",
+			provider: "unikraft",
+			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
+				policy.ResourceLimits.MinMachineCPU = resourceIntPtr(2)
+			},
+			want: "default_machine_cpu cannot be lower than min_machine_cpu",
+		},
+		{
 			name:     "blaxel requires default memory",
 			provider: "blaxel",
 			mutate:   func(policy *executionstore.MachinePoolProviderPolicy) { policy.DefaultProvisioning.MemoryMB = nil },
