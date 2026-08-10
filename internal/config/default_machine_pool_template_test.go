@@ -78,7 +78,7 @@ func TestLoadDefaultMachinePoolExample(t *testing.T) {
 	path := filepath.Join("..", "..", "default-machine-pools-example.yaml")
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES", path)
-	t.Setenv("OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN", "kraft-token")
+	t.Setenv("UNIKRAFT_API_TOKEN", "kraft-token")
 
 	cfg, err := Load()
 	if err != nil {
@@ -90,7 +90,7 @@ func TestLoadDefaultMachinePoolExample(t *testing.T) {
 	if cfg.DefaultMachinePools[0].Name != "default-pool" {
 		t.Fatalf("example default pool name = %q, want default-pool", cfg.DefaultMachinePools[0].Name)
 	}
-	if cfg.DefaultMachinePools[0].ProviderAuthEnvVar != "OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN" {
+	if cfg.DefaultMachinePools[0].ProviderAuthEnvVar != "UNIKRAFT_API_TOKEN" {
 		t.Fatalf("example default pool provider_auth_env_var = %q", cfg.DefaultMachinePools[0].ProviderAuthEnvVar)
 	}
 	if string(cfg.DefaultMachinePools[0].ProviderConfig) != `{}` {

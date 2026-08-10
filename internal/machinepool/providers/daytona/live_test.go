@@ -3,6 +3,8 @@ package daytona
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,15 +15,15 @@ import (
 )
 
 func TestDaytonaProviderLiveSmoke(t *testing.T) {
-	token := providercontract.FirstEnv("DAYTONA_API_KEY", "OMNARA_DAYTONA_API_TOKEN")
+	token := strings.TrimSpace(os.Getenv("DAYTONA_API_KEY"))
 	if token == "" {
 		t.Skip("a Daytona API key is required")
 	}
-	snapshotName := providercontract.FirstEnv("OMNARA_DAYTONA_TEST_SNAPSHOT")
+	snapshotName := strings.TrimSpace(os.Getenv("OMNARA_DAYTONA_TEST_SNAPSHOT"))
 	if snapshotName == "" {
 		snapshotName = "daytona-small"
 	}
-	target := providercontract.FirstEnv("OMNARA_DAYTONA_TEST_TARGET", "DAYTONA_TARGET")
+	target := strings.TrimSpace(os.Getenv("OMNARA_DAYTONA_TEST_TARGET"))
 	if target == "" {
 		target = "us"
 	}
@@ -32,7 +34,7 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 	provisional := executionstore.MachineProvisioningConfig{
 		ProviderOptions: testOptions(t, snapshotName, target, ""),
 	}
-	omnaraPublicURL := providercontract.FirstEnv("OMNARA_PUBLIC_URL")
+	omnaraPublicURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_URL"))
 	if omnaraPublicURL == "" {
 		omnaraPublicURL = "https://app.omnara.com"
 	}

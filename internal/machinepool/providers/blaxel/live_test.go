@@ -2,6 +2,8 @@ package blaxel
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,20 +13,20 @@ import (
 )
 
 func TestBlaxelProviderLiveSmoke(t *testing.T) {
-	token := providercontract.FirstEnv("OMNARA_BLAXEL_API_TOKEN", "BL_API_KEY")
-	workspace := providercontract.FirstEnv("OMNARA_BLAXEL_WORKSPACE", "BL_WORKSPACE")
+	token := strings.TrimSpace(os.Getenv("BL_API_KEY"))
+	workspace := strings.TrimSpace(os.Getenv("BL_WORKSPACE"))
 	if token == "" || workspace == "" {
 		t.Skip("Blaxel API token and workspace are required")
 	}
-	image := providercontract.FirstEnv("OMNARA_BLAXEL_TEST_IMAGE")
+	image := strings.TrimSpace(os.Getenv("OMNARA_BLAXEL_TEST_IMAGE"))
 	if image == "" {
 		image = "blaxel/base-image:latest"
 	}
-	region := providercontract.FirstEnv("OMNARA_BLAXEL_TEST_REGION")
+	region := strings.TrimSpace(os.Getenv("OMNARA_BLAXEL_TEST_REGION"))
 	if region == "" {
 		region = "us-pdx-1"
 	}
-	omnaraPublicURL := providercontract.FirstEnv("OMNARA_PUBLIC_URL")
+	omnaraPublicURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_URL"))
 	if omnaraPublicURL == "" {
 		omnaraPublicURL = "https://app.omnara.com"
 	}

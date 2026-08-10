@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,27 +16,19 @@ import (
 )
 
 func TestUnikraftProviderLiveSmoke(t *testing.T) {
-	token := providercontract.FirstEnv(
-		"OMNARA_UNIKRAFT_API_TOKEN",
-		"UNIKRAFT_API_TOKEN",
-		"UNIKRAFT_TOKEN",
-		"UNIKRAFT_API_KEY",
-		"UKC_TOKEN",
-		"KRAFTCLOUD_TOKEN",
-		"KRAFTCLOUD_API_TOKEN",
-	)
+	token := strings.TrimSpace(os.Getenv("UNIKRAFT_API_TOKEN"))
 	if token == "" {
 		t.Skip("a Unikraft API token is required")
 	}
-	image := providercontract.FirstEnv("OMNARA_UNIKRAFT_TEST_IMAGE")
+	image := strings.TrimSpace(os.Getenv("OMNARA_UNIKRAFT_TEST_IMAGE"))
 	if image == "" {
 		image = "nginx:latest"
 	}
-	metro := providercontract.FirstEnv("OMNARA_UNIKRAFT_TEST_METRO")
+	metro := strings.TrimSpace(os.Getenv("OMNARA_UNIKRAFT_TEST_METRO"))
 	if metro == "" {
 		metro = "fra"
 	}
-	omnaraPublicURL := providercontract.FirstEnv("OMNARA_PUBLIC_URL")
+	omnaraPublicURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_URL"))
 	if omnaraPublicURL == "" {
 		omnaraPublicURL = "https://app.omnara.com"
 	}
