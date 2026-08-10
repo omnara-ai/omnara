@@ -8906,9 +8906,9 @@ components:
         provider_auth_secret_id:
           $ref: '#/components/schemas/SecretID'
         runtime_protection_enabled:
-          description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to true when omitted.
+          description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
           type: boolean
-          default: true
+          default: false
         max_total_machines:
           type: integer
           format: int32

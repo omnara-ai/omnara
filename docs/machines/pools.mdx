@@ -28,7 +28,9 @@ The agent's conversation, event history, and uploaded artifacts remain in Omnara
 
 ## Runtime protection
 
-Runtime protection is enabled by default for managed pools. When Omnara sees a pool machine's daemon become inactive but the provider still reports that sandbox as running, it records the mismatch, waits through a confirmation grace, and checks the exact provider resource again. If it is still running and the daemon is still inactive, Omnara deletes the sandbox to stop unmetered or abandoned runtime.
+Runtime protection defaults to disabled so Omnara does not automatically delete resources in a customer-owned provider account. A pool administrator can explicitly enable it when creating or editing a pool, and a deployment can enable it in a default pool template.
+
+When runtime protection is enabled and Omnara sees a pool machine's daemon become inactive but the provider still reports that sandbox as running, it records the mismatch, waits through a confirmation grace, and checks the exact provider resource again. If it is still running and the daemon is still inactive, Omnara deletes the sandbox to stop unmetered or abandoned runtime.
 
 Blaxel, Daytona, and Unikraft pools support runtime protection. Directly connected, bring-your-own machines are excluded because Omnara does not own their provider resource or credential.
 
@@ -36,7 +38,7 @@ A daemon reconnect clears the pending mismatch because the machine is metered ag
 
 Normal work launched and tracked through Omnara keeps the daemon online and is unaffected. Out-of-band work that keeps a sandbox running after its daemon reports sleep is not supported and may cause that sandbox to be deleted. Provider errors and unknown or transitional states fail open, so the protection is best-effort rather than an immediate hard deadline.
 
-The setting belongs to the pool and cannot be weakened by a project grant or agent config. A pool administrator can disable it when creating or editing a custom pool.
+The setting belongs to the pool and cannot be changed by a project grant or agent config.
 
 Machine usage is recorded from durable daemon-online intervals, not provider observations. A daemon crash can include at most the remaining two-minute lease tail; provider checks never add customer usage.
 

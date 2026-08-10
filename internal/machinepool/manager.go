@@ -61,7 +61,7 @@ func (m Manager) ValidateDefaultMachinePool(defaultPoolTemplate executionstore.D
 	}
 	policy := executionstore.MachinePoolProviderPolicy{
 		DefaultProvisioning:      defaultMachineProvisioning,
-		RuntimeProtectionEnabled: true,
+		RuntimeProtectionEnabled: defaultPoolTemplate.RuntimeProtectionEnabled,
 		ResourceLimits: executionstore.MachineResourceLimits{
 			MaxTotalCPU:        defaultPoolTemplate.MaxTotalCPU,
 			MaxTotalMemoryMB:   defaultPoolTemplate.MaxTotalMemoryMB,

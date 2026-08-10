@@ -317,7 +317,7 @@ func (s *Store) validatePoolDefaultsTx(
 		input.Provider,
 		MachinePoolProviderPolicy{
 			DefaultProvisioning:      defaults.Provisioning,
-			RuntimeProtectionEnabled: runtimeProtectionEnabled(input.RuntimeProtectionEnabled),
+			RuntimeProtectionEnabled: input.RuntimeProtectionEnabled,
 			ResourceLimits: MachineResourceLimits{
 				MaxTotalCPU:        input.MaxTotalCPU,
 				MaxTotalMemoryMB:   input.MaxTotalMemoryMB,

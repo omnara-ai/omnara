@@ -141,33 +141,12 @@ func boolPtrForMachinePoolTest(value bool) *bool {
 	return &value
 }
 
-func TestMachinePoolRuntimeProtectionDefaultsOnAndDisableClearsMarkers(t *testing.T) {
+func TestMachinePoolRuntimeProtectionDefaultsOffAndToggleClearsMarkers(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-
-	protected, err := store.Execution().CreateMachinePool(
-		ctx,
-		completeMachinePoolCreateInputForTest(
-			t,
-			ctx,
-			store,
-			executionstore.CreateMachinePoolInput{
-				OrgID:            testOrgID,
-				Name:             "Protected By Default",
-				Provider:         "test.provider",
-				MaxTotalMachines: 1,
-			},
-		),
-	)
-	if err != nil {
-		t.Fatalf("create default-protected machine pool: %v", err)
-	}
-	if !protected.RuntimeProtectionEnabled {
-		t.Fatal("omitted runtime protection did not default on")
-	}
 
 	unprotected, err := store.Execution().CreateMachinePool(
 		ctx,
@@ -176,19 +155,40 @@ func TestMachinePoolRuntimeProtectionDefaultsOnAndDisableClearsMarkers(t *testin
 			ctx,
 			store,
 			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Unprotected By Default",
+				Provider:         "test.provider",
+				MaxTotalMachines: 1,
+			},
+		),
+	)
+	if err != nil {
+		t.Fatalf("create default-unprotected machine pool: %v", err)
+	}
+	if unprotected.RuntimeProtectionEnabled {
+		t.Fatal("omitted runtime protection did not default off")
+	}
+
+	protected, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(
+			t,
+			ctx,
+			store,
+			executionstore.CreateMachinePoolInput{
 				OrgID:                    testOrgID,
-				Name:                     "Explicitly Unprotected",
+				Name:                     "Explicitly Protected",
 				Provider:                 "test.provider",
-				RuntimeProtectionEnabled: boolPtrForMachinePoolTest(false),
+				RuntimeProtectionEnabled: true,
 				MaxTotalMachines:         1,
 			},
 		),
 	)
 	if err != nil {
-		t.Fatalf("create explicitly unprotected machine pool: %v", err)
+		t.Fatalf("create explicitly protected machine pool: %v", err)
 	}
-	if unprotected.RuntimeProtectionEnabled {
-		t.Fatal("explicitly disabled runtime protection was enabled")
+	if !protected.RuntimeProtectionEnabled {
+		t.Fatal("explicitly enabled runtime protection was disabled")
 	}
 
 	machineID := testID("runtime-protection-marker-machine")

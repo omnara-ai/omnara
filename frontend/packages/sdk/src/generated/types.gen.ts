@@ -1920,7 +1920,7 @@ export type CreateMachinePoolRequestBase = {
     };
     provider_auth_secret_id: SecretId;
     /**
-     * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to true when omitted.
+     * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
      */
     runtime_protection_enabled?: boolean;
     max_total_machines: number;

@@ -61,8 +61,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		machinePool["max_machine_memory_mb"].(float64) != 4096 {
 		t.Fatalf("unexpected pool response: %+v", machinePool)
 	}
-	if machinePool["runtime_protection_enabled"] != true {
-		t.Fatalf("default runtime_protection_enabled = %v, want true", machinePool["runtime_protection_enabled"])
+	if machinePool["runtime_protection_enabled"] != false {
+		t.Fatalf("default runtime_protection_enabled = %v, want false", machinePool["runtime_protection_enabled"])
 	}
 	defaultProviderOptions := machinePool["default_machine_provider_options"].(map[string]any)
 	if machinePool["default_cwd"] != "/pool" || defaultProviderOptions["image"] != "test" {

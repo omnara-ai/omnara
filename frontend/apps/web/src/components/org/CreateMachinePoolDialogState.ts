@@ -69,7 +69,7 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   maxMachineMemoryMb: '',
   secretId: '',
   projectGrantIds: [],
-  runtimeProtectionEnabled: true,
+  runtimeProtectionEnabled: false,
 }
 
 const maxInt32 = 2_147_483_647

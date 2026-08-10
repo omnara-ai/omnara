@@ -183,6 +183,8 @@ func (s strictOpenAPIServer) createMachinePool(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid provider_auth_secret_id")
 	}
+	runtimeProtectionEnabled := request.Body.RuntimeProtectionEnabled != nil &&
+		*request.Body.RuntimeProtectionEnabled
 	record, err := s.server.store.Execution().CreateMachinePool(ctx, executionstore.CreateMachinePoolInput{
 		OrgID:                         org.ID,
 		Name:                          request.Body.Name,
@@ -196,7 +198,7 @@ func (s strictOpenAPIServer) createMachinePool(
 		DefaultCwd:                    defaultCwd,
 		ProviderConfig:                providerConfig,
 		ProviderAuthSecretID:          providerAuthSecretID,
-		RuntimeProtectionEnabled:      request.Body.RuntimeProtectionEnabled,
+		RuntimeProtectionEnabled:      runtimeProtectionEnabled,
 		MaxTotalMachines:              request.Body.MaxTotalMachines,
 		MaxTotalCPU:                   intPtrFromInt32(request.Body.MaxTotalCpu),
 		MaxTotalMemoryMB:              intPtrFromInt32(request.Body.MaxTotalMemoryMb),

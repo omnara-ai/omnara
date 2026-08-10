@@ -1590,7 +1590,7 @@ export const zCreateMachinePoolRequestBase = z.object({
     default_cwd: z.string().optional(),
     provider_config: z.record(z.string(), z.unknown()).optional(),
     provider_auth_secret_id: zSecretId,
-    runtime_protection_enabled: z.boolean().optional().default(true),
+    runtime_protection_enabled: z.boolean().optional().default(false),
     max_total_machines: z.int().gte(0).lte(2147483647),
     max_total_cpu: z.int().gte(0).lte(2147483647).optional(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).optional(),

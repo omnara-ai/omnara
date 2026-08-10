@@ -3,7 +3,7 @@
 -- Provider runtime protection and neutral daemon-online interval facts.
 
 ALTER TABLE machine_pools
-    ADD COLUMN runtime_protection_enabled boolean NOT NULL DEFAULT true;
+    ADD COLUMN runtime_protection_enabled boolean NOT NULL DEFAULT false;
 
 ALTER TABLE machines
     ADD COLUMN provider_runtime_mismatch_since timestamptz;

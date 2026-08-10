@@ -590,7 +590,7 @@ func createProviderRuntimeMachinePoolForTest(
 					Provider:                 "test.provider",
 					ProviderConfig:           json.RawMessage(`{"scope":"test"}`),
 					ProviderAuthSecretID:     secretID,
-					RuntimeProtectionEnabled: boolPtrForMachinePoolTest(protected),
+					RuntimeProtectionEnabled: protected,
 					MaxTotalMachines:         100,
 				},
 				defaultMachineFieldsForTest{
