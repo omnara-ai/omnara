@@ -1,6 +1,10 @@
 package metrics
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 const SubsystemProviderRuntime = "provider_runtime"
 
@@ -35,8 +39,9 @@ const (
 )
 
 type ProviderRuntimeRecorder struct {
-	passesTotal *prometheus.CounterVec
-	eventsTotal *prometheus.CounterVec
+	passesTotal  *prometheus.CounterVec
+	eventsTotal  *prometheus.CounterVec
+	passDuration *prometheus.HistogramVec
 }
 
 func NewProviderRuntimeRecorder(set *Set) *ProviderRuntimeRecorder {
@@ -53,19 +58,29 @@ func NewProviderRuntimeRecorder(set *Set) *ProviderRuntimeRecorder {
 			Name:      "reconciliation_events_total",
 			Help:      "Total provider runtime reconciliation events.",
 		}, []string{"operation", "event"}),
+		passDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "omnara",
+			Subsystem: SubsystemProviderRuntime,
+			Name:      "reconciliation_pass_duration_seconds",
+			Help:      "Provider runtime reconciliation pass duration in seconds.",
+			Buckets:   []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600},
+		}, []string{"operation", "result"}),
 	}
-	set.MustRegister(m.passesTotal, m.eventsTotal)
+	set.MustRegister(m.passesTotal, m.eventsTotal, m.passDuration)
 	return m
 }
 
 func (m *ProviderRuntimeRecorder) RecordPass(
 	operation ProviderRuntimeOperation,
 	result ProviderRuntimeResult,
+	duration time.Duration,
 ) {
 	if m == nil {
 		return
 	}
-	m.passesTotal.WithLabelValues(string(operation), string(result)).Inc()
+	labels := []string{string(operation), string(result)}
+	m.passesTotal.WithLabelValues(labels...).Inc()
+	m.passDuration.WithLabelValues(labels...).Observe(duration.Seconds())
 }
 
 func (m *ProviderRuntimeRecorder) RecordEvents(

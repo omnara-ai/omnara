@@ -178,8 +178,9 @@ func runProviderRuntimeMaintenanceLoop(
 	run func(context.Context) (machinepool.RuntimeReconciliationStats, error),
 ) {
 	for {
+		started := time.Now()
 		stats, err := runProviderRuntimeMaintenanceTick(ctx, log, operation, run)
-		recordProviderRuntimePass(recorder, operation, stats, err)
+		recordProviderRuntimePass(recorder, operation, stats, err, time.Since(started))
 		if err != nil && ctx.Err() == nil {
 			log.Error("provider runtime reconciliation", "operation", operation, "error", err, "stats", stats)
 		} else if stats.Targets > 0 || stats.MarkersSet > 0 || stats.DeletionClaims > 0 {
@@ -222,12 +223,13 @@ func recordProviderRuntimePass(
 	operation metrics.ProviderRuntimeOperation,
 	stats machinepool.RuntimeReconciliationStats,
 	err error,
+	duration time.Duration,
 ) {
 	result := metrics.ProviderRuntimeResultSuccess
 	if err != nil {
 		result = metrics.ProviderRuntimeResultError
 	}
-	recorder.RecordPass(operation, result)
+	recorder.RecordPass(operation, result, duration)
 	for event, count := range map[metrics.ProviderRuntimeEvent]int{
 		metrics.ProviderRuntimeEventPages:              stats.Pages,
 		metrics.ProviderRuntimeEventScopes:             stats.Scopes,
