@@ -4,71 +4,66 @@ description: Steps to run Omnara on your own infrastructure
 icon: "cloud-arrow-up"
 ---
 
-Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, and S3-compatible bucket ([Architecture](/self-hosting/architecture)), and putting one public URL in front of them.
+Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, and S3-compatible bucket ([Architecture](/self-hosting/architecture)), with one public URL in front of them.
 
 ## Quick start (local)
 
-The repository contains a compose file, which runs all services needed for self hosting behind the `app` profile:
+The repository's compose file runs everything behind the `app` profile:
 
 ```sh
 git clone https://github.com/omnara-ai/omnara && cd omnara
 docker compose --profile app up -d --build
 ```
 
-That builds from source (a checkout auto-loads `compose.override.yaml`). To run the published release images instead, use the base file alone. Set the `OMNARA_RELEASE` env var to use images for a specific release.
+That builds from source (a checkout auto-loads `compose.override.yaml`). To run published release images instead, use the base file alone, optionally pinning a release with `OMNARA_RELEASE`:
 
 ```sh
 docker compose -f compose.yaml --profile app up -d
 ```
 
-Open the console at `http://localhost:8000` and sign up; the local default email driver is `console`, so the verification token appears in `docker compose logs api`. Create a personal access token, then launch an agent:
+Open `http://localhost:8000` and sign up — the local email driver is `console`, so the verification link will appear in `docker compose logs api`.
+
+## Exposing the deployment publicly
+
+Email links, OAuth callbacks, the machine connect command, and cloud sandboxes all build URLs from `OMNARA_PUBLIC_URL`. These features will not function without this as a publicly-accessible URL.
+
+<Warning>
+  Set `OMNARA_PUBLIC_URL` on every backend service. Outside local development it is required.
+</Warning>
+
+### Cloudflare Tunnel
+
+One easy option to expose Omnara publicly is via a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
+
+#### Persistent Tunnel (recommended)
+
+For a stable origin, add a domain to Cloudflare and create a named tunnel:
 
 ```sh
-export OMNARA_API_URL=http://localhost:8000
-export OMNARA_TOKEN=<omnara_pat_...>
-export OPENAI_API_KEY=<key>  # or ANTHROPIC_API_KEY / OPENROUTER_API_KEY
-go run ./examples/testagent chat ./examples/testagent/example.yaml
+brew install cloudflared   # or see Cloudflare's install docs
+cloudflared tunnel login
+cloudflared tunnel create omnara
+cloudflared tunnel route dns omnara omnara.example.com # replace with your preferred domain
+cloudflared tunnel run --url http://localhost:8000 omnara
 ```
 
-## Production
-
-<Steps>
-  <Step title="Provision the stores">
-    Stand up Postgres, Redis (or Valkey), and an S3-compatible bucket. Postgres and the bucket hold durable control-plane state such as agents, events, secrets, and artifacts; Redis provides coordination. Machine daemons separately keep the local state needed to recover accepted processes.
-  </Step>
-  <Step title="Build the artifacts">
-    Build the web SPA plus `cmd/migrate`, `cmd/api`, `cmd/worker`, and `cmd/maintenance` from source. Official `cluster-vX.Y.Z` releases provide matching `ghcr.io/omnara-ai/omnara-web`, `ghcr.io/omnara-ai/omnara-migrations`, `ghcr.io/omnara-ai/omnara-api`, `ghcr.io/omnara-ai/omnara-worker`, and `ghcr.io/omnara-ai/omnara-maintenance` images for Linux AMD64 and ARM64. Each GitHub Release includes `cluster-release.json` with its source commit and the canonical digest reference for every image. The web image serves the SPA with browser-route fallback. The API image contains no frontend assets and runs with `OMNARA_WEB_SERVING=disabled`. For a custom single-binary deployment, `make build-api` still compiles the SPA into `cmd/api`.
-  </Step>
-  <Step title="Set environment variables">
-    Backend processes read their configuration from environment variables — there's no config file. Set the same `OMNARA_PUBLIC_URL`, database and Redis URLs, and secret-encryption keys on API, worker, and maintenance; configure blob storage on API and worker. The migration job needs the database URL and optionally a migrations directory. The web image requires no Omnara application environment variables because the browser uses same-origin paths. See [Configuration](/self-hosting/configuration) for the full list and which ones are required.
-  </Step>
-  <Step title="Apply migrations">
-    Run `cmd/migrate` to completion before starting the services. For an official release, run the exact release's `omnara-migrations` image by digest and wait for a successful exit.
-  </Step>
-  <Step title="Start the services">
-    Run `web`, `api`, one or more `worker`, and `maintenance` from the same release as the completed migration job. The backend services do not apply migrations. Run as many `worker` instances as your throughput needs; they scale horizontally.
-  </Step>
-  <Step title="Put a reverse proxy in front">
-    Pick one public origin for the whole app (for example `https://omnara.example.com`) and set `OMNARA_PUBLIC_URL` to it. Route `/api/*`, `/install/*`, and `/.well-known/*` to `api`; route every other path to `web` on port `8080`. The web image performs SPA history fallback but does not proxy backend traffic. Preserve the incoming `Host` header when routing to API — it rejects requests for hosts it doesn't recognize.
-  </Step>
-  <Step title="Point health checks at the metrics listeners">
-    API, worker, and maintenance serve `/healthz` and `/readyz` on separate metrics listeners. Keep those listeners off the public internet. Check the web service through its root route or a known static asset.
-  </Step>
-  <Step title="Connect machines (optional)">
-    If agents need to run commands, open **Overview > Machines > Connect machine** in the console. Register the machine, run the generated command on it, and paste the displayed machine token when prompted. The token is shown only once. The command runs `/install/omnarad.sh` from your `OMNARA_PUBLIC_URL`. The daemon dials out to `api`, so you don't need to open any inbound ports on that machine.
-  </Step>
-</Steps>
-
-For `https://omnara.example.com`, the generated command has this shape:
+Then, restart the stack pointed at the tunnel's URL:
 
 ```sh
-curl -fsSL https://omnara.example.com/install/omnarad.sh | sh
+OMNARA_PUBLIC_URL=https://omnara.example.com docker compose --profile app up -d
 ```
 
-The installer defaults to `~/.omnarad`. It installs a user systemd or launchd
-service when available; otherwise `omnarad` stays attached in the foreground.
-`omnarad start --no-service` skips service-manager setup and runs with foreground
-restart supervision.
+`cloudflared service install` will keep a named tunnel running across reboots. Any other reverse proxy or tunnel (Caddy, nginx, Tailscale Funnel, ngrok) works the same way, as long as it forwards the public `Host` header — the API rejects hosts it doesn't recognize.
+
+#### Quick Tunnel
+
+For a temporary tunnel without a separate domain, you can use:
+
+```sh
+cloudflared tunnel --url http://localhost:8000
+```
+
+This prints a random `https://<something>.trycloudflare.com` URL that changes every run. After starting the tunnel you can set `OMNARA_PUBLIC_URL` in the same way described above.
 
 ## Next steps
 
