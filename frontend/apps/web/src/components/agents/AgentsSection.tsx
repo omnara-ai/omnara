@@ -4,7 +4,6 @@ import { Link, useNavigate } from '@tanstack/react-router'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
-import { SearchHeader } from '@/components/layout/SearchHeader'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,6 +27,7 @@ export function AgentsSection({
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
+  const showToolbar = list.isFiltering || paged.pagination.page > 0 || paged.pagination.canNext
   const archiveAgent = useArchiveAgent(orgId, projectId)
   const navigate = useNavigate()
 
@@ -42,23 +42,23 @@ export function AgentsSection({
 
   return (
     <div className="flex flex-col gap-3">
-      <SearchHeader
-        title="Agents"
-        toolbar={
-          <ResourceListToolbar
-            search={list.search}
-            onSearchChange={list.setSearch}
-            sort={list.sort}
-            sortOptions={resourceSortOptions}
-            onSortChange={list.setSort}
-            placeholder="Search agents by name…"
-          />
-        }
-      >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-2xl font-bold tracking-tight">Agents</h2>
         {newAgentButton()}
-      </SearchHeader>
+      </div>
+      {showToolbar && (
+        <ResourceListToolbar
+          search={list.search}
+          onSearchChange={list.setSearch}
+          sort={list.sort}
+          sortOptions={resourceSortOptions}
+          onSortChange={list.setSort}
+          placeholder="Search agents by name…"
+        />
+      )}
       <DataTable
         columns={[
+          { header: 'ID' },
           { header: 'Name' },
           { header: 'Model' },
           { header: 'Target' },
@@ -70,6 +70,7 @@ export function AgentsSection({
         pagination={paged.pagination}
         getRowId={(agent) => agent.id}
         rowCells={(agent) => [
+          <span className="truncate font-mono text-xs">{agent.id}</span>,
           <span className="font-medium">{agent.name || 'Agent'}</span>,
           agent.model ? (
             <span className="flex min-w-0 flex-col">
@@ -112,7 +113,7 @@ export function AgentsSection({
         onRetry={() => {
           void query.refetch()
         }}
-        emptyMessage="No agents yet. Launch one from a profile or a YAML config."
+        emptyMessage="No agents yet. Launch one from a profile above, or start from a YAML config with New agent."
       />
     </div>
   )

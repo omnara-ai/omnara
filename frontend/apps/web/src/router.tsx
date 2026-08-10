@@ -116,15 +116,6 @@ const projectRoute = createRoute({
   },
 })
 
-const projectAgentProfilesRoute = createRoute({
-  getParentRoute: () => authedRoute,
-  path: '/projects/$projectId/agent-profiles',
-  component: lazyRouteComponent(
-    () => import('@/routes/ProjectAgentProfilesPage'),
-    'ProjectAgentProfilesPage',
-  ),
-})
-
 const projectAgentsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: '/projects/$projectId/agents',
@@ -235,7 +226,6 @@ const routeTree = rootRoute.addChildren([
     skillsRoute,
     apiTokensRoute,
     projectRoute,
-    projectAgentProfilesRoute,
     projectAgentsRoute,
     projectGrantsRoute,
     projectSecretsRoute,

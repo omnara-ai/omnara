@@ -1,6 +1,11 @@
-import { type AgentProfileListSort, useAgentProfiles, useDeleteAgentProfile } from '@omnara/react'
+import {
+  type AgentProfileListSort,
+  useAgentProfiles,
+  useCreateAgent,
+  useDeleteAgentProfile,
+} from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
@@ -10,9 +15,9 @@ import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDi
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
-import { SearchHeader } from '@/components/layout/SearchHeader'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
@@ -25,10 +30,12 @@ type ActiveDialog =
 export function AgentProfilesSection({
   orgId,
   projectId,
+  canOperate,
   canManage,
 }: {
   orgId: string
   projectId: string
+  canOperate: boolean
   canManage: boolean
 }) {
   const list = useResourceList<AgentProfileListSort>('-updated_at')
@@ -37,14 +44,36 @@ export function AgentProfilesSection({
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
+  const showToolbar = list.isFiltering || paged.pagination.page > 0 || paged.pagination.canNext
   const deleteProfile = useDeleteAgentProfile(orgId, projectId)
+  const createAgent = useCreateAgent(orgId, projectId)
+  const navigate = useNavigate()
+  const [launchingId, setLaunchingId] = useState<string | null>(null)
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
+
+  async function launch(profile: AgentProfile) {
+    setLaunchingId(profile.id)
+    try {
+      const launched = await createAgent.mutateAsync({
+        profile: profile.id,
+        config: profile.current_config_id,
+      })
+      await navigate({
+        to: '/projects/$projectId/agents/$agentId',
+        params: { projectId, agentId: launched.agent.id },
+      })
+    } catch (error) {
+      window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
+    } finally {
+      setLaunchingId(null)
+    }
+  }
 
   const newProfileButton = () =>
     canManage ? (
       <Button asChild size="sm">
         <Link to="/projects/$projectId/agent-profiles/new" params={{ projectId }}>
-          New agent profile
+          New profile
         </Link>
       </Button>
     ) : undefined
@@ -52,27 +81,26 @@ export function AgentProfilesSection({
   return (
     <>
       <div className="flex flex-col gap-3">
-        <SearchHeader
-          title="Agent profiles"
-          toolbar={
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search profiles by name…"
-            />
-          }
-        >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-2xl font-bold tracking-tight">Agent profiles</h2>
           {newProfileButton()}
-        </SearchHeader>
+        </div>
+        {showToolbar && (
+          <ResourceListToolbar
+            search={list.search}
+            onSearchChange={list.setSearch}
+            sort={list.sort}
+            sortOptions={resourceSortOptions}
+            onSortChange={list.setSort}
+            placeholder="Search profiles by name…"
+          />
+        )}
         <DataTable
           columns={[
             { header: 'Name' },
             { header: 'Provider' },
             { header: 'Model' },
-            { header: '', className: 'w-14', isActions: true },
+            { header: '', className: 'w-36', isActions: true },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
@@ -82,29 +110,44 @@ export function AgentProfilesSection({
             <span className="font-medium">{profile.name}</span>,
             profile.current_config.model.provider_config,
             <span className="text-muted-foreground">{profile.current_config.model.name}</span>,
-            canManage ? (
-              <ResourceRowActions
-                onEdit={() => {
-                  setActiveDialog({ kind: 'edit', profile })
-                }}
-                onGrant={() => {
-                  setActiveDialog({ kind: 'deploy', profile })
-                }}
-                grantLabel="Deploy to app"
-                onDelete={() => {
-                  if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
-                  deleteProfile.mutate(profile.id, {
-                    onError: (error) => {
-                      window.alert(
-                        error instanceof ApiError
-                          ? error.message
-                          : 'Could not delete agent profile',
-                      )
-                    },
-                  })
-                }}
-              />
-            ) : null,
+            <div className="flex items-center gap-1">
+              {canOperate && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={launchingId !== null}
+                  onClick={() => {
+                    void launch(profile)
+                  }}
+                >
+                  {launchingId === profile.id && <Spinner />}
+                  Launch
+                </Button>
+              )}
+              {canManage && (
+                <ResourceRowActions
+                  onEdit={() => {
+                    setActiveDialog({ kind: 'edit', profile })
+                  }}
+                  onGrant={() => {
+                    setActiveDialog({ kind: 'deploy', profile })
+                  }}
+                  grantLabel="Deploy to app"
+                  onDelete={() => {
+                    if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
+                    deleteProfile.mutate(profile.id, {
+                      onError: (error) => {
+                        window.alert(
+                          error instanceof ApiError
+                            ? error.message
+                            : 'Could not delete agent profile',
+                        )
+                      },
+                    })
+                  }}
+                />
+              )}
+            </div>,
           ]}
           rowExpanded={(profile) => (
             <div className="flex flex-col gap-4">
@@ -133,7 +176,7 @@ export function AgentProfilesSection({
           onRetry={() => {
             void query.refetch()
           }}
-          emptyMessage="No agent profiles yet. Build a reusable config to launch agents from."
+          emptyMessage="No agent profiles yet. A profile is a saved, reusable agent config — create one to launch agents from in one click."
         />
       </div>
       {canManage && activeDialog?.kind === 'deploy' && (

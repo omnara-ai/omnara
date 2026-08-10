@@ -49,14 +49,8 @@ export function ProjectsNav() {
               const expanded = !collapsedProjects.has(project.id)
               const resources = [
                 {
-                  to: '/projects/$projectId/agent-profiles' as const,
-                  path: `${projectRoot}/agent-profiles`,
-                  label: 'Agent Profiles',
-                  prefix: true,
-                },
-                {
                   to: '/projects/$projectId/agents' as const,
-                  path: `${projectRoot}/agents`,
+                  path: `${projectRoot}/agent`,
                   label: 'Agents',
                   prefix: true,
                 },

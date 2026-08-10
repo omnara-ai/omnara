@@ -92,7 +92,6 @@ function describePage(path: string, projects: Map<string, VisibleProject>) {
   if (!project) return null
   const suffix = match[2] ?? ''
   if (suffix === 'agent-profiles/new') return { title: 'New agent profile', context: project.name }
-  if (suffix === 'agent-profiles') return { title: 'Agent profiles', context: project.name }
   if (suffix === 'agents/new') return { title: 'New agent', context: project.name }
   if (/^agents\/[^/]+$/.test(suffix)) return { title: 'Agent', context: project.name }
   if (suffix === 'agents') return { title: 'Agents', context: project.name }

@@ -78,7 +78,7 @@ export function AgentProfileBuilder() {
         source_format: 'yaml',
       })
       await createAgentProfile.mutateAsync({ name: draft.name.trim(), config: config.id })
-      await navigate({ to: '/projects/$projectId/agent-profiles', params: { projectId } })
+      await navigate({ to: '/projects/$projectId/agents', params: { projectId } })
       setDraft((prev) => ({ ...prev, status: idle }))
     } catch (err) {
       setDraft((prev) => ({
@@ -100,8 +100,8 @@ export function AgentProfileBuilder() {
           { label: activeOrg.name, to: '/' },
           { label: project.name },
           {
-            label: 'Agent Profiles',
-            to: '/projects/$projectId/agent-profiles',
+            label: 'Agents',
+            to: '/projects/$projectId/agents',
             params: { projectId },
           },
           { label: 'New agent profile' },
