@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router'
 import { Check, ChevronsUpDown, Plus, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 
@@ -17,10 +18,17 @@ import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function OrgSwitcher() {
+  const navigate = useNavigate()
   const { orgs, activeOrg, setActiveOrgId } = useActiveOrg()
   const canManage = canManageOrg(activeOrg.role)
   const [newOrgOpen, setNewOrgOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
+
+  async function switchOrganization(id: string) {
+    if (id === activeOrg.id) return
+    await navigate({ to: '/', replace: true })
+    setActiveOrgId(id)
+  }
 
   return (
     <>
@@ -56,7 +64,7 @@ export function OrgSwitcher() {
                   key={org.id}
                   className="gap-2"
                   onClick={() => {
-                    setActiveOrgId(org.id)
+                    void switchOrganization(org.id)
                   }}
                 >
                   <span className="flex-1 truncate">{org.name}</span>
