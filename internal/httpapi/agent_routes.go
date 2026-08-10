@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"runtime/debug"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -863,70 +862,42 @@ func (s *Server) startLaunchMachineProvisioning(
 		return
 	}
 	orgID := result.Agent.OrgID
-	startMachinePoolTask(
-		parent,
-		logger,
-		launchMachineProvisioningTimeout,
-		"launch provisioning",
-		func(ctx context.Context, logger *slog.Logger) {
-			for _, machineID := range result.ProvisionMachineIDs {
-				if err := s.machinePoolManager.ProvisionMachine(ctx, orgID, machineID); err != nil {
-					logger.Warn(
-						"launch machine provisioning failed",
-						"org_id",
-						orgID,
-						"machine_id",
-						machineID,
-						"error",
-						err,
-					)
-				}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), launchMachineProvisioningTimeout)
+		defer cancel()
+		for _, machineID := range result.ProvisionMachineIDs {
+			if err := s.machinePoolManager.ProvisionMachine(ctx, orgID, machineID); err != nil {
+				logger.Warn(
+					"launch machine provisioning failed",
+					"org_id",
+					orgID,
+					"machine_id",
+					machineID,
+					"error",
+					err,
+				)
 			}
-		},
-	)
+		}
+	}()
 }
 
 func (s *Server) startPoolMachineDeletion(parent context.Context, machines []executionstore.MachineRecord) {
 	if s.machinePoolManager == nil || len(machines) == 0 {
 		return
 	}
-	startMachinePoolTask(
-		parent,
-		s.log,
-		machinepool.DefaultImmediateDeletionTimeout,
-		"deletion",
-		func(ctx context.Context, logger *slog.Logger) {
-			if _, err := s.machinePoolManager.DeleteMachines(ctx, machines); err != nil {
-				logger.Warn("pool machine deletion failed", "error", err)
-			}
-		},
-	)
-}
-
-func startMachinePoolTask(
-	parent context.Context,
-	logger *slog.Logger,
-	timeout time.Duration,
-	task string,
-	run func(context.Context, *slog.Logger),
-) {
+	logger := s.log
 	if logger == nil {
 		logger = slog.Default()
 	}
 	go func() {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				logger.Error(
-					"machine pool background task panicked",
-					"task", task,
-					"error", recovered,
-					"stack", string(debug.Stack()),
-				)
-			}
-		}()
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+		ctx, cancel := context.WithTimeout(
+			context.WithoutCancel(parent),
+			machinepool.DefaultImmediateDeletionTimeout,
+		)
 		defer cancel()
-		run(ctx, logger)
+		if _, err := s.machinePoolManager.DeleteMachines(ctx, machines); err != nil {
+			logger.Warn("pool machine deletion failed", "error", err)
+		}
 	}()
 }
 
