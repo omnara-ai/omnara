@@ -50,33 +50,6 @@ func (s *Store) PublishContextCheckpoint(
 	}); err != nil {
 		return ContextCheckpointRecord{}, fmt.Errorf("lock agent for context checkpoint: %w", err)
 	}
-	if existing, found, err := getContextCheckpointByProducerContextTx(
-		ctx,
-		q,
-		input.ProjectID,
-		input.AgentID,
-		input.ModelCallContextID,
-	); err != nil {
-		return ContextCheckpointRecord{}, err
-	} else if found {
-		contextRecord, loadErr := loadModelCallContextByID(
-			ctx,
-			q,
-			input.ProjectID,
-			input.AgentID,
-			input.ModelCallContextID,
-		)
-		if loadErr != nil {
-			return ContextCheckpointRecord{}, fmt.Errorf("load published compaction context: %w", loadErr)
-		}
-		if !sameContextCheckpointPublication(existing, contextRecord, input) {
-			return ContextCheckpointRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return ContextCheckpointRecord{}, fmt.Errorf("commit existing context checkpoint: %w", err)
-		}
-		return existing, nil
-	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
 		tx,
@@ -247,23 +220,6 @@ func compactionSourceStartTx(
 		return 0, fmt.Errorf("load prior compaction checkpoint: %w", err)
 	}
 	return checkpoint.SummarizedThroughEventSequence + 1, nil
-}
-
-func sameContextCheckpointPublication(
-	existing ContextCheckpointRecord,
-	contextRecord ModelCallContextRecord,
-	input PublishContextCheckpointInput,
-) bool {
-	return existing.ProducerModelCallContextID == input.ModelCallContextID &&
-		existing.Summary == input.Summary &&
-		contextRecord.ID == input.ModelCallContextID &&
-		contextRecord.State == ModelCallContextSucceeded &&
-		contextRecord.APIFormat == input.APIFormat &&
-		contextRecord.APIVariant == input.APIVariant &&
-		contextRecord.ProviderRequestID == input.ProviderRequestID &&
-		contextRecord.ProviderResponseID == input.ProviderResponseID &&
-		contextRecord.Usage == modelUsageForStorage(input.Usage) &&
-		contextRecord.ProviderReportedCostUSD == input.ProviderReportedCostUSD
 }
 
 func validatePublishContextCheckpointInput(input PublishContextCheckpointInput) error {
