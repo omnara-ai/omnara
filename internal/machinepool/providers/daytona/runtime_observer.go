@@ -87,7 +87,7 @@ func (p *provider) ObserveRuntimeState(
 	ctx context.Context,
 	target providers.RuntimeTarget,
 ) (providers.RuntimeObservation, error) {
-	observation := unknownRuntimeObservation(target)
+	observation := target.UnknownObservation()
 	if !validRuntimeTarget(target) {
 		return observation, nil
 	}
@@ -120,7 +120,7 @@ func daytonaObservationsForMatches(
 
 	observations := make([]providers.RuntimeObservation, len(targets))
 	for index, target := range targets {
-		observations[index] = unknownRuntimeObservation(target)
+		observations[index] = target.UnknownObservation()
 		if !validRuntimeTarget(target) || resourceCounts[target.ProviderResourceID] != 1 ||
 			machineCounts[target.MachineID] != 1 {
 			continue
@@ -138,7 +138,7 @@ func daytonaObservationForSandbox(
 	target providers.RuntimeTarget,
 	current sandbox,
 ) providers.RuntimeObservation {
-	observation := unknownRuntimeObservation(target)
+	observation := target.UnknownObservation()
 	expectedName, err := providers.MachineAllocationName(target.InstallationID, target.MachineID)
 	if err != nil || current.ID != target.ProviderResourceID || !sandboxOwnedBy(current, expectedName) {
 		return observation
@@ -159,8 +159,10 @@ func daytonaRuntimeState(value sandboxState) providers.RuntimeState {
 		sandboxStateStarting, sandboxStateStopping, sandboxStatePendingBuild,
 		sandboxStateBuildingSnapshot, sandboxStatePullingSnapshot, sandboxStateArchiving,
 		sandboxStateResizing, sandboxStateSnapshotting, sandboxStateForking,
-		sandboxStatePausing, sandboxStateResuming, sandboxStateError, sandboxStateBuildFailed:
+		sandboxStatePausing, sandboxStateResuming:
 		return providers.RuntimeStateTransitional
+	case sandboxStateError, sandboxStateBuildFailed, sandboxStateUnknown:
+		return providers.RuntimeStateUnknown
 	default:
 		return providers.RuntimeStateUnknown
 	}
@@ -170,14 +172,6 @@ func validRuntimeTarget(target providers.RuntimeTarget) bool {
 	return target.InstallationID != storage.NilID && target.MachineID != storage.NilID &&
 		target.ProviderResourceID != "" &&
 		target.ProviderResourceID == strings.TrimSpace(target.ProviderResourceID)
-}
-
-func unknownRuntimeObservation(target providers.RuntimeTarget) providers.RuntimeObservation {
-	return providers.RuntimeObservation{
-		MachineID:          target.MachineID,
-		ProviderResourceID: target.ProviderResourceID,
-		State:              providers.RuntimeStateUnknown,
-	}
 }
 
 var _ providers.RuntimeStateObserver = (*provider)(nil)

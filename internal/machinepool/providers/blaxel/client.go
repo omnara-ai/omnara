@@ -81,18 +81,11 @@ type sandboxListPage struct {
 
 func (p *sandboxListPage) UnmarshalJSON(raw []byte) error {
 	*p = sandboxListPage{}
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 {
-		return errors.New("empty response")
-	}
-	if trimmed[0] != '{' {
-		return errors.New("expected versioned object response")
-	}
 	var envelope struct {
 		Data json.RawMessage `json:"data"`
 		Meta json.RawMessage `json:"meta"`
 	}
-	if err := json.Unmarshal(trimmed, &envelope); err != nil {
+	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return err
 	}
 	if len(envelope.Data) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Data), []byte("null")) ||

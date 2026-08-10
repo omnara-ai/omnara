@@ -231,8 +231,7 @@ SELECT scope.scope_key,
        pool.provider_config,
        pool.provider_auth_secret_id,
        pool.provider_auth_env_var,
-       credential.current_version_id AS provider_auth_version_id,
-       pool.updated_at AS pool_updated_at
+       credential.current_version_id AS provider_auth_version_id
 FROM machines machine
 JOIN machine_pools pool ON pool.org_id = machine.org_id
   AND pool.id = machine.machine_pool_id
@@ -320,7 +319,6 @@ type ListDueProviderRuntimeMismatchesRow struct {
 	ProviderAuthSecretID         *uuid.UUID
 	ProviderAuthEnvVar           string
 	ProviderAuthVersionID        *uuid.UUID
-	PoolUpdatedAt                time.Time
 }
 
 func (q *Queries) ListDueProviderRuntimeMismatches(ctx context.Context, arg ListDueProviderRuntimeMismatchesParams) ([]ListDueProviderRuntimeMismatchesRow, error) {
@@ -358,7 +356,6 @@ func (q *Queries) ListDueProviderRuntimeMismatches(ctx context.Context, arg List
 			&i.ProviderAuthSecretID,
 			&i.ProviderAuthEnvVar,
 			&i.ProviderAuthVersionID,
-			&i.PoolUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -388,8 +385,7 @@ SELECT scope.scope_key,
        pool.provider_config,
        pool.provider_auth_secret_id,
        pool.provider_auth_env_var,
-       credential.current_version_id AS provider_auth_version_id,
-       pool.updated_at AS pool_updated_at
+       credential.current_version_id AS provider_auth_version_id
 FROM machines machine
 JOIN machine_pools pool ON pool.org_id = machine.org_id
   AND pool.id = machine.machine_pool_id
@@ -460,7 +456,6 @@ type ListProviderRuntimeDiscoveryCandidatesRow struct {
 	ProviderAuthSecretID         *uuid.UUID
 	ProviderAuthEnvVar           string
 	ProviderAuthVersionID        *uuid.UUID
-	PoolUpdatedAt                time.Time
 }
 
 func (q *Queries) ListProviderRuntimeDiscoveryCandidates(ctx context.Context, arg ListProviderRuntimeDiscoveryCandidatesParams) ([]ListProviderRuntimeDiscoveryCandidatesRow, error) {
@@ -491,7 +486,6 @@ func (q *Queries) ListProviderRuntimeDiscoveryCandidates(ctx context.Context, ar
 			&i.ProviderAuthSecretID,
 			&i.ProviderAuthEnvVar,
 			&i.ProviderAuthVersionID,
-			&i.PoolUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -539,7 +533,6 @@ WHERE pool.org_id = $1
   AND pool.provider_config = $5::jsonb
   AND pool.provider_auth_secret_id IS NOT DISTINCT FROM $6::uuid
   AND pool.provider_auth_env_var = $7
-  AND pool.updated_at = $8::timestamptz
 FOR UPDATE OF pool
 `
 
@@ -551,7 +544,6 @@ type LockProviderRuntimeProtectionPoolParams struct {
 	ProviderConfig       json.RawMessage
 	ProviderAuthSecretID *uuid.UUID
 	ProviderAuthEnvVar   string
-	PoolUpdatedAt        time.Time
 }
 
 func (q *Queries) LockProviderRuntimeProtectionPool(ctx context.Context, arg LockProviderRuntimeProtectionPoolParams) (uuid.UUID, error) {
@@ -563,7 +555,6 @@ func (q *Queries) LockProviderRuntimeProtectionPool(ctx context.Context, arg Loc
 		arg.ProviderConfig,
 		arg.ProviderAuthSecretID,
 		arg.ProviderAuthEnvVar,
-		arg.PoolUpdatedAt,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)
@@ -606,7 +597,7 @@ WHERE machine.org_id = $1
     SELECT 1 FROM online_daemon_runtimes online
     WHERE online.org_id = machine.org_id AND online.machine_id = machine.id
   )
-RETURNING machine.provider_runtime_mismatch_since
+RETURNING machine.id
 `
 
 type MarkProviderRuntimeMismatchParams struct {
@@ -620,7 +611,7 @@ type MarkProviderRuntimeMismatchParams struct {
 	InactiveSince      time.Time
 }
 
-func (q *Queries) MarkProviderRuntimeMismatch(ctx context.Context, arg MarkProviderRuntimeMismatchParams) (*time.Time, error) {
+func (q *Queries) MarkProviderRuntimeMismatch(ctx context.Context, arg MarkProviderRuntimeMismatchParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, markProviderRuntimeMismatch,
 		arg.OrgID,
 		arg.MachineID,
@@ -631,7 +622,7 @@ func (q *Queries) MarkProviderRuntimeMismatch(ctx context.Context, arg MarkProvi
 		arg.DaemonRuntimeID,
 		arg.InactiveSince,
 	)
-	var provider_runtime_mismatch_since *time.Time
-	err := row.Scan(&provider_runtime_mismatch_since)
-	return provider_runtime_mismatch_since, err
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }

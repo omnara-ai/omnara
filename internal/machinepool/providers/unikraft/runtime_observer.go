@@ -35,7 +35,7 @@ func (p *provider) ObserveRuntimeStates(
 	groups := make([]runtimeObservationGroup, 0)
 	groupByMetro := make(map[string]int)
 	for index, target := range targets {
-		observations[index] = unknownRuntimeObservation(target)
+		observations[index] = target.UnknownObservation()
 		if target.ProviderResourceID == "" ||
 			target.ProviderResourceID != strings.TrimSpace(target.ProviderResourceID) ||
 			resourceCounts[target.ProviderResourceID] != 1 ||
@@ -115,7 +115,7 @@ func (p *provider) ObserveRuntimeState(
 	ctx context.Context,
 	target providers.RuntimeTarget,
 ) (providers.RuntimeObservation, error) {
-	observation := unknownRuntimeObservation(target)
+	observation := target.UnknownObservation()
 	if target.ProviderResourceID == "" ||
 		target.ProviderResourceID != strings.TrimSpace(target.ProviderResourceID) {
 		return observation, nil
@@ -252,13 +252,5 @@ func normalizeRuntimeState(result instance) providers.RuntimeState {
 		return providers.RuntimeStateUnknown
 	default:
 		return providers.RuntimeStateUnknown
-	}
-}
-
-func unknownRuntimeObservation(target providers.RuntimeTarget) providers.RuntimeObservation {
-	return providers.RuntimeObservation{
-		MachineID:          target.MachineID,
-		ProviderResourceID: target.ProviderResourceID,
-		State:              providers.RuntimeStateUnknown,
 	}
 }

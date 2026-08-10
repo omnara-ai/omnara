@@ -265,7 +265,7 @@ func (m Manager) discoverProviderRuntimeScope(
 		stats.Observed++
 		switch observation.State {
 		case providers.RuntimeStateRunning:
-			if _, marked, err := m.Execution.MarkProviderRuntimeMismatch(ctx, candidate); err != nil {
+			if marked, err := m.Execution.MarkProviderRuntimeMismatch(ctx, candidate); err != nil {
 				return stats, err
 			} else if marked {
 				stats.MarkersSet++

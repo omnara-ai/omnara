@@ -35,7 +35,6 @@ type ProviderRuntimeCandidate struct {
 	ProviderAuthSecretID         ID
 	ProviderAuthEnvVar           string
 	ProviderAuthVersionID        ID
-	PoolUpdatedAt                time.Time
 }
 
 type ListProviderRuntimeCandidatesInput struct {
@@ -87,7 +86,6 @@ func (s *Store) ListProviderRuntimeDiscoveryCandidates(
 			row.ProviderAuthSecretID,
 			row.ProviderAuthEnvVar,
 			row.ProviderAuthVersionID,
-			row.PoolUpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("decode provider runtime discovery candidate: %w", err)
@@ -143,7 +141,6 @@ func (s *Store) ListDueProviderRuntimeMismatches(
 			row.ProviderAuthSecretID,
 			row.ProviderAuthEnvVar,
 			row.ProviderAuthVersionID,
-			row.PoolUpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("decode due provider runtime mismatch: %w", err)
@@ -179,7 +176,6 @@ func providerRuntimeCandidateFromColumns(
 	providerAuthSecretID *ID,
 	providerAuthEnvVar string,
 	providerAuthVersionID *ID,
-	poolUpdatedAt time.Time,
 ) (ProviderRuntimeCandidate, error) {
 	if machinePoolID == nil || providerResourceID == nil || currentDaemonRuntimeID == nil ||
 		*providerResourceID == "" || scopeKey == "" {
@@ -214,15 +210,14 @@ func providerRuntimeCandidateFromColumns(
 		ProviderAuthSecretID:         idFromSQLCPtr(providerAuthSecretID),
 		ProviderAuthEnvVar:           providerAuthEnvVar,
 		ProviderAuthVersionID:        idFromSQLCPtr(providerAuthVersionID),
-		PoolUpdatedAt:                poolUpdatedAt,
 	}, nil
 }
 
 func (s *Store) MarkProviderRuntimeMismatch(
 	ctx context.Context,
 	candidate ProviderRuntimeCandidate,
-) (time.Time, bool, error) {
-	markedAt, err := s.q.MarkProviderRuntimeMismatch(ctx, dbsqlc.MarkProviderRuntimeMismatchParams{
+) (bool, error) {
+	_, err := s.q.MarkProviderRuntimeMismatch(ctx, dbsqlc.MarkProviderRuntimeMismatchParams{
 		OrgID:              candidate.OrgID,
 		MachineID:          candidate.MachineID,
 		MachinePoolID:      candidate.MachinePoolID,
@@ -233,15 +228,12 @@ func (s *Store) MarkProviderRuntimeMismatch(
 		InactiveSince:      candidate.InactiveSince,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return time.Time{}, false, nil
+		return false, nil
 	}
 	if err != nil {
-		return time.Time{}, false, fmt.Errorf("mark provider runtime mismatch: %w", err)
+		return false, fmt.Errorf("mark provider runtime mismatch: %w", err)
 	}
-	if markedAt == nil {
-		return time.Time{}, false, errors.New("mark provider runtime mismatch returned no timestamp")
-	}
-	return *markedAt, true, nil
+	return true, nil
 }
 
 func (s *Store) ClearProviderRuntimeMismatch(
@@ -313,7 +305,6 @@ func (s *Store) ClaimProviderRuntimeMismatchDeletion(
 			ProviderConfig:       candidate.ProviderConfig,
 			ProviderAuthSecretID: sqlcIDFromNil(candidate.ProviderAuthSecretID),
 			ProviderAuthEnvVar:   candidate.ProviderAuthEnvVar,
-			PoolUpdatedAt:        candidate.PoolUpdatedAt,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

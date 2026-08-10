@@ -135,11 +135,11 @@ WHERE org_id = $1 AND id = $2
 	}
 
 	candidate := candidates[0]
-	markedAt, marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate)
-	if err != nil || !marked || markedAt.IsZero() {
-		t.Fatalf("mark provider runtime mismatch = (%s, %t, %v)", markedAt, marked, err)
+	marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate)
+	if err != nil || !marked {
+		t.Fatalf("mark provider runtime mismatch = (%t, %v)", marked, err)
 	}
-	if _, marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || marked {
+	if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || marked {
 		t.Fatalf("repeat mismatch mark = (%t, %v), want idempotent no-op", marked, err)
 	}
 	if due := listDueProviderRuntimeCandidatesForTest(
@@ -154,7 +154,7 @@ WHERE org_id = $1 AND id = $2
 	if secondCandidate.MachineID == candidate.MachineID {
 		t.Fatal("candidate pagination returned the same machine twice")
 	}
-	if _, marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(
+	if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(
 		ctx,
 		secondCandidate,
 	); err != nil || !marked {
@@ -240,7 +240,7 @@ func TestProviderRuntimeInactivityGraceBlocksDueSelectionAndClaim(t *testing.T) 
 	machine := fixture.insertInactiveMachine(t, ctx, "fresh-inactivity")
 
 	candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
-	if _, marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(
+	if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(
 		ctx,
 		candidate,
 	); err != nil || !marked {
@@ -286,11 +286,30 @@ WHERE org_id = $1 AND id = $2
 	}
 }
 
-func TestProviderRuntimeMismatchDeletionClaimFencesConcurrentChanges(t *testing.T) {
+func TestProviderRuntimeMismatchDeletionClaimHandlesConcurrentChanges(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		mutate func(context.Context, *testing.T, providerRuntimeStorageFixture, providerRuntimeMachine)
+		name        string
+		wantClaimed bool
+		mutate      func(context.Context, *testing.T, providerRuntimeStorageFixture, providerRuntimeMachine)
 	}{
+		{
+			name:        "unrelated pool edit",
+			wantClaimed: true,
+			mutate: func(ctx context.Context, t *testing.T, fixture providerRuntimeStorageFixture, _ providerRuntimeMachine) {
+				t.Helper()
+				description := "changed while confirmation was in flight"
+				if _, err := fixture.store.Execution().UpdateMachinePool(
+					ctx,
+					executionstore.UpdateMachinePoolInput{
+						OrgID:       testOrgID,
+						ID:          fixture.machinePool.ID,
+						Description: &description,
+					},
+				); err != nil {
+					t.Fatalf("update machine pool: %v", err)
+				}
+			},
+		},
 		{
 			name: "daemon reconnect",
 			mutate: func(ctx context.Context, t *testing.T, fixture providerRuntimeStorageFixture, machine providerRuntimeMachine) {
@@ -325,23 +344,6 @@ WHERE org_id = $1 AND id = $2
 			},
 		},
 		{
-			name: "pool configuration change",
-			mutate: func(ctx context.Context, t *testing.T, fixture providerRuntimeStorageFixture, _ providerRuntimeMachine) {
-				t.Helper()
-				description := "changed while confirmation was in flight"
-				if _, err := fixture.store.Execution().UpdateMachinePool(
-					ctx,
-					executionstore.UpdateMachinePoolInput{
-						OrgID:       testOrgID,
-						ID:          fixture.machinePool.ID,
-						Description: &description,
-					},
-				); err != nil {
-					t.Fatalf("update machine pool: %v", err)
-				}
-			},
-		},
-		{
 			name: "credential rotation",
 			mutate: func(ctx context.Context, t *testing.T, fixture providerRuntimeStorageFixture, _ providerRuntimeMachine) {
 				t.Helper()
@@ -355,6 +357,22 @@ WHERE org_id = $1 AND id = $2
 					},
 				); err != nil {
 					t.Fatalf("rotate provider credential: %v", err)
+				}
+			},
+		},
+		{
+			name: "provider configuration change",
+			mutate: func(ctx context.Context, t *testing.T, fixture providerRuntimeStorageFixture, _ providerRuntimeMachine) {
+				t.Helper()
+				if _, err := fixture.store.Execution().UpdateMachinePool(
+					ctx,
+					executionstore.UpdateMachinePoolInput{
+						OrgID:          testOrgID,
+						ID:             fixture.machinePool.ID,
+						ProviderConfig: json.RawMessage(`{"scope":"changed"}`),
+					},
+				); err != nil {
+					t.Fatalf("update provider configuration: %v", err)
 				}
 			},
 		},
@@ -399,8 +417,13 @@ WHERE org_id = $1 AND id = $2
 			if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeMismatchDeletion(
 				ctx,
 				providerRuntimeClaimInput(candidate),
-			); err != nil || claimed {
-				t.Fatalf("stale provider runtime claim = (%t, %v), want fenced no-op", claimed, err)
+			); err != nil || claimed != test.wantClaimed {
+				t.Fatalf(
+					"provider runtime claim = (%t, %v), want claimed=%t",
+					claimed,
+					err,
+					test.wantClaimed,
+				)
 			}
 		})
 	}
@@ -775,7 +798,7 @@ func (f providerRuntimeStorageFixture) dueCandidate(
 ) executionstore.ProviderRuntimeCandidate {
 	t.Helper()
 	candidate := f.discoveryCandidate(t, ctx, machineID)
-	if _, marked, err := f.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || !marked {
+	if marked, err := f.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || !marked {
 		t.Fatalf("mark provider runtime mismatch = (%t, %v)", marked, err)
 	}
 	f.backdateMismatch(t, ctx, machineID)

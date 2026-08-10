@@ -36,7 +36,7 @@ func (p *provider) ObserveRuntimeStates(
 	resourceCounts := make(map[string]int, len(targets))
 	machineCounts := make(map[storage.ID]int, len(targets))
 	for index, target := range targets {
-		observations[index] = unknownRuntimeObservation(target)
+		observations[index] = target.UnknownObservation()
 		resourceCounts[target.ProviderResourceID]++
 		machineCounts[target.MachineID]++
 		if _, valid := expectedSandboxName(target); !valid {
@@ -113,7 +113,7 @@ func observeRuntimeState(
 	api apiClient,
 	target providers.RuntimeTarget,
 ) (providers.RuntimeObservation, error) {
-	observation := unknownRuntimeObservation(target)
+	observation := target.UnknownObservation()
 	expectedName, valid := expectedSandboxName(target)
 	if !valid {
 		return observation, nil
@@ -188,14 +188,6 @@ func expectedSandboxName(target providers.RuntimeTarget) (string, bool) {
 		target.MachineID,
 	)
 	return expectedName, err == nil && target.ProviderResourceID == expectedName
-}
-
-func unknownRuntimeObservation(target providers.RuntimeTarget) providers.RuntimeObservation {
-	return providers.RuntimeObservation{
-		MachineID:          target.MachineID,
-		ProviderResourceID: target.ProviderResourceID,
-		State:              providers.RuntimeStateUnknown,
-	}
 }
 
 func normalizedSandboxRuntimeState(target sandbox) providers.RuntimeState {

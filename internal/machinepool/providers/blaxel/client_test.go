@@ -353,7 +353,6 @@ func TestBlaxelRESTClientListFitsMaximumManagedEnvironment(t *testing.T) {
 
 func TestBlaxelRESTClientRejectsMalformedSandboxList(t *testing.T) {
 	for _, response := range []string{
-		`[{"metadata":{"name":"omnara-mch-test"},"state":"STANDBY","status":"DEPLOYED"}]`,
 		`{}`,
 		`{"data":null,"meta":{"hasMore":false,"nextCursor":""}}`,
 		`{"data":[],"meta":{}}`,

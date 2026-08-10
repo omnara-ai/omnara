@@ -75,6 +75,14 @@ type RuntimeTarget struct {
 	MachineProvisioning executionstore.MachineProvisioningConfig
 }
 
+func (target RuntimeTarget) UnknownObservation() RuntimeObservation {
+	return RuntimeObservation{
+		MachineID:          target.MachineID,
+		ProviderResourceID: target.ProviderResourceID,
+		State:              RuntimeStateUnknown,
+	}
+}
+
 type RuntimeObservation struct {
 	MachineID          storage.ID
 	ProviderResourceID string

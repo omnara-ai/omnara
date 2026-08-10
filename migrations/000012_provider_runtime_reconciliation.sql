@@ -22,8 +22,6 @@ CREATE TABLE machine_online_intervals (
     started_at timestamptz NOT NULL,
     ended_at timestamptz,
     end_reason_code text,
-    created_at timestamptz NOT NULL,
-    updated_at timestamptz NOT NULL,
     CHECK (end_reason_code IS NULL OR end_reason_code <> ''),
     CHECK ((ended_at IS NULL) = (end_reason_code IS NULL)),
     CHECK (ended_at IS NULL OR ended_at >= started_at),
@@ -48,23 +46,17 @@ DECLARE
     interval_end timestamptz;
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        IF NEW.state = 'active' THEN
-            INSERT INTO machine_online_intervals(
-                org_id,
-                machine_id,
-                daemon_runtime_id,
-                started_at,
-                created_at,
-                updated_at
-            ) VALUES (
-                NEW.org_id,
-                NEW.machine_id,
-                NEW.id,
-                NEW.last_seen_at,
-                statement_timestamp(),
-                statement_timestamp()
-            );
-        END IF;
+        INSERT INTO machine_online_intervals(
+            org_id,
+            machine_id,
+            daemon_runtime_id,
+            started_at
+        ) VALUES (
+            NEW.org_id,
+            NEW.machine_id,
+            NEW.id,
+            NEW.last_seen_at
+        );
         RETURN NEW;
     END IF;
 
@@ -73,16 +65,12 @@ BEGIN
             org_id,
             machine_id,
             daemon_runtime_id,
-            started_at,
-            created_at,
-            updated_at
+            started_at
         ) VALUES (
             NEW.org_id,
             NEW.machine_id,
             NEW.id,
-            NEW.last_seen_at,
-            statement_timestamp(),
-            statement_timestamp()
+            NEW.last_seen_at
         );
         RETURN NEW;
     END IF;
@@ -91,8 +79,7 @@ BEGIN
         interval_end := LEAST(NEW.ended_at, OLD.lease_expires_at);
         UPDATE machine_online_intervals
         SET ended_at = GREATEST(machine_online_intervals.started_at, interval_end),
-            end_reason_code = COALESCE(NULLIF(NEW.state_reason_code, ''), 'daemon_runtime_ended'),
-            updated_at = statement_timestamp()
+            end_reason_code = COALESCE(NULLIF(NEW.state_reason_code, ''), 'daemon_runtime_ended')
         WHERE org_id = NEW.org_id
           AND machine_id = NEW.machine_id
           AND daemon_runtime_id = NEW.id
@@ -105,8 +92,7 @@ BEGIN
        AND OLD.lease_expires_at <= NEW.last_seen_at THEN
         UPDATE machine_online_intervals
         SET ended_at = GREATEST(machine_online_intervals.started_at, OLD.lease_expires_at),
-            end_reason_code = 'daemon_lease_expired',
-            updated_at = statement_timestamp()
+            end_reason_code = 'daemon_lease_expired'
         WHERE org_id = NEW.org_id
           AND machine_id = NEW.machine_id
           AND daemon_runtime_id = NEW.id
@@ -116,16 +102,12 @@ BEGIN
             org_id,
             machine_id,
             daemon_runtime_id,
-            started_at,
-            created_at,
-            updated_at
+            started_at
         ) VALUES (
             NEW.org_id,
             NEW.machine_id,
             NEW.id,
-            NEW.last_seen_at,
-            statement_timestamp(),
-            statement_timestamp()
+            NEW.last_seen_at
         );
     END IF;
 
@@ -142,7 +124,7 @@ CREATE TRIGGER daemon_runtimes_open_machine_online_interval
     EXECUTE FUNCTION sync_machine_online_interval_from_daemon_runtime();
 
 CREATE TRIGGER daemon_runtimes_update_machine_online_interval
-    AFTER UPDATE OF state, last_seen_at, lease_expires_at, ended_at
+    AFTER UPDATE OF state, last_seen_at, lease_expires_at
     ON daemon_runtimes
     FOR EACH ROW
     WHEN (
@@ -169,7 +151,6 @@ BEGIN
        OR NEW.machine_id IS DISTINCT FROM OLD.machine_id
        OR NEW.daemon_runtime_id IS DISTINCT FROM OLD.daemon_runtime_id
        OR NEW.started_at IS DISTINCT FROM OLD.started_at
-       OR NEW.created_at IS DISTINCT FROM OLD.created_at
        OR NEW.ended_at IS NULL
        OR NEW.end_reason_code IS NULL THEN
         RAISE EXCEPTION 'machine online intervals are append-only'
@@ -185,25 +166,17 @@ CREATE TRIGGER machine_online_intervals_append_only
     FOR EACH ROW
     EXECUTE FUNCTION machine_online_intervals_reject_mutation();
 
-WITH tracking_start AS (
-    SELECT statement_timestamp() AS observed_at
-)
 INSERT INTO machine_online_intervals(
     org_id,
     machine_id,
     daemon_runtime_id,
-    started_at,
-    created_at,
-    updated_at
+    started_at
 )
 SELECT runtime.org_id,
        runtime.machine_id,
        runtime.id,
-       tracking_start.observed_at,
-       tracking_start.observed_at,
-       tracking_start.observed_at
-FROM online_daemon_runtimes runtime
-CROSS JOIN tracking_start;
+       statement_timestamp()
+FROM online_daemon_runtimes runtime;
 
 CREATE VIEW machine_online_interval_facts AS
 SELECT online_interval.id,
@@ -213,8 +186,6 @@ SELECT online_interval.id,
        online_interval.started_at,
        online_interval.ended_at,
        online_interval.end_reason_code,
-       online_interval.created_at,
-       online_interval.updated_at,
        GREATEST(
            online_interval.started_at,
            COALESCE(online_interval.ended_at, runtime.lease_expires_at)

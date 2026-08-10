@@ -16,8 +16,7 @@ SELECT scope.scope_key,
        pool.provider_config,
        pool.provider_auth_secret_id,
        pool.provider_auth_env_var,
-       credential.current_version_id AS provider_auth_version_id,
-       pool.updated_at AS pool_updated_at
+       credential.current_version_id AS provider_auth_version_id
 FROM machines machine
 JOIN machine_pools pool ON pool.org_id = machine.org_id
   AND pool.id = machine.machine_pool_id
@@ -80,8 +79,7 @@ SELECT scope.scope_key,
        pool.provider_config,
        pool.provider_auth_secret_id,
        pool.provider_auth_env_var,
-       credential.current_version_id AS provider_auth_version_id,
-       pool.updated_at AS pool_updated_at
+       credential.current_version_id AS provider_auth_version_id
 FROM machines machine
 JOIN machine_pools pool ON pool.org_id = machine.org_id
   AND pool.id = machine.machine_pool_id
@@ -176,7 +174,7 @@ WHERE machine.org_id = sqlc.arg(org_id)
     SELECT 1 FROM online_daemon_runtimes online
     WHERE online.org_id = machine.org_id AND online.machine_id = machine.id
   )
-RETURNING machine.provider_runtime_mismatch_since;
+RETURNING machine.id;
 
 -- name: ClearProviderRuntimeMismatch :one
 UPDATE machines
@@ -206,7 +204,6 @@ WHERE pool.org_id = sqlc.arg(org_id)
   AND pool.provider_config = sqlc.arg(provider_config)::jsonb
   AND pool.provider_auth_secret_id IS NOT DISTINCT FROM sqlc.narg(provider_auth_secret_id)::uuid
   AND pool.provider_auth_env_var = sqlc.arg(provider_auth_env_var)
-  AND pool.updated_at = sqlc.arg(pool_updated_at)::timestamptz
 FOR UPDATE OF pool;
 
 -- name: LockProviderRuntimeCredential :one

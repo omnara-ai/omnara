@@ -15,7 +15,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-func TestMachineOnlineIntervalTrackingStartsWithoutHistoricalUsage(t *testing.T) {
+func TestMachineOnlineIntervalTrackingStartsAtMigration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
@@ -100,7 +100,7 @@ WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
 	}
 	if startedAt.Before(trackingStartedAt) || startedAt.After(trackingFinishedAt) {
 		t.Fatalf(
-			"initial interval started at %s, tracking began from %s through %s",
+			"initial interval started at %s, migration ran from %s through %s",
 			startedAt,
 			trackingStartedAt,
 			trackingFinishedAt,
@@ -319,9 +319,8 @@ func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO machine_online_intervals(
-    org_id, machine_id, daemon_runtime_id, started_at,
-    created_at, updated_at
-) VALUES ($1, $2, $3, statement_timestamp(), statement_timestamp(), statement_timestamp())
+    org_id, machine_id, daemon_runtime_id, started_at
+) VALUES ($1, $2, $3, statement_timestamp())
 `, testOrgID, machine.ID, runtime.ID); err == nil {
 		t.Fatal("second open machine interval was accepted")
 	}

@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	ProviderReportedCostUSDMaxIntegralDigits   = 15
-	ProviderReportedCostUSDMaxFractionalDigits = 15
+	providerReportedCostUSDMaxIntegralDigits   = 15
+	providerReportedCostUSDMaxFractionalDigits = 15
 )
 
 // ProviderReportedCostUSD is a canonical, non-negative decimal amount reported
@@ -64,15 +64,15 @@ func ParseProviderReportedCostUSD(raw string) (ProviderReportedCostUSD, bool) {
 	}
 	scale := int64(len(fraction)) - exponent
 	digits, scale = trimProviderCostTrailingZeros(digits, scale)
-	if scale > ProviderReportedCostUSDMaxFractionalDigits {
+	if scale > providerReportedCostUSDMaxFractionalDigits {
 		digits = roundProviderCostDigits(digits, scale)
-		scale = ProviderReportedCostUSDMaxFractionalDigits
+		scale = providerReportedCostUSDMaxFractionalDigits
 		if digits == "" {
 			return ProviderReportedCostUSD("0"), true
 		}
 		digits, scale = trimProviderCostTrailingZeros(digits, scale)
 	}
-	if int64(len(digits))-scale > ProviderReportedCostUSDMaxIntegralDigits {
+	if int64(len(digits))-scale > providerReportedCostUSDMaxIntegralDigits {
 		return "", false
 	}
 
@@ -93,7 +93,7 @@ func ParseProviderReportedCostUSD(raw string) (ProviderReportedCostUSD, bool) {
 // Ties round up, matching PostgreSQL numeric typmod coercion for positive values.
 // An empty result represents a value that rounded to zero.
 func roundProviderCostDigits(digits string, scale int64) string {
-	discard := scale - ProviderReportedCostUSDMaxFractionalDigits
+	discard := scale - providerReportedCostUSDMaxFractionalDigits
 	kept := int64(len(digits)) - discard
 	if kept <= 0 {
 		if kept == 0 && digits[0] >= '5' {

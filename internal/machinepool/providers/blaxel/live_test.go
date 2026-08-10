@@ -160,7 +160,7 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 			return providers.RuntimeObservation{}, err
 		}
 		matches := listed[runtimeTarget.ProviderResourceID]
-		observation := unknownRuntimeObservation(runtimeTarget)
+		observation := runtimeTarget.UnknownObservation()
 		if len(matches) == 1 && sandboxOwnedBy(
 			matches[0],
 			runtimeTarget.ProviderResourceID,
