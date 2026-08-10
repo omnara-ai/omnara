@@ -33,9 +33,12 @@ type daemonCommand struct {
 	Start *struct {
 		NoService bool `arg:"--no-service"`
 	} `arg:"subcommand:start"`
-	Stop          *struct{} `arg:"subcommand:stop"`
-	Restart       *struct{} `arg:"subcommand:restart"`
-	Status        *struct{} `arg:"subcommand:status"`
+	Stop      *struct{} `arg:"subcommand:stop"`
+	Restart   *struct{} `arg:"subcommand:restart"`
+	Status    *struct{} `arg:"subcommand:status"`
+	Uninstall *struct {
+		Yes bool `arg:"--yes"`
+	} `arg:"subcommand:uninstall"`
 	ProcessRunner *struct {
 		BootstrapPath string `arg:"positional,required"`
 		LockFD        int    `arg:"positional,required"`
@@ -255,6 +258,8 @@ func Run(
 		return runRestartCommand(ctx, stdout, stderr, log)
 	case command.Status != nil:
 		return runStatusCommand(ctx, stdout, stderr)
+	case command.Uninstall != nil:
+		return runUninstallCommand(ctx, command.Uninstall.Yes, stdin, stdout, stderr)
 	}
 	return 1
 }

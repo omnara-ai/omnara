@@ -343,6 +343,208 @@ exit 5
 	}
 }
 
+func TestSystemdUninstallRemovesMatchingService(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	configHome := filepath.Join(t.TempDir(), "config-home")
+	unitDir := filepath.Join(configHome, "systemd", "user")
+	if err := os.MkdirAll(unitDir, 0o700); err != nil {
+		t.Fatalf("create systemd directory: %v", err)
+	}
+	unit, err := renderSystemdUnit(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
+	if err != nil {
+		t.Fatalf("render systemd unit: %v", err)
+	}
+	unitPath := filepath.Join(unitDir, systemdServiceName)
+	if err := os.WriteFile(unitPath, unit, 0o644); err != nil {
+		t.Fatalf("write systemd unit: %v", err)
+	}
+	wantsDir := filepath.Join(unitDir, "default.target.wants")
+	if err := os.Mkdir(wantsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	wantsPath := filepath.Join(wantsDir, systemdServiceName)
+	if err := os.Symlink(filepath.Join("..", systemdServiceName), wantsPath); err != nil {
+		t.Fatal(err)
+	}
+	commands := filepath.Join(t.TempDir(), "commands")
+	commandDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+[ "$1" = --user ] || exit 4
+case "$2" in
+  show-environment|disable|daemon-reload) exit 0 ;;
+  show)
+    printf 'LoadState=loaded\nFragmentPath=%s\nActiveState=active\nMainPID=%d\nNeedDaemonReload=no\n'
+    exit 0
+    ;;
+  is-enabled) printf 'enabled\n'; exit 0 ;;
+  *) exit 5 ;;
+esac
+`, shellTestQuote(commands), unitPath, os.Getpid()))
+	t.Setenv("HOME", userHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("PATH", commandDir)
+	if err := uninstallDaemonService(context.Background(), home); err != nil {
+		t.Fatalf("uninstall systemd service: %v", err)
+	}
+	if _, err := os.Lstat(unitPath); !os.IsNotExist(err) {
+		t.Fatalf("systemd unit still exists: %v", err)
+	}
+	if _, err := os.Lstat(wantsPath); !os.IsNotExist(err) {
+		t.Fatalf("systemd wants link still exists: %v", err)
+	}
+	got := readTestFile(t, commands)
+	for _, command := range []string{"disable --now " + systemdServiceName, "daemon-reload"} {
+		if !strings.Contains(got, command) {
+			t.Fatalf("systemctl commands = %q, missing %q", got, command)
+		}
+	}
+}
+
+func TestSystemdUninstallRejectsLoadedForeignDefinition(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	configHome := filepath.Join(t.TempDir(), "config-home")
+	unitDir := filepath.Join(configHome, "systemd", "user")
+	if err := os.MkdirAll(unitDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unit, err := renderSystemdUnit(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unitPath := filepath.Join(unitDir, systemdServiceName)
+	if err := os.WriteFile(unitPath, unit, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands := filepath.Join(t.TempDir(), "commands")
+	commandDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+[ "$1" = --user ] || exit 4
+case "$2" in
+  show-environment) exit 0 ;;
+  show)
+    printf 'LoadState=loaded\nFragmentPath=/usr/lib/systemd/user/omnarad.service\nActiveState=active\nMainPID=%d\nNeedDaemonReload=no\n'
+    exit 0
+    ;;
+  disable) exit 0 ;;
+  *) exit 5 ;;
+esac
+`, shellTestQuote(commands), os.Getpid()))
+	t.Setenv("HOME", userHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("PATH", commandDir)
+	if err := uninstallDaemonService(context.Background(), home); err == nil ||
+		!strings.Contains(err.Error(), "loaded from an unowned definition") {
+		t.Fatalf("uninstall error = %v", err)
+	}
+	if _, err := os.Stat(unitPath); err != nil {
+		t.Fatalf("owned unit was removed: %v", err)
+	}
+	if got := readTestFile(t, commands); strings.Contains(got, "disable --now") {
+		t.Fatalf("systemctl commands = %q", got)
+	}
+}
+
+func TestSystemdUninstallRecoversInterruptedUnitRemoval(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	configHome := filepath.Join(t.TempDir(), "config-home")
+	unitPath := filepath.Join(configHome, "systemd", "user", systemdServiceName)
+	stale := filepath.Join(t.TempDir(), "stale")
+	if err := os.WriteFile(stale, []byte("stale\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands := filepath.Join(t.TempDir(), "commands")
+	commandDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+[ "$1" = --user ] || exit 4
+case "$2" in
+  show-environment) exit 0 ;;
+  show)
+    state=
+    IFS= read -r state < %s
+    if [ "$state" = stale ]; then
+      printf 'LoadState=loaded\nFragmentPath=%s\nActiveState=inactive\nMainPID=0\nNeedDaemonReload=yes\n'
+    else
+      printf 'LoadState=not-found\nFragmentPath=\nActiveState=inactive\nMainPID=0\nNeedDaemonReload=no\n'
+    fi
+    ;;
+  is-enabled) printf 'disabled\n'; exit 1 ;;
+  daemon-reload) printf 'reloaded\n' > %s ;;
+  *) exit 5 ;;
+esac
+`, shellTestQuote(commands), shellTestQuote(stale), unitPath, shellTestQuote(stale)))
+	t.Setenv("HOME", userHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("PATH", commandDir)
+	if err := uninstallDaemonService(context.Background(), home); err != nil {
+		t.Fatalf("recover interrupted systemd uninstall: %v", err)
+	}
+	if got := readTestFile(t, commands); strings.Count(got, "daemon-reload") != 1 {
+		t.Fatalf("systemctl commands = %q", got)
+	}
+}
+
+func TestSystemdUninstallRejectsUnavailableManager(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	configHome := filepath.Join(t.TempDir(), "config-home")
+	unitDir := filepath.Join(configHome, "systemd", "user")
+	if err := os.MkdirAll(unitDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unit, err := renderSystemdUnit(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unitPath := filepath.Join(unitDir, systemdServiceName)
+	if err := os.WriteFile(unitPath, unit, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", userHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("PATH", t.TempDir())
+	if err := uninstallDaemonService(context.Background(), home); err == nil ||
+		!strings.Contains(err.Error(), "systemd is unavailable") {
+		t.Fatalf("uninstall error = %v", err)
+	}
+	if _, err := os.Stat(unitPath); err != nil {
+		t.Fatalf("systemd unit was removed: %v", err)
+	}
+}
+
+func TestSystemdUninstallRejectsDifferentHome(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	configHome := filepath.Join(t.TempDir(), "config-home")
+	unitDir := filepath.Join(configHome, "systemd", "user")
+	if err := os.MkdirAll(unitDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unit, err := renderSystemdUnit("/other/home", userHome, "/opt/omnarad", "/tmp/daemon.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unitPath := filepath.Join(unitDir, systemdServiceName)
+	if err := os.WriteFile(unitPath, unit, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", userHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("PATH", t.TempDir())
+	if err := uninstallDaemonService(context.Background(), home); err == nil ||
+		!strings.Contains(err.Error(), "does not belong") {
+		t.Fatalf("uninstall error = %v", err)
+	}
+	if _, err := os.Stat(unitPath); err != nil {
+		t.Fatalf("systemd unit was removed: %v", err)
+	}
+}
+
 func TestRenderSystemdUnitEscapesValues(t *testing.T) {
 	body, err := renderSystemdUnit(
 		`/tmp/a%b$home`,

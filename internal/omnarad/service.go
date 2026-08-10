@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -33,9 +34,11 @@ type serviceCommandResult struct {
 }
 
 type managedDaemonStatus struct {
-	manager string
-	running bool
-	pid     int
+	manager        string
+	definitionPath string
+	registered     bool
+	running        bool
+	pid            int
 }
 
 func runServiceCommand(ctx context.Context, timeout time.Duration, name string, args ...string) serviceCommandResult {
@@ -87,9 +90,17 @@ func validateServiceValue(name, value string) error {
 }
 
 func waitForDaemonRuntimeUnlock(ctx context.Context, home string) error {
-	store, err := localstore.New(home)
+	lock, err := waitForDaemonRuntimeLock(ctx, home)
 	if err != nil {
 		return err
+	}
+	return lock.Release()
+}
+
+func waitForDaemonRuntimeLock(ctx context.Context, home string) (*localstore.Lock, error) {
+	store, err := localstore.New(home)
+	if err != nil {
+		return nil, err
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, serviceRuntimeLockWait)
 	defer cancel()
@@ -98,14 +109,14 @@ func waitForDaemonRuntimeUnlock(ctx context.Context, home string) error {
 	for {
 		lock, err := localstore.TryAcquireLock(store.DaemonLockPath())
 		if err == nil {
-			return lock.Release()
+			return lock, nil
 		}
 		if !errors.Is(err, localstore.ErrLockHeld) {
-			return fmt.Errorf("inspect daemon runtime lock: %w", err)
+			return nil, fmt.Errorf("inspect daemon runtime lock: %w", err)
 		}
 		select {
 		case <-waitCtx.Done():
-			return fmt.Errorf("wait for daemon runtime lock release: %w", waitCtx.Err())
+			return nil, fmt.Errorf("wait for daemon runtime lock release: %w", waitCtx.Err())
 		case <-ticker.C:
 		}
 	}
@@ -139,6 +150,9 @@ func inspectDaemonRuntimeLock(home string) (int, bool, error) {
 
 func stopDaemon(ctx context.Context, home string) (resultErr error) {
 	lock, err := acquireInstallLock(ctx, home)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -152,17 +166,24 @@ func stopDaemon(ctx context.Context, home string) (resultErr error) {
 }
 
 func stopDaemonRuntime(ctx context.Context, home string) error {
+	lock, err := stopDaemonRuntimeLocked(ctx, home)
+	if err != nil {
+		return err
+	}
+	return lock.Release()
+}
+
+func stopDaemonRuntimeLocked(ctx context.Context, home string) (*localstore.Lock, error) {
 	pid, held, err := inspectDaemonRuntimeLock(home)
 	if err != nil {
-		return fmt.Errorf("inspect daemon runtime lock: %w", err)
+		return nil, fmt.Errorf("inspect daemon runtime lock: %w", err)
 	}
-	if !held {
-		return nil
+	if held {
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return nil, fmt.Errorf("stop daemon process %d: %w", pid, err)
+		}
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return fmt.Errorf("stop daemon process %d: %w", pid, err)
-	}
-	return waitForDaemonRuntimeUnlock(ctx, home)
+	return waitForDaemonRuntimeLock(ctx, home)
 }
 
 func prepareTemporaryDaemonRun(ctx context.Context, home string) (resultErr error) {

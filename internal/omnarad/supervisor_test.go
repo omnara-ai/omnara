@@ -148,6 +148,13 @@ func TestRunForegroundSupervisorOwnsExistingLock(t *testing.T) {
 trap 'exit 0' TERM
 while :; do sleep 1; done
 `)
+	installLock, err := localstore.TryAcquireLock(filepath.Join(home, installLockFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installLock.Release(); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("SUPERVISOR_READY", ready)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -175,6 +182,32 @@ while :; do sleep 1; done
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("supervisor did not release lock")
+	}
+}
+
+func TestRunForegroundSupervisorDoesNotRecreateMissingHome(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "removed-home")
+	if err := runForegroundSupervisor(context.Background(), home, discardLogger()); err == nil {
+		t.Fatalf("foreground start error = %v", err)
+	}
+	if _, err := os.Lstat(home); !os.IsNotExist(err) {
+		t.Fatalf("foreground start recreated removed home: %v", err)
+	}
+}
+
+func TestRunForegroundSupervisorRejectsInstallInProgress(t *testing.T) {
+	home := t.TempDir()
+	installLock, err := localstore.TryAcquireLock(filepath.Join(home, installLockFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = installLock.Release() }()
+	if err := runForegroundSupervisor(context.Background(), home, discardLogger()); err == nil ||
+		!strings.Contains(err.Error(), "being modified") {
+		t.Fatalf("foreground start error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, "daemon.lock")); !os.IsNotExist(err) {
+		t.Fatalf("foreground start created daemon lock: %v", err)
 	}
 }
 
@@ -237,6 +270,9 @@ func TestStoppedLifecycleCommandsDoNotNeedConfiguration(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, daemonConfigFileName)); !os.IsNotExist(err) {
 		t.Fatalf("stop wrote daemon config: %v", err)
+	}
+	if _, err := os.Lstat(home); !os.IsNotExist(err) {
+		t.Fatalf("stop created daemon home: %v", err)
 	}
 	stdout.Reset()
 	stderr.Reset()

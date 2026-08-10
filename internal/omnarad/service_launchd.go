@@ -79,9 +79,10 @@ type launchdPlistTemplateData struct {
 }
 
 type launchdServiceState struct {
-	registered bool
-	running    bool
-	pid        int
+	definitionPath string
+	registered     bool
+	running        bool
+	pid            int
 }
 
 func ensureDaemonService(
@@ -226,7 +227,13 @@ func inspectDaemonService(ctx context.Context) (managedDaemonStatus, error) {
 	if err != nil {
 		return managedDaemonStatus{}, err
 	}
-	return managedDaemonStatus{manager: "launchd", running: launchdServiceReady(state), pid: state.pid}, nil
+	return managedDaemonStatus{
+		manager:        "launchd",
+		definitionPath: state.definitionPath,
+		registered:     state.registered,
+		running:        launchdServiceReady(state),
+		pid:            state.pid,
+	}, nil
 }
 
 func stopDaemonService(ctx context.Context) error {
@@ -262,6 +269,51 @@ func stopDaemonService(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func uninstallDaemonService(ctx context.Context, home string) error {
+	userHome, err := serviceUserHome()
+	if err != nil {
+		return err
+	}
+	plistPath := filepath.Join(userHome, "Library", "LaunchAgents", launchdServiceLabel+".plist")
+	body, exists, err := readOwnedServiceFile(plistPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		homeEntry := []byte(
+			"<key>OMNARA_HOME</key>\n    <string>" + escapeXMLValue(home) + "</string>",
+		)
+		if !bytes.Contains(body, homeEntry) {
+			return fmt.Errorf("launchd service does not belong to Omnara home %s", home)
+		}
+	}
+	status, err := inspectDaemonService(ctx)
+	if err != nil {
+		return err
+	}
+	if !exists && status.registered {
+		return errors.New("launchd service is registered without an owned service definition")
+	}
+	if status.registered && filepath.Clean(status.definitionPath) != filepath.Clean(plistPath) {
+		return fmt.Errorf("launchd service is registered from an unowned definition: %q", status.definitionPath)
+	}
+	if exists && status.manager == "" {
+		return errors.New("launchd is unavailable; cannot safely unregister the Omnara service")
+	}
+	if exists && status.manager != "" {
+		if err := stopDaemonService(ctx); err != nil {
+			return err
+		}
+	}
+	if !exists {
+		return nil
+	}
+	if err := os.Remove(plistPath); err != nil {
+		return fmt.Errorf("remove launchd service definition: %w", err)
+	}
+	return localstore.SyncDir(filepath.Dir(plistPath))
 }
 
 func renderLaunchdPlist(home, userHome, binaryPath, logPath string) ([]byte, error) {
@@ -343,6 +395,8 @@ func inspectLaunchdService(ctx context.Context, launchctl, serviceTarget string)
 			continue
 		}
 		switch key {
+		case "path":
+			state.definitionPath = value
 		case "state":
 			state.running = value == "running"
 		case "pid":

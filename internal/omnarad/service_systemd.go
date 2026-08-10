@@ -238,7 +238,12 @@ func inspectDaemonService(ctx context.Context) (managedDaemonStatus, error) {
 	if err != nil {
 		return managedDaemonStatus{}, err
 	}
-	return managedDaemonStatus{manager: "systemd", running: state.mainPID > 0, pid: state.mainPID}, nil
+	return managedDaemonStatus{
+		manager:    "systemd",
+		registered: state.loaded,
+		running:    state.mainPID > 0,
+		pid:        state.mainPID,
+	}, nil
 }
 
 func stopDaemonService(ctx context.Context) error {
@@ -269,6 +274,121 @@ func stopDaemonService(ctx context.Context) error {
 		return serviceCommandError(systemctl, args, result)
 	}
 	return nil
+}
+
+func uninstallDaemonService(ctx context.Context, home string) error {
+	userHome, err := serviceUserHome()
+	if err != nil {
+		return err
+	}
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(configHome) {
+		configHome = filepath.Join(userHome, ".config")
+	}
+	unitPath := filepath.Join(configHome, "systemd", "user", systemdServiceName)
+	body, exists, err := readOwnedServiceFile(unitPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		homeLine := []byte(`Environment="OMNARA_HOME=` + escapeSystemdQuotedValue(home) + `"`)
+		if !bytes.Contains(body, homeLine) {
+			return fmt.Errorf("systemd service does not belong to Omnara home %s", home)
+		}
+	}
+	status, err := inspectDaemonService(ctx)
+	if err != nil {
+		return err
+	}
+	if exists && status.manager == "" {
+		return errors.New("systemd is unavailable; cannot safely unregister the Omnara service")
+	}
+	systemctl := ""
+	if status.manager != "" {
+		systemctl, err = exec.LookPath("systemctl")
+		if err != nil {
+			return fmt.Errorf("find systemctl: %w", err)
+		}
+		if !exists {
+			args := []string{"--user", "daemon-reload"}
+			result := runServiceCommand(ctx, serviceCommandTimeout, systemctl, args...)
+			if result.err != nil {
+				return serviceCommandError(systemctl, args, result)
+			}
+		}
+		state, err := inspectSystemdService(ctx, systemctl)
+		if err != nil {
+			return err
+		}
+		if state.loaded && filepath.Clean(state.fragmentPath) != filepath.Clean(unitPath) {
+			return fmt.Errorf("systemd service is loaded from an unowned definition: %s", state.fragmentPath)
+		}
+		enabled, err := systemdServiceEnabled(ctx, systemctl)
+		if err != nil {
+			return err
+		}
+		if !exists && (state.loaded || enabled) {
+			return errors.New("systemd service is registered without an owned service definition")
+		}
+		if state.loaded || enabled {
+			args := []string{"--user", "disable", "--now", systemdServiceName}
+			result := runServiceCommand(ctx, serviceStopTimeout, systemctl, args...)
+			if result.err != nil {
+				return serviceCommandError(systemctl, args, result)
+			}
+		}
+	}
+	if err := removeSystemdWantsLink(unitPath); err != nil {
+		return err
+	}
+	if exists {
+		if err := os.Remove(unitPath); err != nil {
+			return fmt.Errorf("remove systemd service definition: %w", err)
+		}
+		if err := localstore.SyncDir(filepath.Dir(unitPath)); err != nil {
+			return err
+		}
+	}
+	if status.manager == "" || !exists {
+		return nil
+	}
+	args := []string{"--user", "daemon-reload"}
+	result := runServiceCommand(ctx, serviceCommandTimeout, systemctl, args...)
+	if result.err != nil {
+		return serviceCommandError(systemctl, args, result)
+	}
+	return nil
+}
+
+func removeSystemdWantsLink(unitPath string) error {
+	wantsPath := filepath.Join(filepath.Dir(unitPath), "default.target.wants", systemdServiceName)
+	info, err := os.Lstat(wantsPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect systemd service enablement: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	if err := ensureCurrentUserOwner(info, wantsPath); err != nil {
+		return err
+	}
+	target, err := os.Readlink(wantsPath)
+	if err != nil {
+		return fmt.Errorf("read systemd service enablement: %w", err)
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(wantsPath), target)
+	}
+	if filepath.Clean(target) != filepath.Clean(unitPath) {
+		return nil
+	}
+	if err := os.Remove(wantsPath); err != nil {
+		return fmt.Errorf("remove systemd service enablement: %w", err)
+	}
+	return localstore.SyncDir(filepath.Dir(wantsPath))
 }
 
 func renderSystemdUnit(home, userHome, binaryPath, logPath string) ([]byte, error) {

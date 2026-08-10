@@ -3,6 +3,7 @@ package omnarad
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -322,6 +323,47 @@ func TestRunInstallNoStartFreshAndReuseReceipt(t *testing.T) {
 	)
 	if code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("repeat install exit code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunInstallHoldsInstallLockThroughConfiguration(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	observed := make(chan error, 1)
+	server := bootstrapServer(t, "token-a", "inst-a", "mch-a", func() {
+		lock, acquired, err := tryAcquireInstallLock(home)
+		if lock != nil {
+			_ = lock.Release()
+		}
+		if err != nil {
+			observed <- err
+			return
+		}
+		if acquired {
+			observed <- errors.New("install lock was released before configuration completed")
+			return
+		}
+		observed <- nil
+	})
+	defer server.Close()
+	setDaemonEnvironment(t, home, server.URL, "token-a")
+	var stderr strings.Builder
+	if code := Run(
+		context.Background(),
+		[]string{
+			"install",
+			"--release-manifest-url",
+			"https://releases.omnara.test/omnarad/latest/linux-amd64.txt",
+			"--no-start",
+		},
+		nil,
+		&strings.Builder{},
+		&stderr,
+		discardLogger(),
+	); code != 0 {
+		t.Fatalf("install exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if err := <-observed; err != nil {
+		t.Fatal(err)
 	}
 }
 

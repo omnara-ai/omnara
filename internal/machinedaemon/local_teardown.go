@@ -43,7 +43,7 @@ func (c *Client) shutdownAfterAuthorityLoss(
 		30*time.Second,
 	)
 	defer cancel()
-	terminateErr := c.terminateSupervisorsAfterAuthorityLoss(
+	terminateErr := c.terminateLocalSupervisors(
 		shutdownCtx,
 		reason,
 	)
@@ -59,7 +59,51 @@ func (c *Client) shutdownAfterAuthorityLoss(
 	}
 }
 
-func (c *Client) terminateSupervisorsAfterAuthorityLoss(
+func StopLocalMachine(
+	ctx context.Context,
+	home string,
+	installationID string,
+	machineID string,
+	reason string,
+) (resultErr error) {
+	client := New(Config{
+		OmnaraHome:             home,
+		ExpectedInstallationID: installationID,
+		ExpectedMachineID:      machineID,
+	}, nil, nil)
+	machine, err := client.machineStore()
+	if err != nil {
+		return err
+	}
+	machineInfo, err := os.Lstat(machine.MachineDir())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect local machine state: %w", err)
+	}
+	if machineInfo.Mode()&os.ModeSymlink != 0 || !machineInfo.IsDir() {
+		return errors.New("local machine state must be a directory and not a symlink")
+	}
+	if _, err := os.Lstat(machine.StateDBPath()); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("local process state is missing")
+		}
+		return fmt.Errorf("inspect local process state: %w", err)
+	}
+	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	defer func() {
+		resultErr = errors.Join(resultErr, client.closeState())
+	}()
+	terminateErr := client.terminateLocalSupervisors(shutdownCtx, reason)
+	if verifyErr := client.verifyStoppedLocalMachine(shutdownCtx, machine); verifyErr != nil {
+		return errors.Join(terminateErr, verifyErr)
+	}
+	return nil
+}
+
+func (c *Client) terminateLocalSupervisors(
 	ctx context.Context,
 	reason string,
 ) error {
@@ -147,6 +191,36 @@ func (c *Client) deleteStoppedLocalMachine(
 	ctx context.Context,
 	machine localstore.MachineStore,
 ) error {
+	if err := waitForLocalSupervisors(ctx, machine); err != nil {
+		return errors.Join(err, c.closeState())
+	}
+	verifyErr := c.inspectStoppedLocalMachine(ctx)
+	if closeErr := c.closeState(); closeErr != nil {
+		return errors.Join(verifyErr, closeErr)
+	}
+	machineDir := machine.MachineDir()
+	removeErr := os.RemoveAll(machineDir)
+	if removeErr != nil {
+		removeErr = fmt.Errorf("remove decommissioned machine state: %w", removeErr)
+	}
+	syncErr := localstore.SyncDir(filepath.Dir(machineDir))
+	if syncErr != nil {
+		syncErr = fmt.Errorf("sync decommissioned machine state: %w", syncErr)
+	}
+	return errors.Join(verifyErr, removeErr, syncErr)
+}
+
+func (c *Client) verifyStoppedLocalMachine(
+	ctx context.Context,
+	machine localstore.MachineStore,
+) error {
+	if err := waitForLocalSupervisors(ctx, machine); err != nil {
+		return err
+	}
+	return c.inspectStoppedLocalMachine(ctx)
+}
+
+func waitForLocalSupervisors(ctx context.Context, machine localstore.MachineStore) error {
 	for {
 		live, err := machineHasLiveSupervisorLocks(machine)
 		if err != nil {
@@ -162,49 +236,29 @@ func (c *Client) deleteStoppedLocalMachine(
 			)
 		}
 	}
-	var result error
+	return nil
+}
+
+func (c *Client) inspectStoppedLocalMachine(ctx context.Context) error {
 	stateStore, err := c.stateStore(ctx)
 	if err != nil {
-		result = errors.Join(
-			result,
-			fmt.Errorf("inspect stopped process state: %w", err),
-		)
-	} else {
-		processes, readErr := stateStore.Processes(ctx)
-		if readErr != nil {
+		return fmt.Errorf("inspect stopped process state: %w", err)
+	}
+	processes, err := stateStore.Processes(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect stopped processes: %w", err)
+	}
+	var result error
+	for _, process := range processes {
+		if process.ExecCommitted && !process.ContainmentEmpty {
 			result = errors.Join(
 				result,
-				fmt.Errorf("inspect stopped processes: %w", readErr),
+				fmt.Errorf(
+					"process %s supervisor stopped before containment closure was proved",
+					process.ProcessID,
+				),
 			)
-		} else {
-			for _, process := range processes {
-				if process.ExecCommitted && !process.ContainmentEmpty {
-					result = errors.Join(
-						result,
-						fmt.Errorf(
-							"process %s supervisor stopped before containment closure was proved",
-							process.ProcessID,
-						),
-					)
-				}
-			}
 		}
-	}
-	if err := c.closeState(); err != nil {
-		return errors.Join(result, err)
-	}
-	machineDir := machine.MachineDir()
-	if err := os.RemoveAll(machineDir); err != nil {
-		return errors.Join(
-			result,
-			fmt.Errorf("remove decommissioned machine state: %w", err),
-		)
-	}
-	if err := localstore.SyncDir(filepath.Dir(machineDir)); err != nil {
-		return errors.Join(
-			result,
-			fmt.Errorf("sync decommissioned machine state: %w", err),
-		)
 	}
 	return result
 }
