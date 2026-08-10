@@ -1940,6 +1940,8 @@ export type CreateMachinePoolRequestBase = {
     max_total_machines: number;
     max_total_cpu?: number;
     max_total_memory_mb?: number;
+    min_machine_cpu?: number;
+    min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
     metadata?: {
@@ -1979,6 +1981,8 @@ export type UpdateMachinePoolRequest = {
     max_total_machines?: number;
     max_total_cpu?: number | null;
     max_total_memory_mb?: number | null;
+    min_machine_cpu?: number | null;
+    min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
     metadata?: {
@@ -2022,6 +2026,8 @@ export type MachinePool = {
     max_total_machines: number;
     max_total_cpu: number | null;
     max_total_memory_mb: number | null;
+    min_machine_cpu: number | null;
+    min_machine_memory_mb: number | null;
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
     metadata: {
@@ -2204,6 +2210,8 @@ export type ProjectMachinePoolGrant = {
     max_total_machines: number | null;
     max_total_cpu: number | null;
     max_total_memory_mb: number | null;
+    min_machine_cpu: number | null;
+    min_machine_memory_mb: number | null;
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
     metadata: {
@@ -2237,6 +2245,8 @@ export type CreateProjectMachinePoolGrantRequest = {
     max_total_machines?: number;
     max_total_cpu?: number;
     max_total_memory_mb?: number;
+    min_machine_cpu?: number;
+    min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
     metadata?: {
@@ -2264,6 +2274,8 @@ export type UpdateProjectMachinePoolGrantRequest = {
     max_total_machines?: number | null;
     max_total_cpu?: number | null;
     max_total_memory_mb?: number | null;
+    min_machine_cpu?: number | null;
+    min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
     metadata?: {

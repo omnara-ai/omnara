@@ -470,6 +470,8 @@ func (s *Store) ValidateAgentConfigMachineSources(
 				ResourceLimits: MachineResourceLimits{
 					MaxTotalCPU:        intPtrFromSQLC(poolGrant.PoolMaxTotalCpu),
 					MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.PoolMaxTotalMemoryMb),
+					MinMachineCPU:      intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
+					MinMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
 					MaxMachineCPU:      intPtrFromSQLC(poolGrant.PoolMaxMachineCpu),
 					MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMaxMachineMemoryMb),
 				},
@@ -513,6 +515,14 @@ func (s *Store) ValidateAgentConfigMachineSources(
 			poolGrant.GrantMaxMachineMemoryMb,
 		)
 		perMachineLimits := MachineResourceLimits{
+			MinMachineCPU: effectivePoolGrantMinimum(
+				intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
+				intPtrFromSQLC(poolGrant.GrantMinMachineCpu),
+			),
+			MinMachineMemoryMB: effectivePoolGrantMinimum(
+				intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
+				intPtrFromSQLC(poolGrant.GrantMinMachineMemoryMb),
+			),
 			MaxMachineCPU:      maxMachineCPU,
 			MaxMachineMemoryMB: maxMachineMemoryMB,
 		}

@@ -287,6 +287,8 @@ type MachinePool struct {
 	CreatedAt                     time.Time
 	UpdatedAt                     time.Time
 	RuntimeProtectionEnabled      bool
+	MinMachineCpu                 *int32
+	MinMachineMemoryMb            *int32
 }
 
 type ModelProviderConfig struct {

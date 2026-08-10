@@ -1605,6 +1605,8 @@ export const zCreateMachinePoolRequestBase = z.object({
     max_total_machines: z.int().gte(0).lte(2147483647),
     max_total_cpu: z.int().gte(0).lte(2147483647).optional(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).optional(),
+    min_machine_cpu: z.int().gte(0).lte(2147483647).optional(),
+    min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
     metadata: z.record(z.string(), z.unknown()).optional()
@@ -1650,6 +1652,8 @@ export const zUpdateMachinePoolRequest = z.object({
     max_total_machines: z.int().gte(0).lte(2147483647).optional(),
     max_total_cpu: z.int().gte(0).lte(2147483647).nullish(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
+    min_machine_cpu: z.int().gte(0).lte(2147483647).nullish(),
+    min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
     metadata: z.record(z.string(), z.unknown()).optional()
@@ -1674,6 +1678,8 @@ export const zMachinePool = z.object({
     max_total_machines: z.int().gte(0).lte(2147483647),
     max_total_cpu: z.int().gte(0).lte(2147483647).nullable(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
+    min_machine_cpu: z.int().gte(0).lte(2147483647).nullable(),
+    min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullable(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
     metadata: z.record(z.string(), z.unknown()),
@@ -1833,6 +1839,8 @@ export const zProjectMachinePoolGrant = z.object({
     max_total_machines: z.int().gte(0).lte(2147483647).nullable(),
     max_total_cpu: z.int().gte(0).lte(2147483647).nullable(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
+    min_machine_cpu: z.int().gte(0).lte(2147483647).nullable(),
+    min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullable(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
     metadata: z.record(z.string(), z.unknown()),
@@ -1852,6 +1860,8 @@ export const zCreateProjectMachinePoolGrantRequest = z.object({
     max_total_machines: z.int().gte(0).lte(2147483647).optional(),
     max_total_cpu: z.int().gte(0).lte(2147483647).optional(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).optional(),
+    min_machine_cpu: z.int().gte(0).lte(2147483647).optional(),
+    min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
     metadata: z.record(z.string(), z.unknown()).optional()
@@ -1871,6 +1881,8 @@ export const zUpdateProjectMachinePoolGrantRequest = z.object({
     max_total_machines: z.int().gte(0).lte(2147483647).nullish(),
     max_total_cpu: z.int().gte(0).lte(2147483647).nullish(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
+    min_machine_cpu: z.int().gte(0).lte(2147483647).nullish(),
+    min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
     metadata: z.record(z.string(), z.unknown()).optional()

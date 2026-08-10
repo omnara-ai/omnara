@@ -118,6 +118,8 @@ type MachinePoolRecord struct {
 	MaxTotalMachines              int32           `json:"max_total_machines"`
 	MaxTotalCPU                   *int            `json:"max_total_cpu"`
 	MaxTotalMemoryMB              *int            `json:"max_total_memory_mb"`
+	MinMachineCPU                 *int            `json:"min_machine_cpu"`
+	MinMachineMemoryMB            *int            `json:"min_machine_memory_mb"`
 	MaxMachineCPU                 *int            `json:"max_machine_cpu"`
 	MaxMachineMemoryMB            *int            `json:"max_machine_memory_mb"`
 	Metadata                      json.RawMessage `json:"metadata"`
@@ -141,6 +143,8 @@ func (record MachinePoolRecord) ProviderPolicy() (MachinePoolProviderPolicy, err
 		ResourceLimits: MachineResourceLimits{
 			MaxTotalCPU:        record.MaxTotalCPU,
 			MaxTotalMemoryMB:   record.MaxTotalMemoryMB,
+			MinMachineCPU:      record.MinMachineCPU,
+			MinMachineMemoryMB: record.MinMachineMemoryMB,
 			MaxMachineCPU:      record.MaxMachineCPU,
 			MaxMachineMemoryMB: record.MaxMachineMemoryMB,
 		},
@@ -168,6 +172,8 @@ type CreateMachinePoolInput struct {
 	MaxTotalMachines              int32
 	MaxTotalCPU                   *int
 	MaxTotalMemoryMB              *int
+	MinMachineCPU                 *int
+	MinMachineMemoryMB            *int
 	MaxMachineCPU                 *int
 	MaxMachineMemoryMB            *int
 	Metadata                      json.RawMessage
@@ -190,6 +196,8 @@ type UpdateMachinePoolInput struct {
 	MaxTotalMachines              *int32
 	MaxTotalCPU                   patch.NullableInt
 	MaxTotalMemoryMB              patch.NullableInt
+	MinMachineCPU                 patch.NullableInt
+	MinMachineMemoryMB            patch.NullableInt
 	MaxMachineCPU                 patch.NullableInt
 	MaxMachineMemoryMB            patch.NullableInt
 	Metadata                      json.RawMessage
@@ -211,6 +219,8 @@ type DefaultMachinePoolTemplate struct {
 	MaxTotalMachines              int32           `json:"max_total_machines"`
 	MaxTotalCPU                   *int            `json:"max_total_cpu"`
 	MaxTotalMemoryMB              *int            `json:"max_total_memory_mb"`
+	MinMachineCPU                 *int            `json:"min_machine_cpu"`
+	MinMachineMemoryMB            *int            `json:"min_machine_memory_mb"`
 	MaxMachineCPU                 *int            `json:"max_machine_cpu"`
 	MaxMachineMemoryMB            *int            `json:"max_machine_memory_mb"`
 	Metadata                      json.RawMessage `json:"metadata"`
@@ -235,6 +245,8 @@ func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) Crea
 		MaxTotalMachines:              defaultPoolTemplate.MaxTotalMachines,
 		MaxTotalCPU:                   defaultPoolTemplate.MaxTotalCPU,
 		MaxTotalMemoryMB:              defaultPoolTemplate.MaxTotalMemoryMB,
+		MinMachineCPU:                 defaultPoolTemplate.MinMachineCPU,
+		MinMachineMemoryMB:            defaultPoolTemplate.MinMachineMemoryMB,
 		MaxMachineCPU:                 defaultPoolTemplate.MaxMachineCPU,
 		MaxMachineMemoryMB:            defaultPoolTemplate.MaxMachineMemoryMB,
 		Metadata:                      defaultPoolTemplate.Metadata,
@@ -330,6 +342,8 @@ func (s *Store) CreateMachinePool(
 		record.MaxTotalMachines != input.MaxTotalMachines ||
 		!sameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) ||
 		!sameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) ||
+		!sameIntPtr(record.MinMachineCPU, input.MinMachineCPU) ||
+		!sameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) ||
 		!sameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) ||
 		!sameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) ||
 		!sameJSON(record.Metadata, input.Metadata) {
@@ -378,6 +392,19 @@ func prepareMachinePoolConfigInput(
 			math.MaxInt32,
 		)
 	}
+	if input.MinMachineCPU != nil && (*input.MinMachineCPU < 0 || *input.MinMachineCPU > math.MaxInt32) {
+		return machinePoolDefaults{}, fmt.Errorf(
+			"min_machine_cpu must be between 0 and %d",
+			math.MaxInt32,
+		)
+	}
+	if input.MinMachineMemoryMB != nil &&
+		(*input.MinMachineMemoryMB < 0 || *input.MinMachineMemoryMB > math.MaxInt32) {
+		return machinePoolDefaults{}, fmt.Errorf(
+			"min_machine_memory_mb must be between 0 and %d",
+			math.MaxInt32,
+		)
+	}
 	if input.MaxMachineCPU != nil && (*input.MaxMachineCPU <= 0 || *input.MaxMachineCPU > math.MaxInt32) {
 		return machinePoolDefaults{}, fmt.Errorf(
 			"max_machine_cpu must be between 1 and %d",
@@ -389,6 +416,13 @@ func prepareMachinePoolConfigInput(
 			"max_machine_memory_mb must be between 1 and %d when set",
 			math.MaxInt32,
 		)
+	}
+	if input.MinMachineCPU != nil && input.MaxMachineCPU != nil && *input.MinMachineCPU > *input.MaxMachineCPU {
+		return machinePoolDefaults{}, errors.New("min_machine_cpu cannot exceed max_machine_cpu")
+	}
+	if input.MinMachineMemoryMB != nil && input.MaxMachineMemoryMB != nil &&
+		*input.MinMachineMemoryMB > *input.MaxMachineMemoryMB {
+		return machinePoolDefaults{}, errors.New("min_machine_memory_mb cannot exceed max_machine_memory_mb")
 	}
 	if strings.ContainsRune(input.DefaultCwd, 0) {
 		return machinePoolDefaults{}, errors.New("default_cwd cannot contain NUL")
@@ -452,6 +486,8 @@ func prepareMachinePoolConfigInput(
 		return machinePoolDefaults{}, fmt.Errorf("machine pool default_machine fields: %w", err)
 	}
 	if err := validateMachineResourcesWithinPerMachineLimits(poolMachineResources, MachineResourceLimits{
+		MinMachineCPU:      input.MinMachineCPU,
+		MinMachineMemoryMB: input.MinMachineMemoryMB,
 		MaxMachineCPU:      input.MaxMachineCPU,
 		MaxMachineMemoryMB: input.MaxMachineMemoryMB,
 	}); err != nil {
@@ -511,6 +547,8 @@ func insertMachinePool(
 		MaxTotalMachines:              input.MaxTotalMachines,
 		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
 		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
+		MinMachineCpu:                 sqlcInt32Ptr(input.MinMachineCPU),
+		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
 		Metadata:                      input.Metadata,
@@ -568,6 +606,8 @@ func (s *Store) UpdateMachinePool(
 		MaxTotalMachines:              locked.MaxTotalMachines,
 		MaxTotalCPU:                   intPtrFromSQLC(locked.MaxTotalCpu),
 		MaxTotalMemoryMB:              intPtrFromSQLC(locked.MaxTotalMemoryMb),
+		MinMachineCPU:                 intPtrFromSQLC(locked.MinMachineCpu),
+		MinMachineMemoryMB:            intPtrFromSQLC(locked.MinMachineMemoryMb),
 		MaxMachineCPU:                 intPtrFromSQLC(locked.MaxMachineCpu),
 		MaxMachineMemoryMB:            intPtrFromSQLC(locked.MaxMachineMemoryMb),
 		Metadata:                      locked.Metadata,
@@ -614,6 +654,12 @@ func (s *Store) UpdateMachinePool(
 	if input.MaxTotalMemoryMB.Set {
 		merged.MaxTotalMemoryMB = input.MaxTotalMemoryMB.Value
 	}
+	if input.MinMachineCPU.Set {
+		merged.MinMachineCPU = input.MinMachineCPU.Value
+	}
+	if input.MinMachineMemoryMB.Set {
+		merged.MinMachineMemoryMB = input.MinMachineMemoryMB.Value
+	}
 	if input.MaxMachineCPU.Set {
 		merged.MaxMachineCPU = input.MaxMachineCPU.Value
 	}
@@ -656,6 +702,8 @@ func (s *Store) UpdateMachinePool(
 		MaxTotalMachines:              merged.MaxTotalMachines,
 		MaxTotalCpu:                   sqlcInt32Ptr(merged.MaxTotalCPU),
 		MaxTotalMemoryMb:              sqlcInt32Ptr(merged.MaxTotalMemoryMB),
+		MinMachineCpu:                 sqlcInt32Ptr(merged.MinMachineCPU),
+		MinMachineMemoryMb:            sqlcInt32Ptr(merged.MinMachineMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(merged.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(merged.MaxMachineMemoryMB),
 		Metadata:                      merged.Metadata,

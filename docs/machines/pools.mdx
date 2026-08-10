@@ -66,6 +66,7 @@ For a custom pool, store the provider's API key as an org-owned [secret](/organi
       "default_cwd": "/workspace",
       "max_total_machines": 10,
       "max_total_memory_mb": 10240,
+      "min_machine_memory_mb": 1024,
       "max_machine_memory_mb": 1024
     }'
   ```
@@ -79,6 +80,7 @@ For a custom pool, store the provider's API key as an org-owned [secret](/organi
     "default_machine_provider_options": { "image": "sandbox/repo-agent:latest", "region": "us-pdx-1" },
     "max_total_machines": 10,
     "max_total_memory_mb": 10240,
+    "min_machine_memory_mb": 1024,
     "max_machine_memory_mb": 1024,
     "...": "..."
   }
@@ -88,13 +90,13 @@ For a custom pool, store the provider's API key as an org-owned [secret](/organi
 
 Every pool requires `max_total_machines`. Resource requirements then depend on the provider:
 
-- **Blaxel:** memory default and limits are required; CPU is not configurable.
-- **Unikraft:** CPU and memory defaults and limits are required.
-- **Daytona:** CPU and memory limits are required; defaults are optional because the snapshot defines the machine size.
+- **Blaxel:** memory default and maximums are required; CPU is not configurable.
+- **Unikraft:** CPU and memory defaults and maximums are required.
+- **Daytona:** CPU and memory maximums are required; defaults are optional because the snapshot defines the machine size.
 
 ## Grant a pool to a project
 
-Pools belong to the organization. A project needs a grant to use one. The grant can use the pool defaults or set lower capacity limits and project-specific environment variables.
+Pools belong to the organization. A project needs a grant to use one. The grant can use the pool defaults or set stricter capacity limits and project-specific environment variables.
 
 <Tabs>
 <Tab title="Console">
@@ -134,7 +136,7 @@ When Omnara creates a pool machine, it combines the machine size, working direct
 2. The project grant can narrow or override those defaults.
 3. The agent config can customize them for that agent.
 
-Later values replace earlier ones. A project grant or agent config can remove an environment variable inherited from the pool by setting it to `null`. Pool and project limits remain hard ceilings.
+Later values replace earlier ones. A project grant or agent config can remove an environment variable inherited from the pool by setting it to `null`. Pool and project limits remain hard constraints.
 
 ## Use it from a config
 
@@ -142,7 +144,7 @@ Later values replace earlier ones. A project grant or agent config can remove an
 machine_sources:
   - machine_pool_name: sandbox-pool
     cwd: /workspace/my-repo
-    machine_memory_mb: 1024      # within max_machine_memory_mb
+    machine_memory_mb: 1024      # within pool limits
     max_machines: 3              # this agent's own ceiling
 ```
 

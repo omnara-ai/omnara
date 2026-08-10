@@ -66,6 +66,8 @@ func (m Manager) ValidateDefaultMachinePool(defaultPoolTemplate executionstore.D
 		ResourceLimits: executionstore.MachineResourceLimits{
 			MaxTotalCPU:        defaultPoolTemplate.MaxTotalCPU,
 			MaxTotalMemoryMB:   defaultPoolTemplate.MaxTotalMemoryMB,
+			MinMachineCPU:      defaultPoolTemplate.MinMachineCPU,
+			MinMachineMemoryMB: defaultPoolTemplate.MinMachineMemoryMB,
 			MaxMachineCPU:      defaultPoolTemplate.MaxMachineCPU,
 			MaxMachineMemoryMB: defaultPoolTemplate.MaxMachineMemoryMB,
 		},

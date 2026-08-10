@@ -551,6 +551,8 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	updatedMaxTotalMachines := int32(3)
 	updatedMaxTotalCPU := 8
 	updatedMaxTotalMemoryMB := 16384
+	updatedMinMachineCPU := 1
+	updatedMinMachineMemoryMB := 1024
 	updatedMaxMachineCPU := 4
 	updatedMaxMachineMemoryMB := 8192
 	updated, err := store.Execution().UpdateMachinePool(ctx, machinePoolUpdateInputWithDefaultMachineForTest(
@@ -565,6 +567,8 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 			MaxTotalMachines:     &updatedMaxTotalMachines,
 			MaxTotalCPU:          patch.NullableInt{Set: true, Value: &updatedMaxTotalCPU},
 			MaxTotalMemoryMB:     patch.NullableInt{Set: true, Value: &updatedMaxTotalMemoryMB},
+			MinMachineCPU:        patch.NullableInt{Set: true, Value: &updatedMinMachineCPU},
+			MinMachineMemoryMB:   patch.NullableInt{Set: true, Value: &updatedMinMachineMemoryMB},
 			MaxMachineCPU:        patch.NullableInt{Set: true, Value: &updatedMaxMachineCPU},
 			MaxMachineMemoryMB:   patch.NullableInt{Set: true, Value: &updatedMaxMachineMemoryMB},
 			Metadata:             json.RawMessage(`{"team":"infra"}`),
@@ -586,6 +590,8 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		updated.DefaultCwd != "/updated" || updated.ProviderAuthSecretID != rotatedProviderAuthSecretID ||
 		updated.MaxTotalMachines != 3 || updated.MaxTotalCPU == nil || *updated.MaxTotalCPU != 8 ||
 		updated.MaxTotalMemoryMB == nil || *updated.MaxTotalMemoryMB != 16384 ||
+		updated.MinMachineCPU == nil || *updated.MinMachineCPU != 1 ||
+		updated.MinMachineMemoryMB == nil || *updated.MinMachineMemoryMB != 1024 ||
 		updated.MaxMachineCPU == nil || *updated.MaxMachineCPU != 4 ||
 		updated.MaxMachineMemoryMB == nil || *updated.MaxMachineMemoryMB != 8192 {
 		t.Fatalf("update did not apply mutable fields: %+v", updated)
@@ -599,6 +605,10 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	}
 	if machinePoolProviders.validatedPolicy.ResourceLimits.MaxTotalCPU == nil ||
 		*machinePoolProviders.validatedPolicy.ResourceLimits.MaxTotalCPU != 8 ||
+		machinePoolProviders.validatedPolicy.ResourceLimits.MinMachineCPU == nil ||
+		*machinePoolProviders.validatedPolicy.ResourceLimits.MinMachineCPU != 1 ||
+		machinePoolProviders.validatedPolicy.ResourceLimits.MinMachineMemoryMB == nil ||
+		*machinePoolProviders.validatedPolicy.ResourceLimits.MinMachineMemoryMB != 1024 ||
 		machinePoolProviders.validatedPolicy.ResourceLimits.MaxMachineMemoryMB == nil ||
 		*machinePoolProviders.validatedPolicy.ResourceLimits.MaxMachineMemoryMB != 8192 {
 		t.Fatalf("provider validator limits = %+v, want updated limits", machinePoolProviders.validatedPolicy.ResourceLimits)
@@ -1220,6 +1230,7 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 	machines0 := 0
 	machines9 := 9
 	cpu2 := 2
+	cpu8 := 8
 	memory4096 := 4096
 	cases := []struct {
 		name        string
@@ -1261,6 +1272,19 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 			wantCreated: true,
 		},
 		{
+			name:    "Per Machine CPU Minimum Above Inherited Default",
+			input:   executionstore.CreateProjectMachinePoolGrantInput{MinMachineCPU: &cpu8},
+			wantErr: "resolved project machine pool grant config: cpu is below min_machine_cpu",
+		},
+		{
+			name: "Per Machine CPU Minimum With Higher Project Default",
+			input: projectGrantInputWithDefaultMachineOverlayForTest(
+				executionstore.CreateProjectMachinePoolGrantInput{MinMachineCPU: &cpu8},
+				defaultMachineOverlayFieldsForTest{DefaultMachineCPU: &cpu8},
+			),
+			wantCreated: true,
+		},
+		{
 			name:        "No Default Machine Overlay",
 			input:       executionstore.CreateProjectMachinePoolGrantInput{},
 			wantCreated: true,
@@ -1293,6 +1317,50 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Fatalf("%s error = %v, want %q", tc.name, err, tc.wantErr)
 		}
+	}
+
+	agentGrant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
+		executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID:          testOrgID,
+			ProjectID:      testProjectID,
+			MachinePoolID:  machinePool.ID,
+			MinMachineCPU:  &cpu8,
+			IdempotencyKey: "idem-agent-config-machine-minimum",
+		},
+		defaultMachineOverlayFieldsForTest{DefaultMachineCPU: &cpu8},
+	))
+	if err != nil {
+		t.Fatalf("create agent config minimum grant: %v", err)
+	}
+	compiled := mustCompileAgentYAMLWithMachineSourceResolvers(t, ctx, store, `
+name: Minimum CPU Agent
+instruction: Use the pool.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+machine_sources:
+  - machine_pool_name: `+machinePool.Name+`
+    machine_cpu: 4
+tools:
+  run_command: {}
+`)
+	err = store.Execution().ValidateAgentConfigMachineSources(
+		ctx,
+		testProjectID,
+		json.RawMessage(compiled.CanonicalJSON),
+		agentconfig.CompilerVersion,
+		compiled.Hash,
+	)
+	if err == nil || !strings.Contains(err.Error(), "cpu is below min_machine_cpu") {
+		t.Fatalf("agent config minimum error = %v, want cpu minimum error", err)
+	}
+	if _, err := store.Execution().DeleteProjectMachinePoolGrant(
+		ctx,
+		testOrgID,
+		testProjectID,
+		agentGrant.ID,
+	); err != nil {
+		t.Fatalf("revoke agent config minimum grant: %v", err)
 	}
 }
 
@@ -2840,6 +2908,7 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		DefaultMachineEnvOverlay: json.RawMessage(`{"KEEP":"yes"}`),
 		DefaultCwd:               "/before",
 		MaxTotalCPU:              intPtrForMachinePoolTest(8),
+		MinMachineCPU:            intPtrForMachinePoolTest(0),
 		MaxMachineCPU:            intPtrForMachinePoolTest(4),
 	})
 	if err != nil {
@@ -2867,6 +2936,7 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		!sameJSON(updated.DefaultMachineEnvOverlay, envOverlay) ||
 		updated.DefaultCwd != "/before" ||
 		updated.MaxTotalCPU != nil ||
+		updated.MinMachineCPU == nil || *updated.MinMachineCPU != 0 ||
 		updated.MaxMachineCPU == nil || *updated.MaxMachineCPU != 4 ||
 		updated.MachinePoolID != machinePool.ID {
 		t.Fatalf("updated grant patch mismatch: %+v", updated)
@@ -2878,8 +2948,21 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get updated grant: %v", err)
 	}
-	if fetched.Description != "after" || fetched.MaxTotalCPU != nil {
+	if fetched.Description != "after" || fetched.MaxTotalCPU != nil ||
+		fetched.MinMachineCPU == nil || *fetched.MinMachineCPU != 0 {
 		t.Fatalf("fetched grant did not persist patch: %+v", fetched)
+	}
+	cleared, err := store.Execution().UpdateProjectMachinePoolGrant(ctx, executionstore.UpdateProjectMachinePoolGrantInput{
+		OrgID:         testOrgID,
+		ProjectID:     testProjectID,
+		ID:            grant.ID,
+		MinMachineCPU: patch.NullableInt{Set: true},
+	})
+	if err != nil {
+		t.Fatalf("clear grant minimum: %v", err)
+	}
+	if cleared.MinMachineCPU != nil {
+		t.Fatalf("cleared grant minimum = %v, want nil", cleared.MinMachineCPU)
 	}
 
 	two := 2

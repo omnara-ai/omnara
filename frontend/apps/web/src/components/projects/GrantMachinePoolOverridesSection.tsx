@@ -174,7 +174,6 @@ export function PoolGrantOverrideFields({
       />
       <Field>
         <FieldLabel>Limits</FieldLabel>
-        <FieldDescription>Caps machines granted to this project.</FieldDescription>
         <div className="grid gap-4 sm:grid-cols-3">
           <NumberField
             id={`${idPrefix}-max-machines`}
@@ -197,6 +196,15 @@ export function PoolGrantOverrideFields({
                 }}
               />
               <NumberField
+                id={`${idPrefix}-min-machine-cpu`}
+                label="Min machine CPU"
+                value={values.minMachineCpu}
+                placeholder={numberPlaceholder(pool.min_machine_cpu)}
+                onValueChange={(minMachineCpu) => {
+                  onChange({ ...values, minMachineCpu })
+                }}
+              />
+              <NumberField
                 id={`${idPrefix}-max-machine-cpu`}
                 label="Max machine CPU"
                 value={values.maxMachineCpu}
@@ -216,6 +224,15 @@ export function PoolGrantOverrideFields({
                 placeholder={numberPlaceholder(pool.max_total_memory_mb)}
                 onValueChange={(maxTotalMemoryMb) => {
                   onChange({ ...values, maxTotalMemoryMb })
+                }}
+              />
+              <NumberField
+                id={`${idPrefix}-min-machine-memory`}
+                label="Min machine memory (MB)"
+                value={values.minMachineMemoryMb}
+                placeholder={numberPlaceholder(pool.min_machine_memory_mb)}
+                onValueChange={(minMachineMemoryMb) => {
+                  onChange({ ...values, minMachineMemoryMb })
                 }}
               />
               <NumberField
