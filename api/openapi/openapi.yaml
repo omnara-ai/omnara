@@ -8378,15 +8378,41 @@ components:
         token_type:
           type: string
           minLength: 1
+    AWSCredentialsSecretMaterial:
+      type: object
+      additionalProperties: false
+      required: [kind, access_key_id, secret_access_key]
+      properties:
+        kind:
+          type: string
+          enum: [aws_credentials]
+        access_key_id:
+          type: string
+          minLength: 1
+        secret_access_key:
+          type: string
+          minLength: 1
+        session_token:
+          type: string
+          minLength: 1
+        role_arn:
+          type: string
+          minLength: 1
+        external_id:
+          type: string
+          minLength: 1
+          description: Requires role_arn.
     SecretMaterial:
       oneOf:
         - $ref: '#/components/schemas/GenericSecretMaterial'
         - $ref: '#/components/schemas/OAuthTokenSetSecretMaterial'
+        - $ref: '#/components/schemas/AWSCredentialsSecretMaterial'
       discriminator:
         propertyName: kind
         mapping:
           generic: '#/components/schemas/GenericSecretMaterial'
           oauth_token_set: '#/components/schemas/OAuthTokenSetSecretMaterial'
+          aws_credentials: '#/components/schemas/AWSCredentialsSecretMaterial'
     CreateSecretRequest:
       type: object
       additionalProperties: false
@@ -8431,11 +8457,12 @@ components:
           $ref: '#/components/schemas/ProjectID'
     SecretKind:
       type: string
-      enum: [generic, oauth_token_set, slack_app_credentials]
+      enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials]
       x-enum-varnames:
         - SecretKindGeneric
         - SecretKindOAuthTokenSet
         - SecretKindSlackAppCredentials
+        - SecretKindAWSCredentials
     Secret:
       type: object
       additionalProperties: false

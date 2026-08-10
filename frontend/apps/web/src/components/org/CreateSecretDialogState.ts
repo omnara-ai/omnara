@@ -2,12 +2,13 @@ import type { Secret } from '@omnara/sdk'
 
 import { newOAuthTokenSetEntries, type OAuthEntry } from '@/lib/oauthEntries'
 
-export type SecretKind = 'generic' | 'oauth_token_set' | 'mcp_oauth'
+export type SecretKind = 'generic' | 'oauth_token_set' | 'mcp_oauth' | 'aws_credentials'
 
 export const secretKinds = [
   { value: 'generic', label: 'Generic' },
   { value: 'oauth_token_set', label: 'OAuth token set' },
   { value: 'mcp_oauth', label: 'MCP OAuth secret' },
+  { value: 'aws_credentials', label: 'AWS credentials' },
 ] satisfies { value: SecretKind; label: string }[]
 
 export function isSecretKind(value: string): value is SecretKind {
@@ -18,6 +19,7 @@ export type SecretFormSecret =
   | GenericSecretFormSecret
   | OAuthTokenSetSecretFormSecret
   | McpOAuthSecretFormSecret
+  | AWSCredentialsSecretFormSecret
 
 export interface GenericSecretFormSecret {
   kind: 'generic'
@@ -34,6 +36,15 @@ export interface McpOAuthSecretFormSecret {
   serverUrl: string
   clientId: string
   clientSecret?: string
+}
+
+export interface AWSCredentialsSecretFormSecret {
+  kind: 'aws_credentials'
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken: string
+  roleArn: string
+  externalId: string
 }
 
 export interface SecretDialogState {
@@ -55,6 +66,7 @@ export type SecretDialogAction =
   | { type: 'set-kind'; kind: SecretKind }
   | { type: 'set-generic-value'; value: string }
   | { type: 'patch-mcp-oauth'; patch: Partial<McpOAuthSecretFormSecret> }
+  | { type: 'patch-aws-credentials'; patch: Partial<AWSCredentialsSecretFormSecret> }
   | { type: 'set-oauth-entries'; entries: OAuthEntry[] }
   | { type: 'set-project-grant-ids'; ids: string[] }
   | { type: 'submit-start' }
@@ -90,6 +102,16 @@ export function newSecretFormSecret(kind: SecretKind): SecretFormSecret {
       clientId: '',
     }
   }
+  if (kind === 'aws_credentials') {
+    return {
+      kind,
+      accessKeyId: '',
+      secretAccessKey: '',
+      sessionToken: '',
+      roleArn: '',
+      externalId: '',
+    }
+  }
   return {
     kind: 'generic',
     value: '',
@@ -111,6 +133,10 @@ export function secretDialogReducer(
         : state
     case 'patch-mcp-oauth':
       return state.secret.kind === 'mcp_oauth'
+        ? { ...state, secret: { ...state.secret, ...action.patch } }
+        : state
+    case 'patch-aws-credentials':
+      return state.secret.kind === 'aws_credentials'
         ? { ...state, secret: { ...state.secret, ...action.patch } }
         : state
     case 'set-oauth-entries':

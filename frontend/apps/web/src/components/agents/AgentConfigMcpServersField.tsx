@@ -1,12 +1,11 @@
-import { useProjectAvailableSecrets } from '@omnara/react'
-import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
+import type { ToolPermissionProfile } from '@omnara/sdk'
 import { Trash2Icon } from 'lucide-react'
 
 import type { BasicMcpServer, McpAuthType } from '@/components/agents/agentConfigBasicSerialization'
+import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import {
   Select,
   SelectContent,
@@ -14,14 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
-import { useTypeaheadSearch } from '@/hooks/use-resource-list'
 
-const SecretCombobox = createResourceCombobox<Secret>({
-  itemKey: (secret) => secret.id,
-  itemLabel: (secret) => secret.name,
-  placeholder: 'Select secret',
-})
+const awsSigningFields = [
+  { key: 'service', label: 'Signing service' },
+  { key: 'region', label: 'Signing region' },
+] as const
 
 function newMcpServer(permissionProfile: ToolPermissionProfile): BasicMcpServer {
   return {
@@ -32,6 +28,8 @@ function newMcpServer(permissionProfile: ToolPermissionProfile): BasicMcpServer 
     defaultEnabled: true,
     authType: 'none',
     secretId: '',
+    service: '',
+    region: '',
   }
 }
 
@@ -170,7 +168,12 @@ export function AgentConfigMcpServersField({
                     <Select
                       value={server.authType}
                       onValueChange={(authType: McpAuthType) => {
-                        updateServer(server.id, { authType, secretId: '' })
+                        updateServer(server.id, {
+                          authType,
+                          secretId: '',
+                          service: '',
+                          region: '',
+                        })
                       }}
                     >
                       <SelectTrigger className="w-full" aria-label="MCP auth type">
@@ -180,13 +183,14 @@ export function AgentConfigMcpServersField({
                         <SelectItem value="none">None</SelectItem>
                         <SelectItem value="oauth">OAuth secret</SelectItem>
                         <SelectItem value="bearer">Bearer secret</SelectItem>
+                        <SelectItem value="sigv4">AWS Signature V4</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
                   {server.authType !== 'none' && (
                     <Field>
                       <FieldLabel>Secret</FieldLabel>
-                      <McpSecretCombobox
+                      <AgentConfigMcpSecretCombobox
                         orgId={orgId}
                         projectId={projectId}
                         server={server}
@@ -197,10 +201,27 @@ export function AgentConfigMcpServersField({
                       <FieldDescription>
                         {server.authType === 'oauth'
                           ? 'OAuth token sets whose MCP URL matches this server URL.'
-                          : 'Any generic secret visible to this project.'}
+                          : server.authType === 'sigv4'
+                            ? 'AWS credentials visible to this project.'
+                            : 'Any generic secret visible to this project.'}
                       </FieldDescription>
                     </Field>
                   )}
+                  {server.authType === 'sigv4' &&
+                    awsSigningFields.map((field) => (
+                      <Field key={field.key}>
+                        <FieldLabel htmlFor={`${server.id}-aws-${field.key}`}>
+                          {field.label}
+                        </FieldLabel>
+                        <Input
+                          id={`${server.id}-aws-${field.key}`}
+                          value={server[field.key]}
+                          onChange={(event) => {
+                            updateServer(server.id, { [field.key]: event.target.value })
+                          }}
+                        />
+                      </Field>
+                    ))}
                 </div>
                 <Button
                   type="button"
@@ -225,46 +246,4 @@ export function AgentConfigMcpServersField({
 
 function permissionModeLabel(profile: ToolPermissionProfile | undefined, value: string) {
   return profile?.permission_modes.find((mode) => mode.name === value)?.label ?? value
-}
-
-function McpSecretCombobox({
-  orgId,
-  projectId,
-  server,
-  onChange,
-}: {
-  orgId: string
-  projectId: string
-  server: BasicMcpServer
-  onChange: (secretId: string) => void
-}) {
-  const search = useTypeaheadSearch()
-  const oauth = server.authType === 'oauth'
-  const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
-    filters: {
-      ...search.filters,
-      ...(oauth ? { metadata: { mcp_url: server.url.trim() } } : {}),
-    },
-    sort: 'name',
-    pageSize: 25,
-  })
-  const secrets = useInfiniteQueryItems(secretsQuery)
-    .map((access) => access.secret)
-    .filter((secret) => (oauth ? secret.kind === 'oauth_token_set' : secret.kind === 'generic'))
-
-  return (
-    <SecretCombobox
-      items={secrets}
-      value={server.secretId || null}
-      onValueChange={(secret) => {
-        onChange(secret?.id ?? '')
-      }}
-      search={search}
-      query={secretsQuery}
-      placeholder={secretsQuery.isPending ? 'Loading secrets…' : 'Select secret'}
-      emptyMessage={
-        oauth ? 'No OAuth secrets match this server URL.' : 'No generic secrets in this project.'
-      }
-    />
-  )
 }

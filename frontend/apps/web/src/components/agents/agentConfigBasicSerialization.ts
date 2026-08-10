@@ -14,7 +14,7 @@ import {
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 
-export type McpAuthType = 'none' | 'oauth' | 'bearer'
+export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 
 export interface BasicMcpServer {
   id: string
@@ -24,6 +24,8 @@ export interface BasicMcpServer {
   defaultEnabled: boolean
   authType: McpAuthType
   secretId: string
+  service: string
+  region: string
 }
 
 export type MachineSourceKind = 'pool' | 'machine'
@@ -87,7 +89,10 @@ export function isBasicConfigComplete(config: BasicConfig) {
       return (
         mcpServerNamePattern.test(serverName) &&
         server.url.trim() !== '' &&
-        (server.authType === 'none' || server.secretId.trim() !== '')
+        (server.authType === 'none' ||
+          (server.secretId.trim() !== '' &&
+            (server.authType !== 'sigv4' ||
+              (server.service.trim() !== '' && server.region.trim() !== ''))))
       )
     })
   )
@@ -190,6 +195,10 @@ export function serializeBasicConfig(config: BasicConfig) {
         lines.push('    auth:')
         lines.push(`      type: ${server.authType}`)
         lines.push(`      secret_id: ${yamlString(server.secretId.trim())}`)
+        if (server.authType === 'sigv4') {
+          lines.push(`      service: ${yamlString(server.service.trim())}`)
+          lines.push(`      region: ${yamlString(server.region.trim())}`)
+        }
       }
     }
   }

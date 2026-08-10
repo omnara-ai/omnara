@@ -20,6 +20,7 @@ const (
 	SecretKindGeneric             = secrets.KindGeneric
 	SecretKindOAuthTokenSet       = secrets.KindOAuthTokenSet
 	SecretKindSlackAppCredentials = secrets.KindSlackAppCredentials
+	SecretKindAWSCredentials      = secrets.KindAWSCredentials
 
 	MaxSecretMetadataBytes = 16 * 1024
 )

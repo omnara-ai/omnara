@@ -27,6 +27,7 @@ import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { savePendingMcpSecretGrants } from '@/lib/pending-mcp-secret-grants'
 import { errorMessage } from '@/lib/submit-status'
 
+import { AWSCredentialsSecretFields } from './AWSCredentialsSecretFields'
 import {
   isSecretKind,
   newSecretDialogState,
@@ -62,9 +63,13 @@ export function CreateSecretDialog({
     state.name.trim() !== '' &&
     (state.secret.kind === 'generic'
       ? state.secret.value !== ''
-      : state.secret.kind === 'mcp_oauth'
-        ? validMcpUrl
-        : oauthMaterial !== undefined)
+      : state.secret.kind === 'aws_credentials'
+        ? state.secret.accessKeyId.trim() !== '' &&
+          state.secret.secretAccessKey.trim() !== '' &&
+          (state.secret.externalId.trim() === '' || state.secret.roleArn.trim() !== '')
+        : state.secret.kind === 'mcp_oauth'
+          ? validMcpUrl
+          : oauthMaterial !== undefined)
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -95,7 +100,22 @@ export function CreateSecretDialog({
         const material =
           state.secret.kind === 'generic'
             ? ({ kind: 'generic', value: state.secret.value } as const)
-            : oauthTokenSetMaterial(state.secret.entries)
+            : state.secret.kind === 'aws_credentials'
+              ? ({
+                  kind: 'aws_credentials',
+                  access_key_id: state.secret.accessKeyId.trim(),
+                  secret_access_key: state.secret.secretAccessKey.trim(),
+                  ...(state.secret.sessionToken.trim() !== ''
+                    ? { session_token: state.secret.sessionToken.trim() }
+                    : {}),
+                  ...(state.secret.roleArn.trim() !== ''
+                    ? { role_arn: state.secret.roleArn.trim() }
+                    : {}),
+                  ...(state.secret.externalId.trim() !== ''
+                    ? { external_id: state.secret.externalId.trim() }
+                    : {}),
+                } as const)
+              : oauthTokenSetMaterial(state.secret.entries)
         if (material === undefined) {
           throw new Error('OAuth token material is incomplete')
         }
@@ -204,6 +224,13 @@ export function CreateSecretDialog({
                 />
                 <FieldDescription>Stored under the key value.</FieldDescription>
               </Field>
+            ) : state.secret.kind === 'aws_credentials' ? (
+              <AWSCredentialsSecretFields
+                value={state.secret}
+                onChange={(patch) => {
+                  dispatch({ type: 'patch-aws-credentials', patch })
+                }}
+              />
             ) : state.secret.kind === 'mcp_oauth' ? (
               <McpOAuthSecretFields
                 value={state.secret}

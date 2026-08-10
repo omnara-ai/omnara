@@ -41,6 +41,16 @@ type SlackAppCredentialsMaterial struct {
 
 func (SlackAppCredentialsMaterial) secretMaterial() {}
 
+type AWSCredentialsMaterial struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
+	RoleARN         string
+	ExternalID      string
+}
+
+func (AWSCredentialsMaterial) secretMaterial() {}
+
 type CanonicalMaterial struct {
 	Kind                     Kind
 	Payload                  Payload
@@ -76,6 +86,15 @@ func CanonicalizeMaterial(material Material) (CanonicalMaterial, error) {
 			KeyClientSecret:  value.ClientSecret,
 			KeySigningSecret: value.SigningSecret,
 		}
+	case AWSCredentialsMaterial:
+		canonical.Kind = KindAWSCredentials
+		canonical.Payload = Payload{
+			KeyAWSAccessKeyID:     value.AccessKeyID,
+			KeyAWSSecretAccessKey: value.SecretAccessKey,
+		}
+		setMaterialValue(canonical.Payload, KeyAWSSessionToken, value.SessionToken)
+		setMaterialValue(canonical.Payload, KeyAWSRoleARN, value.RoleARN)
+		setMaterialValue(canonical.Payload, KeyAWSExternalID, value.ExternalID)
 	default:
 		return CanonicalMaterial{}, fmt.Errorf("unsupported secret material %T", material)
 	}

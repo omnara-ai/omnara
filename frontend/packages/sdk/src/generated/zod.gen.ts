@@ -1389,9 +1389,19 @@ export const zOAuthTokenSetSecretMaterial = z.object({
     token_type: z.string().min(1).optional()
 });
 
+export const zAwsCredentialsSecretMaterial = z.object({
+    kind: z.enum(['aws_credentials']),
+    access_key_id: z.string().min(1),
+    secret_access_key: z.string().min(1),
+    session_token: z.string().min(1).optional(),
+    role_arn: z.string().min(1).optional(),
+    external_id: z.string().min(1).optional()
+});
+
 export const zSecretMaterial = z.discriminatedUnion('kind', [
     zGenericSecretMaterial.extend({ kind: z.literal('generic') }),
-    zOAuthTokenSetSecretMaterial.extend({ kind: z.literal('oauth_token_set') })
+    zOAuthTokenSetSecretMaterial.extend({ kind: z.literal('oauth_token_set') }),
+    zAwsCredentialsSecretMaterial.extend({ kind: z.literal('aws_credentials') })
 ]);
 
 export const zCreateSecretRequest = z.object({
@@ -1417,7 +1427,8 @@ export const zSecretGrantCreateRequest = z.object({
 export const zSecretKind = z.enum([
     'generic',
     'oauth_token_set',
-    'slack_app_credentials'
+    'slack_app_credentials',
+    'aws_credentials'
 ]);
 
 export const zSecret = z.object({
