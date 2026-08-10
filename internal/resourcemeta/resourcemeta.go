@@ -19,12 +19,19 @@ func (m Metadata) Validate() error {
 		return fmt.Errorf("metadata cannot have more than %d entries", MaxEntries)
 	}
 	for key, value := range m {
-		if key == "" || utf8.RuneCountInString(key) > MaxKeyLength {
-			return fmt.Errorf("metadata keys must be 1-%d characters", MaxKeyLength)
+		if err := ValidateEntry(key, value); err != nil {
+			return err
 		}
-		if utf8.RuneCountInString(value) > MaxValueLength {
-			return fmt.Errorf("metadata values must be at most %d characters", MaxValueLength)
-		}
+	}
+	return nil
+}
+
+func ValidateEntry(key, value string) error {
+	if key == "" || utf8.RuneCountInString(key) > MaxKeyLength {
+		return fmt.Errorf("metadata keys must be 1-%d characters", MaxKeyLength)
+	}
+	if utf8.RuneCountInString(value) > MaxValueLength {
+		return fmt.Errorf("metadata values must be at most %d characters", MaxValueLength)
 	}
 	return nil
 }

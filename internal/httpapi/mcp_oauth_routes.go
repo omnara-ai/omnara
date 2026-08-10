@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -433,22 +434,37 @@ func (s *Server) saveMCPOAuthSecret(
 	return existing.ID, nil
 }
 
+// mcpOAuthSecretMetadata merges the flow's metadata for the saved secret:
+// mcp_url and provided pairs always win, then existing pairs are kept in
+// sorted key order while they fit the metadata limits, so re-authorizing
+// never fails on metadata carried over from the stored secret.
 func mcpOAuthSecretMetadata(
 	existing json.RawMessage,
 	provided resourcemeta.Metadata,
 	mcpURL string,
 ) (resourcemeta.Metadata, error) {
 	metadata := resourcemeta.Metadata{}
-	if provided != nil {
-		maps.Copy(metadata, provided)
-	} else if len(existing) > 0 {
-		decoded, err := resourcemeta.FromJSON(existing)
-		if err != nil {
-			return nil, fmt.Errorf("parse existing secret metadata: %w", err)
-		}
-		metadata = decoded
-	}
+	maps.Copy(metadata, provided)
 	metadata[secrets.KeyMCPURL] = mcpURL
+	if len(existing) == 0 {
+		return metadata, nil
+	}
+	decoded, err := resourcemeta.FromJSON(existing)
+	if err != nil {
+		return nil, fmt.Errorf("parse existing secret metadata: %w", err)
+	}
+	for _, key := range slices.Sorted(maps.Keys(decoded)) {
+		if len(metadata) >= resourcemeta.MaxEntries {
+			break
+		}
+		if _, ok := metadata[key]; ok {
+			continue
+		}
+		if resourcemeta.ValidateEntry(key, decoded[key]) != nil {
+			continue
+		}
+		metadata[key] = decoded[key]
+	}
 	return metadata, nil
 }
 
