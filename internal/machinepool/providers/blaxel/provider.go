@@ -23,6 +23,7 @@ const (
 	wakePortProtocol                          = "HTTP"
 	processStatusRunning sandboxProcessStatus = "running"
 
+	// Blaxel sandbox states follow https://docs.blaxel.ai/api-reference/compute/get-sandbox.
 	sandboxDeploymentDeployed     sandboxDeploymentStatus = "DEPLOYED"
 	sandboxDeploymentDeactivating sandboxDeploymentStatus = "DEACTIVATING"
 	sandboxDeploymentDeleting     sandboxDeploymentStatus = "DELETING"

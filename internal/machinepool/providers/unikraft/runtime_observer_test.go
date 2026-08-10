@@ -345,6 +345,7 @@ func TestUnikraftRuntimeStateMapping(t *testing.T) {
 		{name: "stopping", result: instance{Status: "success", State: "stopping"}, want: providers.RuntimeStateTransitional},
 		{name: "deleted", result: instance{Status: "success", State: "deleted"}, want: providers.RuntimeStateTerminated},
 		{name: "template", result: instance{Status: "success", State: "template"}, want: providers.RuntimeStateUnknown},
+		{name: "checkpoint", result: instance{Status: "success", State: "checkpoint"}, want: providers.RuntimeStateUnknown},
 		{
 			name: "future state", result: instance{Status: "success", State: "hibernating"},
 			want: providers.RuntimeStateUnknown,

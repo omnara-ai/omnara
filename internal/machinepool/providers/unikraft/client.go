@@ -12,10 +12,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
+// APIHTTPErrorNotFound is defined by Unikraft's SDK as error code 8.
+// https://github.com/unikraft-cloud/go-sdk/blob/prod-stable/platform/errors.go
 const instanceNotFoundErrorCode = 8
 
 type responseStatus string
 
+// Unikraft response statuses follow the ResponseStatus OpenAPI schema.
+// https://github.com/unikraft-cloud/openapi/blob/prod-stable/platform.yaml
 const (
 	responseStatusSuccess        responseStatus = "success"
 	responseStatusError          responseStatus = "error"
@@ -24,15 +28,18 @@ const (
 
 type instanceState string
 
+// Unikraft instance states follow the InstanceState OpenAPI schema.
+// https://github.com/unikraft-cloud/openapi/blob/prod-stable/platform.yaml
 const (
-	instanceStateStopped  instanceState = "stopped"
-	instanceStateStarting instanceState = "starting"
-	instanceStateRunning  instanceState = "running"
-	instanceStateDraining instanceState = "draining"
-	instanceStateStopping instanceState = "stopping"
-	instanceStateTemplate instanceState = "template"
-	instanceStateStandby  instanceState = "standby"
-	instanceStateDeleted  instanceState = "deleted"
+	instanceStateStopped    instanceState = "stopped"
+	instanceStateStarting   instanceState = "starting"
+	instanceStateRunning    instanceState = "running"
+	instanceStateDraining   instanceState = "draining"
+	instanceStateStopping   instanceState = "stopping"
+	instanceStateTemplate   instanceState = "template"
+	instanceStateStandby    instanceState = "standby"
+	instanceStateDeleted    instanceState = "deleted"
+	instanceStateCheckpoint instanceState = "checkpoint"
 )
 
 type apiClient interface {

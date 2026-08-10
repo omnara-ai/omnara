@@ -19,6 +19,7 @@ const (
 	daemonSessionName   = "omnara-daemon"
 	provisioningTimeout = time.Minute
 
+	// Daytona sandbox states follow https://www.daytona.io/docs/en/go-sdk/daytona/#constants.
 	sandboxStateCreating         sandboxState = "creating"
 	sandboxStateRestoring        sandboxState = "restoring"
 	sandboxStateDestroyed        sandboxState = "destroyed"

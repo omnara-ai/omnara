@@ -248,7 +248,7 @@ func normalizeRuntimeState(result instance) providers.RuntimeState {
 		return providers.RuntimeStateTransitional
 	case instanceStateDeleted:
 		return providers.RuntimeStateTerminated
-	case instanceStateTemplate:
+	case instanceStateTemplate, instanceStateCheckpoint:
 		return providers.RuntimeStateUnknown
 	default:
 		return providers.RuntimeStateUnknown
