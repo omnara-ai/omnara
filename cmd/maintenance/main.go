@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -180,7 +181,7 @@ func runProviderRuntimeMaintenanceLoop(
 	for {
 		started := time.Now()
 		stats, err := runProviderRuntimeMaintenanceTick(ctx, log, operation, run)
-		recordProviderRuntimePass(recorder, operation, stats, err, time.Since(started))
+		recordProviderRuntimePass(recorder, operation, stats, err, ctx.Err(), time.Since(started))
 		if err != nil && ctx.Err() == nil {
 			log.Error("provider runtime reconciliation", "operation", operation, "error", err, "stats", stats)
 		} else if stats.Targets > 0 || stats.MarkersSet > 0 || stats.DeletionClaims > 0 {
@@ -223,28 +224,42 @@ func recordProviderRuntimePass(
 	operation metrics.ProviderRuntimeOperation,
 	stats machinepool.RuntimeReconciliationStats,
 	err error,
+	shutdownErr error,
 	duration time.Duration,
 ) {
-	result := metrics.ProviderRuntimeResultSuccess
-	if err != nil {
-		result = metrics.ProviderRuntimeResultError
-	}
+	result := providerRuntimeResult(err, shutdownErr)
 	recorder.RecordPass(operation, result, duration)
 	for event, count := range map[metrics.ProviderRuntimeEvent]int{
-		metrics.ProviderRuntimeEventPages:              stats.Pages,
-		metrics.ProviderRuntimeEventScopes:             stats.Scopes,
-		metrics.ProviderRuntimeEventScopeCooldownSkips: stats.ScopesSkipped,
-		metrics.ProviderRuntimeEventTargets:            stats.Targets,
-		metrics.ProviderRuntimeEventObservations:       stats.Observed,
-		metrics.ProviderRuntimeEventProviderErrors:     stats.ProviderErrors,
-		metrics.ProviderRuntimeEventMarkersSet:         stats.MarkersSet,
-		metrics.ProviderRuntimeEventMarkersCleared:     stats.MarkersCleared,
-		metrics.ProviderRuntimeEventConfirmations:      stats.Confirmations,
-		metrics.ProviderRuntimeEventDeletionClaims:     stats.DeletionClaims,
-		metrics.ProviderRuntimeEventDeletionClaimRaces: stats.DeletionClaimRaces,
+		metrics.ProviderRuntimeEventPages:                 stats.Pages,
+		metrics.ProviderRuntimeEventScopes:                stats.Scopes,
+		metrics.ProviderRuntimeEventScopeCooldownSkips:    stats.ScopesSkipped,
+		metrics.ProviderRuntimeEventTargets:               stats.Targets,
+		metrics.ProviderRuntimeEventObservations:          stats.Observed,
+		metrics.ProviderRuntimeEventRunning:               stats.Running,
+		metrics.ProviderRuntimeEventInactive:              stats.Inactive,
+		metrics.ProviderRuntimeEventTransitional:          stats.Transitional,
+		metrics.ProviderRuntimeEventTerminated:            stats.Terminated,
+		metrics.ProviderRuntimeEventUnknown:               stats.Unknown,
+		metrics.ProviderRuntimeEventProviderErrors:        stats.ProviderErrors,
+		metrics.ProviderRuntimeEventMarkersSet:            stats.MarkersSet,
+		metrics.ProviderRuntimeEventMarkersCleared:        stats.MarkersCleared,
+		metrics.ProviderRuntimeEventWakeAttemptsCleared:   stats.WakeAttemptsCleared,
+		metrics.ProviderRuntimeEventConfirmations:         stats.Confirmations,
+		metrics.ProviderRuntimeEventDeletionClaims:        stats.DeletionClaims,
+		metrics.ProviderRuntimeEventDeletionClaimsSkipped: stats.DeletionClaimsSkipped,
 	} {
 		recorder.RecordEvents(operation, event, count)
 	}
+}
+
+func providerRuntimeResult(err, shutdownErr error) metrics.ProviderRuntimeResult {
+	if err == nil {
+		return metrics.ProviderRuntimeResultSuccess
+	}
+	if errors.Is(err, context.Canceled) && shutdownErr != nil {
+		return metrics.ProviderRuntimeResultCanceled
+	}
+	return metrics.ProviderRuntimeResultError
 }
 
 func jitteredMaintenanceDelay(interval time.Duration) time.Duration {

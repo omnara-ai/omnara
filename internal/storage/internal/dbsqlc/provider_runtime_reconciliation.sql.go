@@ -13,6 +13,95 @@ import (
 	"github.com/google/uuid"
 )
 
+const applyProviderRuntimeInactiveObservation = `-- name: ApplyProviderRuntimeInactiveObservation :one
+UPDATE machines machine
+SET provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = CASE
+      WHEN $1::boolean
+        OR machine.wake_attempt_expires_at <= statement_timestamp()
+        THEN NULL
+      ELSE machine.wake_attempt_expires_at
+    END,
+    updated_at = statement_timestamp()
+FROM daemon_runtimes runtime
+WHERE machine.org_id = $2
+  AND machine.id = $3
+  AND machine.machine_pool_id = $4::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.lifecycle_version = $5::bigint
+  AND machine.deleted_at IS NULL
+  AND machine.provider = $6
+  AND machine.provider_resource_id = $7
+  AND machine.provider_runtime_mismatch_since IS NOT DISTINCT FROM $8::timestamptz
+  AND machine.wake_attempt_expires_at IS NOT DISTINCT FROM $9::timestamptz
+  AND (
+    machine.provider_runtime_mismatch_since IS NOT NULL
+    OR (
+      machine.wake_attempt_expires_at IS NOT NULL
+      AND (
+        $1::boolean
+        OR machine.wake_attempt_expires_at <= statement_timestamp()
+      )
+    )
+  )
+  AND machine.current_daemon_runtime_id = $10::uuid
+  AND runtime.org_id = machine.org_id
+  AND runtime.machine_id = machine.id
+  AND runtime.id = machine.current_daemon_runtime_id
+  AND (CASE
+    WHEN machine.asleep_since IS NOT NULL THEN machine.asleep_since
+    WHEN runtime.state = 'active' AND runtime.lease_expires_at <= statement_timestamp()
+      THEN runtime.lease_expires_at
+    WHEN runtime.state = 'ended'
+      THEN LEAST(runtime.ended_at, runtime.lease_expires_at)
+    ELSE NULL
+  END) = $11::timestamptz
+RETURNING machine.id,
+  CASE WHEN $9::timestamptz IS NOT NULL
+      AND machine.wake_attempt_expires_at IS NULL
+    THEN true ELSE false
+  END AS wake_attempt_cleared
+`
+
+type ApplyProviderRuntimeInactiveObservationParams struct {
+	ClearActiveWake      bool
+	OrgID                uuid.UUID
+	MachineID            uuid.UUID
+	MachinePoolID        uuid.UUID
+	LifecycleVersion     int64
+	Provider             string
+	ProviderResourceID   *string
+	MismatchSince        *time.Time
+	WakeAttemptExpiresAt *time.Time
+	DaemonRuntimeID      uuid.UUID
+	InactiveSince        time.Time
+}
+
+type ApplyProviderRuntimeInactiveObservationRow struct {
+	ID                 uuid.UUID
+	WakeAttemptCleared bool
+}
+
+func (q *Queries) ApplyProviderRuntimeInactiveObservation(ctx context.Context, arg ApplyProviderRuntimeInactiveObservationParams) (ApplyProviderRuntimeInactiveObservationRow, error) {
+	row := q.db.QueryRow(ctx, applyProviderRuntimeInactiveObservation,
+		arg.ClearActiveWake,
+		arg.OrgID,
+		arg.MachineID,
+		arg.MachinePoolID,
+		arg.LifecycleVersion,
+		arg.Provider,
+		arg.ProviderResourceID,
+		arg.MismatchSince,
+		arg.WakeAttemptExpiresAt,
+		arg.DaemonRuntimeID,
+		arg.InactiveSince,
+	)
+	var i ApplyProviderRuntimeInactiveObservationRow
+	err := row.Scan(&i.ID, &i.WakeAttemptCleared)
+	return i, err
+}
+
 const claimProviderRuntimeMismatchDeletion = `-- name: ClaimProviderRuntimeMismatchDeletion :one
 UPDATE machines machine
 SET lifecycle_state = 'deleting',
@@ -23,6 +112,7 @@ SET lifecycle_state = 'deleting',
     next_reconcile_after = statement_timestamp()
       + $1::bigint * interval '1 second',
     delete_attempts = machine.delete_attempts + 1,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 FROM daemon_runtimes runtime
 WHERE machine.org_id = $2
@@ -37,6 +127,10 @@ WHERE machine.org_id = $2
   AND machine.provider_runtime_mismatch_since = $8::timestamptz
   AND machine.provider_runtime_mismatch_since <= statement_timestamp()
       - $9::bigint * interval '1 millisecond'
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= statement_timestamp()
+  )
   AND machine.current_daemon_runtime_id = $10::uuid
   AND runtime.org_id = machine.org_id
   AND runtime.machine_id = machine.id
@@ -171,48 +265,6 @@ func (q *Queries) ClaimProviderRuntimeMismatchDeletion(ctx context.Context, arg 
 	return i, err
 }
 
-const clearProviderRuntimeMismatch = `-- name: ClearProviderRuntimeMismatch :one
-UPDATE machines
-SET provider_runtime_mismatch_since = NULL,
-    updated_at = statement_timestamp()
-WHERE org_id = $1
-  AND id = $2
-  AND machine_pool_id = $3::uuid
-  AND source_kind = 'pool'
-  AND lifecycle_state = 'active'
-  AND lifecycle_version = $4::bigint
-  AND deleted_at IS NULL
-  AND provider = $5
-  AND provider_resource_id = $6
-  AND provider_runtime_mismatch_since = $7::timestamptz
-RETURNING id
-`
-
-type ClearProviderRuntimeMismatchParams struct {
-	OrgID              uuid.UUID
-	MachineID          uuid.UUID
-	MachinePoolID      uuid.UUID
-	LifecycleVersion   int64
-	Provider           string
-	ProviderResourceID *string
-	MismatchSince      time.Time
-}
-
-func (q *Queries) ClearProviderRuntimeMismatch(ctx context.Context, arg ClearProviderRuntimeMismatchParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, clearProviderRuntimeMismatch,
-		arg.OrgID,
-		arg.MachineID,
-		arg.MachinePoolID,
-		arg.LifecycleVersion,
-		arg.Provider,
-		arg.ProviderResourceID,
-		arg.MismatchSince,
-	)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
-}
-
 const listDueProviderRuntimeMismatches = `-- name: ListDueProviderRuntimeMismatches :many
 SELECT scope.scope_key,
        machine.org_id,
@@ -227,6 +279,7 @@ SELECT scope.scope_key,
        machine.current_daemon_runtime_id,
        inactivity.inactive_since,
        machine.provider_runtime_mismatch_since,
+       machine.wake_attempt_expires_at,
        pool.management_kind,
        pool.provider_config,
        pool.provider_auth_secret_id,
@@ -314,6 +367,7 @@ type ListDueProviderRuntimeMismatchesRow struct {
 	CurrentDaemonRuntimeID       *uuid.UUID
 	InactiveSince                time.Time
 	ProviderRuntimeMismatchSince *time.Time
+	WakeAttemptExpiresAt         *time.Time
 	ManagementKind               string
 	ProviderConfig               json.RawMessage
 	ProviderAuthSecretID         *uuid.UUID
@@ -351,6 +405,7 @@ func (q *Queries) ListDueProviderRuntimeMismatches(ctx context.Context, arg List
 			&i.CurrentDaemonRuntimeID,
 			&i.InactiveSince,
 			&i.ProviderRuntimeMismatchSince,
+			&i.WakeAttemptExpiresAt,
 			&i.ManagementKind,
 			&i.ProviderConfig,
 			&i.ProviderAuthSecretID,
@@ -381,6 +436,7 @@ SELECT scope.scope_key,
        machine.current_daemon_runtime_id,
        inactivity.inactive_since,
        machine.provider_runtime_mismatch_since,
+       machine.wake_attempt_expires_at,
        pool.management_kind,
        pool.provider_config,
        pool.provider_auth_secret_id,
@@ -451,6 +507,7 @@ type ListProviderRuntimeDiscoveryCandidatesRow struct {
 	CurrentDaemonRuntimeID       *uuid.UUID
 	InactiveSince                time.Time
 	ProviderRuntimeMismatchSince *time.Time
+	WakeAttemptExpiresAt         *time.Time
 	ManagementKind               string
 	ProviderConfig               json.RawMessage
 	ProviderAuthSecretID         *uuid.UUID
@@ -481,6 +538,7 @@ func (q *Queries) ListProviderRuntimeDiscoveryCandidates(ctx context.Context, ar
 			&i.CurrentDaemonRuntimeID,
 			&i.InactiveSince,
 			&i.ProviderRuntimeMismatchSince,
+			&i.WakeAttemptExpiresAt,
 			&i.ManagementKind,
 			&i.ProviderConfig,
 			&i.ProviderAuthSecretID,

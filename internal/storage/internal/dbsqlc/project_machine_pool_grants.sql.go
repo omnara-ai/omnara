@@ -481,6 +481,7 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_message = 'project machine pool grant revoked',
     next_reconcile_after = statement_timestamp(),
     provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 FROM project_machine_grants pmgrant
 WHERE pmgrant.org_id = $1

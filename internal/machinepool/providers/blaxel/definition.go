@@ -26,7 +26,7 @@ type providerOptions struct {
 
 type Definition struct{}
 
-func (Definition) SupportsRuntimeObservation() bool { return true }
+var _ providers.RuntimeProviderDefinition = Definition{}
 
 func resourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
@@ -47,6 +47,20 @@ func (Definition) NewProvider(
 	raw json.RawMessage,
 	runtimeConfig providers.RuntimeConfig,
 ) (providers.Provider, error) {
+	return newProvider(raw, runtimeConfig)
+}
+
+func (Definition) NewRuntimeProvider(
+	raw json.RawMessage,
+	runtimeConfig providers.RuntimeConfig,
+) (providers.RuntimeProvider, error) {
+	return newProvider(raw, runtimeConfig)
+}
+
+func newProvider(
+	raw json.RawMessage,
+	runtimeConfig providers.RuntimeConfig,
+) (*provider, error) {
 	config, err := parseProviderConfig(raw)
 	if err != nil {
 		return nil, err

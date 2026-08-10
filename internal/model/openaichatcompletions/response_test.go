@@ -1,14 +1,17 @@
 package openaichatcompletions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -200,6 +203,7 @@ func TestParseResponseDistinguishesFreeAndUnavailableOpenRouterCost(t *testing.T
 	}{
 		{name: "free", cost: `,"cost":0`, want: "0"},
 		{name: "missing"},
+		{name: "null", cost: `,"cost":null`},
 		{name: "invalid negative", cost: `,"cost":-0.01`},
 		{name: "unrecognized shape", cost: `,"cost":{"total":0.01}`},
 	} {
@@ -216,6 +220,51 @@ func TestParseResponseDistinguishesFreeAndUnavailableOpenRouterCost(t *testing.T
 			}
 			if string(response.ProviderReportedCostUSD) != test.want {
 				t.Fatalf("provider-reported cost = %q, want %q", response.ProviderReportedCostUSD, test.want)
+			}
+		})
+	}
+}
+
+func TestParseResponseReportsInvalidOpenRouterCost(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		cost string
+	}{
+		{name: "negative", cost: `-0.01`},
+		{name: "unrecognized shape", cost: `{"total":0.01}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			base := logpkg.WithLogger(
+				context.Background(),
+				slog.New(logpkg.NewJSONHandler(&logs, nil)),
+			)
+			event := logpkg.NewEvent(base, "model.call")
+			ctx := logpkg.WithEvent(base, event)
+			p := protocol{client: Client{APIVariant: modelprotocol.APIVariantOpenRouter}}
+			body := json.RawMessage(`{"id":"chatcmpl_cost","model":"openai/gpt-5","choices":[{"index":0,` +
+				`"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
+				`"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":` + test.cost + `}}`)
+
+			response, err := p.ParseResponse(ctx, route.Response{StatusCode: http.StatusOK, Body: body})
+			if err != nil {
+				t.Fatalf("parse response with invalid OpenRouter cost: %v", err)
+			}
+			if response.ProviderReportedCostUSD != "" {
+				t.Fatalf("provider-reported cost = %q, want unavailable", response.ProviderReportedCostUSD)
+			}
+			event.Done(context.Background())
+
+			var record map[string]any
+			if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &record); err != nil {
+				t.Fatalf("decode model-call event: %v", err)
+			}
+			if record["level"] != "warn" ||
+				record["model_response.provider_reported_cost_usd.unavailable_reason"] != "invalid_provider_value" {
+				t.Fatalf("invalid provider cost event = %+v", record)
+			}
+			if strings.Contains(logs.String(), test.cost) {
+				t.Fatalf("model-call event included raw provider cost: %s", logs.String())
 			}
 		})
 	}

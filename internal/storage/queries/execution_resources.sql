@@ -52,7 +52,7 @@ WHERE org_id = sqlc.arg(org_id)
   AND deleted_at IS NULL
 RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled;
 
--- name: ClearMachinePoolRuntimeMismatchMarkers :exec
+-- name: ClearMachinePoolRuntimeMismatch :exec
 UPDATE machines
 SET provider_runtime_mismatch_since = NULL,
     updated_at = statement_timestamp()
@@ -108,6 +108,7 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_message = sqlc.arg(lifecycle_reason_message),
     next_reconcile_after = pool.deleted_at,
     provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = pool.deleted_at
 FROM machine_pools pool
 WHERE pool.org_id = sqlc.arg(org_id)
@@ -637,6 +638,7 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_message = sqlc.arg(lifecycle_reason_message),
     next_reconcile_after = statement_timestamp(),
     provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
@@ -695,6 +697,7 @@ SET lifecycle_state = 'deleting',
         THEN machine.provider_runtime_mismatch_since
       ELSE NULL
     END,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 FROM candidate
 WHERE machine.org_id = sqlc.arg(org_id)

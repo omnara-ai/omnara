@@ -261,7 +261,7 @@ jobs:
           BL_API_KEY: ${{ secrets.BL_API_KEY }}
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
-          UNIKRAFT_API_TOKEN: ${{ secrets.UNIKRAFT_API_TOKEN }}
+          UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
         run: |
           configured=false
           if [ -z "$OPENAI_API_KEY" ]; then
@@ -286,7 +286,7 @@ jobs:
             configured=true
           fi
           if { [ -n "$BL_API_KEY" ] && [ -n "$BL_WORKSPACE" ]; } || \
-             [ -n "$DAYTONA_API_KEY" ] || [ -n "$UNIKRAFT_API_TOKEN" ]; then
+             [ -n "$DAYTONA_API_KEY" ] || [ -n "$UNIKRAFT_API_KEY" ]; then
             echo "sandboxes=true" >> "$GITHUB_OUTPUT"
             configured=true
           else
@@ -360,7 +360,7 @@ jobs:
           BL_API_KEY: ${{ secrets.BL_API_KEY }}
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
-          UNIKRAFT_API_TOKEN: ${{ secrets.UNIKRAFT_API_TOKEN }}
+          UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
 
       - name: Show database logs on failure
         if: failure() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true')

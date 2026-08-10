@@ -12,6 +12,7 @@ SELECT scope.scope_key,
        machine.current_daemon_runtime_id,
        inactivity.inactive_since,
        machine.provider_runtime_mismatch_since,
+       machine.wake_attempt_expires_at,
        pool.management_kind,
        pool.provider_config,
        pool.provider_auth_secret_id,
@@ -75,6 +76,7 @@ SELECT scope.scope_key,
        machine.current_daemon_runtime_id,
        inactivity.inactive_since,
        machine.provider_runtime_mismatch_since,
+       machine.wake_attempt_expires_at,
        pool.management_kind,
        pool.provider_config,
        pool.provider_auth_secret_id,
@@ -176,21 +178,55 @@ WHERE machine.org_id = sqlc.arg(org_id)
   )
 RETURNING machine.id;
 
--- name: ClearProviderRuntimeMismatch :one
-UPDATE machines
+-- name: ApplyProviderRuntimeInactiveObservation :one
+UPDATE machines machine
 SET provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = CASE
+      WHEN sqlc.arg(clear_active_wake)::boolean
+        OR machine.wake_attempt_expires_at <= statement_timestamp()
+        THEN NULL
+      ELSE machine.wake_attempt_expires_at
+    END,
     updated_at = statement_timestamp()
-WHERE org_id = sqlc.arg(org_id)
-  AND id = sqlc.arg(machine_id)
-  AND machine_pool_id = sqlc.arg(machine_pool_id)::uuid
-  AND source_kind = 'pool'
-  AND lifecycle_state = 'active'
-  AND lifecycle_version = sqlc.arg(lifecycle_version)::bigint
-  AND deleted_at IS NULL
-  AND provider = sqlc.arg(provider)
-  AND provider_resource_id = sqlc.arg(provider_resource_id)
-  AND provider_runtime_mismatch_since = sqlc.arg(mismatch_since)::timestamptz
-RETURNING id;
+FROM daemon_runtimes runtime
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = sqlc.arg(machine_id)
+  AND machine.machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.lifecycle_version = sqlc.arg(lifecycle_version)::bigint
+  AND machine.deleted_at IS NULL
+  AND machine.provider = sqlc.arg(provider)
+  AND machine.provider_resource_id = sqlc.arg(provider_resource_id)
+  AND machine.provider_runtime_mismatch_since IS NOT DISTINCT FROM sqlc.narg(mismatch_since)::timestamptz
+  AND machine.wake_attempt_expires_at IS NOT DISTINCT FROM sqlc.narg(wake_attempt_expires_at)::timestamptz
+  AND (
+    machine.provider_runtime_mismatch_since IS NOT NULL
+    OR (
+      machine.wake_attempt_expires_at IS NOT NULL
+      AND (
+        sqlc.arg(clear_active_wake)::boolean
+        OR machine.wake_attempt_expires_at <= statement_timestamp()
+      )
+    )
+  )
+  AND machine.current_daemon_runtime_id = sqlc.arg(daemon_runtime_id)::uuid
+  AND runtime.org_id = machine.org_id
+  AND runtime.machine_id = machine.id
+  AND runtime.id = machine.current_daemon_runtime_id
+  AND (CASE
+    WHEN machine.asleep_since IS NOT NULL THEN machine.asleep_since
+    WHEN runtime.state = 'active' AND runtime.lease_expires_at <= statement_timestamp()
+      THEN runtime.lease_expires_at
+    WHEN runtime.state = 'ended'
+      THEN LEAST(runtime.ended_at, runtime.lease_expires_at)
+    ELSE NULL
+  END) = sqlc.arg(inactive_since)::timestamptz
+RETURNING machine.id,
+  CASE WHEN sqlc.narg(wake_attempt_expires_at)::timestamptz IS NOT NULL
+      AND machine.wake_attempt_expires_at IS NULL
+    THEN true ELSE false
+  END AS wake_attempt_cleared;
 
 -- name: LockProviderRuntimeProtectionPool :one
 SELECT pool.id
@@ -226,6 +262,7 @@ SET lifecycle_state = 'deleting',
     next_reconcile_after = statement_timestamp()
       + sqlc.arg(claim_timeout_seconds)::bigint * interval '1 second',
     delete_attempts = machine.delete_attempts + 1,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 FROM daemon_runtimes runtime
 WHERE machine.org_id = sqlc.arg(org_id)
@@ -240,6 +277,10 @@ WHERE machine.org_id = sqlc.arg(org_id)
   AND machine.provider_runtime_mismatch_since = sqlc.arg(mismatch_since)::timestamptz
   AND machine.provider_runtime_mismatch_since <= statement_timestamp()
       - sqlc.arg(confirmation_grace_milliseconds)::bigint * interval '1 millisecond'
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= statement_timestamp()
+  )
   AND machine.current_daemon_runtime_id = sqlc.arg(daemon_runtime_id)::uuid
   AND runtime.org_id = machine.org_id
   AND runtime.machine_id = machine.id

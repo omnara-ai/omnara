@@ -82,7 +82,7 @@ func (p protocol) ConsumeStream(
 	acc.closeOpenBlocks(ctx)
 	if readErr != nil && !errors.Is(readErr, errChatStreamTerminal) {
 		emit.Error(ctx, readErr.Error())
-		return acc.partialResponse(), model.AmbiguousProviderOutcome(model.ProviderError{
+		return acc.partialResponse(ctx), model.AmbiguousProviderOutcome(model.ProviderError{
 			Kind:       model.ErrorKindTransient,
 			Source:     p.errorSource(),
 			StatusCode: statusCode,
@@ -94,7 +94,7 @@ func (p protocol) ConsumeStream(
 	}
 	if acc.streamErr != nil {
 		emit.Error(ctx, acc.streamErr.Error())
-		return acc.partialResponse(), acc.streamErr
+		return acc.partialResponse(ctx), acc.streamErr
 	}
 	if !acc.completed || !acc.hasCompleteTerminalOutcome() {
 		err := model.AmbiguousProviderOutcome(model.ProviderError{
@@ -106,12 +106,12 @@ func (p protocol) ConsumeStream(
 			RetryAfter: model.RetryAfterFromHeader(header),
 		})
 		emit.Error(ctx, err.Error())
-		return acc.partialResponse(), err
+		return acc.partialResponse(ctx), err
 	}
 	responseBody, err := acc.responseBody()
 	if err != nil {
 		emit.Error(ctx, err.Error())
-		return acc.partialResponse(), model.ProviderError{
+		return acc.partialResponse(ctx), model.ProviderError{
 			Kind:       model.ErrorKindUnknown,
 			Source:     p.errorSource(),
 			StatusCode: statusCode,
@@ -171,8 +171,8 @@ type chatStreamAccumulator struct {
 	streamErr      error
 }
 
-func (a *chatStreamAccumulator) partialResponse() model.Response {
-	return a.protocol.chatResponseEvidence(chatCompletionsResponse{
+func (a *chatStreamAccumulator) partialResponse(ctx context.Context) model.Response {
+	return a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
 		ID:    a.id,
 		Model: a.servedModel,
 		Usage: a.usage,

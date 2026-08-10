@@ -54,8 +54,7 @@ func (c Catalog) ValidatePool(
 		return fmt.Errorf("machine provider %q is not configured", provider)
 	}
 	if policy.RuntimeProtectionEnabled {
-		capability, ok := definition.(providers.RuntimeObservationDefinition)
-		if !ok || !capability.SupportsRuntimeObservation() {
+		if _, ok := definition.(providers.RuntimeProviderDefinition); !ok {
 			return fmt.Errorf("machine provider %q does not support runtime protection", provider)
 		}
 	}

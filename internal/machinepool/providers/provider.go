@@ -36,10 +36,22 @@ type WakeMachineInput struct {
 }
 
 type MachineWaker interface {
+	// WakeMachine must be idempotent because a call may be retried after an
+	// ambiguous transport failure.
 	WakeMachine(context.Context, WakeMachineInput) error
 }
 
+type MachineDeleter interface {
+	DeleteMachine(
+		ctx context.Context,
+		installationID, machineID storage.ID,
+		machineProvisioning executionstore.MachineProvisioningConfig,
+		providerResourceID string,
+	) error
+}
+
 type Provider interface {
+	MachineDeleter
 	ProvisioningTimeout() time.Duration
 	// PrepareProvisioning must be retry-safe and must not mutate external resources.
 	PrepareProvisioning(
@@ -68,12 +80,6 @@ type Provider interface {
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		providerResourceID string,
 	) (string, bool, error)
-	DeleteMachine(
-		ctx context.Context,
-		installationID, machineID storage.ID,
-		machineProvisioning executionstore.MachineProvisioningConfig,
-		providerResourceID string,
-	) error
 }
 
 type Definition interface {

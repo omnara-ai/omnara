@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync/atomic"
@@ -106,5 +107,30 @@ func TestProviderRuntimeMaintenanceLoopRecoversAndContinuesAfterPanic(t *testing
 
 	if calls.Load() != 2 {
 		t.Fatalf("maintenance calls after panic = %d, want 2", calls.Load())
+	}
+}
+
+func TestProviderRuntimeResultDistinguishesShutdownCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		err         error
+		shutdownErr error
+		want        metrics.ProviderRuntimeResult
+	}{
+		{name: "success", want: metrics.ProviderRuntimeResultSuccess},
+		{name: "failure", err: errors.New("provider failed"), want: metrics.ProviderRuntimeResultError},
+		{
+			name:        "shutdown cancellation",
+			err:         context.Canceled,
+			shutdownErr: context.Canceled,
+			want:        metrics.ProviderRuntimeResultCanceled,
+		},
+		{name: "unrelated cancellation", err: context.Canceled, want: metrics.ProviderRuntimeResultError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := providerRuntimeResult(test.err, test.shutdownErr); got != test.want {
+				t.Fatalf("provider runtime result = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

@@ -139,7 +139,7 @@ func TestProviderRuntimeReconciliationReconnectDefeatsDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("confirm provider runtime mismatch: %v", err)
 	}
-	if confirmation.DeletionClaims != 0 || confirmation.DeletionClaimRaces != 1 {
+	if confirmation.DeletionClaims != 0 || confirmation.DeletionClaimsSkipped != 1 {
 		t.Fatalf("confirmation stats = %+v, want reconnect to defeat claim", confirmation)
 	}
 	if deleted := provider.deletedResources(); len(deleted) != 0 {
@@ -165,6 +165,216 @@ func TestProviderRuntimeReconciliationReconnectDefeatsDeletion(t *testing.T) {
 	}
 	if mismatchSince != nil {
 		t.Fatalf("mismatch marker survived daemon reconnect: %v", mismatchSince)
+	}
+}
+
+func TestProviderRuntimeWakeIntentDefeatsDeletionBeforeDaemonRegistration(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "wake-before-registration", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+
+	wakeStarted := make(chan struct{})
+	releaseWake := make(chan struct{})
+	provider.setWakeHook(func(ctx context.Context, _ providers.WakeMachineInput) error {
+		close(wakeStarted)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-releaseWake:
+			return nil
+		}
+	})
+	type wakeResult struct {
+		shouldRetry bool
+		err         error
+	}
+	wakeDone := make(chan wakeResult, 1)
+	go func() {
+		shouldRetry, err := fixture.manager.WakeMachine(ctx, fixture.orgID, fixture.machineID)
+		wakeDone <- wakeResult{shouldRetry: shouldRetry, err: err}
+	}()
+	<-wakeStarted
+
+	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+		},
+	)
+	if err != nil {
+		t.Fatalf("confirm provider runtime mismatch during wake: %v", err)
+	}
+	if stats.DeletionClaims != 0 || stats.DeletionClaimsSkipped != 1 {
+		t.Fatalf("confirmation during wake stats = %+v, want one fenced claim", stats)
+	}
+	close(releaseWake)
+	result := <-wakeDone
+	if result.err != nil || !result.shouldRetry {
+		t.Fatalf("wake result = (%t, %v), want true/nil", result.shouldRetry, result.err)
+	}
+	if deleted := provider.deletedResources(); len(deleted) != 0 {
+		t.Fatalf("wake intent allowed provider deletion: %v", deleted)
+	}
+
+	if _, err := fixture.store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            fixture.orgID,
+			MachineID:        fixture.machineID,
+			DaemonTokenID:    fixture.tokenID,
+			DaemonInstanceID: uuid.New(),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     time.Minute,
+		},
+	); err != nil {
+		t.Fatalf("register daemon after wake: %v", err)
+	}
+	var mismatchSince, wakeExpiresAt *time.Time
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT provider_runtime_mismatch_since, wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(&mismatchSince, &wakeExpiresAt); err != nil {
+		t.Fatalf("load machine runtime protection state after registration: %v", err)
+	}
+	if mismatchSince != nil || wakeExpiresAt != nil {
+		t.Fatalf("registration retained runtime protection state: mismatch=%v wake=%v", mismatchSince, wakeExpiresAt)
+	}
+}
+
+func TestProviderRuntimeInactiveObservationPreservesFreshWake(t *testing.T) {
+	ctx := context.Background()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState: providers.RuntimeStateInactive,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "inactive-wake", provider)
+	if ready, err := fixture.manager.WakeMachine(ctx, fixture.orgID, fixture.machineID); err != nil || !ready {
+		t.Fatalf("wake inactive machine = (%t, %v), want true/nil", ready, err)
+	}
+
+	stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("observe inactive provider runtime: %v", err)
+	}
+	if stats.Inactive != 1 || stats.MarkersCleared != 0 || stats.WakeAttemptsCleared != 0 {
+		t.Fatalf("inactive wake observation stats = %+v, want no mismatch marker clear", stats)
+	}
+	var wakeExpiresAt *time.Time
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(&wakeExpiresAt); err != nil {
+		t.Fatalf("load wake intent after inactive observation: %v", err)
+	}
+	if wakeExpiresAt == nil {
+		t.Fatal("inactive observation cleared a fresh wake attempt")
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID); err != nil {
+		t.Fatalf("expire wake attempt: %v", err)
+	}
+	stats, err = fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("reconcile expired inactive wake: %v", err)
+	}
+	if stats.WakeAttemptsCleared != 1 {
+		t.Fatalf("expired wake observation stats = %+v, want one wake attempt clear", stats)
+	}
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(&wakeExpiresAt); err != nil {
+		t.Fatalf("reload expired wake after inactive observation: %v", err)
+	}
+	if wakeExpiresAt != nil {
+		t.Fatalf("inactive observation retained expired wake attempt: %v", wakeExpiresAt)
+	}
+}
+
+func TestProviderRuntimeDeletionDefeatsUnpersistedWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "deletion-before-wake", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	due, err := fixture.store.Execution().ListDueProviderRuntimeMismatches(
+		ctx,
+		executionstore.ListDueProviderRuntimeMismatchesInput{
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+		},
+	)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("load due runtime mismatch = (%d, %v), want one", len(due), err)
+	}
+
+	providerConstructed := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	fixture.definition.setNewProviderHook(func() {
+		close(providerConstructed)
+		<-releaseProvider
+	})
+	type wakeResult struct {
+		shouldRetry bool
+		err         error
+	}
+	wakeDone := make(chan wakeResult, 1)
+	go func() {
+		shouldRetry, err := fixture.manager.WakeMachine(ctx, fixture.orgID, fixture.machineID)
+		wakeDone <- wakeResult{shouldRetry: shouldRetry, err: err}
+	}()
+	<-providerConstructed
+
+	if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeMismatchDeletion(
+		ctx,
+		executionstore.ClaimProviderRuntimeMismatchDeletionInput{
+			Candidate:         due[0],
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+		},
+	); err != nil || !claimed {
+		t.Fatalf("claim deletion before wake = (%t, %v), want true/nil", claimed, err)
+	}
+	close(releaseProvider)
+	result := <-wakeDone
+	if result.err != nil || result.shouldRetry {
+		t.Fatalf("stale wake result = (%t, %v), want false/nil", result.shouldRetry, result.err)
+	}
+	if calls := provider.wakeCallCount(); calls != 0 {
+		t.Fatalf("provider wake calls after deletion = %d, want 0", calls)
 	}
 }
 
@@ -322,6 +532,53 @@ func TestProviderRuntimeReconciliationProviderErrorUsesScopeCooldown(t *testing.
 	assertRuntimeMismatchMarkerPresent(t, ctx, fixture)
 	if deleted := provider.deletedResources(); len(deleted) != 0 {
 		t.Fatalf("provider error caused deletions: %v", deleted)
+	}
+}
+
+func TestProviderRuntimeReconciliationShutdownCancellationIsNotProviderFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "shutdown-cancellation", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	provider.mu.Lock()
+	provider.singleHook = func(ctx context.Context) error {
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	provider.mu.Unlock()
+
+	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+			Concurrency:       1,
+		},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("confirmation cancellation error = %v, want context canceled", err)
+	}
+	if stats.ProviderErrors != 0 || stats.Confirmations != 1 {
+		t.Fatalf("confirmation cancellation stats = %+v, want one non-provider confirmation failure", stats)
+	}
+	state := fixture.manager.runtimeReconciliationState
+	state.mu.Lock()
+	cooldowns := len(state.cooldowns)
+	cursors := len(state.confirmationCursors)
+	state.mu.Unlock()
+	if cooldowns != 0 || cursors != 0 {
+		t.Fatalf("shutdown cancellation retained cooldowns=%d cursors=%d", cooldowns, cursors)
 	}
 }
 
@@ -606,6 +863,7 @@ type runtimeReconciliationFixture struct {
 	pool        *pgxpool.Pool
 	store       *storage.Store
 	manager     Manager
+	definition  *runtimeReconciliationTestDefinition
 	machinePool executionstore.MachinePoolRecord
 	orgID       storage.ID
 	machineID   storage.ID
@@ -642,16 +900,17 @@ func newRuntimeReconciliationFixture(
 		machinePoolInputWithDefaultMachineForManagerTest(
 			t,
 			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Runtime Reconciliation " + seed,
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{"scope":"test"}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     10,
-				MaxTotalCPU:          intPtrForManagerTest(10),
-				MaxTotalMemoryMB:     intPtrForManagerTest(10240),
-				MaxMachineCPU:        intPtrForManagerTest(1),
-				MaxMachineMemoryMB:   intPtrForManagerTest(1024),
+				OrgID:                    orgID,
+				Name:                     "Runtime Reconciliation " + seed,
+				Provider:                 "capture",
+				ProviderConfig:           json.RawMessage(`{"scope":"test"}`),
+				ProviderAuthSecretID:     providerAuthSecretID,
+				RuntimeProtectionEnabled: true,
+				MaxTotalMachines:         10,
+				MaxTotalCPU:              intPtrForManagerTest(10),
+				MaxTotalMemoryMB:         intPtrForManagerTest(10240),
+				MaxMachineCPU:            intPtrForManagerTest(1),
+				MaxMachineMemoryMB:       intPtrForManagerTest(1024),
 			},
 			1,
 			1024,
@@ -684,6 +943,7 @@ func newRuntimeReconciliationFixture(
 		pool:        pool,
 		store:       store,
 		manager:     manager,
+		definition:  definition,
 		machinePool: machinePool,
 		orgID:       orgID,
 		machineID:   machineID,
@@ -715,16 +975,17 @@ func addRuntimeReconciliationScopeMachine(
 		machinePoolInputWithDefaultMachineForManagerTest(
 			t,
 			executionstore.CreateMachinePoolInput{
-				OrgID:                fixture.orgID,
-				Name:                 "Runtime Reconciliation " + seed,
-				Provider:             "capture",
-				ProviderConfig:       providerConfig,
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     10,
-				MaxTotalCPU:          intPtrForManagerTest(10),
-				MaxTotalMemoryMB:     intPtrForManagerTest(10240),
-				MaxMachineCPU:        intPtrForManagerTest(1),
-				MaxMachineMemoryMB:   intPtrForManagerTest(1024),
+				OrgID:                    fixture.orgID,
+				Name:                     "Runtime Reconciliation " + seed,
+				Provider:                 "capture",
+				ProviderConfig:           providerConfig,
+				ProviderAuthSecretID:     providerAuthSecretID,
+				RuntimeProtectionEnabled: true,
+				MaxTotalMachines:         10,
+				MaxTotalCPU:              intPtrForManagerTest(10),
+				MaxTotalMemoryMB:         intPtrForManagerTest(10240),
+				MaxMachineCPU:            intPtrForManagerTest(1),
+				MaxMachineMemoryMB:       intPtrForManagerTest(1024),
 			},
 			1,
 			1024,
@@ -836,16 +1097,41 @@ WHERE org_id = $1 AND provider_runtime_mismatch_since IS NOT NULL
 }
 
 type runtimeReconciliationTestDefinition struct {
-	provider *runtimeReconciliationTestProvider
+	mu              sync.Mutex
+	provider        *runtimeReconciliationTestProvider
+	newProviderHook func()
 }
-
-func (*runtimeReconciliationTestDefinition) SupportsRuntimeObservation() bool { return true }
 
 func (d *runtimeReconciliationTestDefinition) NewProvider(
 	json.RawMessage,
 	providers.RuntimeConfig,
 ) (providers.Provider, error) {
-	return d.provider, nil
+	return d.newProvider(), nil
+}
+
+func (d *runtimeReconciliationTestDefinition) NewRuntimeProvider(
+	json.RawMessage,
+	providers.RuntimeConfig,
+) (providers.RuntimeProvider, error) {
+	return d.newProvider(), nil
+}
+
+func (d *runtimeReconciliationTestDefinition) newProvider() *runtimeReconciliationTestProvider {
+	d.mu.Lock()
+	hook := d.newProviderHook
+	d.newProviderHook = nil
+	provider := d.provider
+	d.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return provider
+}
+
+func (d *runtimeReconciliationTestDefinition) setNewProviderHook(hook func()) {
+	d.mu.Lock()
+	d.newProviderHook = hook
+	d.mu.Unlock()
 }
 
 func (*runtimeReconciliationTestDefinition) ResolveMachineProviderOptions(
@@ -886,6 +1172,8 @@ type runtimeReconciliationTestProvider struct {
 	bulkErr          error
 	singleErr        error
 	deleteErr        error
+	wakeHook         func(context.Context, providers.WakeMachineInput) error
+	wakeCalls        int
 	deleted          []string
 }
 
@@ -932,6 +1220,20 @@ func (p *runtimeReconciliationTestProvider) DeleteMachine(
 	err := p.deleteErr
 	p.mu.Unlock()
 	return err
+}
+
+func (p *runtimeReconciliationTestProvider) WakeMachine(
+	ctx context.Context,
+	input providers.WakeMachineInput,
+) error {
+	p.mu.Lock()
+	hook := p.wakeHook
+	p.wakeCalls++
+	p.mu.Unlock()
+	if hook != nil {
+		return hook(ctx, input)
+	}
+	return nil
 }
 
 func (p *runtimeReconciliationTestProvider) ObserveRuntimeStates(
@@ -1000,4 +1302,19 @@ func (p *runtimeReconciliationTestProvider) setDeleteError(err error) {
 	p.mu.Unlock()
 }
 
+func (p *runtimeReconciliationTestProvider) setWakeHook(
+	hook func(context.Context, providers.WakeMachineInput) error,
+) {
+	p.mu.Lock()
+	p.wakeHook = hook
+	p.mu.Unlock()
+}
+
+func (p *runtimeReconciliationTestProvider) wakeCallCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.wakeCalls
+}
+
 var _ providers.RuntimeStateObserver = (*runtimeReconciliationTestProvider)(nil)
+var _ providers.MachineWaker = (*runtimeReconciliationTestProvider)(nil)

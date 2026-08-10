@@ -84,11 +84,17 @@ INSERT INTO daemon_runtimes(
 		runtimeID,
 	)
 
-	trackingStartedAt := time.Now()
+	var trackingStartedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&trackingStartedAt); err != nil {
+		t.Fatalf("capture tracking start lower bound: %v", err)
+	}
 	if _, err := migrator.UpTo(ctx, 12); err != nil {
 		t.Fatalf("migrate through version 12: %v", err)
 	}
-	trackingFinishedAt := time.Now()
+	var trackingFinishedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&trackingFinishedAt); err != nil {
+		t.Fatalf("capture tracking start upper bound: %v", err)
+	}
 
 	var startedAt time.Time
 	if err := pool.QueryRow(ctx, `
@@ -357,19 +363,19 @@ INSERT INTO machine_online_intervals(
 		t.Fatal("closed online interval accepted a delete")
 	}
 
-	var revivedLastSeen, revivedLeaseExpires time.Time
+	var revivedLastSeen time.Time
 	if err := pool.QueryRow(ctx, `
 UPDATE daemon_runtimes
 SET state = 'active',
     state_reason_code = NULL,
     state_reason_message = '',
     last_seen_at = statement_timestamp(),
-    lease_expires_at = statement_timestamp() + interval '5 milliseconds',
+    lease_expires_at = statement_timestamp() + interval '1 hour',
     ended_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $1 AND machine_id = $2 AND id = $3
-RETURNING last_seen_at, lease_expires_at
-`, testOrgID, machine.ID, runtime.ID).Scan(&revivedLastSeen, &revivedLeaseExpires); err != nil {
+RETURNING last_seen_at
+`, testOrgID, machine.ID, runtime.ID).Scan(&revivedLastSeen); err != nil {
 		t.Fatalf("revive daemon runtime: %v", err)
 	}
 	intervals = loadMachineOnlineIntervals(t, ctx, pool, machine.ID)
@@ -377,8 +383,14 @@ RETURNING last_seen_at, lease_expires_at
 		!intervals[1].StartedAt.Equal(revivedLastSeen) {
 		t.Fatalf("revived online intervals = %+v", intervals)
 	}
-	if wait := time.Until(revivedLeaseExpires); wait >= 0 {
-		time.Sleep(wait + time.Millisecond)
+	expireDaemonRuntimeLeaseForTest(t, ctx, store, testOrgID, machine.ID, runtime.ID)
+	var revivedLeaseExpires time.Time
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT lease_expires_at FROM daemon_runtimes WHERE id = $1`,
+		runtime.ID,
+	).Scan(&revivedLeaseExpires); err != nil {
+		t.Fatalf("load expired revived daemon runtime lease: %v", err)
 	}
 
 	renewed, err := store.Execution().HeartbeatDaemonRuntime(

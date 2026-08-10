@@ -34,3 +34,10 @@ func ModelRequestMediaOmittedForBodyLimit(
 	})
 	log.Level(ctx, log.WarnLevel)
 }
+
+func ModelResponseProviderCostInvalid(ctx context.Context) {
+	log.Attach(ctx, log.Fields{
+		"model_response.provider_reported_cost_usd.unavailable_reason": "invalid_provider_value",
+	})
+	log.Level(ctx, log.WarnLevel)
+}

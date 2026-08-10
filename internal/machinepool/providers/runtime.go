@@ -2,15 +2,19 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-// RuntimeObservationDefinition marks providers whose control plane can
-// authoritatively report whether an Omnara-managed machine is still running.
-type RuntimeObservationDefinition interface {
-	SupportsRuntimeObservation() bool
+type RuntimeProvider interface {
+	MachineDeleter
+	RuntimeStateObserver
+}
+
+type RuntimeProviderDefinition interface {
+	NewRuntimeProvider(json.RawMessage, RuntimeConfig) (RuntimeProvider, error)
 }
 
 type RuntimeState string

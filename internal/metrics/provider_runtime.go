@@ -18,24 +18,31 @@ const (
 type ProviderRuntimeResult string
 
 const (
-	ProviderRuntimeResultSuccess ProviderRuntimeResult = "success"
-	ProviderRuntimeResultError   ProviderRuntimeResult = "error"
+	ProviderRuntimeResultSuccess  ProviderRuntimeResult = "success"
+	ProviderRuntimeResultError    ProviderRuntimeResult = "error"
+	ProviderRuntimeResultCanceled ProviderRuntimeResult = "canceled"
 )
 
 type ProviderRuntimeEvent string
 
 const (
-	ProviderRuntimeEventPages              ProviderRuntimeEvent = "pages"
-	ProviderRuntimeEventScopes             ProviderRuntimeEvent = "scopes"
-	ProviderRuntimeEventScopeCooldownSkips ProviderRuntimeEvent = "scope_cooldown_skips"
-	ProviderRuntimeEventTargets            ProviderRuntimeEvent = "targets"
-	ProviderRuntimeEventObservations       ProviderRuntimeEvent = "observations"
-	ProviderRuntimeEventProviderErrors     ProviderRuntimeEvent = "provider_errors"
-	ProviderRuntimeEventMarkersSet         ProviderRuntimeEvent = "markers_set"
-	ProviderRuntimeEventMarkersCleared     ProviderRuntimeEvent = "markers_cleared"
-	ProviderRuntimeEventConfirmations      ProviderRuntimeEvent = "confirmations"
-	ProviderRuntimeEventDeletionClaims     ProviderRuntimeEvent = "deletion_claims"
-	ProviderRuntimeEventDeletionClaimRaces ProviderRuntimeEvent = "deletion_claim_races"
+	ProviderRuntimeEventPages                 ProviderRuntimeEvent = "pages"
+	ProviderRuntimeEventScopes                ProviderRuntimeEvent = "scopes"
+	ProviderRuntimeEventScopeCooldownSkips    ProviderRuntimeEvent = "scope_cooldown_skips"
+	ProviderRuntimeEventTargets               ProviderRuntimeEvent = "targets"
+	ProviderRuntimeEventObservations          ProviderRuntimeEvent = "observations"
+	ProviderRuntimeEventRunning               ProviderRuntimeEvent = "running"
+	ProviderRuntimeEventInactive              ProviderRuntimeEvent = "inactive"
+	ProviderRuntimeEventTransitional          ProviderRuntimeEvent = "transitional"
+	ProviderRuntimeEventTerminated            ProviderRuntimeEvent = "terminated"
+	ProviderRuntimeEventUnknown               ProviderRuntimeEvent = "unknown"
+	ProviderRuntimeEventProviderErrors        ProviderRuntimeEvent = "provider_errors"
+	ProviderRuntimeEventMarkersSet            ProviderRuntimeEvent = "markers_set"
+	ProviderRuntimeEventMarkersCleared        ProviderRuntimeEvent = "markers_cleared"
+	ProviderRuntimeEventWakeAttemptsCleared   ProviderRuntimeEvent = "wake_attempts_cleared"
+	ProviderRuntimeEventConfirmations         ProviderRuntimeEvent = "confirmations"
+	ProviderRuntimeEventDeletionClaims        ProviderRuntimeEvent = "deletion_claims"
+	ProviderRuntimeEventDeletionClaimsSkipped ProviderRuntimeEvent = "deletion_claims_skipped"
 )
 
 type ProviderRuntimeRecorder struct {

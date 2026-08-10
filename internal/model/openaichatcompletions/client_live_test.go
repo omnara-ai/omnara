@@ -144,6 +144,9 @@ func TestLiveOpenRouterChatCompletionsStreamText(t *testing.T) {
 	if resp.Usage.InputTokens == 0 || resp.Usage.OutputTokens == 0 {
 		t.Fatalf("live streaming response usage not populated: %+v", resp.Usage)
 	}
+	if resp.ProviderReportedCostUSD == "" {
+		t.Fatal("live OpenRouter streaming response did not report cost")
+	}
 	var streamedText strings.Builder
 	for _, event := range sink.events {
 		if event.Kind == model.StreamEventTextDelta {
@@ -250,6 +253,9 @@ func runLiveChatCompletionsText(t *testing.T, client Client, policy model.Reques
 	}
 	if resp.Usage.InputTokens == 0 || resp.Usage.OutputTokens == 0 {
 		t.Fatalf("live response usage not populated: %+v", resp.Usage)
+	}
+	if client.APIVariant == modelprotocol.APIVariantOpenRouter && resp.ProviderReportedCostUSD == "" {
+		t.Fatal("live OpenRouter response did not report cost")
 	}
 }
 

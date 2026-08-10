@@ -62,6 +62,7 @@ SET lifecycle_state = 'deleting',
         THEN machine.provider_runtime_mismatch_since
       ELSE NULL
     END,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 FROM candidate
 WHERE machine.org_id = $4
@@ -300,7 +301,7 @@ func (q *Queries) ClaimPoolMachineForProvisioning(ctx context.Context, arg Claim
 	return i, err
 }
 
-const clearMachinePoolRuntimeMismatchMarkers = `-- name: ClearMachinePoolRuntimeMismatchMarkers :exec
+const clearMachinePoolRuntimeMismatch = `-- name: ClearMachinePoolRuntimeMismatch :exec
 UPDATE machines
 SET provider_runtime_mismatch_since = NULL,
     updated_at = statement_timestamp()
@@ -311,13 +312,13 @@ WHERE org_id = $1
   AND provider_runtime_mismatch_since IS NOT NULL
 `
 
-type ClearMachinePoolRuntimeMismatchMarkersParams struct {
+type ClearMachinePoolRuntimeMismatchParams struct {
 	OrgID         uuid.UUID
 	MachinePoolID uuid.UUID
 }
 
-func (q *Queries) ClearMachinePoolRuntimeMismatchMarkers(ctx context.Context, arg ClearMachinePoolRuntimeMismatchMarkersParams) error {
-	_, err := q.db.Exec(ctx, clearMachinePoolRuntimeMismatchMarkers, arg.OrgID, arg.MachinePoolID)
+func (q *Queries) ClearMachinePoolRuntimeMismatch(ctx context.Context, arg ClearMachinePoolRuntimeMismatchParams) error {
+	_, err := q.db.Exec(ctx, clearMachinePoolRuntimeMismatch, arg.OrgID, arg.MachinePoolID)
 	return err
 }
 
@@ -2190,6 +2191,7 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_message = $2,
     next_reconcile_after = pool.deleted_at,
     provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = pool.deleted_at
 FROM machine_pools pool
 WHERE pool.org_id = $3
@@ -2308,6 +2310,7 @@ SET lifecycle_state = 'deleting',
     lifecycle_reason_message = $2,
     next_reconcile_after = statement_timestamp(),
     provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $3
   AND id = $4

@@ -667,11 +667,11 @@ func (s *Store) UpdateMachinePool(
 	}
 	record := machinePoolRecordFromSQLC(row)
 	if locked.RuntimeProtectionEnabled != record.RuntimeProtectionEnabled {
-		if err := qtx.ClearMachinePoolRuntimeMismatchMarkers(ctx, dbsqlc.ClearMachinePoolRuntimeMismatchMarkersParams{
+		if err := qtx.ClearMachinePoolRuntimeMismatch(ctx, dbsqlc.ClearMachinePoolRuntimeMismatchParams{
 			OrgID:         input.OrgID,
 			MachinePoolID: input.ID,
 		}); err != nil {
-			return MachinePoolRecord{}, fmt.Errorf("clear machine pool runtime mismatch markers: %w", err)
+			return MachinePoolRecord{}, fmt.Errorf("clear machine pool runtime mismatch: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

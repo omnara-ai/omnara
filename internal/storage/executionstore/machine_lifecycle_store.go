@@ -21,6 +21,7 @@ const (
 	poolMachineDeletionLeaseDuration     = 2 * time.Minute
 	StaleMachineBootstrapAge             = 5 * time.Minute
 	missingProviderResourceFinalityAge   = 24 * time.Hour
+	machineDeletingReason                = "machine_deleting"
 )
 
 type PoolMachineProvisionFailureInput struct {
@@ -658,6 +659,7 @@ func (s *Store) ClaimPoolMachineDeletion(
 		txNotifications,
 		claim,
 		"claim pool machine deletion",
+		machineDeletingReason,
 	)
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, err
@@ -672,6 +674,7 @@ func (s *Store) finalizePoolMachineDeletionClaimTx(
 	txNotifications *notifications.TxNotifications,
 	claim PoolMachineDeletionClaim,
 	operation string,
+	terminalWorkReason string,
 ) (PoolMachineDeletionClaim, error) {
 	machine := claim.Machine
 	active, err := qtx.ListActiveDaemonRuntimesForUpdate(
@@ -688,7 +691,7 @@ func (s *Store) finalizePoolMachineDeletionClaimTx(
 			OrgID:     machine.OrgID,
 			MachineID: machine.ID,
 			ID:        runtime.ID,
-			Reason:    sqlcTextFromEmpty("machine_deleting"),
+			Reason:    sqlcTextFromEmpty(machineDeletingReason),
 			Message:   "",
 		}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return PoolMachineDeletionClaim{}, fmt.Errorf("end runtime for deletion intent: %w", err)
@@ -706,14 +709,14 @@ func (s *Store) finalizePoolMachineDeletionClaimTx(
 		qtx,
 		machine.OrgID,
 		machine.ID,
-		"machine_deleting",
+		terminalWorkReason,
 	); err != nil {
 		return PoolMachineDeletionClaim{}, err
 	}
 	if err := qtx.RevokeMachineDaemonTokensForMachine(
 		ctx,
 		dbsqlc.RevokeMachineDaemonTokensForMachineParams{
-			OrgID: machine.OrgID, MachineID: machine.ID, Reason: "machine_deleting",
+			OrgID: machine.OrgID, MachineID: machine.ID, Reason: machineDeletingReason,
 		},
 	); err != nil {
 		return PoolMachineDeletionClaim{}, fmt.Errorf(

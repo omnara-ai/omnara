@@ -39,17 +39,23 @@ func defaultRuntimeReconciliationConfig() RuntimeReconciliationConfig {
 }
 
 type RuntimeReconciliationStats struct {
-	Pages              int
-	Scopes             int
-	ScopesSkipped      int
-	Targets            int
-	Observed           int
-	ProviderErrors     int
-	MarkersSet         int
-	MarkersCleared     int
-	Confirmations      int
-	DeletionClaims     int
-	DeletionClaimRaces int
+	Pages                 int
+	Scopes                int
+	ScopesSkipped         int
+	Targets               int
+	Observed              int
+	Running               int
+	Inactive              int
+	Transitional          int
+	Terminated            int
+	Unknown               int
+	ProviderErrors        int
+	MarkersSet            int
+	MarkersCleared        int
+	WakeAttemptsCleared   int
+	Confirmations         int
+	DeletionClaims        int
+	DeletionClaimsSkipped int
 }
 
 type runtimeReconciliationState struct {
@@ -158,12 +164,18 @@ func (s *RuntimeReconciliationStats) add(other RuntimeReconciliationStats) {
 	s.ScopesSkipped += other.ScopesSkipped
 	s.Targets += other.Targets
 	s.Observed += other.Observed
+	s.Running += other.Running
+	s.Inactive += other.Inactive
+	s.Transitional += other.Transitional
+	s.Terminated += other.Terminated
+	s.Unknown += other.Unknown
 	s.ProviderErrors += other.ProviderErrors
 	s.MarkersSet += other.MarkersSet
 	s.MarkersCleared += other.MarkersCleared
+	s.WakeAttemptsCleared += other.WakeAttemptsCleared
 	s.Confirmations += other.Confirmations
 	s.DeletionClaims += other.DeletionClaims
-	s.DeletionClaimRaces += other.DeletionClaimRaces
+	s.DeletionClaimsSkipped += other.DeletionClaimsSkipped
 }
 
 func (m Manager) DiscoverProviderRuntimeMismatches(
@@ -240,20 +252,22 @@ func (m Manager) discoverProviderRuntimeScope(
 		stats.ScopesSkipped++
 		return stats, nil
 	}
-	_, observer, err := m.providerForRuntimeScope(ctx, candidates[0])
+	runtimeProvider, err := m.providerForRuntimeScope(ctx, candidates[0])
 	if err != nil {
-		stats.ProviderErrors++
-		m.runtimeReconciliationState.recordFailure(scopeKey, time.Now(), err)
+		if m.recordProviderRuntimeFailure(ctx, scopeKey, err) {
+			stats.ProviderErrors++
+		}
 		return stats, err
 	}
 	targets := make([]providers.RuntimeTarget, 0, len(candidates))
 	for _, candidate := range candidates {
 		targets = append(targets, runtimeTarget(installationID, candidate))
 	}
-	observations, err := observer.ObserveRuntimeStates(ctx, targets)
+	observations, err := runtimeProvider.ObserveRuntimeStates(ctx, targets)
 	if err != nil {
-		stats.ProviderErrors++
-		m.runtimeReconciliationState.recordFailure(scopeKey, time.Now(), err)
+		if m.recordProviderRuntimeFailure(ctx, scopeKey, err) {
+			stats.ProviderErrors++
+		}
 		return stats, err
 	}
 	valid := validRuntimeObservations(candidates, observations)
@@ -262,7 +276,7 @@ func (m Manager) discoverProviderRuntimeScope(
 		if !ok {
 			continue
 		}
-		stats.Observed++
+		stats.recordObservation(observation.State)
 		switch observation.State {
 		case providers.RuntimeStateRunning:
 			if marked, err := m.Execution.MarkProviderRuntimeMismatch(ctx, candidate); err != nil {
@@ -271,10 +285,19 @@ func (m Manager) discoverProviderRuntimeScope(
 				stats.MarkersSet++
 			}
 		case providers.RuntimeStateInactive, providers.RuntimeStateTerminated:
-			if cleared, err := m.Execution.ClearProviderRuntimeMismatch(ctx, candidate); err != nil {
+			kind := executionstore.ProviderRuntimeInactive
+			if observation.State == providers.RuntimeStateTerminated {
+				kind = executionstore.ProviderRuntimeTerminated
+			}
+			result, err := m.Execution.ApplyProviderRuntimeInactiveObservation(ctx, candidate, kind)
+			if err != nil {
 				return stats, err
-			} else if cleared {
+			}
+			if result.Applied && candidate.ProviderRuntimeMismatchSince != nil {
 				stats.MarkersCleared++
+			}
+			if result.WakeAttemptCleared {
+				stats.WakeAttemptsCleared++
 			}
 		case providers.RuntimeStateTransitional, providers.RuntimeStateUnknown:
 			continue
@@ -300,9 +323,7 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 	scopeOrder := make([]executionstore.ProviderRuntimeScopeKey, 0)
 	scopeCandidates := make(map[executionstore.ProviderRuntimeScopeKey][]executionstore.ProviderRuntimeCandidate)
 	cursor := executionstore.ListDueProviderRuntimeMismatchesInput{
-		ListProviderRuntimeCandidatesInput: executionstore.ListProviderRuntimeCandidatesInput{
-			Limit: config.PageSize,
-		},
+		Limit:             config.PageSize,
 		ConfirmationGrace: config.ConfirmationGrace,
 		InactivityGrace:   config.InactivityGrace,
 	}
@@ -330,8 +351,10 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 		if last.ProviderRuntimeMismatchSince == nil {
 			return stats, errors.New("due provider runtime candidate is missing its mismatch timestamp")
 		}
-		cursor.AfterMachineID = last.MachineID
-		cursor.SourceAfterMismatchSince = *last.ProviderRuntimeMismatchSince
+		cursor.After = executionstore.ProviderRuntimeMismatchCursor{
+			MismatchSince: *last.ProviderRuntimeMismatchSince,
+			MachineID:     last.MachineID,
+		}
 		if len(page) < int(config.PageSize) {
 			break
 		}
@@ -354,19 +377,19 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 				statsMu.Unlock()
 				return nil
 			}
-			provider, observer, err := m.providerForRuntimeScope(ctx, candidates[0])
+			runtimeProvider, err := m.providerForRuntimeScope(ctx, candidates[0])
 			if err != nil {
-				m.runtimeReconciliationState.recordFailure(scopeKey, time.Now(), err)
-				statsMu.Lock()
-				stats.ProviderErrors++
-				statsMu.Unlock()
+				if m.recordProviderRuntimeFailure(ctx, scopeKey, err) {
+					statsMu.Lock()
+					stats.ProviderErrors++
+					statsMu.Unlock()
+				}
 				return err
 			}
 			prepared[index] = &runtimeConfirmationScope{
-				scopeKey:   scopeKey,
-				provider:   provider,
-				observer:   observer,
-				candidates: candidates,
+				scopeKey:        scopeKey,
+				runtimeProvider: runtimeProvider,
+				candidates:      candidates,
 				start: m.runtimeReconciliationState.confirmationStart(
 					scopeKey,
 					candidates,
@@ -375,8 +398,11 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 			return nil
 		},
 	)
-	if ctx.Err() != nil {
-		return stats, prepareErr
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if prepareErr != nil {
+			return stats, prepareErr
+		}
+		return stats, ctxErr
 	}
 
 	active := make([]*runtimeConfirmationScope, 0, len(prepared))
@@ -444,13 +470,12 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 }
 
 type runtimeConfirmationScope struct {
-	scopeKey       executionstore.ProviderRuntimeScopeKey
-	provider       providers.Provider
-	observer       providers.RuntimeStateObserver
-	candidates     []executionstore.ProviderRuntimeCandidate
-	start          int
-	next           int
-	providerFailed atomic.Bool
+	scopeKey        executionstore.ProviderRuntimeScopeKey
+	runtimeProvider providers.RuntimeProvider
+	candidates      []executionstore.ProviderRuntimeCandidate
+	start           int
+	next            int
+	providerFailed  atomic.Bool
 }
 
 type runtimeConfirmationTask struct {
@@ -507,27 +532,39 @@ func (m Manager) confirmProviderRuntimeCandidate(
 	candidate := scope.candidates[candidateIndex]
 	providerCtx, cancel := context.WithTimeout(ctx, providerInspectionTimeout)
 	stats.Confirmations++
-	observation, err := scope.observer.ObserveRuntimeState(
+	observation, err := scope.runtimeProvider.ObserveRuntimeState(
 		providerCtx,
 		runtimeTarget(installationID, candidate),
 	)
 	cancel()
 	if err != nil {
-		stats.ProviderErrors++
-		m.runtimeReconciliationState.recordFailure(scope.scopeKey, time.Now(), err)
-		return stats, true, err
+		providerFailed := m.recordProviderRuntimeFailure(ctx, scope.scopeKey, err)
+		if providerFailed {
+			stats.ProviderErrors++
+		}
+		return stats, providerFailed, err
 	}
 	if !observation.State.Valid() || !runtimeObservationMatches(candidate, observation) {
 		return stats, false, nil
 	}
-	stats.Observed++
+	stats.recordObservation(observation.State)
 	switch observation.State {
 	case providers.RuntimeStateInactive, providers.RuntimeStateTerminated:
-		cleared, err := m.Execution.ClearProviderRuntimeMismatch(ctx, candidate)
-		if cleared {
+		kind := executionstore.ProviderRuntimeInactive
+		if observation.State == providers.RuntimeStateTerminated {
+			kind = executionstore.ProviderRuntimeTerminated
+		}
+		result, err := m.Execution.ApplyProviderRuntimeInactiveObservation(ctx, candidate, kind)
+		if err != nil {
+			return stats, false, err
+		}
+		if result.Applied && candidate.ProviderRuntimeMismatchSince != nil {
 			stats.MarkersCleared++
 		}
-		return stats, false, err
+		if result.WakeAttemptCleared {
+			stats.WakeAttemptsCleared++
+		}
+		return stats, false, nil
 	case providers.RuntimeStateRunning:
 		claim, claimed, err := m.Execution.ClaimProviderRuntimeMismatchDeletion(
 			ctx,
@@ -541,15 +578,15 @@ func (m Manager) confirmProviderRuntimeCandidate(
 			return stats, false, err
 		}
 		if !claimed {
-			stats.DeletionClaimRaces++
+			stats.DeletionClaimsSkipped++
 			return stats, false, nil
 		}
 		stats.DeletionClaims++
-		providerFailed, err := m.deleteClaimedMachine(ctx, claim, scope.provider)
+		providerFailed, err := m.deleteClaimedMachine(ctx, claim, scope.runtimeProvider)
 		if err != nil {
+			providerFailed = providerFailed && m.recordProviderRuntimeFailure(ctx, scope.scopeKey, err)
 			if providerFailed {
 				stats.ProviderErrors++
-				m.runtimeReconciliationState.recordFailure(scope.scopeKey, time.Now(), err)
 			}
 			return stats, providerFailed, err
 		}
@@ -562,10 +599,14 @@ func (m Manager) confirmProviderRuntimeCandidate(
 func (m Manager) providerForRuntimeScope(
 	ctx context.Context,
 	candidate executionstore.ProviderRuntimeCandidate,
-) (providers.Provider, providers.RuntimeStateObserver, error) {
+) (providers.RuntimeProvider, error) {
 	definition, ok := m.Catalog.definition(candidate.Provider)
 	if !ok {
-		return nil, nil, fmt.Errorf("machine provider %q is not configured", candidate.Provider)
+		return nil, fmt.Errorf("machine provider %q is not configured", candidate.Provider)
+	}
+	runtimeDefinition, ok := definition.(providers.RuntimeProviderDefinition)
+	if !ok {
+		return nil, fmt.Errorf("machine provider %q does not support runtime protection", candidate.Provider)
 	}
 	credential, err := m.Execution.ResolveMachineProviderCredential(
 		ctx,
@@ -575,27 +616,32 @@ func (m Manager) providerForRuntimeScope(
 		candidate.ProviderAuthEnvVar,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if candidate.ManagementKind == management.Tenant &&
 		credential.VersionID != candidate.ProviderAuthVersionID {
-		return nil, nil, errors.New("machine provider credential changed during runtime discovery")
+		return nil, errors.New("machine provider credential changed during runtime reconciliation")
 	}
-	provider, err := definition.NewProvider(candidate.ProviderConfig, providers.RuntimeConfig{
+	runtimeProvider, err := runtimeDefinition.NewRuntimeProvider(candidate.ProviderConfig, providers.RuntimeConfig{
 		PublicURL:         m.PublicURL,
 		ProviderAuthToken: credential.Token,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	observer, ok := provider.(providers.RuntimeStateObserver)
-	if !ok {
-		return nil, nil, fmt.Errorf(
-			"machine provider %q does not implement runtime observation",
-			candidate.Provider,
-		)
+	return runtimeProvider, nil
+}
+
+func (m Manager) recordProviderRuntimeFailure(
+	ctx context.Context,
+	scopeKey executionstore.ProviderRuntimeScopeKey,
+	err error,
+) bool {
+	if ctx.Err() != nil {
+		return false
 	}
-	return provider, observer, nil
+	m.runtimeReconciliationState.recordFailure(scopeKey, time.Now(), err)
+	return true
 }
 
 func runtimeTarget(
@@ -664,4 +710,20 @@ func normalizeRuntimeReconciliationConfig(
 		config.Concurrency = defaults.Concurrency
 	}
 	return config
+}
+
+func (s *RuntimeReconciliationStats) recordObservation(state providers.RuntimeState) {
+	s.Observed++
+	switch state {
+	case providers.RuntimeStateRunning:
+		s.Running++
+	case providers.RuntimeStateInactive:
+		s.Inactive++
+	case providers.RuntimeStateTransitional:
+		s.Transitional++
+	case providers.RuntimeStateTerminated:
+		s.Terminated++
+	case providers.RuntimeStateUnknown:
+		s.Unknown++
+	}
 }

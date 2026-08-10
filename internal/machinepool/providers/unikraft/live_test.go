@@ -16,9 +16,9 @@ import (
 )
 
 func TestUnikraftProviderLiveSmoke(t *testing.T) {
-	token := strings.TrimSpace(os.Getenv("UNIKRAFT_API_TOKEN"))
-	if token == "" {
-		t.Skip("a Unikraft API token is required")
+	apiKey := strings.TrimSpace(os.Getenv("UNIKRAFT_API_KEY"))
+	if apiKey == "" {
+		t.Skip("UNIKRAFT_API_KEY is required")
 	}
 	image := strings.TrimSpace(os.Getenv("OMNARA_UNIKRAFT_TEST_IMAGE"))
 	if image == "" {
@@ -37,7 +37,7 @@ func TestUnikraftProviderLiveSmoke(t *testing.T) {
 	})
 	machineProvider, err := (Definition{}).NewProvider(
 		mustRawJSON(t, map[string]any{"allowed_images": []string{image}, "allowed_metros": []string{"*"}}),
-		providers.RuntimeConfig{PublicURL: omnaraPublicURL, ProviderAuthToken: token},
+		providers.RuntimeConfig{PublicURL: omnaraPublicURL, ProviderAuthToken: apiKey},
 	)
 	if err != nil {
 		t.Fatalf("new unikraft provider: %v", err)

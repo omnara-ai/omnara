@@ -6,7 +6,18 @@ ALTER TABLE machine_pools
     ADD COLUMN runtime_protection_enabled boolean NOT NULL DEFAULT false;
 
 ALTER TABLE machines
-    ADD COLUMN provider_runtime_mismatch_since timestamptz;
+    ADD COLUMN provider_runtime_mismatch_since timestamptz,
+    ADD COLUMN wake_attempt_expires_at timestamptz,
+    ADD CONSTRAINT machines_wake_attempt_active_pool_check
+        CHECK (
+            wake_attempt_expires_at IS NULL
+            OR (
+                source_kind = 'pool'
+                AND lifecycle_state = 'active'
+                AND deleted_at IS NULL
+                AND asleep_since IS NOT NULL
+            )
+        );
 
 CREATE INDEX machines_provider_runtime_mismatch_due_idx
     ON machines(provider_runtime_mismatch_since, id)
@@ -166,6 +177,7 @@ CREATE TRIGGER machine_online_intervals_append_only
     FOR EACH ROW
     EXECUTE FUNCTION machine_online_intervals_reject_mutation();
 
+-- Start existing online runtimes at rollout time without inferring earlier history.
 INSERT INTO machine_online_intervals(
     org_id,
     machine_id,

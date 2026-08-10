@@ -159,6 +159,7 @@ RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_
 UPDATE machines
 SET last_observed_at = statement_timestamp(),
     provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     metadata = CASE
       WHEN sqlc.arg(observed_platform)::jsonb = '{}'::jsonb THEN metadata
       ELSE jsonb_set(metadata, '{observed_platform}', sqlc.arg(observed_platform)::jsonb, true)
@@ -567,6 +568,7 @@ SELECT EXISTS (
 -- name: MarkMachineAsleep :one
 UPDATE machines
 SET asleep_since = statement_timestamp(),
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
@@ -578,11 +580,64 @@ RETURNING id;
 -- name: ClearMachineSleep :exec
 UPDATE machines
 SET asleep_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL
   AND asleep_since IS NOT NULL;
+
+-- name: GetMachineWakeState :one
+SELECT EXISTS (
+         SELECT 1
+         FROM online_daemon_runtimes runtime
+         WHERE runtime.org_id = machine.org_id
+           AND runtime.machine_id = machine.id
+       ) AS online,
+       (machine.asleep_since IS NOT NULL)::boolean AS asleep,
+       pool.runtime_protection_enabled,
+       machine.wake_attempt_expires_at,
+       coalesce(
+         machine.wake_attempt_expires_at > statement_timestamp(),
+         false
+       )::boolean AS wake_attempt_active
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+  AND pool.deleted_at IS NULL
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = sqlc.arg(machine_id)
+  AND machine.machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND machine.provider_resource_id IS NOT NULL;
+
+-- name: ClaimMachineWakeRequest :one
+UPDATE machines machine
+SET wake_attempt_expires_at = statement_timestamp()
+      + sqlc.arg(wake_timeout_milliseconds)::bigint * interval '1 millisecond',
+    updated_at = statement_timestamp()
+FROM machine_pools pool
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = sqlc.arg(machine_id)
+  AND machine.machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND machine.asleep_since IS NOT NULL
+  AND machine.provider_resource_id IS NOT NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR (
+      NOT pool.runtime_protection_enabled
+      AND machine.wake_attempt_expires_at <= statement_timestamp()
+    )
+  )
+  AND pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+  AND pool.deleted_at IS NULL
+RETURNING machine.wake_attempt_expires_at;
 
 -- name: RefreshDaemonRuntimeRegistration :one
 UPDATE daemon_runtimes runtime

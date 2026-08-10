@@ -30,6 +30,7 @@ type ProviderRuntimeCandidate struct {
 	CurrentDaemonRuntimeID       ID
 	InactiveSince                time.Time
 	ProviderRuntimeMismatchSince *time.Time
+	WakeAttemptExpiresAt         *time.Time
 	ManagementKind               management.Kind
 	ProviderConfig               json.RawMessage
 	ProviderAuthSecretID         ID
@@ -37,29 +38,40 @@ type ProviderRuntimeCandidate struct {
 	ProviderAuthVersionID        ID
 }
 
+type ProviderRuntimeInactiveKind uint8
+
+const (
+	ProviderRuntimeInactive ProviderRuntimeInactiveKind = iota
+	ProviderRuntimeTerminated
+)
+
 type ListProviderRuntimeCandidatesInput struct {
 	AfterMachineID ID
 	Limit          int32
 }
 
+type ProviderRuntimeMismatchCursor struct {
+	MismatchSince time.Time
+	MachineID     ID
+}
+
 type ListDueProviderRuntimeMismatchesInput struct {
-	ListProviderRuntimeCandidatesInput
-	SourceAfterMismatchSince time.Time
-	ConfirmationGrace        time.Duration
-	InactivityGrace          time.Duration
+	After             ProviderRuntimeMismatchCursor
+	Limit             int32
+	ConfirmationGrace time.Duration
+	InactivityGrace   time.Duration
 }
 
 func (s *Store) ListProviderRuntimeDiscoveryCandidates(
 	ctx context.Context,
 	input ListProviderRuntimeCandidatesInput,
 ) ([]ProviderRuntimeCandidate, error) {
-	cursorSet, limit := prepareProviderRuntimePage(input)
 	rows, err := s.q.ListProviderRuntimeDiscoveryCandidates(
 		ctx,
 		dbsqlc.ListProviderRuntimeDiscoveryCandidatesParams{
-			CursorSet:      cursorSet,
+			CursorSet:      input.AfterMachineID != NilID,
 			AfterMachineID: input.AfterMachineID,
-			RowLimit:       limit,
+			RowLimit:       providerRuntimePageLimit(input.Limit),
 		},
 	)
 	if err != nil {
@@ -81,6 +93,7 @@ func (s *Store) ListProviderRuntimeDiscoveryCandidates(
 			row.CurrentDaemonRuntimeID,
 			row.InactiveSince,
 			row.ProviderRuntimeMismatchSince,
+			row.WakeAttemptExpiresAt,
 			row.ManagementKind,
 			row.ProviderConfig,
 			row.ProviderAuthSecretID,
@@ -99,12 +112,14 @@ func (s *Store) ListDueProviderRuntimeMismatches(
 	ctx context.Context,
 	input ListDueProviderRuntimeMismatchesInput,
 ) ([]ProviderRuntimeCandidate, error) {
-	cursorSet, limit := prepareProviderRuntimePage(input.ListProviderRuntimeCandidatesInput)
-	if cursorSet != !input.SourceAfterMismatchSince.IsZero() {
+	cursorSet := input.After.MachineID != NilID
+	if cursorSet != !input.After.MismatchSince.IsZero() {
 		return nil, errors.New("due provider runtime cursor requires mismatch time and machine id")
 	}
 	if input.ConfirmationGrace < time.Millisecond || input.InactivityGrace < time.Millisecond {
-		return nil, errors.New("provider runtime mismatch grace must be at least one millisecond")
+		return nil, errors.New(
+			"provider runtime reconciliation graces must be at least one millisecond",
+		)
 	}
 	rows, err := s.q.ListDueProviderRuntimeMismatches(
 		ctx,
@@ -112,9 +127,9 @@ func (s *Store) ListDueProviderRuntimeMismatches(
 			ConfirmationGraceMilliseconds: input.ConfirmationGrace.Milliseconds(),
 			InactivityGraceMilliseconds:   input.InactivityGrace.Milliseconds(),
 			CursorSet:                     cursorSet,
-			AfterMismatchSince:            input.SourceAfterMismatchSince,
-			AfterMachineID:                input.AfterMachineID,
-			RowLimit:                      limit,
+			AfterMismatchSince:            input.After.MismatchSince,
+			AfterMachineID:                input.After.MachineID,
+			RowLimit:                      providerRuntimePageLimit(input.Limit),
 		},
 	)
 	if err != nil {
@@ -136,6 +151,7 @@ func (s *Store) ListDueProviderRuntimeMismatches(
 			row.CurrentDaemonRuntimeID,
 			row.InactiveSince,
 			row.ProviderRuntimeMismatchSince,
+			row.WakeAttemptExpiresAt,
 			row.ManagementKind,
 			row.ProviderConfig,
 			row.ProviderAuthSecretID,
@@ -150,13 +166,11 @@ func (s *Store) ListDueProviderRuntimeMismatches(
 	return out, nil
 }
 
-func prepareProviderRuntimePage(input ListProviderRuntimeCandidatesInput) (bool, int32) {
-	cursorSet := input.AfterMachineID != NilID
-	limit := input.Limit
+func providerRuntimePageLimit(limit int32) int32 {
 	if limit <= 0 {
 		limit = defaultProviderRuntimePageSize
 	}
-	return cursorSet, limit
+	return limit
 }
 
 func providerRuntimeCandidateFromColumns(
@@ -171,6 +185,7 @@ func providerRuntimeCandidateFromColumns(
 	currentDaemonRuntimeID *ID,
 	inactiveSince time.Time,
 	mismatchSince *time.Time,
+	wakeAttemptExpiresAt *time.Time,
 	managementKind string,
 	providerConfig json.RawMessage,
 	providerAuthSecretID *ID,
@@ -205,6 +220,7 @@ func providerRuntimeCandidateFromColumns(
 		CurrentDaemonRuntimeID:       *currentDaemonRuntimeID,
 		InactiveSince:                inactiveSince,
 		ProviderRuntimeMismatchSince: mismatchSince,
+		WakeAttemptExpiresAt:         wakeAttemptExpiresAt,
 		ManagementKind:               kind,
 		ProviderConfig:               providerConfig,
 		ProviderAuthSecretID:         idFromSQLCPtr(providerAuthSecretID),
@@ -217,7 +233,29 @@ func (s *Store) MarkProviderRuntimeMismatch(
 	ctx context.Context,
 	candidate ProviderRuntimeCandidate,
 ) (bool, error) {
-	_, err := s.q.MarkProviderRuntimeMismatch(ctx, dbsqlc.MarkProviderRuntimeMismatchParams{
+	if candidate.ProviderRuntimeMismatchSince != nil {
+		return false, nil
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, fmt.Errorf("begin provider runtime mismatch mark: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+
+	if _, err := qtx.LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{
+			OrgID: candidate.OrgID,
+			ID:    candidate.MachineID,
+		},
+	); errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("lock machine for provider runtime mismatch: %w", err)
+	}
+
+	_, err = qtx.MarkProviderRuntimeMismatch(ctx, dbsqlc.MarkProviderRuntimeMismatchParams{
 		OrgID:              candidate.OrgID,
 		MachineID:          candidate.MachineID,
 		MachinePoolID:      candidate.MachinePoolID,
@@ -233,32 +271,58 @@ func (s *Store) MarkProviderRuntimeMismatch(
 	if err != nil {
 		return false, fmt.Errorf("mark provider runtime mismatch: %w", err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit provider runtime mismatch mark: %w", err)
+	}
 	return true, nil
 }
 
-func (s *Store) ClearProviderRuntimeMismatch(
+type ProviderRuntimeInactiveObservationResult struct {
+	Applied            bool
+	WakeAttemptCleared bool
+}
+
+func (s *Store) ApplyProviderRuntimeInactiveObservation(
 	ctx context.Context,
 	candidate ProviderRuntimeCandidate,
-) (bool, error) {
-	if candidate.ProviderRuntimeMismatchSince == nil {
-		return false, nil
+	kind ProviderRuntimeInactiveKind,
+) (ProviderRuntimeInactiveObservationResult, error) {
+	if kind != ProviderRuntimeInactive && kind != ProviderRuntimeTerminated {
+		return ProviderRuntimeInactiveObservationResult{}, errors.New(
+			"provider runtime inactive kind is invalid",
+		)
 	}
-	_, err := s.q.ClearProviderRuntimeMismatch(ctx, dbsqlc.ClearProviderRuntimeMismatchParams{
-		OrgID:              candidate.OrgID,
-		MachineID:          candidate.MachineID,
-		MachinePoolID:      candidate.MachinePoolID,
-		LifecycleVersion:   candidate.LifecycleVersion,
-		Provider:           candidate.Provider,
-		ProviderResourceID: sqlcTextFromEmpty(candidate.ProviderResourceID),
-		MismatchSince:      *candidate.ProviderRuntimeMismatchSince,
-	})
+	if candidate.ProviderRuntimeMismatchSince == nil && candidate.WakeAttemptExpiresAt == nil {
+		return ProviderRuntimeInactiveObservationResult{}, nil
+	}
+	row, err := s.q.ApplyProviderRuntimeInactiveObservation(
+		ctx,
+		dbsqlc.ApplyProviderRuntimeInactiveObservationParams{
+			ClearActiveWake:      kind == ProviderRuntimeTerminated,
+			OrgID:                candidate.OrgID,
+			MachineID:            candidate.MachineID,
+			MachinePoolID:        candidate.MachinePoolID,
+			LifecycleVersion:     candidate.LifecycleVersion,
+			Provider:             candidate.Provider,
+			ProviderResourceID:   sqlcTextFromEmpty(candidate.ProviderResourceID),
+			MismatchSince:        candidate.ProviderRuntimeMismatchSince,
+			WakeAttemptExpiresAt: candidate.WakeAttemptExpiresAt,
+			DaemonRuntimeID:      candidate.CurrentDaemonRuntimeID,
+			InactiveSince:        candidate.InactiveSince,
+		})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+		return ProviderRuntimeInactiveObservationResult{}, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("clear provider runtime mismatch: %w", err)
+		return ProviderRuntimeInactiveObservationResult{}, fmt.Errorf(
+			"apply inactive provider runtime observation: %w",
+			err,
+		)
 	}
-	return true, nil
+	return ProviderRuntimeInactiveObservationResult{
+		Applied:            true,
+		WakeAttemptCleared: row.WakeAttemptCleared,
+	}, nil
 }
 
 type ClaimProviderRuntimeMismatchDeletionInput struct {
@@ -282,7 +346,7 @@ func (s *Store) ClaimProviderRuntimeMismatchDeletion(
 	}
 	if input.ConfirmationGrace < time.Millisecond || input.InactivityGrace < time.Millisecond {
 		return PoolMachineDeletionClaim{}, false, errors.New(
-			"provider runtime mismatch grace must be at least one millisecond",
+			"provider runtime reconciliation graces must be at least one millisecond",
 		)
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -390,6 +454,7 @@ func (s *Store) ClaimProviderRuntimeMismatchDeletion(
 		txNotifications,
 		claim,
 		"claim provider runtime mismatch deletion",
+		ProcessToolReasonMachineUnreachable,
 	)
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, err

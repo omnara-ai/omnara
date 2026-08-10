@@ -19,6 +19,7 @@ const (
 	DefaultImmediateProvisioningTimeout = 2 * time.Minute
 	DefaultImmediateDeletionTimeout     = 2 * time.Minute
 	machineWakeAttempts                 = 3
+	machineWakeTimeout                  = 2 * time.Minute
 	providerInspectionTimeout           = 5 * time.Second
 	providerDeletionTimeout             = 5 * time.Second
 	providerFailureRetryDelay           = time.Minute
@@ -254,6 +255,27 @@ func (m Manager) WakeMachine(ctx context.Context, orgID, machineID storage.ID) (
 	if !ok {
 		return false, storeerr.ErrMachineNotWakeCapable
 	}
+	if machine.SourceKind == executionstore.MachineSourceKindPool {
+		disposition, err := m.Execution.BeginMachineWake(
+			ctx,
+			machine.OrgID,
+			machine.ID,
+			machine.MachinePoolID,
+			machineWakeTimeout,
+		)
+		if err != nil {
+			return false, err
+		}
+		switch disposition {
+		case executionstore.MachineWakeOnline, executionstore.MachineWakePending:
+			return true, nil
+		case executionstore.MachineWakeUnavailable:
+			return false, nil
+		case executionstore.MachineWakeUnresolved:
+			return false, storeerr.ErrMachineWakeUnresolved
+		case executionstore.MachineWakeReady:
+		}
+	}
 	input := providers.WakeMachineInput{
 		ProviderResourceID: machine.ProviderResourceID,
 		SandboxURL:         machine.SandboxURL,
@@ -342,7 +364,7 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 func (m Manager) deleteClaimedMachine(
 	ctx context.Context,
 	claim executionstore.PoolMachineDeletionClaim,
-	confirmedProvider providers.Provider,
+	confirmedDeleter providers.MachineDeleter,
 ) (bool, error) {
 	machine := claim.Machine
 	if machine.ProviderResourceID == "" && machine.ProviderProvisionAttemptedAt == nil {
@@ -364,8 +386,9 @@ func (m Manager) deleteClaimedMachine(
 			err,
 		)
 	}
-	provider := confirmedProvider
-	if provider == nil {
+	deleter := confirmedDeleter
+	var provider providers.Provider
+	if deleter == nil {
 		var reasonCode, reasonMessage string
 		provider, reasonCode, reasonMessage, err = m.providerForMachine(
 			ctx,
@@ -383,6 +406,7 @@ func (m Manager) deleteClaimedMachine(
 				err,
 			)
 		}
+		deleter = provider
 	}
 	installationID, err := m.Identity.GetInstallationID(ctx)
 	if err != nil {
@@ -390,6 +414,9 @@ func (m Manager) deleteClaimedMachine(
 	}
 	resourceID := machine.ProviderResourceID
 	if resourceID == "" {
+		if provider == nil {
+			return false, errors.New("confirmed machine deletion is missing a provider resource id")
+		}
 		providerCtx, cancel := context.WithTimeout(ctx, providerInspectionTimeout)
 		providerResourceID, found, err := provider.InspectMachine(
 			providerCtx,
@@ -456,7 +483,7 @@ func (m Manager) deleteClaimedMachine(
 		}
 	}
 	providerCtx, cancel := context.WithTimeout(ctx, providerDeletionTimeout)
-	err = provider.DeleteMachine(
+	err = deleter.DeleteMachine(
 		providerCtx,
 		installationID,
 		machine.ID,
