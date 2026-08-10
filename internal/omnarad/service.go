@@ -33,14 +33,6 @@ type serviceCommandResult struct {
 	err    error
 }
 
-type managedDaemonStatus struct {
-	manager        string
-	definitionPath string
-	registered     bool
-	running        bool
-	pid            int
-}
-
 func runServiceCommand(ctx context.Context, timeout time.Duration, name string, args ...string) serviceCommandResult {
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

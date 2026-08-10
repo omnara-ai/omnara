@@ -85,6 +85,14 @@ type launchdServiceState struct {
 	pid            int
 }
 
+type managedDaemonStatus struct {
+	manager        string
+	definitionPath string
+	registered     bool
+	running        bool
+	pid            int
+}
+
 func ensureDaemonService(
 	ctx context.Context,
 	home string,

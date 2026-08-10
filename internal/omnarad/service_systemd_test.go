@@ -426,7 +426,8 @@ printf '%%s\n' "$*" >> %s
 case "$2" in
   show-environment) exit 0 ;;
   show)
-    printf 'LoadState=loaded\nFragmentPath=/usr/lib/systemd/user/omnarad.service\nActiveState=active\nMainPID=%d\nNeedDaemonReload=no\n'
+    printf 'LoadState=loaded\nFragmentPath=/usr/lib/systemd/user/omnarad.service\n'
+    printf 'ActiveState=active\nMainPID=%d\nNeedDaemonReload=no\n'
     exit 0
     ;;
   disable) exit 0 ;;
