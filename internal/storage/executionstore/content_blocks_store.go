@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -102,7 +103,7 @@ func contentBlockArray(contentBlocks json.RawMessage) ([]json.RawMessage, error)
 
 func decodeContentBlock(
 	raw json.RawMessage,
-) (string, json.RawMessage, map[string]json.RawMessage, error) {
+) (string, resourcemeta.Metadata, map[string]json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return "", nil, nil, errors.New("must be a JSON object")
@@ -118,9 +119,12 @@ func decodeContentBlock(
 	if kind == "" {
 		return "", nil, nil, errors.New("requires type")
 	}
-	metadata, err := normalizedJSONObject(fields["metadata"], "metadata")
+	metadata, err := resourcemeta.FromJSON(fields["metadata"])
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, errors.New("metadata must be a JSON object with string values")
+	}
+	if err := metadata.Validate(); err != nil {
+		return "", nil, nil, fmt.Errorf("metadata: %w", err)
 	}
 	return kind, metadata, fields, nil
 }
@@ -238,9 +242,9 @@ func marshalAgentInputContentBlock(
 	switch block.BlockKind {
 	case ContentBlockKindText:
 		return marshalJSON(struct {
-			Type     string          `json:"type"`
-			Text     string          `json:"text"`
-			Metadata json.RawMessage `json:"metadata,omitempty"`
+			Type     string                `json:"type"`
+			Text     string                `json:"text"`
+			Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
 			Type:     "text",
 			Text:     block.TextContent,
@@ -251,9 +255,9 @@ func marshalAgentInputContentBlock(
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
-			Type       string          `json:"type"`
-			ArtifactID string          `json:"artifact_id"`
-			Metadata   json.RawMessage `json:"metadata,omitempty"`
+			Type       string                `json:"type"`
+			ArtifactID string                `json:"artifact_id"`
+			Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
 			Type:       "media_ref",
 			ArtifactID: block.ArtifactID.String(),
@@ -285,9 +289,9 @@ func marshalToolResultContentBlock(
 	switch block.BlockKind {
 	case ContentBlockKindText:
 		return marshalJSON(struct {
-			Type     string          `json:"type"`
-			Text     string          `json:"text"`
-			Metadata json.RawMessage `json:"metadata,omitempty"`
+			Type     string                `json:"type"`
+			Text     string                `json:"text"`
+			Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
 			Type:     "text",
 			Text:     block.TextContent,
@@ -298,9 +302,9 @@ func marshalToolResultContentBlock(
 			return nil, errors.New("structured_data requires a value")
 		}
 		return marshalJSON(struct {
-			Type     string          `json:"type"`
-			Value    json.RawMessage `json:"value"`
-			Metadata json.RawMessage `json:"metadata,omitempty"`
+			Type     string                `json:"type"`
+			Value    json.RawMessage       `json:"value"`
+			Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
 			Type:     "structured_data",
 			Value:    block.StructuredData,
@@ -311,9 +315,9 @@ func marshalToolResultContentBlock(
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
-			Type       string          `json:"type"`
-			ArtifactID string          `json:"artifact_id"`
-			Metadata   json.RawMessage `json:"metadata,omitempty"`
+			Type       string                `json:"type"`
+			ArtifactID string                `json:"artifact_id"`
+			Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
 			Type:       "media_ref",
 			ArtifactID: block.ArtifactID.String(),
@@ -324,8 +328,8 @@ func marshalToolResultContentBlock(
 	}
 }
 
-func contentBlockMetadataForOutput(metadata json.RawMessage) json.RawMessage {
-	if sameJSON(normalizedJSON(metadata), json.RawMessage(`{}`)) {
+func contentBlockMetadataForOutput(metadata resourcemeta.Metadata) resourcemeta.Metadata {
+	if len(metadata) == 0 {
 		return nil
 	}
 	return metadata

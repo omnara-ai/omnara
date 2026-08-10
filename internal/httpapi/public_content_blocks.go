@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 )
 
@@ -18,30 +19,30 @@ type storedContentBlockType struct {
 }
 
 type storedTextContentBlock struct {
-	Type     string          `json:"type"`
-	Text     *string         `json:"text"`
-	Metadata json.RawMessage `json:"metadata,omitempty"`
+	Type     string                `json:"type"`
+	Text     *string               `json:"text"`
+	Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedMediaRefContentBlock struct {
-	Type       string          `json:"type"`
-	ArtifactID string          `json:"artifact_id"`
-	Metadata   json.RawMessage `json:"metadata,omitempty"`
+	Type       string                `json:"type"`
+	ArtifactID string                `json:"artifact_id"`
+	Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedToolCallContentBlock struct {
-	Type       string          `json:"type"`
-	ToolCallID string          `json:"tool_call_id"`
-	ToolType   string          `json:"tool_type"`
-	Name       string          `json:"name"`
-	Input      json.RawMessage `json:"input"`
-	Metadata   json.RawMessage `json:"metadata,omitempty"`
+	Type       string                `json:"type"`
+	ToolCallID string                `json:"tool_call_id"`
+	ToolType   string                `json:"tool_type"`
+	Name       string                `json:"name"`
+	Input      json.RawMessage       `json:"input"`
+	Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedStructuredDataContentBlock struct {
-	Type     string          `json:"type"`
-	Value    json.RawMessage `json:"value"`
-	Metadata json.RawMessage `json:"metadata,omitempty"`
+	Type     string                `json:"type"`
+	Value    json.RawMessage       `json:"value"`
+	Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 func decodeStoredContentBlocks(raw json.RawMessage) ([]json.RawMessage, error) {
@@ -291,7 +292,7 @@ func decodeStoredTextContentBlock(
 	raw json.RawMessage,
 	index int,
 	expectedType string,
-) (string, json.RawMessage, error) {
+) (string, resourcemeta.Metadata, error) {
 	var block storedTextContentBlock
 	if err := decodeStoredContentBlock(raw, index, &block); err != nil {
 		return "", nil, err

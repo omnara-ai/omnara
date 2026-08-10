@@ -769,10 +769,53 @@ export const zModelOutputStopReason = z.enum([
     'error'
 ]);
 
+export const zAgentInputDeliveryMode = z.enum([
+    'queued',
+    'steering',
+    'immediate'
+]);
+
+export const zCreateAgentInputDeliveryMode = z.enum(['queued', 'steering']);
+
+export const zAgentMachineBindingState = z.enum(['attached', 'released']);
+
+export const zAgentMachineBindingKind = z.enum(['explicit', 'pool']);
+
+export const zAgentMachineBinding = z.object({
+    id: zAgentMachineBindingId,
+    project_id: zProjectId,
+    agent_id: zAgentId,
+    machine_id: zMachineId,
+    machine_ref: z.string(),
+    binding_kind: zAgentMachineBindingKind,
+    state: zAgentMachineBindingState,
+    description: z.string(),
+    cwd: z.string(),
+    env_overlay: z.record(z.string(), z.string().nullable()),
+    secret_env_overlay: z.record(z.string(), zSecretId.nullable()),
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
 /**
- * String key-value metadata. Maximum 16 pairs, keys up to 64 characters, and values up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ * Public JSON payload whose shape is determined by the event or interaction kind.
  */
-export const zContentBlockMetadata = z.record(z.string(), z.string().max(512));
+export const zJsonBlob = z.unknown();
+
+/**
+ * Non-null JSON object containing the arguments emitted for a tool call.
+ */
+export const zToolInput = z.record(z.string(), z.unknown());
+
+/**
+ * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+ */
+export const zMetadata = z.record(z.string(), z.string().max(512));
+
+/**
+ * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ */
+export const zContentBlockMetadata = zMetadata;
 
 export const zTextContentBlock = z.object({
     type: z.enum(['text']),
@@ -819,6 +862,12 @@ export const zErrorContentBlock = z.object({
     metadata: zContentBlockMetadata.optional()
 });
 
+export const zStructuredDataContentBlock = z.object({
+    type: z.enum(['structured_data']),
+    value: zJsonBlob,
+    metadata: zContentBlockMetadata.optional()
+});
+
 export const zCreateAgentInputContentBlock = z.discriminatedUnion('type', [
     zTextContentBlock.extend({ type: z.literal('text') }),
     zInlineMediaContentBlock.extend({ type: z.literal('media') })
@@ -828,69 +877,6 @@ export const zAgentInputContentBlock = z.discriminatedUnion('type', [
     zTextContentBlock.extend({ type: z.literal('text') }),
     zMediaRefContentBlock.extend({ type: z.literal('media_ref') })
 ]);
-
-export const zAgentInputDeliveryMode = z.enum([
-    'queued',
-    'steering',
-    'immediate'
-]);
-
-export const zCreateAgentInputDeliveryMode = z.enum(['queued', 'steering']);
-
-export const zAgentInput = z.object({
-    id: zAgentInputId,
-    agent_id: zAgentId,
-    state: z.string(),
-    delivery_mode: zAgentInputDeliveryMode,
-    input_kind: zAgentInputKind,
-    actor_id: zActorId.optional(),
-    content_blocks: z.array(zAgentInputContentBlock).optional(),
-    queued_at: zTimestamp
-});
-
-export const zAgentMachineBindingState = z.enum(['attached', 'released']);
-
-export const zAgentMachineBindingKind = z.enum(['explicit', 'pool']);
-
-export const zAgentMachineBinding = z.object({
-    id: zAgentMachineBindingId,
-    project_id: zProjectId,
-    agent_id: zAgentId,
-    machine_id: zMachineId,
-    machine_ref: z.string(),
-    binding_kind: zAgentMachineBindingKind,
-    state: zAgentMachineBindingState,
-    description: z.string(),
-    cwd: z.string(),
-    env_overlay: z.record(z.string(), z.string().nullable()),
-    secret_env_overlay: z.record(z.string(), zSecretId.nullable()),
-    created_at: zTimestamp,
-    updated_at: zTimestamp
-});
-
-export const zLaunchAgentResponse = z.object({
-    agent: zAgent,
-    agent_config: zAgentConfig,
-    machine_bindings: z.array(zAgentMachineBinding),
-    agent_input: zAgentInput.optional()
-});
-
-export const zUpdateAgentConfigResponse = z.object({
-    agent_config: zAgentConfig,
-    agent_input: zAgentInput,
-    event_id: zAgentEventId
-});
-
-/**
- * Public JSON payload whose shape is determined by the event or interaction kind.
- */
-export const zJsonBlob = z.unknown();
-
-export const zStructuredDataContentBlock = z.object({
-    type: z.enum(['structured_data']),
-    value: zJsonBlob,
-    metadata: zContentBlockMetadata.optional()
-});
 
 export const zToolResultContentBlock = z.discriminatedUnion('type', [
     zTextContentBlock.extend({ type: z.literal('text') }),
@@ -907,15 +893,29 @@ export const zSubmitToolResultContentBlock = z.discriminatedUnion('type', [
     zStructuredDataContentBlock.extend({ type: z.literal('structured_data') })
 ]);
 
-/**
- * Non-null JSON object containing the arguments emitted for a tool call.
- */
-export const zToolInput = z.record(z.string(), z.unknown());
+export const zAgentInput = z.object({
+    id: zAgentInputId,
+    agent_id: zAgentId,
+    state: z.string(),
+    delivery_mode: zAgentInputDeliveryMode,
+    input_kind: zAgentInputKind,
+    actor_id: zActorId.optional(),
+    content_blocks: z.array(zAgentInputContentBlock).optional(),
+    queued_at: zTimestamp
+});
 
-/**
- * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
- */
-export const zMetadata = z.record(z.string(), z.string().max(512));
+export const zLaunchAgentResponse = z.object({
+    agent: zAgent,
+    agent_config: zAgentConfig,
+    machine_bindings: z.array(zAgentMachineBinding),
+    agent_input: zAgentInput.optional()
+});
+
+export const zUpdateAgentConfigResponse = z.object({
+    agent_config: zAgentConfig,
+    agent_input: zAgentInput,
+    event_id: zAgentEventId
+});
 
 export const zAgentInputEnvelope = z.object({
     agent_input: zAgentInput
