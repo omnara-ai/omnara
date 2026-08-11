@@ -21,6 +21,7 @@ type recordingBlobStore struct {
 	putKeys             []string
 	deleteKeys          []string
 	deleteContextErrors []error
+	deleteErr           error
 	content             map[string][]byte
 	afterPut            func()
 }
@@ -56,6 +57,9 @@ func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, b
 func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
 	s.deleteKeys = append(s.deleteKeys, key)
 	s.deleteContextErrors = append(s.deleteContextErrors, ctx.Err())
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
 	delete(s.content, key)
 	return nil
 }
@@ -252,6 +256,47 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 	if len(blobs.putKeys) != 3 || len(blobs.deleteKeys) != 2 ||
 		blobs.deleteKeys[1] != blobs.putKeys[2] {
 		t.Fatalf("conflict blob writes=%v deletes=%v, want third upload deleted", blobs.putKeys, blobs.deleteKeys)
+	}
+}
+
+func TestCreateArtifactReplayCleanupFailurePreservesSuccess(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
+	agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+	input := artifactstore.CreateArtifactInput{
+		ProjectID:      testProjectID,
+		AgentID:        agentID,
+		ContentType:    "image/png",
+		Content:        []byte("same bytes"),
+		IdempotencyKey: "upload:cleanup-failure:0",
+	}
+	first, err := store.Artifacts().CreateArtifact(ctx, input)
+	if err != nil {
+		t.Fatalf("create artifact: %v", err)
+	}
+	blobs.deleteErr = errors.New("injected blob deletion failure")
+
+	replayed, err := store.Artifacts().CreateArtifact(ctx, input)
+	if err != nil {
+		t.Fatalf("replay artifact after cleanup failure: %v", err)
+	}
+	if replayed.Created || replayed.ID != first.ID {
+		t.Fatalf("replay = %+v, want existing artifact %s", replayed, first.ID)
+	}
+	if len(blobs.putKeys) != 2 || len(blobs.deleteKeys) != 1 ||
+		blobs.deleteKeys[0] != blobs.putKeys[1] {
+		t.Fatalf(
+			"replay cleanup writes=%v deletes=%v, want second upload deletion attempted",
+			blobs.putKeys,
+			blobs.deleteKeys,
+		)
+	}
+	if _, ok := blobs.content[blobs.putKeys[1]]; !ok {
+		t.Fatal("failed cleanup unexpectedly removed the duplicate blob")
 	}
 }
 

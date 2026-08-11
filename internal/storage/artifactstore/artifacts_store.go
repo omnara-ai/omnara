@@ -75,8 +75,9 @@ func (s *Store) CreateArtifact(
 	if err != nil {
 		return ArtifactRecord{}, fmt.Errorf("upload artifact content: %w", err)
 	}
+	cleanupCtx := context.WithoutCancel(ctx)
 	cleanupUploadedBlob := func(cause error) error {
-		if err := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey); err != nil {
+		if err := s.blobs.DeleteBlob(cleanupCtx, artifactKey); err != nil {
 			return errors.Join(cause, fmt.Errorf("cleanup uploaded artifact content: %w", err))
 		}
 		return cause
@@ -107,9 +108,7 @@ func (s *Store) CreateArtifact(
 					fmt.Errorf("commit idempotent create artifact: %w", err),
 				)
 			}
-			if err := cleanupUploadedBlob(nil); err != nil {
-				return ArtifactRecord{}, err
-			}
+			_ = cleanupUploadedBlob(nil)
 			return replay, nil
 		}
 	}
@@ -139,9 +138,7 @@ func (s *Store) CreateArtifact(
 				fmt.Errorf("commit idempotent create artifact: %w", err),
 			)
 		}
-		if err := cleanupUploadedBlob(nil); err != nil {
-			return ArtifactRecord{}, err
-		}
+		_ = cleanupUploadedBlob(nil)
 		return record, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
