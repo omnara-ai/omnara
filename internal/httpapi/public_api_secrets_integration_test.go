@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -18,6 +19,66 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
+
+func TestPublicSecretKindFiltersBeforePagination(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "secret-kind-filter")
+
+	aws := requestJSONWithHeaders(t, handler, http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"project","project_id":"`+project.ProjectID+`"},"name":"z-aws","material":{"kind":"aws_credentials","access_key_id":"AKIAEXAMPLE","secret_access_key":"secret"}}`,
+		"", http.StatusCreated, authHeaders(project.AdminToken))
+	firstGeneric := requestJSONWithHeaders(t, handler, http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"project","project_id":"`+project.ProjectID+`"},"name":"a-generic","material":{"kind":"generic","value":"first"}}`,
+		"", http.StatusCreated, authHeaders(project.AdminToken))
+	requestJSONWithHeaders(t, handler, http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"project","project_id":"`+project.ProjectID+`"},"name":"b-generic","material":{"kind":"generic","value":"second"}}`,
+		"", http.StatusCreated, authHeaders(project.AdminToken))
+
+	canonical := requestJSONWithHeaders(t, handler, http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/secrets?kind=aws_credentials&sort=name&limit=1",
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	canonicalData := canonical["data"].([]any)
+	if len(canonicalData) != 1 || canonicalData[0].(map[string]any)["id"] != aws["id"] {
+		t.Fatalf("canonical kind filter = %+v, want AWS secret", canonical)
+	}
+	if canonical["next_cursor"] != nil {
+		t.Fatalf("canonical kind filter next_cursor = %v, want nil", canonical["next_cursor"])
+	}
+
+	available := requestJSONWithHeaders(t, handler, http.MethodGet,
+		project.ProjectPath+"/secrets?kind=aws_credentials&sort=name&limit=1",
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	availableData := available["data"].([]any)
+	if len(availableData) != 1 ||
+		availableData[0].(map[string]any)["secret"].(map[string]any)["id"] != aws["id"] {
+		t.Fatalf("project kind filter = %+v, want AWS secret", available)
+	}
+	if available["next_cursor"] != nil {
+		t.Fatalf("project kind filter next_cursor = %v, want nil", available["next_cursor"])
+	}
+
+	genericPage := requestJSONWithHeaders(t, handler, http.MethodGet,
+		project.ProjectPath+"/secrets?kind=generic&sort=name&limit=1",
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	genericData := genericPage["data"].([]any)
+	if len(genericData) != 1 ||
+		genericData[0].(map[string]any)["secret"].(map[string]any)["id"] != firstGeneric["id"] {
+		t.Fatalf("first generic page = %+v, want first generic secret", genericPage)
+	}
+	nextCursor, ok := genericPage["next_cursor"].(string)
+	if !ok || nextCursor == "" {
+		t.Fatalf("first generic page next_cursor = %v, want non-empty cursor", genericPage["next_cursor"])
+	}
+	requestJSONWithHeaders(t, handler, http.MethodGet,
+		project.ProjectPath+"/secrets?kind=aws_credentials&sort=name&limit=1&cursor="+url.QueryEscape(nextCursor),
+		"", "", http.StatusBadRequest, authHeaders(project.AdminToken))
+}
 
 func TestPublicCanonicalSecretsAndProjectAvailability(t *testing.T) {
 	t.Parallel()

@@ -377,6 +377,11 @@ func (s strictOpenAPIServer) ListSecrets(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	filters := secretListFilters(request.Params.Metadata)
+	kind := ""
+	if request.Params.Kind != nil {
+		kind = string(*request.Params.Kind)
+		filters.Kinds = []string{kind}
+	}
 	if request.Params.OwnerKind != nil {
 		filters.OwnerKind = string(*request.Params.OwnerKind)
 	}
@@ -389,8 +394,9 @@ func (s strictOpenAPIServer) ListSecrets(
 	}
 	extra := struct {
 		OwnerKind, OwnerProjectID string
+		Kind                      string
 		Metadata                  map[string]string
-	}{OwnerKind: filters.OwnerKind, Metadata: filters.Metadata}
+	}{OwnerKind: filters.OwnerKind, Kind: kind, Metadata: filters.Metadata}
 	if filters.OwnerProjectID != storage.NilID {
 		extra.OwnerProjectID = filters.OwnerProjectID.String()
 	}
@@ -697,6 +703,11 @@ func (s strictOpenAPIServer) ListProjectAvailableSecrets(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	filters := secretListFilters(request.Params.Metadata)
+	kind := ""
+	if request.Params.Kind != nil {
+		kind = string(*request.Params.Kind)
+		filters.Kinds = []string{kind}
+	}
 	if request.Params.OwnerKind != nil {
 		filters.OwnerKind = string(*request.Params.OwnerKind)
 	}
@@ -706,8 +717,14 @@ func (s strictOpenAPIServer) ListProjectAvailableSecrets(
 	extra := struct {
 		OwnerKind           string
 		AvailabilitySources []string
+		Kind                string
 		Metadata            map[string]string
-	}{filters.OwnerKind, filters.AvailabilitySources, filters.Metadata}
+	}{
+		OwnerKind:           filters.OwnerKind,
+		AvailabilitySources: filters.AvailabilitySources,
+		Kind:                kind,
+		Metadata:            filters.Metadata,
+	}
 	scopeKey := scope.project.OrgID.String() + "/" + scope.project.ID.String()
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: request.Params.Name, Sort: optionalString(request.Params.Sort),

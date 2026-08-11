@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority'
-import type { ComponentProps } from 'react'
+import { type ComponentProps, type ReactNode, useId } from 'react'
 
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
@@ -24,6 +24,66 @@ const fieldVariants = cva('group/field flex w-full gap-2 data-[invalid=true]:tex
   },
   defaultVariants: { orientation: 'vertical' },
 })
+
+interface CheckboxFieldProps extends Omit<ComponentProps<'input'>, 'className' | 'type'> {
+  className?: string
+  inputClassName?: string
+  label: ReactNode
+  description?: ReactNode
+}
+
+function CheckboxField({
+  id,
+  className,
+  inputClassName,
+  label,
+  description,
+  disabled,
+  'aria-describedby': ariaDescribedBy,
+  ...props
+}: CheckboxFieldProps) {
+  const generatedId = useId()
+  const inputId = id ?? generatedId
+  const descriptionId = description ? `${inputId}-description` : undefined
+  const describedBy = [ariaDescribedBy, descriptionId].filter(Boolean).join(' ') || undefined
+
+  return (
+    <label
+      htmlFor={inputId}
+      data-slot="field"
+      data-orientation="horizontal"
+      data-disabled={disabled ? 'true' : undefined}
+      className={cn(
+        fieldVariants({ orientation: 'horizontal' }),
+        'cursor-pointer data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-50',
+        className,
+      )}
+    >
+      <input
+        {...props}
+        id={inputId}
+        type="checkbox"
+        disabled={disabled}
+        aria-describedby={describedBy}
+        className={cn('size-4 shrink-0', inputClassName)}
+      />
+      <span data-slot="field-content" className="flex flex-1 flex-col gap-1.5">
+        <span data-slot="field-label" className="select-none text-sm font-medium leading-none">
+          {label}
+        </span>
+        {description && (
+          <span
+            id={descriptionId}
+            data-slot="field-description"
+            className="text-muted-foreground text-sm leading-normal"
+          >
+            {description}
+          </span>
+        )}
+      </span>
+    </label>
+  )
+}
 
 function Field({
   className,
@@ -110,4 +170,13 @@ function FieldError({ className, children, errors, ...props }: FieldErrorProps) 
   )
 }
 
-export { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldSeparator }
+export {
+  CheckboxField,
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldSeparator,
+}

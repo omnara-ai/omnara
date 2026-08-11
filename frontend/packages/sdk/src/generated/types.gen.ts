@@ -2626,6 +2626,11 @@ export type SecretMetadataFilter = {
 };
 
 /**
+ * Filter secrets by material kind.
+ */
+export type SecretKindFilter = SecretKind;
+
+/**
  * Filter by the immutable skill owner kind.
  */
 export type SkillOwnerKindFilter = 'org' | 'project' | 'user';
@@ -5453,6 +5458,10 @@ export type ListSecretsData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Filter secrets by material kind.
+         */
+        kind?: SecretKind;
         /**
          * Filter by the immutable owner kind.
          */
@@ -8976,6 +8985,10 @@ export type ListProjectAvailableSecretsData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Filter secrets by material kind.
+         */
+        kind?: SecretKind;
         /**
          * Filter by the immutable owner kind.
          */

@@ -1699,6 +1699,7 @@ paths:
       description: Items are ordered by created_at descending, then id descending. Without an owner filter, returns the deduplicated union of organization secrets the caller may list, project secrets the caller may list, and the caller's own user secrets.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/SecretKindFilter'
         - $ref: '#/components/parameters/SecretOwnerKindFilter'
         - $ref: '#/components/parameters/SecretOwnerProjectIDFilter'
         - $ref: '#/components/parameters/SecretMetadataFilter'
@@ -4168,6 +4169,7 @@ paths:
       description: Includes directly owned and granted secrets, ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/SecretKindFilter'
         - $ref: '#/components/parameters/SecretOwnerKindFilter'
         - $ref: '#/components/parameters/SecretAvailabilitySourceFilter'
         - $ref: '#/components/parameters/SecretMetadataFilter'
@@ -6009,6 +6011,13 @@ components:
         type: object
         additionalProperties:
           type: string
+    SecretKindFilter:
+      name: kind
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/SecretKind'
+      description: Filter secrets by material kind.
     SkillOwnerKindFilter:
       name: owner_kind
       in: query

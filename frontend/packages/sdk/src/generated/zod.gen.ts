@@ -2243,6 +2243,11 @@ export const zMachineSourceKindFilter = zMachineSourceKind;
 export const zSecretMetadataFilter = z.record(z.string(), z.string());
 
 /**
+ * Filter secrets by material kind.
+ */
+export const zSecretKindFilter = zSecretKind;
+
+/**
  * Filter by the immutable skill owner kind.
  */
 export const zSkillOwnerKindFilter = z.enum([
