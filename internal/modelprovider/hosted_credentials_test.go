@@ -57,14 +57,12 @@ func TestHTTPHostedCredentialProvisionerBuildsAuthenticatedRoute(t *testing.T) {
 	}
 }
 
-func TestHTTPHostedCredentialProvisionerAcceptsAdditiveResponseFields(t *testing.T) {
+func TestHTTPHostedCredentialProvisionerDeniesMissingAdmissionAndAcceptsAdditiveFields(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(
-			`{"credential_value":"secret","new_managed_work_allowed":false,"private_policy":{"version":2}}`,
-		))
+		_, _ = w.Write([]byte(`{"credential_value":"secret","private_policy":{"version":2}}`))
 	}))
 	defer server.Close()
 
