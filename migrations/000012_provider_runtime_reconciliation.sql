@@ -1,6 +1,12 @@
 -- +goose Up
 
--- Provider runtime protection and neutral daemon-online interval facts.
+-- Operator-managed work admission, provider runtime protection, and neutral daemon-online interval facts.
+
+-- Missing rows admit new managed work; rows materialize per-organization overrides.
+CREATE TABLE org_managed_work_admission (
+    org_id uuid PRIMARY KEY REFERENCES orgs(id) ON DELETE CASCADE,
+    new_managed_work_allowed boolean NOT NULL
+);
 
 ALTER TABLE machine_pools
     ADD COLUMN runtime_protection_enabled boolean NOT NULL DEFAULT false;
@@ -86,7 +92,11 @@ BEGIN
     IF OLD.state = 'active' AND NEW.state = 'ended' THEN
         interval_end := LEAST(NEW.ended_at, OLD.lease_expires_at);
         UPDATE machine_online_intervals
-        SET ended_at = GREATEST(machine_online_intervals.started_at, interval_end),
+        SET ended_at = GREATEST(
+                machine_online_intervals.started_at,
+                OLD.last_seen_at,
+                interval_end
+            ),
             end_reason_code = COALESCE(NULLIF(NEW.state_reason_code, ''), 'daemon_runtime_ended')
         WHERE org_id = NEW.org_id
           AND machine_id = NEW.machine_id
@@ -174,19 +184,7 @@ CREATE TRIGGER machine_online_intervals_append_only
     FOR EACH ROW
     EXECUTE FUNCTION machine_online_intervals_reject_mutation();
 
--- Start existing online runtimes at rollout time without inferring earlier history.
-INSERT INTO machine_online_intervals(
-    org_id,
-    machine_id,
-    daemon_runtime_id,
-    started_at
-)
-SELECT runtime.org_id,
-       runtime.machine_id,
-       runtime.id,
-       statement_timestamp()
-FROM online_daemon_runtimes runtime;
-
+-- Open intervals confirm only committed heartbeats; closed intervals settle through their lease-capped end.
 CREATE VIEW machine_online_interval_facts AS
 SELECT online_interval.id,
        online_interval.org_id,
@@ -208,7 +206,12 @@ SELECT online_interval.id,
                    COALESCE(online_interval.ended_at, runtime.lease_expires_at)
                )
            )
-       ) AS observed_through
+       ) AS observed_through,
+       CASE
+           WHEN online_interval.ended_at IS NULL
+               THEN GREATEST(online_interval.started_at, runtime.last_seen_at)
+           ELSE online_interval.ended_at
+       END AS confirmed_through
 FROM machine_online_intervals online_interval
 JOIN daemon_runtimes runtime
   ON runtime.org_id = online_interval.org_id

@@ -4,115 +4,12 @@ package executionstore_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
-	"github.com/pressly/goose/v3"
 )
-
-func TestMachineOnlineIntervalTrackingStartsAtMigration(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := integrationdb.OpenUnmigratedPool(t, ctx)
-	db := stdlib.OpenDB(*pool.Config().ConnConfig.Copy())
-	t.Cleanup(func() { _ = db.Close() })
-	migrator, err := goose.NewProvider(
-		goose.DialectPostgres,
-		db,
-		os.DirFS("../../../migrations"),
-		goose.WithDisableGlobalRegistry(true),
-	)
-	if err != nil {
-		t.Fatalf("create migration provider: %v", err)
-	}
-	if _, err := migrator.UpTo(ctx, 11); err != nil {
-		t.Fatalf("migrate through version 11: %v", err)
-	}
-
-	machineID := testID("machine-online-tracking-start")
-	tokenID := testID("machine-online-tracking-start-token")
-	runtimeID := testID("machine-online-tracking-start-runtime")
-	mustExec := func(label, query string, args ...any) {
-		t.Helper()
-		if _, err := pool.Exec(ctx, query, args...); err != nil {
-			t.Fatalf("%s: %v", label, err)
-		}
-	}
-	mustExec("create existing org", `
-INSERT INTO orgs(id, name, created_at, updated_at)
-VALUES ($1, 'Machine online tracking start', statement_timestamp(), statement_timestamp())
-`, testOrgID)
-	mustExec("create existing machine", `
-INSERT INTO machines(
-    id, org_id, source_kind, display_name, provider, lifecycle_state,
-    lifecycle_changed_at, env, secret_env, created_at, updated_at
-) VALUES (
-    $2, $1, 'byo', 'Machine online tracking start', 'daemon', 'active',
-    statement_timestamp(), '{}'::jsonb, '{}'::jsonb,
-    statement_timestamp(), statement_timestamp()
-)
-`, testOrgID, machineID)
-	mustExec("create existing daemon token", `
-INSERT INTO machine_daemon_tokens(
-    id, org_id, machine_id, name, token_hash, created_at
-) VALUES (
-    $3, $1, $2, 'tracking-start daemon', 'machine-online-tracking-start-token-hash',
-    statement_timestamp()
-)
-`, testOrgID, machineID, tokenID)
-	mustExec("create existing daemon runtime", `
-INSERT INTO daemon_runtimes(
-    id, org_id, machine_id, daemon_token_id, daemon_instance_id,
-    daemon_version, state, capacity, metadata, created_at, last_seen_at,
-    lease_expires_at, updated_at
-) VALUES (
-    $4, $1, $2, $3, $5, '1.0.0', 'active', '{}'::jsonb, '{}'::jsonb,
-    statement_timestamp() - interval '1 hour',
-    statement_timestamp() - interval '1 hour',
-    statement_timestamp() + interval '1 hour', statement_timestamp()
-)
-`, testOrgID, machineID, tokenID, runtimeID, testID("machine-online-tracking-start-instance"))
-	mustExec(
-		"select existing daemon runtime",
-		`UPDATE machines SET current_daemon_runtime_id = $2 WHERE id = $1`,
-		machineID,
-		runtimeID,
-	)
-
-	var trackingStartedAt time.Time
-	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&trackingStartedAt); err != nil {
-		t.Fatalf("capture tracking start lower bound: %v", err)
-	}
-	if _, err := migrator.UpTo(ctx, 12); err != nil {
-		t.Fatalf("migrate through version 12: %v", err)
-	}
-	var trackingFinishedAt time.Time
-	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&trackingFinishedAt); err != nil {
-		t.Fatalf("capture tracking start upper bound: %v", err)
-	}
-
-	var startedAt time.Time
-	if err := pool.QueryRow(ctx, `
-SELECT started_at
-FROM machine_online_intervals
-WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
-`, testOrgID, machineID, runtimeID).Scan(&startedAt); err != nil {
-		t.Fatalf("load initial online interval: %v", err)
-	}
-	if startedAt.Before(trackingStartedAt) || startedAt.After(trackingFinishedAt) {
-		t.Fatalf(
-			"initial interval started at %s, migration ran from %s through %s",
-			startedAt,
-			trackingStartedAt,
-			trackingFinishedAt,
-		)
-	}
-}
 
 func TestMachineOnlineIntervalsClampRegressedLeaseBounds(t *testing.T) {
 	t.Parallel()
