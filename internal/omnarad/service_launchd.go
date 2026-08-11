@@ -22,6 +22,7 @@ import (
 )
 
 const launchdServiceLabel = "com.omnara.omnarad"
+const daemonServiceManager = "launchd"
 
 var launchdPlistTemplate = template.Must(
 	template.New(launchdServiceLabel + ".plist").
@@ -85,12 +86,12 @@ type launchdServiceState struct {
 	pid            int
 }
 
-type managedDaemonStatus struct {
-	manager        string
-	definitionPath string
-	registered     bool
-	running        bool
-	pid            int
+type launchdManagedDaemonStatus struct {
+	managerAvailable bool
+	definitionPath   string
+	registered       bool
+	running          bool
+	pid              int
 }
 
 func ensureDaemonService(
@@ -215,32 +216,32 @@ func ensureDaemonService(
 	return true, nil
 }
 
-func inspectDaemonService(ctx context.Context) (managedDaemonStatus, error) {
+func inspectDaemonService(ctx context.Context) (launchdManagedDaemonStatus, error) {
 	launchctl, err := exec.LookPath("launchctl")
 	if errors.Is(err, exec.ErrNotFound) {
-		return managedDaemonStatus{}, nil
+		return launchdManagedDaemonStatus{}, nil
 	}
 	if err != nil {
-		return managedDaemonStatus{}, fmt.Errorf("find launchctl: %w", err)
+		return launchdManagedDaemonStatus{}, fmt.Errorf("find launchctl: %w", err)
 	}
 	domain := "gui/" + strconv.Itoa(os.Geteuid())
 	probe := runServiceCommand(ctx, serviceCommandTimeout, launchctl, "print", domain)
 	if probe.err != nil {
 		if launchdUnavailable(probe) {
-			return managedDaemonStatus{}, nil
+			return launchdManagedDaemonStatus{}, nil
 		}
-		return managedDaemonStatus{}, serviceCommandError(launchctl, []string{"print", domain}, probe)
+		return launchdManagedDaemonStatus{}, serviceCommandError(launchctl, []string{"print", domain}, probe)
 	}
 	state, err := inspectLaunchdService(ctx, launchctl, domain+"/"+launchdServiceLabel)
 	if err != nil {
-		return managedDaemonStatus{}, err
+		return launchdManagedDaemonStatus{}, err
 	}
-	return managedDaemonStatus{
-		manager:        "launchd",
-		definitionPath: state.definitionPath,
-		registered:     state.registered,
-		running:        launchdServiceReady(state),
-		pid:            state.pid,
+	return launchdManagedDaemonStatus{
+		managerAvailable: true,
+		definitionPath:   state.definitionPath,
+		registered:       state.registered,
+		running:          launchdServiceReady(state),
+		pid:              state.pid,
 	}, nil
 }
 
@@ -307,10 +308,10 @@ func uninstallDaemonService(ctx context.Context, home string) error {
 	if status.registered && filepath.Clean(status.definitionPath) != filepath.Clean(plistPath) {
 		return fmt.Errorf("launchd service is registered from an unowned definition: %q", status.definitionPath)
 	}
-	if exists && status.manager == "" {
+	if exists && !status.managerAvailable {
 		return errors.New("launchd is unavailable; cannot safely unregister the Omnara service")
 	}
-	if exists && status.manager != "" {
+	if exists && status.managerAvailable {
 		if err := stopDaemonService(ctx); err != nil {
 			return err
 		}

@@ -190,11 +190,11 @@ func prepareTemporaryDaemonRun(ctx context.Context, home string) (resultErr erro
 	if err != nil {
 		return err
 	}
-	if status.manager != "" {
+	if status.managerAvailable {
 		return fmt.Errorf(
 			"omnarad uses %s on this machine; environment overrides cannot be applied through the service manager. "+
 				"Update %s, then run 'omnarad restart'",
-			status.manager,
+			daemonServiceManager,
 			filepath.Join(home, daemonConfigFileName),
 		)
 	}

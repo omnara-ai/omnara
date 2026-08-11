@@ -254,7 +254,7 @@ func (c *Client) inspectStoppedLocalMachine(ctx context.Context) error {
 			result = errors.Join(
 				result,
 				fmt.Errorf(
-					"process %s supervisor stopped before containment closure was proved",
+					"could not confirm agent process %s stopped; it may still be running and may need to be stopped manually",
 					process.ProcessID,
 				),
 			)

@@ -112,7 +112,7 @@ func TestAuthorityLossDeletesStateAndReportsUnresolvedContainment(
 	}
 	if got := logs.String(); !strings.Contains(
 		got,
-		"supervisor stopped before containment closure was proved",
+		"could not confirm agent process prc_authority_loss stopped",
 	) {
 		t.Fatalf("authority-loss warning = %q", got)
 	}

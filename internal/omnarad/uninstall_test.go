@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -276,7 +277,7 @@ func TestInspectUninstallHomeRejectsUnexpectedBindings(t *testing.T) {
 	}
 }
 
-func TestRunUninstallPreservesUnprovenMachineState(t *testing.T) {
+func TestRunUninstallContinuesAfterUnprovenProcessShutdown(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "daemon-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	if err := os.MkdirAll(userHome, 0o700); err != nil {
@@ -350,25 +351,30 @@ func TestRunUninstallPreservesUnprovenMachineState(t *testing.T) {
 	t.Setenv("HOME", userHome)
 	t.Setenv("OMNARA_HOME", home)
 	t.Setenv("PATH", t.TempDir())
+	var stdout strings.Builder
 	var stderr strings.Builder
 	if code := Run(
 		context.Background(),
 		[]string{"uninstall", "--yes"},
 		nil,
-		&strings.Builder{},
+		&stdout,
 		&stderr,
-		discardLogger(),
-	); code != 1 {
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	); code != 0 {
 		t.Fatalf("uninstall exit code = %d", code)
 	}
-	if !strings.Contains(stderr.String(), "containment closure was proved") {
+	if stdout.String() != "omnarad uninstalled from "+home+"\n" {
+		t.Fatalf("uninstall stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "agent process shutdown could not be verified") ||
+		!strings.Contains(stderr.String(), "could not confirm agent process prc-a stopped") ||
+		!strings.Contains(stderr.String(), "may need to be stopped manually") {
 		t.Fatalf("uninstall stderr = %q", stderr.String())
 	}
-	if _, err := os.Stat(machine.StateDBPath()); err != nil {
-		t.Fatalf("machine state was removed: %v", err)
+	if _, err := os.Lstat(home); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("daemon home still exists: %v", err)
 	}
-	if reportedStage != "daemon_uninstall" ||
-		!strings.Contains(reportedDetail, "containment closure was proved") {
+	if reportedStage != "daemon_uninstalled" || reportedDetail != "" {
 		t.Fatalf("uninstall report stage=%q detail=%q", reportedStage, reportedDetail)
 	}
 }

@@ -42,7 +42,7 @@ func runUninstallCommand(
 		}
 		_, _ = fmt.Fprintf(
 			stderr,
-			"Uninstall omnarad?\nWARNING: This will stop the daemon and agent processes, remove its user service, and permanently delete this entire directory and everything beneath it:\n  %s\nThis includes files you added and files stored on any filesystem mounted inside this directory. This cannot be undone.\nType \"uninstall\" to continue: ",
+			"Uninstall omnarad?\nWARNING: This will stop the daemon, attempt to stop agent processes, remove its user service, and permanently delete this entire directory and everything beneath it:\n  %s\nThis includes files you added and files stored on any filesystem mounted inside this directory. This cannot be undone.\nType \"uninstall\" to continue: ",
 			home,
 		)
 		answer, readErr := bufio.NewReader(stdin).ReadString('\n')
@@ -55,7 +55,7 @@ func runUninstallCommand(
 			return 1
 		}
 	}
-	if err := uninstallDaemon(ctx, home, log); err != nil {
+	if err := uninstallDaemon(ctx, home, stderr, log); err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -176,7 +176,12 @@ func readUninstallDirectory(path string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
-func uninstallDaemon(ctx context.Context, home string, log *slog.Logger) (resultErr error) {
+func uninstallDaemon(
+	ctx context.Context,
+	home string,
+	stderr io.Writer,
+	log *slog.Logger,
+) (resultErr error) {
 	var config *daemonConfig
 	homeRetired := false
 	defer func() {
@@ -215,7 +220,11 @@ func uninstallDaemon(ctx context.Context, home string, log *slog.Logger) (result
 			config.MachineID,
 			"daemon_uninstalled",
 		); err != nil {
-			return fmt.Errorf("stop local agent processes: %w", err)
+			_, _ = fmt.Fprintf(
+				stderr,
+				"warning: agent process shutdown could not be verified: %v\n",
+				err,
+			)
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -270,13 +279,20 @@ func removeManagedPathSymlink(home string) error {
 	if err != nil {
 		return err
 	}
-	link := filepath.Join(userHome, ".local", "bin", "omnarad")
+	return removeMatchingSymlink(
+		filepath.Join(userHome, ".local", "bin", "omnarad"),
+		canonicalDaemonPath(home),
+		"omnarad PATH symlink",
+	)
+}
+
+func removeMatchingSymlink(link, expectedTarget, description string) error {
 	info, err := os.Lstat(link)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("inspect omnarad PATH symlink: %w", err)
+		return fmt.Errorf("inspect %s: %w", description, err)
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
 		return nil
@@ -286,16 +302,16 @@ func removeManagedPathSymlink(home string) error {
 	}
 	target, err := os.Readlink(link)
 	if err != nil {
-		return fmt.Errorf("read omnarad PATH symlink: %w", err)
+		return fmt.Errorf("read %s: %w", description, err)
 	}
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(link), target)
 	}
-	if filepath.Clean(target) != canonicalDaemonPath(home) {
+	if filepath.Clean(target) != filepath.Clean(expectedTarget) {
 		return nil
 	}
 	if err := os.Remove(link); err != nil {
-		return fmt.Errorf("remove omnarad PATH symlink: %w", err)
+		return fmt.Errorf("remove %s: %w", description, err)
 	}
 	return localstore.SyncDir(filepath.Dir(link))
 }

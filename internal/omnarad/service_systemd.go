@@ -20,6 +20,7 @@ import (
 )
 
 const systemdServiceName = "omnarad.service"
+const daemonServiceManager = "systemd"
 const minimumSystemdVersion = 240
 const systemdLingerWarningText = "warning: systemd user lingering is not enabled; run 'sudo loginctl enable-linger %s' " +
 	"to start omnarad at boot without an interactive login"
@@ -70,10 +71,10 @@ type systemdServiceState struct {
 	needsDaemonReload bool
 }
 
-type managedDaemonStatus struct {
-	manager string
-	running bool
-	pid     int
+type systemdManagedDaemonStatus struct {
+	managerAvailable bool
+	running          bool
+	pid              int
 }
 
 func ensureDaemonService(
@@ -225,29 +226,29 @@ func ensureDaemonService(
 	return true, nil
 }
 
-func inspectDaemonService(ctx context.Context) (managedDaemonStatus, error) {
+func inspectDaemonService(ctx context.Context) (systemdManagedDaemonStatus, error) {
 	systemctl, err := exec.LookPath("systemctl")
 	if errors.Is(err, exec.ErrNotFound) {
-		return managedDaemonStatus{}, nil
+		return systemdManagedDaemonStatus{}, nil
 	}
 	if err != nil {
-		return managedDaemonStatus{}, fmt.Errorf("find systemctl: %w", err)
+		return systemdManagedDaemonStatus{}, fmt.Errorf("find systemctl: %w", err)
 	}
 	probe := runServiceCommand(ctx, serviceCommandTimeout, systemctl, "--user", "show-environment")
 	if probe.err != nil {
 		if systemdUnavailable(probe) {
-			return managedDaemonStatus{}, nil
+			return systemdManagedDaemonStatus{}, nil
 		}
-		return managedDaemonStatus{}, serviceCommandError(systemctl, []string{"--user", "show-environment"}, probe)
+		return systemdManagedDaemonStatus{}, serviceCommandError(systemctl, []string{"--user", "show-environment"}, probe)
 	}
 	state, err := inspectSystemdService(ctx, systemctl)
 	if err != nil {
-		return managedDaemonStatus{}, err
+		return systemdManagedDaemonStatus{}, err
 	}
-	return managedDaemonStatus{
-		manager: "systemd",
-		running: state.mainPID > 0,
-		pid:     state.mainPID,
+	return systemdManagedDaemonStatus{
+		managerAvailable: true,
+		running:          state.mainPID > 0,
+		pid:              state.mainPID,
 	}, nil
 }
 
@@ -305,11 +306,11 @@ func uninstallDaemonService(ctx context.Context, home string) error {
 	if err != nil {
 		return err
 	}
-	if exists && status.manager == "" {
+	if exists && !status.managerAvailable {
 		return errors.New("systemd is unavailable; cannot safely unregister the Omnara service")
 	}
 	systemctl := ""
-	if status.manager != "" {
+	if status.managerAvailable {
 		systemctl, err = exec.LookPath("systemctl")
 		if err != nil {
 			return fmt.Errorf("find systemctl: %w", err)
@@ -354,7 +355,7 @@ func uninstallDaemonService(ctx context.Context, home string) error {
 			return err
 		}
 	}
-	if status.manager == "" || !exists {
+	if !status.managerAvailable || !exists {
 		return nil
 	}
 	args := []string{"--user", "daemon-reload"}
@@ -366,34 +367,11 @@ func uninstallDaemonService(ctx context.Context, home string) error {
 }
 
 func removeSystemdWantsLink(unitPath string) error {
-	wantsPath := filepath.Join(filepath.Dir(unitPath), "default.target.wants", systemdServiceName)
-	info, err := os.Lstat(wantsPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("inspect systemd service enablement: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		return nil
-	}
-	if err := ensureCurrentUserOwner(info, wantsPath); err != nil {
-		return err
-	}
-	target, err := os.Readlink(wantsPath)
-	if err != nil {
-		return fmt.Errorf("read systemd service enablement: %w", err)
-	}
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(filepath.Dir(wantsPath), target)
-	}
-	if filepath.Clean(target) != filepath.Clean(unitPath) {
-		return nil
-	}
-	if err := os.Remove(wantsPath); err != nil {
-		return fmt.Errorf("remove systemd service enablement: %w", err)
-	}
-	return localstore.SyncDir(filepath.Dir(wantsPath))
+	return removeMatchingSymlink(
+		filepath.Join(filepath.Dir(unitPath), "default.target.wants", systemdServiceName),
+		unitPath,
+		"systemd service enablement",
+	)
 }
 
 func renderSystemdUnit(home, userHome, binaryPath, logPath string) ([]byte, error) {

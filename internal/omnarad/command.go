@@ -128,7 +128,7 @@ func runStatusCommand(ctx context.Context, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if status.running {
-		_, _ = fmt.Fprintf(stdout, "omnarad is running (%s, pid %d)\n", status.manager, status.pid)
+		_, _ = fmt.Fprintf(stdout, "omnarad is running (%s, pid %d)\n", daemonServiceManager, status.pid)
 		return 0
 	}
 	pid, held, err := inspectDaemonRuntimeLock(home)
