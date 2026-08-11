@@ -68,7 +68,7 @@ func TestMachinePoolDeletionCredentialMigrationUpgradesExistingPools(t *testing.
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := dbmigrate.ApplyPostgres(ctx, db, productionMigrationsThrough(t, 14)); err != nil {
+	if err := dbmigrate.ApplyPostgres(ctx, db, productionMigrationsThrough(t, 15)); err != nil {
 		t.Fatalf("apply migrations through current main: %v", err)
 	}
 
@@ -85,7 +85,7 @@ SELECT EXISTS (
 		t.Fatal(err)
 	}
 	if columnExists {
-		t.Fatal("machine pool deletion credential column exists before migration 15")
+		t.Fatal("machine pool deletion credential column exists before migration 16")
 	}
 
 	orgID := uuid.New()

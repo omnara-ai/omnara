@@ -119,6 +119,8 @@ export function CreateMachinePoolDialog({
                       form.setFieldValue('memoryMb', nextValues.memoryMb)
                       form.setFieldValue('maxTotalCpu', nextValues.maxTotalCpu)
                       form.setFieldValue('maxTotalMemoryMb', nextValues.maxTotalMemoryMb)
+                      form.setFieldValue('minMachineCpu', nextValues.minMachineCpu)
+                      form.setFieldValue('minMachineMemoryMb', nextValues.minMachineMemoryMb)
                       form.setFieldValue('maxMachineCpu', nextValues.maxMachineCpu)
                       form.setFieldValue('maxMachineMemoryMb', nextValues.maxMachineMemoryMb)
                       form.setFieldValue('secretId', nextValues.secretId)

@@ -1940,6 +1940,8 @@ export type CreateMachinePoolRequestBase = {
     max_total_machines: number;
     max_total_cpu?: number;
     max_total_memory_mb?: number;
+    min_machine_cpu?: number;
+    min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
     metadata?: {
@@ -1979,6 +1981,8 @@ export type UpdateMachinePoolRequest = {
     max_total_machines?: number;
     max_total_cpu?: number | null;
     max_total_memory_mb?: number | null;
+    min_machine_cpu?: number | null;
+    min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
     metadata?: {
@@ -2022,6 +2026,8 @@ export type MachinePool = {
     max_total_machines: number;
     max_total_cpu: number | null;
     max_total_memory_mb: number | null;
+    min_machine_cpu: number | null;
+    min_machine_memory_mb: number | null;
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
     metadata: {
@@ -2056,6 +2062,7 @@ export type Machine = {
     provider: string;
     lifecycle_state: MachineLifecycleState;
     connection_state: MachineConnectionState;
+    connection_state_reason?: string;
     last_observed_at: Timestamp | null;
     cwd: string;
     env: {
@@ -2203,6 +2210,8 @@ export type ProjectMachinePoolGrant = {
     max_total_machines: number | null;
     max_total_cpu: number | null;
     max_total_memory_mb: number | null;
+    min_machine_cpu: number | null;
+    min_machine_memory_mb: number | null;
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
     metadata: {
@@ -2236,6 +2245,8 @@ export type CreateProjectMachinePoolGrantRequest = {
     max_total_machines?: number;
     max_total_cpu?: number;
     max_total_memory_mb?: number;
+    min_machine_cpu?: number;
+    min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
     metadata?: {
@@ -2263,6 +2274,8 @@ export type UpdateProjectMachinePoolGrantRequest = {
     max_total_machines?: number | null;
     max_total_cpu?: number | null;
     max_total_memory_mb?: number | null;
+    min_machine_cpu?: number | null;
+    min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
     metadata?: {
@@ -2767,9 +2780,11 @@ export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
-        stage: 'startup_script' | 'daemon_install';
-        exit_status: number;
-        capture_status: number;
+        stage: 'startup_script' | 'daemon_install' | 'daemon_update';
+        exit_status?: number;
+        capture_status?: number;
+        daemon_version?: string;
+        target_version?: string;
     };
     url: '/api/v1/daemon/failures';
 };

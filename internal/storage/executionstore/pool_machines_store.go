@@ -885,6 +885,7 @@ func poolMachineRecordFromSQLC(row dbsqlc.SelectPoolMachinesRow) PoolMachineReco
 		row.LifecycleChangedAt,
 		row.LifecycleVersion,
 	)
+	machine.ConnectionStateReason = row.ConnectionStateReason
 	return PoolMachineRecord{
 		Binding:         binding,
 		Machine:         machine,

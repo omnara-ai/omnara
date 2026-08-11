@@ -2,9 +2,11 @@ package executionstore
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/storage/management"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func TestPrepareMachinePoolConfigInputAllowsIndependentResourceDefaultsAndCaps(t *testing.T) {
@@ -36,6 +38,22 @@ func TestPrepareMachinePoolConfigInputAllowsIndependentResourceDefaultsAndCaps(t
 	}
 }
 
+func TestCheckProvisioningResourceAdmissionEnforcesMinimums(t *testing.T) {
+	err := checkProvisioningResourceAdmission(
+		0,
+		0,
+		MachinePoolResources{},
+		MachinePoolResources{CPU: 1, MemoryMB: 1024},
+		MachineResourceLimits{
+			MinMachineCPU:      intPtrForMachinePoolStoreTest(2),
+			MinMachineMemoryMB: intPtrForMachinePoolStoreTest(2048),
+		},
+	)
+	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("provisioning minimum error = %v, want state transition conflict", err)
+	}
+}
+
 func TestValidateMachineResourcesWithinPerMachineLimitsIgnoresAggregateLimits(t *testing.T) {
 	maxTotalCPU := 0
 	maxTotalMemoryMB := 64
@@ -51,4 +69,82 @@ func TestValidateMachineResourcesWithinPerMachineLimitsIgnoresAggregateLimits(t 
 	if err != nil {
 		t.Fatalf("total caps influenced machine shape validation: %v", err)
 	}
+}
+
+func TestValidateMachineResourcesWithinPerMachineLimitsEnforcesMinimums(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		resources MachinePoolResources
+		limits    MachineResourceLimits
+		want      string
+	}{
+		{
+			name:      "cpu",
+			resources: MachinePoolResources{CPU: 1, MemoryMB: 2048},
+			limits:    MachineResourceLimits{MinMachineCPU: intPtrForMachinePoolStoreTest(2)},
+			want:      "cpu is below min_machine_cpu",
+		},
+		{
+			name:      "memory",
+			resources: MachinePoolResources{CPU: 2, MemoryMB: 1024},
+			limits:    MachineResourceLimits{MinMachineMemoryMB: intPtrForMachinePoolStoreTest(2048)},
+			want:      "memory_mb is below min_machine_memory_mb",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateMachineResourcesWithinPerMachineLimits(test.resources, test.limits)
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("minimum validation error = %v, want %q", err, test.want)
+			}
+		})
+	}
+
+	if err := validateMachineResourcesWithinPerMachineLimits(
+		MachinePoolResources{},
+		MachineResourceLimits{
+			MinMachineCPU:      intPtrForMachinePoolStoreTest(2),
+			MinMachineMemoryMB: intPtrForMachinePoolStoreTest(2048),
+		},
+	); err != nil {
+		t.Fatalf("unresolved resources rejected before provider resolution: %v", err)
+	}
+}
+
+func TestValidateProjectMachinePoolGrantStaticPolicyMinimums(t *testing.T) {
+	maxMachineCPU := 8
+	for _, test := range []struct {
+		name   string
+		pool   MachinePoolRecord
+		config projectMachinePoolGrantConfig
+		want   string
+	}{
+		{
+			name:   "below pool minimum",
+			pool:   MachinePoolRecord{MinMachineCPU: intPtrForMachinePoolStoreTest(4), MaxMachineCPU: &maxMachineCPU},
+			config: projectMachinePoolGrantConfig{MinMachineCPU: intPtrForMachinePoolStoreTest(2)},
+			want:   "pool grant min_machine_cpu cannot be lower than machine pool min_machine_cpu",
+		},
+		{
+			name:   "without pool maximum",
+			config: projectMachinePoolGrantConfig{MinMachineCPU: intPtrForMachinePoolStoreTest(2)},
+			want:   "pool grant min_machine_cpu is not supported by the machine pool",
+		},
+		{
+			name:   "above pool maximum",
+			pool:   MachinePoolRecord{MaxMachineCPU: &maxMachineCPU},
+			config: projectMachinePoolGrantConfig{MinMachineCPU: intPtrForMachinePoolStoreTest(9)},
+			want:   "pool grant min_machine_cpu cannot exceed max_machine_cpu",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateProjectMachinePoolGrantStaticPolicy(test.config, test.pool)
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("static minimum policy error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func intPtrForMachinePoolStoreTest(value int) *int {
+	return &value
 }

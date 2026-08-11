@@ -441,6 +441,7 @@ type machineObservationPayload struct {
 	BindingState           string    `json:"binding_state"`
 	LifecycleState         string    `json:"lifecycle_state"`
 	ConnectionState        string    `json:"connection_state"`
+	ConnectionStateReason  string    `json:"connection_state_reason,omitempty"`
 	Description            string    `json:"description"`
 	Cwd                    string    `json:"cwd"`
 	Executable             bool      `json:"executable"`
@@ -502,6 +503,7 @@ func machineObservation(record executionstore.PoolMachineRecord) machineObservat
 		BindingState:           string(record.Binding.State),
 		LifecycleState:         string(record.Machine.LifecycleState),
 		ConnectionState:        string(record.Machine.ConnectionState),
+		ConnectionStateReason:  record.Machine.ConnectionStateReason,
 		Description:            record.Binding.Description,
 		Cwd:                    cwd,
 		Executable:             machineExecutable(record),

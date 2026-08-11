@@ -10,6 +10,8 @@ import (
 type MachineResourceLimits struct {
 	MaxTotalCPU        *int
 	MaxTotalMemoryMB   *int
+	MinMachineCPU      *int
+	MinMachineMemoryMB *int
 	MaxMachineCPU      *int
 	MaxMachineMemoryMB *int
 }
@@ -17,10 +19,12 @@ type MachineResourceLimits struct {
 func knownResourceCaps(resources MachinePoolResources, caps MachineResourceLimits) MachineResourceLimits {
 	if resources.CPU == 0 {
 		caps.MaxTotalCPU = nil
+		caps.MinMachineCPU = nil
 		caps.MaxMachineCPU = nil
 	}
 	if resources.MemoryMB == 0 {
 		caps.MaxTotalMemoryMB = nil
+		caps.MinMachineMemoryMB = nil
 		caps.MaxMachineMemoryMB = nil
 	}
 	return caps
@@ -41,10 +45,31 @@ func effectiveOptionalPoolGrantCap(poolCap, grantCap *int32) *int {
 	return &value
 }
 
+func effectivePoolGrantMinimum(poolMinimum, grantMinimum *int) *int {
+	if poolMinimum == nil {
+		return cloneIntPtr(grantMinimum)
+	}
+	if grantMinimum == nil {
+		return cloneIntPtr(poolMinimum)
+	}
+	value := max(*poolMinimum, *grantMinimum)
+	return &value
+}
+
 func validateMachineResourcesWithinPerMachineLimits(
 	machineResources MachinePoolResources,
 	perMachineLimits MachineResourceLimits,
 ) error {
+	if perMachineLimits.MinMachineCPU != nil && *perMachineLimits.MinMachineCPU > 0 &&
+		machineResources.CPU > 0 &&
+		machineResources.CPU < int64(*perMachineLimits.MinMachineCPU) {
+		return errors.New("cpu is below min_machine_cpu")
+	}
+	if perMachineLimits.MinMachineMemoryMB != nil && *perMachineLimits.MinMachineMemoryMB > 0 &&
+		machineResources.MemoryMB > 0 &&
+		machineResources.MemoryMB < int64(*perMachineLimits.MinMachineMemoryMB) {
+		return errors.New("memory_mb is below min_machine_memory_mb")
+	}
 	if perMachineLimits.MaxMachineCPU != nil &&
 		machineResources.CPU > int64(*perMachineLimits.MaxMachineCPU) {
 		return errors.New("cpu exceeds max_machine_cpu")
@@ -60,6 +85,22 @@ func validateProjectMachinePoolGrantStaticPolicy(
 	config projectMachinePoolGrantConfig,
 	pool MachinePoolRecord,
 ) error {
+	if config.MinMachineCPU != nil {
+		if pool.MaxMachineCPU == nil {
+			return errors.New("pool grant min_machine_cpu is not supported by the machine pool")
+		}
+		if pool.MinMachineCPU != nil && *config.MinMachineCPU < *pool.MinMachineCPU {
+			return errors.New("pool grant min_machine_cpu cannot be lower than machine pool min_machine_cpu")
+		}
+	}
+	if config.MinMachineMemoryMB != nil {
+		if pool.MaxMachineMemoryMB == nil {
+			return errors.New("pool grant min_machine_memory_mb is not supported by the machine pool")
+		}
+		if pool.MinMachineMemoryMB != nil && *config.MinMachineMemoryMB < *pool.MinMachineMemoryMB {
+			return errors.New("pool grant min_machine_memory_mb cannot be lower than machine pool min_machine_memory_mb")
+		}
+	}
 	if config.MaxTotalCPU != nil && pool.MaxTotalCPU == nil {
 		return errors.New("pool grant max_total_cpu is not supported by the machine pool")
 	}
@@ -82,6 +123,15 @@ func validateProjectMachinePoolGrantStaticPolicy(
 			return errors.New("pool grant max_machine_memory_mb cannot exceed machine pool max_machine_memory_mb")
 		}
 	}
+	limits := resolveProjectMachinePoolGrantPerMachineLimits(pool, config)
+	if limits.MinMachineCPU != nil && limits.MaxMachineCPU != nil &&
+		*limits.MinMachineCPU > *limits.MaxMachineCPU {
+		return errors.New("pool grant min_machine_cpu cannot exceed max_machine_cpu")
+	}
+	if limits.MinMachineMemoryMB != nil && limits.MaxMachineMemoryMB != nil &&
+		*limits.MinMachineMemoryMB > *limits.MaxMachineMemoryMB {
+		return errors.New("pool grant min_machine_memory_mb cannot exceed max_machine_memory_mb")
+	}
 	return nil
 }
 
@@ -90,6 +140,8 @@ func resolveProjectMachinePoolGrantPerMachineLimits(
 	config projectMachinePoolGrantConfig,
 ) MachineResourceLimits {
 	perMachineLimits := MachineResourceLimits{
+		MinMachineCPU:      effectivePoolGrantMinimum(pool.MinMachineCPU, config.MinMachineCPU),
+		MinMachineMemoryMB: effectivePoolGrantMinimum(pool.MinMachineMemoryMB, config.MinMachineMemoryMB),
 		MaxMachineCPU:      pool.MaxMachineCPU,
 		MaxMachineMemoryMB: pool.MaxMachineMemoryMB,
 	}
@@ -109,6 +161,12 @@ func checkLaunchResourceCaps(
 	requestedMachines int,
 	caps MachineResourceLimits,
 ) error {
+	if err := checkLaunchPerMachineMinimum(requested.CPU, caps.MinMachineCPU); err != nil {
+		return fmt.Errorf("per-machine cpu minimum not met: %w", err)
+	}
+	if err := checkLaunchPerMachineMinimum(requested.MemoryMB, caps.MinMachineMemoryMB); err != nil {
+		return fmt.Errorf("per-machine memory minimum not met: %w", err)
+	}
 	if err := checkLaunchPerMachineCap(requested.CPU, caps.MaxMachineCPU); err != nil {
 		return fmt.Errorf("per-machine cpu capacity exceeded: %w", err)
 	}
@@ -125,6 +183,16 @@ func checkLaunchResourceCaps(
 		caps.MaxTotalMemoryMB,
 	); err != nil {
 		return fmt.Errorf("memory capacity exceeded: %w", err)
+	}
+	return nil
+}
+
+func checkLaunchPerMachineMinimum(perMachine int64, minimum *int) error {
+	if minimum == nil || *minimum == 0 {
+		return nil
+	}
+	if perMachine < int64(*minimum) {
+		return storeerr.ErrStateTransitionConflict
 	}
 	return nil
 }
@@ -160,6 +228,12 @@ func checkProvisioningResourceAdmission(
 	currentMachine, resolved MachinePoolResources,
 	caps MachineResourceLimits,
 ) error {
+	if err := checkLaunchPerMachineMinimum(resolved.CPU, caps.MinMachineCPU); err != nil {
+		return fmt.Errorf("per-machine cpu minimum not met: %w", err)
+	}
+	if err := checkLaunchPerMachineMinimum(resolved.MemoryMB, caps.MinMachineMemoryMB); err != nil {
+		return fmt.Errorf("per-machine memory minimum not met: %w", err)
+	}
 	if err := checkLaunchPerMachineCap(resolved.CPU, caps.MaxMachineCPU); err != nil {
 		return fmt.Errorf("per-machine cpu capacity exceeded: %w", err)
 	}

@@ -880,6 +880,7 @@ SELECT binding.id,
        machine.provider_resource_id,
        machine.provider_provision_attempted_at,
        connection.connection_state,
+       coalesce(current_runtime.state_reason_code, '') AS connection_state_reason,
        machine.last_observed_at,
        machine.cpu,
        machine.memory_mb,
@@ -908,6 +909,8 @@ JOIN machine_pools pool ON pool.org_id = machine.org_id
   AND pool.id = machine.machine_pool_id
 JOIN machine_connection_states connection ON connection.org_id = machine.org_id
   AND connection.machine_id = machine.id
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
 WHERE binding.project_id = $1
   AND binding.agent_id = $2
   AND binding.binding_kind = $3
@@ -952,6 +955,7 @@ type SelectPoolMachinesRow struct {
 	ProviderResourceID           *string
 	ProviderProvisionAttemptedAt *time.Time
 	ConnectionState              string
+	ConnectionStateReason        string
 	LastObservedAt               *time.Time
 	Cpu                          *int32
 	MemoryMb                     *int32
@@ -1017,6 +1021,7 @@ func (q *Queries) SelectPoolMachines(ctx context.Context, arg SelectPoolMachines
 			&i.ProviderResourceID,
 			&i.ProviderProvisionAttemptedAt,
 			&i.ConnectionState,
+			&i.ConnectionStateReason,
 			&i.LastObservedAt,
 			&i.Cpu,
 			&i.MemoryMb,

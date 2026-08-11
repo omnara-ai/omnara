@@ -43,6 +43,7 @@ func ValidateMachinePoolResourcePolicy(
 		"cpu",
 		policy.DefaultProvisioning.CPU,
 		policy.ResourceLimits.MaxTotalCPU,
+		policy.ResourceLimits.MinMachineCPU,
 		policy.ResourceLimits.MaxMachineCPU,
 		resources.CPU.PoolDefault,
 		resources.CPU.Limits,
@@ -54,6 +55,7 @@ func ValidateMachinePoolResourcePolicy(
 		"memory_mb",
 		policy.DefaultProvisioning.MemoryMB,
 		policy.ResourceLimits.MaxTotalMemoryMB,
+		policy.ResourceLimits.MinMachineMemoryMB,
 		policy.ResourceLimits.MaxMachineMemoryMB,
 		resources.MemoryMB.PoolDefault,
 		resources.MemoryMB.Limits,
@@ -62,11 +64,14 @@ func ValidateMachinePoolResourcePolicy(
 
 func validatePoolResourcePolicy(
 	provider, resource string,
-	poolDefault, maxTotal, maxMachine *int,
+	poolDefault, maxTotal *int,
+	minMachine *int,
+	maxMachine *int,
 	defaultMode, limitsMode MachineResourceFieldMode,
 ) error {
 	defaultField := "default_machine_" + resource
 	maxTotalField := "max_total_" + resource
+	minMachineField := "min_machine_" + resource
 	maxMachineField := "max_machine_" + resource
 	if err := validateResourceField(provider, defaultField, poolDefault, defaultMode); err != nil {
 		return err
@@ -77,6 +82,12 @@ func validatePoolResourcePolicy(
 	if err := validateResourceField(provider, maxMachineField, maxMachine, limitsMode); err != nil {
 		return err
 	}
+	if minMachine != nil && *minMachine < 0 {
+		return fmt.Errorf("%s %s cannot be negative", provider, minMachineField)
+	}
+	if minMachine != nil && limitsMode == MachineResourceUnsupported {
+		return fmt.Errorf("%s machine pools do not support %s", provider, minMachineField)
+	}
 	if poolDefault != nil && *poolDefault <= 0 {
 		return fmt.Errorf("%s %s must be positive", provider, defaultField)
 	}
@@ -85,6 +96,12 @@ func validatePoolResourcePolicy(
 	}
 	if maxMachine != nil && *maxMachine <= 0 {
 		return fmt.Errorf("%s %s must be positive", provider, maxMachineField)
+	}
+	if minMachine != nil && maxMachine != nil && *minMachine > *maxMachine {
+		return fmt.Errorf("%s %s cannot exceed %s", provider, minMachineField, maxMachineField)
+	}
+	if minMachine != nil && poolDefault != nil && *poolDefault < *minMachine {
+		return fmt.Errorf("%s %s cannot be lower than %s", provider, defaultField, minMachineField)
 	}
 	if poolDefault != nil && maxMachine != nil && *poolDefault > *maxMachine {
 		return fmt.Errorf("%s %s cannot exceed %s", provider, defaultField, maxMachineField)

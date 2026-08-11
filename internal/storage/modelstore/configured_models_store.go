@@ -234,7 +234,7 @@ func (s *Store) PatchConfiguredModel(
 		}
 		return record, nil
 	}
-	record, err := updateConfiguredModelTx(ctx, qtx, update)
+	record, err := updateConfiguredModelTx(ctx, qtx, update, management.Tenant)
 	if err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -314,6 +314,7 @@ func updateConfiguredModelTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input configuredModelUpdate,
+	managementKind management.Kind,
 ) (ConfiguredModelRecord, error) {
 	input = normalizeConfiguredModelUpdate(input)
 	if input.Name == "" {
@@ -341,6 +342,7 @@ func updateConfiguredModelTx(
 	row, err := qtx.UpdateConfiguredModel(
 		ctx,
 		dbsqlc.UpdateConfiguredModelParams{
+			ManagementKind:            string(managementKind),
 			OrgID:                     input.OrgID,
 			ModelProviderConfigID:     input.ModelProviderConfigID,
 			ID:                        input.ID,
@@ -640,7 +642,9 @@ func (s *Store) DeleteConfiguredModel(
 	if hasGrants {
 		return ConfiguredModelRecord{}, fmt.Errorf("configured model has active project grants: %w", storeerr.ErrConflict)
 	}
-	deleted, err := qtx.DeleteConfiguredModel(ctx, dbsqlc.DeleteConfiguredModelParams{OrgID: orgID, ID: id})
+	deleted, err := qtx.DeleteConfiguredModel(ctx, dbsqlc.DeleteConfiguredModelParams{
+		OrgID: orgID, ID: id, ManagementKind: string(management.Tenant),
+	})
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("delete configured model: %w", err)
 	}

@@ -19,7 +19,7 @@ const (
 	MaxOwnedOrgsPerUser      = 100
 	MaxOrgMembershipsPerUser = 1000
 	defaultProjectName       = "Default"
-	defaultProjectKey        = "default"
+	DefaultProjectKey        = "default"
 	resourceProjects         = "projects"
 	MaxActiveProjectsPerOrg  = int64(100)
 )
@@ -150,7 +150,7 @@ func (s *Store) ProvisionOrganizationTx(
 	projectRow, err := qtx.CreateProject(ctx, dbsqlc.CreateProjectParams{
 		OrgID:          org.ID,
 		Name:           defaultProjectName,
-		IdempotencyKey: storeutil.TextFromEmpty(defaultProjectKey),
+		IdempotencyKey: storeutil.TextFromEmpty(DefaultProjectKey),
 	})
 	var project ProjectRecord
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -158,7 +158,7 @@ func (s *Store) ProvisionOrganizationTx(
 			ctx,
 			dbsqlc.GetProjectByIdempotencyKeyParams{
 				OrgID:          org.ID,
-				IdempotencyKey: defaultProjectKey,
+				IdempotencyKey: DefaultProjectKey,
 			},
 		)
 		if errors.Is(loadErr, pgx.ErrNoRows) {

@@ -410,13 +410,15 @@ WHERE token.org_id = sqlc.arg(org_id)
 
 -- name: RecordMachineFailureReport :one
 UPDATE machines machine
-SET failure_report = jsonb_build_object(
+SET failure_report = jsonb_strip_nulls(jsonb_build_object(
       'stage', sqlc.arg(stage)::text,
-      'exit_status', sqlc.arg(exit_status)::integer,
+      'exit_status', sqlc.narg(exit_status)::integer,
       'output_tail', sqlc.arg(output_tail)::text,
       'output_truncated', sqlc.arg(output_truncated)::boolean,
+      'daemon_version', nullif(sqlc.arg(daemon_version)::text, ''),
+      'target_version', nullif(sqlc.arg(target_version)::text, ''),
       'reported_at', statement_timestamp()
-    ),
+    )),
     updated_at = statement_timestamp()
 FROM machine_daemon_tokens token
 WHERE machine.org_id = sqlc.arg(org_id)
@@ -428,6 +430,16 @@ WHERE machine.org_id = sqlc.arg(org_id)
   AND token.id = sqlc.arg(daemon_token_id)
   AND token.revoked_at IS NULL
 RETURNING machine.failure_report;
+
+-- name: ClearMachineUpdateFailureReport :execrows
+UPDATE machines
+SET failure_report = NULL,
+    updated_at = statement_timestamp()
+WHERE org_id = sqlc.arg(org_id)
+  AND id = sqlc.arg(machine_id)
+  AND deleted_at IS NULL
+  AND failure_report->>'stage' = 'daemon_update'
+  AND failure_report->>'daemon_version' IS DISTINCT FROM sqlc.arg(daemon_version)::text;
 
 -- name: RevokeBYOMachineDaemonToken :one
 UPDATE machine_daemon_tokens

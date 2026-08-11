@@ -33,6 +33,20 @@ func nullableFromValue[T any](value T) nullable.Nullable[T] {
 	return nullable.NewNullableWithValue(value)
 }
 
+func stringFromPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func ptrFromNonEmpty(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
 func nullableInt32FromIntPtr(value *int) nullable.Nullable[int32] {
 	if value == nil {
 		return nullable.NewNullNullable[int32]()

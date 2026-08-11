@@ -198,21 +198,33 @@ paths:
           required: true
           schema:
             type: string
-            enum: [startup_script, daemon_install]
+            enum: [startup_script, daemon_install, daemon_update]
         - name: exit_status
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             minimum: 1
             maximum: 255
         - name: capture_status
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             minimum: 0
             maximum: 255
+        - name: daemon_version
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: target_version
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
       requestBody:
         content:
           text/plain:
@@ -8887,6 +8899,7 @@ components:
                 anyOf:
                   - required: [default_machine_cpu]
                   - required: [max_total_cpu]
+                  - required: [min_machine_cpu]
                   - required: [max_machine_cpu]
     CreateMachinePoolRequestBase:
       type: object
@@ -8946,6 +8959,16 @@ components:
           minimum: 0
           maximum: 2147483647
         max_total_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_memory_mb:
           type: integer
           format: int32
           minimum: 0
@@ -9024,6 +9047,18 @@ components:
           minimum: 0
           maximum: 2147483647
           nullable: true
+        min_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        min_machine_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
         max_machine_cpu:
           type: integer
           format: int32
@@ -9042,7 +9077,7 @@ components:
     MachinePool:
       type: object
       additionalProperties: false
-      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachinePoolID'
@@ -9103,6 +9138,18 @@ components:
           maximum: 2147483647
           nullable: true
         max_total_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        min_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        min_machine_memory_mb:
           type: integer
           format: int32
           minimum: 0
@@ -9199,6 +9246,8 @@ components:
           $ref: '#/components/schemas/MachineLifecycleState'
         connection_state:
           $ref: '#/components/schemas/MachineConnectionState'
+        connection_state_reason:
+          type: string
         last_observed_at:
           allOf:
             - $ref: '#/components/schemas/Timestamp'
@@ -9427,7 +9476,7 @@ components:
     ProjectMachinePoolGrant:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ProjectMachinePoolGrantID'
@@ -9482,6 +9531,18 @@ components:
           maximum: 2147483647
           nullable: true
         max_total_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        min_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        min_machine_memory_mb:
           type: integer
           format: int32
           minimum: 0
@@ -9558,6 +9619,16 @@ components:
           format: int32
           minimum: 0
           maximum: 2147483647
+        min_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
         max_machine_cpu:
           type: integer
           format: int32
@@ -9623,6 +9694,18 @@ components:
           maximum: 2147483647
           nullable: true
         max_total_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        min_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          nullable: true
+        min_machine_memory_mb:
           type: integer
           format: int32
           minimum: 0

@@ -2,6 +2,7 @@ package omnarad
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -24,7 +25,7 @@ func TestSupervisorStopsAfterCleanExit(t *testing.T) {
 	writeTestExecutable(t, canonicalDaemonPath(home), "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$SUPERVISOR_ARGS\"\nexit 0\n")
 	t.Setenv("SUPERVISOR_ARGS", args)
 	err := runSupervisorLoop(
-		context.Background(), home, time.Millisecond, make(chan os.Signal), discardLogger(),
+		context.Background(), home, time.Millisecond, make(chan os.Signal), io.Discard, io.Discard, discardLogger(),
 	)
 	if err != nil {
 		t.Fatalf("run supervisor loop: %v", err)
@@ -47,7 +48,7 @@ exit 7
 `)
 	t.Setenv("SUPERVISOR_COUNT", count)
 	err := runSupervisorLoop(
-		context.Background(), home, 10*time.Millisecond, make(chan os.Signal), discardLogger(),
+		context.Background(), home, 10*time.Millisecond, make(chan os.Signal), io.Discard, io.Discard, discardLogger(),
 	)
 	if err != nil {
 		t.Fatalf("run supervisor loop: %v", err)
@@ -79,7 +80,9 @@ while :; do sleep 1; done
 	ctx, cancel := context.WithCancel(context.Background())
 	restart := make(chan os.Signal, 1)
 	done := make(chan error, 1)
-	go func() { done <- runSupervisorLoop(ctx, home, time.Hour, restart, discardLogger()) }()
+	go func() {
+		done <- runSupervisorLoop(ctx, home, time.Hour, restart, io.Discard, io.Discard, discardLogger())
+	}()
 	waitForFileSize(t, count, 1)
 	restart <- daemonRestartSignal
 	waitForFileSize(t, count, 2)

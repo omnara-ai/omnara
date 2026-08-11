@@ -12,5 +12,6 @@ pools:
     max_total_machines: 10
     max_total_cpu: 20
     max_total_memory_mb: 40960
+    min_machine_memory_mb: 2048
     max_machine_cpu: 4
     max_machine_memory_mb: 8192

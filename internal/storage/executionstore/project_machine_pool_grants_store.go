@@ -34,6 +34,8 @@ type ProjectMachinePoolGrantRecord struct {
 	MaxTotalMachines                     *int            `json:"max_total_machines,omitempty"`
 	MaxTotalCPU                          *int            `json:"max_total_cpu,omitempty"`
 	MaxTotalMemoryMB                     *int            `json:"max_total_memory_mb,omitempty"`
+	MinMachineCPU                        *int            `json:"min_machine_cpu,omitempty"`
+	MinMachineMemoryMB                   *int            `json:"min_machine_memory_mb,omitempty"`
 	MaxMachineCPU                        *int            `json:"max_machine_cpu,omitempty"`
 	MaxMachineMemoryMB                   *int            `json:"max_machine_memory_mb,omitempty"`
 	IdempotencyKey                       string          `json:"idempotency_key,omitempty"`
@@ -91,6 +93,8 @@ type CreateProjectMachinePoolGrantInput struct {
 	MaxTotalMachines                     *int
 	MaxTotalCPU                          *int
 	MaxTotalMemoryMB                     *int
+	MinMachineCPU                        *int
+	MinMachineMemoryMB                   *int
 	MaxMachineCPU                        *int
 	MaxMachineMemoryMB                   *int
 	IdempotencyKey                       string
@@ -111,6 +115,8 @@ type UpdateProjectMachinePoolGrantInput struct {
 	MaxTotalMachines                     patch.NullableInt
 	MaxTotalCPU                          patch.NullableInt
 	MaxTotalMemoryMB                     patch.NullableInt
+	MinMachineCPU                        patch.NullableInt
+	MinMachineMemoryMB                   patch.NullableInt
 	MaxMachineCPU                        patch.NullableInt
 	MaxMachineMemoryMB                   patch.NullableInt
 	Metadata                             *json.RawMessage
@@ -126,6 +132,8 @@ type projectMachinePoolGrantConfig struct {
 	MaxTotalMachines                     *int
 	MaxTotalCPU                          *int
 	MaxTotalMemoryMB                     *int
+	MinMachineCPU                        *int
+	MinMachineMemoryMB                   *int
 	MaxMachineCPU                        *int
 	MaxMachineMemoryMB                   *int
 }
@@ -143,6 +151,8 @@ func projectMachinePoolGrantConfigFromCreateInput(
 		MaxTotalMachines:                     input.MaxTotalMachines,
 		MaxTotalCPU:                          input.MaxTotalCPU,
 		MaxTotalMemoryMB:                     input.MaxTotalMemoryMB,
+		MinMachineCPU:                        input.MinMachineCPU,
+		MinMachineMemoryMB:                   input.MinMachineMemoryMB,
 		MaxMachineCPU:                        input.MaxMachineCPU,
 		MaxMachineMemoryMB:                   input.MaxMachineMemoryMB,
 	}
@@ -161,6 +171,8 @@ func projectMachinePoolGrantConfigFromRecord(
 		MaxTotalMachines:                     cloneIntPtr(record.MaxTotalMachines),
 		MaxTotalCPU:                          cloneIntPtr(record.MaxTotalCPU),
 		MaxTotalMemoryMB:                     cloneIntPtr(record.MaxTotalMemoryMB),
+		MinMachineCPU:                        cloneIntPtr(record.MinMachineCPU),
+		MinMachineMemoryMB:                   cloneIntPtr(record.MinMachineMemoryMB),
 		MaxMachineCPU:                        cloneIntPtr(record.MaxMachineCPU),
 		MaxMachineMemoryMB:                   cloneIntPtr(record.MaxMachineMemoryMB),
 	}
@@ -197,6 +209,12 @@ func applyProjectMachinePoolGrantPatch(
 	if input.MaxTotalMemoryMB.Set {
 		config.MaxTotalMemoryMB = cloneIntPtr(input.MaxTotalMemoryMB.Value)
 	}
+	if input.MinMachineCPU.Set {
+		config.MinMachineCPU = cloneIntPtr(input.MinMachineCPU.Value)
+	}
+	if input.MinMachineMemoryMB.Set {
+		config.MinMachineMemoryMB = cloneIntPtr(input.MinMachineMemoryMB.Value)
+	}
 	if input.MaxMachineCPU.Set {
 		config.MaxMachineCPU = cloneIntPtr(input.MaxMachineCPU.Value)
 	}
@@ -223,6 +241,19 @@ func normalizeProjectMachinePoolGrantConfig(
 	if config.MaxTotalMemoryMB != nil && (*config.MaxTotalMemoryMB < 0 || *config.MaxTotalMemoryMB > math.MaxInt32) {
 		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
 			"pool grant max_total_memory_mb must be between 0 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if config.MinMachineCPU != nil && (*config.MinMachineCPU < 0 || *config.MinMachineCPU > math.MaxInt32) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"pool grant min_machine_cpu must be between 0 and %d",
+			math.MaxInt32,
+		)
+	}
+	if config.MinMachineMemoryMB != nil &&
+		(*config.MinMachineMemoryMB < 0 || *config.MinMachineMemoryMB > math.MaxInt32) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"pool grant min_machine_memory_mb must be between 0 and %d",
 			math.MaxInt32,
 		)
 	}
@@ -301,6 +332,8 @@ func (s *Store) validateProjectMachinePoolGrantAgainstPoolTx(
 			ResourceLimits: MachineResourceLimits{
 				MaxTotalCPU:        pool.MaxTotalCPU,
 				MaxTotalMemoryMB:   pool.MaxTotalMemoryMB,
+				MinMachineCPU:      pool.MinMachineCPU,
+				MinMachineMemoryMB: pool.MinMachineMemoryMB,
 				MaxMachineCPU:      pool.MaxMachineCPU,
 				MaxMachineMemoryMB: pool.MaxMachineMemoryMB,
 			},
@@ -329,7 +362,7 @@ func (s *Store) validateProjectMachinePoolGrantAgainstPoolTx(
 		return fmt.Errorf("resolved project machine pool grant config: %w", err)
 	}
 	if err := validateMachineResourcesWithinPerMachineLimits(projectMachineResources, perMachineLimits); err != nil {
-		return fmt.Errorf("resolved project machine pool grant config: %w", err)
+		return storeerr.InvalidRequest(fmt.Errorf("resolved project machine pool grant config: %w", err))
 	}
 	return nil
 }
@@ -436,6 +469,8 @@ func (s *Store) CreateProjectMachinePoolGrant(
 			MaxTotalMachines:                     sqlcInt32Ptr(config.MaxTotalMachines),
 			MaxTotalCpu:                          sqlcInt32Ptr(config.MaxTotalCPU),
 			MaxTotalMemoryMb:                     sqlcInt32Ptr(config.MaxTotalMemoryMB),
+			MinMachineCpu:                        sqlcInt32Ptr(config.MinMachineCPU),
+			MinMachineMemoryMb:                   sqlcInt32Ptr(config.MinMachineMemoryMB),
 			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
 			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
 			IdempotencyKey:                       sqlcTextFromEmpty(input.IdempotencyKey),
@@ -486,6 +521,8 @@ func sameProjectMachinePoolGrantCreateIntent(
 		sameIntPtr(grant.MaxTotalMachines, config.MaxTotalMachines) &&
 		sameIntPtr(grant.MaxTotalCPU, config.MaxTotalCPU) &&
 		sameIntPtr(grant.MaxTotalMemoryMB, config.MaxTotalMemoryMB) &&
+		sameIntPtr(grant.MinMachineCPU, config.MinMachineCPU) &&
+		sameIntPtr(grant.MinMachineMemoryMB, config.MinMachineMemoryMB) &&
 		sameIntPtr(grant.MaxMachineCPU, config.MaxMachineCPU) &&
 		sameIntPtr(grant.MaxMachineMemoryMB, config.MaxMachineMemoryMB) &&
 		sameJSON(grant.Metadata, input.Metadata)
@@ -584,6 +621,8 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 			MaxTotalMachines:                     sqlcInt32Ptr(config.MaxTotalMachines),
 			MaxTotalCpu:                          sqlcInt32Ptr(config.MaxTotalCPU),
 			MaxTotalMemoryMb:                     sqlcInt32Ptr(config.MaxTotalMemoryMB),
+			MinMachineCpu:                        sqlcInt32Ptr(config.MinMachineCPU),
+			MinMachineMemoryMb:                   sqlcInt32Ptr(config.MinMachineMemoryMB),
 			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
 			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
 			Metadata:                             metadata,

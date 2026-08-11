@@ -170,6 +170,8 @@ func (s *Store) resolvePoolMachineProvisioningConfig(
 		ResourceLimits: MachineResourceLimits{
 			MaxTotalCPU:        intPtrFromSQLC(poolGrant.PoolMaxTotalCpu),
 			MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.PoolMaxTotalMemoryMb),
+			MinMachineCPU:      intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
+			MinMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
 			MaxMachineCPU:      intPtrFromSQLC(poolGrant.PoolMaxMachineCpu),
 			MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMaxMachineMemoryMb),
 		},
@@ -342,6 +344,8 @@ func (s *Store) validatePoolDefaultsTx(
 			ResourceLimits: MachineResourceLimits{
 				MaxTotalCPU:        input.MaxTotalCPU,
 				MaxTotalMemoryMB:   input.MaxTotalMemoryMB,
+				MinMachineCPU:      input.MinMachineCPU,
+				MinMachineMemoryMB: input.MinMachineMemoryMB,
 				MaxMachineCPU:      input.MaxMachineCPU,
 				MaxMachineMemoryMB: input.MaxMachineMemoryMB,
 			},

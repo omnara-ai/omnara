@@ -312,17 +312,27 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	update := updateModelProviderConfigInputFromCurrent(current)
 	applyModelProviderConfigPatch(&update, current, input)
-	update, err = normalizeModelProviderConfigUpdate(
+	record, err := updateModelProviderConfigTx(ctx, qtx, update, management.Tenant)
+	if err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	return record, nil
+}
+
+func updateModelProviderConfigTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input modelProviderConfigUpdate,
+	managementKind management.Kind,
+) (ModelProviderConfigRecord, error) {
+	update, err := normalizeModelProviderConfigUpdate(
 		ctx,
-		update,
+		input,
 		func(ctx context.Context, orgID, credentialSecretID ID) error {
-			return validateModelProviderCredentialTx(
-				ctx,
-				qtx,
-				orgID,
-				credentialSecretID,
-				management.Tenant,
-			)
+			return validateModelProviderCredentialTx(ctx, qtx, orgID, credentialSecretID, managementKind)
 		},
 	)
 	if err != nil {
@@ -331,6 +341,7 @@ func (s *Store) PatchModelProviderConfig(
 	row, err := qtx.UpdateModelProviderConfig(
 		ctx,
 		dbsqlc.UpdateModelProviderConfigParams{
+			ManagementKind:     string(managementKind),
 			OrgID:              update.OrgID,
 			ID:                 update.ID,
 			BaseUrl:            update.BaseURL,
@@ -349,9 +360,6 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	if err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("update model provider config: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return ModelProviderConfigRecord{}, err
 	}
 	return modelProviderConfigRecordFromSQLC(row), nil
 }
