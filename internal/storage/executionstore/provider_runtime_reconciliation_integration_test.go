@@ -253,11 +253,8 @@ WHERE org_id = $1 AND id = $2
 			}
 			var expectedInactiveSince time.Time
 			if err := fixture.pool.QueryRow(ctx, `
-SELECT CASE
-  WHEN runtime.state = 'active' THEN runtime.lease_expires_at
-  ELSE LEAST(runtime.ended_at, runtime.lease_expires_at)
-END
-FROM daemon_runtimes runtime
+SELECT runtime.effective_end_at
+FROM daemon_runtime_connection_facts runtime
 WHERE runtime.org_id = $1 AND runtime.machine_id = $2 AND runtime.id = $3
 `, testOrgID, machine.machineID, machine.runtimeID).Scan(&expectedInactiveSince); err != nil {
 				t.Fatalf("load expected inactive timestamp: %v", err)

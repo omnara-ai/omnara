@@ -31,6 +31,30 @@ CREATE INDEX machines_provider_runtime_mismatch_due_idx
       AND lifecycle_state = 'active'
       AND deleted_at IS NULL;
 
+DROP INDEX daemon_runtimes_machine_recent_idx;
+
+-- Keep this expression aligned with daemon_runtime_connection_facts.effective_end_at.
+CREATE INDEX daemon_runtimes_machine_recent_idx
+    ON daemon_runtimes(
+        org_id,
+        machine_id,
+        (CASE
+            WHEN ended_at IS NULL THEN lease_expires_at
+            ELSE LEAST(ended_at, lease_expires_at)
+        END) DESC,
+        id DESC
+    );
+
+CREATE VIEW daemon_runtime_connection_facts AS
+SELECT runtime.id,
+       runtime.org_id,
+       runtime.machine_id,
+       CASE
+           WHEN runtime.ended_at IS NULL THEN runtime.lease_expires_at
+           ELSE LEAST(runtime.ended_at, runtime.lease_expires_at)
+       END AS effective_end_at
+FROM daemon_runtimes runtime;
+
 CREATE TABLE machine_online_intervals (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     org_id uuid NOT NULL,
@@ -92,11 +116,7 @@ BEGIN
     IF OLD.state = 'active' AND NEW.state = 'ended' THEN
         interval_end := LEAST(NEW.ended_at, OLD.lease_expires_at);
         UPDATE machine_online_intervals
-        SET ended_at = GREATEST(
-                machine_online_intervals.started_at,
-                OLD.last_seen_at,
-                interval_end
-            ),
+        SET ended_at = interval_end,
             end_reason_code = COALESCE(NULLIF(NEW.state_reason_code, ''), 'daemon_runtime_ended')
         WHERE org_id = NEW.org_id
           AND machine_id = NEW.machine_id
@@ -109,7 +129,7 @@ BEGIN
        AND NEW.state = 'active'
        AND OLD.lease_expires_at <= NEW.last_seen_at THEN
         UPDATE machine_online_intervals
-        SET ended_at = GREATEST(machine_online_intervals.started_at, OLD.lease_expires_at),
+        SET ended_at = OLD.lease_expires_at,
             end_reason_code = 'daemon_lease_expired'
         WHERE org_id = NEW.org_id
           AND machine_id = NEW.machine_id
@@ -184,7 +204,21 @@ CREATE TRIGGER machine_online_intervals_append_only
     FOR EACH ROW
     EXECUTE FUNCTION machine_online_intervals_reject_mutation();
 
--- Open intervals confirm only committed heartbeats; closed intervals settle through their lease-capped end.
+-- Start existing online runtimes at rollout time without inferring earlier history.
+INSERT INTO machine_online_intervals(
+    org_id,
+    machine_id,
+    daemon_runtime_id,
+    started_at
+)
+SELECT runtime.org_id,
+       runtime.machine_id,
+       runtime.id,
+       statement_timestamp()
+FROM online_daemon_runtimes runtime;
+
+-- Open intervals confirm only committed heartbeats, bounded by the tracking start for rollout-seeded runtimes.
+-- Closed intervals settle through their lease-capped end.
 CREATE VIEW machine_online_interval_facts AS
 SELECT online_interval.id,
        online_interval.org_id,
@@ -193,19 +227,10 @@ SELECT online_interval.id,
        online_interval.started_at,
        online_interval.ended_at,
        online_interval.end_reason_code,
-       GREATEST(
-           online_interval.started_at,
+       COALESCE(online_interval.ended_at, runtime.lease_expires_at) AS effective_end_at,
+       LEAST(
+           statement_timestamp(),
            COALESCE(online_interval.ended_at, runtime.lease_expires_at)
-       ) AS effective_end_at,
-       GREATEST(
-           online_interval.started_at,
-           LEAST(
-               statement_timestamp(),
-               GREATEST(
-                   online_interval.started_at,
-                   COALESCE(online_interval.ended_at, runtime.lease_expires_at)
-               )
-           )
        ) AS observed_through,
        CASE
            WHEN online_interval.ended_at IS NULL

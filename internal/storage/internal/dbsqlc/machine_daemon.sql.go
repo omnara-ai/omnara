@@ -934,22 +934,16 @@ func (q *Queries) GetProjectMachineGrantByIdempotency(ctx context.Context, arg G
 
 const heartbeatDaemonRuntime = `-- name: HeartbeatDaemonRuntime :one
 UPDATE daemon_runtimes runtime
-SET last_seen_at = GREATEST(runtime.last_seen_at, lease_clock.observed_at),
-    lease_expires_at = CASE
-        WHEN lease_clock.observed_at < runtime.last_seen_at
-            THEN runtime.lease_expires_at
-        ELSE lease_clock.observed_at
-            + ($1::bigint * interval '1 millisecond')
-    END,
+SET last_seen_at = statement_timestamp(),
+    lease_expires_at = statement_timestamp() + ($1::bigint * interval '1 millisecond'),
     capacity = CASE WHEN $2::jsonb = '{}'::jsonb THEN runtime.capacity ELSE $2::jsonb END,
     metadata = CASE WHEN $3::jsonb = '{}'::jsonb THEN runtime.metadata ELSE $3::jsonb END,
-    updated_at = GREATEST(runtime.updated_at, lease_clock.observed_at)
+    updated_at = statement_timestamp()
 FROM machine_daemon_tokens token
 JOIN machines machine ON machine.org_id = token.org_id
   AND machine.id = token.machine_id
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state = 'active'
-CROSS JOIN (SELECT statement_timestamp() AS observed_at) lease_clock
 WHERE runtime.org_id = $4 AND runtime.machine_id = $5 AND runtime.id = $6
   AND runtime.daemon_instance_id = $7
   AND runtime.state = 'active'
@@ -2035,26 +2029,19 @@ const refreshDaemonRuntimeRegistration = `-- name: RefreshDaemonRuntimeRegistrat
 UPDATE daemon_runtimes runtime
 SET daemon_token_id = token.id,
     state = 'active',
-    last_seen_at = GREATEST(runtime.last_seen_at, lease_clock.observed_at),
-    lease_expires_at = CASE
-        WHEN runtime.state = 'active'
-         AND lease_clock.observed_at < runtime.last_seen_at
-            THEN runtime.lease_expires_at
-        ELSE GREATEST(runtime.last_seen_at, lease_clock.observed_at)
-            + ($1::bigint * interval '1 millisecond')
-    END,
+    last_seen_at = statement_timestamp(),
+    lease_expires_at = statement_timestamp() + ($1::bigint * interval '1 millisecond'),
     ended_at = NULL,
     state_reason_code = NULL,
     state_reason_message = '',
     capacity = $2,
     metadata = $3,
-    updated_at = GREATEST(runtime.updated_at, lease_clock.observed_at)
+    updated_at = statement_timestamp()
 FROM machine_daemon_tokens token
 JOIN machines machine ON machine.org_id = token.org_id
   AND machine.id = token.machine_id
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state = 'active'
-CROSS JOIN (SELECT statement_timestamp() AS observed_at) lease_clock
 WHERE runtime.org_id = $4
 	AND runtime.machine_id = $5
 	AND runtime.daemon_instance_id = $6

@@ -1074,6 +1074,95 @@ func TestMachineUnreachableQueuedProcessFailsBeforeExecutionGrant(t *testing.T) 
 	}
 }
 
+func TestMachineUnreachableGraceDoesNotRestartWhenExpiredRuntimeIsReaped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "machine_unreachable_late_runtime_reap")
+	toolCallID := createToolCallForProcessTest(
+		t,
+		ctx,
+		fixture,
+		"machine_unreachable_late_runtime_reap",
+		"run_command",
+	)
+	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessInput{
+		AgentMachineBindingID: fixture.BindingID,
+		Command:               "sleep 3600",
+		ShellSelector:         "sh",
+		Cwd:                   "/work",
+	})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	expireDaemonRuntimeForTest(t, ctx, fixture)
+
+	const unreachableGrace = time.Second
+	graceEndsAt := process.CreatedAt.Add(unreachableGrace)
+	for {
+		var databaseNow time.Time
+		if err := fixture.Store.pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&databaseNow); err != nil {
+			t.Fatalf("load database time: %v", err)
+		}
+		if !databaseNow.Before(graceEndsAt) {
+			break
+		}
+		time.Sleep(graceEndsAt.Sub(databaseNow))
+	}
+	if records, err := fixture.Store.Execution().EndExpiredDaemonRuntimes(ctx, 10); err != nil || len(records) != 1 {
+		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
+	}
+
+	var leaseExpiresAt, endedAt, effectiveEndAt time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT runtime.lease_expires_at, runtime.ended_at, fact.effective_end_at
+FROM daemon_runtimes runtime
+JOIN daemon_runtime_connection_facts fact ON fact.id = runtime.id
+WHERE runtime.org_id = $1 AND runtime.machine_id = $2 AND runtime.id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID).Scan(
+		&leaseExpiresAt,
+		&endedAt,
+		&effectiveEndAt,
+	); err != nil {
+		t.Fatalf("load ended daemon runtime boundary: %v", err)
+	}
+	if !endedAt.After(leaseExpiresAt) || !effectiveEndAt.Equal(leaseExpiresAt) {
+		t.Fatalf(
+			"ended runtime boundary = lease %s, ended %s, effective %s",
+			leaseExpiresAt,
+			endedAt,
+			effectiveEndAt,
+		)
+	}
+	if effectiveEndAt.After(process.CreatedAt) || !endedAt.After(process.CreatedAt.Add(unreachableGrace)) {
+		t.Fatalf(
+			"test boundaries do not distinguish lease expiry from reaping: process %s, effective %s, ended %s",
+			process.CreatedAt,
+			effectiveEndAt,
+			endedAt,
+		)
+	}
+
+	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+		ctx,
+		unreachableGrace,
+	); err != nil || expired != 1 {
+		t.Fatalf("machine-unreachable expiry count=%d err=%v", expired, err)
+	}
+	current, err := fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, process.ID)
+	if err != nil {
+		t.Fatalf("get expired process: %v", err)
+	}
+	if current.State != executionstore.ProcessStateFailed ||
+		current.StateReasonCode != executionstore.ProcessToolReasonMachineUnreachable {
+		t.Fatalf("expired process = %+v, want failed/machine_unreachable", current)
+	}
+}
+
 func TestStartProcessFailsForNeverConnectedMachine(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
