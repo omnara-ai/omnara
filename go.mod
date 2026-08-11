@@ -19,6 +19,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
 	github.com/google/uuid v1.6.0
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kaptinlin/jsonschema v0.9.4
 	github.com/modelcontextprotocol/go-sdk v1.7.0
