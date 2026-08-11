@@ -185,7 +185,7 @@ type AgentListFilters struct {
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
-	ProfileID *ID
+	ProfileID              *ID
 }
 
 type ListAgentsForProjectResult struct {

@@ -155,6 +155,6 @@ test('denies agent creation when the project lacks manage permission', async ({ 
   await expect(
     page.getByText('You don’t have permission to create agents in this project.'),
   ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Create agent' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toHaveCount(0)
   expect(failures).toEqual([])
 })

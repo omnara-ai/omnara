@@ -28,6 +28,13 @@ interface CreateAgentDraft {
   status: SubmitStatus
 }
 
+interface SavedProfile {
+  name: string
+  yaml: string
+  profileId: string
+  configId: string
+}
+
 export function CreateAgentPage() {
   const { activeOrg, project, isPending: projectIsPending } = useProjectPage()
   const params = useParams({ strict: false })
@@ -47,6 +54,7 @@ export function CreateAgentPage() {
     status: idle,
   })
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
+  const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null)
   // Stable identity: the builder's serialize effect depends on this callback.
   const handleBuilderYamlChange = useCallback((value: string) => {
     dispatchMode({ type: 'builder-yaml-changed', yaml: value })
@@ -81,16 +89,19 @@ export function CreateAgentPage() {
     if (!canSubmit) return
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
+    const name = draft.name.trim()
     try {
-      const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
-      const profile = await createAgentProfile.mutateAsync({
-        name: draft.name.trim(),
-        config: config.id,
-      })
+      let profile = savedProfile
+      if (profile?.name !== name || profile.yaml !== yaml) {
+        const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
+        const created = await createAgentProfile.mutateAsync({ name, config: config.id })
+        profile = { name, yaml, profileId: created.id, configId: config.id }
+        setSavedProfile(profile)
+      }
       if (action === 'launch') {
         const launch = await createAgent.mutateAsync({
-          profile: profile.id,
-          config: config.id,
+          profile: profile.profileId,
+          config: profile.configId,
           message: draft.message.trim() === '' ? undefined : draft.message,
         })
         await navigate({
@@ -100,7 +111,7 @@ export function CreateAgentPage() {
       } else {
         await navigate({
           to: '/projects/$projectId/agent-profiles/$profileId',
-          params: { projectId, profileId: profile.id },
+          params: { projectId, profileId: profile.profileId },
         })
       }
       setDraft((prev) => ({ ...prev, status: idle }))
