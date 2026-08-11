@@ -210,6 +210,9 @@ func ensurePoolCapacityForConfigTx(
 	if requestedMachines <= 0 {
 		return nil
 	}
+	if !poolGrant.NewManagedWorkAllowed {
+		return storeerr.ErrManagedWorkAdmissionDenied
+	}
 	requested, err := resourcesFromMachineProvisioning(machineProvisioning)
 	if err != nil {
 		return err

@@ -96,12 +96,13 @@ INSERT INTO daemon_runtimes(
 		t.Fatalf("capture tracking start upper bound: %v", err)
 	}
 
-	var startedAt time.Time
+	var startedAt, confirmedThrough time.Time
 	if err := pool.QueryRow(ctx, `
-SELECT started_at
-FROM machine_online_intervals
-WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
-`, testOrgID, machineID, runtimeID).Scan(&startedAt); err != nil {
+SELECT interval.started_at, fact.confirmed_through
+FROM machine_online_intervals interval
+JOIN machine_online_interval_facts fact ON fact.id = interval.id
+WHERE interval.org_id = $1 AND interval.machine_id = $2 AND interval.daemon_runtime_id = $3
+`, testOrgID, machineID, runtimeID).Scan(&startedAt, &confirmedThrough); err != nil {
 		t.Fatalf("load initial online interval: %v", err)
 	}
 	if startedAt.Before(trackingStartedAt) || startedAt.After(trackingFinishedAt) {
@@ -112,126 +113,86 @@ WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
 			trackingFinishedAt,
 		)
 	}
+	if !confirmedThrough.Equal(startedAt) {
+		t.Fatalf("initial interval confirmed through %s, want tracking start %s", confirmedThrough, startedAt)
+	}
 }
 
-func TestMachineOnlineIntervalsClampRegressedLeaseBounds(t *testing.T) {
+func TestDaemonRuntimeTemporalInvariantsRejectImpossibleHistory(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	machineID := testID("machine-online-regressed-lease")
-	tokenID := testID("machine-online-regressed-lease-token")
-	runtimeID := testID("machine-online-regressed-lease-runtime")
-	if _, err := pool.Exec(ctx, `
-INSERT INTO machines(
-    id, org_id, source_kind, display_name, provider, lifecycle_state,
-    lifecycle_changed_at, env, secret_env, created_at, updated_at
-) VALUES (
-    $2, $1, 'byo', 'Machine online regressed lease', 'daemon', 'active',
-    statement_timestamp(), '{}'::jsonb, '{}'::jsonb,
-    statement_timestamp(), statement_timestamp()
-)
-`, testOrgID, machineID); err != nil {
-		t.Fatalf("create regressed-lease machine: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
-INSERT INTO machine_daemon_tokens(
-    id, org_id, machine_id, name, token_hash, created_at
-) VALUES ($3, $1, $2, 'daemon', 'regressed-lease-token-hash', statement_timestamp())
-`, testOrgID, machineID, tokenID); err != nil {
-		t.Fatalf("create regressed-lease daemon token: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
-INSERT INTO daemon_runtimes(
-    id, org_id, machine_id, daemon_token_id, daemon_instance_id,
-    daemon_version, state, capacity, metadata, created_at, last_seen_at,
-    lease_expires_at, updated_at
-) VALUES (
-    $4, $1, $2, $3, $5, '1.0.0', 'active', '{}'::jsonb, '{}'::jsonb,
-    statement_timestamp(), statement_timestamp(),
-    statement_timestamp() + interval '1 hour', statement_timestamp()
-)
-`, testOrgID, machineID, tokenID, runtimeID, testID("machine-online-regressed-lease-instance")); err != nil {
-		t.Fatalf("create regressed-lease daemon runtime: %v", err)
-	}
+	fixture := newProcessDaemonFixture(t, ctx, "daemon-runtime-temporal-invariants")
 
-	intervals := loadMachineOnlineIntervals(t, ctx, pool, machineID)
-	if len(intervals) != 1 {
-		t.Fatalf("initial regressed-lease intervals = %+v, want one", intervals)
-	}
-	firstStartedAt := intervals[0].StartedAt
-	if _, err := pool.Exec(ctx, `
+	_, err := fixture.Store.pool.Exec(ctx, `
 UPDATE daemon_runtimes
-SET last_seen_at = $2::timestamptz - interval '2 seconds',
-    lease_expires_at = $2::timestamptz - interval '1 second',
-    updated_at = statement_timestamp()
-WHERE id = $1
-`, runtimeID, firstStartedAt); err != nil {
-		t.Fatalf("regress active daemon lease: %v", err)
-	}
-	var effectiveEnd, observedThrough time.Time
-	if err := pool.QueryRow(ctx, `
-SELECT effective_end_at, observed_through
-FROM machine_online_interval_facts
-WHERE id = $1
-`, intervals[0].ID).Scan(&effectiveEnd, &observedThrough); err != nil {
-		t.Fatalf("load regressed online interval fact: %v", err)
-	}
-	if !effectiveEnd.Equal(firstStartedAt) || !observedThrough.Equal(firstStartedAt) {
-		t.Fatalf(
-			"regressed interval bounds = effective %s observed %s, want session start %s",
-			effectiveEnd,
-			observedThrough,
-			firstStartedAt,
-		)
-	}
+SET last_seen_at = last_seen_at - interval '1 microsecond'
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_last_seen_monotonic")
 
-	var renewedLastSeen time.Time
-	if err := pool.QueryRow(ctx, `
+	_, err = fixture.Store.pool.Exec(ctx, `
 UPDATE daemon_runtimes
-SET last_seen_at = statement_timestamp(),
-    lease_expires_at = statement_timestamp() + interval '1 hour',
-    updated_at = statement_timestamp()
-WHERE id = $1
-RETURNING last_seen_at
-`, runtimeID).Scan(&renewedLastSeen); err != nil {
-		t.Fatalf("renew regressed daemon lease: %v", err)
-	}
-	intervals = loadMachineOnlineIntervals(t, ctx, pool, machineID)
-	if len(intervals) != 2 || intervals[0].EndedAt == nil ||
-		!intervals[0].EndedAt.Equal(firstStartedAt) ||
-		intervals[0].EndReason != "daemon_lease_expired" ||
-		intervals[1].EndedAt != nil || !intervals[1].StartedAt.Equal(renewedLastSeen) {
-		t.Fatalf("renewed regressed-lease intervals = %+v", intervals)
-	}
+SET created_at = last_seen_at + interval '1 microsecond'
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_time_order_check")
 
-	secondStartedAt := intervals[1].StartedAt
-	if _, err := pool.Exec(ctx, `
-UPDATE daemon_runtimes
-SET last_seen_at = $2::timestamptz - interval '2 seconds',
-    lease_expires_at = $2::timestamptz - interval '1 second',
-    updated_at = statement_timestamp()
-WHERE id = $1
-`, runtimeID, secondStartedAt); err != nil {
-		t.Fatalf("regress daemon lease before ending: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
+	_, err = fixture.Store.pool.Exec(ctx, `
 UPDATE daemon_runtimes
 SET state = 'ended',
-    state_reason_code = 'daemon_stopped',
-    state_reason_message = 'test lease regression',
-    ended_at = statement_timestamp(),
+    state_reason_code = 'invalid_time_order',
+    ended_at = last_seen_at - interval '1 microsecond',
     updated_at = statement_timestamp()
-WHERE id = $1
-`, runtimeID); err != nil {
-		t.Fatalf("end daemon runtime with regressed lease: %v", err)
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+	`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_time_order_check")
+
+	var lastSeenAt time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_seen_at
+FROM daemon_runtimes
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID).Scan(&lastSeenAt); err != nil {
+		t.Fatalf("load daemon runtime last seen time: %v", err)
 	}
-	intervals = loadMachineOnlineIntervals(t, ctx, pool, machineID)
-	if len(intervals) != 2 || intervals[1].EndedAt == nil ||
-		!intervals[1].EndedAt.Equal(secondStartedAt) ||
-		intervals[1].EndReason != "daemon_stopped" {
-		t.Fatalf("ended regressed-lease intervals = %+v", intervals)
+	waitForDatabaseTime(t, ctx, fixture.Store.pool, lastSeenAt.Add(time.Millisecond))
+	ended, err := fixture.Store.Execution().EndDaemonRuntime(ctx, fixture.authority())
+	if err != nil {
+		t.Fatalf("end daemon runtime: %v", err)
 	}
+	if ended.EndedAt == nil || !ended.EndedAt.After(lastSeenAt) {
+		t.Fatalf("ended daemon runtime = %+v, want end after %s", ended, lastSeenAt)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET state = 'ended', updated_at = statement_timestamp()
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID); err != nil {
+		t.Fatalf("repeat ended daemon runtime state: %v", err)
+	}
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET state = 'active',
+    state_reason_code = NULL,
+    state_reason_message = '',
+    ended_at = NULL,
+    updated_at = statement_timestamp()
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_last_seen_monotonic")
+
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET state = 'active',
+    state_reason_code = NULL,
+    state_reason_message = '',
+    last_seen_at = $4::timestamptz,
+    lease_expires_at = $4::timestamptz + interval '1 hour',
+    ended_at = NULL,
+    updated_at = statement_timestamp()
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID, lastSeenAt)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_last_seen_monotonic")
 }
 
 func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
@@ -330,6 +291,13 @@ INSERT INTO machine_online_intervals(
 `, testOrgID, machine.ID, runtime.ID); err == nil {
 		t.Fatal("second open machine interval was accepted")
 	}
+	if _, err := pool.Exec(ctx, `
+UPDATE machine_online_intervals
+SET ended_at = started_at - interval '1 second', end_reason_code = 'invalid'
+WHERE org_id = $1 AND machine_id = $2 AND ended_at IS NULL
+`, testOrgID, machine.ID); err == nil {
+		t.Fatal("online interval accepted an end before its start")
+	}
 
 	ended, err := store.Execution().EndDaemonRuntime(
 		ctx,
@@ -383,15 +351,14 @@ RETURNING last_seen_at
 		!intervals[1].StartedAt.Equal(revivedLastSeen) {
 		t.Fatalf("revived online intervals = %+v", intervals)
 	}
-	expireDaemonRuntimeLeaseForTest(t, ctx, store, testOrgID, machine.ID, runtime.ID)
-	var revivedLeaseExpires time.Time
-	if err := pool.QueryRow(
+	revivedLeaseExpires := expireDaemonRuntimeLeaseForTest(
+		t,
 		ctx,
-		`SELECT lease_expires_at FROM daemon_runtimes WHERE id = $1`,
+		store,
+		testOrgID,
+		machine.ID,
 		runtime.ID,
-	).Scan(&revivedLeaseExpires); err != nil {
-		t.Fatalf("load expired revived daemon runtime lease: %v", err)
-	}
+	)
 
 	renewed, err := store.Execution().HeartbeatDaemonRuntime(
 		ctx,
@@ -419,20 +386,22 @@ RETURNING last_seen_at
 		t.Fatalf("post-lapse online intervals = %+v", intervals)
 	}
 
-	var effectiveEnd, observedThrough time.Time
+	var effectiveEnd, observedThrough, confirmedThrough time.Time
 	if err := pool.QueryRow(ctx, `
-SELECT effective_end_at, observed_through
+SELECT effective_end_at, observed_through, confirmed_through
 FROM machine_online_interval_facts
 WHERE id = $1
-`, intervals[2].ID).Scan(&effectiveEnd, &observedThrough); err != nil {
+`, intervals[2].ID).Scan(&effectiveEnd, &observedThrough, &confirmedThrough); err != nil {
 		t.Fatalf("load capped online interval fact: %v", err)
 	}
 	if !effectiveEnd.Equal(renewedLeaseExpires) || observedThrough.After(effectiveEnd) ||
-		observedThrough.Before(intervals[2].StartedAt) {
+		observedThrough.Before(intervals[2].StartedAt) ||
+		!confirmedThrough.Equal(renewedLastSeen) {
 		t.Fatalf(
-			"interval fact = effective end %s observed through %s; interval = %+v",
+			"interval fact = effective end %s observed through %s confirmed through %s; interval = %+v",
 			effectiveEnd,
 			observedThrough,
+			confirmedThrough,
 			intervals[2],
 		)
 	}
@@ -456,6 +425,20 @@ WHERE id = $1
 		intervals[2].EndReason != "daemon_runtime_replaced" ||
 		intervals[3].DaemonRuntimeID != replacement.ID || intervals[3].EndedAt != nil {
 		t.Fatalf("replacement daemon online intervals = %+v", intervals)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT confirmed_through
+FROM machine_online_interval_facts
+WHERE id = $1
+`, intervals[2].ID).Scan(&confirmedThrough); err != nil {
+		t.Fatalf("load closed online interval confirmation: %v", err)
+	}
+	if !confirmedThrough.Equal(*intervals[2].EndedAt) {
+		t.Fatalf(
+			"closed interval confirmed through %s, want %s",
+			confirmedThrough,
+			*intervals[2].EndedAt,
+		)
 	}
 	if _, err := store.Execution().DeleteMachine(
 		ctx,

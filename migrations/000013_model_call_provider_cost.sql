@@ -20,3 +20,8 @@ ALTER TABLE model_call_contexts
         provider_reported_cost_usd IS NULL
         OR api_format <> ''
     );
+
+-- Supports bounded global keyset scans over provider-reported cost facts.
+CREATE INDEX model_call_contexts_provider_cost_idx
+    ON model_call_contexts(completed_at, id)
+    WHERE provider_reported_cost_usd IS NOT NULL;

@@ -108,6 +108,17 @@ func startCommand(
 	return executeInTransaction(
 		command,
 		func(err error) (transactionalPhaseResult, error) {
+			if errors.Is(err, storeerr.ErrManagedWorkAdmissionDenied) {
+				return failProcessTransaction(
+					err,
+					processToolErrorManagedWorkAdmissionDenied,
+					managedWorkAdmissionDeniedMessage,
+					false,
+					"",
+					"",
+					"",
+				)
+			}
 			if errors.Is(err, storeerr.ErrMachineNotReachable) {
 				return failProcessTransaction(
 					err,
@@ -542,15 +553,16 @@ func resolveStopProcessRequest(
 type processToolErrorCode string
 
 const (
-	processToolErrorStartUnavailable  processToolErrorCode = "process_start_unavailable"
-	processToolErrorAgentLimitReached processToolErrorCode = "agent_process_limit_reached"
-	processToolErrorStateUnknown      processToolErrorCode = "process_state_unknown"
-	processToolErrorInvalidID         processToolErrorCode = "invalid_process_id"
-	processToolErrorTerminal          processToolErrorCode = "process_terminal"
-	processToolErrorTerminating       processToolErrorCode = "process_terminating"
-	processToolErrorActionUnavailable processToolErrorCode = "process_action_unavailable"
-	processToolErrorNotFound          processToolErrorCode = "process_not_found"
-	processToolNextActionList                              = toolcatalog.ToolNameListProcesses
+	processToolErrorStartUnavailable           processToolErrorCode = "process_start_unavailable"
+	processToolErrorAgentLimitReached          processToolErrorCode = "agent_process_limit_reached"
+	processToolErrorManagedWorkAdmissionDenied processToolErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
+	processToolErrorStateUnknown               processToolErrorCode = "process_state_unknown"
+	processToolErrorInvalidID                  processToolErrorCode = "invalid_process_id"
+	processToolErrorTerminal                   processToolErrorCode = "process_terminal"
+	processToolErrorTerminating                processToolErrorCode = "process_terminating"
+	processToolErrorActionUnavailable          processToolErrorCode = "process_action_unavailable"
+	processToolErrorNotFound                   processToolErrorCode = "process_not_found"
+	processToolNextActionList                                       = toolcatalog.ToolNameListProcesses
 )
 
 func processToolError(

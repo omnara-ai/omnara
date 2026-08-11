@@ -6,6 +6,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const ManagedWorkAdmissionDeniedCode = "managed_work_admission_denied"
+
 var (
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")
@@ -15,6 +17,7 @@ var (
 	ErrInvalidToolCallDisposition    = errors.New("invalid tool call transaction disposition")
 	ErrNoOnlineDaemonRuntime         = errors.New("machine is offline")
 	ErrAgentProcessLimitReached      = errors.New("agent process limit reached")
+	ErrManagedWorkAdmissionDenied    = errors.New("new managed work is not allowed")
 	ErrMachineNotReachable           = errors.New("machine is not reachable")
 	ErrProcessTerminal               = errors.New("process is terminal")
 	ErrProcessTerminating            = errors.New("process is terminating")

@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -692,6 +693,298 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 	case <-provisionCalls:
 		t.Fatal("transactionally rejected create machine invoked manager")
 	default:
+	}
+}
+
+func TestManagedWorkAdmissionProducesDurableToolFailures(t *testing.T) {
+	t.Run("create machine", func(t *testing.T) {
+		ctx := context.Background()
+		fixture := newManagedMachineDispatchFixture(t, ctx, "managed-create-denied")
+		call := model.ToolCall{
+			ID:    "call_managed-create-denied",
+			Name:  "create_machine",
+			Input: json.RawMessage(`{}`),
+		}
+		toolCalls, lock, admitted, contextRecord := createMachineToolCallsForDirectStoreTest(
+			t,
+			ctx,
+			fixture.Store,
+			fixture.Launch.Agent.ID,
+			fixture.UserID,
+			fixture.Config.ID,
+			"managed-create-denied",
+			[]model.ToolCall{call},
+			fixture.Now.Add(5*time.Second),
+		)
+		closeManagedWorkAdmissionForToolsTest(t, ctx, fixture.Pool)
+		result, err := (Executor{
+			Store: fixture.Store,
+			Now:   func() time.Time { return fixture.Now.Add(6 * time.Second) },
+		}).Dispatch(ctx, Turn{
+			ProjectID:          toolsTestProjectID,
+			AgentID:            fixture.Launch.Agent.ID,
+			SourceEventID:      admitted.Events[0].ID,
+			RuntimeLockID:      lock.ID,
+			ModelCallContextID: contextRecord.ID,
+			Tools: map[string]ToolSpec{
+				"create_machine": {
+					Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+				},
+			},
+		}, call)
+		if err != nil {
+			t.Fatalf("dispatch denied create_machine: %v", err)
+		}
+		assertManagedWorkAdmissionToolFailure(
+			t,
+			ctx,
+			fixture,
+			toolCalls[0].ID,
+			result,
+		)
+		var machines int
+		if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)::integer
+FROM machines
+WHERE org_id = $1 AND machine_pool_id = $2 AND deleted_at IS NULL
+`, toolsTestOrgID, fixture.MachinePool.ID).Scan(&machines); err != nil {
+			t.Fatalf("count machines after denied create_machine: %v", err)
+		}
+		if machines != 0 {
+			t.Fatalf("machines after denied create_machine = %d, want 0", machines)
+		}
+	})
+
+	t.Run("run command", func(t *testing.T) {
+		ctx := context.Background()
+		fixture := newManagedMachineDispatchFixture(t, ctx, "managed-run-denied")
+		createCall := model.ToolCall{
+			ID:    "call_managed-run-machine",
+			Name:  "create_machine",
+			Input: json.RawMessage(`{}`),
+		}
+		runCall := model.ToolCall{
+			ID:    "call_managed-run-denied",
+			Name:  "run_command",
+			Input: json.RawMessage(`{"command":"true"}`),
+		}
+		toolCalls, lock, admitted, contextRecord := createMachineToolCallsForDirectStoreTest(
+			t,
+			ctx,
+			fixture.Store,
+			fixture.Launch.Agent.ID,
+			fixture.UserID,
+			fixture.Config.ID,
+			"managed-run-denied",
+			[]model.ToolCall{createCall, runCall},
+			fixture.Now.Add(5*time.Second),
+		)
+		turn := Turn{
+			ProjectID:          toolsTestProjectID,
+			AgentID:            fixture.Launch.Agent.ID,
+			SourceEventID:      admitted.Events[0].ID,
+			RuntimeLockID:      lock.ID,
+			ModelCallContextID: contextRecord.ID,
+			Tools: map[string]ToolSpec{
+				"create_machine": {
+					Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+				},
+				"run_command": {
+					Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+				},
+			},
+		}
+		executor := Executor{
+			Store: fixture.Store,
+			Now:   func() time.Time { return fixture.Now.Add(6 * time.Second) },
+		}
+		if _, err := executor.Dispatch(ctx, turn, createCall); err != nil {
+			t.Fatalf("dispatch admitted create_machine: %v", err)
+		}
+		closeManagedWorkAdmissionForToolsTest(t, ctx, fixture.Pool)
+		activateProvisioningMachineForToolsTest(
+			t,
+			ctx,
+			fixture,
+			toolCalls[0].ID,
+			"managed-run-denied",
+		)
+		result, err := executor.Dispatch(ctx, turn, runCall)
+		if err != nil {
+			t.Fatalf("dispatch denied run_command: %v", err)
+		}
+		assertManagedWorkAdmissionToolFailure(
+			t,
+			ctx,
+			fixture,
+			toolCalls[1].ID,
+			result,
+		)
+		var processes int
+		if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)::integer
+FROM processes
+WHERE project_id = $1 AND agent_id = $2
+`, toolsTestProjectID, fixture.Launch.Agent.ID).Scan(&processes); err != nil {
+			t.Fatalf("count processes after denied run_command: %v", err)
+		}
+		if processes != 0 {
+			t.Fatalf("processes after denied run_command = %d, want 0", processes)
+		}
+	})
+}
+
+func closeManagedWorkAdmissionForToolsTest(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, false)
+`, toolsTestOrgID); err != nil {
+		t.Fatalf("close managed work admission: %v", err)
+	}
+}
+
+func activateProvisioningMachineForToolsTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture machineDispatchFixture,
+	toolCallID storage.ID,
+	label string,
+) {
+	t.Helper()
+	provisioning, err := fixture.Store.Execution().GetPoolMachineByCreateToolCall(
+		ctx,
+		toolsTestProjectID,
+		fixture.Launch.Agent.ID,
+		toolCallID,
+	)
+	if err != nil {
+		t.Fatalf("load admitted provisioning machine: %v", err)
+	}
+	claim, found, err := fixture.Store.Execution().ClaimPoolMachineForProvisioning(
+		ctx,
+		toolsTestOrgID,
+		provisioning.Machine.ID,
+	)
+	if err != nil || !found {
+		t.Fatalf("claim admitted provisioning machine found=%v err=%v", found, err)
+	}
+	if _, err := fixture.Store.Execution().AdmitPoolMachineProvisioning(
+		ctx,
+		executionstore.AdmitPoolMachineProvisioningInput{
+			OrgID:            toolsTestOrgID,
+			MachineID:        claim.Machine.ID,
+			MachinePoolID:    claim.Machine.MachinePoolID,
+			ProvisionAttempt: claim.Machine.ProvisionAttempts,
+			Facts: executionstore.MachineResourceFacts{
+				CPU:      claim.Machine.CPU,
+				MemoryMB: claim.Machine.MemoryMB,
+			},
+		},
+	); err != nil {
+		t.Fatalf("admit claimed machine provisioning: %v", err)
+	}
+	start, err := fixture.Store.Execution().BeginPoolMachineProviderProvisioning(
+		ctx,
+		executionstore.BeginPoolMachineProviderProvisioningInput{
+			OrgID:            toolsTestOrgID,
+			MachineID:        claim.Machine.ID,
+			ProvisionAttempt: claim.Machine.ProvisionAttempts,
+			TokenName:        "tools managed admission",
+		},
+	)
+	if err != nil {
+		t.Fatalf("begin admitted provider provisioning: %v", err)
+	}
+	providerResourceID := "provider-" + label
+	if _, err := fixture.Store.Execution().RecordPoolMachineProvisioningResource(
+		ctx,
+		executionstore.RecordPoolMachineProvisioningResourceInput{
+			OrgID:              toolsTestOrgID,
+			MachineID:          claim.Machine.ID,
+			ProviderResourceID: providerResourceID,
+			ProvisionAttempt:   claim.Machine.ProvisionAttempts,
+		},
+	); err != nil {
+		t.Fatalf("record admitted provider resource: %v", err)
+	}
+	if err := fixture.Store.Execution().CompletePoolMachineProvisioning(
+		ctx,
+		toolsTestOrgID,
+		claim.Machine.ID,
+		providerResourceID,
+		"",
+		claim.Machine.ProvisionAttempts,
+	); err != nil {
+		t.Fatalf("complete admitted provider provisioning: %v", err)
+	}
+	if _, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            toolsTestOrgID,
+			MachineID:        claim.Machine.ID,
+			DaemonTokenID:    start.DaemonToken.Record.ID,
+			DaemonInstanceID: toolsTestID("daemon-" + label),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     time.Hour,
+		},
+	); err != nil {
+		t.Fatalf("register admitted provisioning machine runtime: %v", err)
+	}
+	active, err := fixture.Store.Execution().GetPoolMachineByCreateToolCall(
+		ctx,
+		toolsTestProjectID,
+		fixture.Launch.Agent.ID,
+		toolCallID,
+	)
+	if err != nil {
+		t.Fatalf("reload admitted provisioning machine: %v", err)
+	}
+	if active.Machine.LifecycleState != executionstore.MachineLifecycleStateActive ||
+		active.Machine.ConnectionState != executionstore.MachineConnectionStateOnline {
+		t.Fatalf("admitted provisioning machine = %+v, want active and online", active.Machine)
+	}
+}
+
+func assertManagedWorkAdmissionToolFailure(
+	t *testing.T,
+	ctx context.Context,
+	fixture machineDispatchFixture,
+	toolCallID storage.ID,
+	result Result,
+) {
+	t.Helper()
+	if result.Disposition != DispatchCompleted {
+		t.Fatalf("denied tool disposition = %d, want completed", result.Disposition)
+	}
+	body := toolResultMapFromTestParts(t, result.ContentParts)
+	if body["error_code"] != storeerr.ManagedWorkAdmissionDeniedCode ||
+		body["error"] != managedWorkAdmissionDeniedMessage ||
+		body["message"] != managedWorkAdmissionDeniedMessage ||
+		body["retryable"] != false {
+		t.Fatalf("denied tool result = %+v", body)
+	}
+	toolCall, err := fixture.Store.Execution().GetToolCall(
+		ctx,
+		toolsTestProjectID,
+		fixture.Launch.Agent.ID,
+		toolCallID,
+	)
+	if err != nil {
+		t.Fatalf("load denied tool call: %v", err)
+	}
+	if toolCall.State != executionstore.ToolCallStateCompleted ||
+		toolCall.Outcome != executionstore.ToolResultOutcomeFailed ||
+		toolCall.RuntimeLockID != storage.NilID ||
+		!reflect.DeepEqual(
+			toolResultMapFromTestParts(t, toolCall.ResultContentParts),
+			body,
+		) {
+		t.Fatalf("durable denied tool call = %+v", toolCall)
 	}
 }
 
@@ -1518,6 +1811,25 @@ func newMachineDispatchFixture(
 	label string,
 ) machineDispatchFixture {
 	t.Helper()
+	return newMachineDispatchFixtureWithManagement(t, ctx, label, management.Tenant)
+}
+
+func newManagedMachineDispatchFixture(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+) machineDispatchFixture {
+	t.Helper()
+	return newMachineDispatchFixtureWithManagement(t, ctx, label, management.Cluster)
+}
+
+func newMachineDispatchFixtureWithManagement(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	managementKind management.Kind,
+) machineDispatchFixture {
+	t.Helper()
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 	store := storage.NewStore(
 		pool,
@@ -1564,49 +1876,95 @@ VALUES ($1, $2, 'Tools Test Project', $3, $4, $4)`,
 	); err != nil {
 		t.Fatalf("promote machine dispatch org membership: %v", err)
 	}
-	providerAuthSecret, _, err := store.Secrets().CreateSecret(
-		ctx,
-		secretstore.CreateSecretInput{
-			OrgID:     toolsTestOrgID,
-			OwnerKind: secretstore.SecretOwnerOrg,
-			Name:      "tools-machine-dispatch-provider-auth-" + label,
-			Material:  secrets.GenericMaterial{Value: "test-token"},
-			Actor:     toolsTestUserPrincipal(user.ID),
-		},
-	)
-	if err != nil {
-		t.Fatalf("create machine dispatch provider auth secret: %v", err)
-	}
-	machinePool, err := store.Execution().CreateMachinePool(
-		ctx,
-		executionstore.CreateMachinePoolInput{
-			OrgID:                         toolsTestOrgID,
-			Name:                          "Machine Dispatch Pool " + label,
-			Provider:                      "test.provider",
-			DefaultMachineCPU:             intPtrForToolsTest(1),
-			DefaultMachineMemoryMB:        intPtrForToolsTest(1024),
-			DefaultMachineProviderOptions: json.RawMessage(`{"image":"machine-dispatch"}`),
-			ProviderAuthSecretID:          providerAuthSecret.ID,
-			MaxTotalMachines:              2,
-			MaxTotalCPU:                   intPtrForToolsTest(2),
-			MaxTotalMemoryMB:              intPtrForToolsTest(2048),
-			MaxMachineCPU:                 intPtrForToolsTest(1),
-			MaxMachineMemoryMB:            intPtrForToolsTest(1024),
-		},
-	)
-	if err != nil {
-		t.Fatalf("create machine dispatch pool: %v", err)
-	}
-	if _, err := store.Execution().CreateProjectMachinePoolGrant(
-		ctx,
-		executionstore.CreateProjectMachinePoolGrantInput{
-			OrgID:          toolsTestOrgID,
-			ProjectID:      toolsTestProjectID,
-			MachinePoolID:  machinePool.ID,
-			IdempotencyKey: "tools-machine-dispatch-pool-grant-" + label,
-		},
-	); err != nil {
-		t.Fatalf("create machine dispatch pool grant: %v", err)
+	machinePoolName := "Machine Dispatch Pool " + label
+	var machinePool executionstore.MachinePoolRecord
+	if managementKind == management.Cluster {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin managed machine dispatch pool provisioning: %v", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err := store.Execution().ProvisionOrganizationDefaultsTx(
+			ctx,
+			tx,
+			toolsTestOrgID,
+			toolsTestProjectID,
+			[]executionstore.DefaultMachinePoolTemplate{{
+				Name:                          machinePoolName,
+				Provider:                      "test.provider",
+				DefaultMachineCPU:             intPtrForToolsTest(1),
+				DefaultMachineMemoryMB:        intPtrForToolsTest(1024),
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"machine-dispatch"}`),
+				ProviderAuthEnvVar:            "TOOLS_TEST_PROVIDER_TOKEN",
+				MaxTotalMachines:              2,
+				MaxTotalCPU:                   intPtrForToolsTest(2),
+				MaxTotalMemoryMB:              intPtrForToolsTest(2048),
+				MaxMachineCPU:                 intPtrForToolsTest(1),
+				MaxMachineMemoryMB:            intPtrForToolsTest(1024),
+			}},
+		); err != nil {
+			t.Fatalf("provision managed machine dispatch pool: %v", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("commit managed machine dispatch pool: %v", err)
+		}
+		var machinePoolID storage.ID
+		if err := pool.QueryRow(ctx, `
+SELECT id
+FROM machine_pools
+WHERE org_id = $1 AND name = $2 AND deleted_at IS NULL
+`, toolsTestOrgID, machinePoolName).Scan(&machinePoolID); err != nil {
+			t.Fatalf("load managed machine dispatch pool id: %v", err)
+		}
+		machinePool, err = store.Execution().GetMachinePool(ctx, toolsTestOrgID, machinePoolID)
+		if err != nil {
+			t.Fatalf("load managed machine dispatch pool: %v", err)
+		}
+	} else {
+		providerAuthSecret, _, err := store.Secrets().CreateSecret(
+			ctx,
+			secretstore.CreateSecretInput{
+				OrgID:     toolsTestOrgID,
+				OwnerKind: secretstore.SecretOwnerOrg,
+				Name:      "tools-machine-dispatch-provider-auth-" + label,
+				Material:  secrets.GenericMaterial{Value: "test-token"},
+				Actor:     toolsTestUserPrincipal(user.ID),
+			},
+		)
+		if err != nil {
+			t.Fatalf("create machine dispatch provider auth secret: %v", err)
+		}
+		machinePool, err = store.Execution().CreateMachinePool(
+			ctx,
+			executionstore.CreateMachinePoolInput{
+				OrgID:                         toolsTestOrgID,
+				Name:                          machinePoolName,
+				Provider:                      "test.provider",
+				DefaultMachineCPU:             intPtrForToolsTest(1),
+				DefaultMachineMemoryMB:        intPtrForToolsTest(1024),
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"machine-dispatch"}`),
+				ProviderAuthSecretID:          providerAuthSecret.ID,
+				MaxTotalMachines:              2,
+				MaxTotalCPU:                   intPtrForToolsTest(2),
+				MaxTotalMemoryMB:              intPtrForToolsTest(2048),
+				MaxMachineCPU:                 intPtrForToolsTest(1),
+				MaxMachineMemoryMB:            intPtrForToolsTest(1024),
+			},
+		)
+		if err != nil {
+			t.Fatalf("create machine dispatch pool: %v", err)
+		}
+		if _, err := store.Execution().CreateProjectMachinePoolGrant(
+			ctx,
+			executionstore.CreateProjectMachinePoolGrantInput{
+				OrgID:          toolsTestOrgID,
+				ProjectID:      toolsTestProjectID,
+				MachinePoolID:  machinePool.ID,
+				IdempotencyKey: "tools-machine-dispatch-pool-grant-" + label,
+			},
+		); err != nil {
+			t.Fatalf("create machine dispatch pool grant: %v", err)
+		}
 	}
 	sourceYAML := `name: Machine Dispatch Agent
 instruction: Test machine dispatch.

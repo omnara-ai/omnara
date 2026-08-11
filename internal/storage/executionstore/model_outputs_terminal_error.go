@@ -80,7 +80,12 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "record model call error"); err != nil {
 		return events.Event{}, err
 	}
-	return result, nil
+	return result.event, nil
+}
+
+type terminalModelCallFailureResult struct {
+	context ModelCallContextRecord
+	event   events.Event
 }
 
 func recordTerminalModelCallFailureTx(
@@ -91,7 +96,7 @@ func recordTerminalModelCallFailureTx(
 	input RecordModelCallErrorAndCompleteContextInput,
 	runtimeAuthority modelCallContextRuntimeAuthority,
 	operationKind ModelCallOperation,
-) (events.Event, error) {
+) (terminalModelCallFailureResult, error) {
 	contextRow, err := loadModelCallContextByIDTx(
 		ctx,
 		tx,
@@ -100,13 +105,13 @@ func recordTerminalModelCallFailureTx(
 		input.ModelCallContextID,
 	)
 	if err != nil {
-		return events.Event{}, err
+		return terminalModelCallFailureResult{}, err
 	}
 	if contextRow.OperationKind != operationKind {
-		return events.Event{}, storeerr.ErrStateTransitionConflict
+		return terminalModelCallFailureResult{}, storeerr.ErrStateTransitionConflict
 	}
 	if contextRow.RuntimeLockID != input.RuntimeLockID {
-		return events.Event{}, storeerr.ErrRuntimeLockInactive
+		return terminalModelCallFailureResult{}, storeerr.ErrRuntimeLockInactive
 	}
 	normalizedUsage := modelUsageForStorage(input.Usage)
 	if err := validateModelCallFailureEvidence(
@@ -118,20 +123,20 @@ func recordTerminalModelCallFailureTx(
 		normalizedUsage != (modelenvelope.Usage{}),
 		input.ProviderReportedCostUSD,
 	); err != nil {
-		return events.Event{}, err
+		return terminalModelCallFailureResult{}, err
 	}
 	if contextRow.State == ModelCallContextFailed {
 		if !sameTerminalModelCallErrorContextIntent(contextRow, input, normalizedUsage) {
-			return events.Event{}, storeerr.ErrIdempotencyConflict
+			return terminalModelCallFailureResult{}, storeerr.ErrIdempotencyConflict
 		}
 		event, replayErr := replayModelCallErrorOutputTx(ctx, tx, q, contextRow, input)
 		if replayErr != nil {
-			return events.Event{}, replayErr
+			return terminalModelCallFailureResult{}, replayErr
 		}
-		return event.Event, nil
+		return terminalModelCallFailureResult{context: contextRow, event: event.Event}, nil
 	}
 	if contextRow.State != ModelCallContextStarted {
-		return events.Event{}, storeerr.ErrRuntimeLockInactive
+		return terminalModelCallFailureResult{}, storeerr.ErrRuntimeLockInactive
 	}
 	finishedContext, err := finishModelCallContextWithAuthorityTx(ctx, q, finishModelCallContextInput{
 		ProjectID:               input.ProjectID,
@@ -151,7 +156,7 @@ func recordTerminalModelCallFailureTx(
 		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
 	}, runtimeAuthority)
 	if err != nil {
-		return events.Event{}, err
+		return terminalModelCallFailureResult{}, err
 	}
 	eventRecord, err := publishModelCallErrorOutputTx(
 		ctx,
@@ -166,9 +171,12 @@ func recordTerminalModelCallFailureTx(
 		},
 	)
 	if err != nil {
-		return events.Event{}, err
+		return terminalModelCallFailureResult{}, err
 	}
-	return eventRecord.Event, nil
+	return terminalModelCallFailureResult{
+		context: finishedContext,
+		event:   eventRecord.Event,
+	}, nil
 }
 
 func sameTerminalModelCallErrorContextIntent(

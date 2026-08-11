@@ -211,6 +211,25 @@ WHERE datname = current_database()
 	}
 }
 
+func waitForDatabaseTime(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	target time.Time,
+) {
+	t.Helper()
+	for {
+		var now time.Time
+		if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&now); err != nil {
+			t.Fatalf("load database time: %v", err)
+		}
+		if !now.Before(target) {
+			return
+		}
+		time.Sleep(target.Sub(now))
+	}
+}
+
 func userPrincipal(id ID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: id}
 }
@@ -424,6 +443,24 @@ func provisionDefaultMachinePoolGrantsForProject(
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func setManagedWorkAdmissionForTest(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	orgID ID,
+	allowed bool,
+) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, $2)
+ON CONFLICT (org_id) DO UPDATE
+SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
+`, orgID, allowed); err != nil {
+		t.Fatalf("set managed work admission: %v", err)
+	}
 }
 
 func permissionRequestForStorageTest(t *testing.T, toolName string) json.RawMessage {

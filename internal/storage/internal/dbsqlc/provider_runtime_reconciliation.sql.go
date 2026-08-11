@@ -23,7 +23,7 @@ SET provider_runtime_mismatch_since = NULL,
       ELSE machine.wake_attempt_expires_at
     END,
     updated_at = statement_timestamp()
-FROM daemon_runtimes runtime
+FROM daemon_runtime_connection_facts runtime
 WHERE machine.org_id = $2
   AND machine.id = $3
   AND machine.machine_pool_id = $4::uuid
@@ -49,10 +49,8 @@ WHERE machine.org_id = $2
   AND runtime.id = machine.current_daemon_runtime_id
   AND (CASE
     WHEN machine.asleep_since IS NOT NULL THEN machine.asleep_since
-    WHEN runtime.state = 'active' AND runtime.lease_expires_at <= statement_timestamp()
-      THEN runtime.lease_expires_at
-    WHEN runtime.state = 'ended'
-      THEN LEAST(runtime.ended_at, runtime.lease_expires_at)
+    WHEN runtime.effective_end_at <= statement_timestamp()
+      THEN runtime.effective_end_at
     ELSE NULL
   END) = $11::timestamptz
 RETURNING machine.id,
@@ -112,7 +110,7 @@ SET lifecycle_state = 'deleting',
     delete_attempts = machine.delete_attempts + 1,
     wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
-FROM daemon_runtimes runtime
+FROM daemon_runtime_connection_facts runtime
 WHERE machine.org_id = $2
   AND machine.id = $3
   AND machine.machine_pool_id = $4::uuid
@@ -137,10 +135,8 @@ WHERE machine.org_id = $2
   AND runtime.id = machine.current_daemon_runtime_id
   AND (CASE
     WHEN machine.asleep_since IS NOT NULL THEN machine.asleep_since
-    WHEN runtime.state = 'active' AND runtime.lease_expires_at <= statement_timestamp()
-      THEN runtime.lease_expires_at
-    WHEN runtime.state = 'ended'
-      THEN LEAST(runtime.ended_at, runtime.lease_expires_at)
+    WHEN runtime.effective_end_at <= statement_timestamp()
+      THEN runtime.effective_end_at
     ELSE NULL
   END) = $12::timestamptz
   AND $12::timestamptz <= statement_timestamp()
@@ -280,7 +276,7 @@ SET lifecycle_state = 'deleting',
     provider_runtime_mismatch_since = NULL,
     wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
-FROM daemon_runtimes runtime
+FROM daemon_runtime_connection_facts runtime
 WHERE machine.org_id = $2
   AND machine.id = $3
   AND machine.machine_pool_id = $4::uuid
@@ -304,10 +300,8 @@ WHERE machine.org_id = $2
   AND runtime.id = machine.current_daemon_runtime_id
   AND (CASE
     WHEN machine.asleep_since IS NOT NULL THEN machine.asleep_since
-    WHEN runtime.state = 'active' AND runtime.lease_expires_at <= statement_timestamp()
-      THEN runtime.lease_expires_at
-    WHEN runtime.state = 'ended'
-      THEN LEAST(runtime.ended_at, runtime.lease_expires_at)
+    WHEN runtime.effective_end_at <= statement_timestamp()
+      THEN runtime.effective_end_at
     ELSE NULL
   END) = $11::timestamptz
   AND NOT EXISTS (
@@ -457,7 +451,7 @@ JOIN machine_pools pool ON pool.org_id = machine.org_id
   AND pool.id = machine.machine_pool_id
   AND pool.deleted_at IS NULL
   AND pool.runtime_protection_enabled
-JOIN daemon_runtimes runtime ON runtime.org_id = machine.org_id
+JOIN daemon_runtime_connection_facts runtime ON runtime.org_id = machine.org_id
   AND runtime.machine_id = machine.id
   AND runtime.id = machine.current_daemon_runtime_id
 LEFT JOIN secrets credential ON credential.org_id = pool.org_id
@@ -477,10 +471,8 @@ CROSS JOIN LATERAL (
 CROSS JOIN LATERAL (
   SELECT CASE
     WHEN machine.asleep_since IS NOT NULL THEN machine.asleep_since
-    WHEN runtime.state = 'active' AND runtime.lease_expires_at <= statement_timestamp()
-      THEN runtime.lease_expires_at
-    WHEN runtime.state = 'ended'
-      THEN LEAST(runtime.ended_at, runtime.lease_expires_at)
+    WHEN runtime.effective_end_at <= statement_timestamp()
+      THEN runtime.effective_end_at
     ELSE NULL
   END::timestamptz AS inactive_since
 ) inactivity
@@ -624,7 +616,7 @@ JOIN machine_pools pool ON pool.org_id = machine.org_id
   AND pool.id = machine.machine_pool_id
   AND pool.deleted_at IS NULL
   AND pool.runtime_protection_enabled
-JOIN daemon_runtimes runtime ON runtime.org_id = machine.org_id
+JOIN daemon_runtime_connection_facts runtime ON runtime.org_id = machine.org_id
   AND runtime.machine_id = machine.id
   AND runtime.id = machine.current_daemon_runtime_id
 LEFT JOIN secrets credential ON credential.org_id = pool.org_id
@@ -644,10 +636,8 @@ CROSS JOIN LATERAL (
 CROSS JOIN LATERAL (
   SELECT CASE
     WHEN machine.asleep_since IS NOT NULL THEN machine.asleep_since
-    WHEN runtime.state = 'active' AND runtime.lease_expires_at <= statement_timestamp()
-      THEN runtime.lease_expires_at
-    WHEN runtime.state = 'ended'
-      THEN LEAST(runtime.ended_at, runtime.lease_expires_at)
+    WHEN runtime.effective_end_at <= statement_timestamp()
+      THEN runtime.effective_end_at
     ELSE NULL
   END::timestamptz AS inactive_since
 ) inactivity
@@ -803,7 +793,7 @@ UPDATE machines machine
 SET provider_runtime_mismatch_since = statement_timestamp(),
     updated_at = statement_timestamp()
 FROM machine_pools pool
-CROSS JOIN daemon_runtimes runtime
+CROSS JOIN daemon_runtime_connection_facts runtime
 WHERE machine.org_id = $1
   AND machine.id = $2
   AND machine.machine_pool_id = $3::uuid
@@ -824,10 +814,8 @@ WHERE machine.org_id = $1
   AND runtime.id = machine.current_daemon_runtime_id
   AND (CASE
     WHEN machine.asleep_since IS NOT NULL THEN machine.asleep_since
-    WHEN runtime.state = 'active' AND runtime.lease_expires_at <= statement_timestamp()
-      THEN runtime.lease_expires_at
-    WHEN runtime.state = 'ended'
-      THEN LEAST(runtime.ended_at, runtime.lease_expires_at)
+    WHEN runtime.effective_end_at <= statement_timestamp()
+      THEN runtime.effective_end_at
     ELSE NULL
   END) = $8::timestamptz
   AND NOT EXISTS (

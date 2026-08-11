@@ -22,7 +22,7 @@ export type Error = {
     /**
      * Stable error code for programmatic handling.
      */
-    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
 /**
