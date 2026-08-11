@@ -8631,7 +8631,7 @@ export type GetArtifactContentError = GetArtifactContentErrors[keyof GetArtifact
 
 export type GetArtifactContentResponses = {
     /**
-     * Artifact bytes.
+     * Artifact bytes, served with the artifact's stored content type.
      */
     200: Blob | File;
 };

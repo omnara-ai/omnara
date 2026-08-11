@@ -2689,7 +2689,7 @@ export const zDemoteSteeringInputToQueuedResponse = zOkResponse;
 export const zGetArtifactResponse = zArtifact;
 
 /**
- * Artifact bytes.
+ * Artifact bytes, served with the artifact's stored content type.
  */
 export const zGetArtifactContentResponse = z.string();
 

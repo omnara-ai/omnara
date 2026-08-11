@@ -3930,9 +3930,9 @@ paths:
       summary: Get artifact content
       responses:
         '200':
-          description: Artifact bytes.
+          description: Artifact bytes, served with the artifact's stored content type.
           content:
-            application/octet-stream:
+            '*/*':
               schema:
                 type: string
                 format: binary
