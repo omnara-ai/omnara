@@ -80,11 +80,12 @@ func (e AgentExecutor) ensureMCPConnections(
 		servers[server.ServerKey] = server
 	}
 	manager := mcp.Manager{
-		Execution:       e.Store.Execution(),
-		Secrets:         e.Store.Secrets(),
-		Client:          e.MCP,
-		Backoff:         e.MCPInitializationBackoff,
-		OAuthHTTPClient: e.MCPAuthHTTPClient,
+		Execution:            e.Store.Execution(),
+		Secrets:              e.Store.Secrets(),
+		Client:               e.MCP,
+		Backoff:              e.MCPInitializationBackoff,
+		SigV4CredentialCache: e.SigV4CredentialCache,
+		OAuthHTTPClient:      e.MCPAuthHTTPClient,
 	}
 	errs := make(chan error, len(pending))
 	var wg sync.WaitGroup

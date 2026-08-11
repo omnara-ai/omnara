@@ -29,10 +29,11 @@ const (
 )
 
 type Manager struct {
-	Execution *executionstore.Store
-	Secrets   *secretstore.Store
-	Client    Client
-	Backoff   func(attempt int) time.Duration
+	Execution            *executionstore.Store
+	Secrets              *secretstore.Store
+	Client               Client
+	Backoff              func(attempt int) time.Duration
+	SigV4CredentialCache *SigV4CredentialCache
 
 	OAuthHTTPClient *http.Client
 
@@ -381,11 +382,20 @@ func (m Manager) Connection(
 		}
 		wireConn.BearerToken = token
 	case agentconfig.MCPAuthTypeSigV4:
-		wireConn.prepareRequest, err = newSigV4RequestPreparer(
-			ctx,
-			server.Auth.Service,
+		provider, providerErr := resolveAWSCredentialProvider(
+			m.SigV4CredentialCache,
+			secretID,
+			secretPayload.CurrentVersionID,
 			server.Auth.Region,
 			payload,
+		)
+		if providerErr != nil {
+			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", conn.ServerKey, providerErr)
+		}
+		wireConn.prepareRequest, err = newSigV4RequestPreparer(
+			server.Auth.Service,
+			server.Auth.Region,
+			provider,
 		)
 		if err != nil {
 			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", conn.ServerKey, err)

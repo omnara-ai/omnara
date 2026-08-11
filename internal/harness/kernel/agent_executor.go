@@ -19,13 +19,14 @@ import (
 )
 
 type AgentExecutor struct {
-	Store             *storage.Store
-	ContextBuilder    modelcontext.Builder
-	ModelResolver     model.Resolver
-	MCP               mcp.Client
-	MCPAuthHTTPClient *http.Client
-	ToolExecutor      tools.Executor
-	Now               func() time.Time
+	Store                *storage.Store
+	ContextBuilder       modelcontext.Builder
+	ModelResolver        model.Resolver
+	MCP                  mcp.Client
+	MCPAuthHTTPClient    *http.Client
+	SigV4CredentialCache *mcp.SigV4CredentialCache
+	ToolExecutor         tools.Executor
+	Now                  func() time.Time
 
 	StreamPublisher notifications.AgentStreamDeltaPublisher
 	StreamLog       *slog.Logger

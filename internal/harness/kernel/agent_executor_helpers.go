@@ -72,6 +72,9 @@ func (e AgentExecutor) configuredToolExecutor() tools.Executor {
 	if executor.MCPAuthHTTPClient == nil {
 		executor.MCPAuthHTTPClient = e.MCPAuthHTTPClient
 	}
+	if executor.SigV4CredentialCache == nil {
+		executor.SigV4CredentialCache = e.SigV4CredentialCache
+	}
 	if executor.Now == nil {
 		executor.Now = e.now
 	}

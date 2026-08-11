@@ -9,22 +9,19 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 )
 
 func TestBuildHTTPPreparesSigV4Request(t *testing.T) {
 	ctx := context.Background()
 	prepareRequest, err := newSigV4RequestPreparer(
-		ctx,
 		"execute-api",
 		"us-west-2",
-		secrets.Payload{
-			secrets.KeyAWSAccessKeyID:     "AKIAEXAMPLE",
-			secrets.KeyAWSSecretAccessKey: "secret",
-			secrets.KeyAWSSessionToken:    "session-token",
-		},
+		credentials.NewStaticCredentialsProvider("AKIAEXAMPLE", "secret", "session-token"),
 	)
 	if err != nil {
 		t.Fatalf("create SigV4 request signer: %v", err)
@@ -65,7 +62,7 @@ func TestBuildHTTPPreparesSigV4Request(t *testing.T) {
 	}
 }
 
-func TestAssumeRoleCredentials(t *testing.T) {
+func TestAssumeRoleCredentialProvider(t *testing.T) {
 	expires := time.Now().Add(time.Hour)
 	client := assumeRoleClientFunc(func(
 		_ context.Context,
@@ -88,12 +85,12 @@ func TestAssumeRoleCredentials(t *testing.T) {
 			Expiration:      &expires,
 		}}, nil
 	})
-	resolved, err := assumeRoleCredentials(
-		context.Background(),
+	provider := newAssumeRoleCredentialProvider(
 		client,
 		"arn:aws:iam::123456789012:role/ReadOnly",
 		"external",
 	)
+	resolved, err := provider.Retrieve(context.Background())
 	if err != nil {
 		t.Fatalf("assume role: %v", err)
 	}
@@ -103,6 +100,90 @@ func TestAssumeRoleCredentials(t *testing.T) {
 		!resolved.CanExpire ||
 		!resolved.Expires.Equal(expires) {
 		t.Fatalf("resolved credentials = %+v", resolved)
+	}
+}
+
+func TestResolveAWSCredentialProviderScopesSecretVersionByRegion(t *testing.T) {
+	cache := NewSigV4CredentialCache()
+	secretID := uuid.New()
+	versionID := uuid.New()
+	payload := testAssumeRolePayload()
+	first, err := resolveAWSCredentialProvider(cache, secretID, versionID, "us-west-2", payload)
+	if err != nil {
+		t.Fatalf("get first provider: %v", err)
+	}
+	sameRegion, err := resolveAWSCredentialProvider(cache, secretID, versionID, "us-west-2", payload)
+	if err != nil {
+		t.Fatalf("get same-region provider: %v", err)
+	}
+	if first != sameRegion {
+		t.Fatal("same secret version and region returned different providers")
+	}
+	differentRegion, err := resolveAWSCredentialProvider(cache, secretID, versionID, "us-east-1", payload)
+	if err != nil {
+		t.Fatalf("get different-region provider: %v", err)
+	}
+	if first == differentRegion {
+		t.Fatal("same secret version in different regions returned the same provider")
+	}
+}
+
+func TestResolveAWSCredentialProviderRequiresCacheForAssumeRole(t *testing.T) {
+	_, err := resolveAWSCredentialProvider(
+		nil,
+		uuid.New(),
+		uuid.New(),
+		"us-west-2",
+		testAssumeRolePayload(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "credential cache is required") {
+		t.Fatalf("resolve role provider error = %v, want missing credential cache", err)
+	}
+}
+
+func TestResolveAWSCredentialProviderReplacesRotatedSecret(t *testing.T) {
+	cache := NewSigV4CredentialCache()
+	secretID := uuid.New()
+	payload := testAssumeRolePayload()
+	first, err := resolveAWSCredentialProvider(cache, secretID, uuid.New(), "us-west-2", payload)
+	if err != nil {
+		t.Fatalf("get first provider: %v", err)
+	}
+	second, err := resolveAWSCredentialProvider(cache, secretID, uuid.New(), "us-west-2", payload)
+	if err != nil {
+		t.Fatalf("get rotated provider: %v", err)
+	}
+	if first == second {
+		t.Fatal("rotated secret version reused the previous provider")
+	}
+}
+
+func TestResolveAWSCredentialProviderBoundsEntries(t *testing.T) {
+	cache := NewSigV4CredentialCache()
+	payload := testAssumeRolePayload()
+	for range maxSigV4CredentialCacheEntries + 1 {
+		_, err := resolveAWSCredentialProvider(
+			cache,
+			uuid.New(),
+			uuid.New(),
+			"us-west-2",
+			payload,
+		)
+		if err != nil {
+			t.Fatalf("resolve provider: %v", err)
+		}
+	}
+	if got := len(cache.entries); got != maxSigV4CredentialCacheEntries {
+		t.Fatalf("cache entries = %d, want %d", got, maxSigV4CredentialCacheEntries)
+	}
+}
+
+func testAssumeRolePayload() secrets.Payload {
+	return secrets.Payload{
+		secrets.KeyAWSAccessKeyID:     "AKIAEXAMPLE",
+		secrets.KeyAWSSecretAccessKey: "secret",
+		secrets.KeyAWSRoleARN:         "arn:aws:iam::123456789012:role/ReadOnly",
+		secrets.KeyAWSExternalID:      "external",
 	}
 }
 

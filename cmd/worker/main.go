@@ -163,6 +163,7 @@ func main() {
 		log.Error("configure skill broadcaster", "error", err)
 		os.Exit(1)
 	}
+	sigV4CredentialCache := mcp.NewSigV4CredentialCache()
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
@@ -180,8 +181,9 @@ func main() {
 				AppCategories: cfg.OpenRouterAppCategories,
 			},
 		},
-		MCP:               mcp.New(mcp.Options{HTTPClient: mcpHTTPClient}),
-		MCPAuthHTTPClient: mcpHTTPClient,
+		MCP:                  mcp.New(mcp.Options{HTTPClient: mcpHTTPClient}),
+		MCPAuthHTTPClient:    mcpHTTPClient,
+		SigV4CredentialCache: sigV4CredentialCache,
 		ToolExecutor: tools.Executor{
 			Store:                 store,
 			Skills:                store.Skills(),

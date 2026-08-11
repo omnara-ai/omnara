@@ -64,11 +64,12 @@ func (e Executor) dispatchMCPTool(
 		return toolResultContent{}, err
 	}
 	manager := mcp.Manager{
-		Execution:       e.Store.Execution(),
-		Secrets:         e.Store.Secrets(),
-		Client:          e.MCP,
-		Backoff:         e.MCPInitializationBackoff,
-		OAuthHTTPClient: e.MCPAuthHTTPClient,
+		Execution:            e.Store.Execution(),
+		Secrets:              e.Store.Secrets(),
+		Client:               e.MCP,
+		Backoff:              e.MCPInitializationBackoff,
+		SigV4CredentialCache: e.SigV4CredentialCache,
+		OAuthHTTPClient:      e.MCPAuthHTTPClient,
 	}
 	wireConn, err := manager.Connection(
 		ctx,
