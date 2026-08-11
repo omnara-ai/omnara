@@ -2,11 +2,11 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -59,10 +59,7 @@ func (s strictOpenAPIServer) createProjectMachineGrant(
 	if request.Body.Description != nil {
 		description = *request.Body.Description
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -313,7 +310,7 @@ func projectMachineGrantResponse(record executionstore.ProjectMachineGrantRecord
 	if err != nil {
 		return openapi.ProjectMachineGrant{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
 	if err != nil {
 		return openapi.ProjectMachineGrant{}, err
 	}

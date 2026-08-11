@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -177,7 +178,7 @@ func TestPublicActorPutRejectsInvalidMetadata(t *testing.T) {
 
 	oversizedEntries := strings.Builder{}
 	oversizedEntries.WriteString("{")
-	for i := range executionstore.MaxActorMetadataEntries + 1 {
+	for i := range resourcemeta.MaxEntries + 1 {
 		if i > 0 {
 			oversizedEntries.WriteString(",")
 		}
@@ -188,8 +189,8 @@ func TestPublicActorPutRejectsInvalidMetadata(t *testing.T) {
 	invalidMetadata := []string{
 		`{"count":3}`,
 		`{"nested":{"a":"b"}}`,
-		`{"value":"` + strings.Repeat("v", executionstore.MaxActorMetadataValueLength+1) + `"}`,
-		`{"` + strings.Repeat("k", executionstore.MaxActorMetadataKeyLength+1) + `":"value"}`,
+		`{"value":"` + strings.Repeat("v", resourcemeta.MaxValueLength+1) + `"}`,
+		`{"` + strings.Repeat("k", resourcemeta.MaxKeyLength+1) + `":"value"}`,
 		oversizedEntries.String(),
 	}
 	for _, metadata := range invalidMetadata {

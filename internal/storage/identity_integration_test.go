@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -403,7 +404,7 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 			MaxTotalMemoryMB:         intPtrForMachinePoolTest(5120),
 			MaxMachineCPU:            intPtrForMachinePoolTest(1),
 			MaxMachineMemoryMB:       intPtrForMachinePoolTest(1024),
-			Metadata:                 json.RawMessage(`{"source":"test"}`),
+			Metadata:                 resourcemeta.Metadata{"source": "test"},
 		}, defaultMachineFieldsForTest{
 			DefaultMachineCPU:             1,
 			DefaultMachineMemoryMB:        1024,
@@ -421,7 +422,7 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 			MaxTotalMemoryMB:   intPtrForMachinePoolTest(6144),
 			MaxMachineCPU:      intPtrForMachinePoolTest(2),
 			MaxMachineMemoryMB: intPtrForMachinePoolTest(2048),
-			Metadata:           json.RawMessage(`{"source":"test"}`),
+			Metadata:           resourcemeta.Metadata{"source": "test"},
 		}, defaultMachineFieldsForTest{
 			DefaultMachineCPU:             2,
 			DefaultMachineMemoryMB:        2048,
@@ -729,7 +730,7 @@ func TestCreateOrgForUserCreatesClusterManagedModelProviderAtomically(t *testing
 	}
 	if _, err := store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
 		OrgID: created.Org.ID, SecretID: credential.ID, Name: credential.Name,
-		Metadata: credential.Metadata, Actor: userPrincipal(user.ID),
+		Metadata: resourcemeta.Metadata{}, Actor: userPrincipal(user.ID),
 	}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("update cluster-managed secret error = %v, want state transition conflict", err)
 	}

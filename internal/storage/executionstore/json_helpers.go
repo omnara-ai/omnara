@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 func normalizedJSON(value json.RawMessage) json.RawMessage {
@@ -43,4 +44,19 @@ func marshalJSON(value any) (json.RawMessage, error) {
 
 func sameJSON(a, b json.RawMessage) bool {
 	return jsoncanonical.Equal(a, b)
+}
+
+func metadataColumn(metadata resourcemeta.Metadata, fieldName string) (json.RawMessage, error) {
+	if err := metadata.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", fieldName, err)
+	}
+	return metadata.JSON()
+}
+
+func sameMetadata(raw json.RawMessage, metadata resourcemeta.Metadata) bool {
+	encoded, err := metadata.JSON()
+	if err != nil {
+		return false
+	}
+	return sameJSON(raw, encoded)
 }

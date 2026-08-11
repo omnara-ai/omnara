@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -92,7 +93,7 @@ type streamEnvelope struct {
 	Seq                uint64            `json:"seq"`
 	SourceSeqStart     uint64            `json:"source_seq_start"`
 	SourceSeqEnd       uint64            `json:"source_seq_end"`
-	CoalescedCount     uint64            `json:"coalesced_count,omitempty"`
+	CoalescedCount     uint64            `json:"coalesced_count"`
 	Event              model.StreamEvent `json:"event"`
 }
 
@@ -253,11 +254,22 @@ func coalescableStreamEvent(kind model.StreamEventKind) bool {
 
 func (s *harnessStreamSink) publish(ctx context.Context, envelope streamEnvelope) {
 	envelope.Seq = s.frameSeq.Add(1)
-	payload, err := json.Marshal(envelope)
+	event, err := publicStreamDelta(envelope.Event)
 	if err != nil {
-		if s.log != nil {
-			s.log.Debug("encode stream delta payload failed", "error", err)
-		}
+		s.logDroppedFrame(ctx, envelope, err)
+		return
+	}
+	payload, err := json.Marshal(streamDeltaEnvelope{
+		TurnID:             envelope.TurnID,
+		ModelCallContextID: envelope.ModelCallContextID,
+		Seq:                envelope.Seq,
+		SourceSeqStart:     envelope.SourceSeqStart,
+		SourceSeqEnd:       envelope.SourceSeqEnd,
+		CoalescedCount:     envelope.CoalescedCount,
+		Event:              event,
+	})
+	if err != nil {
+		s.logDroppedFrame(ctx, envelope, err)
 		return
 	}
 	publishCtx, cancel := context.WithTimeout(ctx, streamSinkPublishTimeout)
@@ -274,6 +286,20 @@ func (s *harnessStreamSink) publish(ctx context.Context, envelope streamEnvelope
 			"error", err,
 		)
 	}
+}
+
+func (s *harnessStreamSink) logDroppedFrame(ctx context.Context, envelope streamEnvelope, err error) {
+	event := logpkg.NewEvent(ctx, "agent.stream_delta.dropped", logpkg.Fields{
+		"agent.id":                s.agentID,
+		"turn.id":                 envelope.TurnID,
+		"model_call_context.id":   envelope.ModelCallContextID,
+		"stream.seq":              envelope.Seq,
+		"stream.source_seq_start": envelope.SourceSeqStart,
+		"stream.source_seq_end":   envelope.SourceSeqEnd,
+		"stream.event_kind":       string(envelope.Event.Kind),
+	})
+	event.Error(err)
+	event.Done(ctx)
 }
 
 func publishStreamDelta(

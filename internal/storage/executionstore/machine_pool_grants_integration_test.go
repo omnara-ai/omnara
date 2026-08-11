@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -571,7 +572,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 			MinMachineMemoryMB:   patch.NullableInt{Set: true, Value: &updatedMinMachineMemoryMB},
 			MaxMachineCPU:        patch.NullableInt{Set: true, Value: &updatedMaxMachineCPU},
 			MaxMachineMemoryMB:   patch.NullableInt{Set: true, Value: &updatedMaxMachineMemoryMB},
-			Metadata:             json.RawMessage(`{"team":"infra"}`),
+			Metadata:             resourcemeta.Metadata{"team": "infra"},
 		},
 		defaultMachineUpdateFieldsForTest{
 			DefaultMachineCPU:             intPtrForMachinePoolTest(2),

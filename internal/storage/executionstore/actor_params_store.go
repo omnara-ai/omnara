@@ -2,13 +2,13 @@ package executionstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -19,7 +19,7 @@ type ActorParams struct {
 	ProviderTenantID string
 	ProviderUserID   string
 	DisplayName      *string
-	Metadata         json.RawMessage
+	Metadata         resourcemeta.Metadata
 }
 
 func OmnaraActorParams(orgID ID, principal identitystore.PrincipalRecord) (*ActorParams, error) {

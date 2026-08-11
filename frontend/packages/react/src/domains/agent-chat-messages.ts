@@ -355,6 +355,7 @@ function isCompleteFrameRun(deltas: ModelOutputDelta[]): boolean {
   let sourceSeq = 0
   for (const delta of deltas) {
     if (delta.seq !== seq + 1 || delta.source_seq_start !== sourceSeq + 1) return false
+    if (delta.coalesced_count !== delta.source_seq_end - delta.source_seq_start + 1) return false
     seq = delta.seq
     sourceSeq = Math.max(delta.source_seq_start, delta.source_seq_end)
   }
@@ -391,7 +392,7 @@ function modelCallPreviewParts(
 
   for (const delta of deltas) {
     const { event } = delta
-    const blockIndex = 'block_index' in event ? (event.block_index ?? 0) : 0
+    const blockIndex = 'block_index' in event ? event.block_index : 0
     if (event.kind === 'block_start') {
       if (event.block.kind === 'text') openTextBlock(blockIndex, 'text')
       if (event.block.kind === 'thinking') openTextBlock(blockIndex, 'reasoning')

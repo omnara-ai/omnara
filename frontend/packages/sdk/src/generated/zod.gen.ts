@@ -53,6 +53,39 @@ export const zError = z.object({
 });
 
 /**
+ * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+ */
+export const zClientErrorCode = z.enum([
+    'invalid_request',
+    'validation_failed',
+    'unauthorized',
+    'forbidden',
+    'csrf_check_failed',
+    'not_found',
+    'conflict',
+    'idempotency_key_conflict',
+    'state_transition_conflict',
+    'pending_work',
+    'not_wake_capable',
+    'gone',
+    'daemon_runtime_unregistered',
+    'request_too_large',
+    'unsupported_media_type',
+    'unprocessable',
+    'rate_limited'
+]);
+
+/**
+ * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+ */
+export const zServerErrorCode = z.enum([
+    'internal_error',
+    'upstream_error',
+    'service_unavailable',
+    'authentication_unavailable'
+]);
+
+/**
  * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs; cluster-managed resources are installed by the control plane and are read-only through tenant lifecycle APIs.
  */
 export const zManagementKind = z.enum(['tenant', 'cluster']);
@@ -478,7 +511,10 @@ export const zSkillGrant = z.object({
     created_at: zTimestamp
 });
 
-export const zSecretPayload = z.record(z.string(), z.string());
+/**
+ * User-supplied metadata for the stored secret. A restriction of Metadata that leaves room for one reserved pair - Omnara sets mcp_url on the secret to the flow's MCP endpoint URL, so the key is reserved and at most 15 user pairs are accepted.
+ */
+export const zMcpoAuthStartMetadata = z.record(z.string(), z.string().max(512));
 
 export const zMcpoAuthStartResponse = z.object({
     authorization_url: z.url(),
@@ -733,10 +769,53 @@ export const zModelOutputStopReason = z.enum([
     'error'
 ]);
 
+export const zAgentInputDeliveryMode = z.enum([
+    'queued',
+    'steering',
+    'immediate'
+]);
+
+export const zCreateAgentInputDeliveryMode = z.enum(['queued', 'steering']);
+
+export const zAgentMachineBindingState = z.enum(['attached', 'released']);
+
+export const zAgentMachineBindingKind = z.enum(['explicit', 'pool']);
+
+export const zAgentMachineBinding = z.object({
+    id: zAgentMachineBindingId,
+    project_id: zProjectId,
+    agent_id: zAgentId,
+    machine_id: zMachineId,
+    machine_ref: z.string(),
+    binding_kind: zAgentMachineBindingKind,
+    state: zAgentMachineBindingState,
+    description: z.string(),
+    cwd: z.string(),
+    env_overlay: z.record(z.string(), z.string().nullable()),
+    secret_env_overlay: z.record(z.string(), zSecretId.nullable()),
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
 /**
- * String key-value metadata. Maximum 16 pairs, keys up to 64 characters, and values up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ * Public JSON payload whose shape is determined by the event or interaction kind.
  */
-export const zContentBlockMetadata = z.record(z.string(), z.string().max(512));
+export const zJsonBlob = z.unknown();
+
+/**
+ * Non-null JSON object containing the arguments emitted for a tool call.
+ */
+export const zToolInput = z.record(z.string(), z.unknown());
+
+/**
+ * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+ */
+export const zMetadata = z.record(z.string(), z.string().max(512));
+
+/**
+ * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ */
+export const zContentBlockMetadata = zMetadata;
 
 export const zTextContentBlock = z.object({
     type: z.enum(['text']),
@@ -783,6 +862,12 @@ export const zErrorContentBlock = z.object({
     metadata: zContentBlockMetadata.optional()
 });
 
+export const zStructuredDataContentBlock = z.object({
+    type: z.enum(['structured_data']),
+    value: zJsonBlob,
+    metadata: zContentBlockMetadata.optional()
+});
+
 export const zCreateAgentInputContentBlock = z.discriminatedUnion('type', [
     zTextContentBlock.extend({ type: z.literal('text') }),
     zInlineMediaContentBlock.extend({ type: z.literal('media') })
@@ -792,69 +877,6 @@ export const zAgentInputContentBlock = z.discriminatedUnion('type', [
     zTextContentBlock.extend({ type: z.literal('text') }),
     zMediaRefContentBlock.extend({ type: z.literal('media_ref') })
 ]);
-
-export const zAgentInputDeliveryMode = z.enum([
-    'queued',
-    'steering',
-    'immediate'
-]);
-
-export const zCreateAgentInputDeliveryMode = z.enum(['queued', 'steering']);
-
-export const zAgentInput = z.object({
-    id: zAgentInputId,
-    agent_id: zAgentId,
-    state: z.string(),
-    delivery_mode: zAgentInputDeliveryMode,
-    input_kind: zAgentInputKind,
-    actor_id: zActorId.optional(),
-    content_blocks: z.array(zAgentInputContentBlock).optional(),
-    queued_at: zTimestamp
-});
-
-export const zAgentMachineBindingState = z.enum(['attached', 'released']);
-
-export const zAgentMachineBindingKind = z.enum(['explicit', 'pool']);
-
-export const zAgentMachineBinding = z.object({
-    id: zAgentMachineBindingId,
-    project_id: zProjectId,
-    agent_id: zAgentId,
-    machine_id: zMachineId,
-    machine_ref: z.string(),
-    binding_kind: zAgentMachineBindingKind,
-    state: zAgentMachineBindingState,
-    description: z.string(),
-    cwd: z.string(),
-    env_overlay: z.record(z.string(), z.string().nullable()),
-    secret_env_overlay: z.record(z.string(), zSecretId.nullable()),
-    created_at: zTimestamp,
-    updated_at: zTimestamp
-});
-
-export const zLaunchAgentResponse = z.object({
-    agent: zAgent,
-    agent_config: zAgentConfig,
-    machine_bindings: z.array(zAgentMachineBinding),
-    agent_input: zAgentInput.optional()
-});
-
-export const zUpdateAgentConfigResponse = z.object({
-    agent_config: zAgentConfig,
-    agent_input: zAgentInput,
-    event_id: zAgentEventId
-});
-
-/**
- * Public JSON payload whose shape is determined by the event or interaction kind.
- */
-export const zJsonBlob = z.unknown();
-
-export const zStructuredDataContentBlock = z.object({
-    type: z.enum(['structured_data']),
-    value: zJsonBlob,
-    metadata: zContentBlockMetadata.optional()
-});
 
 export const zToolResultContentBlock = z.discriminatedUnion('type', [
     zTextContentBlock.extend({ type: z.literal('text') }),
@@ -871,10 +893,34 @@ export const zSubmitToolResultContentBlock = z.discriminatedUnion('type', [
     zStructuredDataContentBlock.extend({ type: z.literal('structured_data') })
 ]);
 
+export const zAgentInput = z.object({
+    id: zAgentInputId,
+    agent_id: zAgentId,
+    state: z.string(),
+    delivery_mode: zAgentInputDeliveryMode,
+    input_kind: zAgentInputKind,
+    actor_id: zActorId.optional(),
+    content_blocks: z.array(zAgentInputContentBlock).optional(),
+    queued_at: zTimestamp
+});
+
+export const zLaunchAgentResponse = z.object({
+    agent: zAgent,
+    agent_config: zAgentConfig,
+    machine_bindings: z.array(zAgentMachineBinding),
+    agent_input: zAgentInput.optional()
+});
+
+export const zUpdateAgentConfigResponse = z.object({
+    agent_config: zAgentConfig,
+    agent_input: zAgentInput,
+    event_id: zAgentEventId
+});
+
 /**
- * Non-null JSON object containing the arguments emitted for a tool call.
+ * User-supplied metadata stored on a machine, provided directly or copied from the machine pool that provisions it. A restriction of Metadata that leaves room for one reserved pair - Omnara sets observed_platform on the machine to the platform reported by its daemon, so the key is reserved and at most 15 user pairs are accepted.
  */
-export const zToolInput = z.record(z.string(), z.unknown());
+export const zMachineMetadata = z.record(z.string(), z.string().max(512));
 
 export const zAgentInputEnvelope = z.object({
     agent_input: zAgentInput
@@ -1066,31 +1112,31 @@ export const zModelOutputStreamBlock = z.discriminatedUnion('kind', [
 
 export const zModelOutputBlockStartDelta = z.object({
     kind: z.enum(['block_start']),
-    block_index: z.int().gte(0).optional().default(0),
+    block_index: z.int().gte(0),
     block: zModelOutputStreamBlock
 });
 
 export const zModelOutputTextDelta = z.object({
     kind: z.enum(['text_delta']),
-    block_index: z.int().gte(0).optional().default(0),
+    block_index: z.int().gte(0),
     delta: z.string()
 });
 
 export const zModelOutputThinkingDelta = z.object({
     kind: z.enum(['thinking_delta']),
-    block_index: z.int().gte(0).optional().default(0),
+    block_index: z.int().gte(0),
     delta: z.string()
 });
 
 export const zModelOutputToolArgumentsDelta = z.object({
     kind: z.enum(['tool_arguments_delta']),
-    block_index: z.int().gte(0).optional().default(0),
+    block_index: z.int().gte(0),
     delta: z.string()
 });
 
 export const zModelOutputBlockStopDelta = z.object({
     kind: z.enum(['block_stop']),
-    block_index: z.int().gte(0).optional().default(0)
+    block_index: z.int().gte(0)
 });
 
 export const zModelUsage = z.object({
@@ -1133,7 +1179,7 @@ export const zModelOutputDelta = z.object({
     seq: zAgentSequence,
     source_seq_start: zAgentSequence,
     source_seq_end: zAgentSequence,
-    coalesced_count: zAgentCount.optional(),
+    coalesced_count: zAgentCount,
     event: zModelOutputStreamDelta
 });
 
@@ -1275,7 +1321,7 @@ export const zActor = z.object({
     provider_tenant_id: z.string().optional(),
     provider_user_id: z.string(),
     display_name: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1287,7 +1333,7 @@ export const zExternalActorParams = z.object({
     provider_tenant_id: z.string().min(1).max(128).optional(),
     provider_user_id: z.string().min(1).max(128),
     display_name: z.string().max(256).optional(),
-    metadata: z.record(z.string(), z.string().max(512)).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zCreateAgentInputRequest = z.object({
@@ -1343,7 +1389,7 @@ export const zMcpoAuthStartRequest = z.object({
     client_id: z.string().optional(),
     client_secret: z.string().optional(),
     scopes: z.array(z.string()).optional(),
-    metadata: z.record(z.string(), z.string()).optional()
+    metadata: zMcpoAuthStartMetadata.optional()
 });
 
 export const zOrgSecretOwner = z.object({
@@ -1408,13 +1454,13 @@ export const zSecretMaterial = z.discriminatedUnion('kind', [
 export const zCreateSecretRequest = z.object({
     owner: zSecretOwnerInput,
     name: z.string().min(1),
-    metadata: z.record(z.string(), z.string()).optional(),
+    metadata: zMetadata.optional(),
     material: zSecretMaterial
 });
 
 export const zUpdateSecretRequest = z.object({
     name: z.string().min(1).optional(),
-    metadata: z.record(z.string(), z.string()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zSecretVersionRequest = z.object({
@@ -1439,7 +1485,7 @@ export const zSecret = z.object({
     owner: zSecretOwner,
     name: z.string(),
     kind: zSecretKind,
-    metadata: z.record(z.string(), z.string()),
+    metadata: zMetadata,
     current_version_number: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     payload_keys: z.array(z.string()),
     created_at: zTimestamp,
@@ -1610,7 +1656,7 @@ export const zCreateMachinePoolRequestBase = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMachineMetadata.optional()
 });
 
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
@@ -1657,7 +1703,7 @@ export const zUpdateMachinePoolRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMachineMetadata.optional()
 });
 
 export const zMachinePool = z.object({
@@ -1683,7 +1729,7 @@ export const zMachinePool = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullable(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1734,7 +1780,7 @@ export const zMachine = z.object({
     next_reconcile_after: zTimestamp.nullable(),
     provision_attempts: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     delete_attempts: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     deleted_at: zTimestamp.nullable(),
     created_at: zTimestamp,
     updated_at: zTimestamp
@@ -1746,7 +1792,7 @@ export const zCreateMachineRequest = z.object({
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
     secret_env: z.record(z.string(), zSecretId).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMachineMetadata.optional()
 });
 
 export const zUpdateMachineRequest = z.object({
@@ -1755,7 +1801,10 @@ export const zUpdateMachineRequest = z.object({
     secret_env: z.record(z.string(), zSecretId).optional()
 });
 
-export const zMachineSummary = z.object({
+/**
+ * Shared machine fields composed into machine response schemas. Composing schemas close their final shape with unevaluatedProperties.
+ */
+export const zMachineSummaryFields = z.object({
     id: zMachineId,
     org_id: zOrganizationId,
     source_kind: zMachineSourceKind,
@@ -1770,6 +1819,8 @@ export const zMachineSummary = z.object({
     updated_at: zTimestamp
 });
 
+export const zMachineSummary = zMachineSummaryFields;
+
 export const zMachineAccessSource = z.object({
     kind: zMachineAccessSourceKind,
     project_id: zProjectId.optional(),
@@ -1782,7 +1833,7 @@ export const zMachineAccess = z.object({
     sources: z.array(zMachineAccessSource)
 });
 
-export const zVisibleMachine = zMachineSummary.and(z.object({
+export const zVisibleMachine = zMachineSummaryFields.and(z.object({
     access: zMachineAccess
 }));
 
@@ -1799,7 +1850,7 @@ export const zProjectMachineGrant = z.object({
     source_kind: zProjectMachineGrantSourceKind,
     project_machine_pool_grant_id: zProjectMachinePoolGrantId.nullish(),
     description: z.string(),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1807,7 +1858,7 @@ export const zProjectMachineGrant = z.object({
 export const zCreateProjectMachineGrantRequest = z.object({
     machine_id: zMachineId,
     description: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zCreateProjectMachineGrantResponse = z.object({
@@ -1844,7 +1895,7 @@ export const zProjectMachinePoolGrant = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullable(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1865,7 +1916,7 @@ export const zCreateProjectMachinePoolGrantRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 /**
@@ -1886,7 +1937,7 @@ export const zUpdateProjectMachinePoolGrantRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zMachinePoolSummary = z.object({
@@ -1912,7 +1963,7 @@ export const zListProjectMachinePoolGrantsResponse = z.object({
 
 export const zCreateMachineDaemonTokenRequest = z.object({
     name: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional()
+    metadata: zMetadata.optional()
 });
 
 export const zMachineDaemonToken = z.object({
@@ -1920,7 +1971,7 @@ export const zMachineDaemonToken = z.object({
     org_id: zOrganizationId,
     machine_id: zMachineId,
     name: z.string(),
-    metadata: z.record(z.string(), z.unknown()),
+    metadata: zMetadata,
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),
     revoked_at: zTimestamp.nullable(),
@@ -1998,7 +2049,6 @@ export const zRegisterDaemonRuntimeRequest = z.object({
     daemon_instance_id: z.uuid(),
     daemon_version: z.string().min(1),
     capacity: z.record(z.string(), z.unknown()).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
     observed_platform: z.record(z.string(), z.unknown()).optional(),
     processes: z.array(zProcessReconciliationClaim)
 });
@@ -2040,13 +2090,18 @@ export const zCreateProjectRequest = z.object({
     name: z.string().min(1)
 });
 
-export const zProject = z.object({
+/**
+ * Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
+ */
+export const zProjectFields = z.object({
     id: zProjectId,
     org_id: zOrganizationId,
     name: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
+
+export const zProject = zProjectFields;
 
 export const zSkillGrantListItem = z.object({
     grant: zSkillGrant,
@@ -2081,7 +2136,7 @@ export const zProjectAccess = z.object({
     can_operate: z.boolean()
 });
 
-export const zVisibleProject = zProject.and(z.object({
+export const zVisibleProject = zProjectFields.and(z.object({
     access: zProjectAccess
 }));
 
@@ -2584,7 +2639,7 @@ export const zListTurnEventsResponse2 = zListTurnEventsResponse;
 export const zListEventsResponse = zListAgentEventsResponse;
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, or `tool_result` as the SSE event name; best-effort model previews use `model_output_delta`; terminal stream errors use `error`. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort model previews use `model_output_delta` and terminal stream errors use `error`; neither carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 
@@ -2634,7 +2689,7 @@ export const zDemoteSteeringInputToQueuedResponse = zOkResponse;
 export const zGetArtifactResponse = zArtifact;
 
 /**
- * Artifact bytes.
+ * Artifact bytes, served with the artifact's stored content type.
  */
 export const zGetArtifactContentResponse = z.string();
 

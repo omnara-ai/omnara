@@ -1,6 +1,8 @@
 package model
 
-import "context"
+import (
+	"context"
+)
 
 type StreamEvent struct {
 	Kind       StreamEventKind `json:"kind"`

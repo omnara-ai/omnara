@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 func TestMCPOAuthFlowEndToEndCreatesAndRotatesSecret(t *testing.T) {
@@ -358,6 +360,47 @@ func TestMCPOAuthStartValidation(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf(
 			"non-string metadata status = %d, want 400 body=%s",
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+
+	fullMetadata := strings.Builder{}
+	fullMetadata.WriteString("{")
+	for i := range resourcemeta.MaxEntries {
+		if i > 0 {
+			fullMetadata.WriteString(",")
+		}
+		fmt.Fprintf(&fullMetadata, `"key-%d":"value"`, i)
+	}
+	fullMetadata.WriteString("}")
+	rec = doMCPOAuthRequest(
+		t,
+		handler,
+		http.MethodPost,
+		startPath,
+		`{"owner":{"kind":"org"},"mcp_url":"https://mcp.example.com/mcp","name":"full-metadata","metadata":`+fullMetadata.String()+`}`,
+		authHeaders(project.AdminToken),
+	)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf(
+			"metadata without room for mcp_url status = %d, want 400 body=%s",
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+
+	rec = doMCPOAuthRequest(
+		t,
+		handler,
+		http.MethodPost,
+		startPath,
+		`{"owner":{"kind":"org"},"mcp_url":"https://mcp.example.com/mcp","name":"reserved-metadata","metadata":{"mcp_url":"https://spoof.example.com"}}`,
+		authHeaders(project.AdminToken),
+	)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf(
+			"reserved mcp_url metadata key status = %d, want 400 body=%s",
 			rec.Code,
 			rec.Body.String(),
 		)
