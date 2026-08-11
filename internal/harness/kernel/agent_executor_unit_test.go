@@ -41,7 +41,10 @@ func (*kernelSkillStoreStub) GetSkillForDispatch(
 func TestAgentExecutorDependencyComposition(t *testing.T) {
 	aggregate := storage.NewStore(nil)
 	explicit := &kernelSkillStoreStub{}
-	sigV4CredentialCache := mcp.NewSigV4CredentialCache()
+	sigV4CredentialCache, err := mcp.NewSigV4CredentialCache()
+	if err != nil {
+		t.Fatalf("create SigV4 credential cache: %v", err)
+	}
 
 	defaults := (AgentExecutor{Store: aggregate}).contextBuilder()
 	if defaults.Store == nil || defaults.Skills != aggregate.Skills() {

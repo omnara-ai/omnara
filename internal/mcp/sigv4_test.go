@@ -104,7 +104,7 @@ func TestAssumeRoleCredentialProvider(t *testing.T) {
 }
 
 func TestResolveAWSCredentialProviderScopesSecretVersionByRegion(t *testing.T) {
-	cache := NewSigV4CredentialCache()
+	cache := newTestSigV4CredentialCache(t)
 	secretID := uuid.New()
 	versionID := uuid.New()
 	payload := testAssumeRolePayload()
@@ -142,7 +142,7 @@ func TestResolveAWSCredentialProviderRequiresCacheForAssumeRole(t *testing.T) {
 }
 
 func TestResolveAWSCredentialProviderReplacesRotatedSecret(t *testing.T) {
-	cache := NewSigV4CredentialCache()
+	cache := newTestSigV4CredentialCache(t)
 	secretID := uuid.New()
 	payload := testAssumeRolePayload()
 	first, err := resolveAWSCredentialProvider(cache, secretID, uuid.New(), "us-west-2", payload)
@@ -158,24 +158,50 @@ func TestResolveAWSCredentialProviderReplacesRotatedSecret(t *testing.T) {
 	}
 }
 
-func TestResolveAWSCredentialProviderBoundsEntries(t *testing.T) {
-	cache := NewSigV4CredentialCache()
+func TestResolveAWSCredentialProviderEvictsLeastRecentlyUsed(t *testing.T) {
+	cache := newTestSigV4CredentialCache(t)
 	payload := testAssumeRolePayload()
-	for range maxSigV4CredentialCacheEntries + 1 {
-		_, err := resolveAWSCredentialProvider(
+	resolve := func(secretID, versionID uuid.UUID) aws.CredentialsProvider {
+		t.Helper()
+		provider, err := resolveAWSCredentialProvider(
 			cache,
-			uuid.New(),
-			uuid.New(),
+			secretID,
+			versionID,
 			"us-west-2",
 			payload,
 		)
 		if err != nil {
 			t.Fatalf("resolve provider: %v", err)
 		}
+		return provider
 	}
-	if got := len(cache.entries); got != maxSigV4CredentialCacheEntries {
+	firstSecretID, firstVersionID := uuid.New(), uuid.New()
+	first := resolve(firstSecretID, firstVersionID)
+	secondSecretID, secondVersionID := uuid.New(), uuid.New()
+	second := resolve(secondSecretID, secondVersionID)
+	for range maxSigV4CredentialCacheEntries - 2 {
+		resolve(uuid.New(), uuid.New())
+	}
+	resolve(firstSecretID, firstVersionID)
+	resolve(uuid.New(), uuid.New())
+	if got := resolve(firstSecretID, firstVersionID); got != first {
+		t.Fatal("recently used provider was evicted")
+	}
+	if got := resolve(secondSecretID, secondVersionID); got == second {
+		t.Fatal("least recently used provider was not evicted")
+	}
+	if got := cache.entries.Len(); got != maxSigV4CredentialCacheEntries {
 		t.Fatalf("cache entries = %d, want %d", got, maxSigV4CredentialCacheEntries)
 	}
+}
+
+func newTestSigV4CredentialCache(t *testing.T) *SigV4CredentialCache {
+	t.Helper()
+	cache, err := NewSigV4CredentialCache()
+	if err != nil {
+		t.Fatalf("create SigV4 credential cache: %v", err)
+	}
+	return cache
 }
 
 func testAssumeRolePayload() secrets.Payload {

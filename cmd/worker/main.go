@@ -163,7 +163,11 @@ func main() {
 		log.Error("configure skill broadcaster", "error", err)
 		os.Exit(1)
 	}
-	sigV4CredentialCache := mcp.NewSigV4CredentialCache()
+	sigV4CredentialCache, err := mcp.NewSigV4CredentialCache()
+	if err != nil {
+		log.Error("configure SigV4 credential cache", "error", err)
+		os.Exit(1)
+	}
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{

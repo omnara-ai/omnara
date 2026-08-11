@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 )
@@ -23,7 +24,7 @@ const maxSigV4CredentialCacheEntries = 1_024
 
 type SigV4CredentialCache struct {
 	mu      sync.Mutex
-	entries map[sigV4CredentialCacheKey]sigV4CredentialCacheEntry
+	entries *simplelru.LRU[sigV4CredentialCacheKey, sigV4CredentialCacheEntry]
 }
 
 type sigV4CredentialCacheKey struct {
@@ -36,10 +37,15 @@ type sigV4CredentialCacheEntry struct {
 	provider  *aws.CredentialsCache
 }
 
-func NewSigV4CredentialCache() *SigV4CredentialCache {
-	return &SigV4CredentialCache{
-		entries: make(map[sigV4CredentialCacheKey]sigV4CredentialCacheEntry),
+func NewSigV4CredentialCache() (*SigV4CredentialCache, error) {
+	entries, err := simplelru.NewLRU[sigV4CredentialCacheKey, sigV4CredentialCacheEntry](
+		maxSigV4CredentialCacheEntries,
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create SigV4 credential cache: %w", err)
 	}
+	return &SigV4CredentialCache{entries: entries}, nil
 }
 
 func (c *SigV4CredentialCache) provider(
@@ -54,15 +60,9 @@ func (c *SigV4CredentialCache) provider(
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	key := sigV4CredentialCacheKey{secretID: secretID, region: region}
-	entry, ok := c.entries[key]
+	entry, ok := c.entries.Get(key)
 	if ok && entry.versionID == versionID {
 		return entry.provider, nil
-	}
-	if !ok && len(c.entries) >= maxSigV4CredentialCacheEntries {
-		for existingKey := range c.entries {
-			delete(c.entries, existingKey)
-			break
-		}
 	}
 	staticProvider := staticAWSCredentialProvider(payload)
 	cfg := aws.Config{Region: region, Credentials: staticProvider}
@@ -76,10 +76,10 @@ func (c *SigV4CredentialCache) provider(
 			options.ExpiryWindow = 30 * time.Second
 		},
 	)
-	c.entries[key] = sigV4CredentialCacheEntry{
+	c.entries.Add(key, sigV4CredentialCacheEntry{
 		versionID: versionID,
 		provider:  provider,
-	}
+	})
 	return provider, nil
 }
 
