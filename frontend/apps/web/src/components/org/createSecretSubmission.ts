@@ -65,7 +65,22 @@ export async function submitSecretTransaction({
       const material =
         state.secret.kind === 'generic'
           ? ({ kind: 'generic', value: state.secret.value } as const)
-          : oauthTokenSetMaterial(state.secret.entries)
+          : state.secret.kind === 'aws_credentials'
+            ? ({
+                kind: 'aws_credentials',
+                access_key_id: state.secret.accessKeyId.trim(),
+                secret_access_key: state.secret.secretAccessKey.trim(),
+                ...(state.secret.sessionToken.trim() !== ''
+                  ? { session_token: state.secret.sessionToken.trim() }
+                  : {}),
+                ...(state.secret.roleArn.trim() !== ''
+                  ? { role_arn: state.secret.roleArn.trim() }
+                  : {}),
+                ...(state.secret.externalId.trim() !== ''
+                  ? { external_id: state.secret.externalId.trim() }
+                  : {}),
+              } as const)
+            : oauthTokenSetMaterial(state.secret.entries)
       if (material === undefined) {
         return { kind: 'failed', secret: null, message: 'OAuth token material is incomplete' }
       }

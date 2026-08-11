@@ -32,6 +32,56 @@ func TestToolResultContentBlocksCanonicalizeToPersistedShape(t *testing.T) {
 	}
 }
 
+func TestContentBlockMetadataCanonicalizesToPersistedShape(t *testing.T) {
+	artifactID := "018ffc6b-7f1a-7828-8687-93aa210f5f4a"
+	tests := []struct {
+		name    string
+		input   json.RawMessage
+		parse   func(json.RawMessage) ([]CreateContentBlockInput, error)
+		marshal func([]CreateContentBlockInput) (json.RawMessage, error)
+	}{
+		{
+			name:    "agent input",
+			input:   json.RawMessage(`[{"type":"text","text":"hello","metadata":{"omnara_hidden":"true"}}]`),
+			parse:   parseAgentInputContentBlocks,
+			marshal: marshalAgentInputContentBlocks,
+		},
+		{
+			name: "tool result",
+			input: json.RawMessage(`[` +
+				`{"type":"structured_data","value":{"ok":true},"metadata":{"source":"test"}},` +
+				`{"type":"media_ref","artifact_id":"` + artifactID + `","metadata":{"position":"2"}}` +
+				`]`),
+			parse:   parseToolResultContentBlocks,
+			marshal: marshalToolResultContentBlocks,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			blocks, err := test.parse(test.input)
+			if err != nil {
+				t.Fatalf("parse content blocks: %v", err)
+			}
+			canonical, err := test.marshal(blocks)
+			if err != nil {
+				t.Fatalf("marshal content blocks: %v", err)
+			}
+			if !sameJSON(canonical, test.input) {
+				t.Fatalf("canonical content blocks = %s, want %s", canonical, test.input)
+			}
+		})
+	}
+}
+
+func TestContentBlockMetadataRequiresObject(t *testing.T) {
+	_, err := parseAgentInputContentBlocks(json.RawMessage(
+		`[{"type":"text","text":"hello","metadata":true}]`,
+	))
+	if err == nil || !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("invalid metadata error = %v, want invalid request", err)
+	}
+}
+
 func TestToolResultContentBlocksRejectUnpersistedEnvelopeFields(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -3,15 +3,24 @@
     "AgentConfigMCPAuthSource": {
       "additionalProperties": false,
       "properties": {
+        "region": {
+          "minLength": 1,
+          "type": "string"
+        },
         "secret_id": {
           "minLength": 1,
           "pattern": "^sec_[a-z2-7]{26}$",
           "type": "string"
         },
+        "service": {
+          "minLength": 1,
+          "type": "string"
+        },
         "type": {
           "enum": [
             "bearer",
-            "oauth"
+            "oauth",
+            "sigv4"
           ]
         }
       },
@@ -45,18 +54,8 @@
             "$ref": "#/$defs/AgentConfigMCPToolSource"
           },
           "propertyNames": {
-            "allOf": [
-              {
-                "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
-                "type": "string"
-              },
-              {
-                "not": {
-                  "pattern": "__",
-                  "type": "string"
-                }
-              }
-            ]
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+            "type": "string"
           },
           "type": "object"
         },

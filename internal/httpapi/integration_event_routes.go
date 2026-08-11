@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -24,6 +26,7 @@ const (
 	integrationEventsPath             = "/api/integrations/slack/events"
 	integrationEventHTTPTimeout       = 2 * time.Second
 	integrationEventEnrichmentTimeout = 1500 * time.Millisecond
+	contentBlockMetadataValueMaxRunes = 512
 )
 
 func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) {
@@ -295,17 +298,15 @@ func (s *Server) processIntegrationInboundEvent(
 	if siblingEventAlreadyAccepted {
 		visibleEvent.Text = slack.AttachmentOnlyMessageText
 	}
-	modelVisibleText := slack.ModelVisibleText(
+	messageText, hiddenText := slack.ModelInputTextParts(
 		visibleEvent,
 		route,
 		newlyMapped,
 		historyText,
 		labels,
 	)
-	contentText := modelVisibleText
-	if skippedFileSummary := slack.SkippedFileSummary(fileIngest.Files); skippedFileSummary != "" {
-		contentText += "\n\n" + skippedFileSummary
-	}
+	displayText := labels.RenderDisplayText(strings.TrimSpace(visibleEvent.Text))
+	skippedFileSummary := slack.SkippedFileSummary(fileIngest.Files)
 	metadata, err := slack.InboundEventMetadata(
 		integrationstore.IntegrationProviderSlack,
 		envelope,
@@ -316,10 +317,31 @@ func (s *Server) processIntegrationInboundEvent(
 	if err != nil {
 		return true, err
 	}
-	contentBlockPayload := append(
-		[]map[string]any{{"type": "text", "text": contentText}},
-		fileIngest.Blocks...,
-	)
+	hiddenMetadata := map[string]any{"omnara_hidden": "true"}
+	contentBlockPayload := make([]map[string]any, 0, 3+len(fileIngest.Blocks))
+	contentBlockPayload = append(contentBlockPayload, map[string]any{
+		"type":     "text",
+		"text":     hiddenText,
+		"metadata": hiddenMetadata,
+	})
+	if messageText != "" {
+		block := map[string]any{"type": "text", "text": messageText}
+		if siblingEventAlreadyAccepted {
+			block["metadata"] = hiddenMetadata
+		} else if metadata := displayTextMetadata(messageText, displayText); metadata != nil {
+			block["metadata"] = metadata
+		}
+		contentBlockPayload = append(contentBlockPayload, block)
+	}
+	if skippedFileSummary != "" {
+		text := "\n" + skippedFileSummary
+		block := map[string]any{"type": "text", "text": text}
+		if metadata := displayTextMetadata(text, skippedFileSummary); metadata != nil {
+			block["metadata"] = metadata
+		}
+		contentBlockPayload = append(contentBlockPayload, block)
+	}
+	contentBlockPayload = append(contentBlockPayload, fileIngest.Blocks...)
 	contentBlocks, err := marshalJSON(contentBlockPayload)
 	if err != nil {
 		return true, err
@@ -359,6 +381,13 @@ func (s *Server) processIntegrationInboundEvent(
 	}
 	go s.addIntegrationInboundReaction(ctx, install, envelope.Event, botToken)
 	return true, nil
+}
+
+func displayTextMetadata(text, displayText string) map[string]any {
+	if text == displayText || utf8.RuneCountInString(displayText) > contentBlockMetadataValueMaxRunes {
+		return nil
+	}
+	return map[string]any{"omnara_display_text": displayText}
 }
 
 func (s *Server) dismissSlackInteractionPrompts(

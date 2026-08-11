@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -519,16 +520,17 @@ func TestIndependentSupervisorsSerializeWritesAcrossProcesses(t *testing.T) {
 		}
 	}
 
-	gate := filepath.Join(t.TempDir(), "start")
 	type child struct {
 		command *exec.Cmd
-		output  bytes.Buffer
-		ready   string
+		gate    io.WriteCloser
+		stdout  bytes.Buffer
+		stderr  bytes.Buffer
+		ready   chan struct{}
+		done    chan struct{}
 	}
-	children := make([]child, len(processes))
+	children := make([]*child, len(processes))
 	for index := range processes {
 		process := processes[index]
-		ready := filepath.Join(filepath.Dir(gate), fmt.Sprintf("ready-%d", index))
 		command := exec.Command(
 			os.Args[0],
 			"-test.run=^TestStateDBSubprocessWriterHelper$",
@@ -540,53 +542,71 @@ func TestIndependentSupervisorsSerializeWritesAcrossProcesses(t *testing.T) {
 			"OMNARA_STATE_DB_WRITER_PROCESS="+process.ProcessID,
 			"OMNARA_STATE_DB_WRITER_SUPERVISOR_INSTANCE_ID="+process.SupervisorInstanceID,
 			"OMNARA_STATE_DB_WRITER_SUPERVISOR_TOKEN="+process.SupervisorToken,
-			"OMNARA_STATE_DB_WRITER_READY="+ready,
-			"OMNARA_STATE_DB_WRITER_GATE="+gate,
 		)
-		children[index] = child{command: command, ready: ready}
-		command.Stdout = &children[index].output
-		command.Stderr = &children[index].output
+		gate, err := command.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdout, err := command.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		children[index] = &child{
+			command: command,
+			gate:    gate,
+			ready:   make(chan struct{}),
+			done:    make(chan struct{}),
+		}
+		command.Stderr = &children[index].stderr
 		if err := command.Start(); err != nil {
 			t.Fatal(err)
 		}
+		go func(c *child) {
+			defer close(c.done)
+			if _, err := io.ReadFull(stdout, make([]byte, 1)); err != nil {
+				return
+			}
+			close(c.ready)
+			_, _ = io.Copy(&c.stdout, stdout)
+		}(children[index])
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		allReady := true
-		for index := range children {
-			if _, err := os.Stat(children[index].ready); err != nil {
-				allReady = false
-				break
+	for index := range children {
+		select {
+		case <-children[index].ready:
+		case <-children[index].done:
+			for kill := range children {
+				_ = children[kill].command.Process.Kill()
 			}
-		}
-		if allReady {
-			break
-		}
-		if time.Now().After(deadline) {
-			for index := range children {
-				_ = children[index].command.Process.Kill()
+			for wait := range children {
+				<-children[wait].done
+				_ = children[wait].command.Wait()
 			}
-			for index := range children {
-				_ = children[index].command.Wait()
-			}
-			t.Fatal("subprocess writers did not reach the concurrency gate")
+			t.Fatalf(
+				"subprocess writer %d did not reach the concurrency gate\n%s%s",
+				index,
+				children[index].stdout.String(),
+				children[index].stderr.String(),
+			)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	if err := os.WriteFile(gate, nil, 0o600); err != nil {
-		t.Fatal(err)
+	for index := range children {
+		if err := children[index].gate.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	waitErrors := make([]error, len(children))
 	for index := range children {
+		<-children[index].done
 		waitErrors[index] = children[index].command.Wait()
 	}
 	for index, err := range waitErrors {
 		if err != nil {
 			t.Fatalf(
-				"subprocess writer %d: %v\n%s",
+				"subprocess writer %d: %v\n%s%s",
 				index,
 				err,
-				children[index].output.String(),
+				children[index].stdout.String(),
+				children[index].stderr.String(),
 			)
 		}
 	}
@@ -631,22 +651,12 @@ func TestStateDBSubprocessWriterHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer supervisor.Close()
-	if err := os.WriteFile(
-		os.Getenv("OMNARA_STATE_DB_WRITER_READY"),
-		nil,
-		0o600,
-	); err != nil {
+	if _, err := os.Stdout.Write([]byte{1}); err != nil {
 		t.Fatal(err)
 	}
-	for {
-		if _, err := os.Stat(
-			os.Getenv("OMNARA_STATE_DB_WRITER_GATE"),
-		); err == nil {
-			break
-		}
-		if err := sleepTestContext(ctx, 5*time.Millisecond); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := os.Stdin.Read(make([]byte, 1)); err != nil &&
+		!errors.Is(err, io.EOF) {
+		t.Fatal(err)
 	}
 	execute, err := supervisor.AuthorizeSpawnOnce(ctx)
 	if err != nil || !execute {
@@ -675,17 +685,6 @@ func TestStateDBSubprocessWriterHelper(t *testing.T) {
 		actionReport(action, nil),
 	); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func sleepTestContext(ctx context.Context, duration time.Duration) error {
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
 	}
 }
 

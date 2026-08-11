@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/oapi-codegen/nullable"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 )
 
@@ -19,26 +19,30 @@ type storedContentBlockType struct {
 }
 
 type storedTextContentBlock struct {
-	Type string  `json:"type"`
-	Text *string `json:"text"`
+	Type     string                `json:"type"`
+	Text     *string               `json:"text"`
+	Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedMediaRefContentBlock struct {
-	Type       string `json:"type"`
-	ArtifactID string `json:"artifact_id"`
+	Type       string                `json:"type"`
+	ArtifactID string                `json:"artifact_id"`
+	Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedToolCallContentBlock struct {
-	Type       string          `json:"type"`
-	ToolCallID string          `json:"tool_call_id"`
-	ToolType   string          `json:"tool_type"`
-	Name       string          `json:"name"`
-	Input      json.RawMessage `json:"input"`
+	Type       string                `json:"type"`
+	ToolCallID string                `json:"tool_call_id"`
+	ToolType   string                `json:"tool_type"`
+	Name       string                `json:"name"`
+	Input      json.RawMessage       `json:"input"`
+	Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedStructuredDataContentBlock struct {
-	Type  string          `json:"type"`
-	Value json.RawMessage `json:"value"`
+	Type     string                `json:"type"`
+	Value    json.RawMessage       `json:"value"`
+	Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 func decodeStoredContentBlocks(raw json.RawMessage) ([]json.RawMessage, error) {
@@ -164,12 +168,13 @@ func publicModelOutputContentBlocks(
 				return nil, err
 			}
 		case "reasoning":
-			reasoning, err := decodeStoredTextContentBlock(block, index, "reasoning")
+			reasoning, metadata, err := decodeStoredTextContentBlock(block, index, "reasoning")
 			if err != nil {
 				return nil, err
 			}
 			if err := public.FromReasoningContentBlock(openapi.ReasoningContentBlock{
-				Text: reasoning,
+				Text:     reasoning,
+				Metadata: metadata,
 			}); err != nil {
 				return nil, err
 			}
@@ -182,12 +187,13 @@ func publicModelOutputContentBlocks(
 				return nil, err
 			}
 		case "error":
-			errorText, err := decodeStoredTextContentBlock(block, index, "error")
+			errorText, metadata, err := decodeStoredTextContentBlock(block, index, "error")
 			if err != nil {
 				return nil, err
 			}
 			if err := public.FromErrorContentBlock(openapi.ErrorContentBlock{
-				Text: errorText,
+				Text:     errorText,
+				Metadata: metadata,
 			}); err != nil {
 				return nil, err
 			}
@@ -254,7 +260,8 @@ func publicToolResultContentBlocks(
 				return nil, err
 			}
 			if err := public.FromStructuredDataContentBlock(openapi.StructuredDataContentBlock{
-				Value: value,
+				Value:    value,
+				Metadata: stored.Metadata,
 			}); err != nil {
 				return nil, err
 			}
@@ -274,24 +281,24 @@ func publicTextContentBlock(
 	raw json.RawMessage,
 	index int,
 ) (openapi.TextContentBlock, error) {
-	text, err := decodeStoredTextContentBlock(raw, index, "text")
+	text, metadata, err := decodeStoredTextContentBlock(raw, index, "text")
 	if err != nil {
 		return openapi.TextContentBlock{}, err
 	}
-	return openapi.TextContentBlock{Text: text}, nil
+	return openapi.TextContentBlock{Text: text, Metadata: metadata}, nil
 }
 
 func decodeStoredTextContentBlock(
 	raw json.RawMessage,
 	index int,
 	expectedType string,
-) (string, error) {
+) (string, resourcemeta.Metadata, error) {
 	var block storedTextContentBlock
 	if err := decodeStoredContentBlock(raw, index, &block); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if block.Type != expectedType {
-		return "", fmt.Errorf(
+		return "", nil, fmt.Errorf(
 			"%s content block %d has type %q",
 			expectedType,
 			index,
@@ -299,9 +306,9 @@ func decodeStoredTextContentBlock(
 		)
 	}
 	if block.Text == nil {
-		return "", fmt.Errorf("%s content block %d is missing text", expectedType, index)
+		return "", nil, fmt.Errorf("%s content block %d is missing text", expectedType, index)
 	}
-	return *block.Text, nil
+	return *block.Text, block.Metadata, nil
 }
 
 func publicMediaRefContentBlock(
@@ -330,7 +337,10 @@ func publicMediaRefContentBlock(
 	if err != nil {
 		return openapi.MediaRefContentBlock{}, err
 	}
-	return openapi.MediaRefContentBlock{ArtifactId: artifactID}, nil
+	return openapi.MediaRefContentBlock{
+		ArtifactId: artifactID,
+		Metadata:   block.Metadata,
+	}, nil
 }
 
 func publicModelToolCallContentBlock(
@@ -382,6 +392,7 @@ func publicModelToolCallContentBlock(
 	}
 	return openapi.ModelToolCallContentBlock{
 		Input:      input,
+		Metadata:   block.Metadata,
 		Name:       block.Name,
 		ToolCallId: toolCallID,
 		ToolType:   toolType,
@@ -402,7 +413,7 @@ func publicToolInput(
 func publicJSONValue(
 	raw json.RawMessage,
 	description string,
-) (nullable.Nullable[openapi.JSONBlob], error) {
+) (openapi.JSONBlob, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("%s is missing", description)
@@ -411,9 +422,7 @@ func publicJSONValue(
 		return nil, fmt.Errorf("%s is invalid JSON", description)
 	}
 	if bytes.Equal(trimmed, []byte("null")) {
-		return nullableFromPtr[openapi.JSONBlob](nil), nil
+		return nil, nil //nolint:nilnil // A nil blob is the JSON null representation.
 	}
-	return nullableFromValue[openapi.JSONBlob](
-		json.RawMessage(bytes.Clone(trimmed)),
-	), nil
+	return json.RawMessage(bytes.Clone(trimmed)), nil
 }

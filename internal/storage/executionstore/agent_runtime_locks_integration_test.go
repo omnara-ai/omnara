@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 type runtimeLockLeaseFixture struct {
@@ -418,7 +419,7 @@ func TestAgentRuntimeLockAcquisitionWaitGrantsFullLeaseAfterAgentUnlock(t *testi
 		)
 		acquired <- acquireResult{lock: lock, err: acquireErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentInProject", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentInProject", 1)
 	var releasedAfter time.Time
 	if err := fixture.Pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releasedAfter); err != nil {
 		t.Fatalf("read database time before agent unlock: %v", err)
@@ -473,7 +474,7 @@ func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing
 		)
 		renewed <- renewalResult{renewal: renewedLock, err: renewErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentRuntimeLockForRenewal", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentRuntimeLockForRenewal", 1)
 	var releasedAfter time.Time
 	if err := fixture.Pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releasedAfter); err != nil {
 		t.Fatalf("read database time before runtime unlock: %v", err)
@@ -744,7 +745,7 @@ func TestAgentRuntimeLockReaperWinningRaceFencesOldWorker(t *testing.T) {
 		)
 		renewalDone <- renewalErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentRuntimeLockForRenewal", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentRuntimeLockForRenewal", 1)
 	if err := fixture.Store.Execution().IntegrationCommitTxWithNotifications(
 		ctx,
 		reapTx,
@@ -826,37 +827,5 @@ func TestConcurrentRuntimeLockReapersApplyRecoveryOnce(t *testing.T) {
 	}
 	if runtimeExists {
 		t.Fatal("winning reaper did not delete runtime lock")
-	}
-}
-
-func waitForNamedLockWaiters(
-	t *testing.T,
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	queryName string,
-	want int64,
-) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var waiters int64
-		if err := pool.QueryRow(
-			ctx,
-			`SELECT count(*)
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query LIKE '%' || $1 || '%'`,
-			"-- name: "+queryName+" ",
-		).Scan(&waiters); err != nil {
-			t.Fatalf("count %s lock waiters: %v", queryName, err)
-		}
-		if waiters >= want {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %d %s lock waiters; saw %d", want, queryName, waiters)
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }

@@ -169,6 +169,7 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 		ServedProviderModelSlug:    "test",
 		APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
 		APIVariant:                 modelprotocol.APIVariantDefault,
+		ProviderReportedCostUSD:    "0.0000125",
 		Normalized: modelenvelope.ResponseNormalized{
 			ID:         "resp_kernel_model_output_authority",
 			Content:    []modelenvelope.ResponsePart{{Type: "text", Text: "hello"}},
@@ -269,6 +270,11 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting output replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
 	}
+	conflictingCostInput := recordInput
+	conflictingCostInput.ProviderResponse.ProviderReportedCostUSD = "0.0000126"
+	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingCostInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+		t.Fatalf("conflicting cost replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
+	}
 	var modelOutputID ID
 	if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, event.ID).Scan(&modelOutputID); err != nil {
 		t.Fatalf("load model output event pointer: %v", err)
@@ -290,6 +296,22 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			"model output provider response id = %q, want context-derived %q",
 			modelOutput.ProviderResponseID,
 			providerResponse.Normalized.ID,
+		)
+	}
+	completedContext, found, err := fixture.Store.Execution().GetModelCallContext(
+		ctx,
+		testProjectID,
+		fixture.AgentID,
+		modelClaim.Context.ID,
+	)
+	if err != nil || !found {
+		t.Fatalf("load completed model call context: found=%v err=%v", found, err)
+	}
+	if completedContext.ProviderReportedCostUSD != providerResponse.ProviderReportedCostUSD {
+		t.Fatalf(
+			"model call provider-reported cost = %q, want %q",
+			completedContext.ProviderReportedCostUSD,
+			providerResponse.ProviderReportedCostUSD,
 		)
 	}
 	var inputTokens, outputTokens, contentBlocks int

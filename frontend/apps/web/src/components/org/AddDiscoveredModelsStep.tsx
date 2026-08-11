@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
 import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
@@ -48,7 +48,6 @@ export function AddDiscoveredModelsStep({
   const creatableModels = discoveredModels.filter(
     (model) => model.context_window_tokens !== undefined && model.context_window_tokens > 1,
   )
-  const unavailableCount = discoveredModels.length - creatableModels.length
   const [state, setState] = useState(initialAddModelsState)
   const selectedSlugSet = new Set(state.selectedSlugs)
   // Covers the whole batch below; the mutation's isPending only tracks its latest call.
@@ -123,11 +122,6 @@ export function AddDiscoveredModelsStep({
             }}
             emptyMessage="All detected models selected."
           />
-          <FieldDescription>
-            {creatableModels.length} models include the context limit needed for automatic setup.
-            {unavailableCount > 0 &&
-              ` Add ${String(unavailableCount)} without reported limits manually.`}
-          </FieldDescription>
         </Field>
         {state.error && <p className="text-destructive text-sm">{state.error}</p>}
         <DialogFooter>

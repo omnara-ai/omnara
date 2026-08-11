@@ -15,6 +15,7 @@ pools:
     description: Cluster pool
     provider: unikraft
     provider_auth_env_var: HOSTED_POOL_TOKEN
+    runtime_protection_enabled: true
     default_machine_cpu: 1
     default_machine_memory_mb: 1024
     default_machine_provider_options:
@@ -24,6 +25,8 @@ pools:
     max_total_machines: 5
     max_total_cpu: 5
     max_total_memory_mb: 5120
+    min_machine_cpu: 1
+    min_machine_memory_mb: 1024
     max_machine_cpu: 1
     max_machine_memory_mb: 1024
     metadata: {}
@@ -55,8 +58,10 @@ pools:
 	if len(cfg.DefaultMachinePools) != 2 || cfg.DefaultMachinePools[0].Name != "hosted-pool" ||
 		cfg.DefaultMachinePools[0].Provider != "unikraft" ||
 		cfg.DefaultMachinePools[0].ProviderAuthEnvVar != "HOSTED_POOL_TOKEN" ||
+		!cfg.DefaultMachinePools[0].RuntimeProtectionEnabled ||
 		cfg.DefaultMachinePools[1].Name != "hosted-pool-large" ||
-		cfg.DefaultMachinePools[1].ProviderAuthEnvVar != "HOSTED_POOL_LARGE_TOKEN" {
+		cfg.DefaultMachinePools[1].ProviderAuthEnvVar != "HOSTED_POOL_LARGE_TOKEN" ||
+		cfg.DefaultMachinePools[1].RuntimeProtectionEnabled {
 		t.Fatalf("unexpected default pool templates: %+v", cfg.DefaultMachinePools)
 	}
 	if cfg.DefaultMachinePools[0].DefaultMachineCPU == nil ||
@@ -64,6 +69,12 @@ pools:
 		cfg.DefaultMachinePools[0].DefaultMachineMemoryMB == nil ||
 		*cfg.DefaultMachinePools[0].DefaultMachineMemoryMB != 1024 {
 		t.Fatalf("default machine resources = %+v", cfg.DefaultMachinePools[0])
+	}
+	if cfg.DefaultMachinePools[0].MinMachineCPU == nil ||
+		*cfg.DefaultMachinePools[0].MinMachineCPU != 1 ||
+		cfg.DefaultMachinePools[0].MinMachineMemoryMB == nil ||
+		*cfg.DefaultMachinePools[0].MinMachineMemoryMB != 1024 {
+		t.Fatalf("minimum machine resources = %+v", cfg.DefaultMachinePools[0])
 	}
 	wantProviderOptions := `{"image":"registry.example.com/agent:latest","metro":"sfo"}`
 	if got := string(cfg.DefaultMachinePools[0].DefaultMachineProviderOptions); got != wantProviderOptions {
@@ -93,8 +104,41 @@ func TestLoadDefaultMachinePoolExample(t *testing.T) {
 	if cfg.DefaultMachinePools[0].ProviderAuthEnvVar != "OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN" {
 		t.Fatalf("example default pool provider_auth_env_var = %q", cfg.DefaultMachinePools[0].ProviderAuthEnvVar)
 	}
+	if cfg.DefaultMachinePools[0].MinMachineMemoryMB == nil || *cfg.DefaultMachinePools[0].MinMachineMemoryMB != 2048 {
+		t.Fatalf("example minimum machine memory = %v, want 2048", cfg.DefaultMachinePools[0].MinMachineMemoryMB)
+	}
 	if string(cfg.DefaultMachinePools[0].ProviderConfig) != `{}` {
 		t.Fatalf("provider config = %s", cfg.DefaultMachinePools[0].ProviderConfig)
+	}
+}
+
+func TestDefaultMachinePoolTemplateRejectsNegativeMinimums(t *testing.T) {
+	maxTotalMachines := int32(1)
+	t.Setenv("TEST_DEFAULT_POOL_TOKEN", "kraft-token")
+	for _, test := range []struct {
+		name     string
+		cpu      int
+		memoryMB int
+		want     string
+	}{
+		{name: "cpu", cpu: -1, want: "min_machine_cpu cannot be negative"},
+		{name: "memory", memoryMB: -1, want: "min_machine_memory_mb cannot be negative"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cpu := test.cpu
+			memoryMB := test.memoryMB
+			_, err := defaultMachinePoolTemplateFromFile(defaultMachinePoolTemplateFile{
+				Name:               "default-pool",
+				Provider:           "unikraft",
+				ProviderAuthEnvVar: "TEST_DEFAULT_POOL_TOKEN",
+				MaxTotalMachines:   &maxTotalMachines,
+				MinMachineCPU:      &cpu,
+				MinMachineMemoryMB: &memoryMB,
+			}, "pools[0]")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -126,11 +170,13 @@ pools:
 		t.Fatalf("load blaxel default pool template: %v", err)
 	}
 	loaded := cfg.DefaultMachinePools[0]
-	if loaded.DefaultMachineCPU != nil || loaded.MaxTotalCPU != nil || loaded.MaxMachineCPU != nil {
+	if loaded.DefaultMachineCPU != nil || loaded.MaxTotalCPU != nil || loaded.MinMachineCPU != nil ||
+		loaded.MaxMachineCPU != nil {
 		t.Fatalf(
-			"blaxel default pool cpu fields = default %v total %v machine %v",
+			"blaxel default pool cpu fields = default %v total %v minimum %v maximum %v",
 			loaded.DefaultMachineCPU,
 			loaded.MaxTotalCPU,
+			loaded.MinMachineCPU,
 			loaded.MaxMachineCPU,
 		)
 	}

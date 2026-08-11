@@ -12,10 +12,39 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
+// APIHTTPErrorNotFound is defined by Unikraft's SDK as error code 8.
+// https://github.com/unikraft-cloud/go-sdk/blob/prod-stable/platform/errors.go
 const instanceNotFoundErrorCode = 8
+
+type responseStatus string
+
+// Unikraft response statuses follow the ResponseStatus OpenAPI schema.
+// https://github.com/unikraft-cloud/openapi/blob/prod-stable/platform.yaml
+const (
+	responseStatusSuccess        responseStatus = "success"
+	responseStatusError          responseStatus = "error"
+	responseStatusPartialSuccess responseStatus = "partial_success"
+)
+
+type instanceState string
+
+// Unikraft instance states follow the InstanceState OpenAPI schema.
+// https://github.com/unikraft-cloud/openapi/blob/prod-stable/platform.yaml
+const (
+	instanceStateStopped    instanceState = "stopped"
+	instanceStateStarting   instanceState = "starting"
+	instanceStateRunning    instanceState = "running"
+	instanceStateDraining   instanceState = "draining"
+	instanceStateStopping   instanceState = "stopping"
+	instanceStateTemplate   instanceState = "template"
+	instanceStateStandby    instanceState = "standby"
+	instanceStateDeleted    instanceState = "deleted"
+	instanceStateCheckpoint instanceState = "checkpoint"
+)
 
 type apiClient interface {
 	CreateInstance(ctx context.Context, req createInstanceRequest) (instance, error)
+	GetInstancesByUUIDs(ctx context.Context, uuids []string) (instanceBatch, error)
 	GetInstanceByUUID(ctx context.Context, uuid string) (instance, bool, error)
 	GetInstanceByName(ctx context.Context, name string) (instance, bool, error)
 	DeleteInstanceByUUID(ctx context.Context, uuid string) error
@@ -32,7 +61,14 @@ func (c *restClient) CreateInstance(
 	req createInstanceRequest,
 ) (instance, error) {
 	var response instancesResponse
-	if err := c.doRequest(ctx, http.MethodPost, "/v1/instances", req, &response, false); err != nil {
+	if _, err := c.doRequest(
+		ctx,
+		http.MethodPost,
+		"/v1/instances",
+		req,
+		&response,
+		false,
+	); err != nil {
 		return instance{}, err
 	}
 	if len(response.Instances) == 0 {
@@ -41,30 +77,73 @@ func (c *restClient) CreateInstance(
 	return response.Instances[0], nil
 }
 
+func (c *restClient) GetInstancesByUUIDs(
+	ctx context.Context,
+	uuids []string,
+) (instanceBatch, error) {
+	if len(uuids) == 0 {
+		return instanceBatch{EnvelopeStatus: responseStatusSuccess}, nil
+	}
+	lookups := make([]instanceUUIDLookup, len(uuids))
+	for index, uuid := range uuids {
+		lookups[index] = instanceUUIDLookup{UUID: uuid}
+	}
+	var response instancesResponse
+	envelope, err := c.doRequest(
+		ctx,
+		http.MethodGet,
+		"/v1/instances?details=true",
+		lookups,
+		&response,
+		true,
+	)
+	if err != nil {
+		return instanceBatch{}, err
+	}
+	return instanceBatchFromEnvelope(envelope, response.Instances), nil
+}
+
 func (c *restClient) GetInstanceByUUID(ctx context.Context, uuid string) (instance, bool, error) {
 	var response instancesResponse
-	if err := c.doRequest(
+	envelope, err := c.doRequest(
 		ctx,
 		http.MethodGet,
 		"/v1/instances/"+url.PathEscape(uuid)+"?details=true",
 		nil,
 		&response,
-		false,
-	); err != nil {
+		true,
+	)
+	if err != nil {
 		if isNotFound(err) {
 			return instance{}, false, nil
 		}
 		return instance{}, false, err
 	}
-	if len(response.Instances) == 0 {
+	if len(response.Instances) != 1 {
+		return instance{}, false, fmt.Errorf(
+			"unikraft uuid lookup returned %d instances, want exactly one",
+			len(response.Instances),
+		)
+	}
+	result := response.Instances[0]
+	if result.UUID != uuid {
+		return instance{}, false, fmt.Errorf(
+			"unikraft uuid lookup returned instance %q, want %q",
+			result.UUID,
+			uuid,
+		)
+	}
+	if missing, err := validateInstanceLookupResult(envelope, result); err != nil {
+		return instance{}, false, err
+	} else if missing {
 		return instance{}, false, nil
 	}
-	return response.Instances[0], response.Instances[0].UUID != "", nil
+	return result, true, nil
 }
 
 func (c *restClient) GetInstanceByName(ctx context.Context, name string) (instance, bool, error) {
 	var response instancesResponse
-	if err := c.doRequest(
+	envelope, err := c.doRequest(
 		ctx,
 		http.MethodGet,
 		"/v1/instances?details=false",
@@ -73,33 +152,77 @@ func (c *restClient) GetInstanceByName(ctx context.Context, name string) (instan
 		}{{Name: name}},
 		&response,
 		true,
-	); err != nil {
+	)
+	if err != nil {
 		if isNotFound(err) {
 			return instance{}, false, nil
 		}
 		return instance{}, false, err
 	}
-	if len(response.Instances) == 0 {
-		return instance{}, false, nil
+	if len(response.Instances) != 1 {
+		return instance{}, false, fmt.Errorf(
+			"unikraft exact name lookup returned %d instances, want exactly one",
+			len(response.Instances),
+		)
 	}
 	result := response.Instances[0]
-	if result.Status == "error" && result.Error == instanceNotFoundErrorCode {
-		return instance{}, false, nil
-	}
-	if result.Status != "" && result.Status != "success" {
-		return instance{}, false, apiError{
-			StatusCode: http.StatusOK,
-			Message:    "status " + result.Status,
-		}
-	}
 	if result.Name != name {
+		return instance{}, false, fmt.Errorf(
+			"unikraft name lookup returned instance %q, want %q",
+			result.Name,
+			name,
+		)
+	}
+	if missing, err := validateInstanceLookupResult(envelope, result); err != nil {
+		return instance{}, false, err
+	} else if missing {
 		return instance{}, false, nil
 	}
 	return result, true, nil
 }
 
+func validateInstanceLookupResult(
+	envelope responseEnvelope,
+	result instance,
+) (bool, error) {
+	batch := instanceBatchFromEnvelope(envelope, nil)
+	if result.isNotFound() {
+		if batch.notFoundItemsAuthoritative() {
+			return true, nil
+		}
+		return false, errors.New(
+			"unikraft instance lookup returned a non-authoritative not-found response",
+		)
+	}
+	if !batch.cleanEnvelope() {
+		return false, errors.New(
+			"unikraft instance lookup returned a non-authoritative response",
+		)
+	}
+	if result.Error != 0 {
+		return false, apiError{
+			StatusCode: http.StatusOK,
+			Message:    fmt.Sprintf("item error %d", result.Error),
+		}
+	}
+	if result.Status != "" && result.Status != responseStatusSuccess {
+		return false, apiError{
+			StatusCode: http.StatusOK,
+			Message:    "status " + string(result.Status),
+		}
+	}
+	return false, nil
+}
+
 func (c *restClient) DeleteInstanceByUUID(ctx context.Context, uuid string) error {
-	err := c.doRequest(ctx, http.MethodDelete, "/v1/instances/"+url.PathEscape(uuid), nil, nil, false)
+	_, err := c.doRequest(
+		ctx,
+		http.MethodDelete,
+		"/v1/instances/"+url.PathEscape(uuid),
+		nil,
+		nil,
+		false,
+	)
 	if isNotFound(err) {
 		return nil
 	}
@@ -112,8 +235,8 @@ func (c *restClient) doRequest(
 	body any,
 	out any,
 	allowLogicalErrorData bool,
-) error {
-	statusCode, raw, err := providers.DoHTTPRequest(
+) (responseEnvelope, error) {
+	response, err := providers.DoHTTPResponse(
 		ctx,
 		c.httpClient,
 		providers.Unikraft,
@@ -123,33 +246,37 @@ func (c *restClient) doRequest(
 		body,
 	)
 	if err != nil {
-		return err
+		return responseEnvelope{}, err
 	}
+	statusCode, raw := response.StatusCode, response.Body
 	if statusCode < 200 || statusCode >= 300 {
 		message := ""
 		var errorResponse responseEnvelope
 		if err := json.Unmarshal(raw, &errorResponse); err == nil {
 			message = errorResponse.errorMessage()
 		}
-		return apiError{StatusCode: statusCode, Message: message}
+		return responseEnvelope{}, providers.WithRetryAfter(
+			apiError{StatusCode: statusCode, Message: message},
+			response.Header,
+		)
 	}
 	if len(raw) == 0 {
-		return nil
+		return responseEnvelope{}, nil
 	}
 	var envelope responseEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return fmt.Errorf("decode unikraft response: %w", err)
+		return responseEnvelope{}, fmt.Errorf("decode unikraft response: %w", err)
 	}
 	if err := envelope.validate(statusCode, allowLogicalErrorData); err != nil {
-		return err
+		return responseEnvelope{}, err
 	}
 	if out == nil || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
-		return nil
+		return envelope, nil
 	}
 	if err := json.Unmarshal(envelope.Data, out); err != nil {
-		return fmt.Errorf("decode unikraft response data: %w", err)
+		return responseEnvelope{}, fmt.Errorf("decode unikraft response data: %w", err)
 	}
-	return nil
+	return envelope, nil
 }
 
 type apiError struct {
@@ -170,7 +297,7 @@ func isNotFound(err error) bool {
 }
 
 type responseEnvelope struct {
-	Status string          `json:"status"`
+	Status responseStatus  `json:"status"`
 	Data   json.RawMessage `json:"data"`
 	Errors []struct {
 		Status int `json:"status"`
@@ -180,7 +307,13 @@ type responseEnvelope struct {
 func (r responseEnvelope) validate(httpStatus int, allowLogicalErrorData bool) error {
 	hasData := len(r.Data) > 0 && string(r.Data) != "null"
 	allowDataInspection := allowLogicalErrorData && hasData
-	if r.Status != "" && r.Status != "success" && !allowDataInspection {
+	switch r.Status {
+	case responseStatusSuccess:
+	case responseStatusError, responseStatusPartialSuccess:
+		if !allowDataInspection {
+			return apiError{StatusCode: httpStatus, Message: r.errorMessage()}
+		}
+	default:
 		return apiError{StatusCode: httpStatus, Message: r.errorMessage()}
 	}
 	if len(r.Errors) > 0 && !allowDataInspection {
@@ -196,7 +329,7 @@ func (r responseEnvelope) errorMessage() string {
 		}
 	}
 	if r.Status != "" {
-		return "status " + r.Status
+		return "status " + string(r.Status)
 	}
 	return ""
 }
@@ -236,11 +369,16 @@ type domain struct {
 }
 
 type instance struct {
-	Status       string        `json:"status"`
-	Error        int           `json:"error"`
-	UUID         string        `json:"uuid"`
-	Name         string        `json:"name"`
-	ServiceGroup *serviceGroup `json:"service_group"`
+	Status       responseStatus `json:"status"`
+	Error        int            `json:"error"`
+	UUID         string         `json:"uuid"`
+	Name         string         `json:"name"`
+	State        instanceState  `json:"state"`
+	ServiceGroup *serviceGroup  `json:"service_group"`
+}
+
+func (i instance) isNotFound() bool {
+	return i.Status == responseStatusError && i.Error == instanceNotFoundErrorCode
 }
 
 func (i instance) wakeFQDN() string {
@@ -257,4 +395,40 @@ func (i instance) wakeFQDN() string {
 
 type instancesResponse struct {
 	Instances []instance `json:"instances"`
+}
+
+type instanceBatch struct {
+	Instances         []instance
+	EnvelopeStatus    responseStatus
+	HasEnvelopeErrors bool
+}
+
+func instanceBatchFromEnvelope(
+	envelope responseEnvelope,
+	instances []instance,
+) instanceBatch {
+	return instanceBatch{
+		Instances:         instances,
+		EnvelopeStatus:    envelope.Status,
+		HasEnvelopeErrors: len(envelope.Errors) > 0,
+	}
+}
+
+func (b instanceBatch) cleanEnvelope() bool {
+	return b.EnvelopeStatus == responseStatusSuccess && !b.HasEnvelopeErrors
+}
+
+func (b instanceBatch) successfulItemsAuthoritative() bool {
+	return b.cleanEnvelope() ||
+		(b.EnvelopeStatus == responseStatusPartialSuccess && !b.HasEnvelopeErrors)
+}
+
+func (b instanceBatch) notFoundItemsAuthoritative() bool {
+	return !b.HasEnvelopeErrors &&
+		(b.EnvelopeStatus == responseStatusError ||
+			b.EnvelopeStatus == responseStatusPartialSuccess)
+}
+
+type instanceUUIDLookup struct {
+	UUID string `json:"uuid"`
 }

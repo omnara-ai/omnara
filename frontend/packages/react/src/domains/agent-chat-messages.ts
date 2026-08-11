@@ -75,12 +75,23 @@ function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart
   }
 }
 
+function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): boolean {
+  return block.metadata?.omnara_hidden === 'true'
+}
+
 function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
   const parts: OmnaraUIMessage['parts'] = []
   for (const [blockIndex, block] of event.content_blocks.entries()) {
     const id = `${event.id}:block:${String(blockIndex)}`
+    if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
-      parts.push({ type: 'text', id, text: block.text, state: 'done' })
+      const displayText = block.metadata?.omnara_display_text
+      parts.push({
+        type: 'text',
+        id,
+        text: typeof displayText === 'string' ? displayText : block.text,
+        state: 'done',
+      })
     }
     if (block.type === 'media_ref') {
       parts.push(mediaPart(block, id))
@@ -93,6 +104,7 @@ function modelOutputParts(event: ModelOutputEvent): OmnaraUIMessage['parts'] {
   const parts: OmnaraUIMessage['parts'] = []
   for (const [blockIndex, block] of event.content_blocks.entries()) {
     const id = `${event.model_call_context_id}:block:${String(blockIndex)}`
+    if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
       parts.push({ type: 'text', id, text: block.text, state: 'done' })
     }
@@ -201,7 +213,7 @@ export function agentEventsToMessages(
       input: part.input,
       output: {
         outcome: event.outcome,
-        contentBlocks: event.content_blocks,
+        contentBlocks: event.content_blocks.filter((block) => !isHiddenContentBlock(block)),
       },
     }
     message.metadata = eventMetadata(event)
@@ -362,6 +374,7 @@ function isCompleteFrameRun(deltas: ModelOutputDelta[]): boolean {
   let sourceSeq = 0
   for (const delta of deltas) {
     if (delta.seq !== seq + 1 || delta.source_seq_start !== sourceSeq + 1) return false
+    if (delta.coalesced_count !== delta.source_seq_end - delta.source_seq_start + 1) return false
     seq = delta.seq
     sourceSeq = Math.max(delta.source_seq_start, delta.source_seq_end)
   }
@@ -403,7 +416,7 @@ function modelCallPreviewParts(
 
   for (const delta of deltas) {
     const { event } = delta
-    const blockIndex = 'block_index' in event ? (event.block_index ?? 0) : 0
+    const blockIndex = 'block_index' in event ? event.block_index : 0
     if (event.kind === 'block_start') {
       const { block } = event
       if (block.kind === 'text') openTextBlock(blockIndex, 'text')

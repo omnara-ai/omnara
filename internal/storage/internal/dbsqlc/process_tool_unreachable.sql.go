@@ -15,12 +15,16 @@ import (
 const checkMachineUnreachableForToolExpiry = `-- name: CheckMachineUnreachableForToolExpiry :one
 SELECT machine.lifecycle_state = 'active'
   AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= statement_timestamp()
+  )
   AND greatest((
-    SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz
-    FROM daemon_runtimes runtime
+    SELECT runtime.effective_end_at
+    FROM daemon_runtime_connection_facts runtime
     WHERE runtime.org_id = machine.org_id
       AND runtime.machine_id = machine.id
-    ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
     LIMIT 1
   ), $1::timestamptz) <= statement_timestamp() - ($2::int * interval '1 second')
   AND NOT EXISTS (
@@ -61,12 +65,14 @@ JOIN processes process ON process.project_id = action.project_id
   AND process.id = action.process_id
 JOIN tool_calls tool_call ON tool_call.agent_id = action.agent_id
   AND tool_call.id = action.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
-  SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
-  FROM daemon_runtimes runtime
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
   WHERE runtime.org_id = process.org_id
     AND runtime.machine_id = process.machine_id
-  ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
   LIMIT 1
 ) latest_runtime ON true
 LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
@@ -76,6 +82,12 @@ WHERE process.org_id = $1
   AND action.state = 'accepted'
   AND tool_call.type = 'built_in'
   AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+  )
   AND online.id IS NULL
   AND greatest(latest_runtime.unreachable_at, action.created_at) <= transaction_timestamp() - ($3::int * interval '1 second')
 ORDER BY action.process_id, action.seq, action.id
@@ -135,12 +147,14 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
-  SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
-  FROM daemon_runtimes runtime
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
   WHERE runtime.org_id = process.org_id
     AND runtime.machine_id = process.machine_id
-  ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
   LIMIT 1
 ) latest_runtime ON true
 LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
@@ -151,6 +165,12 @@ WHERE process.org_id = $1
   AND process.tool_call_id IS NOT NULL
   AND tool_call.type = 'built_in'
   AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+  )
   AND online.id IS NULL
   AND greatest(latest_runtime.unreachable_at, process.created_at) <= transaction_timestamp() - ($3::int * interval '1 second')
 ORDER BY coalesce(latest_runtime.unreachable_at, process.created_at), process.created_at, process.id
@@ -220,8 +240,9 @@ func (q *Queries) ListMachineUnreachableAcceptedProcessToolCallsForMachine(ctx c
 
 const listMachineUnreachableMachineCandidates = `-- name: ListMachineUnreachableMachineCandidates :many
 WITH cutoff AS MATERIALIZED (
-  SELECT transaction_timestamp()
-    - ($2::int * interval '1 second') AS unreachable_before
+  SELECT transaction_timestamp() AS observed_at,
+         transaction_timestamp()
+           - ($2::int * interval '1 second') AS unreachable_before
 ), process_work AS MATERIALIZED (
   SELECT process.org_id, process.machine_id, process.created_at AS work_at
   FROM processes process
@@ -230,21 +251,25 @@ WITH cutoff AS MATERIALIZED (
   JOIN machines machine ON machine.org_id = process.org_id
     AND machine.id = process.machine_id
   LEFT JOIN LATERAL (
-    SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS observed_at
-    FROM daemon_runtimes runtime
+    SELECT runtime.effective_end_at AS unreachable_at
+    FROM daemon_runtime_connection_facts runtime
     WHERE runtime.org_id = process.org_id
       AND runtime.machine_id = process.machine_id
-    ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
     LIMIT 1
   ) latest_runtime ON true
   CROSS JOIN cutoff
   WHERE process.state IN ('queued', 'starting', 'running')
     AND process.created_at <= cutoff.unreachable_before
-    AND coalesce(latest_runtime.observed_at, process.created_at) <= cutoff.unreachable_before
+    AND coalesce(latest_runtime.unreachable_at, process.created_at) <= cutoff.unreachable_before
     AND tool_call.type = 'built_in'
     AND tool_call.state = 'waiting'
     AND machine.lifecycle_state = 'active'
     AND machine.deleted_at IS NULL
+    AND (
+      machine.wake_attempt_expires_at IS NULL
+      OR machine.wake_attempt_expires_at <= cutoff.observed_at
+    )
     AND NOT EXISTS (
       SELECT 1
       FROM online_daemon_runtimes online
@@ -265,17 +290,17 @@ WITH cutoff AS MATERIALIZED (
   JOIN machines machine ON machine.org_id = action.org_id
     AND machine.id = process.machine_id
   LEFT JOIN LATERAL (
-    SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS observed_at
-    FROM daemon_runtimes runtime
+    SELECT runtime.effective_end_at AS unreachable_at
+    FROM daemon_runtime_connection_facts runtime
     WHERE runtime.org_id = action.org_id
       AND runtime.machine_id = process.machine_id
-    ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
     LIMIT 1
   ) latest_runtime ON true
   CROSS JOIN cutoff
   WHERE action.state IN ('queued', 'accepted')
     AND action.created_at <= cutoff.unreachable_before
-    AND coalesce(latest_runtime.observed_at, action.created_at) <= cutoff.unreachable_before
+    AND coalesce(latest_runtime.unreachable_at, action.created_at) <= cutoff.unreachable_before
     AND (
       action.state = 'accepted'
       OR process.state IN ('starting', 'running')
@@ -288,6 +313,10 @@ WITH cutoff AS MATERIALIZED (
     AND tool_call.state = 'waiting'
     AND machine.lifecycle_state = 'active'
     AND machine.deleted_at IS NULL
+    AND (
+      machine.wake_attempt_expires_at IS NULL
+      OR machine.wake_attempt_expires_at <= cutoff.observed_at
+    )
     AND NOT EXISTS (
       SELECT 1
       FROM online_daemon_runtimes online
@@ -309,15 +338,15 @@ WITH cutoff AS MATERIALIZED (
          work.machine_id,
          greatest(
            work.earliest_work_at,
-           coalesce(latest_runtime.observed_at, work.earliest_work_at)
+           coalesce(latest_runtime.unreachable_at, work.earliest_work_at)
          )::timestamptz AS unreachable_at
   FROM machine_work work
   LEFT JOIN LATERAL (
-    SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS observed_at
-    FROM daemon_runtimes runtime
+    SELECT runtime.effective_end_at AS unreachable_at
+    FROM daemon_runtime_connection_facts runtime
     WHERE runtime.org_id = work.org_id
       AND runtime.machine_id = work.machine_id
-    ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
     LIMIT 1
   ) latest_runtime ON true
 )
@@ -368,12 +397,14 @@ JOIN processes process ON process.project_id = action.project_id
   AND process.id = action.process_id
 JOIN tool_calls tool_call ON tool_call.agent_id = action.agent_id
   AND tool_call.id = action.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
-  SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
-  FROM daemon_runtimes runtime
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
   WHERE runtime.org_id = process.org_id
     AND runtime.machine_id = process.machine_id
-  ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
   LIMIT 1
 ) latest_runtime ON true
 LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
@@ -390,6 +421,12 @@ WHERE process.org_id = $1
   AND action.state = 'queued'
   AND tool_call.type = 'built_in'
   AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+  )
   AND online.id IS NULL
   AND greatest(latest_runtime.unreachable_at, action.created_at) <= transaction_timestamp() - ($3::int * interval '1 second')
 ORDER BY coalesce(latest_runtime.unreachable_at, action.created_at), action.created_at, action.id
@@ -449,12 +486,14 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
-  SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
-  FROM daemon_runtimes runtime
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
   WHERE runtime.org_id = process.org_id
     AND runtime.machine_id = process.machine_id
-  ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
   LIMIT 1
 ) latest_runtime ON true
 LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
@@ -465,6 +504,12 @@ WHERE process.org_id = $1
   AND process.tool_call_id IS NOT NULL
   AND tool_call.type = 'built_in'
   AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+  )
   AND online.id IS NULL
   AND greatest(latest_runtime.unreachable_at, process.created_at) <= transaction_timestamp() - ($3::int * interval '1 second')
 ORDER BY process.created_at, process.id

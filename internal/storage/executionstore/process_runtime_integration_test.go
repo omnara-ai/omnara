@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 type countingSecretKeyWrapper struct {
@@ -222,7 +223,7 @@ WHERE org_id = $1 AND machine_id = $2 AND id = $3
 		)
 		done <- acceptResult{found: found, err: acceptErr}
 	}()
-	waitForDatabaseLockWait(t, ctx, fixture.Store.pool, "-- name: LockDaemonProcessForAccept", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, fixture.Store.pool, "-- name: LockDaemonProcessForAccept", blockingPID)
 	if _, err := blockingTx.Exec(ctx, `SELECT pg_sleep(0.3)`); err != nil {
 		t.Fatalf("wait for daemon runtime lease expiry: %v", err)
 	}
@@ -351,15 +352,14 @@ func TestSupersededDaemonRuntimeCannotReportGrantedProcessAtStorageBoundary(
 		!updated.ExecutionGrantedAt.Equal(*grant.Process.ExecutionGrantedAt) {
 		t.Fatalf("process after rejected reports = %+v, want unchanged granted running process", updated)
 	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-		UPDATE daemon_runtimes
-		SET last_seen_at = statement_timestamp() - interval '2 seconds',
-		    lease_expires_at = statement_timestamp() - interval '1 second',
-		    updated_at = statement_timestamp()
-		WHERE org_id = $1 AND machine_id = $2 AND id = $3
-	`, fixture.OrgID, fixture.MachineID, replacement.Runtime.ID); err != nil {
-		t.Fatalf("expire replacement runtime: %v", err)
-	}
+	expireDaemonRuntimeLeaseForTest(
+		t,
+		ctx,
+		fixture.Store,
+		fixture.OrgID,
+		fixture.MachineID,
+		replacement.Runtime.ID,
+	)
 	ended, err := fixture.Store.Execution().EndExpiredDaemonRuntimes(ctx, 10)
 	if err != nil {
 		t.Fatalf("end expired replacement runtime: %v", err)

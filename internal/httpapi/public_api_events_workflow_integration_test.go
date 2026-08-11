@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -369,6 +371,22 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(authorPAT.Token),
 	)
+	for index, metadata := range []string{
+		`{"flag":true}`,
+		`{"value":"` + strings.Repeat("v", 513) + `"}`,
+		`{"a":"","b":"","c":"","d":"","e":"","f":"","g":"","h":"","i":"","j":"","k":"","l":"","m":"","n":"","o":"","p":"","q":""}`,
+	} {
+		requestJSONWithHeaders(
+			t,
+			handler,
+			http.MethodPost,
+			project.ProjectPath+"/agents/"+agentID+"/inputs",
+			`{"content_blocks":[{"type":"text","text":"invalid metadata","metadata":`+metadata+`}]}`,
+			"idem-input-invalid-metadata-"+strconv.Itoa(index),
+			http.StatusBadRequest,
+			authHeaders(authorPAT.Token),
+		)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -710,7 +728,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents/"+agentPublicID+"/inputs",
-		`{"content_blocks":[{"type":"text","text":"visible user input"}]}`,
+		`{"content_blocks":[{"type":"text","text":"visible user input","metadata":{"omnara_hidden":"true","source":"test"}}]}`,
 		"idem-visible-input",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
@@ -819,7 +837,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		ID:                 toolCalls[0].ID,
 		RuntimeLockID:      runtime.ID,
 		Outcome:            executionstore.ToolResultOutcomeSucceeded,
-		ResultContentParts: json.RawMessage(`[{"type":"text","text":"visible tool result"}]`),
+		ResultContentParts: json.RawMessage(`[{"type":"text","text":"visible tool result","metadata":{"tool_result":"true"}}]`),
 	})
 	if err != nil {
 		t.Fatalf("complete tool call: %v", err)
@@ -925,6 +943,36 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		!publicEventContainsText(eventData[2].(map[string]any), "visible assistant output") ||
 		!publicEventTextEquals(eventData[3].(map[string]any), "visible tool result") {
 		t.Fatalf("events should expose canonical content blocks: %+v", eventData)
+	}
+	inputMetadata := eventData[1].(map[string]any)["content_blocks"].([]any)[0].(map[string]any)["metadata"].(map[string]any)
+	if inputMetadata["omnara_hidden"] != "true" || inputMetadata["source"] != "test" {
+		t.Fatalf("input content block metadata = %+v", inputMetadata)
+	}
+	toolResultMetadata := eventData[3].(map[string]any)["content_blocks"].([]any)[0].(map[string]any)["metadata"].(map[string]any)
+	if toolResultMetadata["tool_result"] != "true" {
+		t.Fatalf("tool result content block metadata = %+v", toolResultMetadata)
+	}
+	contextEvents, err := store.Execution().ListContextEvents(
+		ctx,
+		project.ProjectUUID,
+		agentID,
+		0,
+		jsonInt64(t, eventData[3].(map[string]any)["sequence"]),
+		100,
+	)
+	if err != nil {
+		t.Fatalf("list model context events: %v", err)
+	}
+	sawInput := false
+	for _, contextEvent := range contextEvents {
+		contentParts := string(contextEvent.ContentParts)
+		if strings.Contains(contentParts, `"metadata"`) {
+			t.Fatalf("model context exposed content block metadata: %s", contentParts)
+		}
+		sawInput = sawInput || strings.Contains(contentParts, "visible user input")
+	}
+	if !sawInput {
+		t.Fatal("model context omitted input content")
 	}
 	toolCallPublicID, err := publicID(
 		publicid.KindToolCall,
@@ -1327,7 +1375,6 @@ func TestPublicEventStreamDeliversLiveWakeupViaRedis(t *testing.T) {
 	if !scanner.Scan() || !strings.HasPrefix(scanner.Text(), ":") {
 		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
 	}
-	time.Sleep(100 * time.Millisecond)
 
 	postStart := time.Now()
 	createInputResp := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents/"+agentPublicID+"/inputs", `{"content_blocks":[{"type":"text","text":"live wakeup payload"}]}`, "idem-sse-live", http.StatusCreated, authHeaders(project.AdminToken))
@@ -1450,7 +1497,12 @@ func TestPublicEventStreamDeliversStreamDeltasViaRedis(t *testing.T) {
 		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
 	}
 
-	payload := json.RawMessage(`{"model_call_context_id":"mcc_test","seq":1,"event":{"kind":"text_delta","delta":"stream hello"}}`)
+	deltaTurnID := testPublicID(t, publicid.KindAgentTurn, uuid.New())
+	deltaModelCallContextID := testPublicID(t, publicid.KindModelCallContext, uuid.New())
+	payload := json.RawMessage(`{"turn_id":"` + deltaTurnID +
+		`","model_call_context_id":"` + deltaModelCallContextID +
+		`","seq":1,"source_seq_start":1,"source_seq_end":1,"coalesced_count":1,` +
+		`"event":{"kind":"text_delta","block_index":0,"delta":"stream hello"}}`)
 	if err := bus.PublishAgentStreamDelta(ctx, agentID, payload); err != nil {
 		t.Fatalf("publish stream delta: %v", err)
 	}

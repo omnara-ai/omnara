@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 )
@@ -43,7 +45,23 @@ func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger)
 	if err := lock.WritePID(os.Getpid()); err != nil {
 		return err
 	}
-	return runSupervisorLoop(ctx, home, daemonRestartDelay, restart, log)
+	logPath, err := ensureServiceLog(home)
+	if err != nil {
+		return err
+	}
+	logFile, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("open daemon service log: %w", err)
+	}
+	defer func() {
+		if err := logFile.Close(); err != nil {
+			log.Warn("close daemon service log failed", "error", err)
+		}
+	}()
+	childStdout := io.MultiWriter(os.Stdout, logFile)
+	childStderr := io.MultiWriter(os.Stderr, logFile)
+	log = slog.New(logpkg.NewJSONHandler(childStdout, nil))
+	return runSupervisorLoop(ctx, home, daemonRestartDelay, restart, childStdout, childStderr, log)
 }
 
 func runSupervisorLoop(
@@ -51,13 +69,15 @@ func runSupervisorLoop(
 	home string,
 	restartDelay time.Duration,
 	restart <-chan os.Signal,
+	childStdout io.Writer,
+	childStderr io.Writer,
 	log *slog.Logger,
 ) error {
 	binary := canonicalDaemonPath(home)
 	for ctx.Err() == nil {
 		cmd := exec.CommandContext(context.WithoutCancel(ctx), binary, runServiceSubcommand, supervisedServiceFlag)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		cmd.Stdout = childStdout
+		cmd.Stderr = childStderr
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("start supervised daemon: %w", err)
 		}

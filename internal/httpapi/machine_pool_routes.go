@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -37,7 +38,7 @@ func (s *Server) machinePoolResponse(record executionstore.MachinePoolRecord) (o
 	if err != nil {
 		return openapi.MachinePool{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
 	if err != nil {
 		return openapi.MachinePool{}, err
 	}
@@ -55,9 +56,12 @@ func (s *Server) machinePoolResponse(record executionstore.MachinePoolRecord) (o
 		DefaultMachineProviderOptions: defaultMachineProviderOptions,
 		DefaultCwd:                    record.DefaultCwd,
 		ProviderConfig:                providerConfig,
+		RuntimeProtectionEnabled:      record.RuntimeProtectionEnabled,
 		MaxTotalMachines:              record.MaxTotalMachines,
 		MaxTotalCpu:                   nullableInt32FromIntPtr(record.MaxTotalCPU),
 		MaxTotalMemoryMb:              nullableInt32FromIntPtr(record.MaxTotalMemoryMB),
+		MinMachineCpu:                 nullableInt32FromIntPtr(record.MinMachineCPU),
+		MinMachineMemoryMb:            nullableInt32FromIntPtr(record.MinMachineMemoryMB),
 		MaxMachineCpu:                 nullableInt32FromIntPtr(record.MaxMachineCPU),
 		MaxMachineMemoryMb:            nullableInt32FromIntPtr(record.MaxMachineMemoryMB),
 		Metadata:                      metadata,
@@ -174,14 +178,13 @@ func (s strictOpenAPIServer) createMachinePool(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	providerAuthSecretID, ok := parseOpenAPIPublicID(publicid.KindSecret, request.Body.ProviderAuthSecretId)
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid provider_auth_secret_id")
 	}
+	runtimeProtectionEnabled := request.Body.RuntimeProtectionEnabled != nil &&
+		*request.Body.RuntimeProtectionEnabled
 	record, err := s.server.store.Execution().CreateMachinePool(ctx, executionstore.CreateMachinePoolInput{
 		OrgID:                         org.ID,
 		Name:                          request.Body.Name,
@@ -195,9 +198,12 @@ func (s strictOpenAPIServer) createMachinePool(
 		DefaultCwd:                    defaultCwd,
 		ProviderConfig:                providerConfig,
 		ProviderAuthSecretID:          providerAuthSecretID,
+		RuntimeProtectionEnabled:      runtimeProtectionEnabled,
 		MaxTotalMachines:              request.Body.MaxTotalMachines,
 		MaxTotalCPU:                   intPtrFromInt32(request.Body.MaxTotalCpu),
 		MaxTotalMemoryMB:              intPtrFromInt32(request.Body.MaxTotalMemoryMb),
+		MinMachineCPU:                 intPtrFromInt32(request.Body.MinMachineCpu),
+		MinMachineMemoryMB:            intPtrFromInt32(request.Body.MinMachineMemoryMb),
 		MaxMachineCPU:                 intPtrFromInt32(request.Body.MaxMachineCpu),
 		MaxMachineMemoryMB:            intPtrFromInt32(request.Body.MaxMachineMemoryMb),
 		Metadata:                      metadata,
@@ -285,10 +291,7 @@ func (s strictOpenAPIServer) updateMachinePool(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	var providerAuthSecretID *storage.ID
 	if request.Body.ProviderAuthSecretId != nil {
 		parsed, ok := parseOpenAPIPublicID(publicid.KindSecret, *request.Body.ProviderAuthSecretId)
@@ -310,9 +313,12 @@ func (s strictOpenAPIServer) updateMachinePool(
 		DefaultCwd:                    request.Body.DefaultCwd,
 		ProviderConfig:                providerConfig,
 		ProviderAuthSecretID:          providerAuthSecretID,
+		RuntimeProtectionEnabled:      request.Body.RuntimeProtectionEnabled,
 		MaxTotalMachines:              request.Body.MaxTotalMachines,
 		MaxTotalCPU:                   nullableIntPatchFromInt32(request.Body.MaxTotalCpu),
 		MaxTotalMemoryMB:              nullableIntPatchFromInt32(request.Body.MaxTotalMemoryMb),
+		MinMachineCPU:                 nullableIntPatchFromInt32(request.Body.MinMachineCpu),
+		MinMachineMemoryMB:            nullableIntPatchFromInt32(request.Body.MinMachineMemoryMb),
 		MaxMachineCPU:                 nullableIntPatchFromInt32(request.Body.MaxMachineCpu),
 		MaxMachineMemoryMB:            nullableIntPatchFromInt32(request.Body.MaxMachineMemoryMb),
 		Metadata:                      metadata,

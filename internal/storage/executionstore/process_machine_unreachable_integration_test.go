@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
@@ -1074,6 +1075,85 @@ func TestMachineUnreachableQueuedProcessFailsBeforeExecutionGrant(t *testing.T) 
 	}
 }
 
+func TestMachineUnreachableGraceDoesNotRestartWhenExpiredRuntimeIsReaped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "machine_unreachable_late_runtime_reap")
+	toolCallID := createToolCallForProcessTest(
+		t,
+		ctx,
+		fixture,
+		"machine_unreachable_late_runtime_reap",
+		"run_command",
+	)
+	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessInput{
+		AgentMachineBindingID: fixture.BindingID,
+		Command:               "sleep 3600",
+		ShellSelector:         "sh",
+		Cwd:                   "/work",
+	})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	leaseExpiresAt := expireDaemonRuntimeForTest(t, ctx, fixture)
+
+	const unreachableGrace = time.Second
+	waitForDatabaseTime(t, ctx, fixture.Store.pool, leaseExpiresAt.Add(unreachableGrace))
+	if records, err := fixture.Store.Execution().EndExpiredDaemonRuntimes(ctx, 10); err != nil || len(records) != 1 {
+		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
+	}
+
+	var endedAt, effectiveEndAt time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT runtime.lease_expires_at, runtime.ended_at, fact.effective_end_at
+FROM daemon_runtimes runtime
+JOIN daemon_runtime_connection_facts fact ON fact.id = runtime.id
+WHERE runtime.org_id = $1 AND runtime.machine_id = $2 AND runtime.id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID).Scan(
+		&leaseExpiresAt,
+		&endedAt,
+		&effectiveEndAt,
+	); err != nil {
+		t.Fatalf("load ended daemon runtime boundary: %v", err)
+	}
+	if !endedAt.After(leaseExpiresAt) || !effectiveEndAt.Equal(leaseExpiresAt) {
+		t.Fatalf(
+			"ended runtime boundary = lease %s, ended %s, effective %s",
+			leaseExpiresAt,
+			endedAt,
+			effectiveEndAt,
+		)
+	}
+	if leaseExpiresAt.Before(process.CreatedAt) || endedAt.Before(leaseExpiresAt.Add(unreachableGrace)) {
+		t.Fatalf(
+			"test boundaries do not distinguish lease expiry from reaping: process %s, effective %s, ended %s",
+			process.CreatedAt,
+			effectiveEndAt,
+			endedAt,
+		)
+	}
+
+	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+		ctx,
+		unreachableGrace,
+	); err != nil || expired != 1 {
+		t.Fatalf("machine-unreachable expiry count=%d err=%v", expired, err)
+	}
+	current, err := fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, process.ID)
+	if err != nil {
+		t.Fatalf("get expired process: %v", err)
+	}
+	if current.State != executionstore.ProcessStateFailed ||
+		current.StateReasonCode != executionstore.ProcessToolReasonMachineUnreachable {
+		t.Fatalf("expired process = %+v, want failed/machine_unreachable", current)
+	}
+}
+
 func TestStartProcessFailsForNeverConnectedMachine(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1183,17 +1263,6 @@ FOR UPDATE
 `, fixture.OrgID, fixture.MachineID); err != nil {
 		t.Fatalf("lock machine for unreachable boundary: %v", err)
 	}
-	if _, err := blockingTx.Exec(ctx, `
-UPDATE daemon_runtimes
-SET state = 'ended',
-    state_reason_code = 'test_offline',
-    ended_at = statement_timestamp() + interval '250 milliseconds',
-    updated_at = statement_timestamp()
-WHERE org_id = $1 AND machine_id = $2 AND id = $3
-`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID); err != nil {
-		t.Fatalf("end daemon runtime at future boundary: %v", err)
-	}
-
 	type recheckResult struct {
 		unreachable bool
 		err         error
@@ -1216,9 +1285,27 @@ WHERE org_id = $1 AND machine_id = $2 AND id = $3
 		)
 		done <- recheckResult{unreachable: unreachable, err: recheckErr}
 	}()
-	waitForDatabaseLockWait(t, ctx, fixture.Store.pool, "-- name: LockMachineForLifecycle", blockingPID)
-	if _, err := blockingTx.Exec(ctx, `SELECT pg_sleep(0.3)`); err != nil {
-		t.Fatalf("wait past machine-unreachable boundary: %v", err)
+	recheckStartedAt := integrationdb.WaitForLockWaitBlockedBy(
+		t,
+		ctx,
+		fixture.Store.pool,
+		"-- name: LockMachineForLifecycle",
+		blockingPID,
+	)
+	var endedAt time.Time
+	if err := blockingTx.QueryRow(ctx, `
+UPDATE daemon_runtimes
+SET state = 'ended',
+    state_reason_code = 'test_offline',
+    ended_at = statement_timestamp(),
+    updated_at = statement_timestamp()
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+RETURNING ended_at
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID).Scan(&endedAt); err != nil {
+		t.Fatalf("end daemon runtime after recheck begins: %v", err)
+	}
+	if !endedAt.After(recheckStartedAt) {
+		t.Fatalf("runtime ended at %s, want after recheck began at %s", endedAt, recheckStartedAt)
 	}
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release machine-unreachable blocker: %v", err)
@@ -1452,15 +1539,14 @@ func TestMachineUnreachableCandidatesUseLatestRuntimeRecency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register replacement runtime: %v", err)
 	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-		UPDATE daemon_runtimes
-		SET last_seen_at = statement_timestamp() - INTERVAL '2 seconds',
-		    lease_expires_at = statement_timestamp() - INTERVAL '1 second',
-		    updated_at = statement_timestamp()
-		WHERE org_id = $1 AND machine_id = $2 AND id = $3
-	`, fixture.OrgID, fixture.MachineID, replacementRuntime.ID); err != nil {
-		t.Fatalf("expire replacement runtime without ending it: %v", err)
-	}
+	expireDaemonRuntimeLeaseForTest(
+		t,
+		ctx,
+		fixture.Store,
+		fixture.OrgID,
+		fixture.MachineID,
+		replacementRuntime.ID,
+	)
 	candidates, err := fixture.Store.q.ListMachineUnreachableMachineCandidates(
 		ctx,
 		dbsqlc.ListMachineUnreachableMachineCandidatesParams{
@@ -1523,35 +1609,13 @@ func TestMachineUnreachableCandidatesSkipEarlierWorkWithinLatestRuntimeGrace(t *
 			t.Fatalf("start process for machine %s: %v", fixture.MachineID, err)
 		}
 	}
-	if _, err := recent.Store.pool.Exec(ctx, `
-		UPDATE processes
-		SET created_at = CASE
-		      WHEN machine_id = $1 THEN statement_timestamp() - INTERVAL '4 hours'
-		      WHEN machine_id = $2 THEN statement_timestamp() - INTERVAL '3 hours 30 minutes'
-		    END
-		WHERE machine_id IN ($1, $2)
-	`, recent.MachineID, mature.MachineID); err != nil {
-		t.Fatalf("age candidate process work: %v", err)
-	}
-	if _, err := recent.Store.pool.Exec(ctx, `
-		UPDATE daemon_runtimes
-		SET last_seen_at = CASE
-		      WHEN id = $1 THEN statement_timestamp() - INTERVAL '2 seconds'
-		      WHEN id = $2 THEN statement_timestamp() - INTERVAL '3 hours 1 second'
-		    END,
-		    lease_expires_at = CASE
-		      WHEN id = $1 THEN statement_timestamp() - INTERVAL '1 second'
-		      WHEN id = $2 THEN statement_timestamp() - INTERVAL '3 hours'
-		    END,
-		    updated_at = statement_timestamp()
-		WHERE id IN ($1, $2)
-	`, recent.RuntimeID, mature.RuntimeID); err != nil {
-		t.Fatalf("set candidate runtime recency: %v", err)
-	}
+	matureDisconnectedAt := expireDaemonRuntimeForTest(t, ctx, mature)
+	waitForDatabaseTime(t, ctx, recent.Store.pool, matureDisconnectedAt.Add(time.Second))
+	expireDaemonRuntimeForTest(t, ctx, recent)
 	candidates, err := recent.Store.q.ListMachineUnreachableMachineCandidates(
 		ctx,
 		dbsqlc.ListMachineUnreachableMachineCandidatesParams{
-			MachineUnreachableGraceSeconds: int32(time.Hour / time.Second),
+			MachineUnreachableGraceSeconds: 1,
 			LimitCount:                     1,
 		},
 	)

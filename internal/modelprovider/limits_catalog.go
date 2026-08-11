@@ -1,0 +1,248 @@
+package modelprovider
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+)
+
+const (
+	openRouterCatalogBaseURL   = "https://openrouter.ai/api/v1"
+	catalogRequestTimeout      = 8 * time.Second
+	catalogMaxResponseSize     = 16 * 1024 * 1024
+	catalogRefreshInterval     = time.Hour
+	catalogFailureRetryBackoff = time.Minute
+)
+
+var catalogDateSuffixPattern = regexp.MustCompile(`-\d{4}-\d{2}-\d{2}$`)
+
+type catalogLimits struct {
+	contextWindowTokens *int
+	maxOutputTokens     *int
+}
+
+type catalogModel struct {
+	slug   string
+	limits catalogLimits
+}
+
+type LimitsCatalog struct {
+	baseURL string
+	client  *http.Client
+
+	mu           sync.Mutex
+	entries      map[string]catalogLimits
+	refreshedAt  time.Time
+	lastAttempt  time.Time
+	attemptError error
+}
+
+func NewLimitsCatalog() *LimitsCatalog {
+	client := newSSRFHTTPClient(false)
+	client.Timeout = catalogRequestTimeout
+	return &LimitsCatalog{
+		baseURL: openRouterCatalogBaseURL,
+		client:  outboundhttp.CloneWithoutRedirects(client),
+	}
+}
+
+func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []DiscoveredModel) []DiscoveredModel {
+	if !anyModelMissingContextWindow(models) {
+		return models
+	}
+	entries := c.snapshot(ctx)
+	if len(entries) == 0 {
+		return models
+	}
+	for i := range models {
+		if models[i].ContextWindowTokens != nil {
+			continue
+		}
+		limits, found := lookupCatalogLimits(entries, models[i].Slug)
+		if !found || limits.contextWindowTokens == nil {
+			continue
+		}
+		models[i].ContextWindowTokens = limits.contextWindowTokens
+		maxOutput := models[i].MaxOutputTokens
+		if maxOutput == nil {
+			maxOutput = limits.maxOutputTokens
+		}
+		models[i].MaxOutputTokens = clampedMaxOutput(limits.contextWindowTokens, maxOutput)
+	}
+	return models
+}
+
+func anyModelMissingContextWindow(models []DiscoveredModel) bool {
+	for _, model := range models {
+		if model.ContextWindowTokens == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func lookupCatalogLimits(entries map[string]catalogLimits, slug string) (catalogLimits, bool) {
+	if limits, found := entries[slug]; found {
+		return limits, true
+	}
+	trimmed := catalogDateSuffixPattern.ReplaceAllString(slug, "")
+	if trimmed != slug {
+		if limits, found := entries[trimmed]; found {
+			return limits, true
+		}
+	}
+	return catalogLimits{}, false
+}
+
+func (c *LimitsCatalog) snapshot(ctx context.Context) map[string]catalogLimits {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	fresh := c.entries != nil && now.Sub(c.refreshedAt) < catalogRefreshInterval
+	recentlyFailed := c.attemptError != nil && now.Sub(c.lastAttempt) < catalogFailureRetryBackoff
+	if fresh || recentlyFailed {
+		return c.entries
+	}
+	c.lastAttempt = now
+	entries, err := c.fetch(ctx)
+	c.attemptError = err
+	if err != nil {
+		return c.entries
+	}
+	c.entries = entries
+	c.refreshedAt = now
+	return c.entries
+}
+
+func (c *LimitsCatalog) fetch(ctx context.Context) (map[string]catalogLimits, error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), catalogRequestTimeout)
+	defer cancel()
+	catalogEntries, err := fetchModelEntries(
+		ctx, c.client, c.baseURL, "/models", "model limits catalog",
+		nil, catalogMaxResponseSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return buildCatalogEntries(catalogEntries)
+}
+
+func buildCatalogEntries(catalogEntries []discoveredModelEntry) (map[string]catalogLimits, error) {
+	entries := make(map[string]catalogLimits, len(catalogEntries)*2)
+	ambiguous := make(map[string]struct{})
+	add := func(key string, limits catalogLimits) {
+		if key == "" {
+			return
+		}
+		if _, dropped := ambiguous[key]; dropped {
+			return
+		}
+		if existing, found := entries[key]; found {
+			if !sameCatalogLimits(existing, limits) {
+				delete(entries, key)
+				ambiguous[key] = struct{}{}
+			}
+			return
+		}
+		entries[key] = limits
+	}
+	var variants []catalogModel
+	for _, entry := range catalogEntries {
+		slug := strings.TrimSpace(entry.ID)
+		contextWindowTokens := entry.contextWindowTokens()
+		if slug == "" || contextWindowTokens == nil {
+			continue
+		}
+		limits := catalogLimits{
+			contextWindowTokens: contextWindowTokens,
+			maxOutputTokens:     entry.maxOutputTokens(),
+		}
+		if base, _, isVariant := strings.Cut(slug, ":"); isVariant {
+			variants = append(variants, catalogModel{slug: base, limits: limits})
+			continue
+		}
+		add(slug, limits)
+		if _, bare, hasPrefix := strings.Cut(slug, "/"); hasPrefix {
+			add(bare, limits)
+		}
+	}
+	mergeVariantCatalogEntries(entries, ambiguous, variants)
+	if len(entries) == 0 {
+		return nil, errors.New("model limits catalog returned no usable entries")
+	}
+	return entries, nil
+}
+
+func mergeVariantCatalogEntries(
+	entries map[string]catalogLimits,
+	ambiguous map[string]struct{},
+	variants []catalogModel,
+) {
+	variantEntries := make(map[string]catalogLimits)
+	variantAmbiguous := make(map[string]struct{})
+	add := func(key string, limits catalogLimits) {
+		if key == "" {
+			return
+		}
+		if _, taken := entries[key]; taken {
+			return
+		}
+		if _, dropped := ambiguous[key]; dropped {
+			return
+		}
+		if _, dropped := variantAmbiguous[key]; dropped {
+			return
+		}
+		if existing, found := variantEntries[key]; found {
+			if !sameCatalogLimits(existing, limits) {
+				delete(variantEntries, key)
+				variantAmbiguous[key] = struct{}{}
+			}
+			return
+		}
+		variantEntries[key] = limits
+	}
+	for _, variant := range variants {
+		add(variant.slug, variant.limits)
+		if _, bare, hasPrefix := strings.Cut(variant.slug, "/"); hasPrefix {
+			add(bare, variant.limits)
+		}
+	}
+	for key, limits := range variantEntries {
+		entries[key] = limits
+	}
+}
+
+func sameCatalogLimits(a, b catalogLimits) bool {
+	return equalIntPtr(a.contextWindowTokens, b.contextWindowTokens) &&
+		equalIntPtr(a.maxOutputTokens, b.maxOutputTokens)
+}
+
+func equalIntPtr(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func NewDiscoverer(catalog *LimitsCatalog) DiscoverFunc {
+	return func(
+		ctx context.Context,
+		providerConfig modelstore.ModelProviderConfigRecord,
+		apiKey string,
+		allowLoopback bool,
+	) ([]DiscoveredModel, error) {
+		models, err := DiscoverModels(ctx, providerConfig, apiKey, allowLoopback)
+		if err != nil {
+			return nil, err
+		}
+		return catalog.FillMissingLimits(ctx, models), nil
+	}
+}

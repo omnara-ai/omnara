@@ -7,6 +7,9 @@ function requiredEnvironmentVariable(name: string): string {
 }
 
 const projectID = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROJECT_ID')
+const orgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_ORG_NAME')
+const switchOrgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_SWITCH_ORG_NAME')
+const createdOrgName = 'zz web created organization'
 const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
 const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
 const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
@@ -55,6 +58,34 @@ test('returns to a protected deep link after login', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, adminEmail, `${createAgentPath}?source=e2e#yaml`)
   await expect(page.getByRole('button', { name: 'Create agent' })).toBeVisible()
+  expect(failures).toEqual([])
+})
+
+test('switches organizations from a project page', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, adminEmail, `/projects/${projectID}/agents`)
+
+  await page.getByRole('button', { name: orgName }).click()
+  await page.getByRole('menuitem', { name: switchOrgName }).click()
+
+  await expect(page).toHaveURL('/')
+  await expect(page.getByRole('button', { name: switchOrgName })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0)
+  expect(failures).toEqual([])
+})
+
+test('creates an organization from a project page', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, adminEmail, `/projects/${projectID}/agents`)
+
+  await page.getByRole('button', { name: orgName }).click()
+  await page.getByRole('menuitem', { name: 'New organization' }).click()
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(createdOrgName)
+  await page.getByRole('button', { name: 'Create organization' }).click()
+
+  await expect(page).toHaveURL('/')
+  await expect(page.getByRole('button', { name: createdOrgName })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0)
   expect(failures).toEqual([])
 })
 

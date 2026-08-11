@@ -160,6 +160,9 @@ mcp:
           parameters: {}
       disabled_tool:
         enabled: false
+      aws___call_aws:
+        permission:
+          mode: always_deny
 `)), CompileOptions{})
 	if err != nil {
 		t.Fatalf("compile mcp config: %v", err)
@@ -185,6 +188,10 @@ mcp:
 	}
 	if _, ok := server.ResolveTool("disabled_tool"); ok {
 		t.Fatalf("disabled_tool should not resolve enabled")
+	}
+	if permission, ok := server.ResolveTool("aws___call_aws"); !ok ||
+		permission.Mode != toolpermission.ModeAlwaysDeny {
+		t.Fatalf("AWS tool resolution = permission=%+v ok=%t", permission, ok)
 	}
 }
 
@@ -253,17 +260,6 @@ mcp:
 mcp:
   docs:
     url: https://127.0.0.1/mcp
-`,
-		"tool_name_separator": `
-mcp:
-  docs:
-    url: https://example.com/mcp
-    tools:
-      bad__tool:
-        enabled: true
-        permission:
-          mode: always_ask
-          parameters: {}
 `,
 		"wildcard_tool_name": `
 mcp:
@@ -393,6 +389,73 @@ mcp:
 	}
 	if validatedKind != "oauth_token_set" {
 		t.Fatalf("validated kind = %q, want oauth_token_set", validatedKind)
+	}
+}
+
+func TestCompileYAMLAllowsSigV4MCPAuth(t *testing.T) {
+	secretID, err := publicid.Encode(publicid.KindSecret, uuid.MustParse("018f1111-1111-7111-8111-111111111113"))
+	if err != nil {
+		t.Fatalf("encode secret id: %v", err)
+	}
+	source := validAgentSource(`
+mcp:
+  aws:
+    url: https://mcp.example.com:443/aws?tenant=one
+    auth:
+      type: sigv4
+      secret_id: ` + secretID + `
+      service: execute-api
+      region: us-west-2
+`)
+	var validatedKind secrets.Kind
+	compiled, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
+		ValidateSecretID: func(_ string, expectedKind secrets.Kind) error {
+			validatedKind = expectedKind
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("compile SigV4 MCP config: %v", err)
+	}
+	if validatedKind != secrets.KindAWSCredentials {
+		t.Fatalf("validated kind = %q, want %q", validatedKind, secrets.KindAWSCredentials)
+	}
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	if err != nil {
+		t.Fatalf("runtime contract: %v", err)
+	}
+	if len(contract.MCPServers) != 1 || contract.MCPServers[0].Auth == nil ||
+		contract.MCPServers[0].URL != "https://mcp.example.com:443/aws?tenant=one" ||
+		contract.MCPServers[0].Auth.Type != MCPAuthTypeSigV4 ||
+		contract.MCPServers[0].Auth.Service != "execute-api" ||
+		contract.MCPServers[0].Auth.Region != "us-west-2" {
+		t.Fatalf("unexpected mcp server auth: %+v", contract.MCPServers)
+	}
+}
+
+func TestCompileYAMLRequiresSigV4SigningScope(t *testing.T) {
+	secretID, err := publicid.Encode(publicid.KindSecret, uuid.MustParse("018f1111-1111-7111-8111-111111111114"))
+	if err != nil {
+		t.Fatalf("encode secret id: %v", err)
+	}
+	for name, auth := range map[string]string{
+		"service": "region: us-west-2",
+		"region":  "service: aws-mcp",
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := validAgentSource(`
+mcp:
+  aws:
+    url: https://aws.example.com/mcp
+    auth:
+      type: sigv4
+      secret_id: ` + secretID + `
+      ` + auth + `
+`)
+			if _, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{}); err == nil {
+				t.Fatalf("expected missing %s to fail", name)
+			}
+		})
 	}
 }
 

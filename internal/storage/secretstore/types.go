@@ -7,6 +7,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
+
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 const (
@@ -20,6 +22,7 @@ const (
 	SecretKindGeneric             = secrets.KindGeneric
 	SecretKindOAuthTokenSet       = secrets.KindOAuthTokenSet
 	SecretKindSlackAppCredentials = secrets.KindSlackAppCredentials
+	SecretKindAWSCredentials      = secrets.KindAWSCredentials
 
 	MaxSecretMetadataBytes = 16 * 1024
 )
@@ -94,7 +97,7 @@ type CreateSecretInput struct {
 	OwnerProjectID ID
 	OwnerUserID    ID
 	Name           string
-	Metadata       json.RawMessage
+	Metadata       resourcemeta.Metadata
 	Material       secrets.Material
 	Actor          PrincipalRecord
 	MCPOAuthFlowID ID
@@ -161,7 +164,7 @@ type UpdateSecretMetadataInput struct {
 	OrgID    ID
 	SecretID ID
 	Name     string
-	Metadata json.RawMessage
+	Metadata resourcemeta.Metadata
 	Actor    PrincipalRecord
 }
 
@@ -170,7 +173,7 @@ type CreateSecretVersionInput struct {
 	SecretID       ID
 	Material       secrets.Material
 	Actor          PrincipalRecord
-	SecretMetadata json.RawMessage
+	SecretMetadata resourcemeta.Metadata
 	MCPOAuthFlowID ID
 }
 
@@ -214,9 +217,10 @@ type ReadProjectAvailableSecretPayloadInput struct {
 }
 
 type ReadOrgOwnedSecretPayloadInput struct {
-	OrgID    ID
-	SecretID ID
-	Kind     secrets.Kind
+	OrgID          ID
+	SecretID       ID
+	ManagementKind management.Kind
+	Kind           secrets.Kind
 }
 
 type RotateProjectAvailableOAuthSecretInput struct {

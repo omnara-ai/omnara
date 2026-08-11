@@ -347,9 +347,10 @@ func (s strictOpenAPIServer) discoverProviderModels(
 		}
 	}
 	credential, err := s.server.store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
-		OrgID:    orgID,
-		SecretID: record.CredentialSecretID,
-		Kind:     secretstore.SecretKindGeneric,
+		OrgID:          orgID,
+		SecretID:       record.CredentialSecretID,
+		ManagementKind: record.ManagementKind,
+		Kind:           secretstore.SecretKindGeneric,
 	})
 	if err != nil {
 		return failed("could not read the credential secret")

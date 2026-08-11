@@ -22,19 +22,25 @@ const (
 	KindGeneric             Kind = "generic"
 	KindOAuthTokenSet       Kind = "oauth_token_set"
 	KindSlackAppCredentials Kind = "slack_app_credentials"
+	KindAWSCredentials      Kind = "aws_credentials"
 
-	KeyValue         = "value"
-	KeyAccessToken   = "access_token"
-	KeyRefreshToken  = "refresh_token"
-	KeyIDToken       = "id_token"
-	KeyClientSecret  = "client_secret"
-	KeyClientID      = "client_id"
-	KeySigningSecret = "signing_secret"
-	KeyMCPURL        = "mcp_url"
-	KeyResource      = "resource"
-	KeyTokenEndpoint = "token_endpoint"
-	KeyScopes        = "scopes"
-	KeyTokenType     = "token_type"
+	KeyValue              = "value"
+	KeyAccessToken        = "access_token"
+	KeyRefreshToken       = "refresh_token"
+	KeyIDToken            = "id_token"
+	KeyClientSecret       = "client_secret"
+	KeyClientID           = "client_id"
+	KeySigningSecret      = "signing_secret"
+	KeyMCPURL             = "mcp_url"
+	KeyResource           = "resource"
+	KeyTokenEndpoint      = "token_endpoint"
+	KeyScopes             = "scopes"
+	KeyTokenType          = "token_type"
+	KeyAWSAccessKeyID     = "access_key_id"
+	KeyAWSSecretAccessKey = "secret_access_key"
+	KeyAWSSessionToken    = "session_token"
+	KeyAWSRoleARN         = "role_arn"
+	KeyAWSExternalID      = "external_id"
 
 	EncryptionSchemeAES256GCMEnvelopeV1 = "aes-256-gcm-envelope-v1"
 	DEKWrappedByLocal                   = "local"
@@ -255,6 +261,13 @@ func ValidatePayload(kind Kind, payload Payload) ([]string, error) {
 		allowed[KeyClientSecret] = true
 		allowed[KeySigningSecret] = true
 		required = []string{KeyAccessToken, KeyClientID, KeyClientSecret, KeySigningSecret}
+	case KindAWSCredentials:
+		allowed[KeyAWSAccessKeyID] = true
+		allowed[KeyAWSSecretAccessKey] = true
+		allowed[KeyAWSSessionToken] = true
+		allowed[KeyAWSRoleARN] = true
+		allowed[KeyAWSExternalID] = true
+		required = []string{KeyAWSAccessKeyID, KeyAWSSecretAccessKey}
 	default:
 		return nil, fmt.Errorf("unsupported secret kind %q", kind)
 	}
@@ -282,6 +295,9 @@ func ValidatePayload(kind Kind, payload Payload) ([]string, error) {
 				return nil, fmt.Errorf("oauth token endpoint: %w", err)
 			}
 		}
+	}
+	if kind == KindAWSCredentials && payload[KeyAWSExternalID] != "" && payload[KeyAWSRoleARN] == "" {
+		return nil, errors.New("aws external id requires a role arn")
 	}
 	keys := make([]string, 0, len(payload))
 	for key, value := range payload {

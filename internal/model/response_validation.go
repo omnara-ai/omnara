@@ -32,6 +32,9 @@ func ValidateProviderResponse(response Response) error {
 	if err := validateProviderRaw(response.ProviderReplay); err != nil {
 		return fmt.Errorf("provider replay: %w", err)
 	}
+	if err := modelenvelope.ValidateProviderReportedCostUSD(response.ProviderReportedCostUSD); err != nil {
+		return fmt.Errorf("provider-reported cost: %w", err)
+	}
 	for _, field := range []struct {
 		name  string
 		value string
@@ -87,6 +90,7 @@ func ResponseEvidenceForStorage(response Response) Response {
 		ID:                      response.ID,
 		ProviderRequestID:       response.ProviderRequestID,
 		ServedProviderModelSlug: response.ServedProviderModelSlug,
+		ProviderReportedCostUSD: response.ProviderReportedCostUSD,
 		Usage:                   response.Usage,
 	}
 	if err := ValidateProviderResponse(evidence); err != nil {

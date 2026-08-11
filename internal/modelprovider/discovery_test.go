@@ -38,6 +38,7 @@ func TestDiscoveryRejectsOversizedResponse(t *testing.T) {
 		"/models",
 		"models endpoint",
 		route.Headers{},
+		discoveryMaxResponseSize,
 	)
 	if err == nil || !strings.Contains(err.Error(), "response exceeds the byte limit") {
 		t.Fatalf("discovery error = %v, want response limit error", err)
@@ -150,7 +151,8 @@ func TestDiscoverModelsAnthropicHeadersAndDisplayNames(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{"data":[
 			{"id":"claude-x","display_name":"Claude X","created_at":"2025-01-01T00:00:00Z"},
-			{"id":"claude-y","display_name":"Claude Y","created_at":"2026-02-01T00:00:00Z"}
+			{"id":"claude-y","display_name":"Claude Y","created_at":"2026-02-01T00:00:00Z",
+			 "max_input_tokens":200000,"max_tokens":64000}
 		],"has_more":false}`))
 	}))
 	defer server.Close()
@@ -168,6 +170,13 @@ func TestDiscoverModelsAnthropicHeadersAndDisplayNames(t *testing.T) {
 	if len(models) != 2 || models[0].Slug != "claude-y" || models[1].Slug != "claude-x" ||
 		models[1].DisplayName != "Claude X" {
 		t.Fatalf("expected newest-first anthropic models: %+v", models)
+	}
+	if models[0].ContextWindowTokens == nil || *models[0].ContextWindowTokens != 200000 ||
+		models[0].MaxOutputTokens == nil || *models[0].MaxOutputTokens != 64000 {
+		t.Fatalf("anthropic token limits were not parsed: %+v", models[0])
+	}
+	if models[1].ContextWindowTokens != nil || models[1].MaxOutputTokens != nil {
+		t.Fatalf("model without reported limits should stay unset: %+v", models[1])
 	}
 }
 

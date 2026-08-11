@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 )
 
 const (
@@ -23,6 +24,8 @@ const (
 	webE2EProviderConfig = "openai-prod"
 	webE2EModelName      = "service-e2e-local"
 	webE2EUngrantedModel = "service-e2e-ungranted"
+	webE2EOrgName        = "web Org"
+	webE2ESwitchOrgName  = "zz web switch target"
 )
 
 func TestWebE2E(t *testing.T) {
@@ -68,7 +71,7 @@ func TestWebE2E(t *testing.T) {
 	}
 	adminEmail := "web-admin-" + env.seed + "@example.com"
 	viewerEmail := "web-viewer-" + env.seed + "@example.com"
-	createWebE2EUser(
+	adminUserID := createWebE2EUser(
 		t,
 		ctx,
 		store,
@@ -88,6 +91,13 @@ func TestWebE2E(t *testing.T) {
 		authz.OrgRoleMember,
 		authz.ProjectRoleViewer,
 	)
+	if _, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID:         adminUserID,
+		Name:           webE2ESwitchOrgName,
+		IdempotencyKey: "web-switch-target-org",
+	}); err != nil {
+		t.Fatalf("create web e2e switch target organization: %v", err)
+	}
 
 	cmd := exec.CommandContext(ctx, "pnpm", "--filter", "@omnara/web", "run", "test:e2e")
 	cmd.WaitDelay = 5 * time.Second
@@ -95,6 +105,8 @@ func TestWebE2E(t *testing.T) {
 	cmd.Env = serviceProcessEnv(
 		"OMNARA_WEB_E2E_BASE_URL="+env.apiURL,
 		"OMNARA_WEB_E2E_PROJECT_ID="+project.projectID,
+		"OMNARA_WEB_E2E_ORG_NAME="+webE2EOrgName,
+		"OMNARA_WEB_E2E_SWITCH_ORG_NAME="+webE2ESwitchOrgName,
 		"OMNARA_WEB_E2E_ADMIN_EMAIL="+adminEmail,
 		"OMNARA_WEB_E2E_VIEWER_EMAIL="+viewerEmail,
 		"OMNARA_WEB_E2E_PASSWORD="+webE2EPassword,
@@ -115,7 +127,7 @@ func createWebE2EUser(
 	store *storage.Store,
 	orgID, projectID storage.ID,
 	email, orgRole, projectRole string,
-) {
+) storage.ID {
 	t.Helper()
 	start, err := store.Identity().StartPasswordSignup(
 		ctx,
@@ -163,4 +175,5 @@ func createWebE2EUser(
 	); err != nil {
 		t.Fatalf("add project membership for %s: %v", email, err)
 	}
+	return completed.User.ID
 }

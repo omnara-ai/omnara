@@ -561,17 +561,45 @@ func newProcessMachineFixtureWithoutDaemonRuntime(
 	}
 }
 
-func expireDaemonRuntimeForTest(t *testing.T, ctx context.Context, fixture processDaemonFixture) {
+func expireDaemonRuntimeForTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+) time.Time {
 	t.Helper()
-	if _, err := fixture.Store.pool.Exec(ctx, `
+	return expireDaemonRuntimeLeaseForTest(
+		t,
+		ctx,
+		fixture.Store,
+		fixture.OrgID,
+		fixture.MachineID,
+		fixture.RuntimeID,
+	)
+}
+
+func expireDaemonRuntimeLeaseForTest(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	orgID, machineID, runtimeID ID,
+) time.Time {
+	t.Helper()
+	var leaseExpiresAt time.Time
+	if err := store.pool.QueryRow(ctx, `
 		UPDATE daemon_runtimes
-		SET last_seen_at = statement_timestamp() - INTERVAL '2 seconds',
-		    lease_expires_at = statement_timestamp() - INTERVAL '1 second',
+		SET last_seen_at = statement_timestamp(),
+		    lease_expires_at = statement_timestamp() + interval '1 millisecond',
 		    updated_at = statement_timestamp()
-		WHERE org_id = $1 AND machine_id = $2 AND id = $3
-	`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID); err != nil {
-		t.Fatalf("expire daemon runtime: %v", err)
+		WHERE org_id = $1
+		  AND machine_id = $2
+		  AND id = $3
+		  AND state = 'active'
+		RETURNING lease_expires_at
+	`, orgID, machineID, runtimeID).Scan(&leaseExpiresAt); err != nil {
+		t.Fatalf("shorten daemon runtime lease: %v", err)
 	}
+	waitForDatabaseTime(t, ctx, store.pool, leaseExpiresAt)
+	return leaseExpiresAt
 }
 
 func assertMachineState(
@@ -605,16 +633,13 @@ func assertMachineObservedPlatform(t *testing.T, ctx context.Context, store *Sto
 		t.Fatalf("get machine: %v", err)
 	}
 	var metadata struct {
-		ObservedPlatform struct {
-			OS   string `json:"os"`
-			Arch string `json:"arch"`
-		} `json:"observed_platform"`
+		ObservedPlatform string `json:"observed_platform"`
 	}
 	if err := json.Unmarshal(machine.Metadata, &metadata); err != nil {
 		t.Fatalf("parse machine metadata: %v", err)
 	}
-	if metadata.ObservedPlatform.OS != osName || metadata.ObservedPlatform.Arch != arch {
-		t.Fatalf("observed platform = %+v, want %s/%s", metadata.ObservedPlatform, osName, arch)
+	if metadata.ObservedPlatform != osName+"/"+arch {
+		t.Fatalf("observed platform = %q, want %s/%s", metadata.ObservedPlatform, osName, arch)
 	}
 }
 

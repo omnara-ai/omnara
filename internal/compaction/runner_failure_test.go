@@ -28,6 +28,30 @@ func TestCompactionRequestPolicyUsesLiveMaximumAsSafetyCeiling(t *testing.T) {
 	}
 }
 
+func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.T) {
+	input := runInput(testPlan(2, 2, 2))
+	claim := newCompactionClaim(compactionClaimInput(input, time.Time{}), 0, time.Time{})
+	claim.Claimed = false
+	claim.Context.State = executionstore.ModelCallContextFailed
+	claim.Context.ErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
+
+	store := &fakeStore{}
+	client := &summaryModel{}
+	result, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
+	if err != nil {
+		t.Fatalf("return supplied terminal compaction claim: %v", err)
+	}
+	if result.State != RunTerminal || result.ModelCallContextID != claim.Context.ID ||
+		len(store.claimInputs) != 0 || len(client.requests) != 0 {
+		t.Fatalf(
+			"terminal result=%+v claims=%+v requests=%d",
+			result,
+			store.claimInputs,
+			len(client.requests),
+		)
+	}
+}
+
 func TestRunnerClaimsNewContextForDueRetry(t *testing.T) {
 	now := time.Unix(123, 0).UTC()
 	input := runInput(testPlan(1, 1, 1))
@@ -117,8 +141,9 @@ func TestRunnerRetriesDatabaseUnsafeSummaryAsMalformedProviderResponse(t *testin
 		textCompactionEvent(1, strings.Repeat("closed source context ", 20)),
 	}}
 	client := &summaryModel{results: []summaryResult{{response: model.Response{
-		ID:         "resp_malformed",
-		StopReason: model.StopReasonEndTurn,
+		ID:                      "resp_malformed",
+		ProviderReportedCostUSD: "0.0000015",
+		StopReason:              model.StopReasonEndTurn,
 		Content: []model.ResponsePart{{
 			Type: model.ResponsePartTypeText,
 			Text: "unsafe\x00summary",
@@ -144,6 +169,7 @@ func TestRunnerRetriesDatabaseUnsafeSummaryAsMalformedProviderResponse(t *testin
 	}
 	retryFailure := store.retryFailures[0]
 	if retryFailure.ProviderResponseID != "resp_malformed" ||
+		retryFailure.ProviderReportedCostUSD != "0.0000015" ||
 		strings.Contains(retryFailure.ErrorMessage, "\x00") {
 		t.Fatalf("malformed response evidence was not safely retained: %+v", retryFailure)
 	}
@@ -156,6 +182,7 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 	client := &summaryModel{results: []summaryResult{{response: model.Response{
 		ID:                      "resp\x00malformed",
 		ServedProviderModelSlug: "served\x00malformed",
+		ProviderReportedCostUSD: "0.0000015",
 		StopReason:              model.StopReasonEndTurn,
 		Content: []model.ResponsePart{{
 			Type: model.ResponsePartTypeText,
@@ -179,6 +206,7 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 	client.results = []summaryResult{{response: model.Response{
 		ID:                      "resp\x00malformed",
 		ServedProviderModelSlug: "served\x00malformed",
+		ProviderReportedCostUSD: "0.0000015",
 		StopReason:              model.StopReasonEndTurn,
 		Content: []model.ResponsePart{{
 			Type: model.ResponsePartTypeText,
@@ -198,6 +226,7 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 	}
 	terminalFailure := store.terminalFailures[0]
 	if terminalFailure.ServedProviderModelSlug != "" || terminalFailure.ProviderResponseID != "" ||
+		terminalFailure.ProviderReportedCostUSD != "" ||
 		terminalFailure.ErrorCode != "malformed_success_response" ||
 		strings.Contains(terminalFailure.ErrorMessage, "\x00") {
 		t.Fatalf("terminal malformed response evidence was not cleared: %+v", terminalFailure)

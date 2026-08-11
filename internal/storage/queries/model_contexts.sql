@@ -1,10 +1,19 @@
--- name: GetAgentConfigRevisionForModelCall :one
+-- name: GetModelCallRevisionForClaim :one
 -- @sqlc-vet-disable configured-models-deleted-at
+-- @sqlc-vet-disable model-provider-configs-deleted-at
 -- Model-call lineage must survive soft deletion so the unavailable model can fail durably.
-SELECT configured_model.current_revision_id
+SELECT configured_model.current_revision_id,
+       CASE
+           WHEN provider.management_kind = 'cluster'
+               THEN COALESCE(admission.new_managed_work_allowed, true)
+           ELSE true
+       END AS new_managed_work_allowed
 FROM agent_configs config
 JOIN configured_models configured_model ON configured_model.org_id = config.org_id
   AND configured_model.id = config.configured_model_id
+JOIN model_provider_configs provider ON provider.org_id = configured_model.org_id
+  AND provider.id = configured_model.model_provider_config_id
+LEFT JOIN org_managed_work_admission admission ON admission.org_id = config.org_id
 WHERE config.project_id = sqlc.arg(project_id)
   AND config.id = sqlc.arg(agent_config_id);
 
@@ -188,7 +197,8 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.retry_at, context.input_tokens_total, context.uncached_input_tokens,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
   context.output_tokens_total, context.reasoning_output_tokens,
-  context.created_at, context.completed_at
+  context.created_at, context.completed_at,
+  coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd
 FROM model_call_contexts context
 WHERE context.project_id = sqlc.arg(project_id)
   AND context.agent_id = sqlc.arg(agent_id)
@@ -355,6 +365,7 @@ SET state = sqlc.arg(to_state),
     cache_write_input_tokens = sqlc.narg(cache_write_input_tokens)::integer,
     output_tokens_total = sqlc.narg(output_tokens_total)::integer,
     reasoning_output_tokens = sqlc.narg(reasoning_output_tokens)::integer,
+    provider_reported_cost_usd = sqlc.narg(provider_reported_cost_usd)::text::numeric,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id

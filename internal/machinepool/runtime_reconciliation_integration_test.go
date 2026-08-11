@@ -1,0 +1,1788 @@
+//go:build integration
+
+package machinepool
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+)
+
+func TestProviderRuntimeReconciliationDeletesConfirmedRunningMismatch(t *testing.T) {
+	ctx := context.Background()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "confirmed-running", provider)
+
+	discovery, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	if discovery.MarkersSet != 1 || discovery.Targets != 1 {
+		t.Fatalf("discovery stats = %+v, want one mismatch", discovery)
+	}
+	fixture.backdateMismatch(t, ctx)
+
+	confirmation, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+			Concurrency:       1,
+		},
+	)
+	if err != nil {
+		t.Fatalf("confirm provider runtime mismatch: %v", err)
+	}
+	if confirmation.DeletionClaims != 1 || confirmation.Confirmations != 1 {
+		t.Fatalf("confirmation stats = %+v, want one deletion", confirmation)
+	}
+	if deleted := provider.deletedResources(); len(deleted) != 1 || deleted[0] != fixture.resourceID {
+		t.Fatalf("deleted resources = %v, want [%s]", deleted, fixture.resourceID)
+	}
+
+	var lifecycleState, reasonCode string
+	var deletedAt, mismatchSince *time.Time
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT lifecycle_state, lifecycle_reason_code, deleted_at, provider_runtime_mismatch_since
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(
+		&lifecycleState,
+		&reasonCode,
+		&deletedAt,
+		&mismatchSince,
+	); err != nil {
+		t.Fatalf("load reconciled machine: %v", err)
+	}
+	if lifecycleState != string(executionstore.MachineLifecycleStateDeleted) || deletedAt == nil ||
+		reasonCode != "provider_deleted" || mismatchSince == nil {
+		t.Fatalf(
+			"reconciled machine = state %q reason %q deleted %v mismatch %v",
+			lifecycleState,
+			reasonCode,
+			deletedAt,
+			mismatchSince,
+		)
+	}
+	var revokedAt *time.Time
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT revoked_at FROM machine_daemon_tokens WHERE org_id = $1 AND id = $2`,
+		fixture.orgID,
+		fixture.tokenID,
+	).Scan(&revokedAt); err != nil {
+		t.Fatalf("load daemon token: %v", err)
+	}
+	if revokedAt == nil {
+		t.Fatal("forced deletion did not revoke daemon authority")
+	}
+}
+
+func TestProviderRuntimeReconciliationReconnectDefeatsDeletion(t *testing.T) {
+	ctx := context.Background()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "daemon-reconnect", provider)
+
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	provider.singleHook = func(observationCtx context.Context) error {
+		_, err := fixture.store.Execution().RegisterDaemonRuntimeWithReconciliation(
+			observationCtx,
+			executionstore.RegisterDaemonRuntimeInput{
+				OrgID:            fixture.orgID,
+				MachineID:        fixture.machineID,
+				DaemonTokenID:    fixture.tokenID,
+				DaemonInstanceID: uuid.New(),
+				DaemonVersion:    "1.0.0",
+				LeaseTimeout:     time.Minute,
+			},
+		)
+		return err
+	}
+
+	confirmation, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+			Concurrency:       1,
+		},
+	)
+	if err != nil {
+		t.Fatalf("confirm provider runtime mismatch: %v", err)
+	}
+	if confirmation.DeletionClaims != 0 || confirmation.DeletionClaimsSkipped != 1 {
+		t.Fatalf("confirmation stats = %+v, want reconnect to defeat claim", confirmation)
+	}
+	if deleted := provider.deletedResources(); len(deleted) != 0 {
+		t.Fatalf("provider deleted resources after reconnect: %v", deleted)
+	}
+
+	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
+	if err != nil {
+		t.Fatalf("get reconnected machine: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateActive ||
+		machine.ConnectionState != executionstore.MachineConnectionStateOnline {
+		t.Fatalf("reconnected machine = %+v, want active and online", machine)
+	}
+	var mismatchSince *time.Time
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT provider_runtime_mismatch_since FROM machines WHERE org_id = $1 AND id = $2`,
+		fixture.orgID,
+		fixture.machineID,
+	).Scan(&mismatchSince); err != nil {
+		t.Fatalf("load mismatch marker: %v", err)
+	}
+	if mismatchSince != nil {
+		t.Fatalf("mismatch marker survived daemon reconnect: %v", mismatchSince)
+	}
+}
+
+func TestProviderRuntimeTerminatedObservationLosesToReconnect(t *testing.T) {
+	ctx := context.Background()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateTerminated,
+		singleState: providers.RuntimeStateTerminated,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "terminated-reconnect", provider)
+	provider.singleHook = func(observationCtx context.Context) error {
+		_, err := fixture.store.Execution().RegisterDaemonRuntimeWithReconciliation(
+			observationCtx,
+			executionstore.RegisterDaemonRuntimeInput{
+				OrgID:            fixture.orgID,
+				MachineID:        fixture.machineID,
+				DaemonTokenID:    fixture.tokenID,
+				DaemonInstanceID: uuid.New(),
+				DaemonVersion:    "1.0.0",
+				LeaseTimeout:     time.Minute,
+			},
+		)
+		return err
+	}
+
+	stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("reconcile stale terminated observation: %v", err)
+	}
+	if stats.Confirmations != 1 || stats.Terminated != 1 ||
+		stats.DeletionClaims != 0 || stats.DeletionClaimsSkipped != 1 {
+		t.Fatalf("stale terminated observation stats = %+v", stats)
+	}
+	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
+	if err != nil {
+		t.Fatalf("load reconnected machine: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateActive ||
+		machine.ConnectionState != executionstore.MachineConnectionStateOnline {
+		t.Fatalf("reconnected machine = %+v, want active and online", machine)
+	}
+}
+
+func TestProviderRuntimeWakeIntentDefeatsDeletionBeforeDaemonRegistration(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "wake-before-registration", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+
+	wakeStarted := make(chan struct{})
+	releaseWake := make(chan struct{})
+	provider.setWakeHook(func(ctx context.Context, _ providers.WakeMachineInput) error {
+		close(wakeStarted)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-releaseWake:
+			return nil
+		}
+	})
+	type wakeResult struct {
+		shouldRetry bool
+		err         error
+	}
+	wakeDone := make(chan wakeResult, 1)
+	go func() {
+		shouldRetry, err := fixture.manager.WakeMachine(ctx, fixture.orgID, fixture.machineID)
+		wakeDone <- wakeResult{shouldRetry: shouldRetry, err: err}
+	}()
+	<-wakeStarted
+
+	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+		},
+	)
+	if err != nil {
+		t.Fatalf("confirm provider runtime mismatch during wake: %v", err)
+	}
+	if stats.Confirmations != 0 || stats.DeletionClaims != 0 || stats.DeletionClaimsSkipped != 0 {
+		t.Fatalf("confirmation during wake stats = %+v, want wake excluded", stats)
+	}
+	close(releaseWake)
+	result := <-wakeDone
+	if result.err != nil || !result.shouldRetry {
+		t.Fatalf("wake result = (%t, %v), want true/nil", result.shouldRetry, result.err)
+	}
+	if deleted := provider.deletedResources(); len(deleted) != 0 {
+		t.Fatalf("wake intent allowed provider deletion: %v", deleted)
+	}
+
+	if _, err := fixture.store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            fixture.orgID,
+			MachineID:        fixture.machineID,
+			DaemonTokenID:    fixture.tokenID,
+			DaemonInstanceID: uuid.New(),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     time.Minute,
+		},
+	); err != nil {
+		t.Fatalf("register daemon after wake: %v", err)
+	}
+	var mismatchSince, wakeExpiresAt *time.Time
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT provider_runtime_mismatch_since, wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(&mismatchSince, &wakeExpiresAt); err != nil {
+		t.Fatalf("load machine runtime protection state after registration: %v", err)
+	}
+	if mismatchSince != nil || wakeExpiresAt != nil {
+		t.Fatalf("registration retained runtime protection state: mismatch=%v wake=%v", mismatchSince, wakeExpiresAt)
+	}
+}
+
+func TestProviderRuntimeInactiveObservationPreservesFreshWake(t *testing.T) {
+	ctx := context.Background()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState: providers.RuntimeStateInactive,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "inactive-wake", provider)
+	if ready, err := fixture.manager.WakeMachine(ctx, fixture.orgID, fixture.machineID); err != nil || !ready {
+		t.Fatalf("wake inactive machine = (%t, %v), want true/nil", ready, err)
+	}
+
+	stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("observe inactive provider runtime: %v", err)
+	}
+	if stats.Inactive != 1 || stats.MarkersCleared != 0 || stats.WakeAttemptsCleared != 0 {
+		t.Fatalf("inactive wake observation stats = %+v, want no mismatch marker clear", stats)
+	}
+	var wakeExpiresAt *time.Time
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(&wakeExpiresAt); err != nil {
+		t.Fatalf("load wake intent after inactive observation: %v", err)
+	}
+	if wakeExpiresAt == nil {
+		t.Fatal("inactive observation cleared a fresh wake attempt")
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID); err != nil {
+		t.Fatalf("expire wake attempt: %v", err)
+	}
+	stats, err = fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("reconcile expired inactive wake: %v", err)
+	}
+	if stats.WakeAttemptsCleared != 1 {
+		t.Fatalf("expired wake observation stats = %+v, want one wake attempt clear", stats)
+	}
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(&wakeExpiresAt); err != nil {
+		t.Fatalf("reload expired wake after inactive observation: %v", err)
+	}
+	if wakeExpiresAt != nil {
+		t.Fatalf("inactive observation retained expired wake attempt: %v", wakeExpiresAt)
+	}
+}
+
+func TestProviderRuntimeFreshWakeDefersTerminalObservation(t *testing.T) {
+	ctx := context.Background()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateTerminated,
+		singleState: providers.RuntimeStateTerminated,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "terminal-fresh-wake", provider)
+	if ready, err := fixture.manager.WakeMachine(ctx, fixture.orgID, fixture.machineID); err != nil || !ready {
+		t.Fatalf("wake terminal machine = (%t, %v), want true/nil", ready, err)
+	}
+	stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("discover terminal provider runtime during wake: %v", err)
+	}
+	if stats.Confirmations != 0 || stats.Terminated != 0 || stats.DeletionClaims != 0 ||
+		stats.DeletionClaimsSkipped != 0 || provider.singleCallCount() != 0 {
+		t.Fatalf("fresh-wake terminal observation stats = %+v, exact calls = %d", stats, provider.singleCallCount())
+	}
+	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
+	if err != nil {
+		t.Fatalf("load terminal machine during wake: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateActive {
+		t.Fatalf("terminal machine during wake = %+v, want active", machine)
+	}
+}
+
+func TestProviderRuntimeDiscoveryRetiresMissingSandboxAfterWakeExpiry(t *testing.T) {
+	ctx := context.Background()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateUnknown,
+		singleState: providers.RuntimeStateTerminated,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "missing-after-wake", provider)
+	if shouldRetry, err := fixture.manager.WakeMachine(
+		ctx,
+		fixture.orgID,
+		fixture.machineID,
+	); err != nil || !shouldRetry {
+		t.Fatalf("wake missing sandbox = (%t, %v), want true/nil", shouldRetry, err)
+	}
+
+	stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("discover during fresh wake: %v", err)
+	}
+	if stats.Confirmations != 0 || provider.singleCallCount() != 0 {
+		t.Fatalf("fresh-wake discovery stats = %+v, exact calls = %d", stats, provider.singleCallCount())
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID); err != nil {
+		t.Fatalf("expire protected wake: %v", err)
+	}
+	if shouldRetry, err := fixture.manager.WakeMachine(
+		ctx,
+		fixture.orgID,
+		fixture.machineID,
+	); !errors.Is(err, storeerr.ErrMachineWakeUnresolved) || shouldRetry {
+		t.Fatalf("unresolved wake = (%t, %v)", shouldRetry, err)
+	}
+
+	stats, err = fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("resolve missing sandbox: %v", err)
+	}
+	if stats.Confirmations != 1 || stats.Terminated != 1 ||
+		stats.DeletionClaims != 1 || stats.DeletionClaimsSkipped != 0 {
+		t.Fatalf("missing-sandbox discovery stats = %+v", stats)
+	}
+	if provider.singleCallCount() != 1 {
+		t.Fatalf("missing-sandbox exact calls = %d, want 1", provider.singleCallCount())
+	}
+	if deleted := provider.deletedResources(); len(deleted) != 1 || deleted[0] != fixture.resourceID {
+		t.Fatalf("missing provider resource cleanup = %v, want [%s]", deleted, fixture.resourceID)
+	}
+	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
+	if err != nil {
+		t.Fatalf("load retired missing machine: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateDeleted ||
+		machine.DeletedAt == nil {
+		t.Fatalf("missing machine = %+v, want deleted", machine)
+	}
+	var revokedAt *time.Time
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT revoked_at FROM machine_daemon_tokens WHERE org_id = $1 AND id = $2`,
+		fixture.orgID,
+		fixture.tokenID,
+	).Scan(&revokedAt); err != nil {
+		t.Fatalf("load missing-machine daemon token: %v", err)
+	}
+	if revokedAt == nil {
+		t.Fatal("retiring missing machine did not revoke daemon authority")
+	}
+}
+
+func TestProviderRuntimeExpiredWakeExactErrorFailsOpen(t *testing.T) {
+	ctx := context.Background()
+	providerErr := errors.New("provider exact lookup unavailable")
+	provider := &runtimeReconciliationTestProvider{
+		bulkState: providers.RuntimeStateUnknown,
+		singleErr: providerErr,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "wake-exact-error", provider)
+	if shouldRetry, err := fixture.manager.WakeMachine(
+		ctx,
+		fixture.orgID,
+		fixture.machineID,
+	); err != nil || !shouldRetry {
+		t.Fatalf("start protected wake = (%t, %v), want true/nil", shouldRetry, err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID); err != nil {
+		t.Fatalf("expire protected wake: %v", err)
+	}
+
+	stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if !errors.Is(err, providerErr) || stats.Confirmations != 1 || stats.ProviderErrors != 1 ||
+		stats.DeletionClaims != 0 {
+		t.Fatalf("exact provider failure = stats %+v error %v", stats, err)
+	}
+	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
+	if err != nil {
+		t.Fatalf("load machine after exact provider failure: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateActive {
+		t.Fatalf("provider failure changed machine lifecycle: %+v", machine)
+	}
+	var wakeExpiresAt *time.Time
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(&wakeExpiresAt); err != nil {
+		t.Fatalf("load wake deadline after provider failure: %v", err)
+	}
+	if wakeExpiresAt == nil {
+		t.Fatal("provider failure cleared the unresolved wake")
+	}
+	stats, err = fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	)
+	if err != nil || stats.ScopesSkipped != 1 || stats.Confirmations != 0 {
+		t.Fatalf("provider cooldown discovery = stats %+v error %v", stats, err)
+	}
+}
+
+func TestProviderRuntimeExpiredWakeExactResolution(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		state           providers.RuntimeState
+		wantMarker      bool
+		wantWake        bool
+		wantWakeCleared int
+		wantMarkersSet  int
+	}{
+		{
+			name: "inactive clears wake", state: providers.RuntimeStateInactive,
+			wantWakeCleared: 1,
+		},
+		{
+			name: "running opens mismatch", state: providers.RuntimeStateRunning,
+			wantMarker: true, wantWake: true, wantMarkersSet: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			provider := &runtimeReconciliationTestProvider{
+				bulkState:   providers.RuntimeStateUnknown,
+				singleState: test.state,
+			}
+			fixture := newRuntimeReconciliationFixture(t, ctx, "wake-exact-"+test.name, provider)
+			if shouldRetry, err := fixture.manager.WakeMachine(
+				ctx,
+				fixture.orgID,
+				fixture.machineID,
+			); err != nil || !shouldRetry {
+				t.Fatalf("start protected wake = (%t, %v), want true/nil", shouldRetry, err)
+			}
+			if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID); err != nil {
+				t.Fatalf("expire protected wake: %v", err)
+			}
+
+			stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+				ctx,
+				RuntimeReconciliationConfig{PageSize: 1},
+			)
+			if err != nil {
+				t.Fatalf("resolve expired wake: %v", err)
+			}
+			if stats.Confirmations != 1 || stats.WakeAttemptsCleared != test.wantWakeCleared ||
+				stats.MarkersSet != test.wantMarkersSet {
+				t.Fatalf("expired wake resolution stats = %+v", stats)
+			}
+			var mismatchSince, wakeExpiresAt *time.Time
+			if err := fixture.pool.QueryRow(ctx, `
+SELECT provider_runtime_mismatch_since, wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.orgID, fixture.machineID).Scan(&mismatchSince, &wakeExpiresAt); err != nil {
+				t.Fatalf("load resolved wake state: %v", err)
+			}
+			if (mismatchSince != nil) != test.wantMarker || (wakeExpiresAt != nil) != test.wantWake {
+				t.Fatalf("resolved wake = mismatch %v wake %v", mismatchSince, wakeExpiresAt)
+			}
+		})
+	}
+}
+
+func TestProviderRuntimeTerminatedConfirmationRetiresMachine(t *testing.T) {
+	ctx := context.Background()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateTerminated,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "terminated-confirmation", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+			Concurrency:       1,
+		},
+	)
+	if err != nil {
+		t.Fatalf("confirm terminated provider resource: %v", err)
+	}
+	if stats.Confirmations != 1 || stats.Terminated != 1 || stats.DeletionClaims != 1 {
+		t.Fatalf("terminated confirmation stats = %+v", stats)
+	}
+	if deleted := provider.deletedResources(); len(deleted) != 1 || deleted[0] != fixture.resourceID {
+		t.Fatalf("terminated provider resource cleanup = %v, want [%s]", deleted, fixture.resourceID)
+	}
+	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
+	if err != nil {
+		t.Fatalf("load terminated machine: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateDeleted || machine.DeletedAt == nil {
+		t.Fatalf("terminated machine = %+v, want deleted", machine)
+	}
+}
+
+func TestProviderRuntimeTerminatedCleanupRetries(t *testing.T) {
+	ctx := context.Background()
+	deleteFailure := errors.New("temporary terminal cleanup failure")
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateTerminated,
+		deleteErr:   deleteFailure,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "terminated-delete-retry", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+			Concurrency:       1,
+		},
+	)
+	if !errors.Is(err, deleteFailure) || stats.DeletionClaims != 1 || stats.ProviderErrors != 1 {
+		t.Fatalf("terminal cleanup failure = stats %+v error %v", stats, err)
+	}
+	if deleted := provider.deletedResources(); len(deleted) != 1 || deleted[0] != fixture.resourceID {
+		t.Fatalf("terminal cleanup attempts = %v, want [%s]", deleted, fixture.resourceID)
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET next_reconcile_after = statement_timestamp() - interval '1 second'
+WHERE org_id = $1 AND id = $2 AND lifecycle_state = 'delete_failed'
+`, fixture.orgID, fixture.machineID); err != nil {
+		t.Fatalf("make terminal cleanup retry due: %v", err)
+	}
+	provider.setDeleteError(nil)
+	if count, err := fixture.manager.ReconcileCleanup(ctx, 10); err != nil || count != 1 {
+		t.Fatalf("retry terminal cleanup = (%d, %v), want 1/nil", count, err)
+	}
+	if deleted := provider.deletedResources(); len(deleted) != 2 {
+		t.Fatalf("terminal cleanup attempts after retry = %v, want 2", deleted)
+	}
+	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
+	if err != nil {
+		t.Fatalf("load terminal cleanup machine: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateDeleted {
+		t.Fatalf("terminal cleanup machine = %+v, want deleted", machine)
+	}
+}
+
+func TestProviderRuntimeDeletionDefeatsUnpersistedWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "deletion-before-wake", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	due, err := fixture.store.Execution().ListDueProviderRuntimeMismatches(
+		ctx,
+		executionstore.ListDueProviderRuntimeMismatchesInput{
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+		},
+	)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("load due runtime mismatch = (%d, %v), want one", len(due), err)
+	}
+
+	providerConstructed := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	fixture.definition.setNewProviderHook(func() {
+		close(providerConstructed)
+		<-releaseProvider
+	})
+	type wakeResult struct {
+		shouldRetry bool
+		err         error
+	}
+	wakeDone := make(chan wakeResult, 1)
+	go func() {
+		shouldRetry, err := fixture.manager.WakeMachine(ctx, fixture.orgID, fixture.machineID)
+		wakeDone <- wakeResult{shouldRetry: shouldRetry, err: err}
+	}()
+	<-providerConstructed
+
+	if _, claimed, err := fixture.store.Execution().ClaimProviderRuntimeMismatchDeletion(
+		ctx,
+		executionstore.ClaimProviderRuntimeMismatchDeletionInput{
+			Candidate:         due[0],
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+		},
+	); err != nil || !claimed {
+		t.Fatalf("claim deletion before wake = (%t, %v), want true/nil", claimed, err)
+	}
+	close(releaseProvider)
+	result := <-wakeDone
+	if result.err != nil || result.shouldRetry {
+		t.Fatalf("stale wake result = (%t, %v), want false/nil", result.shouldRetry, result.err)
+	}
+	if calls := provider.wakeCallCount(); calls != 0 {
+		t.Fatalf("provider wake calls after deletion = %d, want 0", calls)
+	}
+}
+
+func TestProviderRuntimeReconciliationRetainsIncidentMarkerAcrossDeleteRetry(t *testing.T) {
+	ctx := context.Background()
+	deleteFailure := errors.New("temporary provider delete failure")
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+		deleteErr:   deleteFailure,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "delete-retry", provider)
+
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	if _, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+			Concurrency:       1,
+		},
+	); !errors.Is(err, deleteFailure) {
+		t.Fatalf("confirmation error = %v, want provider delete failure", err)
+	}
+	assertRuntimeMismatchMarkerPresent(t, ctx, fixture)
+
+	if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET next_reconcile_after = statement_timestamp() - interval '1 second'
+WHERE org_id = $1 AND id = $2 AND lifecycle_state = 'delete_failed'
+`, fixture.orgID, fixture.machineID); err != nil {
+		t.Fatalf("make provider deletion retry due: %v", err)
+	}
+	provider.setDeleteError(nil)
+	count, err := fixture.manager.ReconcileCleanup(ctx, 10)
+	if err != nil {
+		t.Fatalf("retry provider deletion: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("cleanup retry count = %d, want 1", count)
+	}
+	assertRuntimeMismatchMarkerPresent(t, ctx, fixture)
+
+	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
+	if err != nil {
+		t.Fatalf("load deleted machine: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateDeleted {
+		t.Fatalf("machine lifecycle = %q, want deleted", machine.LifecycleState)
+	}
+}
+
+func TestProviderRuntimeReconciliationFreshNonRunningStateFailsOpen(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		state       providers.RuntimeState
+		wantCleared bool
+	}{
+		{name: "inactive clears", state: providers.RuntimeStateInactive, wantCleared: true},
+		{name: "transitional retains", state: providers.RuntimeStateTransitional},
+		{name: "unknown retains", state: providers.RuntimeStateUnknown},
+		{name: "invalid retains", state: providers.RuntimeState("future")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			provider := &runtimeReconciliationTestProvider{
+				bulkState:   providers.RuntimeStateRunning,
+				singleState: test.state,
+			}
+			fixture := newRuntimeReconciliationFixture(t, ctx, "fresh-"+test.name, provider)
+			if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+				ctx,
+				RuntimeReconciliationConfig{PageSize: 1},
+			); err != nil {
+				t.Fatalf("discover provider runtime mismatch: %v", err)
+			}
+			fixture.backdateMismatch(t, ctx)
+			stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+				ctx,
+				RuntimeReconciliationConfig{
+					PageSize:          1,
+					ConfirmationGrace: time.Millisecond,
+					InactivityGrace:   time.Millisecond,
+					Concurrency:       1,
+				},
+			)
+			if err != nil {
+				t.Fatalf("confirm provider runtime mismatch: %v", err)
+			}
+			if stats.DeletionClaims != 0 || len(provider.deletedResources()) != 0 {
+				t.Fatalf("fresh state %q caused deletion: stats=%+v", test.state, stats)
+			}
+			wantObserved := 0
+			if test.state.Valid() {
+				wantObserved = 1
+			}
+			if stats.Confirmations != 1 || stats.Observed != wantObserved {
+				t.Fatalf(
+					"fresh state %q stats = %+v, want one confirmation and %d observations",
+					test.state,
+					stats,
+					wantObserved,
+				)
+			}
+			mismatchSince := runtimeMismatchSince(t, ctx, fixture)
+			if test.wantCleared {
+				if stats.MarkersCleared != 1 || mismatchSince != nil {
+					t.Fatalf("fresh state %q did not clear marker: stats=%+v marker=%v", test.state, stats, mismatchSince)
+				}
+			} else if stats.MarkersCleared != 0 || mismatchSince == nil {
+				t.Fatalf("fresh state %q did not fail open: stats=%+v marker=%v", test.state, stats, mismatchSince)
+			}
+		})
+	}
+}
+
+func TestProviderRuntimeReconciliationProviderErrorUsesScopeCooldown(t *testing.T) {
+	ctx := context.Background()
+	providerErr := errors.New("provider unavailable")
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+		singleErr:   providerErr,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "provider-cooldown", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	config := RuntimeReconciliationConfig{
+		PageSize:          1,
+		ConfirmationGrace: time.Millisecond,
+		InactivityGrace:   time.Millisecond,
+		Concurrency:       1,
+	}
+	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(ctx, config)
+	if !errors.Is(err, providerErr) || stats.ProviderErrors != 1 || stats.Confirmations != 1 {
+		t.Fatalf("provider failure = stats %+v error %v", stats, err)
+	}
+	stats, err = fixture.manager.ConfirmProviderRuntimeMismatches(ctx, config)
+	if err != nil || stats.ScopesSkipped != 1 || stats.DeletionClaims != 0 {
+		t.Fatalf("cooldown confirmation = stats %+v error %v", stats, err)
+	}
+	assertRuntimeMismatchMarkerPresent(t, ctx, fixture)
+	if deleted := provider.deletedResources(); len(deleted) != 0 {
+		t.Fatalf("provider error caused deletions: %v", deleted)
+	}
+}
+
+func TestProviderRuntimeReconciliationShutdownCancellationIsNotProviderFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateRunning,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "shutdown-cancellation", provider)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 1},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatch: %v", err)
+	}
+	fixture.backdateMismatch(t, ctx)
+	provider.mu.Lock()
+	provider.singleHook = func(ctx context.Context) error {
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	provider.mu.Unlock()
+
+	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{
+			PageSize:          1,
+			ConfirmationGrace: time.Millisecond,
+			InactivityGrace:   time.Millisecond,
+			Concurrency:       1,
+		},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("confirmation cancellation error = %v, want context canceled", err)
+	}
+	if stats.ProviderErrors != 0 || stats.Confirmations != 1 {
+		t.Fatalf("confirmation cancellation stats = %+v, want one non-provider confirmation failure", stats)
+	}
+	state := fixture.manager.runtimeReconciliationState
+	state.mu.Lock()
+	cooldowns := len(state.cooldowns)
+	cursors := len(state.confirmationCursors)
+	state.mu.Unlock()
+	if cooldowns != 0 || cursors != 0 {
+		t.Fatalf("shutdown cancellation retained cooldowns=%d cursors=%d", cooldowns, cursors)
+	}
+}
+
+func TestProviderRuntimeDiscoveryPagesFleetAndProcessesScopesConcurrently(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	provider := &runtimeReconciliationTestProvider{bulkState: providers.RuntimeStateRunning}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "concurrent-scopes", provider)
+	secondMachineID := addRuntimeReconciliationScopeMachine(
+		t,
+		ctx,
+		fixture,
+		"concurrent-scopes-second",
+		json.RawMessage(`{"scope":"second"}`),
+	)
+
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	provider.mu.Lock()
+	provider.bulkHook = func(ctx context.Context) error {
+		entered <- struct{}{}
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	provider.mu.Unlock()
+	type discoveryResult struct {
+		stats RuntimeReconciliationStats
+		err   error
+	}
+	done := make(chan discoveryResult, 1)
+	go func() {
+		stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+			ctx,
+			RuntimeReconciliationConfig{PageSize: 1, Concurrency: 2},
+		)
+		done <- discoveryResult{stats: stats, err: err}
+	}()
+
+	for range 2 {
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			close(release)
+			got := <-done
+			t.Fatalf("provider scopes were not observed concurrently: %v (stats %+v)", ctx.Err(), got.stats)
+		}
+	}
+	close(release)
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("discover provider runtime scopes: %v", got.err)
+	}
+	if got.stats.Scopes != 2 || got.stats.Targets != 2 ||
+		got.stats.MarkersSet != 2 || got.stats.Pages < 2 {
+		t.Fatalf("multi-scope discovery stats = %+v", got.stats)
+	}
+	var marked int
+	if err := fixture.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM machines
+WHERE id IN ($1, $2) AND provider_runtime_mismatch_since IS NOT NULL
+`, fixture.machineID, secondMachineID).Scan(&marked); err != nil {
+		t.Fatalf("count marked scope machines: %v", err)
+	}
+	if marked != 2 {
+		t.Fatalf("marked scope machines = %d, want 2", marked)
+	}
+}
+
+func TestProviderRuntimeDiscoveryBoundsExactWakeResolutionGlobally(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateUnknown,
+		singleState: providers.RuntimeStateUnknown,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "wake-resolution-concurrency", provider)
+	for index := range 7 {
+		seedInactiveRuntimeMachine(
+			t,
+			ctx,
+			fixture.pool,
+			fixture.machinePool,
+			fmt.Sprintf("wake-resolution-concurrency-%d", index),
+			time.Now().UTC(),
+		)
+	}
+	addRuntimeReconciliationScopeMachine(
+		t,
+		ctx,
+		fixture,
+		"wake-resolution-concurrency-second-scope",
+		json.RawMessage(`{"scope":"second"}`),
+	)
+	if _, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND lifecycle_state = 'active' AND asleep_since IS NOT NULL
+`, fixture.orgID); err != nil {
+		t.Fatalf("expire protected wake attempts: %v", err)
+	}
+
+	entered := make(chan struct{}, 4)
+	release := make(chan struct{})
+	var current atomic.Int32
+	var maximum atomic.Int32
+	provider.singleTargetHook = func(ctx context.Context, _ providers.RuntimeTarget) error {
+		inFlight := current.Add(1)
+		defer current.Add(-1)
+		for {
+			observed := maximum.Load()
+			if inFlight <= observed || maximum.CompareAndSwap(observed, inFlight) {
+				break
+			}
+		}
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	type discoveryResult struct {
+		stats RuntimeReconciliationStats
+		err   error
+	}
+	done := make(chan discoveryResult, 1)
+	go func() {
+		stats, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+			ctx,
+			RuntimeReconciliationConfig{PageSize: 2, Concurrency: 4},
+		)
+		done <- discoveryResult{stats: stats, err: err}
+	}()
+	for range 4 {
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			close(release)
+			result := <-done
+			t.Fatalf("wake resolution did not reach configured concurrency: %v (%+v)", ctx.Err(), result)
+		}
+	}
+	close(release)
+	result := <-done
+	if result.err != nil {
+		t.Fatalf("resolve expired protected wakes: %v", result.err)
+	}
+	if result.stats.Confirmations != 9 || maximum.Load() != 4 {
+		t.Fatalf("wake resolution stats = %+v, max concurrency = %d, want 9 and 4", result.stats, maximum.Load())
+	}
+}
+
+func TestProviderRuntimeConfirmationBoundsConcurrentTargetsGlobally(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateUnknown,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "confirmation-concurrency", provider)
+	for index := range 7 {
+		seedInactiveRuntimeMachine(
+			t,
+			ctx,
+			fixture.pool,
+			fixture.machinePool,
+			fmt.Sprintf("confirmation-concurrency-%d", index),
+			time.Now().UTC(),
+		)
+	}
+	addRuntimeReconciliationScopeMachine(
+		t,
+		ctx,
+		fixture,
+		"confirmation-concurrency-second-scope",
+		json.RawMessage(`{"scope":"second"}`),
+	)
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 2, Concurrency: 4},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatches: %v", err)
+	}
+	backdateAllRuntimeMismatches(t, ctx, fixture)
+
+	entered := make(chan struct{}, 4)
+	release := make(chan struct{})
+	var current atomic.Int32
+	var maximum atomic.Int32
+	provider.singleTargetHook = func(ctx context.Context, _ providers.RuntimeTarget) error {
+		inFlight := current.Add(1)
+		defer current.Add(-1)
+		for {
+			observed := maximum.Load()
+			if inFlight <= observed || maximum.CompareAndSwap(observed, inFlight) {
+				break
+			}
+		}
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	type confirmationResult struct {
+		stats RuntimeReconciliationStats
+		err   error
+	}
+	done := make(chan confirmationResult, 1)
+	go func() {
+		stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(
+			ctx,
+			RuntimeReconciliationConfig{
+				PageSize:          2,
+				ConfirmationGrace: time.Millisecond,
+				InactivityGrace:   time.Millisecond,
+				Concurrency:       4,
+			},
+		)
+		done <- confirmationResult{stats: stats, err: err}
+	}()
+	for range 4 {
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			close(release)
+			result := <-done
+			t.Fatalf("exact provider reads did not reach configured concurrency: %v (%+v)", ctx.Err(), result)
+		}
+	}
+	close(release)
+	result := <-done
+	if result.err != nil {
+		t.Fatalf("confirm provider runtime mismatches: %v", result.err)
+	}
+	if result.stats.Confirmations != 9 || maximum.Load() != 4 {
+		t.Fatalf("confirmation stats = %+v, max concurrency = %d, want 9 and 4", result.stats, maximum.Load())
+	}
+}
+
+func TestProviderRuntimeConfirmationRotatesPastFailingTarget(t *testing.T) {
+	ctx := context.Background()
+	providerErr := errors.New("target observation failed")
+	provider := &runtimeReconciliationTestProvider{
+		bulkState:   providers.RuntimeStateRunning,
+		singleState: providers.RuntimeStateUnknown,
+	}
+	fixture := newRuntimeReconciliationFixture(t, ctx, "confirmation-rotation", provider)
+	for index := range 8 {
+		seedInactiveRuntimeMachine(
+			t,
+			ctx,
+			fixture.pool,
+			fixture.machinePool,
+			fmt.Sprintf("confirmation-rotation-%d", index),
+			time.Now().UTC(),
+		)
+	}
+	if _, err := fixture.manager.DiscoverProviderRuntimeMismatches(
+		ctx,
+		RuntimeReconciliationConfig{PageSize: 2, Concurrency: 4},
+	); err != nil {
+		t.Fatalf("discover provider runtime mismatches: %v", err)
+	}
+	backdateAllRuntimeMismatches(t, ctx, fixture)
+
+	var seenMu sync.Mutex
+	seen := make(map[storage.ID]struct{})
+	var failed atomic.Bool
+	provider.singleTargetHook = func(_ context.Context, target providers.RuntimeTarget) error {
+		seenMu.Lock()
+		seen[target.MachineID] = struct{}{}
+		seenMu.Unlock()
+		if failed.CompareAndSwap(false, true) {
+			return providerErr
+		}
+		return nil
+	}
+	config := RuntimeReconciliationConfig{
+		PageSize:          2,
+		ConfirmationGrace: time.Millisecond,
+		InactivityGrace:   time.Millisecond,
+		Concurrency:       4,
+	}
+	first, err := fixture.manager.ConfirmProviderRuntimeMismatches(ctx, config)
+	if !errors.Is(err, providerErr) || first.Confirmations != 4 {
+		t.Fatalf("first confirmation = stats %+v error %v, want one failed four-target stripe", first, err)
+	}
+	seenMu.Lock()
+	firstSeen := maps.Clone(seen)
+	seen = make(map[storage.ID]struct{})
+	seenMu.Unlock()
+
+	fixture.manager.runtimeReconciliationState.mu.Lock()
+	clear(fixture.manager.runtimeReconciliationState.cooldowns)
+	fixture.manager.runtimeReconciliationState.mu.Unlock()
+	failed.Store(false)
+	second, err := fixture.manager.ConfirmProviderRuntimeMismatches(ctx, config)
+	if !errors.Is(err, providerErr) || second.Confirmations != 4 {
+		t.Fatalf("second confirmation = stats %+v error %v, want one rotated four-target stripe", second, err)
+	}
+	seenMu.Lock()
+	defer seenMu.Unlock()
+	advanced := false
+	for machineID := range seen {
+		if _, existed := firstSeen[machineID]; !existed {
+			advanced = true
+			break
+		}
+	}
+	if !advanced {
+		t.Fatalf("confirmation retry did not rotate beyond first stripe: first=%v second=%v", firstSeen, seen)
+	}
+}
+
+func assertRuntimeMismatchMarkerPresent(
+	t *testing.T,
+	ctx context.Context,
+	fixture runtimeReconciliationFixture,
+) {
+	t.Helper()
+	var mismatchSince *time.Time
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT provider_runtime_mismatch_since FROM machines WHERE org_id = $1 AND id = $2`,
+		fixture.orgID,
+		fixture.machineID,
+	).Scan(&mismatchSince); err != nil {
+		t.Fatalf("load runtime mismatch marker: %v", err)
+	}
+	if mismatchSince == nil {
+		t.Fatal("runtime mismatch incident marker was cleared")
+	}
+}
+
+func runtimeMismatchSince(
+	t *testing.T,
+	ctx context.Context,
+	fixture runtimeReconciliationFixture,
+) *time.Time {
+	t.Helper()
+	var mismatchSince *time.Time
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT provider_runtime_mismatch_since FROM machines WHERE org_id = $1 AND id = $2`,
+		fixture.orgID,
+		fixture.machineID,
+	).Scan(&mismatchSince); err != nil {
+		t.Fatalf("load runtime mismatch marker: %v", err)
+	}
+	return mismatchSince
+}
+
+type runtimeReconciliationFixture struct {
+	pool        *pgxpool.Pool
+	store       *storage.Store
+	manager     Manager
+	definition  *runtimeReconciliationTestDefinition
+	machinePool executionstore.MachinePoolRecord
+	orgID       storage.ID
+	machineID   storage.ID
+	tokenID     storage.ID
+	resourceID  string
+}
+
+func newRuntimeReconciliationFixture(
+	t *testing.T,
+	ctx context.Context,
+	seed string,
+	provider *runtimeReconciliationTestProvider,
+) runtimeReconciliationFixture {
+	t.Helper()
+	pool := openManagerIntegrationDB(t, ctx)
+	store := storage.NewStore(
+		pool,
+		storage.WithSecretKeyWrapper(managerIntegrationKeyWrapper(t)),
+		storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
+	)
+	now := time.Now().UTC()
+	orgID := seedManagerOrg(t, ctx, pool, "runtime-reconciliation-"+seed, now)
+	providerAuthSecretID := createProviderAuthSecretForManagerTest(
+		t,
+		ctx,
+		pool,
+		store,
+		orgID,
+		"runtime-reconciliation-"+seed,
+		"provider-token",
+	)
+	machinePool, err := store.Execution().CreateMachinePool(
+		ctx,
+		machinePoolInputWithDefaultMachineForManagerTest(
+			t,
+			executionstore.CreateMachinePoolInput{
+				OrgID:                    orgID,
+				Name:                     "Runtime Reconciliation " + seed,
+				Provider:                 "capture",
+				ProviderConfig:           json.RawMessage(`{"scope":"test"}`),
+				ProviderAuthSecretID:     providerAuthSecretID,
+				RuntimeProtectionEnabled: true,
+				MaxTotalMachines:         10,
+				MaxTotalCPU:              intPtrForManagerTest(10),
+				MaxTotalMemoryMB:         intPtrForManagerTest(10240),
+				MaxMachineCPU:            intPtrForManagerTest(1),
+				MaxMachineMemoryMB:       intPtrForManagerTest(1024),
+			},
+			1,
+			1024,
+			nil,
+			nil,
+			map[string]any{},
+		),
+	)
+	if err != nil {
+		t.Fatalf("create runtime reconciliation pool: %v", err)
+	}
+	machineID, tokenID, resourceID := seedInactiveRuntimeMachine(
+		t,
+		ctx,
+		pool,
+		machinePool,
+		seed,
+		now,
+	)
+
+	definition := &runtimeReconciliationTestDefinition{provider: provider}
+	manager := Manager{
+		Execution:                  store.Execution(),
+		Identity:                   store.Identity(),
+		Catalog:                    testProviderCatalog(definition),
+		PublicURL:                  "https://app.omnara.test",
+		runtimeReconciliationState: newRuntimeReconciliationState(),
+	}
+	return runtimeReconciliationFixture{
+		pool:        pool,
+		store:       store,
+		manager:     manager,
+		definition:  definition,
+		machinePool: machinePool,
+		orgID:       orgID,
+		machineID:   machineID,
+		tokenID:     tokenID,
+		resourceID:  resourceID,
+	}
+}
+
+func addRuntimeReconciliationScopeMachine(
+	t *testing.T,
+	ctx context.Context,
+	fixture runtimeReconciliationFixture,
+	seed string,
+	providerConfig json.RawMessage,
+) storage.ID {
+	t.Helper()
+	now := time.Now().UTC()
+	providerAuthSecretID := createProviderAuthSecretForManagerTest(
+		t,
+		ctx,
+		fixture.pool,
+		fixture.store,
+		fixture.orgID,
+		seed,
+		"provider-token",
+	)
+	machinePool, err := fixture.store.Execution().CreateMachinePool(
+		ctx,
+		machinePoolInputWithDefaultMachineForManagerTest(
+			t,
+			executionstore.CreateMachinePoolInput{
+				OrgID:                    fixture.orgID,
+				Name:                     "Runtime Reconciliation " + seed,
+				Provider:                 "capture",
+				ProviderConfig:           providerConfig,
+				ProviderAuthSecretID:     providerAuthSecretID,
+				RuntimeProtectionEnabled: true,
+				MaxTotalMachines:         10,
+				MaxTotalCPU:              intPtrForManagerTest(10),
+				MaxTotalMemoryMB:         intPtrForManagerTest(10240),
+				MaxMachineCPU:            intPtrForManagerTest(1),
+				MaxMachineMemoryMB:       intPtrForManagerTest(1024),
+			},
+			1,
+			1024,
+			nil,
+			nil,
+			map[string]any{},
+		),
+	)
+	if err != nil {
+		t.Fatalf("create second runtime reconciliation pool: %v", err)
+	}
+	machineID, _, _ := seedInactiveRuntimeMachine(
+		t,
+		ctx,
+		fixture.pool,
+		machinePool,
+		seed,
+		now,
+	)
+	return machineID
+}
+
+func seedInactiveRuntimeMachine(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	machinePool executionstore.MachinePoolRecord,
+	seed string,
+	now time.Time,
+) (storage.ID, storage.ID, string) {
+	t.Helper()
+	resourceID := "runtime-resource-" + seed
+	machineID := insertPoolMachineForManagerTest(
+		t,
+		ctx,
+		pool,
+		machinePool,
+		"active",
+		resourceID,
+		now,
+	)
+	tokenID := uuid.New()
+	runtimeID := uuid.New()
+	inactiveSince := now.Add(-10 * time.Minute)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO machine_daemon_tokens(
+    id, org_id, machine_id, name, token_hash, created_at
+) VALUES ($1, $2, $3, 'runtime-reconciliation', $4, $5)
+`, tokenID, machinePool.OrgID, machineID, "runtime-reconciliation-token-"+uuid.NewString(), inactiveSince.Add(-time.Minute)); err != nil {
+		t.Fatalf("seed runtime reconciliation daemon token: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO daemon_runtimes(
+    id, org_id, machine_id, daemon_token_id, daemon_instance_id,
+    daemon_version, state, state_reason_code, created_at, last_seen_at,
+    lease_expires_at, ended_at, updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, 'test-daemon', 'ended', 'daemon_sleep',
+    $6, $6, $7, $7, $7
+)
+`, runtimeID, machinePool.OrgID, machineID, tokenID, uuid.New(), inactiveSince.Add(-time.Minute), inactiveSince); err != nil {
+		t.Fatalf("seed runtime reconciliation daemon runtime: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE machines
+SET current_daemon_runtime_id = $1,
+    asleep_since = $2,
+    last_observed_at = $2,
+    updated_at = $2
+WHERE org_id = $3 AND id = $4
+`, runtimeID, inactiveSince, machinePool.OrgID, machineID); err != nil {
+		t.Fatalf("attach inactive runtime: %v", err)
+	}
+	return machineID, tokenID, resourceID
+}
+
+func (f runtimeReconciliationFixture) backdateMismatch(t *testing.T, ctx context.Context) {
+	t.Helper()
+	tag, err := f.pool.Exec(ctx, `
+UPDATE machines
+SET provider_runtime_mismatch_since = statement_timestamp() - interval '5 minutes'
+WHERE org_id = $1 AND id = $2 AND provider_runtime_mismatch_since IS NOT NULL
+`, f.orgID, f.machineID)
+	if err != nil {
+		t.Fatalf("backdate mismatch marker: %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("backdate mismatch affected %d rows, want 1", tag.RowsAffected())
+	}
+}
+
+func backdateAllRuntimeMismatches(
+	t *testing.T,
+	ctx context.Context,
+	fixture runtimeReconciliationFixture,
+) {
+	t.Helper()
+	tag, err := fixture.pool.Exec(ctx, `
+UPDATE machines
+SET provider_runtime_mismatch_since = statement_timestamp() - interval '5 minutes'
+WHERE org_id = $1 AND provider_runtime_mismatch_since IS NOT NULL
+`, fixture.orgID)
+	if err != nil {
+		t.Fatalf("backdate provider runtime mismatches: %v", err)
+	}
+	if tag.RowsAffected() == 0 {
+		t.Fatal("backdate provider runtime mismatches affected no rows")
+	}
+}
+
+type runtimeReconciliationTestDefinition struct {
+	mu              sync.Mutex
+	provider        *runtimeReconciliationTestProvider
+	newProviderHook func()
+}
+
+func (d *runtimeReconciliationTestDefinition) NewProvider(
+	json.RawMessage,
+	providers.RuntimeConfig,
+) (providers.Provider, error) {
+	return d.newProvider(), nil
+}
+
+func (d *runtimeReconciliationTestDefinition) NewRuntimeProvider(
+	json.RawMessage,
+	providers.RuntimeConfig,
+) (providers.RuntimeProvider, error) {
+	return d.newProvider(), nil
+}
+
+func (d *runtimeReconciliationTestDefinition) newProvider() *runtimeReconciliationTestProvider {
+	d.mu.Lock()
+	hook := d.newProviderHook
+	d.newProviderHook = nil
+	provider := d.provider
+	d.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return provider
+}
+
+func (d *runtimeReconciliationTestDefinition) setNewProviderHook(hook func()) {
+	d.mu.Lock()
+	d.newProviderHook = hook
+	d.mu.Unlock()
+}
+
+func (*runtimeReconciliationTestDefinition) ResolveMachineProviderOptions(
+	defaultOptions,
+	projectOptions,
+	agentOptions map[string]json.RawMessage,
+) map[string]json.RawMessage {
+	return providers.MergeOptions(defaultOptions, projectOptions, agentOptions)
+}
+
+func (*runtimeReconciliationTestDefinition) ValidatePool(
+	executionstore.MachinePoolProviderPolicy,
+) error {
+	return nil
+}
+
+func (*runtimeReconciliationTestDefinition) ValidateMachineProvisioning(
+	executionstore.MachinePoolProviderPolicy,
+	executionstore.MachineProvisioningConfig,
+) error {
+	return nil
+}
+
+func (*runtimeReconciliationTestDefinition) BuildMachineProvisioningIntent(
+	_ executionstore.MachinePoolProviderPolicy,
+	provisioning executionstore.MachineProvisioningConfig,
+) (executionstore.MachineProvisioningConfig, error) {
+	return provisioning, nil
+}
+
+type runtimeReconciliationTestProvider struct {
+	mu               sync.Mutex
+	bulkState        providers.RuntimeState
+	singleState      providers.RuntimeState
+	bulkHook         func(context.Context) error
+	singleHook       func(context.Context) error
+	singleTargetHook func(context.Context, providers.RuntimeTarget) error
+	bulkErr          error
+	singleErr        error
+	deleteErr        error
+	wakeHook         func(context.Context, providers.WakeMachineInput) error
+	wakeCalls        int
+	singleCalls      int
+	deleted          []string
+}
+
+func (*runtimeReconciliationTestProvider) ProvisioningTimeout() time.Duration {
+	return time.Second
+}
+
+func (*runtimeReconciliationTestProvider) PrepareProvisioning(
+	context.Context,
+	executionstore.MachineProvisioningConfig,
+) (executionstore.MachineResourceFacts, error) {
+	return executionstore.MachineResourceFacts{}, errors.New("not implemented by runtime test provider")
+}
+
+func (*runtimeReconciliationTestProvider) ProvisionMachine(
+	context.Context,
+	storage.ID,
+	storage.ID,
+	executionstore.MachineProvisioningConfig,
+	string,
+	map[string]string,
+) (providers.ProvisionMachineResult, error) {
+	return providers.ProvisionMachineResult{}, errors.New("not implemented by runtime test provider")
+}
+
+func (*runtimeReconciliationTestProvider) InspectMachine(
+	context.Context,
+	storage.ID,
+	storage.ID,
+	executionstore.MachineProvisioningConfig,
+	string,
+) (string, bool, error) {
+	return "", false, errors.New("not implemented by runtime test provider")
+}
+
+func (p *runtimeReconciliationTestProvider) DeleteMachine(
+	_ context.Context,
+	_, _ storage.ID,
+	_ executionstore.MachineProvisioningConfig,
+	providerResourceID string,
+) error {
+	p.mu.Lock()
+	p.deleted = append(p.deleted, providerResourceID)
+	err := p.deleteErr
+	p.mu.Unlock()
+	return err
+}
+
+func (p *runtimeReconciliationTestProvider) WakeMachine(
+	ctx context.Context,
+	input providers.WakeMachineInput,
+) error {
+	p.mu.Lock()
+	hook := p.wakeHook
+	p.wakeCalls++
+	p.mu.Unlock()
+	if hook != nil {
+		return hook(ctx, input)
+	}
+	return nil
+}
+
+func (p *runtimeReconciliationTestProvider) ObserveRuntimeStates(
+	ctx context.Context,
+	targets []providers.RuntimeTarget,
+) ([]providers.RuntimeObservation, error) {
+	p.mu.Lock()
+	hook, state, err := p.bulkHook, p.bulkState, p.bulkErr
+	p.mu.Unlock()
+	if hook != nil {
+		if hookErr := hook(ctx); hookErr != nil {
+			return nil, hookErr
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	observations := make([]providers.RuntimeObservation, 0, len(targets))
+	for _, target := range targets {
+		observations = append(observations, providers.RuntimeObservation{
+			MachineID:          target.MachineID,
+			ProviderResourceID: target.ProviderResourceID,
+			State:              state,
+		})
+	}
+	return observations, nil
+}
+
+func (p *runtimeReconciliationTestProvider) ObserveRuntimeState(
+	ctx context.Context,
+	target providers.RuntimeTarget,
+) (providers.RuntimeObservation, error) {
+	p.mu.Lock()
+	hook, targetHook, state, observationErr := p.singleHook, p.singleTargetHook, p.singleState, p.singleErr
+	p.singleHook = nil
+	p.singleCalls++
+	p.mu.Unlock()
+	if hook != nil {
+		if err := hook(ctx); err != nil {
+			return providers.RuntimeObservation{}, err
+		}
+	}
+	if targetHook != nil {
+		if err := targetHook(ctx, target); err != nil {
+			return providers.RuntimeObservation{}, err
+		}
+	}
+	if observationErr != nil {
+		return providers.RuntimeObservation{}, observationErr
+	}
+	return providers.RuntimeObservation{
+		MachineID:          target.MachineID,
+		ProviderResourceID: target.ProviderResourceID,
+		State:              state,
+	}, nil
+}
+
+func (p *runtimeReconciliationTestProvider) deletedResources() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.deleted...)
+}
+
+func (p *runtimeReconciliationTestProvider) setDeleteError(err error) {
+	p.mu.Lock()
+	p.deleteErr = err
+	p.mu.Unlock()
+}
+
+func (p *runtimeReconciliationTestProvider) setWakeHook(
+	hook func(context.Context, providers.WakeMachineInput) error,
+) {
+	p.mu.Lock()
+	p.wakeHook = hook
+	p.mu.Unlock()
+}
+
+func (p *runtimeReconciliationTestProvider) wakeCallCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.wakeCalls
+}
+
+func (p *runtimeReconciliationTestProvider) singleCallCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.singleCalls
+}
+
+var _ providers.RuntimeStateObserver = (*runtimeReconciliationTestProvider)(nil)
+var _ providers.MachineWaker = (*runtimeReconciliationTestProvider)(nil)

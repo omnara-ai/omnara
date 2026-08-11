@@ -56,6 +56,7 @@ type Executor struct {
 	MCP                      mcp.Client
 	IntegrationHTTPClient    *http.Client
 	MCPAuthHTTPClient        *http.Client
+	SigV4CredentialCache     *mcp.SigV4CredentialCache
 	WebSearch                webaccess.SearchProvider
 	WebFetcher               *webaccess.Fetcher
 	MachinePoolManager       machinePoolManager

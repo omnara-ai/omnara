@@ -81,6 +81,8 @@ type AgentConfigMCPSource struct {
 type AgentConfigMCPAuthSource struct {
 	Type     string `json:"type"`
 	SecretID string `json:"secret_id"`
+	Service  string `json:"service,omitempty"`
+	Region   string `json:"region,omitempty"`
 }
 
 type AgentConfigMCPToolSource struct {
@@ -338,21 +340,23 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.Prop("default_enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
 				kjsonschema.Prop("tools", kjsonschema.Object(
-					kjsonschema.PropertyNames(kjsonschema.AllOf(
-						kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPRemoteToolNamePattern)),
-						kjsonschema.Not(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPToolNameSeparator))),
-					)),
+					kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPRemoteToolNamePattern))),
 					kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPToolSource")),
 				)),
 				kjsonschema.Required("url"),
 				kjsonschema.AdditionalProps(false),
 			),
 			"AgentConfigMCPAuthSource": kjsonschema.Object(
-				kjsonschema.Prop("type", kjsonschema.Enum(MCPAuthTypeBearer, MCPAuthTypeOAuth)),
+				kjsonschema.Prop(
+					"type",
+					kjsonschema.Enum(MCPAuthTypeBearer, MCPAuthTypeOAuth, MCPAuthTypeSigV4),
+				),
 				kjsonschema.Prop(
 					"secret_id",
 					kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`^sec_[a-z2-7]{26}$`)),
 				),
+				kjsonschema.Prop("service", kjsonschema.String(kjsonschema.MinLength(1))),
+				kjsonschema.Prop("region", kjsonschema.String(kjsonschema.MinLength(1))),
 				kjsonschema.Required("type", "secret_id"),
 				kjsonschema.AdditionalProps(false),
 			),

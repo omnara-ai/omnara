@@ -161,7 +161,16 @@ export class AgentChatSession {
         client: this.client,
         path: this.scope,
         headers: { 'Idempotency-Key': id },
-        body: { content_blocks: [{ type: 'text', text }] },
+        body: {
+          content_blocks: [
+            {
+              type: 'text',
+              text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
+              metadata: { omnara_hidden: 'true' },
+            },
+            { type: 'text', text },
+          ],
+        },
       })
       this.lastFailedSend = null
       if (this.inputEchoLoaded(id)) this.clearPendingInput(id)

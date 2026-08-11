@@ -195,6 +195,7 @@ type processClosureResult struct {
 type processRuntime struct {
 	processID            string
 	supervisorInstanceID string
+	supervisorPID        int
 	runner               processRunner
 }
 

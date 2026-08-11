@@ -25,6 +25,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { savePendingMcpSecretGrants } from '@/lib/pending-mcp-secret-grants'
 
+import { AWSCredentialsSecretFields } from './AWSCredentialsSecretFields'
 import {
   isSecretKind,
   newSecretDialogState,
@@ -61,9 +62,13 @@ export function CreateSecretDialog({
     state.name.trim() !== '' &&
     (state.secret.kind === 'generic'
       ? state.secret.value !== ''
-      : state.secret.kind === 'mcp_oauth'
-        ? validMcpUrl
-        : oauthMaterial !== undefined)
+      : state.secret.kind === 'aws_credentials'
+        ? state.secret.accessKeyId.trim() !== '' &&
+          state.secret.secretAccessKey.trim() !== '' &&
+          (state.secret.externalId.trim() === '' || state.secret.roleArn.trim() !== '')
+        : state.secret.kind === 'mcp_oauth'
+          ? validMcpUrl
+          : oauthMaterial !== undefined)
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -178,6 +183,13 @@ export function CreateSecretDialog({
                 />
                 <FieldDescription>Stored under the key value.</FieldDescription>
               </Field>
+            ) : state.secret.kind === 'aws_credentials' ? (
+              <AWSCredentialsSecretFields
+                value={state.secret}
+                onChange={(patch) => {
+                  dispatch({ type: 'patch-aws-credentials', patch })
+                }}
+              />
             ) : state.secret.kind === 'mcp_oauth' ? (
               <McpOAuthSecretFields
                 value={state.secret}

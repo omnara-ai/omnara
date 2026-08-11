@@ -16,16 +16,17 @@ import (
 )
 
 type PublishContextCheckpointInput struct {
-	ProjectID          ID
-	AgentID            ID
-	RuntimeLockID      ID
-	ModelCallContextID ID
-	Summary            string
-	APIFormat          modelprotocol.APIFormat
-	APIVariant         modelprotocol.APIVariant
-	ProviderRequestID  string
-	ProviderResponseID string
-	Usage              modelenvelope.Usage
+	ProjectID               ID
+	AgentID                 ID
+	RuntimeLockID           ID
+	ModelCallContextID      ID
+	Summary                 string
+	APIFormat               modelprotocol.APIFormat
+	APIVariant              modelprotocol.APIVariant
+	ProviderRequestID       string
+	ProviderResponseID      string
+	Usage                   modelenvelope.Usage
+	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 }
 
 func (s *Store) PublishContextCheckpoint(
@@ -48,33 +49,6 @@ func (s *Store) PublishContextCheckpoint(
 		ID:        input.AgentID,
 	}); err != nil {
 		return ContextCheckpointRecord{}, fmt.Errorf("lock agent for context checkpoint: %w", err)
-	}
-	if existing, found, err := getContextCheckpointByProducerContextTx(
-		ctx,
-		q,
-		input.ProjectID,
-		input.AgentID,
-		input.ModelCallContextID,
-	); err != nil {
-		return ContextCheckpointRecord{}, err
-	} else if found {
-		contextRecord, loadErr := loadModelCallContextByID(
-			ctx,
-			q,
-			input.ProjectID,
-			input.AgentID,
-			input.ModelCallContextID,
-		)
-		if loadErr != nil {
-			return ContextCheckpointRecord{}, fmt.Errorf("load published compaction context: %w", loadErr)
-		}
-		if !sameContextCheckpointPublication(existing, contextRecord, input) {
-			return ContextCheckpointRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return ContextCheckpointRecord{}, fmt.Errorf("commit existing context checkpoint: %w", err)
-		}
-		return existing, nil
 	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
@@ -183,16 +157,17 @@ func (s *Store) PublishContextCheckpoint(
 		return ContextCheckpointRecord{}, err
 	}
 	if _, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		ModelCallContextID: input.ModelCallContextID,
-		RuntimeLockID:      input.RuntimeLockID,
-		ToState:            ModelCallContextSucceeded,
-		APIFormat:          input.APIFormat,
-		APIVariant:         input.APIVariant,
-		ProviderRequestID:  input.ProviderRequestID,
-		ProviderResponseID: input.ProviderResponseID,
-		Usage:              input.Usage,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		ModelCallContextID:      input.ModelCallContextID,
+		RuntimeLockID:           input.RuntimeLockID,
+		ToState:                 ModelCallContextSucceeded,
+		APIFormat:               input.APIFormat,
+		APIVariant:              input.APIVariant,
+		ProviderRequestID:       input.ProviderRequestID,
+		ProviderResponseID:      input.ProviderResponseID,
+		Usage:                   input.Usage,
+		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
 	}); err != nil {
 		return ContextCheckpointRecord{}, err
 	}
@@ -247,26 +222,13 @@ func compactionSourceStartTx(
 	return checkpoint.SummarizedThroughEventSequence + 1, nil
 }
 
-func sameContextCheckpointPublication(
-	existing ContextCheckpointRecord,
-	contextRecord ModelCallContextRecord,
-	input PublishContextCheckpointInput,
-) bool {
-	return existing.ProducerModelCallContextID == input.ModelCallContextID &&
-		existing.Summary == input.Summary &&
-		contextRecord.ID == input.ModelCallContextID &&
-		contextRecord.State == ModelCallContextSucceeded &&
-		contextRecord.APIFormat == input.APIFormat &&
-		contextRecord.APIVariant == input.APIVariant &&
-		contextRecord.ProviderRequestID == input.ProviderRequestID &&
-		contextRecord.ProviderResponseID == input.ProviderResponseID &&
-		contextRecord.Usage == modelUsageForStorage(input.Usage)
-}
-
 func validatePublishContextCheckpointInput(input PublishContextCheckpointInput) error {
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
 		isNilID(input.ModelCallContextID) || input.Summary == "" {
 		return errors.New("project, agent, runtime, context, and summary are required")
+	}
+	if err := modelenvelope.ValidateProviderReportedCostUSD(input.ProviderReportedCostUSD); err != nil {
+		return fmt.Errorf("provider-reported cost: %w", err)
 	}
 	return nil
 }

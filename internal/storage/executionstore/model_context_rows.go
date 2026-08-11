@@ -5,7 +5,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func modelCallContextRecordFromSQLC(row dbsqlc.ModelCallContext) ModelCallContextRecord {
+func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCallContextRecord {
 	return ModelCallContextRecord{
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
@@ -37,8 +37,9 @@ func modelCallContextRecordFromSQLC(row dbsqlc.ModelCallContext) ModelCallContex
 			row.OutputTokensTotal,
 			row.ReasoningOutputTokens,
 		),
-		CreatedAt:   row.CreatedAt,
-		CompletedAt: row.CompletedAt,
+		ProviderReportedCostUSD: providerReportedCostUSDFromSQLC(row.ProviderReportedCostUsd),
+		CreatedAt:               row.CreatedAt,
+		CompletedAt:             row.CompletedAt,
 	}
 }
 

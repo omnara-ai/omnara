@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,7 +218,13 @@ type integrationHTTPHandler struct {
 }
 
 func (h *integrationHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.handler.ServeHTTP(w, r)
+	if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
+		h.handler.ServeHTTP(w, r)
+		return
+	}
+	recorder := &responseContractRecorder{ResponseWriter: w, request: r}
+	h.handler.ServeHTTP(recorder, r)
+	validateResponseContract(r, recorder)
 }
 
 func newIntegrationHTTPHandler(

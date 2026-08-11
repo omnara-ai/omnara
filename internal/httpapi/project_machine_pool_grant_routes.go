@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -60,10 +61,7 @@ func (s strictOpenAPIServer) createProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -84,6 +82,8 @@ func (s strictOpenAPIServer) createProjectMachinePoolGrant(
 			MaxTotalMachines:                     intPtrFromInt32(request.Body.MaxTotalMachines),
 			MaxTotalCPU:                          intPtrFromInt32(request.Body.MaxTotalCpu),
 			MaxTotalMemoryMB:                     intPtrFromInt32(request.Body.MaxTotalMemoryMb),
+			MinMachineCPU:                        intPtrFromInt32(request.Body.MinMachineCpu),
+			MinMachineMemoryMB:                   intPtrFromInt32(request.Body.MinMachineMemoryMb),
 			MaxMachineCPU:                        intPtrFromInt32(request.Body.MaxMachineCpu),
 			MaxMachineMemoryMB:                   intPtrFromInt32(request.Body.MaxMachineMemoryMb),
 			IdempotencyKey:                       idempotencyKey,
@@ -250,11 +250,9 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
-	var envOverlayPatch, secretEnvOverlayPatch, providerOptionsOverlayPatch, metadataPatch *json.RawMessage
+	metadata := request.Body.Metadata
+	var envOverlayPatch, secretEnvOverlayPatch, providerOptionsOverlayPatch *json.RawMessage
+	var metadataPatch *resourcemeta.Metadata
 	if request.Body.DefaultMachineEnvOverlay != nil {
 		envOverlayPatch = &defaultMachineEnvOverlay
 	}
@@ -281,6 +279,8 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 		MaxTotalMachines:                     nullableIntPatchFromInt32(request.Body.MaxTotalMachines),
 		MaxTotalCPU:                          nullableIntPatchFromInt32(request.Body.MaxTotalCpu),
 		MaxTotalMemoryMB:                     nullableIntPatchFromInt32(request.Body.MaxTotalMemoryMb),
+		MinMachineCPU:                        nullableIntPatchFromInt32(request.Body.MinMachineCpu),
+		MinMachineMemoryMB:                   nullableIntPatchFromInt32(request.Body.MinMachineMemoryMb),
 		MaxMachineCPU:                        nullableIntPatchFromInt32(request.Body.MaxMachineCpu),
 		MaxMachineMemoryMB:                   nullableIntPatchFromInt32(request.Body.MaxMachineMemoryMb),
 		Metadata:                             metadataPatch,
@@ -347,7 +347,7 @@ func projectMachinePoolGrantResponse(
 	if err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
 	if err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
@@ -381,6 +381,8 @@ func projectMachinePoolGrantResponse(
 		MaxTotalMachines:                     nullableInt32FromIntPtr(record.MaxTotalMachines),
 		MaxTotalCpu:                          nullableInt32FromIntPtr(record.MaxTotalCPU),
 		MaxTotalMemoryMb:                     nullableInt32FromIntPtr(record.MaxTotalMemoryMB),
+		MinMachineCpu:                        nullableInt32FromIntPtr(record.MinMachineCPU),
+		MinMachineMemoryMb:                   nullableInt32FromIntPtr(record.MinMachineMemoryMB),
 		MaxMachineCpu:                        nullableInt32FromIntPtr(record.MaxMachineCPU),
 		MaxMachineMemoryMb:                   nullableInt32FromIntPtr(record.MaxMachineMemoryMB),
 		Metadata:                             metadata,

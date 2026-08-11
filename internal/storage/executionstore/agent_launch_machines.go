@@ -210,6 +210,9 @@ func ensurePoolCapacityForConfigTx(
 	if requestedMachines <= 0 {
 		return nil
 	}
+	if !poolGrant.NewManagedWorkAllowed {
+		return storeerr.ErrManagedWorkAdmissionDenied
+	}
 	requested, err := resourcesFromMachineProvisioning(machineProvisioning)
 	if err != nil {
 		return err
@@ -232,6 +235,8 @@ func ensurePoolCapacityForConfigTx(
 		knownResourceCaps(requested, MachineResourceLimits{
 			MaxTotalCPU:        intPtrFromSQLC(poolGrant.PoolMaxTotalCpu),
 			MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.PoolMaxTotalMemoryMb),
+			MinMachineCPU:      intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
+			MinMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
 			MaxMachineCPU:      intPtrFromSQLC(poolGrant.PoolMaxMachineCpu),
 			MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMaxMachineMemoryMb),
 		}),
@@ -261,6 +266,8 @@ func ensurePoolCapacityForConfigTx(
 		knownResourceCaps(requested, MachineResourceLimits{
 			MaxTotalCPU:        intPtrFromSQLC(poolGrant.GrantMaxTotalCpu),
 			MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.GrantMaxTotalMemoryMb),
+			MinMachineCPU:      intPtrFromSQLC(poolGrant.GrantMinMachineCpu),
+			MinMachineMemoryMB: intPtrFromSQLC(poolGrant.GrantMinMachineMemoryMb),
 			MaxMachineCPU:      intPtrFromSQLC(poolGrant.GrantMaxMachineCpu),
 			MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.GrantMaxMachineMemoryMb),
 		}),

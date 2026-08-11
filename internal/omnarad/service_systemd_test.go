@@ -298,8 +298,7 @@ exit 1
 
 func TestSystemdStop(t *testing.T) {
 	home := t.TempDir()
-	process, ready, _ := startLockOwnerHelper(t, home)
-	waitForFileSize(t, ready, 0)
+	process, _ := startLockOwnerHelper(t, home)
 	commands := filepath.Join(t.TempDir(), "commands")
 	commandDir := t.TempDir()
 	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh

@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -38,6 +39,7 @@ type CreateContentBlockInput struct {
 	StructuredData        json.RawMessage
 	ArtifactID            ID
 	ToolCallID            ID
+	Metadata              resourcemeta.Metadata
 }
 
 type ContentBlockRecord struct {
@@ -94,6 +96,13 @@ func createContentBlockTx(
 			"project, agent, owner kind, and block kind are required",
 		)
 	}
+	if err := input.Metadata.Validate(); err != nil {
+		return ContentBlockRecord{}, fmt.Errorf("content block metadata: %w", err)
+	}
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		return ContentBlockRecord{}, err
+	}
 	var textContent *string
 	if input.BlockKind == ContentBlockKindText ||
 		input.BlockKind == ContentBlockKindReasoning ||
@@ -114,6 +123,7 @@ func createContentBlockTx(
 		StructuredData:        sqlcRawMessageFromEmpty(input.StructuredData),
 		ArtifactID:            sqlcIDFromNil(input.ArtifactID),
 		ToolCallID:            sqlcIDFromNil(input.ToolCallID),
+		Metadata:              metadata,
 	})
 	if err != nil {
 		return ContentBlockRecord{}, fmt.Errorf("create content block: %w", err)
@@ -395,28 +405,38 @@ func toolCallResultContentBlocksTx(
 	}
 	parts := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
+		decoded, err := resourcemeta.FromJSON(row.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("stored tool result content block metadata: %w", err)
+		}
+		metadata := contentBlockMetadataForOutput(decoded)
+		var part map[string]any
 		switch ContentBlockKind(row.BlockKind) {
 		case ContentBlockKindText:
-			parts = append(parts, map[string]any{"type": "text", "text": row.TextContent})
+			part = map[string]any{"type": "text", "text": row.TextContent}
 		case ContentBlockKindStructuredData:
 			if row.StructuredData == nil {
 				return nil, errors.New("stored structured_data block has no value")
 			}
-			parts = append(parts, map[string]any{
+			part = map[string]any{
 				"type":  "structured_data",
 				"value": *row.StructuredData,
-			})
+			}
 		case ContentBlockKindArtifact:
 			if row.ArtifactID == nil {
 				return nil, errors.New("stored artifact block has no artifact")
 			}
-			parts = append(parts, map[string]any{
+			part = map[string]any{
 				"type":        "media_ref",
 				"artifact_id": row.ArtifactID.String(),
-			})
+			}
 		default:
 			return nil, fmt.Errorf("stored tool result has unsupported block kind %q", row.BlockKind)
 		}
+		if metadata != nil {
+			part["metadata"] = metadata
+		}
+		parts = append(parts, part)
 	}
 	body, err := marshalJSON(parts)
 	if err != nil {

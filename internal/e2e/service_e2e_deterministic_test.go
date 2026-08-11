@@ -147,7 +147,7 @@ func TestServiceE2EDeterministicOpenRouterRunsChatCompletionsModelTurn(t *testin
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(
 			[]byte(
-				`{"id":"chatcmpl_service_e2e_openrouter","model":"` + configuredModelName + `","choices":[{"index":0,"message":{"role":"assistant","content":"` + modelText + `"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":5}}`,
+				`{"id":"chatcmpl_service_e2e_openrouter","model":"` + configuredModelName + `","choices":[{"index":0,"message":{"role":"assistant","content":"` + modelText + `"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":5,"cost":0.0000125}}`,
 			),
 		)
 	}))
@@ -194,6 +194,20 @@ func TestServiceE2EDeterministicOpenRouterRunsChatCompletionsModelTurn(t *testin
 	})
 	if got := requestCount.Load(); got != 1 {
 		t.Fatalf("deterministic OpenRouter server saw %d requests, want 1", got)
+	}
+	var costRows int
+	if err := env.db.QueryRow(ctx, `
+SELECT count(*)
+FROM model_call_contexts context
+WHERE context.project_id = $1
+  AND context.agent_id = $2
+  AND context.provider_response_id = 'chatcmpl_service_e2e_openrouter'
+  AND context.provider_reported_cost_usd = 0.0000125
+`, projectUUID, agentUUID).Scan(&costRows); err != nil {
+		t.Fatalf("query OpenRouter provider-reported cost: %v", err)
+	}
+	if costRows != 1 {
+		t.Fatalf("OpenRouter contexts with recorded cost = %d, want 1", costRows)
 	}
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var locks int

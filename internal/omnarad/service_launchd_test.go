@@ -265,8 +265,7 @@ exit 3
 
 func TestLaunchdStop(t *testing.T) {
 	home := t.TempDir()
-	process, ready, _ := startLockOwnerHelper(t, home)
-	waitForFileSize(t, ready, 0)
+	process, _ := startLockOwnerHelper(t, home)
 	commands := filepath.Join(t.TempDir(), "commands")
 	domain := "gui/" + strconv.Itoa(os.Geteuid())
 	target := domain + "/" + launchdServiceLabel

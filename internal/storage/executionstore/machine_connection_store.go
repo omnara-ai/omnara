@@ -2,7 +2,6 @@ package executionstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -43,7 +42,7 @@ func (s *Store) ConnectBYOMachine(
 		}
 		projectSet[projectID] = struct{}{}
 	}
-	machineInput, environment, err := prepareDaemonMachineCreate(CreateDaemonMachineInput{
+	machineInput, environment, machineMetadata, err := prepareDaemonMachineCreate(CreateDaemonMachineInput{
 		OrgID:       input.OrgID,
 		DisplayName: input.DisplayName,
 	})
@@ -69,21 +68,24 @@ func (s *Store) ConnectBYOMachine(
 	if len(projects) != len(input.ProjectIDs) {
 		return ConnectBYOMachineResult{}, storeerr.ErrNotFound
 	}
-	machine, err := createDaemonMachineTx(ctx, qtx, machineInput, environment)
+	machine, err := createDaemonMachineTx(ctx, qtx, machineInput, environment, machineMetadata)
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
-	tokenInput, err := prepareBYOMachineDaemonTokenCreate(CreateBYOMachineDaemonTokenInput{
+	tokenInput, tokenMetadata, err := prepareBYOMachineDaemonTokenCreate(CreateBYOMachineDaemonTokenInput{
 		OrgID:     input.OrgID,
 		MachineID: machine.ID,
 		Name:      input.TokenName,
 		Token:     input.Token,
-		Metadata:  json.RawMessage(`{}`),
 	})
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
-	tokenRecord, err := createBYOMachineDaemonTokenTx(ctx, qtx, tokenInput)
+	tokenRecord, err := createBYOMachineDaemonTokenTx(ctx, qtx, tokenInput, tokenMetadata)
+	if err != nil {
+		return ConnectBYOMachineResult{}, err
+	}
+	grantMetadata, err := metadataColumn(nil, "project machine grant metadata")
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
@@ -96,8 +98,8 @@ func (s *Store) ConnectBYOMachine(
 				OrgID:     input.OrgID,
 				ProjectID: projectID,
 				MachineID: machine.ID,
-				Metadata:  json.RawMessage(`{}`),
 			},
+			grantMetadata,
 		)
 		if err != nil {
 			return ConnectBYOMachineResult{}, fmt.Errorf("create project machine grant: %w", err)

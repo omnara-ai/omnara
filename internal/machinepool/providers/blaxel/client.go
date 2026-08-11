@@ -1,12 +1,14 @@
 package blaxel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,8 @@ import (
 
 const (
 	apiBaseURL          = "https://api.blaxel.ai/v0"
+	apiVersion          = "2026-04-28"
+	maxSandboxListLimit = 200
 	dataPlaneRetries    = 2
 	dataPlaneRetryDelay = 500 * time.Millisecond
 )
@@ -64,8 +68,48 @@ type sandboxPort struct {
 }
 
 type sandbox struct {
-	Metadata resourceMetadata `json:"metadata"`
-	Status   string           `json:"status"`
+	Metadata resourceMetadata        `json:"metadata"`
+	State    sandboxRuntimeState     `json:"state"`
+	Status   sandboxDeploymentStatus `json:"status"`
+}
+
+type sandboxListPage struct {
+	Sandboxes  []sandbox
+	HasMore    bool
+	NextCursor string
+}
+
+func (p *sandboxListPage) UnmarshalJSON(raw []byte) error {
+	*p = sandboxListPage{}
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+		Meta json.RawMessage `json:"meta"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+	if len(envelope.Data) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Data), []byte("null")) ||
+		len(envelope.Meta) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Meta), []byte("null")) {
+		return errors.New("missing data or meta")
+	}
+	if err := json.Unmarshal(envelope.Data, &p.Sandboxes); err != nil {
+		return fmt.Errorf("decode data: %w", err)
+	}
+	var meta struct {
+		HasMore    *bool   `json:"hasMore"`
+		NextCursor *string `json:"nextCursor"`
+	}
+	if err := json.Unmarshal(envelope.Meta, &meta); err != nil {
+		return fmt.Errorf("decode meta: %w", err)
+	}
+	if meta.HasMore == nil {
+		return errors.New("missing hasMore pagination metadata")
+	}
+	p.HasMore = *meta.HasMore
+	if meta.NextCursor != nil {
+		p.NextCursor = *meta.NextCursor
+	}
+	return nil
 }
 
 type processRequest struct {
@@ -77,9 +121,9 @@ type processRequest struct {
 }
 
 type sandboxProcess struct {
-	PID       string `json:"pid"`
-	Status    string `json:"status"`
-	KeepAlive bool   `json:"keepAlive"`
+	PID       string               `json:"pid"`
+	Status    sandboxProcessStatus `json:"status"`
+	KeepAlive bool                 `json:"keepAlive"`
 }
 
 type restClient struct {
@@ -87,6 +131,45 @@ type restClient struct {
 	workspace  string
 	apiToken   string
 	httpClient *http.Client
+}
+
+func (c *restClient) ListSandboxes(
+	ctx context.Context,
+	cursor string,
+	limit int,
+) (sandboxListPage, error) {
+	if limit <= 0 || limit > maxSandboxListLimit {
+		return sandboxListPage{}, fmt.Errorf(
+			"blaxel sandbox list limit must be between 1 and %d",
+			maxSandboxListLimit,
+		)
+	}
+	requestURL, err := url.Parse(c.apiBaseURL + "/sandboxes")
+	if err != nil {
+		return sandboxListPage{}, fmt.Errorf("build blaxel sandbox list url: %w", err)
+	}
+	query := requestURL.Query()
+	query.Set("limit", strconv.Itoa(limit))
+	query.Set("q", "omnara-mch-")
+	query.Set("sort", "name:asc")
+	if cursor != "" {
+		query.Set("cursor", cursor)
+	}
+	requestURL.RawQuery = query.Encode()
+
+	var page sandboxListPage
+	_, err = c.doRequestWithHeaders(
+		ctx,
+		http.MethodGet,
+		requestURL.String(),
+		nil,
+		&page,
+		map[string]string{"Blaxel-Version": apiVersion},
+	)
+	if err != nil {
+		return sandboxListPage{}, err
+	}
+	return page, nil
 }
 
 func (c *restClient) CreateSandbox(
@@ -259,23 +342,40 @@ func (c *restClient) doRequest(
 	method, requestURL string,
 	body, out any,
 ) (int, error) {
-	statusCode, raw, err := providers.DoHTTPRequest(
+	return c.doRequestWithHeaders(ctx, method, requestURL, body, out, nil)
+}
+
+func (c *restClient) doRequestWithHeaders(
+	ctx context.Context,
+	method, requestURL string,
+	body, out any,
+	extraHeaders map[string]string,
+) (int, error) {
+	headers := map[string]string{
+		"X-Blaxel-Authorization": "Bearer " + c.apiToken,
+		"X-Blaxel-Workspace":     c.workspace,
+	}
+	for name, value := range extraHeaders {
+		headers[name] = value
+	}
+	response, err := providers.DoHTTPResponse(
 		ctx,
 		c.httpClient,
 		providers.Blaxel,
 		method,
 		requestURL,
-		map[string]string{
-			"X-Blaxel-Authorization": "Bearer " + c.apiToken,
-			"X-Blaxel-Workspace":     c.workspace,
-		},
+		headers,
 		body,
 	)
 	if err != nil {
 		return 0, err
 	}
+	statusCode, raw := response.StatusCode, response.Body
 	if statusCode < 200 || statusCode >= 300 {
-		return statusCode, apiError{StatusCode: statusCode}
+		return statusCode, providers.WithRetryAfter(
+			apiError{StatusCode: statusCode},
+			response.Header,
+		)
 	}
 	if out == nil || len(raw) == 0 {
 		return statusCode, nil

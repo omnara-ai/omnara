@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestMaintenanceRecoveryCrossesWakeupAndRuntimeLockBatchBoundaries(t *testing.T) {
@@ -360,19 +361,37 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
 		t.Fatalf("rebuilt recoverable-context wakeups = %d, want 1", wakeups)
 	}
-	for {
-		var retryDue bool
-		if err := fixture.Store.pool.QueryRow(
-			ctx,
-			`SELECT statement_timestamp() >= $1`,
-			contextRecord.RetryAt,
-		).Scan(&retryDue); err != nil {
-			t.Fatalf("check failed-context retry deadline: %v", err)
-		}
-		if retryDue {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	if _, err := fixture.Store.pool.Exec(
+		ctx,
+		`ALTER TABLE model_call_contexts DISABLE TRIGGER model_call_contexts_transition_guard`,
+	); err != nil {
+		t.Fatalf("disable model context transition guard: %v", err)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts
+SET retry_at = statement_timestamp() - interval '1 millisecond'
+WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		testProjectID,
+		fixture.AgentID,
+		modelClaim.Context.ID,
+	); err != nil {
+		t.Fatalf("mature failed-context retry deadline: %v", err)
+	}
+	if _, err := fixture.Store.pool.Exec(
+		ctx,
+		`ALTER TABLE model_call_contexts ENABLE TRIGGER model_call_contexts_transition_guard`,
+	); err != nil {
+		t.Fatalf("enable model context transition guard: %v", err)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE agent_wakeups wake
+SET ready_at = statement_timestamp() - interval '1 millisecond'
+FROM agents agent
+WHERE agent.id = wake.agent_id AND agent.project_id = $1 AND wake.agent_id = $2`,
+		testProjectID,
+		fixture.AgentID,
+	); err != nil {
+		t.Fatalf("mature failed-context retry wakeup: %v", err)
 	}
 	recovered, found, err := fixture.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
 	if err != nil {
@@ -805,7 +824,7 @@ func TestRuntimeOwnedWriteRechecksLeaseAfterAgentLockWait(t *testing.T) {
 		)
 		started <- startErr
 	}()
-	waitForApplicationLockWaiter(t, ctx, fixture.Store.pool, applicationName)
+	integrationdb.WaitForApplicationLockWaiter(t, ctx, fixture.Store.pool, applicationName)
 
 	commandTag, err := lockTx.Exec(
 		ctx,

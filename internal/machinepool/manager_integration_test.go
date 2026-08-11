@@ -42,6 +42,129 @@ func TestPoolMachineManagerPersistsResolvedProviderFacts(t *testing.T) {
 	testPoolMachineManagerProvisioningScenario(t, provisioningFacts)
 }
 
+func TestPoolMachineManagerFinishesProvisioningAfterManagedWorkAdmissionCloses(t *testing.T) {
+	ctx := context.Background()
+	pool := openManagerIntegrationDB(t, ctx)
+	store := storage.NewStore(
+		pool,
+		storage.WithSecretKeyWrapper(managerIntegrationKeyWrapper(t)),
+		storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
+	)
+	now := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	orgID := seedManagerOrg(t, ctx, pool, "admitted-provision", now)
+	projectID, _ := seedManagerProjectActor(
+		t,
+		ctx,
+		pool,
+		store,
+		orgID,
+		"admitted-provision-project",
+		"admitted-provision@example.com",
+		now,
+	)
+	t.Setenv("TEST_ADMITTED_PROVISION_TOKEN", "pool-token")
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin default pool provisioning: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := store.Execution().ProvisionOrganizationDefaultsTx(
+		ctx,
+		tx,
+		orgID,
+		projectID,
+		[]executionstore.DefaultMachinePoolTemplate{{
+			Name:                          "Admitted Provision Pool",
+			Provider:                      "capture",
+			DefaultMachineCPU:             intPtrForManagerTest(1),
+			DefaultMachineMemoryMB:        intPtrForManagerTest(1024),
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"admitted"}`),
+			ProviderAuthEnvVar:            "TEST_ADMITTED_PROVISION_TOKEN",
+			MaxTotalMachines:              1,
+			MaxTotalCPU:                   intPtrForManagerTest(1),
+			MaxTotalMemoryMB:              intPtrForManagerTest(1024),
+			MaxMachineCPU:                 intPtrForManagerTest(1),
+			MaxMachineMemoryMB:            intPtrForManagerTest(1024),
+		}},
+	); err != nil {
+		t.Fatalf("provision default pool: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit default pool provisioning: %v", err)
+	}
+	var machinePoolID storage.ID
+	if err := pool.QueryRow(ctx, `
+SELECT id
+FROM machine_pools
+WHERE org_id = $1 AND name = 'Admitted Provision Pool' AND deleted_at IS NULL
+`, orgID).Scan(&machinePoolID); err != nil {
+		t.Fatalf("load default pool id: %v", err)
+	}
+	machinePool, err := store.Execution().GetMachinePool(ctx, orgID, machinePoolID)
+	if err != nil {
+		t.Fatalf("load default pool: %v", err)
+	}
+	machineID := insertPoolMachineForManagerTest(
+		t,
+		ctx,
+		pool,
+		machinePool,
+		"provisioning",
+		"",
+		now,
+	)
+	poolGrant, err := store.Execution().GetActiveProjectMachinePoolGrantForMachinePool(
+		ctx,
+		projectID,
+		machinePool.ID,
+	)
+	if err != nil {
+		t.Fatalf("load default pool grant: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO project_machine_grants(
+    org_id,
+    project_id,
+    machine_id,
+    source_kind,
+    project_machine_pool_grant_id,
+    description,
+    metadata,
+    created_at,
+    updated_at
+) VALUES ($1, $2, $3, 'pool', $4, '', '{}'::jsonb, $5, $5)
+`, orgID, projectID, machineID, poolGrant.ID, now); err != nil {
+		t.Fatalf("grant admitted machine to project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, false)
+`, orgID); err != nil {
+		t.Fatalf("close managed work admission: %v", err)
+	}
+	provider := &captureProvider{provisionResourceID: "admitted-resource"}
+	manager := Manager{
+		Execution: store.Execution(),
+		Identity:  store.Identity(),
+		Catalog:   testProviderCatalog(&testProviderDefinition{provider: provider}),
+		PublicURL: "https://app.omnara.test",
+	}
+	if err := manager.ProvisionMachine(ctx, orgID, machineID); err != nil {
+		t.Fatalf("finish admitted machine provisioning: %v", err)
+	}
+	if provider.provisioning == nil {
+		t.Fatal("provider was not called for admitted machine")
+	}
+	machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
+	if err != nil {
+		t.Fatalf("load provisioned machine: %v", err)
+	}
+	if machine.LifecycleState != executionstore.MachineLifecycleStateActive ||
+		machine.ProviderResourceID != "admitted-resource" {
+		t.Fatalf("provisioned machine = %+v", machine)
+	}
+}
+
 func TestPoolMachineManagerRejectsResolvedFactsAbovePoolCapacity(t *testing.T) {
 	testPoolMachineManagerProvisioningScenario(t, provisioningCapacityRejection)
 }
@@ -969,9 +1092,54 @@ func TestManagerWakeMachineRetriesProviderWake(t *testing.T) {
 			t.Fatalf("wake input = %+v", input)
 		}
 	}
+	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+	if err != nil || !shouldRetry {
+		t.Fatalf("repeat pending wake = (%t, %v), want true/nil", shouldRetry, err)
+	}
+	if len(provider.wakeInputs) != machineWakeAttempts {
+		t.Fatalf("pending wake made another provider call: %d attempts", len(provider.wakeInputs))
+	}
+
+	runtimeProtectionEnabled := true
+	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID:                    orgID,
+		ID:                       machinePool.ID,
+		RuntimeProtectionEnabled: &runtimeProtectionEnabled,
+	}); err != nil {
+		t.Fatalf("enable runtime protection: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND id = $2
+`, orgID, machineID); err != nil {
+		t.Fatalf("expire protected wake attempt: %v", err)
+	}
+	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+	if !errors.Is(err, storeerr.ErrMachineWakeUnresolved) || shouldRetry {
+		t.Fatalf("unresolved protected wake = (%t, %v), want false/unresolved", shouldRetry, err)
+	}
+	if len(provider.wakeInputs) != machineWakeAttempts {
+		t.Fatalf("unresolved protected wake made another provider call: %d attempts", len(provider.wakeInputs))
+	}
+	runtimeProtectionEnabled = false
+	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID:                    orgID,
+		ID:                       machinePool.ID,
+		RuntimeProtectionEnabled: &runtimeProtectionEnabled,
+	}); err != nil {
+		t.Fatalf("disable runtime protection: %v", err)
+	}
 
 	provider.wakeInputs = nil
 	provider.wakeErrors = []error{wakeErr, wakeErr, wakeErr}
+	if _, err := pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '5 minutes'
+WHERE org_id = $1 AND id = $2
+`, orgID, machineID); err != nil {
+		t.Fatalf("expire unprotected wake intent: %v", err)
+	}
 	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
 	if !errors.Is(err, wakeErr) {
 		t.Fatalf("wake error = %v, want %v", err, wakeErr)

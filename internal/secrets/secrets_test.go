@@ -172,6 +172,35 @@ func TestValidatePayloadByKind(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "aws credentials",
+			kind: KindAWSCredentials,
+			payload: Payload{
+				KeyAWSAccessKeyID:     "AKIAEXAMPLE",
+				KeyAWSSecretAccessKey: "secret",
+				KeyAWSSessionToken:    "session-token",
+				KeyAWSRoleARN:         "arn:aws:iam::123456789012:role/ReadOnly",
+				KeyAWSExternalID:      "external",
+			},
+		},
+		{
+			name: "aws credentials missing secret key",
+			kind: KindAWSCredentials,
+			payload: Payload{
+				KeyAWSAccessKeyID: "AKIAEXAMPLE",
+			},
+			wantErr: true,
+		},
+		{
+			name: "aws external id without role",
+			kind: KindAWSCredentials,
+			payload: Payload{
+				KeyAWSAccessKeyID:     "AKIAEXAMPLE",
+				KeyAWSSecretAccessKey: "secret",
+				KeyAWSExternalID:      "external",
+			},
+			wantErr: true,
+		},
+		{
 			name:    "oauth refresh without access",
 			kind:    KindOAuthTokenSet,
 			payload: Payload{KeyRefreshToken: "refresh"},

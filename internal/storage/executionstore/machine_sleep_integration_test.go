@@ -59,6 +59,22 @@ func TestSleepDaemonRuntimeLifecycle(t *testing.T) {
 	if record.State != "ended" || record.StateReasonCode != "machine_asleep" {
 		t.Fatalf("sleep runtime record = %s/%s, want ended/machine_asleep", record.State, record.StateReasonCode)
 	}
+	var intervalEndedAt time.Time
+	var intervalEndReason string
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT ended_at, end_reason_code
+FROM machine_online_intervals
+WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID).Scan(
+		&intervalEndedAt,
+		&intervalEndReason,
+	); err != nil {
+		t.Fatalf("load sleeping machine online interval: %v", err)
+	}
+	if record.EndedAt == nil || !intervalEndedAt.Equal(*record.EndedAt) ||
+		intervalEndReason != "machine_asleep" {
+		t.Fatalf("sleeping online interval = %s/%s, runtime = %+v", intervalEndedAt, intervalEndReason, record)
+	}
 	assertMachineState(t, ctx, fixture.Store, fixture.MachineID, "active", "asleep")
 
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "sleep_lifecycle", "run_command")
@@ -535,33 +551,7 @@ func TestAsleepUnreachableExpiryIsPerItemFromWorkArrival(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start first process: %v", err)
 	}
-	if _, err := fixture.Store.pool.Exec(
-		ctx,
-		`UPDATE daemon_runtimes
-		 SET last_seen_at = statement_timestamp() - interval '3 minutes',
-		     ended_at = statement_timestamp() - interval '2 minutes',
-		     lease_expires_at = statement_timestamp() - interval '2 minutes',
-		     updated_at = statement_timestamp()
-		 WHERE org_id = $1 AND machine_id = $2 AND id = $3`,
-		fixture.OrgID,
-		fixture.MachineID,
-		fixture.RuntimeID,
-	); err != nil {
-		t.Fatalf("age sleeping daemon runtime: %v", err)
-	}
-	if _, err := fixture.Store.pool.Exec(
-		ctx,
-		`UPDATE processes
-		 SET created_at = statement_timestamp() - interval '1 minute',
-		     state_changed_at = statement_timestamp() - interval '1 minute',
-		     updated_at = statement_timestamp()
-		 WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
-		testProjectID,
-		fixture.AgentID,
-		firstProcess.ID,
-	); err != nil {
-		t.Fatalf("age first process: %v", err)
-	}
+	waitForDatabaseTime(t, ctx, fixture.Store.pool, firstProcess.CreatedAt.Add(time.Second))
 	secondToolCallID := toolCallIDs[1]
 	secondProcess, err := startSleepProcess(ctx, fixture, secondToolCallID, executionstore.CreateProcessInput{
 		AgentMachineBindingID: fixture.BindingID,
@@ -577,7 +567,7 @@ func TestAsleepUnreachableExpiryIsPerItemFromWorkArrival(t *testing.T) {
 		dbsqlc.ListMachineUnreachableQueuedProcessToolCallsForMachineParams{
 			OrgID:                          fixture.OrgID,
 			MachineID:                      fixture.MachineID,
-			MachineUnreachableGraceSeconds: 30,
+			MachineUnreachableGraceSeconds: 1,
 			LimitCount:                     500,
 		},
 	)
@@ -589,7 +579,7 @@ func TestAsleepUnreachableExpiryIsPerItemFromWorkArrival(t *testing.T) {
 	}
 	if _, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
 		ctx,
-		30*time.Second,
+		time.Second,
 	); err != nil {
 		t.Fatalf("expire at first-item unreachable grace: %v", err)
 	}

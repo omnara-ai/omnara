@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -34,6 +35,7 @@ const (
 	updateConnectTimeout       = 10 * time.Second
 	updateVersionTimeout       = 10 * time.Second
 	updateRuntimeShutdownLimit = 30 * time.Second
+	updateFailureReportTimeout = 5 * time.Second
 	updateStagingDirName       = ".omnarad-update"
 	inheritedDaemonLockFDEnv   = "__OMNARA_DAEMON_LOCK_FD"
 )
@@ -68,6 +70,46 @@ type stagedDaemonUpdate struct {
 	path   string
 }
 
+type updateFailureReporter struct {
+	client        *machinedaemon.Client
+	log           *slog.Logger
+	daemonVersion string
+	mu            sync.Mutex
+	lastReported  string
+}
+
+func (r *updateFailureReporter) report(ctx context.Context, step, targetVersion string, cause error) {
+	if r == nil || ctx.Err() != nil {
+		return
+	}
+	detail := step
+	if cause != nil {
+		detail += ": " + cause.Error()
+	}
+	key := targetVersion + "\x00" + detail
+	r.mu.Lock()
+	if r.lastReported == key {
+		r.mu.Unlock()
+		return
+	}
+	r.lastReported = key
+	r.mu.Unlock()
+	reportCtx, cancel := context.WithTimeout(ctx, updateFailureReportTimeout)
+	defer cancel()
+	if err := r.client.ReportUpdateFailure(reportCtx, machinedaemon.UpdateFailureReport{
+		DaemonVersion: r.daemonVersion,
+		TargetVersion: targetVersion,
+		Detail:        detail,
+	}); err != nil {
+		r.log.Warn("report daemon update failure failed", "error", err)
+		r.mu.Lock()
+		if r.lastReported == key {
+			r.lastReported = ""
+		}
+		r.mu.Unlock()
+	}
+}
+
 func runDaemonService(
 	ctx context.Context,
 	clientConfig machinedaemon.Config,
@@ -97,6 +139,7 @@ func runDaemonService(
 	runCtx, cancelRun := context.WithCancelCause(ctx)
 	defer cancelRun(nil)
 	client := machinedaemon.New(clientConfig, nil, log)
+	reporter := &updateFailureReporter{client: &client, log: log, daemonVersion: version}
 	reexecArgs := []string{runServiceSubcommand}
 	if supervised {
 		reexecArgs = append(reexecArgs, supervisedServiceFlag)
@@ -110,7 +153,7 @@ func runDaemonService(
 
 	updates := make(chan daemonUpdate, 1)
 	startPoller := func() {
-		go pollDaemonUpdates(runCtx, clientConfig.OmnaraHome, executable, version, updates, log)
+		go pollDaemonUpdates(runCtx, clientConfig.OmnaraHome, executable, version, updates, reporter, log)
 	}
 	if version != daemonversion.Development && !noUpdate {
 		startPoller()
@@ -128,6 +171,7 @@ func runDaemonService(
 			if err != nil {
 				if runCtx.Err() == nil {
 					log.Warn("daemon update staging failed", "version", update.manifest.Version, "error", err)
+					reporter.report(runCtx, "staging", update.manifest.Version, err)
 					startPoller()
 				}
 				continue
@@ -142,6 +186,7 @@ func runDaemonService(
 				cleanup()
 				if err != nil {
 					log.Warn("daemon update lock failed", "error", err)
+					reporter.report(runCtx, "install lock", update.manifest.Version, err)
 				}
 				startPoller()
 				continue
@@ -157,6 +202,7 @@ func runDaemonService(
 				release()
 				if err != nil {
 					log.Warn("daemon update revalidation failed", "version", update.manifest.Version, "error", err)
+					reporter.report(runCtx, "revalidation", update.manifest.Version, err)
 				}
 				startPoller()
 				continue
@@ -190,8 +236,10 @@ func runDaemonService(
 				release()
 				if shutdownTimedOut {
 					log.Warn("daemon update shutdown timed out", "version", update.manifest.Version)
+					reporter.report(ctx, "runtime shutdown timeout", update.manifest.Version, nil)
 				} else {
 					log.Warn("daemon update shutdown failed", "version", update.manifest.Version, "error", clientErr)
+					reporter.report(ctx, "runtime shutdown", update.manifest.Version, clientErr)
 				}
 				return reexecUpdatedDaemon(ctx, canonical, daemonLock, reexecArgs...)
 			}
@@ -204,6 +252,7 @@ func runDaemonService(
 			release()
 			if renameErr != nil {
 				log.Warn("daemon update replacement failed", "version", update.manifest.Version, "error", renameErr)
+				reporter.report(ctx, "binary replacement", update.manifest.Version, renameErr)
 			}
 			return reexecUpdatedDaemon(ctx, canonical, daemonLock, reexecArgs...)
 		}
@@ -246,6 +295,7 @@ func pollDaemonUpdates(
 	executable string,
 	currentVersion string,
 	updates chan<- daemonUpdate,
+	reporter *updateFailureReporter,
 	log *slog.Logger,
 ) {
 	initial := true
@@ -268,6 +318,7 @@ func pollDaemonUpdates(
 		if err != nil {
 			if ctx.Err() == nil {
 				log.Warn("daemon update discovery failed", "error", err)
+				reporter.report(ctx, "discovery", "", err)
 			}
 			continue
 		}

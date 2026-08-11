@@ -70,6 +70,26 @@ func TestCanonicalizeMaterial(t *testing.T) {
 			},
 			wantKind: KindSlackAppCredentials,
 		},
+		{
+			name: "aws credentials",
+			material: AWSCredentialsMaterial{
+				AccessKeyID:     "AKIAEXAMPLE",
+				SecretAccessKey: "secret",
+				SessionToken:    "session-token",
+				RoleARN:         "arn:aws:iam::123456789012:role/ReadOnly",
+				ExternalID:      "external",
+			},
+			wantKind: KindAWSCredentials,
+		},
+		{
+			name: "aws external id without role",
+			material: AWSCredentialsMaterial{
+				AccessKeyID:     "AKIAEXAMPLE",
+				SecretAccessKey: "secret",
+				ExternalID:      "external",
+			},
+			wantErr: true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -41,7 +41,6 @@ type RegisterDaemonRuntimeInput struct {
 	DaemonInstanceID ID
 	DaemonVersion    string
 	Capacity         json.RawMessage
-	Metadata         json.RawMessage
 	ObservedPlatform json.RawMessage
 	ProcessClaims    []ProcessReconciliationClaim
 	LeaseTimeout     time.Duration
@@ -108,7 +107,6 @@ type DaemonRuntimeLeaseInput struct {
 	Authority        DaemonRuntimeAuthority
 	DaemonInstanceID ID
 	Capacity         json.RawMessage
-	Metadata         json.RawMessage
 	ObservedPlatform json.RawMessage
 	LeaseTimeout     time.Duration
 }

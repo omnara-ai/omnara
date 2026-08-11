@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.2
 info:
   title: Omnara API
   version: 0.1.0
@@ -94,6 +94,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     post:
       operationId: createPersonalAccessToken
       tags: [Users and API Keys]
@@ -126,6 +130,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/personal-access-tokens/{tokenID}/revoke:
     parameters:
       - name: tokenID
@@ -159,6 +167,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/daemon/bootstrap:
     post:
       operationId: bootstrapDaemon
@@ -184,6 +196,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/daemon/failures:
     post:
       operationId: recordMachineFailure
@@ -198,21 +214,33 @@ paths:
           required: true
           schema:
             type: string
-            enum: [startup_script, daemon_install]
+            enum: [startup_script, daemon_install, daemon_update]
         - name: exit_status
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             minimum: 1
             maximum: 255
         - name: capture_status
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             minimum: 0
             maximum: 255
+        - name: daemon_version
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: target_version
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
       requestBody:
         content:
           text/plain:
@@ -228,6 +256,10 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs:
     post:
       operationId: createOrganization
@@ -276,6 +308,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}:
     parameters:
       - name: orgID
@@ -313,6 +349,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/me:
     get:
       operationId: getCurrentUser
@@ -333,6 +373,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteCurrentUser
       tags: [Users and API Keys]
@@ -366,6 +410,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/invitations:
     get:
       operationId: listPendingInvitations
@@ -394,6 +442,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/invitations/{invitationID}/accept:
     parameters:
       - name: invitationID
@@ -429,6 +481,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/invitations/{invitationID}/decline:
     parameters:
       - name: invitationID
@@ -464,6 +520,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects:
     parameters:
       - name: orgID
@@ -513,6 +573,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listVisibleProjects
       tags: [Organizations and Projects]
@@ -540,6 +604,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}:
     parameters:
       - name: orgID
@@ -584,6 +652,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/members:
     parameters:
       - name: orgID
@@ -622,6 +694,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/members/{userID}:
     parameters:
       - name: orgID
@@ -669,6 +745,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: removeOrgMember
       tags: [Organizations and Projects]
@@ -698,6 +778,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/members/{userID}/projects:
     parameters:
       - name: orgID
@@ -737,6 +821,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}:
     parameters:
       - name: orgID
@@ -791,6 +879,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: removeMemberProjectAccess
       tags: [Organizations and Projects]
@@ -815,6 +907,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/api-keys:
     parameters:
       - name: orgID
@@ -848,6 +944,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     post:
       operationId: createOrgAPIKey
       tags: [Users and API Keys]
@@ -881,6 +981,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/api-keys/{keyID}:
     parameters:
       - name: orgID
@@ -916,6 +1020,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     patch:
       operationId: updateOrgAPIKey
       tags: [Users and API Keys]
@@ -949,6 +1057,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke:
     parameters:
       - name: orgID
@@ -988,6 +1100,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/api-keys/{keyID}/projects:
     parameters:
       - name: orgID
@@ -1027,6 +1143,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}:
     parameters:
       - name: orgID
@@ -1080,6 +1200,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: removeOrgAPIKeyProjectRole
       tags: [Users and API Keys]
@@ -1102,6 +1226,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/invitations:
     parameters:
       - name: orgID
@@ -1139,6 +1267,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     post:
       operationId: createOrgInvitation
       tags: [Organizations and Projects]
@@ -1172,6 +1304,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/invitations/{invitationID}:
     parameters:
       - name: orgID
@@ -1210,6 +1346,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/skills:
     parameters:
       - name: orgID
@@ -1266,6 +1406,10 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listSkills
       tags: [Skills]
@@ -1300,6 +1444,10 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/skills/{skillID}:
     parameters:
       - name: orgID
@@ -1337,6 +1485,10 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteSkill
       tags: [Skills]
@@ -1366,6 +1518,10 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/skills/{skillID}/grants:
     parameters:
       - name: orgID
@@ -1405,6 +1561,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     post:
       operationId: createSkillGrant
       tags: [Skills]
@@ -1433,6 +1593,10 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/skills/{skillID}/grants/{grantID}:
     parameters:
       - name: orgID
@@ -1471,6 +1635,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/skills:
     parameters:
       - name: orgID
@@ -1512,6 +1680,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/secrets:
     parameters:
       - name: orgID
@@ -1549,6 +1721,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     post:
       operationId: createSecret
       tags: [Secrets]
@@ -1577,6 +1753,10 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/secrets/mcp-oauth:
     parameters:
       - name: orgID
@@ -1615,6 +1795,10 @@ paths:
         '502': { $ref: '#/components/responses/BadGateway' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/secrets/{secretID}:
     parameters:
       - name: orgID
@@ -1646,6 +1830,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     patch:
       operationId: updateSecret
       tags: [Secrets]
@@ -1674,6 +1862,10 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteSecret
       tags: [Secrets]
@@ -1696,6 +1888,10 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/secrets/{secretID}/versions:
     parameters:
       - name: orgID
@@ -1738,6 +1934,10 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/secrets/{secretID}/grants:
     parameters:
       - name: orgID
@@ -1778,6 +1978,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     post:
       operationId: createSecretGrant
       tags: [Secrets]
@@ -1806,6 +2010,10 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/secrets/{secretID}/grants/{grantID}:
     parameters:
       - name: orgID
@@ -1846,6 +2054,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs:
     parameters:
       - name: orgID
@@ -1893,6 +2105,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}:
     parameters:
       - name: orgID
@@ -1938,6 +2154,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs:
     parameters:
       - name: orgID
@@ -1991,6 +2211,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/tool-catalog:
     get:
       operationId: getToolCatalog
@@ -2009,6 +2233,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}:
     parameters:
       - name: orgID
@@ -2052,6 +2280,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles:
     parameters:
       - name: orgID
@@ -2107,6 +2339,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listAgentProfiles
       tags: [Configs and Profiles]
@@ -2137,6 +2373,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}:
     parameters:
       - name: orgID
@@ -2180,6 +2420,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteAgentProfile
       tags: [Configs and Profiles]
@@ -2208,6 +2452,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config:
     parameters:
       - name: orgID
@@ -2263,6 +2511,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup:
     parameters:
       - name: orgID
@@ -2316,6 +2568,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup:
     parameters:
       - name: orgID
@@ -2369,6 +2625,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents:
     parameters:
       - name: orgID
@@ -2429,6 +2689,10 @@ paths:
                 $ref: '#/components/schemas/Error'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listAgents
       tags: [Agents]
@@ -2459,6 +2723,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}:
     parameters:
       - name: orgID
@@ -2502,6 +2770,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive:
     parameters:
       - name: orgID
@@ -2554,6 +2826,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config:
     parameters:
       - name: orgID
@@ -2609,6 +2885,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs:
     parameters:
       - name: orgID
@@ -2670,6 +2950,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls:
     parameters:
       - name: orgID
@@ -2725,6 +3009,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result:
     parameters:
       - name: orgID
@@ -2787,6 +3075,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns:
     parameters:
       - name: orgID
@@ -2848,6 +3140,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events:
     parameters:
       - name: orgID
@@ -2915,6 +3211,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events:
     parameters:
       - name: orgID
@@ -2990,6 +3290,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream:
     parameters:
       - name: orgID
@@ -3048,10 +3352,13 @@ paths:
         '200':
           description: >-
             Server-sent event stream. Durable frames use `agent_input`,
-            `model_output`, or `tool_result` as the SSE event name;
-            best-effort model previews use `model_output_delta`; terminal
-            stream errors use `error`. Heartbeats are SSE comments and carry
-            no JSON payload.
+            `model_output`, `tool_result`, or `context_checkpoint` as the
+            SSE event name and set the SSE `id` field to the event's
+            `sequence`, which reconnects can replay via `Last-Event-ID`.
+            Best-effort model previews use `model_output_delta` and terminal
+            stream errors use `error`; neither carries an SSE `id`, so
+            reconnects resume from the last durable event. Heartbeats are
+            SSE comments and carry no JSON payload.
           content:
             text/event-stream:
               schema:
@@ -3066,6 +3373,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel:
     parameters:
       - name: orgID
@@ -3119,6 +3430,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions:
     parameters:
       - name: orgID
@@ -3171,6 +3486,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve:
     parameters:
       - name: orgID
@@ -3230,6 +3549,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog:
     parameters:
       - name: orgID
@@ -3277,6 +3600,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel:
     parameters:
       - name: orgID
@@ -3330,6 +3657,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move:
     parameters:
       - name: orgID
@@ -3389,6 +3720,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering:
     parameters:
       - name: orgID
@@ -3448,6 +3783,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued:
     parameters:
       - name: orgID
@@ -3501,6 +3840,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}:
     parameters:
       - name: orgID
@@ -3550,6 +3893,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content:
     parameters:
       - name: orgID
@@ -3582,9 +3929,9 @@ paths:
       summary: Get artifact content
       responses:
         '200':
-          description: Artifact bytes.
+          description: Artifact bytes, served with the artifact's stored content type.
           content:
-            application/octet-stream:
+            '*/*':
               schema:
                 type: string
                 format: binary
@@ -3600,6 +3947,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/machines:
     parameters:
       - name: orgID
@@ -3647,6 +3998,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants:
     parameters:
       - name: orgID
@@ -3702,6 +4057,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listProjectMachineGrants
       tags: [Machines]
@@ -3734,6 +4093,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}:
     parameters:
       - name: orgID
@@ -3780,6 +4143,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/secrets:
     parameters:
       - name: orgID
@@ -3823,6 +4190,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/secrets/{secretID}:
     parameters:
       - name: orgID
@@ -3860,6 +4231,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/actors:
     parameters:
       - name: orgID
@@ -3910,6 +4285,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     put:
       operationId: putActor
       tags: [Actors]
@@ -3938,6 +4317,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/actors/{actorID}:
     parameters:
       - name: orgID
@@ -3975,6 +4358,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/machines:
     parameters:
       - name: orgID
@@ -4024,6 +4411,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listVisibleMachines
       tags: [Machines]
@@ -4057,6 +4448,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/machines/connect:
     parameters:
       - name: orgID
@@ -4099,6 +4494,10 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/machines/{machineID}:
     parameters:
       - name: orgID
@@ -4136,6 +4535,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     patch:
       operationId: updateMachine
       tags: [Machines]
@@ -4169,6 +4572,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteMachine
       tags: [Machines]
@@ -4195,6 +4602,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/model-provider-configs:
     parameters:
       - name: orgID
@@ -4243,6 +4654,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listModelProviderConfigs
       tags: [Models]
@@ -4275,6 +4690,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}:
     parameters:
       - name: orgID
@@ -4312,6 +4731,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     put:
       operationId: updateModelProviderConfig
       tags: [Models]
@@ -4345,6 +4768,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteModelProviderConfig
       tags: [Models]
@@ -4371,6 +4798,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models:
     parameters:
       - name: orgID
@@ -4424,6 +4855,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listConfiguredModels
       tags: [Models]
@@ -4451,6 +4886,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}:
     parameters:
       - name: orgID
@@ -4504,6 +4943,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteConfiguredModel
       tags: [Models]
@@ -4530,6 +4973,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/model-grants:
     parameters:
       - name: orgID
@@ -4583,6 +5030,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listProjectModelGrants
       tags: [Models]
@@ -4615,6 +5066,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}:
     parameters:
       - name: orgID
@@ -4662,6 +5117,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     patch:
       operationId: updateProjectModelGrant
       tags: [Models]
@@ -4702,6 +5161,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/machine-pools:
     parameters:
       - name: orgID
@@ -4749,6 +5212,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listMachinePools
       tags: [Machine Pools]
@@ -4781,6 +5248,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/machine-pools/{poolID}:
     parameters:
       - name: orgID
@@ -4818,6 +5289,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     put:
       operationId: updateMachinePool
       tags: [Machine Pools]
@@ -4851,6 +5326,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteMachinePool
       tags: [Machine Pools]
@@ -4879,6 +5358,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants:
     parameters:
       - name: orgID
@@ -4934,6 +5417,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listProjectMachinePoolGrants
       tags: [Machine Pools]
@@ -4966,6 +5453,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}:
     parameters:
       - name: orgID
@@ -5013,6 +5504,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: getProjectMachinePoolGrant
       tags: [Machine Pools]
@@ -5036,6 +5531,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     patch:
       operationId: updateProjectMachinePoolGrant
       tags: [Machine Pools]
@@ -5074,6 +5573,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens:
     parameters:
       - name: orgID
@@ -5120,6 +5623,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listBYOMachineDaemonTokens
       tags: [Machines]
@@ -5147,6 +5654,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke:
     parameters:
       - name: orgID
@@ -5194,6 +5705,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/daemon/runtimes:
     post:
       operationId: registerMachineDaemonRuntime
@@ -5229,6 +5744,10 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/daemon/runtimes/{runtimeID}/socket:
     parameters:
       - name: runtimeID
@@ -5261,6 +5780,10 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/daemon/runtimes/{runtimeID}/end:
     parameters:
       - name: runtimeID
@@ -5297,6 +5820,10 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/daemon/runtimes/{runtimeID}/sleep:
     parameters:
       - name: runtimeID
@@ -5342,6 +5869,10 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/daemon/skills/{skillID}/archive:
     parameters:
       - name: skillID
@@ -5396,6 +5927,10 @@ paths:
           $ref: '#/components/responses/Gone'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -5588,6 +6123,34 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    ClientError:
+      description: Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [error, code]
+            properties:
+              error:
+                type: string
+                description: Human-readable error message. Do not match on it programmatically.
+              code:
+                $ref: '#/components/schemas/ClientErrorCode'
+    ServerError:
+      description: Any other server error. The body carries the shared Error envelope restricted to server error codes.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [error, code]
+            properties:
+              error:
+                type: string
+                description: Human-readable error message. Do not match on it programmatically.
+              code:
+                $ref: '#/components/schemas/ServerErrorCode'
   schemas:
     ResourceListSort:
       type: string
@@ -5626,12 +6189,42 @@ components:
             - service_unavailable
             - idempotency_key_conflict
             - state_transition_conflict
+            - managed_work_admission_denied
             - pending_work
             - not_wake_capable
             - daemon_runtime_unregistered
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+    ClientErrorCode:
+      type: string
+      description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+      enum:
+        - invalid_request
+        - validation_failed
+        - unauthorized
+        - forbidden
+        - csrf_check_failed
+        - not_found
+        - conflict
+        - idempotency_key_conflict
+        - state_transition_conflict
+        - pending_work
+        - not_wake_capable
+        - gone
+        - daemon_runtime_unregistered
+        - request_too_large
+        - unsupported_media_type
+        - unprocessable
+        - rate_limited
+    ServerErrorCode:
+      type: string
+      description: Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+      enum:
+        - internal_error
+        - upstream_error
+        - service_unavailable
+        - authentication_unavailable
     ManagementKind:
       type: string
       description: Lifecycle owner. Tenant-managed resources can be changed through tenant APIs; cluster-managed resources are installed by the control plane and are read-only through tenant lifecycle APIs.
@@ -5916,8 +6509,7 @@ components:
           items:
             $ref: '#/components/schemas/ModelProviderConfig'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     CreateConfiguredModelRequest:
       type: object
       additionalProperties: false
@@ -6000,8 +6592,7 @@ components:
           maximum: 2147483647
           description: Configured output-token ceiling for this model. Omitted keeps the current value; it cannot be cleared.
         default_max_output_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           minimum: 1
           maximum: 2147483647
           description: Default per-request output-token cap sent to the provider unless an agent config overrides it. Required for Anthropic Messages.
@@ -6059,8 +6650,7 @@ components:
           type: integer
           description: Configured output-token ceiling for this model.
         default_max_output_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Default per-request output-token cap sent to the provider unless an agent config overrides it.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
@@ -6106,8 +6696,7 @@ components:
           items:
             $ref: '#/components/schemas/ConfiguredModel'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     CreateProjectModelGrantRequest:
       type: object
       description: Grant a project access to a configured model. Optional fields can narrow the model's limits for this project; omitted fields inherit from the org-level configured model.
@@ -6167,35 +6756,29 @@ components:
       minProperties: 1
       properties:
         context_window_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           minimum: 1
           description: Project token-window limit. Cannot exceed the configured model's current limit.
         max_output_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           minimum: 1
           description: Project output-token ceiling. Cannot exceed the configured model's ceiling.
         default_max_output_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           minimum: 1
           description: Project default per-request output-token cap.
         default_cache_retention:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/ModelCacheRetention'
-          nullable: true
+            - type: "null"
         supports_tools:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Project-level tool-use gate. Can disable tools, but cannot enable tools when the configured model does not support them.
         supports_reasoning:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Project-level reasoning gate. Can disable reasoning, but cannot enable reasoning when the configured model does not support it.
         default_reasoning_effort:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Project default reasoning effort.
         supported_reasoning_efforts:
           type: array
@@ -6226,26 +6809,21 @@ components:
         configured_model_id:
           $ref: '#/components/schemas/ConfiguredModelID'
         context_window_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Project token-window limit, or omitted/null to inherit from the configured model.
         max_output_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Project output-token ceiling, or omitted/null to inherit from the configured model.
         default_max_output_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Project default per-request output-token cap, or omitted/null to inherit from the configured model.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Project-level tool-use override, or omitted/null to inherit from the configured model.
         supports_reasoning:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Project-level reasoning override, or omitted/null to inherit from the configured model.
         default_reasoning_effort:
           type: string
@@ -6286,8 +6864,7 @@ components:
           items:
             $ref: '#/components/schemas/ProjectModelGrantListItem'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     ProjectModelGrantListItem:
       type: object
       additionalProperties: false
@@ -6490,8 +7067,7 @@ components:
           items:
             $ref: '#/components/schemas/Skill'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     DirectSkillAvailability:
       type: object
       additionalProperties: false
@@ -6540,8 +7116,7 @@ components:
           items:
             $ref: '#/components/schemas/ProjectSkillAccess'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     SkillGrantCreateRequest:
       type: object
       additionalProperties: false
@@ -6583,12 +7158,7 @@ components:
           items:
             $ref: '#/components/schemas/SkillGrantListItem'
         next_cursor:
-          type: string
-          nullable: true
-    SecretPayload:
-      type: object
-      additionalProperties:
-        type: string
+          type: [string, "null"]
     MCPOAuthStartRequest:
       type: object
       additionalProperties: false
@@ -6613,9 +7183,23 @@ components:
           items:
             type: string
         metadata:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/MCPOAuthStartMetadata'
+    MCPOAuthStartMetadata:
+      type: object
+      description: User-supplied metadata for the stored secret. A restriction of Metadata that leaves room for one reserved pair - Omnara sets mcp_url on the secret to the flow's MCP endpoint URL, so the key is reserved and at most 15 user pairs are accepted.
+      x-go-type: resourcemeta.Metadata
+      x-go-type-import:
+        path: github.com/omnara-ai/omnara/internal/resourcemeta
+      x-go-type-skip-optional-pointer: true
+      maxProperties: 15
+      propertyNames:
+        minLength: 1
+        maxLength: 64
+      not:
+        required: [mcp_url]
+      additionalProperties:
+        type: string
+        maxLength: 512
     MCPOAuthStartResponse:
       type: object
       additionalProperties: false
@@ -6693,8 +7277,7 @@ components:
           items:
             $ref: '#/components/schemas/IntegrationInstall'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
     IntegrationOAuthSetup:
       type: object
@@ -6868,8 +7451,7 @@ components:
           type: integer
           description: Effective largest output-token cap Omnara allows for this agent config.
         default_max_output_tokens:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Effective per-request output-token cap sent to the provider.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
@@ -6969,8 +7551,7 @@ components:
           items:
             $ref: '#/components/schemas/AgentProfile'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
     CreateAgentRequest:
       type: object
@@ -7053,8 +7634,7 @@ components:
           items:
             $ref: '#/components/schemas/Agent'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
     AgentInputKind:
       type: string
@@ -7110,6 +7690,13 @@ components:
         - ModelOutputStopReasonRefusal
         - ModelOutputStopReasonContentFilter
         - ModelOutputStopReasonError
+    ContentBlockMetadata:
+      $ref: '#/components/schemas/Metadata'
+      description: >-
+        Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters,
+        values must be strings of up to 512 characters. Keys beginning with `omnara_` are
+        reserved for Omnara and may affect product behavior; use them only when
+        intentionally invoking Omnara-defined behavior.
     TextContentBlock:
       type: object
       additionalProperties: false
@@ -7120,6 +7707,8 @@ components:
           enum: [text]
         text:
           type: string
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     InlineMediaContentBlock:
       type: object
       additionalProperties: false
@@ -7150,6 +7739,8 @@ components:
           type: string
           format: byte
           minLength: 1
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     MediaRefContentBlock:
       type: object
       additionalProperties: false
@@ -7160,6 +7751,8 @@ components:
           enum: [media_ref]
         artifact_id:
           $ref: '#/components/schemas/ArtifactID'
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     ReasoningContentBlock:
       type: object
       additionalProperties: false
@@ -7170,6 +7763,8 @@ components:
           enum: [reasoning]
         text:
           type: string
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     ErrorContentBlock:
       type: object
       additionalProperties: false
@@ -7180,6 +7775,8 @@ components:
           enum: [error]
         text:
           type: string
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     StructuredDataContentBlock:
       type: object
       additionalProperties: false
@@ -7190,6 +7787,8 @@ components:
           enum: [structured_data]
         value:
           $ref: '#/components/schemas/JSONBlob'
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     ModelToolCallContentBlock:
       type: object
       additionalProperties: false
@@ -7206,6 +7805,8 @@ components:
           type: string
         input:
           $ref: '#/components/schemas/ToolInput'
+        metadata:
+          $ref: '#/components/schemas/ContentBlockMetadata'
     CreateAgentInputContentBlock:
       oneOf:
         - $ref: '#/components/schemas/TextContentBlock'
@@ -7333,15 +7934,14 @@ components:
           description: Env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
           type: object
           additionalProperties:
-            type: string
-            nullable: true
+            type: [string, "null"]
         secret_env_overlay:
           description: Secret env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
           type: object
           additionalProperties:
-            allOf:
+            anyOf:
               - $ref: '#/components/schemas/SecretID'
-            nullable: true
+              - type: "null"
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -7374,13 +7974,42 @@ components:
           $ref: '#/components/schemas/AgentEventID'
     JSONBlob:
       description: Public JSON payload whose shape is determined by the event or interaction kind.
-      nullable: true
     ToolInput:
       description: Non-null JSON object containing the arguments emitted for a tool call.
       type: object
       additionalProperties: true
       x-go-type: json.RawMessage
       x-go-type-skip-optional-pointer: true
+    Metadata:
+      type: object
+      description: Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+      x-go-type: resourcemeta.Metadata
+      x-go-type-import:
+        path: github.com/omnara-ai/omnara/internal/resourcemeta
+      x-go-type-skip-optional-pointer: true
+      maxProperties: 16
+      propertyNames:
+        minLength: 1
+        maxLength: 64
+      additionalProperties:
+        type: string
+        maxLength: 512
+    MachineMetadata:
+      type: object
+      description: User-supplied metadata stored on a machine, provided directly or copied from the machine pool that provisions it. A restriction of Metadata that leaves room for one reserved pair - Omnara sets observed_platform on the machine to the platform reported by its daemon, so the key is reserved and at most 15 user pairs are accepted.
+      x-go-type: resourcemeta.Metadata
+      x-go-type-import:
+        path: github.com/omnara-ai/omnara/internal/resourcemeta
+      x-go-type-skip-optional-pointer: true
+      maxProperties: 15
+      propertyNames:
+        minLength: 1
+        maxLength: 64
+      not:
+        required: [observed_platform]
+      additionalProperties:
+        type: string
+        maxLength: 512
     CreateAgentInputRequest:
       type: object
       additionalProperties: false
@@ -7388,6 +8017,11 @@ components:
       properties:
         content_blocks:
           type: array
+          description: >-
+            At most 20 inline media blocks per submission, each holding up to
+            10 MiB of decoded media and up to 24 MiB decoded across the
+            submission. Non-media blocks may hold up to 1 MiB combined. The
+            whole request body is capped at 48 MiB.
           items:
             $ref: '#/components/schemas/CreateAgentInputContentBlock'
         delivery_mode:
@@ -7475,8 +8109,7 @@ components:
           items:
             $ref: '#/components/schemas/ToolCall'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     SubmitToolCallResultRequest:
       type: object
       additionalProperties: false
@@ -7488,6 +8121,11 @@ components:
           description: Whether the custom tool call succeeded or failed.
         content_blocks:
           type: array
+          description: >-
+            At most 20 inline media blocks per submission, each holding up to
+            10 MiB of decoded media and up to 24 MiB decoded across the
+            submission. Non-media blocks may hold up to 1 MiB combined. The
+            whole request body is capped at 48 MiB.
           items:
             $ref: '#/components/schemas/SubmitToolResultContentBlock'
     ToolResult:
@@ -7729,7 +8367,7 @@ components:
     ModelOutputBlockStartDelta:
       type: object
       additionalProperties: false
-      required: [kind, block]
+      required: [kind, block_index, block]
       properties:
         kind:
           type: string
@@ -7737,13 +8375,12 @@ components:
         block_index:
           type: integer
           minimum: 0
-          default: 0
         block:
           $ref: '#/components/schemas/ModelOutputStreamBlock'
     ModelOutputTextDelta:
       type: object
       additionalProperties: false
-      required: [kind, delta]
+      required: [kind, block_index, delta]
       properties:
         kind:
           type: string
@@ -7751,13 +8388,12 @@ components:
         block_index:
           type: integer
           minimum: 0
-          default: 0
         delta:
           type: string
     ModelOutputThinkingDelta:
       type: object
       additionalProperties: false
-      required: [kind, delta]
+      required: [kind, block_index, delta]
       properties:
         kind:
           type: string
@@ -7765,13 +8401,12 @@ components:
         block_index:
           type: integer
           minimum: 0
-          default: 0
         delta:
           type: string
     ModelOutputToolArgumentsDelta:
       type: object
       additionalProperties: false
-      required: [kind, delta]
+      required: [kind, block_index, delta]
       properties:
         kind:
           type: string
@@ -7779,13 +8414,12 @@ components:
         block_index:
           type: integer
           minimum: 0
-          default: 0
         delta:
           type: string
     ModelOutputBlockStopDelta:
       type: object
       additionalProperties: false
-      required: [kind]
+      required: [kind, block_index]
       properties:
         kind:
           type: string
@@ -7793,7 +8427,6 @@ components:
         block_index:
           type: integer
           minimum: 0
-          default: 0
     ModelUsage:
       type: object
       additionalProperties: false
@@ -7870,7 +8503,7 @@ components:
     ModelOutputDelta:
       type: object
       additionalProperties: false
-      required: [turn_id, model_call_context_id, seq, source_seq_start, source_seq_end, event]
+      required: [turn_id, model_call_context_id, seq, source_seq_start, source_seq_end, coalesced_count, event]
       properties:
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -7878,12 +8511,16 @@ components:
           $ref: '#/components/schemas/ModelCallContextID'
         seq:
           $ref: '#/components/schemas/AgentSequence'
+          description: Monotonic frame sequence within this model call context's preview stream, starting at 1. Delta frames carry no SSE id; gaps in seq mean dropped best-effort frames.
         source_seq_start:
           $ref: '#/components/schemas/AgentSequence'
+          description: First provider stream event coalesced into this frame.
         source_seq_end:
           $ref: '#/components/schemas/AgentSequence'
+          description: Last provider stream event coalesced into this frame.
         coalesced_count:
           $ref: '#/components/schemas/AgentCount'
+          description: Number of provider stream events coalesced into this frame. A frame is intact only when this equals source_seq_end - source_seq_start + 1; a smaller count means events inside the range were dropped before coalescing.
         event:
           $ref: '#/components/schemas/ModelOutputStreamDelta'
     AgentEventStreamData:
@@ -7907,9 +8544,9 @@ components:
           $ref: '#/components/schemas/AgentSequenceCursor'
           description: Sequence to pass as after_sequence on the next request. Equals the request boundary when no events are returned.
         next_before_sequence:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/AgentSequenceCursor'
-          nullable: true
+            - type: "null"
           description: Sequence to pass as before_sequence for the next older page. Null when no older events remain or when paginating forward.
         has_more:
           type: boolean
@@ -7924,9 +8561,9 @@ components:
           items:
             $ref: '#/components/schemas/AgentEvent'
         next_before_sequence:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/AgentSequenceCursor'
-          nullable: true
+            - type: "null"
           description: Pass this value as before_sequence to fetch older events, or null when this page reached the beginning of the turn.
     AgentTurn:
       type: object
@@ -7963,9 +8600,9 @@ components:
           items:
             $ref: '#/components/schemas/AgentTurn'
         next_before_turn_sequence:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/AgentSequenceCursor'
-          nullable: true
+            - type: "null"
           description: Pass this value as before_turn_sequence to fetch older turns, or null when this page reached the beginning of the agent's turns.
     CancelAgentRequest:
       type: object
@@ -7980,9 +8617,9 @@ components:
       required: [event, runtime_cancel_requested, affected]
       properties:
         event:
-          nullable: true
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/AgentEvent'
+            - type: "null"
         runtime_cancel_requested:
           type: boolean
           description: Whether this request created or observed a durable runtime cancel request. Immediate delivery is best effort; runtime-lock renewal observes the durable request.
@@ -8026,8 +8663,7 @@ components:
           items:
             $ref: '#/components/schemas/AgentInput'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     InteractionFormContextItem:
       type: object
       additionalProperties: false
@@ -8179,7 +8815,7 @@ components:
     Actor:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, provider, provider_user_id, created_at, updated_at]
+      required: [id, org_id, project_id, provider, provider_user_id, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ActorID'
@@ -8196,10 +8832,7 @@ components:
         display_name:
           type: string
         metadata:
-          type: object
-          x-go-type: json.RawMessage
-          x-go-type-skip-optional-pointer: true
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -8222,14 +8855,7 @@ components:
           type: string
           maxLength: 256
         metadata:
-          type: object
-          description: Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
-          x-go-type: json.RawMessage
-          x-go-type-skip-optional-pointer: true
-          maxProperties: 16
-          additionalProperties:
-            type: string
-            maxLength: 512
+          $ref: '#/components/schemas/Metadata'
     ListActorsResponse:
       type: object
       additionalProperties: false
@@ -8240,8 +8866,7 @@ components:
           items:
             $ref: '#/components/schemas/Actor'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     ListAgentInteractionsResponse:
       type: object
       additionalProperties: false
@@ -8252,8 +8877,7 @@ components:
           items:
             $ref: '#/components/schemas/AgentInteraction'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     OrgSecretOwnerInput:
       type: object
       additionalProperties: false
@@ -8393,15 +9017,41 @@ components:
         token_type:
           type: string
           minLength: 1
+    AWSCredentialsSecretMaterial:
+      type: object
+      additionalProperties: false
+      required: [kind, access_key_id, secret_access_key]
+      properties:
+        kind:
+          type: string
+          enum: [aws_credentials]
+        access_key_id:
+          type: string
+          minLength: 1
+        secret_access_key:
+          type: string
+          minLength: 1
+        session_token:
+          type: string
+          minLength: 1
+        role_arn:
+          type: string
+          minLength: 1
+        external_id:
+          type: string
+          minLength: 1
+          description: Requires role_arn.
     SecretMaterial:
       oneOf:
         - $ref: '#/components/schemas/GenericSecretMaterial'
         - $ref: '#/components/schemas/OAuthTokenSetSecretMaterial'
+        - $ref: '#/components/schemas/AWSCredentialsSecretMaterial'
       discriminator:
         propertyName: kind
         mapping:
           generic: '#/components/schemas/GenericSecretMaterial'
           oauth_token_set: '#/components/schemas/OAuthTokenSetSecretMaterial'
+          aws_credentials: '#/components/schemas/AWSCredentialsSecretMaterial'
     CreateSecretRequest:
       type: object
       additionalProperties: false
@@ -8413,9 +9063,7 @@ components:
           type: string
           minLength: 1
         metadata:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/Metadata'
         material:
           $ref: '#/components/schemas/SecretMaterial'
     UpdateSecretRequest:
@@ -8427,9 +9075,7 @@ components:
           type: string
           minLength: 1
         metadata:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/Metadata'
     SecretVersionRequest:
       type: object
       additionalProperties: false
@@ -8446,11 +9092,12 @@ components:
           $ref: '#/components/schemas/ProjectID'
     SecretKind:
       type: string
-      enum: [generic, oauth_token_set, slack_app_credentials]
+      enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials]
       x-enum-varnames:
         - SecretKindGeneric
         - SecretKindOAuthTokenSet
         - SecretKindSlackAppCredentials
+        - SecretKindAWSCredentials
     Secret:
       type: object
       additionalProperties: false
@@ -8469,9 +9116,7 @@ components:
         kind:
           $ref: '#/components/schemas/SecretKind'
         metadata:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/Metadata'
         current_version_number:
           type: integer
           format: int32
@@ -8493,8 +9138,7 @@ components:
           items:
             $ref: '#/components/schemas/Secret'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     DirectSecretAvailability:
       type: object
       additionalProperties: false
@@ -8545,8 +9189,7 @@ components:
           items:
             $ref: '#/components/schemas/ProjectSecretAccess'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     SecretGrant:
       type: object
       additionalProperties: false
@@ -8581,8 +9224,7 @@ components:
           items:
             $ref: '#/components/schemas/SecretGrantListItem'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     CreateOrganizationRequest:
       type: object
       additionalProperties: false
@@ -8654,8 +9296,7 @@ components:
           items:
             $ref: '#/components/schemas/OrgInvitation'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
     CreateOrgInvitationRequest:
       type: object
@@ -8691,13 +9332,13 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
         last_used_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         revoked_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
     CreatePersonalAccessTokenResponse:
       type: object
       additionalProperties: false
@@ -8735,13 +9376,13 @@ components:
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         last_used_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         revoked_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
     CreateOrgAPIKeyRequest:
       type: object
       additionalProperties: false
@@ -8782,8 +9423,7 @@ components:
           items:
             $ref: '#/components/schemas/OrgAPIKey'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
     Artifact:
       type: object
@@ -8875,6 +9515,7 @@ components:
                 anyOf:
                   - required: [default_machine_cpu]
                   - required: [max_total_cpu]
+                  - required: [min_machine_cpu]
                   - required: [max_machine_cpu]
     CreateMachinePoolRequestBase:
       type: object
@@ -8919,6 +9560,10 @@ components:
           additionalProperties: true
         provider_auth_secret_id:
           $ref: '#/components/schemas/SecretID'
+        runtime_protection_enabled:
+          description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
+          type: boolean
+          default: false
         max_total_machines:
           type: integer
           format: int32
@@ -8934,6 +9579,16 @@ components:
           format: int32
           minimum: 0
           maximum: 2147483647
+        min_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
         max_machine_cpu:
           type: integer
           format: int32
@@ -8945,8 +9600,7 @@ components:
           minimum: 1
           maximum: 2147483647
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/MachineMetadata'
     UpdateMachinePoolRequest:
       type: object
       additionalProperties: false
@@ -8957,17 +9611,15 @@ components:
         description:
           type: string
         default_machine_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         default_machine_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         default_machine_env:
           description: Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
           type: object
@@ -8988,42 +9640,50 @@ components:
           additionalProperties: true
         provider_auth_secret_id:
           $ref: '#/components/schemas/SecretID'
+        runtime_protection_enabled:
+          description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
+          type: boolean
         max_total_machines:
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
         max_total_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
+        min_machine_cpu:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_memory_mb:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
         max_machine_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         max_machine_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/MachineMetadata'
     MachinePool:
       type: object
       additionalProperties: false
-      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachinePoolID'
@@ -9038,17 +9698,15 @@ components:
         provider:
           type: string
         default_machine_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         default_machine_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         default_machine_env:
           description: Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
           type: object
@@ -9069,38 +9727,46 @@ components:
         provider_config:
           type: object
           additionalProperties: true
+        runtime_protection_enabled:
+          description: Whether Omnara deletes this pool's machines when the provider remains running after the daemon becomes inactive.
+          type: boolean
         max_total_machines:
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
         max_total_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
+        min_machine_cpu:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_memory_mb:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
         max_machine_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         max_machine_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9115,8 +9781,7 @@ components:
           items:
             $ref: '#/components/schemas/MachinePool'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     MachineSourceKind:
       type: string
       enum: [byo, pool]
@@ -9164,9 +9829,9 @@ components:
         source_kind:
           $ref: '#/components/schemas/MachineSourceKind'
         machine_pool_id:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/MachinePoolID'
-          nullable: true
+            - type: "null"
         display_name:
           type: string
         description:
@@ -9177,10 +9842,12 @@ components:
           $ref: '#/components/schemas/MachineLifecycleState'
         connection_state:
           $ref: '#/components/schemas/MachineConnectionState'
+        connection_state_reason:
+          type: string
         last_observed_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         cwd:
           type: string
         env:
@@ -9196,9 +9863,9 @@ components:
         lifecycle_reason_message:
           type: string
         next_reconcile_after:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         provision_attempts:
           type: integer
           format: int32
@@ -9206,12 +9873,11 @@ components:
           type: integer
           format: int32
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         deleted_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9237,8 +9903,7 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/MachineMetadata'
     ConnectBYOMachineRequest:
       type: object
       additionalProperties: false
@@ -9283,9 +9948,9 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
-    MachineSummary:
+    MachineSummaryFields:
       type: object
-      additionalProperties: false
+      description: Shared machine fields composed into machine response schemas. Composing schemas close their final shape with unevaluatedProperties.
       required: [id, org_id, source_kind, display_name, description, provider, lifecycle_state, connection_state, last_observed_at, deleted_at, created_at, updated_at]
       properties:
         id:
@@ -9305,17 +9970,21 @@ components:
         connection_state:
           $ref: '#/components/schemas/MachineConnectionState'
         last_observed_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         deleted_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    MachineSummary:
+      allOf:
+        - $ref: '#/components/schemas/MachineSummaryFields'
+      unevaluatedProperties: false
     MachineAccessSource:
       type: object
       additionalProperties: false
@@ -9342,13 +10011,13 @@ components:
             $ref: '#/components/schemas/MachineAccessSource'
     VisibleMachine:
       allOf:
-        - $ref: '#/components/schemas/MachineSummary'
+        - $ref: '#/components/schemas/MachineSummaryFields'
         - type: object
-          additionalProperties: false
           required: [access]
           properties:
             access:
               $ref: '#/components/schemas/MachineAccess'
+      unevaluatedProperties: false
     ListVisibleMachinesResponse:
       type: object
       additionalProperties: false
@@ -9359,8 +10028,7 @@ components:
           items:
             $ref: '#/components/schemas/VisibleMachine'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     ProjectMachineGrant:
       type: object
       additionalProperties: false
@@ -9377,14 +10045,13 @@ components:
         source_kind:
           $ref: '#/components/schemas/ProjectMachineGrantSourceKind'
         project_machine_pool_grant_id:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/ProjectMachinePoolGrantID'
-          nullable: true
+            - type: "null"
         description:
           type: string
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9399,8 +10066,7 @@ components:
         description:
           type: string
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     CreateProjectMachineGrantResponse:
       type: object
       additionalProperties: false
@@ -9420,8 +10086,7 @@ components:
           items:
             $ref: '#/components/schemas/ProjectMachineGrantListItem'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     ProjectMachineGrantListItem:
       type: object
       additionalProperties: false
@@ -9434,7 +10099,7 @@ components:
     ProjectMachinePoolGrant:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ProjectMachinePoolGrantID'
@@ -9447,68 +10112,68 @@ components:
         description:
           type: string
         default_machine_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         default_machine_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         default_machine_env_overlay:
           description: Env overlay merged over the pool's default_machine_env for machines materialized through this grant; a null entry removes the key.
           type: object
           additionalProperties:
-            type: string
-            nullable: true
+            type: [string, "null"]
         default_machine_secret_env_overlay:
           description: Secret env overlay merged over the pool's default_machine_secret_env for machines materialized through this grant; a null entry removes the key.
           type: object
           additionalProperties:
-            type: string
+            type: [string, "null"]
             pattern: '^sec_[a-z2-7]{26}$'
-            nullable: true
         default_machine_provider_options_overlay:
           type: object
           additionalProperties: true
         default_cwd:
           type: string
         max_total_machines:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
         max_total_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
         max_total_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
+        min_machine_cpu:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_memory_mb:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
         max_machine_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         max_machine_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9536,15 +10201,13 @@ components:
           description: Env overlay merged over the pool's default_machine_env for machines materialized through this grant; a null entry removes the key.
           type: object
           additionalProperties:
-            type: string
-            nullable: true
+            type: [string, "null"]
         default_machine_secret_env_overlay:
           description: Secret env overlay merged over the pool's default_machine_secret_env for machines materialized through this grant; a null entry removes the key.
           type: object
           additionalProperties:
-            type: string
+            type: [string, "null"]
             pattern: '^sec_[a-z2-7]{26}$'
-            nullable: true
         default_machine_provider_options_overlay:
           type: object
           additionalProperties: true
@@ -9565,6 +10228,16 @@ components:
           format: int32
           minimum: 0
           maximum: 2147483647
+        min_machine_cpu:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_memory_mb:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
         max_machine_cpu:
           type: integer
           format: int32
@@ -9576,8 +10249,7 @@ components:
           minimum: 1
           maximum: 2147483647
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     UpdateProjectMachinePoolGrantRequest:
       type: object
       description: >-
@@ -9590,66 +10262,66 @@ components:
         description:
           type: string
         default_machine_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         default_machine_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         default_machine_env_overlay:
           type: object
           additionalProperties:
-            type: string
-            nullable: true
+            type: [string, "null"]
         default_machine_secret_env_overlay:
           type: object
           additionalProperties:
-            type: string
+            type: [string, "null"]
             pattern: '^sec_[a-z2-7]{26}$'
-            nullable: true
         default_machine_provider_options_overlay:
           type: object
           additionalProperties: true
         default_cwd:
           type: string
         max_total_machines:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
         max_total_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
         max_total_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
-          nullable: true
+        min_machine_cpu:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+        min_machine_memory_mb:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
         max_machine_cpu:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         max_machine_memory_mb:
-          type: integer
+          type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
-          nullable: true
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     ListProjectMachinePoolGrantsResponse:
       type: object
       additionalProperties: false
@@ -9660,8 +10332,7 @@ components:
           items:
             $ref: '#/components/schemas/ProjectMachinePoolGrantListItem'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     ProjectMachinePoolGrantListItem:
       type: object
       additionalProperties: false
@@ -9699,8 +10370,7 @@ components:
         name:
           type: string
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
     MachineDaemonToken:
       type: object
       additionalProperties: false
@@ -9715,18 +10385,17 @@ components:
         name:
           type: string
         metadata:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         last_used_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         revoked_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         revoke_reason:
           type: string
     CreateMachineDaemonTokenResponse:
@@ -9748,8 +10417,7 @@ components:
           items:
             $ref: '#/components/schemas/MachineDaemonToken'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
     ProcessActionReconciliationClaim:
       type: object
       additionalProperties: false
@@ -9851,9 +10519,6 @@ components:
         capacity:
           type: object
           additionalProperties: true
-        metadata:
-          type: object
-          additionalProperties: true
         observed_platform:
           type: object
           additionalProperties: true
@@ -9899,9 +10564,9 @@ components:
           type: integer
           format: int64
         ended_at:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/Timestamp'
-          nullable: true
+            - type: "null"
         capacity:
           type: object
           additionalProperties: true
@@ -9940,9 +10605,9 @@ components:
         name:
           type: string
           minLength: 1
-    Project:
+    ProjectFields:
       type: object
-      additionalProperties: false
+      description: Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
       required: [id, org_id, name, created_at, updated_at]
       properties:
         id:
@@ -9955,6 +10620,10 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    Project:
+      allOf:
+        - $ref: '#/components/schemas/ProjectFields'
+      unevaluatedProperties: false
     ProjectAccess:
       type: object
       additionalProperties: false
@@ -9970,13 +10639,13 @@ components:
           type: boolean
     VisibleProject:
       allOf:
-        - $ref: '#/components/schemas/Project'
+        - $ref: '#/components/schemas/ProjectFields'
         - type: object
-          additionalProperties: false
           required: [access]
           properties:
             access:
               $ref: '#/components/schemas/ProjectAccess'
+      unevaluatedProperties: false
     ListProjectsResponse:
       type: object
       additionalProperties: false
@@ -9987,8 +10656,7 @@ components:
           items:
             $ref: '#/components/schemas/VisibleProject'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
     CurrentUserIdentity:
       type: object
@@ -10039,8 +10707,7 @@ components:
           items:
             $ref: '#/components/schemas/PersonalAccessToken'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
     OrgMember:
       type: object
@@ -10069,8 +10736,7 @@ components:
           items:
             $ref: '#/components/schemas/OrgMember'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
     UpdateOrgMemberRequest:
       type: object

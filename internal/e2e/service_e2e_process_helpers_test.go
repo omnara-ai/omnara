@@ -795,7 +795,7 @@ func waitForHTTP(t *testing.T, ctx context.Context, url string, logs *safeLogBuf
 				return
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) //nolint:omnaralint // The subprocess offers no readiness handshake.
 	}
 	t.Fatalf("timed out waiting for %s logs=%s", url, logs.Excerpt(80))
 }

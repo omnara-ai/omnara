@@ -760,10 +760,18 @@ SELECT binding.id AS binding_id,
        binding.secret_env_overlay AS binding_secret_env_overlay,
        machine.cwd AS machine_cwd,
        machine.env AS machine_env,
-       machine.secret_env AS machine_secret_env
+       machine.secret_env AS machine_secret_env,
+       CASE
+           WHEN machine.source_kind = 'pool' AND pool.management_kind = 'cluster'
+               THEN COALESCE(admission.new_managed_work_allowed, true)
+           ELSE true
+       END AS new_managed_work_allowed
 FROM agent_machine_bindings binding
 JOIN machines machine ON machine.org_id = binding.org_id
   AND machine.id = binding.machine_id
+LEFT JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+LEFT JOIN org_managed_work_admission admission ON admission.org_id = binding.org_id
 WHERE binding.project_id = $1
   AND binding.agent_id = $2
   AND binding.id = $3
@@ -786,9 +794,11 @@ type GetProcessExecutionConfigRow struct {
 	MachineCwd              string
 	MachineEnv              json.RawMessage
 	MachineSecretEnv        json.RawMessage
+	NewManagedWorkAllowed   bool
 }
 
 // @sqlc-vet-disable machines-deleted-at
+// @sqlc-vet-disable machine-pools-deleted-at
 // Binding attachment governs liveness; machine env still resolves during teardown.
 func (q *Queries) GetProcessExecutionConfig(ctx context.Context, arg GetProcessExecutionConfigParams) (GetProcessExecutionConfigRow, error) {
 	row := q.db.QueryRow(ctx, getProcessExecutionConfig, arg.ProjectID, arg.AgentID, arg.AgentMachineBindingID)
@@ -804,6 +814,7 @@ func (q *Queries) GetProcessExecutionConfig(ctx context.Context, arg GetProcessE
 		&i.MachineCwd,
 		&i.MachineEnv,
 		&i.MachineSecretEnv,
+		&i.NewManagedWorkAllowed,
 	)
 	return i, err
 }

@@ -285,7 +285,6 @@ WHERE call.project_id = $1
 		fixture,
 		work.AgentID,
 		executionstore.AgentWorkTool,
-		work.Now.Add(time.Second),
 	)
 	if claim.ProjectID != work.ProjectID ||
 		claim.AgentID != work.AgentID ||

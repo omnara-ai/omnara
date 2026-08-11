@@ -168,9 +168,11 @@ RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_
 -- lifecycle_state = 'active' excludes soft-deleted machines.
 UPDATE machines
 SET last_observed_at = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     metadata = CASE
-      WHEN sqlc.arg(observed_platform)::jsonb = '{}'::jsonb THEN metadata
-      ELSE jsonb_set(metadata, '{observed_platform}', sqlc.arg(observed_platform)::jsonb, true)
+      WHEN sqlc.arg(observed_platform)::text = '' THEN metadata
+      ELSE jsonb_set(metadata, '{observed_platform}', to_jsonb(sqlc.arg(observed_platform)::text), true)
     END,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
@@ -416,13 +418,15 @@ WHERE token.org_id = sqlc.arg(org_id)
 
 -- name: RecordMachineFailureReport :one
 UPDATE machines machine
-SET failure_report = jsonb_build_object(
+SET failure_report = jsonb_strip_nulls(jsonb_build_object(
       'stage', sqlc.arg(stage)::text,
-      'exit_status', sqlc.arg(exit_status)::integer,
+      'exit_status', sqlc.narg(exit_status)::integer,
       'output_tail', sqlc.arg(output_tail)::text,
       'output_truncated', sqlc.arg(output_truncated)::boolean,
+      'daemon_version', nullif(sqlc.arg(daemon_version)::text, ''),
+      'target_version', nullif(sqlc.arg(target_version)::text, ''),
       'reported_at', statement_timestamp()
-    ),
+    )),
     updated_at = statement_timestamp()
 FROM machine_daemon_tokens token
 WHERE machine.org_id = sqlc.arg(org_id)
@@ -434,6 +438,16 @@ WHERE machine.org_id = sqlc.arg(org_id)
   AND token.id = sqlc.arg(daemon_token_id)
   AND token.revoked_at IS NULL
 RETURNING machine.failure_report;
+
+-- name: ClearMachineUpdateFailureReport :execrows
+UPDATE machines
+SET failure_report = NULL,
+    updated_at = statement_timestamp()
+WHERE org_id = sqlc.arg(org_id)
+  AND id = sqlc.arg(machine_id)
+  AND deleted_at IS NULL
+  AND failure_report->>'stage' = 'daemon_update'
+  AND failure_report->>'daemon_version' IS DISTINCT FROM sqlc.arg(daemon_version)::text;
 
 -- name: RevokeBYOMachineDaemonToken :one
 UPDATE machine_daemon_tokens
@@ -576,6 +590,7 @@ SELECT EXISTS (
 -- name: MarkMachineAsleep :one
 UPDATE machines
 SET asleep_since = statement_timestamp(),
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
@@ -587,11 +602,64 @@ RETURNING id;
 -- name: ClearMachineSleep :exec
 UPDATE machines
 SET asleep_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL
   AND asleep_since IS NOT NULL;
+
+-- name: GetMachineWakeState :one
+SELECT EXISTS (
+         SELECT 1
+         FROM online_daemon_runtimes runtime
+         WHERE runtime.org_id = machine.org_id
+           AND runtime.machine_id = machine.id
+       ) AS online,
+       (machine.asleep_since IS NOT NULL)::boolean AS asleep,
+       pool.runtime_protection_enabled,
+       machine.wake_attempt_expires_at,
+       coalesce(
+         machine.wake_attempt_expires_at > statement_timestamp(),
+         false
+       )::boolean AS wake_attempt_active
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+  AND pool.deleted_at IS NULL
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = sqlc.arg(machine_id)
+  AND machine.machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND machine.provider_resource_id IS NOT NULL;
+
+-- name: ClaimMachineWakeRequest :one
+UPDATE machines machine
+SET wake_attempt_expires_at = statement_timestamp()
+      + sqlc.arg(wake_timeout_milliseconds)::bigint * interval '1 millisecond',
+    updated_at = statement_timestamp()
+FROM machine_pools pool
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = sqlc.arg(machine_id)
+  AND machine.machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND machine.asleep_since IS NOT NULL
+  AND machine.provider_resource_id IS NOT NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR (
+      NOT pool.runtime_protection_enabled
+      AND machine.wake_attempt_expires_at <= statement_timestamp()
+    )
+  )
+  AND pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+  AND pool.deleted_at IS NULL
+RETURNING machine.wake_attempt_expires_at;
 
 -- name: RefreshDaemonRuntimeRegistration :one
 UPDATE daemon_runtimes runtime

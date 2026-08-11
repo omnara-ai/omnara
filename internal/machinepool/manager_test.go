@@ -154,25 +154,48 @@ func TestRunBoundedReconcileReturnsTaskPanic(t *testing.T) {
 func TestRunBoundedReconcileLimitsConcurrency(t *testing.T) {
 	var current atomic.Int32
 	var maxSeen atomic.Int32
-	count, err := runBoundedReconcile(context.Background(), 20, 3, func(_ context.Context, _ int) error {
-		inFlight := current.Add(1)
-		for {
-			observedMax := maxSeen.Load()
-			if inFlight <= observedMax || maxSeen.CompareAndSwap(observedMax, inFlight) {
-				break
+	arrived := make(chan struct{})
+	release := make(chan struct{})
+	type result struct {
+		count int
+		err   error
+	}
+	results := make(chan result, 1)
+	go func() {
+		count, err := runBoundedReconcile(context.Background(), 20, 3, func(_ context.Context, _ int) error {
+			inFlight := current.Add(1)
+			for {
+				observedMax := maxSeen.Load()
+				if inFlight <= observedMax || maxSeen.CompareAndSwap(observedMax, inFlight) {
+					break
+				}
 			}
+			select {
+			case arrived <- struct{}{}:
+			case <-release:
+			}
+			<-release
+			current.Add(-1)
+			return nil
+		})
+		results <- result{count: count, err: err}
+	}()
+	for range 3 {
+		select {
+		case <-arrived:
+		case <-time.After(5 * time.Second):
+			t.Fatal("reconcile tasks did not reach the concurrency limit")
 		}
-		time.Sleep(time.Millisecond)
-		current.Add(-1)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("run bounded reconcile: %v", err)
 	}
-	if count != 20 {
-		t.Fatalf("count = %d, want 20", count)
+	close(release)
+	res := <-results
+	if res.err != nil {
+		t.Fatalf("run bounded reconcile: %v", res.err)
 	}
-	if maxSeen.Load() > 3 {
-		t.Fatalf("max concurrency = %d, want <= 3", maxSeen.Load())
+	if res.count != 20 {
+		t.Fatalf("count = %d, want 20", res.count)
+	}
+	if got := maxSeen.Load(); got != 3 {
+		t.Fatalf("max concurrency = %d, want 3", got)
 	}
 }

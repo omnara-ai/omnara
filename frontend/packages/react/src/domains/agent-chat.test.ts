@@ -173,7 +173,7 @@ function delta(
   deltaEvent: ModelOutputStreamDelta,
   overrides: Partial<ModelOutputDelta> = {},
 ): ModelOutputDelta {
-  return {
+  const frame = {
     turn_id: 'turn',
     model_call_context_id: 'mcc',
     seq,
@@ -181,6 +181,10 @@ function delta(
     source_seq_end: seq,
     event: deltaEvent,
     ...overrides,
+  }
+  return {
+    coalesced_count: frame.source_seq_end - frame.source_seq_start + 1,
+    ...frame,
   }
 }
 
@@ -423,7 +427,16 @@ describe('AgentChatSession', () => {
       expect.objectContaining({
         path: scope,
         headers: { 'Idempotency-Key': expect.any(String) as unknown as string },
-        body: { content_blocks: [{ type: 'text', text: 'Hello' }] },
+        body: {
+          content_blocks: [
+            {
+              type: 'text',
+              text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
+              metadata: { omnara_hidden: 'true' },
+            },
+            { type: 'text', text: 'Hello' },
+          ],
+        },
       }),
     )
 
@@ -1166,6 +1179,21 @@ describe('projectAgentChat delta previews', () => {
     expect(messages).toEqual([])
   })
 
+  it('withholds the preview when loss hides inside one frame', () => {
+    const { messages } = projectAgentChat({
+      ...emptyData,
+      deltas: [
+        previewDelta(1, 'Hello '),
+        previewDelta(2, 'world', {
+          source_seq_start: 2,
+          source_seq_end: 4,
+          coalesced_count: 2,
+        }),
+      ],
+    })
+    expect(messages).toEqual([])
+  })
+
   it('keeps isWorking true through a client-side error mid-turn', () => {
     const { status, isWorking } = projectAgentChat({
       ...emptyData,
@@ -1269,6 +1297,85 @@ describe('projectAgentChat delta previews', () => {
 })
 
 describe('agentEventsToMessages', () => {
+  it('uses omnara_display_text for user text blocks', () => {
+    const messages = agentEventsToMessages([
+      userInputEvent({
+        content_blocks: [
+          {
+            type: 'text',
+            text: 'ask <@U123> (Ada) about <#C123> (#general)',
+            metadata: { omnara_display_text: 'ask @Ada about #general' },
+          },
+        ],
+      }),
+    ])
+
+    expect(messages).toMatchObject([
+      {
+        role: 'user',
+        parts: [{ type: 'text', text: 'ask @Ada about #general' }],
+      },
+    ])
+  })
+
+  it('hides content blocks explicitly marked omnara_hidden', () => {
+    const messages = agentEventsToMessages([
+      userInputEvent({
+        id: 'input',
+        sequence: 10,
+        content_blocks: [
+          { type: 'text', text: 'Slack context', metadata: { omnara_hidden: 'true' } },
+          { type: 'text', text: 'Inspect the workspace' },
+          {
+            type: 'media_ref',
+            artifact_id: 'hidden_input_media',
+            metadata: { omnara_hidden: 'true' },
+          },
+        ],
+      }),
+      event({
+        id: 'call-event',
+        sequence: 11,
+        content_blocks: [
+          { type: 'reasoning', text: 'private', metadata: { omnara_hidden: 'true' } },
+          toolCallBlock(),
+          { type: 'text', text: 'Working' },
+        ],
+      }),
+      toolResultEvent({
+        id: 'result-event',
+        sequence: 12,
+        content_blocks: [
+          {
+            type: 'structured_data',
+            value: { private: true },
+            metadata: { omnara_hidden: 'true' },
+          },
+          { type: 'text', text: 'visible result' },
+        ],
+      }),
+    ])
+
+    expect(messages).toMatchObject([
+      {
+        role: 'user',
+        parts: [{ type: 'text', text: 'Inspect the workspace' }],
+      },
+      {
+        role: 'assistant',
+        parts: [
+          {
+            type: 'dynamic-tool',
+            output: {
+              contentBlocks: [{ type: 'text', text: 'visible result' }],
+            },
+          },
+          { type: 'text', text: 'Working' },
+        ],
+      },
+    ])
+  })
+
   it('represents media_ref blocks as attachment indicators', () => {
     const messages = agentEventsToMessages([
       userInputEvent({

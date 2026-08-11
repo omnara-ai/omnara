@@ -8,10 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func TestMachineMetadataRequiresJSONObject(t *testing.T) {
+func TestMachineMetadataLimits(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -22,12 +23,12 @@ func TestMachineMetadataRequiresJSONObject(t *testing.T) {
 		OrgID:          testOrgID,
 		DisplayName:    "Object Metadata Machine",
 		IdempotencyKey: "idem-object-metadata-machine",
-		Metadata:       json.RawMessage(`{"team":"infra","nested":{"ok":true}}`),
+		Metadata:       resourcemeta.Metadata{"team": "infra", "region": "us-east-1"},
 	})
 	if err != nil {
 		t.Fatalf("create machine with object metadata: %v", err)
 	}
-	if !sameJSON(machine.Metadata, json.RawMessage(`{"team":"infra","nested":{"ok":true}}`)) {
+	if !sameJSON(machine.Metadata, json.RawMessage(`{"team":"infra","region":"us-east-1"}`)) {
 		t.Fatalf("machine metadata = %s", machine.Metadata)
 	}
 
@@ -35,7 +36,7 @@ func TestMachineMetadataRequiresJSONObject(t *testing.T) {
 		OrgID:          testOrgID,
 		DisplayName:    "Bad Metadata Machine",
 		IdempotencyKey: "idem-bad-metadata-machine",
-		Metadata:       json.RawMessage(`[]`),
+		Metadata:       resourcemeta.Metadata{"": "value"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "machine metadata") {
 		t.Fatalf("create machine invalid metadata error = %v", err)
@@ -46,7 +47,7 @@ func TestMachineMetadataRequiresJSONObject(t *testing.T) {
 		ProjectID:      testProjectID,
 		MachineID:      machine.ID,
 		IdempotencyKey: "idem-bad-grant-metadata",
-		Metadata:       json.RawMessage(`[]`),
+		Metadata:       resourcemeta.Metadata{"key": strings.Repeat("v", resourcemeta.MaxValueLength+1)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "project machine grant metadata") {
 		t.Fatalf("create project machine grant invalid metadata error = %v", err)
@@ -81,7 +82,7 @@ func TestMachineMetadataRequiresJSONObject(t *testing.T) {
 		ProjectID:      testProjectID,
 		MachinePoolID:  machinePool.ID,
 		IdempotencyKey: "idem-bad-pool-grant-metadata",
-		Metadata:       json.RawMessage(`[]`),
+		Metadata:       resourcemeta.Metadata{strings.Repeat("k", resourcemeta.MaxKeyLength+1): "value"},
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "project machine pool grant metadata") {

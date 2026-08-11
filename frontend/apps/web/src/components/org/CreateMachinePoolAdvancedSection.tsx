@@ -3,7 +3,13 @@ import {
   OverridesCollapsible,
   SecretEnvOverlayEditor,
 } from '@/components/machines/MachineOverrideFields'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 
 import {
   derivedTotalCapPlaceholder,
@@ -27,6 +33,24 @@ export function CreateMachinePoolAdvancedSection({
   return (
     <OverridesCollapsible title="Advanced">
       <FieldGroup>
+        <Field orientation="horizontal">
+          <input
+            id="mpool-runtime-protection"
+            type="checkbox"
+            className="size-4"
+            checked={values.runtimeProtectionEnabled}
+            onChange={(event) => {
+              setValue('runtimeProtectionEnabled', event.target.checked)
+            }}
+          />
+          <FieldContent>
+            <FieldLabel htmlFor="mpool-runtime-protection">Runtime protection</FieldLabel>
+            <FieldDescription>
+              Delete a sandbox if its provider remains running after its Omnara daemon becomes
+              inactive.
+            </FieldDescription>
+          </FieldContent>
+        </Field>
         <MachinePoolInputField
           id="mpool-cwd"
           label="Working directory"
@@ -57,10 +81,10 @@ export function CreateMachinePoolAdvancedSection({
         <Field>
           <FieldLabel>Capacity limits</FieldLabel>
           <FieldDescription>
-            Machine caps default to the machine size; total caps default to machine size × max pool
-            machines.
+            Machine maximums default to the machine size; total caps default to machine size × max
+            pool machines.
           </FieldDescription>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             {resources.cpu !== 'unsupported' && (
               <>
                 <MachinePoolInputField
@@ -73,6 +97,18 @@ export function CreateMachinePoolAdvancedSection({
                   placeholder={derivedTotalCapPlaceholder(values.cpu, values.maxMachines)}
                   onValueChange={(value) => {
                     setValue('maxTotalCpu', value)
+                  }}
+                />
+                <MachinePoolInputField
+                  id="mpool-min-machine-cpu"
+                  label="Min machine CPU"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={values.minMachineCpu}
+                  placeholder="0"
+                  onValueChange={(value) => {
+                    setValue('minMachineCpu', value)
                   }}
                 />
                 <MachinePoolInputField
@@ -101,6 +137,18 @@ export function CreateMachinePoolAdvancedSection({
                   placeholder={derivedTotalCapPlaceholder(values.memoryMb, values.maxMachines)}
                   onValueChange={(value) => {
                     setValue('maxTotalMemoryMb', value)
+                  }}
+                />
+                <MachinePoolInputField
+                  id="mpool-min-machine-memory"
+                  label="Min machine memory (MB)"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={values.minMachineMemoryMb}
+                  placeholder="0"
+                  onValueChange={(value) => {
+                    setValue('minMachineMemoryMb', value)
                   }}
                 />
                 <MachinePoolInputField

@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -33,10 +34,7 @@ func (s strictOpenAPIServer) createMachine(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	env, err := rawJSONFromPointer(request.Body.Env)
 	if err != nil {
 		return nil, err
@@ -322,7 +320,7 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 	if err != nil {
 		return openapi.Machine{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
 	if err != nil {
 		return openapi.Machine{}, err
 	}
@@ -344,6 +342,7 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 		Provider:               record.Provider,
 		LifecycleState:         openapi.MachineLifecycleState(record.LifecycleState),
 		ConnectionState:        openapi.MachineConnectionState(record.ConnectionState),
+		ConnectionStateReason:  ptrFromNonEmpty(record.ConnectionStateReason),
 		LastObservedAt:         nullableFromPtr(record.LastObservedAt),
 		Cwd:                    record.Cwd,
 		Env:                    env,
@@ -488,7 +487,7 @@ func machineDaemonTokenResponse(record executionstore.MachineDaemonTokenRecord) 
 	if err != nil {
 		return openapi.MachineDaemonToken{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
 	if err != nil {
 		return openapi.MachineDaemonToken{}, err
 	}
@@ -595,10 +594,7 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 	if body.Name != nil && *body.Name != "" {
 		name = *body.Name
 	}
-	metadata, err := rawJSONFromPointer(body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := body.Metadata
 	token, err := newDaemonToken()
 	if err != nil {
 		return nil, err

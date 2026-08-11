@@ -584,24 +584,23 @@ func TestAgentEventWakeupBusSurvivesFirstSubscriberContextCancel(t *testing.T) {
 
 	cancelA()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		bus.mu.Lock()
-		fanout := bus.agentEventFanouts[agentID]
-		bus.mu.Unlock()
-		if fanout == nil {
-			t.Fatal("fanout removed while subscriber B is still active")
-		}
-		fanout.mu.Lock()
-		count := len(fanout.subscribers)
-		fanout.mu.Unlock()
-		if count == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for A to drop out of fanout (count=%d)", count)
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-subA.(*fanoutSubscription[struct{}]).Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for A to drop out of fanout")
+	}
+
+	bus.mu.Lock()
+	fanout := bus.agentEventFanouts[agentID]
+	bus.mu.Unlock()
+	if fanout == nil {
+		t.Fatal("fanout removed while subscriber B is still active")
+	}
+	fanout.mu.Lock()
+	count := len(fanout.subscribers)
+	fanout.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("fanout subscriber count = %d, want 1", count)
 	}
 
 	if err := bus.PublishAgentEventWakeup(parentCtx, agentID); err != nil {
@@ -644,24 +643,23 @@ func TestAgentStreamDeltaBusSurvivesFirstSubscriberContextCancel(t *testing.T) {
 
 	cancelA()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		bus.mu.Lock()
-		fanout := bus.streamDeltaFanouts[agentID]
-		bus.mu.Unlock()
-		if fanout == nil {
-			t.Fatal("stream fanout removed while subscriber B is still active")
-		}
-		fanout.mu.Lock()
-		count := len(fanout.subscribers)
-		fanout.mu.Unlock()
-		if count == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for stream A to drop out of fanout (count=%d)", count)
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-subA.(*fanoutSubscription[json.RawMessage]).Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for stream A to drop out of fanout")
+	}
+
+	bus.mu.Lock()
+	fanout := bus.streamDeltaFanouts[agentID]
+	bus.mu.Unlock()
+	if fanout == nil {
+		t.Fatal("stream fanout removed while subscriber B is still active")
+	}
+	fanout.mu.Lock()
+	count := len(fanout.subscribers)
+	fanout.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("stream fanout subscriber count = %d, want 1", count)
 	}
 
 	payload := json.RawMessage(`{"seq":1}`)

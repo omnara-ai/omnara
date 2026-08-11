@@ -153,4 +153,44 @@ describe('submitSecretTransaction', () => {
     })
     expect(createSecret).not.toHaveBeenCalled()
   })
+
+  it('creates AWS credential material with normalized optional fields', async () => {
+    const createSecret = vi.fn(() => Promise.resolve(createdSecret))
+    const result = await submitSecretTransaction({
+      state: {
+        ...genericState(),
+        projectGrantIds: [],
+        secret: {
+          kind: 'aws_credentials',
+          accessKeyId: ' access-key ',
+          secretAccessKey: ' secret-key ',
+          sessionToken: ' session-token ',
+          roleArn: ' arn:aws:iam::123456789012:role/test ',
+          externalId: ' external-id ',
+        },
+      },
+      owner: { kind: 'org' },
+      returnTo: '/secrets',
+      operations: {
+        createSecret,
+        grantSecret: vi.fn(() => Promise.resolve()),
+        startMcpOAuth: vi.fn(unusedOAuthStart),
+        savePendingMcpGrants: vi.fn(),
+      },
+    })
+
+    expect(result).toEqual({ kind: 'complete', secret: createdSecret })
+    expect(createSecret).toHaveBeenCalledWith({
+      owner: { kind: 'org' },
+      name: 'api-token',
+      material: {
+        kind: 'aws_credentials',
+        access_key_id: 'access-key',
+        secret_access_key: 'secret-key',
+        session_token: 'session-token',
+        role_arn: 'arn:aws:iam::123456789012:role/test',
+        external_id: 'external-id',
+      },
+    })
+  })
 })

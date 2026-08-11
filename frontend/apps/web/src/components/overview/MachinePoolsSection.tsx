@@ -133,6 +133,10 @@ export function MachinePoolsSection() {
                   label: 'Managed by',
                   value: pool.management_kind === 'cluster' ? 'Cluster' : 'Organization',
                 },
+                {
+                  label: 'Runtime protection',
+                  value: pool.runtime_protection_enabled ? 'Enabled' : 'Disabled',
+                },
                 { label: 'Working directory', value: pool.default_cwd, mono: true },
                 { label: 'Max machines', value: pool.max_total_machines },
                 {

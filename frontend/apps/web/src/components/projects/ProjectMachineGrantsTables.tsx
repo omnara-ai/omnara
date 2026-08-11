@@ -165,6 +165,11 @@ export function ProjectMachineGrantsTables({
                 { label: 'Max machines', value: item.grant.max_total_machines },
                 { label: 'Max total CPU', value: item.grant.max_total_cpu },
                 { label: 'Max total memory (MB)', value: item.grant.max_total_memory_mb },
+                { label: 'Min machine CPU', value: item.grant.min_machine_cpu },
+                {
+                  label: 'Min machine memory (MB)',
+                  value: item.grant.min_machine_memory_mb,
+                },
                 { label: 'Max machine CPU', value: item.grant.max_machine_cpu },
                 { label: 'Max machine memory (MB)', value: item.grant.max_machine_memory_mb },
                 { label: 'Created', value: formatDateTime(item.grant.created_at) },

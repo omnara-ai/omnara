@@ -159,10 +159,10 @@ WHERE agent.project_id = $1
 	}
 }
 
-func TestContextCheckpointReplayRequiresCompletePublicationEvidence(t *testing.T) {
+func TestContextCheckpointPublicationRecordsProviderCost(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "checkpoint_replay_evidence")
+	fixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "checkpoint_provider_cost")
 	frontier := admitted.Events[len(admitted.Events)-1].Sequence
 	claim := claimSentCompactionForRangeTest(
 		t,
@@ -176,45 +176,76 @@ func TestContextCheckpointReplayRequiresCompletePublicationEvidence(t *testing.T
 	input := executionstore.PublishContextCheckpointInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID,
 		RuntimeLockID: fixture.Lock.ID, ModelCallContextID: claim.Context.ID,
-		Summary:            "durable replay evidence",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		APIVariant:         modelprotocol.APIVariantDefault,
-		ProviderRequestID:  "req_checkpoint_replay",
-		ProviderResponseID: "resp_checkpoint_replay",
+		Summary:                 "checkpoint with provider cost",
+		APIFormat:               modelprotocol.APIFormatOpenAIResponses,
+		APIVariant:              modelprotocol.APIVariantDefault,
+		ProviderRequestID:       "req_checkpoint_cost",
+		ProviderResponseID:      "resp_checkpoint_cost",
+		ProviderReportedCostUSD: "0.0000025",
 		Usage: modelenvelope.Usage{
 			InputTokens:         11,
 			UncachedInputTokens: 11,
 			OutputTokens:        7,
 		},
 	}
-	checkpoint, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, input)
+	_, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, input)
 	if err != nil {
 		t.Fatalf("publish checkpoint: %v", err)
 	}
-	replayed, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, input)
-	if err != nil || replayed.ID != checkpoint.ID {
-		t.Fatalf("replay checkpoint = %+v err=%v, want %s", replayed, err, checkpoint.ID)
+	contextRecord, found, err := fixture.Store.Execution().GetModelCallContext(
+		ctx,
+		testProjectID,
+		fixture.AgentID,
+		claim.Context.ID,
+	)
+	if err != nil || !found {
+		t.Fatalf("load compaction context: found=%v err=%v", found, err)
 	}
+	if contextRecord.ProviderReportedCostUSD != input.ProviderReportedCostUSD {
+		t.Fatalf(
+			"provider-reported cost = %q, want %q",
+			contextRecord.ProviderReportedCostUSD,
+			input.ProviderReportedCostUSD,
+		)
+	}
+}
 
-	tests := []struct {
-		name   string
-		mutate func(*executionstore.PublishContextCheckpointInput)
-	}{
-		{"provider request", func(value *executionstore.PublishContextCheckpointInput) { value.ProviderRequestID = "req_other" }},
-		{"provider response", func(value *executionstore.PublishContextCheckpointInput) { value.ProviderResponseID = "resp_other" }},
-		{"usage", func(value *executionstore.PublishContextCheckpointInput) {
-			value.Usage.InputTokens = 12
-			value.Usage.UncachedInputTokens = 12
-		}},
+func TestContextCheckpointPublicationRejectsRepeatedTransition(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture, admitted, _ := newMultiInputContinuationSeedFixture(
+		t,
+		ctx,
+		"checkpoint_repeated_publication",
+	)
+	frontier := admitted.Events[len(admitted.Events)-1].Sequence
+	claim := claimSentCompactionForRangeTest(
+		t,
+		ctx,
+		fixture,
+		1,
+		frontier,
+		frontier,
+		fixture.Now.Add(4*time.Second),
+	)
+	input := executionstore.PublishContextCheckpointInput{
+		ProjectID:          testProjectID,
+		AgentID:            fixture.AgentID,
+		RuntimeLockID:      fixture.Lock.ID,
+		ModelCallContextID: claim.Context.ID,
+		Summary:            "single checkpoint publication",
+		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+		APIVariant:         modelprotocol.APIVariantDefault,
+		ProviderResponseID: "resp_single_checkpoint_publication",
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			conflict := input
-			test.mutate(&conflict)
-			if _, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, conflict); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-				t.Fatalf("conflicting checkpoint replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
-			}
-		})
+	if _, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, input); err != nil {
+		t.Fatalf("publish checkpoint: %v", err)
+	}
+	if _, err := fixture.Store.Execution().PublishContextCheckpoint(
+		ctx,
+		input,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("repeat checkpoint publication error = %v, want %v", err, storeerr.ErrStateTransitionConflict)
 	}
 }
 

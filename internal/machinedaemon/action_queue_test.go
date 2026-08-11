@@ -297,19 +297,13 @@ func TestActionQueueWaitsForReconciledPredecessorReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(testTimeout)
-	for {
-		transport.mu.Lock()
-		_, known := transport.pendingActions[next.action.ID]
-		_, queued := transport.actionQueues[processID]
-		transport.mu.Unlock()
-		if !known && !queued {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("settled action retained transport state")
-		}
-		time.Sleep(10 * time.Millisecond)
+	transport.workers.Wait()
+	transport.mu.Lock()
+	_, known := transport.pendingActions[next.action.ID]
+	_, queued := transport.actionQueues[processID]
+	transport.mu.Unlock()
+	if known || queued {
+		t.Fatal("settled action retained transport state")
 	}
 	select {
 	case err := <-transport.fatal:

@@ -39,7 +39,7 @@ func SplitMCPRuntimeToolName(name string) (serverKey string, remoteName string, 
 		return "", "", false
 	}
 	serverKey, remoteName, found = strings.Cut(runtimeName, MCPToolNameSeparator)
-	if !found || serverKey == "" || remoteName == "" || strings.Contains(remoteName, MCPToolNameSeparator) {
+	if !found || serverKey == "" || remoteName == "" {
 		return "", "", false
 	}
 	if ValidateMCPRuntimeToolName(serverKey, remoteName) != nil {
@@ -57,9 +57,6 @@ func ValidateMCPRuntimeToolName(serverKey, remoteName string) error {
 	}
 	if remoteName == "" {
 		return errors.New("mcp tool name is required")
-	}
-	if strings.Contains(remoteName, MCPToolNameSeparator) {
-		return fmt.Errorf("mcp tool name %q must not contain %s", remoteName, MCPToolNameSeparator)
 	}
 	if !mcpRemoteToolNamePattern.MatchString(remoteName) {
 		return fmt.Errorf("mcp tool name %q must match %s", remoteName, MCPRemoteToolNamePattern)

@@ -32,22 +32,25 @@ mcp:
       secret_id: sec_7jehcyd5n6a2bfgik7mv4qtrwz
     default_enabled: false      # opt-in: only listed tools are exposed
     tools:
-      search_docs: {}
+      search_docs:
+        enabled: true
 ```
 
 | Field | Notes |
 | --- | --- |
 | `url` | The server's MCP endpoint. |
-| `auth.type` | `bearer` (a token in a [generic secret](/organization/secrets)) or `oauth` (an `oauth_token_set` secret — see below). Omit for unauthenticated servers. |
+| `auth.type` | `bearer` (a token in a [generic secret](/organization/secrets)), `oauth` (an `oauth_token_set` secret), or `sigv4` (an `aws_credentials` secret). Omit for unauthenticated servers. |
 | `auth.secret_id` | The `sec_…` reference. The config never contains the credential itself. |
+| `auth.service` | SigV4 signing service. Required for `sigv4`. |
+| `auth.region` | AWS signing region. Required for `sigv4`. |
 | `permission` | Server-wide default mode; per-tool `permission` overrides it. MCP tools default to `always_ask` — third-party code asks first. |
-| `default_enabled` | `false` flips the server to allowlist mode: only tools listed under `tools:` are exposed. |
+| `default_enabled` | `false` disables tools by default. Set `enabled: true` for each tool you want to expose. |
 
 ### How MCP tools are named
 
 MCP tool names combine the server and tool: `mcp__<server>__<tool>`. For example, Linear's `get_issue` tool appears as `mcp__linear__get_issue`.
 
-These names appear in `model_output` tool calls and in [`GET /tool-calls`](/tools/custom#find-calls-waiting-for-you) with `type: "mcp"`. Server and tool names cannot contain `__`, and the combined name must fit within 64 characters.
+These names appear in `model_output` tool calls and in [`GET /tool-calls`](/tools/custom#find-calls-waiting-for-you) with `type: "mcp"`. Server names cannot contain underscores, and the combined name must fit within 64 characters.
 
 ## Bearer auth
 
@@ -65,6 +68,25 @@ curl "$OMNARA_API/orgs/$ORG/secrets" \
 ```
 
 The response's `id` (`sec_…`) goes in `auth.secret_id` with `type: bearer`. Rotation is a [new secret version](/organization/secrets#rotate-a-secret) — configs keep referencing the same ID.
+
+## AWS Signature Version 4 auth
+
+For a SigV4-protected MCP server, create an **AWS credentials** secret in the console, grant it to the project, and select **AWS Signature V4** for server authentication:
+
+```yaml
+mcp:
+  aws:
+    url: https://aws-mcp.us-east-1.api.aws/mcp
+    auth:
+      type: sigv4
+      secret_id: sec_7jehcyd5n6a2bfgik7mv4qtrwz
+      service: aws-mcp
+      region: us-east-1
+```
+
+Omnara optionally assumes the role stored with the credentials, then signs each request with AWS Signature Version 4 using the configured service and region. It does not modify the MCP request body or create a bearer token.
+
+`auth.region` is the MCP endpoint's signing region; it does not limit the AWS resource regions selected in tool calls. Omnara does not refresh a session token stored in the AWS credentials secret, so rotate that secret before the token expires.
 
 ## Connect with OAuth
 

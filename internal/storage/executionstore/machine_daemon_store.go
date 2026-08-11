@@ -15,6 +15,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 type CreateDaemonMachineInput struct {
@@ -25,7 +27,7 @@ type CreateDaemonMachineInput struct {
 	Env            json.RawMessage
 	SecretEnv      json.RawMessage
 	IdempotencyKey string
-	Metadata       json.RawMessage
+	Metadata       resourcemeta.Metadata
 }
 
 type UpdateMachineInput struct {
@@ -160,7 +162,7 @@ type CreateProjectMachineGrantInput struct {
 	MachineID      ID
 	Description    string
 	IdempotencyKey string
-	Metadata       json.RawMessage
+	Metadata       resourcemeta.Metadata
 }
 
 type MachineDaemonTokenRecord struct {
@@ -186,7 +188,7 @@ type CreateBYOMachineDaemonTokenInput struct {
 	MachineID ID
 	Name      string
 	Token     string
-	Metadata  json.RawMessage
+	Metadata  resourcemeta.Metadata
 }
 
 type MachineDaemonBootstrapInput struct {
@@ -201,20 +203,26 @@ type MachineBootstrapRecord struct {
 	MachineID      ID
 }
 
+const (
+	MachineFailureStageStartupScript = "startup_script"
+	MachineFailureStageDaemonInstall = "daemon_install"
+	MachineFailureStageDaemonUpdate  = "daemon_update"
+)
+
 type MachineFailureReportInput struct {
 	OrgID           ID
 	MachineID       ID
 	DaemonTokenID   ID
 	Stage           string
-	ExitStatus      int
+	ExitStatus      *int
 	OutputTail      []byte
 	OutputTruncated bool
+	DaemonVersion   string
+	TargetVersion   string
 }
 
 func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachineInput) (MachineRecord, error) {
-	var environment MachineEnvironment
-	var err error
-	input, environment, err = prepareDaemonMachineCreate(input)
+	input, environment, metadata, err := prepareDaemonMachineCreate(input)
 	if err != nil {
 		return MachineRecord{}, err
 	}
@@ -224,7 +232,7 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	record, err := createDaemonMachineTx(ctx, qtx, input, environment)
+	record, err := createDaemonMachineTx(ctx, qtx, input, environment, metadata)
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return MachineRecord{}, fmt.Errorf("commit create machine: %w", err)
@@ -253,26 +261,33 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 
 func prepareDaemonMachineCreate(
 	input CreateDaemonMachineInput,
-) (CreateDaemonMachineInput, MachineEnvironment, error) {
+) (CreateDaemonMachineInput, MachineEnvironment, json.RawMessage, error) {
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
 	if isNilID(input.OrgID) || input.DisplayName == "" {
-		return CreateDaemonMachineInput{}, MachineEnvironment{}, errors.New(
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, errors.New(
 			"org and display name are required",
 		)
 	}
-	var err error
-	input.Metadata, err = normalizedJSONObject(input.Metadata, "machine metadata")
+	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, fmt.Errorf(
+			"machine metadata: %w",
+			err,
+		)
+	}
+	metadata, err := input.Metadata.JSON()
 	if err != nil {
-		return CreateDaemonMachineInput{}, MachineEnvironment{}, err
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, err
 	}
 	if strings.ContainsRune(input.Cwd, 0) {
-		return CreateDaemonMachineInput{}, MachineEnvironment{}, errors.New("cwd cannot contain NUL")
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, errors.New(
+			"cwd cannot contain NUL",
+		)
 	}
 	environment, err := MachineEnvironmentFromColumns(input.Env, input.SecretEnv)
 	if err != nil {
-		return CreateDaemonMachineInput{}, MachineEnvironment{}, err
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, err
 	}
-	return input, environment, nil
+	return input, environment, metadata, nil
 }
 
 func createDaemonMachineTx(
@@ -280,6 +295,7 @@ func createDaemonMachineTx(
 	qtx *dbsqlc.Queries,
 	input CreateDaemonMachineInput,
 	environment MachineEnvironment,
+	metadata json.RawMessage,
 ) (MachineRecord, error) {
 	env, secretEnv, err := machineEnvironmentToColumns(environment)
 	if err != nil {
@@ -301,7 +317,7 @@ func createDaemonMachineTx(
 			SecretEnv:              secretEnv,
 			IdempotencyKey:         sqlcTextFromEmpty(input.IdempotencyKey),
 			LifecycleReasonMessage: "",
-			Metadata:               input.Metadata,
+			Metadata:               metadata,
 		},
 	)
 	if err != nil {
@@ -622,8 +638,7 @@ func (s *Store) CreateProjectMachineGrant(
 			"org, project, and machine are required",
 		)
 	}
-	var err error
-	input.Metadata, err = normalizedJSONObject(input.Metadata, "project machine grant metadata")
+	metadata, err := metadataColumn(input.Metadata, "project machine grant metadata")
 	if err != nil {
 		return ProjectMachineGrantRecord{}, MachineRecord{}, err
 	}
@@ -650,7 +665,7 @@ func (s *Store) CreateProjectMachineGrant(
 		)
 	}
 	machine := machineRecordFromGetSQLC(machineRow)
-	grant, err := upsertExplicitProjectMachineGrantTx(ctx, qtx, input)
+	grant, err := upsertExplicitProjectMachineGrantTx(ctx, qtx, input, metadata)
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
@@ -680,7 +695,7 @@ func (s *Store) CreateProjectMachineGrant(
 				grant.SourceKind != ProjectMachineGrantSourceKindExplicit ||
 				grant.ProjectMachinePoolGrantID != NilID ||
 				grant.Description != input.Description ||
-				!sameJSON(grant.Metadata, input.Metadata) {
+				!sameJSON(grant.Metadata, metadata) {
 				return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.ErrIdempotencyConflict
 			}
 			if err := tx.Commit(ctx); err != nil {
@@ -699,6 +714,7 @@ func upsertExplicitProjectMachineGrantTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input CreateProjectMachineGrantInput,
+	metadata json.RawMessage,
 ) (ProjectMachineGrantRecord, error) {
 	row, err := upsertProjectMachineGrantTx(
 		ctx,
@@ -711,7 +727,7 @@ func upsertExplicitProjectMachineGrantTx(
 			ProjectMachinePoolGrantID: nil,
 			Description:               input.Description,
 			IdempotencyKey:            sqlcTextFromEmpty(input.IdempotencyKey),
-			Metadata:                  input.Metadata,
+			Metadata:                  metadata,
 		},
 	)
 	if err != nil {

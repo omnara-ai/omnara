@@ -40,6 +40,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 		failure.ProviderRequestID,
 		failure.ProviderResponseID,
 		modelenvelope.NormalizeUsage(failure.Usage) != (modelenvelope.Usage{}),
+		failure.ProviderReportedCostUSD,
 	); err != nil {
 		return TriggeredCompactionHandoff{}, err
 	}
@@ -102,21 +103,22 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 	}
 
 	parentContext, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          failure.ProjectID,
-		AgentID:            failure.AgentID,
-		ModelCallContextID: failure.ModelCallContextID,
-		RuntimeLockID:      failure.RuntimeLockID,
-		ToState:            ModelCallContextFailed,
-		RecoveryKind:       ModelCallRecoveryCompact,
-		APIFormat:          failure.APIFormat,
-		APIVariant:         failure.APIVariant,
-		ProviderRequestID:  failure.ProviderRequestID,
-		ProviderResponseID: failure.ProviderResponseID,
-		ErrorKind:          failure.ErrorKind,
-		ErrorCode:          failure.ErrorCode,
-		ErrorMessage:       failure.ErrorMessage,
-		ErrorDetails:       failure.ErrorDetails,
-		Usage:              failure.Usage,
+		ProjectID:               failure.ProjectID,
+		AgentID:                 failure.AgentID,
+		ModelCallContextID:      failure.ModelCallContextID,
+		RuntimeLockID:           failure.RuntimeLockID,
+		ToState:                 ModelCallContextFailed,
+		RecoveryKind:            ModelCallRecoveryCompact,
+		APIFormat:               failure.APIFormat,
+		APIVariant:              failure.APIVariant,
+		ProviderRequestID:       failure.ProviderRequestID,
+		ProviderResponseID:      failure.ProviderResponseID,
+		ErrorKind:               failure.ErrorKind,
+		ErrorCode:               failure.ErrorCode,
+		ErrorMessage:            failure.ErrorMessage,
+		ErrorDetails:            failure.ErrorDetails,
+		Usage:                   failure.Usage,
+		ProviderReportedCostUSD: failure.ProviderReportedCostUSD,
 	})
 	if err != nil {
 		return TriggeredCompactionHandoff{}, err
@@ -148,7 +150,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 			BoundaryPreempted: true,
 		}, nil
 	}
-	compactionContext, created, err := claimCompactionContextTx(ctx, q, ClaimCompactionModelCallInput{
+	compactionClaimTx, err := claimCompactionContextTx(ctx, q, ClaimCompactionModelCallInput{
 		ProjectID:              failure.ProjectID,
 		AgentID:                failure.AgentID,
 		RuntimeLockID:          failure.RuntimeLockID,
@@ -159,25 +161,34 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 	if err != nil {
 		return TriggeredCompactionHandoff{}, err
 	}
-	if !created {
+	if !compactionClaimTx.created {
 		return TriggeredCompactionHandoff{}, fmt.Errorf(
 			"triggered compaction context already exists: %w",
 			storeerr.ErrStateTransitionConflict,
 		)
 	}
-	if compactionContext.State != ModelCallContextStarted ||
-		compactionContext.RuntimeLockID != failure.RuntimeLockID {
-		return TriggeredCompactionHandoff{}, errors.New("triggered compaction context was not runtime-owned")
+	compactionClaim, err := applyModelCallAdmissionTx(
+		ctx,
+		txNotifications,
+		tx,
+		q,
+		compactionClaimTx,
+		failure.RuntimeLockID,
+	)
+	if err != nil {
+		return TriggeredCompactionHandoff{}, err
 	}
-	if err := q.ReconcileAgentWakeup(ctx, dbsqlc.ReconcileAgentWakeupParams{
-		ProjectID: failure.ProjectID,
-		AgentID:   failure.AgentID,
-		Metadata:  json.RawMessage(`{"reason":"triggered_compaction"}`),
-	}); err != nil {
-		return TriggeredCompactionHandoff{}, fmt.Errorf(
-			"reconcile wakeup after triggered compaction: %w",
-			err,
-		)
+	if compactionClaim.Claimed {
+		if err := q.ReconcileAgentWakeup(ctx, dbsqlc.ReconcileAgentWakeupParams{
+			ProjectID: failure.ProjectID,
+			AgentID:   failure.AgentID,
+			Metadata:  json.RawMessage(`{"reason":"triggered_compaction"}`),
+		}); err != nil {
+			return TriggeredCompactionHandoff{}, fmt.Errorf(
+				"reconcile wakeup after triggered compaction: %w",
+				err,
+			)
+		}
 	}
 	if err := s.commitTxWithNotifications(
 		ctx,
@@ -188,12 +199,8 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 		return TriggeredCompactionHandoff{}, err
 	}
 	return TriggeredCompactionHandoff{
-		ParentContext: parentContext,
-		CompactionCall: ModelCallClaim{
-			Context: compactionContext,
-			Created: true,
-			Claimed: true,
-		},
+		ParentContext:  parentContext,
+		CompactionCall: compactionClaim,
 	}, nil
 }
 
@@ -221,6 +228,7 @@ func (s *Store) ReplaceCompactionSource(
 		input.ProviderRequestID,
 		input.ProviderResponseID,
 		input.Usage != (modelenvelope.Usage{}),
+		input.ProviderReportedCostUSD,
 	); err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
@@ -266,21 +274,22 @@ func (s *Store) ReplaceCompactionSource(
 		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
 	}
 	if _, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		ModelCallContextID: input.ModelCallContextID,
-		RuntimeLockID:      input.RuntimeLockID,
-		ToState:            ModelCallContextFailed,
-		RecoveryKind:       ModelCallRecoveryReduceCompactionSource,
-		APIFormat:          input.APIFormat,
-		APIVariant:         input.APIVariant,
-		ProviderRequestID:  input.ProviderRequestID,
-		ProviderResponseID: input.ProviderResponseID,
-		ErrorKind:          input.ErrorKind,
-		ErrorCode:          input.ErrorCode,
-		ErrorMessage:       input.ErrorMessage,
-		ErrorDetails:       input.ErrorDetails,
-		Usage:              input.Usage,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		ModelCallContextID:      input.ModelCallContextID,
+		RuntimeLockID:           input.RuntimeLockID,
+		ToState:                 ModelCallContextFailed,
+		RecoveryKind:            ModelCallRecoveryReduceCompactionSource,
+		APIFormat:               input.APIFormat,
+		APIVariant:              input.APIVariant,
+		ProviderRequestID:       input.ProviderRequestID,
+		ProviderResponseID:      input.ProviderResponseID,
+		ErrorKind:               input.ErrorKind,
+		ErrorCode:               input.ErrorCode,
+		ErrorMessage:            input.ErrorMessage,
+		ErrorDetails:            input.ErrorDetails,
+		Usage:                   input.Usage,
+		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
 	}); err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
@@ -320,7 +329,7 @@ func (s *Store) ReplaceCompactionSource(
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, fmt.Errorf("load parent normal context for replacement compaction: %w", err)
 	}
-	nextContext, created, err := claimCompactionContextTx(ctx, q, ClaimCompactionModelCallInput{
+	nextClaimTx, err := claimCompactionContextTx(ctx, q, ClaimCompactionModelCallInput{
 		ProjectID:              contextRow.ProjectID,
 		AgentID:                contextRow.AgentID,
 		RuntimeLockID:          input.RuntimeLockID,
@@ -331,15 +340,22 @@ func (s *Store) ReplaceCompactionSource(
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
-	if !created {
+	if !nextClaimTx.created {
 		return ReplaceCompactionSourceResult{}, fmt.Errorf(
 			"replacement compaction context already exists: %w",
 			storeerr.ErrStateTransitionConflict,
 		)
 	}
-	if nextContext.State != ModelCallContextStarted ||
-		nextContext.RuntimeLockID != input.RuntimeLockID {
-		return ReplaceCompactionSourceResult{}, errors.New("replacement compaction context was not runtime-owned")
+	nextClaim, err := applyModelCallAdmissionTx(
+		ctx,
+		txNotifications,
+		tx,
+		q,
+		nextClaimTx,
+		input.RuntimeLockID,
+	)
+	if err != nil {
+		return ReplaceCompactionSourceResult{}, err
 	}
 	if err := s.commitTxWithNotifications(
 		ctx,
@@ -349,9 +365,5 @@ func (s *Store) ReplaceCompactionSource(
 	); err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
-	return ReplaceCompactionSourceResult{CompactionCall: ModelCallClaim{
-		Context: nextContext,
-		Created: true,
-		Claimed: true,
-	}}, nil
+	return ReplaceCompactionSourceResult{CompactionCall: nextClaim}, nil
 }

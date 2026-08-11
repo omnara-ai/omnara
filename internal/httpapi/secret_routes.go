@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -30,27 +30,6 @@ func oauthAccessTokenLifetime(seconds *int32, startedAt time.Time) secrets.OAuth
 		return secrets.OAuthAccessTokenLifetime{}
 	}
 	return secrets.NewOAuthAccessTokenLifetime(time.Duration(*seconds)*time.Second, startedAt)
-}
-
-func secretMetadataMap(raw json.RawMessage) (map[string]string, error) {
-	if len(raw) == 0 {
-		return map[string]string{}, nil
-	}
-	var metadata map[string]string
-	if err := json.Unmarshal(raw, &metadata); err != nil {
-		return nil, err
-	}
-	if metadata == nil {
-		metadata = map[string]string{}
-	}
-	return metadata, nil
-}
-
-func secretMetadataRaw(value *map[string]string) (json.RawMessage, error) {
-	if value == nil {
-		return nil, nil
-	}
-	return json.Marshal(*value)
 }
 
 func newSecretOwner(record secretstore.SecretRecord) (openapi.SecretOwner, error) {
@@ -93,7 +72,7 @@ func newSecretResponse(record secretstore.SecretRecord) (openapi.Secret, error) 
 	if err != nil {
 		return openapi.Secret{}, err
 	}
-	metadata, err := secretMetadataMap(record.Metadata)
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
 	if err != nil {
 		return openapi.Secret{}, err
 	}
@@ -278,6 +257,19 @@ func parseSecretMaterial(
 			}
 		}
 		return oauth, nil
+	case secrets.KindAWSCredentials:
+		material, err := input.AsAWSCredentialsSecretMaterial()
+		if err != nil {
+			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid AWS credentials material")
+			return nil, &apiErr
+		}
+		return secrets.AWSCredentialsMaterial{
+			AccessKeyID:     material.AccessKeyId,
+			SecretAccessKey: material.SecretAccessKey,
+			SessionToken:    valueOrEmpty(material.SessionToken),
+			RoleARN:         valueOrEmpty(material.RoleArn),
+			ExternalID:      valueOrEmpty(material.ExternalId),
+		}, nil
 	default:
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "unsupported secret material kind")
 		return nil, &apiErr
@@ -343,10 +335,7 @@ func (s strictOpenAPIServer) CreateSecret(
 	if ownerErr != nil {
 		return nil, *ownerErr
 	}
-	metadata, err := secretMetadataRaw(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	material, materialErr := parseSecretMaterial(request.Body.Material, receivedAt)
 	if materialErr != nil {
 		return nil, *materialErr
@@ -475,7 +464,11 @@ func (s strictOpenAPIServer) UpdateSecret(
 	if apiErr != nil {
 		return nil, *apiErr
 	}
-	name, metadata := record.Name, record.Metadata
+	name := record.Name
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
+	if err != nil {
+		return nil, err
+	}
 	if request.Body.Name != nil {
 		if *request.Body.Name == "" {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name cannot be empty")
@@ -483,10 +476,7 @@ func (s strictOpenAPIServer) UpdateSecret(
 		name = *request.Body.Name
 	}
 	if request.Body.Metadata != nil {
-		metadata, err = secretMetadataRaw(request.Body.Metadata)
-		if err != nil {
-			return nil, err
-		}
+		metadata = request.Body.Metadata
 	}
 	updated, err := s.server.store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
 		OrgID: org.ID, SecretID: record.ID, Name: name, Metadata: metadata,

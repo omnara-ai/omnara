@@ -42,11 +42,14 @@ export interface MachinePoolFormValues {
   /** Optional caps; empty derives from machine size × max machines. */
   maxTotalCpu: string
   maxTotalMemoryMb: string
+  minMachineCpu: string
+  minMachineMemoryMb: string
   maxMachineCpu: string
   maxMachineMemoryMb: string
   /** Secret id; '' until one is selected. */
   secretId: string
   projectGrantIds: string[]
+  runtimeProtectionEnabled: boolean
 }
 
 export const machinePoolFormDefaults: MachinePoolFormValues = {
@@ -64,10 +67,13 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   maxMachines: '3',
   maxTotalCpu: '',
   maxTotalMemoryMb: '',
+  minMachineCpu: '',
+  minMachineMemoryMb: '',
   maxMachineCpu: '',
   maxMachineMemoryMb: '',
   secretId: '',
   projectGrantIds: [],
+  runtimeProtectionEnabled: false,
 }
 
 const maxInt32 = 2_147_483_647
@@ -113,6 +119,8 @@ export function machinePoolFormAfterProviderChange(
         : machinePoolFormDefaults.memoryMb,
     maxTotalCpu: '',
     maxTotalMemoryMb: '',
+    minMachineCpu: '',
+    minMachineMemoryMb: '',
     maxMachineCpu: '',
     maxMachineMemoryMb: '',
     secretId: '',
@@ -145,7 +153,12 @@ export function machinePoolFormValid(values: MachinePoolFormValues) {
     envOverlayRowsValid(values.envRows) &&
     secretEnvOverlayRowsValid(values.secretEnvRows) &&
     [values.maxMachineCpu, values.maxMachineMemoryMb].every(optionalPositiveInt32Valid) &&
-    [values.maxTotalCpu, values.maxTotalMemoryMb].every(optionalNonNegativeInt32Valid)
+    [
+      values.maxTotalCpu,
+      values.maxTotalMemoryMb,
+      values.minMachineCpu,
+      values.minMachineMemoryMb,
+    ].every(optionalNonNegativeInt32Valid)
   )
 }
 
@@ -160,6 +173,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     default_machine_env: envFromRows(values.envRows),
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows),
     default_cwd: stringOrUndefined(values.cwd),
+    runtime_protection_enabled: values.runtimeProtectionEnabled,
   }
   const startupScript =
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
@@ -177,6 +191,8 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         },
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
         max_total_memory_mb: optionalInt(values.maxTotalMemoryMb) ?? memoryMb * maxMachines,
+        min_machine_cpu: optionalInt(values.minMachineCpu),
+        min_machine_memory_mb: optionalInt(values.minMachineMemoryMb),
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
         max_machine_memory_mb: optionalInt(values.maxMachineMemoryMb) ?? memoryMb,
       }
@@ -192,6 +208,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         },
         provider_config: { workspace: values.workspace.trim() },
         max_total_memory_mb: optionalInt(values.maxTotalMemoryMb) ?? memoryMb * maxMachines,
+        min_machine_memory_mb: optionalInt(values.minMachineMemoryMb),
         max_machine_memory_mb: optionalInt(values.maxMachineMemoryMb) ?? memoryMb,
       }
     case 'daytona':
@@ -205,6 +222,8 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         },
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
         max_total_memory_mb: optionalInt(values.maxTotalMemoryMb) ?? memoryMb * maxMachines,
+        min_machine_cpu: optionalInt(values.minMachineCpu),
+        min_machine_memory_mb: optionalInt(values.minMachineMemoryMb),
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
         max_machine_memory_mb: optionalInt(values.maxMachineMemoryMb) ?? memoryMb,
       }

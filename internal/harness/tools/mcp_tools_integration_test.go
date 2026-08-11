@@ -326,6 +326,95 @@ func TestMCPConnectionRefreshesAndPersistsExpiredOAuthToken(t *testing.T) {
 	}
 }
 
+func TestSigV4MCPConnectionRechecksSecretGrant(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "mcp-aws-grant", true)
+	var authorization atomic.Value
+	var sessionToken atomic.Value
+	var requests atomic.Int32
+	endpoint := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		authorization.Store(r.Header.Get("Authorization"))
+		sessionToken.Store(r.Header.Get("X-Amz-Security-Token"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	}))
+	defer endpoint.Close()
+	secret, _, err := fixture.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     toolsTestOrgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "aws-read-only",
+		Material: secrets.AWSCredentialsMaterial{
+			AccessKeyID:     "AKIAEXAMPLE",
+			SecretAccessKey: "secret",
+			SessionToken:    "session-token",
+		},
+		Actor: toolsTestUserPrincipal(fixture.User.ID),
+	})
+	if err != nil {
+		t.Fatalf("create AWS credentials secret: %v", err)
+	}
+	grant, err := fixture.Store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{
+		OrgID:           toolsTestOrgID,
+		SecretID:        secret.ID,
+		TargetProjectID: toolsTestProjectID,
+		Actor:           toolsTestUserPrincipal(fixture.User.ID),
+	})
+	if err != nil {
+		t.Fatalf("grant AWS credentials secret: %v", err)
+	}
+	secretPublicID, err := publicid.Encode(publicid.KindSecret, secret.ID)
+	if err != nil {
+		t.Fatalf("encode AWS credentials secret ID: %v", err)
+	}
+	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, toolsTestProjectID, fixture.Agent.ID, "docs")
+	if err != nil || !found {
+		t.Fatalf("load MCP connection: found=%t err=%v", found, err)
+	}
+	conn.EndpointURL = endpoint.URL
+	server := agentconfig.RuntimeMCPServer{
+		ServerKey: "docs",
+		URL:       conn.EndpointURL,
+		Auth: &agentconfig.RuntimeMCPAuth{
+			Type:     agentconfig.MCPAuthTypeSigV4,
+			SecretID: secretPublicID,
+			Service:  "execute-api",
+			Region:   "us-west-2",
+		},
+	}
+	manager := mcp.Manager{Secrets: fixture.Store.Secrets()}
+	wireConn, err := manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", "")
+	if err != nil {
+		t.Fatalf("connect with granted AWS credentials: %v", err)
+	}
+	client := mcp.New(mcp.Options{HTTPClient: endpoint.Client()})
+	if _, err := client.Call(ctx, wireConn, "ping", json.RawMessage(`{}`), 1); err != nil {
+		t.Fatalf("call with granted AWS credentials: %v", err)
+	}
+	gotAuthorization, _ := authorization.Load().(string)
+	if !strings.Contains(gotAuthorization, "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/") ||
+		!strings.Contains(gotAuthorization, "/us-west-2/execute-api/aws4_request") {
+		t.Fatalf("unexpected AWS Authorization header %q", gotAuthorization)
+	}
+	if gotSessionToken, _ := sessionToken.Load().(string); gotSessionToken != "session-token" {
+		t.Fatalf("AWS session token = %q", gotSessionToken)
+	}
+	if _, err := fixture.Store.Secrets().DeleteSecretGrant(ctx, secretstore.DeleteSecretGrantInput{
+		OrgID:    toolsTestOrgID,
+		SecretID: secret.ID,
+		GrantID:  grant.ID,
+		Actor:    toolsTestUserPrincipal(fixture.User.ID),
+	}); err != nil {
+		t.Fatalf("delete AWS credentials grant: %v", err)
+	}
+	if _, err := manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", ""); err == nil {
+		t.Fatal("expected revoked AWS credentials grant to block the connection")
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("AWS MCP requests after grant revocation = %d, want 1", requests.Load())
+	}
+}
+
 func TestMCPDispatchRunsAsynchronouslyUnderRuntimeOwnership(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "mcp-async-runtime", true)
@@ -357,7 +446,8 @@ func TestMCPDispatchRunsAsynchronouslyUnderRuntimeOwnership(t *testing.T) {
 		}
 	}}
 	executor := Executor{Store: fixture.Store, MCP: client}
-	result, err := executor.Dispatch(ctx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP tool: %v", err)
 	}
@@ -421,7 +511,8 @@ WHERE call.id = $1
 	}
 	released = true
 	close(release)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 }
 
 func TestMCPDispatchRecordsRemoteToolErrorAsFailed(t *testing.T) {
@@ -443,7 +534,8 @@ func TestMCPDispatchRecordsRemoteToolErrorAsFailed(t *testing.T) {
 		}, nil
 	}}
 	executor := Executor{Store: fixture.Store, MCP: client}
-	result, err := executor.Dispatch(ctx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP tool: %v", err)
 	}
@@ -451,7 +543,8 @@ func TestMCPDispatchRecordsRemoteToolErrorAsFailed(t *testing.T) {
 		t.Fatalf("MCP dispatch result = %+v, want deferred", result)
 	}
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 	record, err := fixture.Store.Execution().GetToolCall(
 		ctx,
 		toolsTestProjectID,
@@ -496,7 +589,8 @@ func TestMCPDispatchPersistsMediaAndStructuredContentInOrder(t *testing.T) {
 		}, nil
 	}}
 	executor := Executor{Store: fixture.Store, MCP: client}
-	result, err := executor.Dispatch(ctx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP media tool: %v", err)
 	}
@@ -504,7 +598,8 @@ func TestMCPDispatchPersistsMediaAndStructuredContentInOrder(t *testing.T) {
 		t.Fatalf("MCP dispatch result = %+v, want deferred", result)
 	}
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 	record, err := fixture.Store.Execution().GetToolCall(
 		ctx,
 		toolsTestProjectID,
@@ -609,7 +704,8 @@ func TestMCPDispatchDoesNotRefreshAfterOwnershipLoss(t *testing.T) {
 		return nil, mcp.ErrSessionExpired
 	}
 	executor := Executor{Store: fixture.Store, MCP: client}
-	result, err := executor.Dispatch(ctx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP tool before ownership loss: %v", err)
 	}
@@ -617,7 +713,8 @@ func TestMCPDispatchDoesNotRefreshAfterOwnershipLoss(t *testing.T) {
 		t.Fatalf("MCP dispatch result = %+v, want deferred", result)
 	}
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 	if client.callToolCount.Load() != 1 {
 		t.Fatalf("MCP tool calls = %d, want 1", client.callToolCount.Load())
 	}
@@ -647,7 +744,8 @@ func TestMCPDispatchRecordsUnknownOutcomeWhenExecutionIsInterrupted(t *testing.T
 	}}
 	executor := Executor{Store: fixture.Store, MCP: client}
 	executionCtx, cancelExecution := context.WithCancel(ctx)
-	result, err := executor.Dispatch(executionCtx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(executionCtx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP tool: %v", err)
 	}
@@ -662,7 +760,8 @@ func TestMCPDispatchRecordsUnknownOutcomeWhenExecutionIsInterrupted(t *testing.T
 	cancelExecution()
 
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 	record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
 	if err != nil {
 		t.Fatalf("load interrupted MCP tool call: %v", err)
@@ -673,7 +772,17 @@ func TestMCPDispatchRecordsUnknownOutcomeWhenExecutionIsInterrupted(t *testing.T
 	}
 }
 
-func waitIntegrationToolCallState(
+func settleIntegrationAsyncDispatch(t *testing.T, scope *AsyncExecutionScope) {
+	t.Helper()
+	scope.Seal()
+	select {
+	case <-scope.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("async MCP tool execution did not finish")
+	}
+}
+
+func assertIntegrationToolCallState(
 	t *testing.T,
 	ctx context.Context,
 	fixture integrationToolFixture,
@@ -681,19 +790,12 @@ func waitIntegrationToolCallState(
 	want string,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var state string
-		if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM tool_calls WHERE id = $1`, toolCallID).Scan(&state); err != nil {
-			t.Fatalf("load MCP tool call state: %v", err)
-		}
-		if state == want {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("MCP tool call state = %q, want %q", state, want)
-		}
-		time.Sleep(10 * time.Millisecond)
+	var state string
+	if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM tool_calls WHERE id = $1`, toolCallID).Scan(&state); err != nil {
+		t.Fatalf("load MCP tool call state: %v", err)
+	}
+	if state != want {
+		t.Fatalf("MCP tool call state = %q, want %q", state, want)
 	}
 }
 

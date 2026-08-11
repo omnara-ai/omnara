@@ -14,7 +14,11 @@ func TestRunnerPublishesAuditedCumulativeCheckpoint(t *testing.T) {
 		textCompactionEvent(1, strings.Repeat("User asked for a detailed status. ", 20)),
 		textCompactionEvent(2, strings.Repeat("Assistant reported completed work and next steps. ", 20)),
 	}}
-	client := &summaryModel{}
+	response := completeSummaryResponse(
+		"## Goal\nContinue the current task.\n\n## Next Steps\nProceed with the next verified action.",
+	)
+	response.ProviderReportedCostUSD = "0.0000025"
+	client := &summaryModel{results: []summaryResult{{response: response}}}
 	now := time.Unix(123, 0).UTC()
 	result, err := testRunner(store, client, func() time.Time { return now }).
 		Run(context.Background(), runInput(testPlan(1, 2, 2)))
@@ -31,7 +35,8 @@ func TestRunnerPublishesAuditedCumulativeCheckpoint(t *testing.T) {
 	if len(store.publishInputs) != 1 ||
 		store.publishInputs[0].ModelCallContextID != result.ModelCallContextID ||
 		store.publishInputs[0].APIFormat != client.APIFormat() ||
-		store.publishInputs[0].APIVariant != client.ModelAPIVariant() {
+		store.publishInputs[0].APIVariant != client.ModelAPIVariant() ||
+		store.publishInputs[0].ProviderReportedCostUSD != "0.0000025" {
 		t.Fatalf("checkpoint publication = %+v", store.publishInputs)
 	}
 	if result.Checkpoint.SummarizedThroughEventSequence != 2 ||

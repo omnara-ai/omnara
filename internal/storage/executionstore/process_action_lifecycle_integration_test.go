@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestQueuedProcessActionFailureSkipsCompletedToolCall(t *testing.T) {
@@ -219,7 +220,7 @@ WHERE org_id = $1 AND machine_id = $2 AND id = $3
 		)
 		done <- acceptResult{found: found, err: acceptErr}
 	}()
-	waitForDatabaseLockWait(
+	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		fixture.Store.pool,
@@ -349,7 +350,7 @@ WHERE agent_id = $1 AND id = $2
 		)
 		done <- createErr
 	}()
-	waitForDatabaseLockWait(
+	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		fixture.Store.pool,

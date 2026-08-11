@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func liveProcessReconciliationClaimForTest(
@@ -865,7 +866,7 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 		)
 		registrationDone <- registrationResult{record: record, err: registerErr}
 	}()
-	waitForApplicationLockWaiter(t, ctx, fixture.Store.pool, applicationName)
+	integrationdb.WaitForApplicationLockWaiter(t, ctx, fixture.Store.pool, applicationName)
 
 	type acceptResult struct {
 		found bool
@@ -893,11 +894,11 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 		})
 		reportDone <- reportErr
 	}()
-	waitForDatabaseLockWaitCount(
+	integrationdb.WaitForNamedLockWaiters(
 		t,
 		ctx,
 		fixture.Store.pool,
-		"-- name: LockMachineForRuntimeRegistration",
+		"LockMachineForRuntimeRegistration",
 		2,
 	)
 	if err := agentBlocker.Commit(ctx); err != nil {
@@ -3094,7 +3095,7 @@ func TestRuntimeRegistrationReconciliationLocksAgentBeforeProcessAndReadMutation
 		done <- err
 	}()
 
-	waitForApplicationLockWaiter(
+	integrationdb.WaitForApplicationLockWaiter(
 		t,
 		ctx,
 		fixture.Store.pool,

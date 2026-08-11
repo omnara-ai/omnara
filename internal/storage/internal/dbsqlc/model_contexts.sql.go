@@ -8,6 +8,7 @@ package dbsqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -102,16 +103,16 @@ const finishModelCallContext = `-- name: FinishModelCallContext :one
 WITH agent_scope AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $19
-    AND agent.id = $20
+  WHERE agent.project_id = $20
+    AND agent.id = $21
 ),
 runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agent_scope agent ON agent.id = runtime_lock.agent_id
-  WHERE runtime_lock.id = $21
+  WHERE runtime_lock.id = $22
     AND (
-      $22::boolean
+      $23::boolean
       OR (
         runtime_lock.cancel_requested_at IS NULL
         AND runtime_lock.lease_expires_at > statement_timestamp()
@@ -140,11 +141,12 @@ SET state = $1,
     cache_write_input_tokens = $15::integer,
     output_tokens_total = $16::integer,
     reasoning_output_tokens = $17::integer,
+    provider_reported_cost_usd = $18::text::numeric,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id
   AND context.agent_id = runtime.agent_id
-  AND context.id = $18
+  AND context.id = $19
   AND context.runtime_lock_id = runtime.id
   AND context.state = 'started'
 RETURNING context.id
@@ -168,6 +170,7 @@ type FinishModelCallContextParams struct {
 	CacheWriteInputTokens               *int32
 	OutputTokensTotal                   *int32
 	ReasoningOutputTokens               *int32
+	ProviderReportedCostUsd             *string
 	ID                                  uuid.UUID
 	ProjectID                           uuid.UUID
 	AgentID                             uuid.UUID
@@ -194,6 +197,7 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 		arg.CacheWriteInputTokens,
 		arg.OutputTokensTotal,
 		arg.ReasoningOutputTokens,
+		arg.ProviderReportedCostUsd,
 		arg.ID,
 		arg.ProjectID,
 		arg.AgentID,
@@ -203,29 +207,6 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
-}
-
-const getAgentConfigRevisionForModelCall = `-- name: GetAgentConfigRevisionForModelCall :one
-SELECT configured_model.current_revision_id
-FROM agent_configs config
-JOIN configured_models configured_model ON configured_model.org_id = config.org_id
-  AND configured_model.id = config.configured_model_id
-WHERE config.project_id = $1
-  AND config.id = $2
-`
-
-type GetAgentConfigRevisionForModelCallParams struct {
-	ProjectID     uuid.UUID
-	AgentConfigID uuid.UUID
-}
-
-// @sqlc-vet-disable configured-models-deleted-at
-// Model-call lineage must survive soft deletion so the unavailable model can fail durably.
-func (q *Queries) GetAgentConfigRevisionForModelCall(ctx context.Context, arg GetAgentConfigRevisionForModelCallParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getAgentConfigRevisionForModelCall, arg.ProjectID, arg.AgentConfigID)
-	var current_revision_id uuid.UUID
-	err := row.Scan(&current_revision_id)
-	return current_revision_id, err
 }
 
 const getCompactionModelCallContextByIdentity = `-- name: GetCompactionModelCallContextByIdentity :one
@@ -293,7 +274,8 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.retry_at, context.input_tokens_total, context.uncached_input_tokens,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
   context.output_tokens_total, context.reasoning_output_tokens,
-  context.created_at, context.completed_at
+  context.created_at, context.completed_at,
+  coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd
 FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
@@ -306,9 +288,43 @@ type GetModelCallContextParams struct {
 	ID        uuid.UUID
 }
 
-func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallContextParams) (ModelCallContext, error) {
+type GetModelCallContextRow struct {
+	ID                        uuid.UUID
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+	AgentID                   uuid.UUID
+	OperationKind             string
+	AttemptNumber             int32
+	AgentConfigID             uuid.UUID
+	ConfiguredModelRevisionID uuid.UUID
+	InputEventSequence        int64
+	SourceEventSequenceEnd    *int64
+	RuntimeLockID             uuid.UUID
+	State                     string
+	RecoveryKind              *string
+	ApiFormat                 string
+	ApiVariant                string
+	ProviderRequestID         string
+	ProviderResponseID        string
+	ErrorKind                 string
+	ErrorCode                 string
+	ErrorMessage              string
+	ErrorDetails              json.RawMessage
+	RetryAt                   *time.Time
+	InputTokensTotal          *int32
+	UncachedInputTokens       *int32
+	CacheReadInputTokens      *int32
+	CacheWriteInputTokens     *int32
+	OutputTokensTotal         *int32
+	ReasoningOutputTokens     *int32
+	CreatedAt                 time.Time
+	CompletedAt               *time.Time
+	ProviderReportedCostUsd   string
+}
+
+func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallContextParams) (GetModelCallContextRow, error) {
 	row := q.db.QueryRow(ctx, getModelCallContext, arg.ProjectID, arg.AgentID, arg.ID)
-	var i ModelCallContext
+	var i GetModelCallContextRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -340,6 +356,7 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.ReasoningOutputTokens,
 		&i.CreatedAt,
 		&i.CompletedAt,
+		&i.ProviderReportedCostUsd,
 	)
 	return i, err
 }
@@ -386,6 +403,43 @@ func (q *Queries) GetModelCallContextTurnID(ctx context.Context, arg GetModelCal
 	var turn_id uuid.UUID
 	err := row.Scan(&turn_id)
 	return turn_id, err
+}
+
+const getModelCallRevisionForClaim = `-- name: GetModelCallRevisionForClaim :one
+SELECT configured_model.current_revision_id,
+       CASE
+           WHEN provider.management_kind = 'cluster'
+               THEN COALESCE(admission.new_managed_work_allowed, true)
+           ELSE true
+       END AS new_managed_work_allowed
+FROM agent_configs config
+JOIN configured_models configured_model ON configured_model.org_id = config.org_id
+  AND configured_model.id = config.configured_model_id
+JOIN model_provider_configs provider ON provider.org_id = configured_model.org_id
+  AND provider.id = configured_model.model_provider_config_id
+LEFT JOIN org_managed_work_admission admission ON admission.org_id = config.org_id
+WHERE config.project_id = $1
+  AND config.id = $2
+`
+
+type GetModelCallRevisionForClaimParams struct {
+	ProjectID     uuid.UUID
+	AgentConfigID uuid.UUID
+}
+
+type GetModelCallRevisionForClaimRow struct {
+	CurrentRevisionID     uuid.UUID
+	NewManagedWorkAllowed bool
+}
+
+// @sqlc-vet-disable configured-models-deleted-at
+// @sqlc-vet-disable model-provider-configs-deleted-at
+// Model-call lineage must survive soft deletion so the unavailable model can fail durably.
+func (q *Queries) GetModelCallRevisionForClaim(ctx context.Context, arg GetModelCallRevisionForClaimParams) (GetModelCallRevisionForClaimRow, error) {
+	row := q.db.QueryRow(ctx, getModelCallRevisionForClaim, arg.ProjectID, arg.AgentConfigID)
+	var i GetModelCallRevisionForClaimRow
+	err := row.Scan(&i.CurrentRevisionID, &i.NewManagedWorkAllowed)
+	return i, err
 }
 
 const getNormalModelCallContextByIdentity = `-- name: GetNormalModelCallContextByIdentity :one

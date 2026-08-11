@@ -19,16 +19,21 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-const InitializeMaxAttempts = 3
+const (
+	InitializeMaxAttempts       = 3
+	maxInitializationErrorRunes = 2_000
+)
 
 type Manager struct {
-	Execution *executionstore.Store
-	Secrets   *secretstore.Store
-	Client    Client
-	Backoff   func(attempt int) time.Duration
+	Execution            *executionstore.Store
+	Secrets              *secretstore.Store
+	Client               Client
+	Backoff              func(attempt int) time.Duration
+	SigV4CredentialCache *SigV4CredentialCache
 
 	OAuthHTTPClient *http.Client
 
@@ -154,7 +159,7 @@ func (m Manager) InitializeOrMarkFailed(
 		agentID,
 		conn.ID,
 		conn.Generation,
-		cause.Error(),
+		sanitizeInitializationError(cause.Error()),
 	)
 	if markErr != nil {
 		return ConnectionResult{}, &InitializationError{
@@ -164,6 +169,12 @@ func (m Manager) InitializeOrMarkFailed(
 		}
 	}
 	return ConnectionResult{Conn: failed}, &InitializationError{Cause: cause, Recorded: true, Err: cause}
+}
+
+func sanitizeInitializationError(value string) string {
+	value = strings.ToValidUTF8(value, "\uFFFD")
+	value = strings.ReplaceAll(value, "\x00", "")
+	return textutil.TruncateRunes(strings.TrimSpace(value), maxInitializationErrorRunes)
 }
 
 func (m Manager) InitializeWithRetry(
@@ -370,6 +381,26 @@ func (m Manager) Connection(
 			return Conn{}, err
 		}
 		wireConn.BearerToken = token
+	case agentconfig.MCPAuthTypeSigV4:
+		provider, providerErr := resolveAWSCredentialProvider(
+			m.SigV4CredentialCache,
+			secretID,
+			secretPayload.CurrentVersionID,
+			server.Auth.Region,
+			payload,
+		)
+		if providerErr != nil {
+			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", conn.ServerKey, providerErr)
+		}
+		wireConn.prepareRequest, err = newSigV4RequestPreparer(
+			server.Auth.Service,
+			server.Auth.Region,
+			provider,
+		)
+		if err != nil {
+			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", conn.ServerKey, err)
+		}
+		return wireConn, nil
 	default:
 		return Conn{}, fmt.Errorf("unsupported mcp auth type %q", server.Auth.Type)
 	}
@@ -615,6 +646,8 @@ func mcpAuthSecretKind(authType string) (secrets.Kind, error) {
 		return secrets.KindGeneric, nil
 	case agentconfig.MCPAuthTypeOAuth:
 		return secrets.KindOAuthTokenSet, nil
+	case agentconfig.MCPAuthTypeSigV4:
+		return secrets.KindAWSCredentials, nil
 	default:
 		return "", fmt.Errorf("unsupported mcp auth type %q", authType)
 	}

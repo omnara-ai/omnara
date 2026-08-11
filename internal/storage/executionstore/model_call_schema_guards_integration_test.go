@@ -143,6 +143,39 @@ func TestModelCallContextDatabaseGuardsRejectRebinding(t *testing.T) {
 	}
 }
 
+func TestModelCallContextDatabaseGuardsRejectInvalidProviderCost(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "provider_cost_guard")
+	for _, invalidCost := range []string{"NaN", "-0.000001"} {
+		_, err := fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts
+SET state = 'succeeded',
+    api_format = 'openai-chat-completions',
+    api_variant = 'openrouter',
+    provider_reported_cost_usd = $2::numeric,
+    completed_at = statement_timestamp()
+WHERE id = $1
+`, claim.Context.ID, invalidCost)
+		assertPgConstraint(t, err, "23514", "model_call_contexts_cost_valid")
+	}
+
+	_, err := fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts
+SET state = 'failed',
+    error_kind = 'provider_unavailable',
+    provider_reported_cost_usd = 1,
+    completed_at = statement_timestamp()
+WHERE id = $1
+`, claim.Context.ID)
+	assertPgConstraint(
+		t,
+		err,
+		"23514",
+		"model_call_contexts_cost_has_api",
+	)
+}
+
 func TestModelCallContextIdentityIndexesRejectDuplicateLogicalContexts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

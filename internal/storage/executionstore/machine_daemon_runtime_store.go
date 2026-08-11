@@ -2,6 +2,7 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -16,6 +18,8 @@ import (
 const (
 	DaemonRuntimeLeaseDuration   = 2 * time.Minute
 	MinDaemonRuntimeLeaseTimeout = 3 * time.Second
+
+	machineObservedPlatformKey = "observed_platform"
 )
 
 const (
@@ -49,7 +53,6 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 		return DaemonRuntimeRegistrationRecord{}, errors.New("daemon runtime lease timeout is too short")
 	}
 	input.Capacity = normalizedJSON(input.Capacity)
-	input.Metadata = normalizedJSON(input.Metadata)
 	input.ObservedPlatform = normalizedJSON(input.ObservedPlatform)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -114,7 +117,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 				DaemonTokenID:            input.DaemonTokenID,
 				DaemonInstanceID:         input.DaemonInstanceID,
 				Capacity:                 input.Capacity,
-				Metadata:                 input.Metadata,
+				Metadata:                 json.RawMessage(`{}`),
 				LeaseTimeoutMilliseconds: input.LeaseTimeout.Milliseconds(),
 			},
 		)
@@ -153,7 +156,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 				DaemonInstanceID:         input.DaemonInstanceID,
 				DaemonVersion:            input.DaemonVersion,
 				Capacity:                 input.Capacity,
-				Metadata:                 input.Metadata,
+				Metadata:                 json.RawMessage(`{}`),
 				LeaseTimeoutMilliseconds: input.LeaseTimeout.Milliseconds(),
 			},
 		)
@@ -181,6 +184,16 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	); err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("revoke sibling system bootstrap tokens: %w", err)
 	}
+	if _, err := qtx.ClearMachineUpdateFailureReport(
+		ctx,
+		dbsqlc.ClearMachineUpdateFailureReportParams{
+			OrgID:         input.OrgID,
+			MachineID:     input.MachineID,
+			DaemonVersion: input.DaemonVersion,
+		},
+	); err != nil {
+		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("clear stale daemon update failure report: %w", err)
+	}
 	reconciliation, err := reconcileRegisteredRuntimeTx(ctx, txNotifications, tx, qtx, input)
 	if err != nil {
 		return DaemonRuntimeRegistrationRecord{}, err
@@ -190,7 +203,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 		dbsqlc.UpdateMachineObservationParams{
 			OrgID:            input.OrgID,
 			ID:               input.MachineID,
-			ObservedPlatform: input.ObservedPlatform,
+			ObservedPlatform: observedPlatformString(input.ObservedPlatform),
 		},
 	); err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("update machine observation: %w", err)
@@ -204,7 +217,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 			DaemonTokenID:            input.DaemonTokenID,
 			DaemonInstanceID:         input.DaemonInstanceID,
 			Capacity:                 input.Capacity,
-			Metadata:                 input.Metadata,
+			Metadata:                 json.RawMessage(`{}`),
 			LeaseTimeoutMilliseconds: input.LeaseTimeout.Milliseconds(),
 		},
 	)
@@ -218,6 +231,26 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 		Runtime:        daemonRuntimeFromHeartbeat(finalRow),
 		Reconciliation: reconciliation,
 	}, nil
+}
+
+func observedPlatformString(raw json.RawMessage) string {
+	var platform struct {
+		OS   string `json:"os"`
+		Arch string `json:"arch"`
+	}
+	if err := json.Unmarshal(raw, &platform); err != nil {
+		return ""
+	}
+	value := platform.OS
+	if platform.OS != "" && platform.Arch != "" {
+		value = platform.OS + "/" + platform.Arch
+	} else if platform.OS == "" {
+		value = platform.Arch
+	}
+	if resourcemeta.ValidateEntry(machineObservedPlatformKey, value) != nil {
+		return ""
+	}
+	return value
 }
 
 func (s *Store) HeartbeatDaemonRuntime(
@@ -262,7 +295,7 @@ func (s *Store) HeartbeatDaemonRuntime(
 			DaemonTokenID:            input.Authority.DaemonTokenID,
 			DaemonInstanceID:         input.DaemonInstanceID,
 			Capacity:                 normalizedJSON(input.Capacity),
-			Metadata:                 normalizedJSON(input.Metadata),
+			Metadata:                 json.RawMessage(`{}`),
 			LeaseTimeoutMilliseconds: input.LeaseTimeout.Milliseconds(),
 		},
 	)
@@ -277,7 +310,7 @@ func (s *Store) HeartbeatDaemonRuntime(
 		dbsqlc.UpdateMachineObservationParams{
 			OrgID:            input.Authority.OrgID,
 			ID:               input.Authority.MachineID,
-			ObservedPlatform: input.ObservedPlatform,
+			ObservedPlatform: observedPlatformString(input.ObservedPlatform),
 		},
 	); err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("update machine heartbeat observation: %w", err)

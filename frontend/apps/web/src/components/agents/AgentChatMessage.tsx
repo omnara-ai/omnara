@@ -1,11 +1,37 @@
-import type { OmnaraUIMessage } from '@omnara/react'
+import { type OmnaraUIMessage, useOmnaraClient } from '@omnara/react'
+import { getActorOptions } from '@omnara/sdk/tanstack'
+import { useQuery } from '@tanstack/react-query'
 import { Brain, Check, ChevronRight, CircleDashed, Terminal } from 'lucide-react'
 import { Streamdown } from 'streamdown'
 
 import { AgentAttachment } from '@/components/agents/AgentAttachment'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Message, MessageContent } from '@/components/ui/message'
+import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
+
+function ActorLabel({
+  actorID,
+  orgID,
+  projectID,
+}: {
+  actorID: string
+  orgID: string
+  projectID: string
+}) {
+  const client = useOmnaraClient()
+  const { data: actor } = useQuery(getActorOptions({ path: { orgID, projectID, actorID }, client }))
+  if (actor == null) return null
+
+  const displayName = actor.display_name?.trim()
+  const provider =
+    actor.provider === 'slack' ? 'Slack' : actor.provider === 'external' ? 'External' : 'Omnara'
+  return (
+    <MessageHeader>
+      {displayName == null || displayName === '' ? actor.provider_user_id : displayName}
+      {` · ${provider}`}
+    </MessageHeader>
+  )
+}
 
 function JsonValue({ value }: { value: unknown }) {
   return (
@@ -82,9 +108,13 @@ function ToolPart({
 export function AgentChatMessage({
   message,
   currentActorId,
+  orgID,
+  projectID,
 }: {
   message: OmnaraUIMessage
   currentActorId?: string
+  orgID: string
+  projectID: string
 }) {
   const metadata = message.metadata
   const mine =
@@ -94,6 +124,9 @@ export function AgentChatMessage({
   return (
     <Message align={mine ? 'end' : 'start'}>
       <MessageContent>
+        {message.role === 'user' && !mine && metadata?.actorId != null ? (
+          <ActorLabel actorID={metadata.actorId} orgID={orgID} projectID={projectID} />
+        ) : null}
         {message.parts.map((part) => {
           if (part.type === 'text') {
             if (message.role === 'assistant') {

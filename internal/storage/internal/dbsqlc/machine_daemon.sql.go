@@ -150,9 +150,56 @@ func (q *Queries) BeginPoolMachineProviderProvisioning(ctx context.Context, arg 
 	return i, err
 }
 
+const claimMachineWakeRequest = `-- name: ClaimMachineWakeRequest :one
+UPDATE machines machine
+SET wake_attempt_expires_at = statement_timestamp()
+      + $1::bigint * interval '1 millisecond',
+    updated_at = statement_timestamp()
+FROM machine_pools pool
+WHERE machine.org_id = $2
+  AND machine.id = $3
+  AND machine.machine_pool_id = $4::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND machine.asleep_since IS NOT NULL
+  AND machine.provider_resource_id IS NOT NULL
+  AND (
+    machine.wake_attempt_expires_at IS NULL
+    OR (
+      NOT pool.runtime_protection_enabled
+      AND machine.wake_attempt_expires_at <= statement_timestamp()
+    )
+  )
+  AND pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+  AND pool.deleted_at IS NULL
+RETURNING machine.wake_attempt_expires_at
+`
+
+type ClaimMachineWakeRequestParams struct {
+	WakeTimeoutMilliseconds int64
+	OrgID                   uuid.UUID
+	MachineID               uuid.UUID
+	MachinePoolID           uuid.UUID
+}
+
+func (q *Queries) ClaimMachineWakeRequest(ctx context.Context, arg ClaimMachineWakeRequestParams) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, claimMachineWakeRequest,
+		arg.WakeTimeoutMilliseconds,
+		arg.OrgID,
+		arg.MachineID,
+		arg.MachinePoolID,
+	)
+	var wake_attempt_expires_at *time.Time
+	err := row.Scan(&wake_attempt_expires_at)
+	return wake_attempt_expires_at, err
+}
+
 const clearMachineSleep = `-- name: ClearMachineSleep :exec
 UPDATE machines
 SET asleep_since = NULL,
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $1
   AND id = $2
@@ -168,6 +215,31 @@ type ClearMachineSleepParams struct {
 func (q *Queries) ClearMachineSleep(ctx context.Context, arg ClearMachineSleepParams) error {
 	_, err := q.db.Exec(ctx, clearMachineSleep, arg.OrgID, arg.ID)
 	return err
+}
+
+const clearMachineUpdateFailureReport = `-- name: ClearMachineUpdateFailureReport :execrows
+UPDATE machines
+SET failure_report = NULL,
+    updated_at = statement_timestamp()
+WHERE org_id = $1
+  AND id = $2
+  AND deleted_at IS NULL
+  AND failure_report->>'stage' = 'daemon_update'
+  AND failure_report->>'daemon_version' IS DISTINCT FROM $3::text
+`
+
+type ClearMachineUpdateFailureReportParams struct {
+	OrgID         uuid.UUID
+	MachineID     uuid.UUID
+	DaemonVersion string
+}
+
+func (q *Queries) ClearMachineUpdateFailureReport(ctx context.Context, arg ClearMachineUpdateFailureReportParams) (int64, error) {
+	result, err := q.db.Exec(ctx, clearMachineUpdateFailureReport, arg.OrgID, arg.MachineID, arg.DaemonVersion)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const createBYOMachineDaemonToken = `-- name: CreateBYOMachineDaemonToken :one
@@ -713,6 +785,60 @@ func (q *Queries) GetDaemonRuntimeInstanceForUpdate(ctx context.Context, arg Get
 		&i.State,
 		&i.StateReasonCode,
 		&i.DaemonVersion,
+	)
+	return i, err
+}
+
+const getMachineWakeState = `-- name: GetMachineWakeState :one
+SELECT EXISTS (
+         SELECT 1
+         FROM online_daemon_runtimes runtime
+         WHERE runtime.org_id = machine.org_id
+           AND runtime.machine_id = machine.id
+       ) AS online,
+       (machine.asleep_since IS NOT NULL)::boolean AS asleep,
+       pool.runtime_protection_enabled,
+       machine.wake_attempt_expires_at,
+       coalesce(
+         machine.wake_attempt_expires_at > statement_timestamp(),
+         false
+       )::boolean AS wake_attempt_active
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+  AND pool.deleted_at IS NULL
+WHERE machine.org_id = $1
+  AND machine.id = $2
+  AND machine.machine_pool_id = $3::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND machine.provider_resource_id IS NOT NULL
+`
+
+type GetMachineWakeStateParams struct {
+	OrgID         uuid.UUID
+	MachineID     uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+type GetMachineWakeStateRow struct {
+	Online                   bool
+	Asleep                   bool
+	RuntimeProtectionEnabled bool
+	WakeAttemptExpiresAt     *time.Time
+	WakeAttemptActive        bool
+}
+
+func (q *Queries) GetMachineWakeState(ctx context.Context, arg GetMachineWakeStateParams) (GetMachineWakeStateRow, error) {
+	row := q.db.QueryRow(ctx, getMachineWakeState, arg.OrgID, arg.MachineID, arg.MachinePoolID)
+	var i GetMachineWakeStateRow
+	err := row.Scan(
+		&i.Online,
+		&i.Asleep,
+		&i.RuntimeProtectionEnabled,
+		&i.WakeAttemptExpiresAt,
+		&i.WakeAttemptActive,
 	)
 	return i, err
 }
@@ -1828,6 +1954,7 @@ func (q *Queries) MachineHasUnfinishedDaemonWork(ctx context.Context, arg Machin
 const markMachineAsleep = `-- name: MarkMachineAsleep :one
 UPDATE machines
 SET asleep_since = statement_timestamp(),
+    wake_attempt_expires_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $1
   AND id = $2
@@ -1881,31 +2008,35 @@ func (q *Queries) OnlineDaemonRuntimeExists(ctx context.Context, arg OnlineDaemo
 
 const recordMachineFailureReport = `-- name: RecordMachineFailureReport :one
 UPDATE machines machine
-SET failure_report = jsonb_build_object(
+SET failure_report = jsonb_strip_nulls(jsonb_build_object(
       'stage', $1::text,
       'exit_status', $2::integer,
       'output_tail', $3::text,
       'output_truncated', $4::boolean,
+      'daemon_version', nullif($5::text, ''),
+      'target_version', nullif($6::text, ''),
       'reported_at', statement_timestamp()
-    ),
+    )),
     updated_at = statement_timestamp()
 FROM machine_daemon_tokens token
-WHERE machine.org_id = $5
-  AND machine.id = $6
+WHERE machine.org_id = $7
+  AND machine.id = $8
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state IN ('provisioning', 'provision_failed', 'active')
   AND token.org_id = machine.org_id
   AND token.machine_id = machine.id
-  AND token.id = $7
+  AND token.id = $9
   AND token.revoked_at IS NULL
 RETURNING machine.failure_report
 `
 
 type RecordMachineFailureReportParams struct {
 	Stage           string
-	ExitStatus      int32
+	ExitStatus      *int32
 	OutputTail      string
 	OutputTruncated bool
+	DaemonVersion   string
+	TargetVersion   string
 	OrgID           uuid.UUID
 	MachineID       uuid.UUID
 	DaemonTokenID   uuid.UUID
@@ -1917,6 +2048,8 @@ func (q *Queries) RecordMachineFailureReport(ctx context.Context, arg RecordMach
 		arg.ExitStatus,
 		arg.OutputTail,
 		arg.OutputTruncated,
+		arg.DaemonVersion,
+		arg.TargetVersion,
 		arg.OrgID,
 		arg.MachineID,
 		arg.DaemonTokenID,
@@ -2196,9 +2329,11 @@ func (q *Queries) UpdateMachineExecutionDefaults(ctx context.Context, arg Update
 const updateMachineObservation = `-- name: UpdateMachineObservation :exec
 UPDATE machines
 SET last_observed_at = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
     metadata = CASE
-      WHEN $1::jsonb = '{}'::jsonb THEN metadata
-      ELSE jsonb_set(metadata, '{observed_platform}', $1::jsonb, true)
+      WHEN $1::text = '' THEN metadata
+      ELSE jsonb_set(metadata, '{observed_platform}', to_jsonb($1::text), true)
     END,
     updated_at = statement_timestamp()
 WHERE org_id = $2
@@ -2207,7 +2342,7 @@ WHERE org_id = $2
 `
 
 type UpdateMachineObservationParams struct {
-	ObservedPlatform json.RawMessage
+	ObservedPlatform string
 	OrgID            uuid.UUID
 	ID               uuid.UUID
 }

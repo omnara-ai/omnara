@@ -412,35 +412,26 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 	if err != nil {
 		t.Fatal(err)
 	}
-	var terminal statedb.Process
-	var actionReport statedb.Report
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		process, found, readErr := store.Process(ctx, processID)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if found && process.Phase == statedb.ProcessTerminal &&
-			process.LocalClosed {
-			report, reportFound, reportErr := store.ReportBySlot(
-				ctx,
-				statedb.ReportActionTerminal,
-				processID,
-				actionID,
-			)
-			if reportErr != nil {
-				t.Fatal(reportErr)
-			}
-			if reportFound {
-				terminal = process
-				actionReport = report
-				break
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("supervisor did not durably close: %+v", process)
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-prepared.runner.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("supervisor retained itself while reports were unacknowledged")
+	}
+	terminal, found, err := store.Process(ctx, processID)
+	if err != nil || !found {
+		t.Fatalf("read closed process state: found=%t err=%v", found, err)
+	}
+	if terminal.Phase != statedb.ProcessTerminal || !terminal.LocalClosed {
+		t.Fatalf("supervisor did not durably close: %+v", terminal)
+	}
+	actionReport, found, err := store.ReportBySlot(
+		ctx,
+		statedb.ReportActionTerminal,
+		processID,
+		actionID,
+	)
+	if err != nil || !found {
+		t.Fatalf("read frozen action report: found=%t err=%v", found, err)
 	}
 	if !terminal.ExecCommitted || terminal.ContainmentKind == "" ||
 		!terminal.ContainmentEmpty {
@@ -454,11 +445,6 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 		t.Fatalf("frozen action report = %+v", actionReport)
 	}
 
-	select {
-	case <-prepared.runner.Done():
-	case <-time.After(5 * time.Second):
-		t.Fatal("supervisor retained itself while reports were unacknowledged")
-	}
 	marker, err := os.ReadFile(markerPath)
 	if err != nil {
 		t.Fatal(err)
@@ -745,11 +731,13 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 	defer cancel()
 
 	const (
-		machineCredential = "machine-credential-must-not-persist-7f51"
-		launchSecret      = "launch-secret-must-not-persist-3a92"
-		actionPayload     = "action-payload-must-not-persist-8c14"
+		machineCredential    = "machine-credential-must-not-persist-7f51"
+		launchSecret         = "launch-secret-must-not-persist-3a92"
+		reservedLaunchSecret = "reserved-launch-secret-must-not-persist-1da4"
+		actionPayload        = "action-payload-must-not-persist-8c14"
 	)
 	root := t.TempDir()
+	workloadEnvMarker := filepath.Join(t.TempDir(), "workload-env-filtered")
 	fixture := newDetachedSupervisorTestFixtureWithConfig(
 		t,
 		ctx,
@@ -760,15 +748,32 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 		ProcessAssignment{
 			ID: "prc_no_persisted_secrets",
 			Process: Process{
-				Command:       "sleep 30",
+				Command: `test -n "$OMNARA_HOME" && ` +
+					`test -n "$LAUNCH_TEST_SECRET" && ` +
+					`test -z "${OMNARA_TEST_SECRET+x}" && ` +
+					`printf ok > "$WORKLOAD_ENV_MARKER" && sleep 30`,
 				ShellSelector: "default",
 				Cwd:           t.TempDir(),
 				IOMode:        "pipe",
 			},
-			Env: map[string]string{"OMNARA_TEST_SECRET": launchSecret},
+			Env: map[string]string{
+				"LAUNCH_TEST_SECRET":  launchSecret,
+				"OMNARA_TEST_SECRET":  reservedLaunchSecret,
+				"WORKLOAD_ENV_MARKER": workloadEnvMarker,
+			},
 		},
 	)
 	fixture.acceptAndStart(t, ctx)
+	for {
+		if _, err := os.Stat(workloadEnvMarker); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+			t.Fatal("workload did not confirm its filtered environment")
+		}
+	}
 	payload, err := json.Marshal(map[string]string{"data": actionPayload})
 	if err != nil {
 		t.Fatal(err)
@@ -792,7 +797,7 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 		t.Fatalf("close process state before artifact scan: %v", err)
 	}
 
-	sentinels := []string{machineCredential, launchSecret, actionPayload}
+	sentinels := []string{machineCredential, launchSecret, reservedLaunchSecret, actionPayload}
 	if err := filepath.WalkDir(
 		root,
 		func(path string, entry os.DirEntry, walkErr error) error {

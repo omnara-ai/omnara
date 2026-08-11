@@ -66,7 +66,8 @@ func (s strictOpenAPIServer) RecordMachineFailure(
 	if request.Body != nil {
 		outputTail = []byte(*request.Body)
 	}
-	outputTruncated := request.Params.CaptureStatus != 0 ||
+	captureFailed := request.Params.CaptureStatus != nil && *request.Params.CaptureStatus != 0
+	outputTruncated := captureFailed ||
 		len(outputTail) > executionstore.MaxMachineFailureReportOutputBytes
 	if len(outputTail) > executionstore.MaxMachineFailureReportOutputBytes {
 		outputTail = outputTail[len(outputTail)-executionstore.MaxMachineFailureReportOutputBytes:]
@@ -79,6 +80,8 @@ func (s strictOpenAPIServer) RecordMachineFailure(
 		ExitStatus:      request.Params.ExitStatus,
 		OutputTail:      outputTail,
 		OutputTruncated: outputTruncated,
+		DaemonVersion:   stringFromPtr(request.Params.DaemonVersion),
+		TargetVersion:   stringFromPtr(request.Params.TargetVersion),
 	}
 	err := s.server.store.Execution().RecordMachineFailureReport(ctx, report)
 	if err != nil {
@@ -229,10 +232,6 @@ func (s strictOpenAPIServer) registerMachineDaemonRuntime(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(body.Metadata)
-	if err != nil {
-		return nil, err
-	}
 	observedPlatform, err := rawJSONFromPointer(body.ObservedPlatform)
 	if err != nil {
 		return nil, err
@@ -246,7 +245,6 @@ func (s strictOpenAPIServer) registerMachineDaemonRuntime(
 			DaemonInstanceID: body.DaemonInstanceId,
 			DaemonVersion:    body.DaemonVersion,
 			Capacity:         capacity,
-			Metadata:         metadata,
 			ObservedPlatform: observedPlatform,
 			ProcessClaims:    claims,
 			LeaseTimeout:     s.server.daemonRuntimeLeaseDuration,

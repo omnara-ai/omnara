@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -289,10 +290,15 @@ func agentInputContentBlocksTx(
 	}
 	blocks := make([]CreateContentBlockInput, 0, len(rows))
 	for _, row := range rows {
+		metadata, err := resourcemeta.FromJSON(row.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("decode agent input content block metadata: %w", err)
+		}
 		block := CreateContentBlockInput{
 			Ordinal:     row.Ordinal,
 			BlockKind:   ContentBlockKind(row.BlockKind),
 			TextContent: row.TextContent,
+			Metadata:    metadata,
 		}
 		if row.ArtifactID != nil {
 			block.ArtifactID = *row.ArtifactID
