@@ -964,7 +964,7 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
+       block.artifact_id, block.tool_call_id, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = $1
@@ -993,7 +993,6 @@ type ListContentBlocksForModelOutputRow struct {
 	StructuredData        *json.RawMessage
 	ArtifactID            *uuid.UUID
 	ToolCallID            *uuid.UUID
-	Metadata              json.RawMessage
 	CreatedAt             time.Time
 }
 
@@ -1020,7 +1019,6 @@ func (q *Queries) ListContentBlocksForModelOutput(ctx context.Context, arg ListC
 			&i.StructuredData,
 			&i.ArtifactID,
 			&i.ToolCallID,
-			&i.Metadata,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

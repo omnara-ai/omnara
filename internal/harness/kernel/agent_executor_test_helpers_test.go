@@ -478,6 +478,22 @@ func (f kernelFixture) provisionClusterModel(
 	}
 }
 
+func (f kernelFixture) setManagedWorkAdmission(
+	t *testing.T,
+	ctx context.Context,
+	allowed bool,
+) {
+	t.Helper()
+	if _, err := f.Pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, $2)
+ON CONFLICT (org_id) DO UPDATE
+SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
+`, kernelTestOrgID, allowed); err != nil {
+		t.Fatalf("set managed work admission to %v: %v", allowed, err)
+	}
+}
+
 func firstKernelTestInt(value *int, fallback int) int {
 	if value != nil {
 		return *value

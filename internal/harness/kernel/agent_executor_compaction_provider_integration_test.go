@@ -19,20 +19,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
-func TestAgentExecutorCompactsAndRetriesAdmittedManagedCallAfterAdmissionCloses(t *testing.T) {
+func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
-	fixture.provisionClusterModel(t, ctx, "managed-compaction-prod", "managed-compaction-model")
-	agentID, userID := fixture.createAgent(
-		t,
-		ctx,
-		"managed-compaction/managed-compaction-model",
-		fixture.Now,
-		"run_command",
-	)
+	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now, "run_command")
 
 	firstModel := &sequenceKernelModel{
-		providerModelSlug: "managed-compaction-model",
+		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
 			MaxOutputTokens:     128,
@@ -71,7 +64,7 @@ func TestAgentExecutorCompactsAndRetriesAdmittedManagedCallAfterAdmissionCloses(
 	}
 
 	retryModel := &sequenceKernelModel{
-		providerModelSlug: "managed-compaction-model",
+		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
 			MaxOutputTokens:     128,
@@ -97,19 +90,6 @@ func TestAgentExecutorCompactsAndRetriesAdmittedManagedCallAfterAdmissionCloses(
 			},
 		},
 	}
-	admissionClosed := false
-	retryModel.afterRespond = func(response model.Response) {
-		if response.ID != "resp_context_window" || admissionClosed {
-			return
-		}
-		if _, err := fixture.Pool.Exec(ctx, `
-INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
-VALUES ($1, false)
-`, kernelTestOrgID); err != nil {
-			t.Fatalf("close managed work admission after admitted provider call: %v", err)
-		}
-		admissionClosed = true
-	}
 	retryTurn := fixture.admitSteeringInputsTurn(
 		t,
 		ctx,
@@ -126,9 +106,6 @@ VALUES ($1, false)
 	}
 	if err := executor.ExecuteModelWork(ctx, retryTurn); err != nil {
 		t.Fatalf("execute retry turn: %v", err)
-	}
-	if !admissionClosed {
-		t.Fatal("managed work admission did not close after the admitted provider call")
 	}
 	if len(retryTurn.InputIDs) != 2 {
 		t.Fatalf("retry turn input ids = %v, want two opening inputs", retryTurn.InputIDs)
@@ -277,38 +254,403 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 	if outputBlocks != 1 {
 		t.Fatalf("final output block count = %d, want 1", outputBlocks)
 	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		finalTurn.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release post-compaction runtime lock: %v", err)
-	}
-	newTurn := fixture.admitContentInputTurn(
+}
+
+func TestAgentExecutorStopsManagedCompactionAfterAdmissionCloses(t *testing.T) {
+	ctx := context.Background()
+	journey := newManagedCompactionAdmissionJourney(
 		t,
 		ctx,
-		agentID,
-		userID,
-		"new work after the checkpoint continuation",
-		fixture.Now.Add(6*time.Second),
+		"resp_managed_context_window",
 	)
-	executor.Now = func() time.Time { return fixture.Now.Add(7 * time.Second) }
-	if err := executor.ExecuteModelWork(ctx, newTurn); err != nil {
-		t.Fatalf("execute new work after closed checkpoint continuation: %v", err)
+	if err := journey.executor.ExecuteModelWork(ctx, journey.turn); err != nil {
+		t.Fatalf("execute managed context-window attempt: %v", err)
 	}
-	if retryModel.respondedCount() != 3 {
-		t.Fatalf("new work after checkpoint reached provider; responses=%d, want 3", retryModel.respondedCount())
+	if journey.model.respondedCount() != 1 {
+		t.Fatalf(
+			"provider requests after denied compaction = %d, want 1",
+			journey.model.respondedCount(),
+		)
 	}
 	assertDurableModelErrorForKernelTest(
 		t,
 		ctx,
-		fixture,
-		agentID,
-		newTurn.TurnID,
+		journey.fixture,
+		journey.agentID,
+		journey.turn.TurnID,
 		string(modelprotocol.ErrorKindRuntime),
 		storeerr.ManagedWorkAdmissionDeniedCode,
 	)
+	var compactableParents, deniedCompactions, checkpoints int
+	if err := journey.fixture.Pool.QueryRow(ctx, `
+SELECT count(*) FILTER (
+           WHERE operation_kind = 'normal'
+             AND state = 'failed'
+             AND recovery_kind = 'compact'
+       ),
+       count(*) FILTER (
+           WHERE operation_kind = 'compaction'
+             AND state = 'failed'
+             AND recovery_kind IS NULL
+             AND error_code = $3
+       )
+FROM model_call_contexts
+WHERE project_id = $1 AND agent_id = $2
+`, kernelTestProjectID, journey.agentID, storeerr.ManagedWorkAdmissionDeniedCode).Scan(
+		&compactableParents,
+		&deniedCompactions,
+	); err != nil {
+		t.Fatalf("load denied managed compaction contexts: %v", err)
+	}
+	if err := journey.fixture.Pool.QueryRow(ctx, `
+SELECT count(*)
+FROM context_checkpoints checkpoint
+JOIN agents agent ON agent.id = checkpoint.agent_id
+WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
+`, kernelTestProjectID, journey.agentID).Scan(&checkpoints); err != nil {
+		t.Fatalf("count checkpoints after denied managed compaction: %v", err)
+	}
+	if compactableParents != 1 || deniedCompactions != 1 || checkpoints != 0 {
+		t.Fatalf(
+			"managed compaction parents/denials/checkpoints = %d/%d/%d, want 1/1/0",
+			compactableParents,
+			deniedCompactions,
+			checkpoints,
+		)
+	}
+}
+
+func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing.T) {
+	ctx := context.Background()
+	journey := newManagedCompactionAdmissionJourney(t, ctx, "")
+	journey.model.errs = []error{nil, model.ProviderError{
+		Kind:    model.ErrorKindTransient,
+		Source:  "test-provider",
+		Message: "retry compaction",
+	}}
+	journey.executor.ModelRetryDelay = immediateKernelModelRetryDelay
+	if err := journey.executor.ExecuteModelWork(ctx, journey.turn); err != nil {
+		t.Fatalf("execute retryable managed compaction: %v", err)
+	}
+	if journey.model.respondedCount() != 2 {
+		t.Fatalf("provider requests through retryable compaction = %d, want 2", journey.model.respondedCount())
+	}
+
+	journey.fixture.setManagedWorkAdmission(t, ctx, false)
+	retry := continueTurnOnNewLeaseForKernelTest(
+		t,
+		ctx,
+		journey.fixture,
+		journey.turn,
+		journey.fixture.Now.Add(time.Minute),
+	)
+	journey.executor.Now = func() time.Time { return journey.fixture.Now.Add(time.Minute) }
+	if err := journey.executor.ExecuteModelWork(ctx, retry); err != nil {
+		t.Fatalf("deny managed compaction retry: %v", err)
+	}
+	if journey.model.respondedCount() != 2 {
+		t.Fatalf("provider requests after denied compaction retry = %d, want 2", journey.model.respondedCount())
+	}
+	assertDurableModelErrorForKernelTest(
+		t,
+		ctx,
+		journey.fixture,
+		journey.agentID,
+		journey.turn.TurnID,
+		string(modelprotocol.ErrorKindRuntime),
+		storeerr.ManagedWorkAdmissionDeniedCode,
+	)
+
+	var retryable, denied int
+	if err := journey.fixture.Pool.QueryRow(ctx, `
+SELECT count(*) FILTER (WHERE recovery_kind = 'retry'),
+       count(*) FILTER (
+           WHERE recovery_kind IS NULL
+             AND error_code = $3
+       )
+FROM model_call_contexts
+WHERE project_id = $1
+  AND agent_id = $2
+  AND operation_kind = 'compaction'
+`, kernelTestProjectID, journey.agentID, storeerr.ManagedWorkAdmissionDeniedCode).Scan(
+		&retryable,
+		&denied,
+	); err != nil {
+		t.Fatalf("load managed compaction retry contexts: %v", err)
+	}
+	if retryable != 1 || denied != 1 {
+		t.Fatalf("managed compaction retryable/denied contexts = %d/%d, want 1/1", retryable, denied)
+	}
+}
+
+func TestManagedCompactionSourceReplacementStopsAfterAdmissionCloses(t *testing.T) {
+	ctx := context.Background()
+	journey := newManagedCompactionAdmissionJourney(t, ctx, "")
+	frontier, err := journey.fixture.Store.Execution().MaxEventSequence(
+		ctx,
+		kernelTestProjectID,
+		journey.agentID,
+	)
+	if err != nil {
+		t.Fatalf("load managed replacement frontier: %v", err)
+	}
+	snapshot, err := journey.fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
+		ctx,
+		kernelTestProjectID,
+		journey.agentID,
+		frontier,
+	)
+	if err != nil {
+		t.Fatalf("capture managed replacement config: %v", err)
+	}
+	parent, err := journey.fixture.Store.Execution().ClaimNormalModelCall(
+		ctx,
+		executionstore.ClaimNormalModelCallInput{
+			ProjectID:          kernelTestProjectID,
+			AgentID:            journey.agentID,
+			RuntimeLockID:      journey.turn.RuntimeLockID,
+			OpeningInputIDs:    journey.turn.InputIDs,
+			AgentConfigID:      snapshot.AgentConfig.ID,
+			InputEventSequence: frontier,
+		},
+	)
+	if err != nil {
+		t.Fatalf("claim managed replacement parent: %v", err)
+	}
+	sourceEnd := journey.turn.OpeningEventSequence - 1
+	handoff, err := journey.fixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
+		ctx,
+		executionstore.RecordModelCallFailureAndClaimCompactionInput{
+			ParentContextID: parent.Context.ID,
+			Failure: executionstore.RecordRecoverableModelCallFailureInput{
+				ProjectID:          kernelTestProjectID,
+				AgentID:            journey.agentID,
+				ModelCallContextID: parent.Context.ID,
+				RuntimeLockID:      journey.turn.RuntimeLockID,
+				RecoveryKind:       executionstore.ModelCallRecoveryCompact,
+				ErrorKind:          model.ErrorKindContextWindow,
+				ErrorCode:          "context_window",
+				ErrorMessage:       "model context exceeded",
+			},
+			SourceEventSequenceEnd: sourceEnd,
+		},
+	)
+	if err != nil {
+		t.Fatalf("claim managed compaction before replacement: %v", err)
+	}
+	if handoff.BoundaryPreempted || !handoff.CompactionCall.Created || !handoff.CompactionCall.Claimed {
+		t.Fatalf("managed compaction handoff = %+v, want newly claimed context", handoff)
+	}
+
+	journey.fixture.setManagedWorkAdmission(t, ctx, false)
+	replacementEnd := sourceEnd - 1
+	replacement, err := journey.fixture.Store.Execution().ReplaceCompactionSource(
+		ctx,
+		executionstore.ReplaceCompactionSourceInput{
+			ProjectID:                  kernelTestProjectID,
+			AgentID:                    journey.agentID,
+			RuntimeLockID:              journey.turn.RuntimeLockID,
+			ModelCallContextID:         handoff.CompactionCall.Context.ID,
+			ErrorKind:                  model.ErrorKindPayloadTooLarge,
+			ErrorCode:                  "request_too_large",
+			ErrorMessage:               "compaction source is too large",
+			NextSourceEventSequenceEnd: replacementEnd,
+		},
+	)
+	if err != nil {
+		t.Fatalf("deny managed compaction source replacement: %v", err)
+	}
+	claim := replacement.CompactionCall
+	if replacement.BoundaryPreempted || !claim.Created || claim.Claimed ||
+		claim.Context.State != executionstore.ModelCallContextFailed ||
+		claim.Context.RecoveryKind != "" ||
+		claim.Context.ErrorCode != storeerr.ManagedWorkAdmissionDeniedCode ||
+		claim.Context.SourceEventSequenceEnd == nil ||
+		*claim.Context.SourceEventSequenceEnd != replacementEnd {
+		t.Fatalf("managed replacement claim = %+v, want terminal admission denial", replacement)
+	}
+	assertDurableModelErrorForKernelTest(
+		t,
+		ctx,
+		journey.fixture,
+		journey.agentID,
+		journey.turn.TurnID,
+		string(modelprotocol.ErrorKindRuntime),
+		storeerr.ManagedWorkAdmissionDeniedCode,
+	)
+}
+
+func TestAgentExecutorStopsManagedPostCompactionAttemptAfterAdmissionCloses(t *testing.T) {
+	ctx := context.Background()
+	journey := newManagedCompactionAdmissionJourney(
+		t,
+		ctx,
+		"resp_managed_summary",
+	)
+	if err := journey.executor.ExecuteModelWork(ctx, journey.turn); err != nil {
+		t.Fatalf("execute managed compaction: %v", err)
+	}
+	if journey.model.respondedCount() != 2 {
+		t.Fatalf(
+			"provider requests through compaction = %d, want 2",
+			journey.model.respondedCount(),
+		)
+	}
+	continuation := continueTurnOnNewLeaseForKernelTest(
+		t,
+		ctx,
+		journey.fixture,
+		journey.turn,
+		journey.fixture.Now.Add(5*time.Second),
+	)
+	if err := journey.executor.ExecuteModelWork(ctx, continuation); err != nil {
+		t.Fatalf("deny managed post-compaction attempt: %v", err)
+	}
+	if journey.model.respondedCount() != 2 {
+		t.Fatalf(
+			"provider requests after denied post-compaction attempt = %d, want 2",
+			journey.model.respondedCount(),
+		)
+	}
+	assertDurableModelErrorForKernelTest(
+		t,
+		ctx,
+		journey.fixture,
+		journey.agentID,
+		journey.turn.TurnID,
+		string(modelprotocol.ErrorKindRuntime),
+		storeerr.ManagedWorkAdmissionDeniedCode,
+	)
+	var deniedCheckpointContinuations int
+	if err := journey.fixture.Pool.QueryRow(ctx, `
+SELECT count(*)
+FROM model_call_contexts context
+JOIN agent_events checkpoint_event ON checkpoint_event.agent_id = context.agent_id
+  AND checkpoint_event.sequence = context.input_event_sequence
+  AND checkpoint_event.event_kind = 'context_checkpoint'
+WHERE context.project_id = $1
+  AND context.agent_id = $2
+  AND context.operation_kind = 'normal'
+  AND context.state = 'failed'
+  AND context.recovery_kind IS NULL
+  AND context.error_code = $3
+`, kernelTestProjectID, journey.agentID, storeerr.ManagedWorkAdmissionDeniedCode).Scan(
+		&deniedCheckpointContinuations,
+	); err != nil {
+		t.Fatalf("load denied checkpoint continuation: %v", err)
+	}
+	if deniedCheckpointContinuations != 1 {
+		t.Fatalf(
+			"denied checkpoint continuations = %d, want 1",
+			deniedCheckpointContinuations,
+		)
+	}
+}
+
+type managedCompactionAdmissionJourney struct {
+	fixture  kernelFixture
+	agentID  storage.ID
+	turn     ModelWorkExecution
+	executor AgentExecutor
+	model    *sequenceKernelModel
+}
+
+func newManagedCompactionAdmissionJourney(
+	t *testing.T,
+	ctx context.Context,
+	closeAfterResponseID string,
+) managedCompactionAdmissionJourney {
+	t.Helper()
+	fixture := newKernelFixture(t, ctx)
+	fixture.provisionClusterModel(t, ctx, "managed-compaction-prod", "managed-compaction-model")
+	agentID, userID := fixture.createAgent(
+		t,
+		ctx,
+		"managed-compaction/managed-compaction-model",
+		fixture.Now,
+		"run_command",
+	)
+	seedTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"seed managed history before overflow",
+		fixture.Now.Add(time.Second),
+	)
+	seedModel := &sequenceKernelModel{
+		providerModelSlug: "managed-compaction-model",
+		responses: []model.Response{{
+			ID:         "resp_managed_seed",
+			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "managed seed accepted"}},
+			StopReason: model.StopReasonEndTurn,
+		}},
+	}
+	if err := (AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, seedModel),
+		ToolExecutor:  tools.Executor{Store: fixture.Store},
+		Now:           func() time.Time { return fixture.Now.Add(2 * time.Second) },
+	}).ExecuteModelWork(ctx, seedTurn); err != nil {
+		t.Fatalf("execute managed compaction seed: %v", err)
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		seedTurn.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release managed compaction seed runtime: %v", err)
+	}
+	modelClient := &sequenceKernelModel{
+		providerModelSlug: "managed-compaction-model",
+		capabilities: model.Capabilities{
+			ContextWindowTokens: 128000,
+			MaxOutputTokens:     128,
+		},
+		responses: []model.Response{
+			{
+				ID:         "resp_managed_context_window",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "context window exceeded"}},
+				StopReason: model.StopReasonContextWindow,
+			},
+			{
+				ID:         "resp_managed_summary",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "Managed history summary."}},
+				StopReason: model.StopReasonEndTurn,
+			},
+			{
+				ID:         "resp_managed_continuation",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "continued"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
+	}
+	modelClient.afterRespond = func(response model.Response) {
+		if response.ID == closeAfterResponseID {
+			fixture.setManagedWorkAdmission(t, ctx, false)
+		}
+	}
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"trigger managed context compaction",
+		fixture.Now.Add(3*time.Second),
+	)
+	return managedCompactionAdmissionJourney{
+		fixture: fixture,
+		agentID: agentID,
+		turn:    turn,
+		executor: AgentExecutor{
+			Store:         fixture.Store,
+			ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
+			ToolExecutor:  tools.Executor{Store: fixture.Store},
+			Now:           func() time.Time { return fixture.Now.Add(4 * time.Second) },
+		},
+		model: modelClient,
+	}
 }
 
 func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *testing.T) {

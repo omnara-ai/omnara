@@ -29,7 +29,6 @@ type RecordModelCallErrorAndCompleteContextInput struct {
 	ErrorCode               string
 	ErrorMessage            string
 	ErrorDetails            json.RawMessage
-	ErrorBlockMetadata      json.RawMessage
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 }
@@ -47,13 +46,6 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	}
 	var err error
 	input.ErrorDetails, err = normalizedJSONObject(input.ErrorDetails, "model call error details")
-	if err != nil {
-		return events.Event{}, err
-	}
-	input.ErrorBlockMetadata, err = normalizedJSONObject(
-		input.ErrorBlockMetadata,
-		"model call error block metadata",
-	)
 	if err != nil {
 		return events.Event{}, err
 	}
@@ -88,7 +80,12 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "record model call error"); err != nil {
 		return events.Event{}, err
 	}
-	return result, nil
+	return result.event, nil
+}
+
+type terminalModelCallFailureResult struct {
+	context ModelCallContextRecord
+	event   events.Event
 }
 
 func recordTerminalModelCallFailureTx(
@@ -99,7 +96,7 @@ func recordTerminalModelCallFailureTx(
 	input RecordModelCallErrorAndCompleteContextInput,
 	runtimeAuthority modelCallContextRuntimeAuthority,
 	operationKind ModelCallOperation,
-) (events.Event, error) {
+) (terminalModelCallFailureResult, error) {
 	contextRow, err := loadModelCallContextByIDTx(
 		ctx,
 		tx,
@@ -108,13 +105,13 @@ func recordTerminalModelCallFailureTx(
 		input.ModelCallContextID,
 	)
 	if err != nil {
-		return events.Event{}, err
+		return terminalModelCallFailureResult{}, err
 	}
 	if contextRow.OperationKind != operationKind {
-		return events.Event{}, storeerr.ErrStateTransitionConflict
+		return terminalModelCallFailureResult{}, storeerr.ErrStateTransitionConflict
 	}
 	if contextRow.RuntimeLockID != input.RuntimeLockID {
-		return events.Event{}, storeerr.ErrRuntimeLockInactive
+		return terminalModelCallFailureResult{}, storeerr.ErrRuntimeLockInactive
 	}
 	normalizedUsage := modelUsageForStorage(input.Usage)
 	if err := validateModelCallFailureEvidence(
@@ -126,20 +123,20 @@ func recordTerminalModelCallFailureTx(
 		normalizedUsage != (modelenvelope.Usage{}),
 		input.ProviderReportedCostUSD,
 	); err != nil {
-		return events.Event{}, err
+		return terminalModelCallFailureResult{}, err
 	}
 	if contextRow.State == ModelCallContextFailed {
 		if !sameTerminalModelCallErrorContextIntent(contextRow, input, normalizedUsage) {
-			return events.Event{}, storeerr.ErrIdempotencyConflict
+			return terminalModelCallFailureResult{}, storeerr.ErrIdempotencyConflict
 		}
 		event, replayErr := replayModelCallErrorOutputTx(ctx, tx, q, contextRow, input)
 		if replayErr != nil {
-			return events.Event{}, replayErr
+			return terminalModelCallFailureResult{}, replayErr
 		}
-		return event.Event, nil
+		return terminalModelCallFailureResult{context: contextRow, event: event.Event}, nil
 	}
 	if contextRow.State != ModelCallContextStarted {
-		return events.Event{}, storeerr.ErrRuntimeLockInactive
+		return terminalModelCallFailureResult{}, storeerr.ErrRuntimeLockInactive
 	}
 	finishedContext, err := finishModelCallContextWithAuthorityTx(ctx, q, finishModelCallContextInput{
 		ProjectID:               input.ProjectID,
@@ -159,7 +156,7 @@ func recordTerminalModelCallFailureTx(
 		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
 	}, runtimeAuthority)
 	if err != nil {
-		return events.Event{}, err
+		return terminalModelCallFailureResult{}, err
 	}
 	eventRecord, err := publishModelCallErrorOutputTx(
 		ctx,
@@ -170,14 +167,16 @@ func recordTerminalModelCallFailureTx(
 		modelCallErrorOutputInput{
 			ServedProviderModelSlug: input.ServedProviderModelSlug,
 			ErrorMessage:            input.ErrorMessage,
-			Metadata:                input.ErrorBlockMetadata,
 			Usage:                   normalizedUsage,
 		},
 	)
 	if err != nil {
-		return events.Event{}, err
+		return terminalModelCallFailureResult{}, err
 	}
-	return eventRecord.Event, nil
+	return terminalModelCallFailureResult{
+		context: finishedContext,
+		event:   eventRecord.Event,
+	}, nil
 }
 
 func sameTerminalModelCallErrorContextIntent(
@@ -203,7 +202,6 @@ func sameTerminalModelCallErrorContextIntent(
 type modelCallErrorOutputInput struct {
 	ServedProviderModelSlug string
 	ErrorMessage            string
-	Metadata                json.RawMessage
 	Usage                   modelenvelope.Usage
 }
 
@@ -237,7 +235,6 @@ func publishModelCallErrorOutputTx(
 		OwnerModelOutputID: modelOutput.ID,
 		BlockKind:          ContentBlockKindError,
 		TextContent:        input.ErrorMessage,
-		Metadata:           input.Metadata,
 	}); err != nil {
 		return TypedAgentEventRecord{}, err
 	}
@@ -286,7 +283,6 @@ func replayModelCallErrorOutputTx(
 	authorityInput := modelCallErrorAuthorityInput(contextRow, modelCallErrorOutputInput{
 		ServedProviderModelSlug: input.ServedProviderModelSlug,
 		ErrorMessage:            input.ErrorMessage,
-		Metadata:                input.ErrorBlockMetadata,
 		Usage:                   input.Usage,
 	})
 	modelOutput, err := createModelOutputAuthorityTx(ctx, tx, authorityInput)
@@ -316,9 +312,7 @@ func replayModelCallErrorOutputTx(
 		return TypedAgentEventRecord{}, fmt.Errorf("list terminal model error content blocks for replay: %w", err)
 	}
 	if len(blocks) != 1 || blocks[0].Ordinal != 0 || blocks[0].BlockKind != string(ContentBlockKindError) ||
-		blocks[0].TextContent != input.ErrorMessage ||
-		!sameJSON(blocks[0].Metadata, normalizedJSON(input.ErrorBlockMetadata)) ||
-		blocks[0].ArtifactID != nil || blocks[0].ToolCallID != nil {
+		blocks[0].TextContent != input.ErrorMessage || blocks[0].ArtifactID != nil || blocks[0].ToolCallID != nil {
 		return TypedAgentEventRecord{}, storeerr.ErrIdempotencyConflict
 	}
 	return eventRecord, nil

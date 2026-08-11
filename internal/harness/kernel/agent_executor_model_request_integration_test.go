@@ -23,12 +23,7 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	fixture.provisionClusterModel(t, ctx, "managed-prod", "managed-model")
-	if _, err := fixture.Pool.Exec(ctx, `
-INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
-VALUES ($1, false)
-`, kernelTestOrgID); err != nil {
-		t.Fatalf("close managed work admission: %v", err)
-	}
+	fixture.setManagedWorkAdmission(t, ctx, false)
 
 	agentID, userID := fixture.createNamedAgentWithModelOptions(
 		t,
@@ -124,26 +119,6 @@ WHERE context.project_id = $1
 			retryAbsent,
 		)
 	}
-	var errorBlocks int
-	var metadataCode string
-	if err := fixture.Pool.QueryRow(ctx, `
-SELECT count(*), coalesce(max(block.metadata->>'omnara_error_code'), '')
-FROM model_call_contexts context
-JOIN model_outputs output ON output.agent_id = context.agent_id
-  AND output.model_call_context_id = context.id
-JOIN content_blocks block ON block.agent_id = output.agent_id
-  AND block.owner_model_output_id = output.id
-WHERE context.project_id = $1
-  AND context.agent_id = $2
-  AND context.input_event_sequence = $3
-  AND block.block_kind = 'error'
-`, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(&errorBlocks, &metadataCode); err != nil {
-		t.Fatalf("load managed admission error block: %v", err)
-	}
-	if errorBlocks != 1 || metadataCode != storeerr.ManagedWorkAdmissionDeniedCode {
-		t.Fatalf("managed admission error blocks/code = %d/%q, want 1/%q", errorBlocks, metadataCode, storeerr.ManagedWorkAdmissionDeniedCode)
-	}
-
 	var contexts int
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT count(*)
@@ -223,13 +198,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("tenant model responses = %d, want 1", tenantModel.respondedCount())
 	}
 
-	if _, err := fixture.Pool.Exec(ctx, `
-UPDATE org_managed_work_admission
-SET new_managed_work_allowed = true
-WHERE org_id = $1
-`, kernelTestOrgID); err != nil {
-		t.Fatalf("reopen managed work admission: %v", err)
-	}
+	fixture.setManagedWorkAdmission(t, ctx, true)
 	reopenedAgentID, reopenedUserID := fixture.createNamedAgentWithModelOptions(
 		t,
 		ctx,

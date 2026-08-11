@@ -1,4 +1,4 @@
--- name: GetAgentConfigRevisionForModelCall :one
+-- name: GetModelCallRevisionForClaim :one
 -- @sqlc-vet-disable configured-models-deleted-at
 -- @sqlc-vet-disable model-provider-configs-deleted-at
 -- Model-call lineage must survive soft deletion so the unavailable model can fail durably.
@@ -6,14 +6,6 @@ SELECT configured_model.current_revision_id,
        CASE
            WHEN provider.management_kind = 'cluster'
                THEN COALESCE(admission.new_managed_work_allowed, true)
-                    -- A checkpoint frontier continues the admitted compaction that produced it.
-                    OR EXISTS (
-                        SELECT 1
-                        FROM agent_events checkpoint_event
-                        WHERE checkpoint_event.agent_id = sqlc.arg(agent_id)
-                          AND checkpoint_event.sequence = sqlc.arg(input_event_sequence)
-                          AND checkpoint_event.event_kind = 'context_checkpoint'
-                    )
            ELSE true
        END AS new_managed_work_allowed
 FROM agent_configs config

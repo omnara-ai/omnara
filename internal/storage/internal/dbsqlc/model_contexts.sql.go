@@ -209,58 +209,6 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 	return id, err
 }
 
-const getAgentConfigRevisionForModelCall = `-- name: GetAgentConfigRevisionForModelCall :one
-SELECT configured_model.current_revision_id,
-       CASE
-           WHEN provider.management_kind = 'cluster'
-               THEN COALESCE(admission.new_managed_work_allowed, true)
-                    -- A checkpoint frontier continues the admitted compaction that produced it.
-                    OR EXISTS (
-                        SELECT 1
-                        FROM agent_events checkpoint_event
-                        WHERE checkpoint_event.agent_id = $1
-                          AND checkpoint_event.sequence = $2
-                          AND checkpoint_event.event_kind = 'context_checkpoint'
-                    )
-           ELSE true
-       END AS new_managed_work_allowed
-FROM agent_configs config
-JOIN configured_models configured_model ON configured_model.org_id = config.org_id
-  AND configured_model.id = config.configured_model_id
-JOIN model_provider_configs provider ON provider.org_id = configured_model.org_id
-  AND provider.id = configured_model.model_provider_config_id
-LEFT JOIN org_managed_work_admission admission ON admission.org_id = config.org_id
-WHERE config.project_id = $3
-  AND config.id = $4
-`
-
-type GetAgentConfigRevisionForModelCallParams struct {
-	AgentID            uuid.UUID
-	InputEventSequence int64
-	ProjectID          uuid.UUID
-	AgentConfigID      uuid.UUID
-}
-
-type GetAgentConfigRevisionForModelCallRow struct {
-	CurrentRevisionID     uuid.UUID
-	NewManagedWorkAllowed bool
-}
-
-// @sqlc-vet-disable configured-models-deleted-at
-// @sqlc-vet-disable model-provider-configs-deleted-at
-// Model-call lineage must survive soft deletion so the unavailable model can fail durably.
-func (q *Queries) GetAgentConfigRevisionForModelCall(ctx context.Context, arg GetAgentConfigRevisionForModelCallParams) (GetAgentConfigRevisionForModelCallRow, error) {
-	row := q.db.QueryRow(ctx, getAgentConfigRevisionForModelCall,
-		arg.AgentID,
-		arg.InputEventSequence,
-		arg.ProjectID,
-		arg.AgentConfigID,
-	)
-	var i GetAgentConfigRevisionForModelCallRow
-	err := row.Scan(&i.CurrentRevisionID, &i.NewManagedWorkAllowed)
-	return i, err
-}
-
 const getCompactionModelCallContextByIdentity = `-- name: GetCompactionModelCallContextByIdentity :one
 SELECT context.id
 FROM model_call_contexts context
@@ -455,6 +403,43 @@ func (q *Queries) GetModelCallContextTurnID(ctx context.Context, arg GetModelCal
 	var turn_id uuid.UUID
 	err := row.Scan(&turn_id)
 	return turn_id, err
+}
+
+const getModelCallRevisionForClaim = `-- name: GetModelCallRevisionForClaim :one
+SELECT configured_model.current_revision_id,
+       CASE
+           WHEN provider.management_kind = 'cluster'
+               THEN COALESCE(admission.new_managed_work_allowed, true)
+           ELSE true
+       END AS new_managed_work_allowed
+FROM agent_configs config
+JOIN configured_models configured_model ON configured_model.org_id = config.org_id
+  AND configured_model.id = config.configured_model_id
+JOIN model_provider_configs provider ON provider.org_id = configured_model.org_id
+  AND provider.id = configured_model.model_provider_config_id
+LEFT JOIN org_managed_work_admission admission ON admission.org_id = config.org_id
+WHERE config.project_id = $1
+  AND config.id = $2
+`
+
+type GetModelCallRevisionForClaimParams struct {
+	ProjectID     uuid.UUID
+	AgentConfigID uuid.UUID
+}
+
+type GetModelCallRevisionForClaimRow struct {
+	CurrentRevisionID     uuid.UUID
+	NewManagedWorkAllowed bool
+}
+
+// @sqlc-vet-disable configured-models-deleted-at
+// @sqlc-vet-disable model-provider-configs-deleted-at
+// Model-call lineage must survive soft deletion so the unavailable model can fail durably.
+func (q *Queries) GetModelCallRevisionForClaim(ctx context.Context, arg GetModelCallRevisionForClaimParams) (GetModelCallRevisionForClaimRow, error) {
+	row := q.db.QueryRow(ctx, getModelCallRevisionForClaim, arg.ProjectID, arg.AgentConfigID)
+	var i GetModelCallRevisionForClaimRow
+	err := row.Scan(&i.CurrentRevisionID, &i.NewManagedWorkAllowed)
+	return i, err
 }
 
 const getNormalModelCallContextByIdentity = `-- name: GetNormalModelCallContextByIdentity :one
