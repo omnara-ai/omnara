@@ -120,7 +120,6 @@ export function CreateConfiguredModelDialog({
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
       setAdvancedOpen(false)
-      setProviderId('')
       setPhase({ kind: 'form', error: '' })
     }
     onOpenChange(nextOpen)

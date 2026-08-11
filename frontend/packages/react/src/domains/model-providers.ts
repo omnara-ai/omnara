@@ -11,6 +11,7 @@ import {
 } from '@omnara/sdk'
 import {
   getModelProviderConfigOptions,
+  getModelProviderConfigQueryKey,
   listConfiguredModelsInfiniteOptions,
   listModelProviderConfigsInfiniteOptions,
   listModelProviderConfigsQueryKey,
@@ -218,10 +219,18 @@ export function useUpdateModelProvider(orgID: string) {
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
-      })
+    onSuccess: async (_data, { modelProviderConfigID }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getModelProviderConfigQueryKey({
+            path: { orgID, modelProviderConfigID },
+            client,
+          }),
+        }),
+      ])
     },
   })
 }

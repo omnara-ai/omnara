@@ -62,7 +62,7 @@ export function ProviderModelSlugField({
             onSelect(model)
           }
         }}
-        itemToStringLabel={(model: DiscoveredProviderModel) => model.slug}
+        itemToStringLabel={modelLabel}
         itemToStringValue={(model: DiscoveredProviderModel) => model.slug}
         isItemEqualToValue={(model: DiscoveredProviderModel, other: DiscoveredProviderModel) =>
           model.slug === other.slug
