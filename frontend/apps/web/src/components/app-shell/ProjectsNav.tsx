@@ -50,9 +50,8 @@ export function ProjectsNav() {
               const resources = [
                 {
                   to: '/projects/$projectId/agents' as const,
-                  path: `${projectRoot}/agent`,
+                  paths: [`${projectRoot}/agents`, `${projectRoot}/agent-profiles`],
                   label: 'Agents',
-                  prefix: true,
                 },
                 {
                   to: '/projects/$projectId/grants' as const,
@@ -102,8 +101,8 @@ export function ProjectsNav() {
                             <SidebarMenuSubButton
                               asChild
                               isActive={
-                                resource.prefix
-                                  ? pathname.startsWith(resource.path)
+                                resource.paths
+                                  ? resource.paths.some((path) => pathname.startsWith(path))
                                   : pathname === resource.path
                               }
                             >

@@ -2700,11 +2700,11 @@ paths:
       description: Items are ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
-        - name: profile
+        - name: agent_profile_id
           in: query
           description: Return only agents launched from this agent profile.
           schema:
-            type: string
+            $ref: '#/components/schemas/AgentProfileID'
         - name: sort
           in: query
           schema:
@@ -7534,7 +7534,7 @@ components:
           $ref: '#/components/schemas/OrganizationID'
         project_id:
           $ref: '#/components/schemas/ProjectID'
-        profile_id:
+        agent_profile_id:
           $ref: '#/components/schemas/AgentProfileID'
         state:
           type: string

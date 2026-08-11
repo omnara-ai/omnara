@@ -703,7 +703,7 @@ export const zAgent = z.object({
     id: zAgentId,
     org_id: zOrganizationId,
     project_id: zProjectId,
-    profile_id: zAgentProfileId.optional(),
+    agent_profile_id: zAgentProfileId.optional(),
     state: z.enum(['active', 'archived']),
     name: z.string(),
     integration_target: zIntegrationTarget.optional(),

@@ -47,7 +47,7 @@ export function AgentsTable({
 }) {
   const list = useResourceList<AgentListSort>('-updated_at')
   const query = useAgents(orgId, projectId, {
-    filters: profileId ? { ...list.apiFilters, profile: profileId } : list.apiFilters,
+    filters: profileId ? { ...list.apiFilters, agent_profile_id: profileId } : list.apiFilters,
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)

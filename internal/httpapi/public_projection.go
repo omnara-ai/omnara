@@ -27,7 +27,7 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 	if err != nil {
 		return openapi.Agent{}, err
 	}
-	profileID, err := idOrEmpty(publicid.KindAgentProfile, record.ProfileID)
+	agentProfileID, err := idOrEmpty(publicid.KindAgentProfile, record.AgentProfileID)
 	if err != nil {
 		return openapi.Agent{}, err
 	}
@@ -62,8 +62,8 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 	if currentConfigID != "" {
 		response.CurrentConfigId = &currentConfigID
 	}
-	if profileID != "" {
-		response.ProfileId = &profileID
+	if agentProfileID != "" {
+		response.AgentProfileId = &agentProfileID
 	}
 	if record.Model.ProviderConfig != "" && record.Model.Name != "" {
 		response.Model = &openapi.AgentModel{

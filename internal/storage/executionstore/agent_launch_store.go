@@ -95,7 +95,7 @@ func (s *Store) LaunchAgent(
 	agent, inserted, err := insertAgentWithProjectLifecycleLockTx(ctx, tx, qtx, insertAgentInput{
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
-		ProfileID:       input.ProfileID,
+		AgentProfileID:  input.ProfileID,
 		Name:            launchAgentName(profile, config),
 		CurrentConfigID: config.ID,
 		IdempotencyKey:  input.IdempotencyKey,

@@ -274,8 +274,8 @@ func TestListAgentsByProfile(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	profileAgent := profileLaunch["agent"].(map[string]any)
-	if got := profileAgent["profile_id"]; got != firstProfileID {
-		t.Fatalf("launched agent profile_id = %v, want %s", got, firstProfileID)
+	if got := profileAgent["agent_profile_id"]; got != firstProfileID {
+		t.Fatalf("launched agent agent_profile_id = %v, want %s", got, firstProfileID)
 	}
 
 	configLaunch := requestJSONWithHeaders(
@@ -289,15 +289,15 @@ func TestListAgentsByProfile(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	configAgent := configLaunch["agent"].(map[string]any)
-	if _, ok := configAgent["profile_id"]; ok {
-		t.Fatalf("config-only agent unexpectedly has profile_id: %+v", configAgent)
+	if _, ok := configAgent["agent_profile_id"]; ok {
+		t.Fatalf("config-only agent unexpectedly has agent_profile_id: %+v", configAgent)
 	}
 
 	firstPage := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodGet,
-		project.ProjectPath+"/agents?profile="+firstProfileID,
+		project.ProjectPath+"/agents?agent_profile_id="+firstProfileID,
 		"",
 		"",
 		http.StatusOK,
@@ -315,7 +315,7 @@ func TestListAgentsByProfile(t *testing.T) {
 		t,
 		handler,
 		http.MethodGet,
-		project.ProjectPath+"/agents?profile="+secondProfileID,
+		project.ProjectPath+"/agents?agent_profile_id="+secondProfileID,
 		"",
 		"",
 		http.StatusOK,

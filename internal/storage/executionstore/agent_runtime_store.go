@@ -25,7 +25,7 @@ const (
 type insertAgentInput struct {
 	OrgID           ID
 	ProjectID       ID
-	ProfileID       ID
+	AgentProfileID  ID
 	Name            string
 	CurrentConfigID ID
 	IdempotencyKey  string
@@ -35,7 +35,7 @@ type AgentRecord struct {
 	ID                  ID         `json:"id"`
 	OrgID               ID         `json:"org_id"`
 	ProjectID           ID         `json:"project_id"`
-	ProfileID           ID         `json:"profile_id,omitempty"`
+	AgentProfileID      ID         `json:"agent_profile_id,omitempty"`
 	State               AgentState `json:"state"`
 	Name                string     `json:"name,omitempty"`
 	CurrentConfigID     ID         `json:"current_config_id"`
@@ -86,7 +86,7 @@ func insertAgentWithProjectLifecycleLockTx(
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
 		OrgID:           input.OrgID,
 		ProjectID:       input.ProjectID,
-		ProfileID:       sqlcIDFromNil(input.ProfileID),
+		AgentProfileID:  sqlcIDFromNil(input.AgentProfileID),
 		Name:            input.Name,
 		CurrentConfigID: input.CurrentConfigID,
 		IdempotencyKey:  sqlcTextFromEmpty(input.IdempotencyKey),
@@ -188,7 +188,7 @@ type AgentListFilters struct {
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
-	ProfileID              *ID
+	AgentProfileID         *ID
 }
 
 type ListAgentsForProjectResult struct {
@@ -227,7 +227,7 @@ func (s *Store) ListAgentsForProject(
 		IntegrationProviders:   input.Filters.IntegrationProviders,
 		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-		ProfileID:              input.Filters.ProfileID,
+		AgentProfileID:         input.Filters.AgentProfileID,
 	}
 	rows, err := s.q.ListAgentsForProject(ctx, params)
 	if err != nil {
@@ -269,7 +269,7 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 			IntegrationProviders:   input.Filters.IntegrationProviders,
 			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-			ProfileID:              input.Filters.ProfileID,
+			AgentProfileID:         input.Filters.AgentProfileID,
 			CursorSet:              input.List.After.Set,
 			CursorCreatedAt:        cursorCreatedAt,
 			CursorID:               input.List.After.ID,

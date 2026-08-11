@@ -134,7 +134,7 @@ func agentRecordFromSetIntegrationTargetSQLC(row dbsqlc.SetAgentIntegrationTarge
 		row.ProjectID,
 		row.State,
 		row.Name,
-		row.ProfileID,
+		row.AgentProfileID,
 		row.CurrentConfigID,
 		row.IntegrationTargetID,
 		row.IdempotencyKey,
