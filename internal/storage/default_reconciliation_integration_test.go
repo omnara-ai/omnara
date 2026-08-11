@@ -174,6 +174,27 @@ func TestReconcileDefaults(t *testing.T) {
 	`, created.Org.ID); err != nil {
 		t.Fatalf("set pool limits: %v", err)
 	}
+	machineID := testID("default-reconciliation-runtime-mismatch")
+	tag, err := pool.Exec(ctx, `
+		INSERT INTO machines(
+			id, org_id, machine_pool_id, source_kind, display_name, provider,
+			lifecycle_state, lifecycle_changed_at, provider_resource_id,
+			provider_provision_attempted_at, cpu, memory_mb, cwd, env, secret_env,
+			provider_options, provider_runtime_mismatch_since, metadata, created_at, updated_at
+		)
+		SELECT $1, machine_pool.org_id, machine_pool.id, 'pool', 'runtime mismatch', machine_pool.provider,
+			'active', statement_timestamp(), 'default-reconciliation-runtime',
+			statement_timestamp(), 1, 512, '', '{}'::jsonb, '{}'::jsonb,
+			'{}'::jsonb, statement_timestamp(), '{}'::jsonb, statement_timestamp(), statement_timestamp()
+		FROM machine_pools machine_pool
+		WHERE machine_pool.org_id = $2 AND machine_pool.name = $3 AND machine_pool.deleted_at IS NULL
+	`, machineID, created.Org.ID, initialPool.Name)
+	if err != nil {
+		t.Fatalf("seed runtime mismatch marker: %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("seed runtime mismatch marker rows = %d, want 1", tag.RowsAffected())
+	}
 	invalidPool := initialPool
 	invalidPool.DefaultMachineMemoryMB = intPtrForMachinePoolTest(4096)
 	if _, err := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
@@ -186,9 +207,12 @@ func TestReconcileDefaults(t *testing.T) {
 	desiredPool.Description = "new pool"
 	desiredPool.DefaultMachineEnv = json.RawMessage(`{"NEW":"value"}`)
 	desiredPool.DefaultMachineProviderOptions = json.RawMessage(`{"image":"new","sleep_after_ms":30000}`)
+	desiredPool.RuntimeProtectionEnabled = true
 	desiredPool.MaxTotalMachines = 0
 	desiredPool.MaxTotalCPU = intPtrForMachinePoolTest(1)
 	desiredPool.MaxTotalMemoryMB = intPtrForMachinePoolTest(0)
+	desiredPool.MinMachineCPU = intPtrForMachinePoolTest(1)
+	desiredPool.MinMachineMemoryMB = intPtrForMachinePoolTest(512)
 	desiredPool.MaxMachineCPU = intPtrForMachinePoolTest(1)
 	desiredPool.MaxMachineMemoryMB = intPtrForMachinePoolTest(512)
 	desiredProvider := initialProvider
@@ -221,15 +245,30 @@ func TestReconcileDefaults(t *testing.T) {
 		t.Fatalf("get machine pool: %v", err)
 	}
 	if poolRecord.Description != desiredPool.Description ||
+		!poolRecord.RuntimeProtectionEnabled ||
 		poolRecord.MaxTotalMachines != 8 ||
 		poolRecord.MaxTotalCpu == nil || *poolRecord.MaxTotalCpu != 16 ||
 		poolRecord.MaxTotalMemoryMb == nil || *poolRecord.MaxTotalMemoryMb != 8192 ||
+		poolRecord.MinMachineCpu == nil || *poolRecord.MinMachineCpu != 1 ||
+		poolRecord.MinMachineMemoryMb == nil || *poolRecord.MinMachineMemoryMb != 512 ||
 		poolRecord.MaxMachineCpu == nil || *poolRecord.MaxMachineCpu != 4 ||
 		poolRecord.MaxMachineMemoryMb == nil || *poolRecord.MaxMachineMemoryMb != 2048 {
 		t.Fatalf("unexpected reconciled pool: %+v", poolRecord)
 	}
 	assertJSONRawEqual(t, poolRecord.DefaultMachineEnv, string(desiredPool.DefaultMachineEnv))
 	assertJSONRawEqual(t, poolRecord.DefaultMachineProviderOptions, string(desiredPool.DefaultMachineProviderOptions))
+	var hasRuntimeMismatch bool
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT provider_runtime_mismatch_since IS NOT NULL FROM machines WHERE org_id = $1 AND id = $2`,
+		created.Org.ID,
+		machineID,
+	).Scan(&hasRuntimeMismatch); err != nil {
+		t.Fatalf("load runtime mismatch marker: %v", err)
+	}
+	if hasRuntimeMismatch {
+		t.Fatal("runtime mismatch marker survived runtime protection change")
+	}
 
 	reconciledProvider, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, desiredProvider.Name)
 	if err != nil {
