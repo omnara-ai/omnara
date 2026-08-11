@@ -8,24 +8,15 @@ import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
 import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
-import { EditAgentProfileDialog } from '@/components/agents/EditAgentProfileDialog'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DataTable } from '@/components/data-table/DataTable'
-import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
-import { formatDateTime } from '@/lib/format'
-
-type ActiveDialog =
-  | { kind: 'deploy'; profile: AgentProfile }
-  | { kind: 'edit'; profile: AgentProfile }
-  | null
 
 export function AgentProfilesSection({
   orgId,
@@ -49,7 +40,7 @@ export function AgentProfilesSection({
   const createAgent = useCreateAgent(orgId, projectId)
   const navigate = useNavigate()
   const [launchingId, setLaunchingId] = useState<string | null>(null)
-  const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
+  const [deployProfile, setDeployProfile] = useState<AgentProfile | null>(null)
 
   async function launch(profile: AgentProfile) {
     setLaunchingId(profile.id)
@@ -69,11 +60,11 @@ export function AgentProfilesSection({
     }
   }
 
-  const newProfileButton = () =>
+  const newAgentButton = () =>
     canManage ? (
       <Button asChild size="sm">
-        <Link to="/projects/$projectId/agent-profiles/new" params={{ projectId }}>
-          New profile
+        <Link to="/projects/$projectId/agents/new" params={{ projectId }}>
+          New agent
         </Link>
       </Button>
     ) : undefined
@@ -83,7 +74,7 @@ export function AgentProfilesSection({
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-2xl font-bold tracking-tight">Agent profiles</h2>
-          {newProfileButton()}
+          {newAgentButton()}
         </div>
         {showToolbar && (
           <ResourceListToolbar
@@ -126,11 +117,8 @@ export function AgentProfilesSection({
               )}
               {canManage && (
                 <ResourceRowActions
-                  onEdit={() => {
-                    setActiveDialog({ kind: 'edit', profile })
-                  }}
                   onGrant={() => {
-                    setActiveDialog({ kind: 'deploy', profile })
+                    setDeployProfile(profile)
                   }}
                   grantLabel="Deploy to app"
                   onDelete={() => {
@@ -149,56 +137,29 @@ export function AgentProfilesSection({
               )}
             </div>,
           ]}
-          rowExpanded={(profile) => (
-            <div className="flex flex-col gap-4">
-              <DetailList
-                items={[
-                  { label: 'ID', value: profile.id, mono: true },
-                  { label: 'Generation', value: profile.current_generation },
-                  {
-                    label: 'Model',
-                    value: `${profile.current_config.model.provider_config} · ${profile.current_config.model.name}`,
-                  },
-                  { label: 'Created', value: formatDateTime(profile.created_at) },
-                  { label: 'Updated', value: formatDateTime(profile.updated_at) },
-                ]}
-              />
-              <AgentProfileIntegrations
-                orgId={orgId}
-                projectId={projectId}
-                profileId={profile.id}
-                canManage={canManage}
-              />
-            </div>
-          )}
+          onRowClick={(profile) => {
+            void navigate({
+              to: '/projects/$projectId/agent-profiles/$profileId',
+              params: { projectId, profileId: profile.id },
+            })
+          }}
           isPending={query.isPending}
           isError={query.isError}
           onRetry={() => {
             void query.refetch()
           }}
-          emptyMessage="No agent profiles yet. A profile is a saved, reusable agent config — create one to launch agents from in one click."
+          emptyMessage="No agent profiles yet. A profile is a saved, reusable agent config for launching agents in one click."
         />
       </div>
-      {canManage && activeDialog?.kind === 'deploy' && (
+      {canManage && deployProfile && (
         <DeployAgentProfileDialog
           open
           onOpenChange={(nextOpen) => {
-            if (!nextOpen) setActiveDialog(null)
+            if (!nextOpen) setDeployProfile(null)
           }}
           orgId={orgId}
           projectId={projectId}
-          profile={activeDialog.profile}
-        />
-      )}
-      {canManage && activeDialog?.kind === 'edit' && (
-        <EditAgentProfileDialog
-          open
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setActiveDialog(null)
-          }}
-          orgId={orgId}
-          projectId={projectId}
-          profile={activeDialog.profile}
+          profile={deployProfile}
         />
       )}
       <SlackOAuthOutcomeDialog />

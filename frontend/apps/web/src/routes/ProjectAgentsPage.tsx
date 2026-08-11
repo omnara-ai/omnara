@@ -16,7 +16,6 @@ export function ProjectAgentsPage() {
           <AgentsSection
             orgId={activeOrg.id}
             projectId={projectId}
-            canOperate={project?.access.can_operate ?? false}
             canManage={project?.access.can_manage ?? false}
           />
         </div>

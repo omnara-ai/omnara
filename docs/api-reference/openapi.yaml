@@ -2701,6 +2701,11 @@ paths:
       description: Items are ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - name: profile
+          in: query
+          description: Return only agents whose current config is a version of this agent profile.
+          schema:
+            type: string
         - name: sort
           in: query
           schema:

@@ -114,6 +114,13 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
   AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
+  AND (sqlc.narg(profile_id)::uuid IS NULL OR EXISTS (
+    SELECT 1
+    FROM agent_profile_versions profile_version
+    WHERE profile_version.project_id = agent.project_id
+      AND profile_version.profile_id = sqlc.narg(profile_id)::uuid
+      AND profile_version.agent_config_id = agent.current_config_id
+  ))
 )
 SELECT id, org_id, project_id, state, name, current_config_id,
        integration_target_id, idempotency_key,
@@ -182,6 +189,13 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
   AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
+  AND (sqlc.narg(profile_id)::uuid IS NULL OR EXISTS (
+    SELECT 1
+    FROM agent_profile_versions profile_version
+    WHERE profile_version.project_id = agent.project_id
+      AND profile_version.profile_id = sqlc.narg(profile_id)::uuid
+      AND profile_version.agent_config_id = agent.current_config_id
+  ))
   AND (
     sqlc.arg(cursor_set)::boolean = false
     OR (agent.created_at, agent.id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)

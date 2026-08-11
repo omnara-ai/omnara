@@ -331,6 +331,13 @@ WHERE agent.project_id = $8
   AND (COALESCE(cardinality($10::text[]), 0) = 0 OR install.provider = ANY($10::text[]))
   AND (COALESCE(cardinality($11::text[]), 0) = 0 OR target.provider_ref_kind = ANY($11::text[]))
   AND ($12::boolean IS NULL OR (target.id IS NOT NULL) = $12::boolean)
+  AND ($13::uuid IS NULL OR EXISTS (
+    SELECT 1
+    FROM agent_profile_versions profile_version
+    WHERE profile_version.project_id = agent.project_id
+      AND profile_version.profile_id = $13::uuid
+      AND profile_version.agent_config_id = agent.current_config_id
+  ))
 )
 SELECT id, org_id, project_id, state, name, current_config_id,
        integration_target_id, idempotency_key,
@@ -368,6 +375,7 @@ type ListAgentsForProjectParams struct {
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
+	ProfileID              *uuid.UUID
 }
 
 type ListAgentsForProjectRow struct {
@@ -408,6 +416,7 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 		arg.IntegrationProviders,
 		arg.IntegrationTargetKinds,
 		arg.HasIntegrationTarget,
+		arg.ProfileID,
 	)
 	if err != nil {
 		return nil, err
@@ -494,12 +503,19 @@ WHERE agent.project_id = $1
   AND (COALESCE(cardinality($3::text[]), 0) = 0 OR install.provider = ANY($3::text[]))
   AND (COALESCE(cardinality($4::text[]), 0) = 0 OR target.provider_ref_kind = ANY($4::text[]))
   AND ($5::boolean IS NULL OR (target.id IS NOT NULL) = $5::boolean)
+  AND ($6::uuid IS NULL OR EXISTS (
+    SELECT 1
+    FROM agent_profile_versions profile_version
+    WHERE profile_version.project_id = agent.project_id
+      AND profile_version.profile_id = $6::uuid
+      AND profile_version.agent_config_id = agent.current_config_id
+  ))
   AND (
-    $6::boolean = false
-    OR (agent.created_at, agent.id) < ($7::timestamptz, $8::uuid)
+    $7::boolean = false
+    OR (agent.created_at, agent.id) < ($8::timestamptz, $9::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT $9::bigint
+LIMIT $10::bigint
 `
 
 type ListAgentsForProjectByCreatedAtDescParams struct {
@@ -508,6 +524,7 @@ type ListAgentsForProjectByCreatedAtDescParams struct {
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
+	ProfileID              *uuid.UUID
 	CursorSet              bool
 	CursorCreatedAt        time.Time
 	CursorID               uuid.UUID
@@ -543,6 +560,7 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 		arg.IntegrationProviders,
 		arg.IntegrationTargetKinds,
 		arg.HasIntegrationTarget,
+		arg.ProfileID,
 		arg.CursorSet,
 		arg.CursorCreatedAt,
 		arg.CursorID,

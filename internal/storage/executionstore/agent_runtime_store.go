@@ -185,6 +185,7 @@ type AgentListFilters struct {
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
+	ProfileID *ID
 }
 
 type ListAgentsForProjectResult struct {
@@ -223,6 +224,7 @@ func (s *Store) ListAgentsForProject(
 		IntegrationProviders:   input.Filters.IntegrationProviders,
 		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
+		ProfileID:              input.Filters.ProfileID,
 	}
 	rows, err := s.q.ListAgentsForProject(ctx, params)
 	if err != nil {
@@ -264,6 +266,7 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 			IntegrationProviders:   input.Filters.IntegrationProviders,
 			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
+			ProfileID:              input.Filters.ProfileID,
 			CursorSet:              input.List.After.Set,
 			CursorCreatedAt:        cursorCreatedAt,
 			CursorID:               input.List.After.ID,

@@ -214,4 +214,10 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizelegibility;
   }
+
+  /* Tailwind v4 preflight leaves buttons with the browser's default cursor. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
 }

@@ -140,13 +140,10 @@ const projectSkillsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
 })
 
-const agentProfileBuilderRoute = createRoute({
+const agentProfileRoute = createRoute({
   getParentRoute: () => authedRoute,
-  path: '/projects/$projectId/agent-profiles/new',
-  component: lazyRouteComponent(
-    () => import('@/routes/AgentProfileBuilder'),
-    'AgentProfileBuilder',
-  ),
+  path: '/projects/$projectId/agent-profiles/$profileId',
+  component: lazyRouteComponent(() => import('@/routes/AgentProfileView'), 'AgentProfileView'),
 })
 
 const createAgentRoute = createRoute({
@@ -230,7 +227,7 @@ const routeTree = rootRoute.addChildren([
     projectGrantsRoute,
     projectSecretsRoute,
     projectSkillsRoute,
-    agentProfileBuilderRoute,
+    agentProfileRoute,
     createAgentRoute,
     agentRoute,
     deviceAuthRoute,

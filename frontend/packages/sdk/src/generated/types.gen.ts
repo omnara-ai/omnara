@@ -7042,6 +7042,10 @@ export type ListAgentsData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Return only agents whose current config is a version of this agent profile.
+         */
+        profile?: string;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.

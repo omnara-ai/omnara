@@ -1,29 +1,55 @@
 import { type AgentListSort, useAgents, useArchiveAgent } from '@omnara/react'
 import { type Agent, ApiError } from '@omnara/sdk'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 
 export function AgentsSection({
   orgId,
   projectId,
-  canOperate,
   canManage,
 }: {
   orgId: string
   projectId: string
-  canOperate: boolean
   canManage: boolean
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-2xl font-bold tracking-tight">Agents</h2>
+      </div>
+      <AgentsTable
+        orgId={orgId}
+        projectId={projectId}
+        canManage={canManage}
+        emptyMessage="No agents yet. Launch one from a profile above, or create one with New agent."
+      />
+    </div>
+  )
+}
+
+/** One page of a project's agents, optionally narrowed to one profile's launches. */
+export function AgentsTable({
+  orgId,
+  projectId,
+  canManage,
+  profileId,
+  emptyMessage,
+}: {
+  orgId: string
+  projectId: string
+  canManage: boolean
+  profileId?: string
+  emptyMessage: string
 }) {
   const list = useResourceList<AgentListSort>('-updated_at')
   const query = useAgents(orgId, projectId, {
-    filters: list.apiFilters,
+    filters: profileId ? { ...list.apiFilters, profile: profileId } : list.apiFilters,
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
@@ -31,21 +57,8 @@ export function AgentsSection({
   const archiveAgent = useArchiveAgent(orgId, projectId)
   const navigate = useNavigate()
 
-  const newAgentButton = () =>
-    canOperate ? (
-      <Button asChild size="sm">
-        <Link to="/projects/$projectId/agents/new" params={{ projectId }}>
-          New agent
-        </Link>
-      </Button>
-    ) : undefined
-
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-2xl font-bold tracking-tight">Agents</h2>
-        {newAgentButton()}
-      </div>
       {showToolbar && (
         <ResourceListToolbar
           search={list.search}
@@ -113,7 +126,7 @@ export function AgentsSection({
         onRetry={() => {
           void query.refetch()
         }}
-        emptyMessage="No agents yet. Launch one from a profile above, or start from a YAML config with New agent."
+        emptyMessage={emptyMessage}
       />
     </div>
   )

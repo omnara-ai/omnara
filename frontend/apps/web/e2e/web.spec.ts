@@ -56,7 +56,7 @@ async function signIn(page: Page, email: string, returnTo: string) {
 test('returns to a protected deep link after login', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, adminEmail, `${createAgentPath}?source=e2e#yaml`)
-  await expect(page.getByRole('button', { name: 'Create agent' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
   expect(failures).toEqual([])
 })
 
@@ -92,11 +92,12 @@ test('creates an agent from YAML', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, adminEmail, createAgentPath)
 
-  await expect(page.getByRole('button', { name: 'Create agent' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
 
   await page.getByRole('button', { name: 'YAML' }).click()
 
+  await page.getByLabel('Name', { exact: true }).fill('YAML E2E Agent')
   const editorInput = page.getByRole('textbox', { name: 'Config (YAML)' })
   await expect(editorInput).toBeVisible()
 
@@ -107,8 +108,8 @@ test('creates an agent from YAML', async ({ page }) => {
     `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
   ]
   await page.keyboard.insertText(yamlLines.join('\n'))
-  await expect(page.getByRole('button', { name: 'Create agent' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Create agent' }).click()
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
   await expect(page.getByText('YAML E2E Agent', { exact: true })).toBeVisible()
@@ -119,26 +120,40 @@ test('creates an agent with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, adminEmail, createAgentPath)
 
-  await page.getByRole('button', { name: 'Builder' }).click()
-  await page.getByLabel('Agent name (optional)').fill('Builder Agent')
+  await expect(page.getByRole('button', { name: 'Builder' })).toBeVisible()
+  await page.getByLabel('Name', { exact: true }).fill('Builder Agent')
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
 
-  await expect(page.getByRole('textbox', { name: 'Config preview (YAML)' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Create agent' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Create agent' }).click()
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
   await expect(page.getByText('Builder Agent', { exact: true })).toBeVisible()
   expect(failures).toEqual([])
 })
 
-test('denies agent creation when the project lacks operate permission', async ({ page }) => {
+test('creates a profile without launching an agent', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, adminEmail, createAgentPath)
+
+  await page.getByLabel('Name', { exact: true }).fill('Profile Only Agent')
+  await page.getByLabel('Instruction').fill('Save this config as a profile without launching.')
+
+  await expect(page.getByRole('button', { name: 'Create profile' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Create profile' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+  await expect(page.getByText('Profile Only Agent').first()).toBeVisible()
+  expect(failures).toEqual([])
+})
+
+test('denies agent creation when the project lacks manage permission', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, viewerEmail, createAgentPath)
 
   await expect(page.getByRole('heading', { name: 'Not allowed' })).toBeVisible()
   await expect(
-    page.getByText('You don’t have permission to launch agents in this project.'),
+    page.getByText('You don’t have permission to create agents in this project.'),
   ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create agent' })).toHaveCount(0)
   expect(failures).toEqual([])
