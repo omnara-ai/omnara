@@ -12,18 +12,27 @@ import (
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
-func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T) {
+func TestAgentExecutorCompactsAndRetriesAdmittedManagedCallAfterAdmissionCloses(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now, "run_command")
+	fixture.provisionClusterModel(t, ctx, "managed-compaction-prod", "managed-compaction-model")
+	agentID, userID := fixture.createAgent(
+		t,
+		ctx,
+		"managed-compaction/managed-compaction-model",
+		fixture.Now,
+		"run_command",
+	)
 
 	firstModel := &sequenceKernelModel{
-		providerModelSlug: "kernel-test",
+		providerModelSlug: "managed-compaction-model",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
 			MaxOutputTokens:     128,
@@ -62,7 +71,7 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 	}
 
 	retryModel := &sequenceKernelModel{
-		providerModelSlug: "kernel-test",
+		providerModelSlug: "managed-compaction-model",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
 			MaxOutputTokens:     128,
@@ -88,6 +97,19 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 			},
 		},
 	}
+	admissionClosed := false
+	retryModel.afterRespond = func(response model.Response) {
+		if response.ID != "resp_context_window" || admissionClosed {
+			return
+		}
+		if _, err := fixture.Pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, false)
+`, kernelTestOrgID); err != nil {
+			t.Fatalf("close managed work admission after admitted provider call: %v", err)
+		}
+		admissionClosed = true
+	}
 	retryTurn := fixture.admitSteeringInputsTurn(
 		t,
 		ctx,
@@ -104,6 +126,9 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 	}
 	if err := executor.ExecuteModelWork(ctx, retryTurn); err != nil {
 		t.Fatalf("execute retry turn: %v", err)
+	}
+	if !admissionClosed {
+		t.Fatal("managed work admission did not close after the admitted provider call")
 	}
 	if len(retryTurn.InputIDs) != 2 {
 		t.Fatalf("retry turn input ids = %v, want two opening inputs", retryTurn.InputIDs)
@@ -252,6 +277,38 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 	if outputBlocks != 1 {
 		t.Fatalf("final output block count = %d, want 1", outputBlocks)
 	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		finalTurn.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release post-compaction runtime lock: %v", err)
+	}
+	newTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"new work after the checkpoint continuation",
+		fixture.Now.Add(6*time.Second),
+	)
+	executor.Now = func() time.Time { return fixture.Now.Add(7 * time.Second) }
+	if err := executor.ExecuteModelWork(ctx, newTurn); err != nil {
+		t.Fatalf("execute new work after closed checkpoint continuation: %v", err)
+	}
+	if retryModel.respondedCount() != 3 {
+		t.Fatalf("new work after checkpoint reached provider; responses=%d, want 3", retryModel.respondedCount())
+	}
+	assertDurableModelErrorForKernelTest(
+		t,
+		ctx,
+		fixture,
+		agentID,
+		newTurn.TurnID,
+		string(modelprotocol.ErrorKindRuntime),
+		storeerr.ManagedWorkAdmissionDeniedCode,
+	)
 }
 
 func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *testing.T) {

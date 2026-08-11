@@ -15,7 +15,244 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	fixture.provisionClusterModel(t, ctx, "managed-prod", "managed-model")
+	if _, err := fixture.Pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, false)
+`, kernelTestOrgID); err != nil {
+		t.Fatalf("close managed work admission: %v", err)
+	}
+
+	agentID, userID := fixture.createNamedAgentWithModelOptions(
+		t,
+		ctx,
+		"Managed Admission Denied",
+		"managed/managed-model",
+		now,
+		kernelConfiguredModelOptions{},
+	)
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"exercise managed model admission",
+		now.Add(time.Millisecond),
+	)
+	modelClient := &sequenceKernelModel{
+		providerModelSlug: "managed-model",
+		responses: []model.Response{{
+			ID:         "resp-managed-model",
+			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "done"}},
+			StopReason: model.StopReasonEndTurn,
+		}},
+	}
+	resolver := &selectionRecordingResolver{client: modelClient}
+	executor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: resolver,
+		ToolExecutor:  tools.Executor{Store: fixture.Store},
+		Now:           func() time.Time { return now.Add(2 * time.Millisecond) },
+	}
+	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
+		t.Fatalf("execute denied managed model work: %v", err)
+	}
+	if len(resolver.selections) != 0 || modelClient.preparedCount() != 0 || modelClient.respondedCount() != 0 {
+		t.Fatalf(
+			"denied model resolver/prepared/responded = %d/%d/%d, want 0/0/0",
+			len(resolver.selections),
+			modelClient.preparedCount(),
+			modelClient.respondedCount(),
+		)
+	}
+	assertDurableModelErrorForKernelTest(
+		t,
+		ctx,
+		fixture,
+		agentID,
+		turn.TurnID,
+		string(modelprotocol.ErrorKindRuntime),
+		storeerr.ManagedWorkAdmissionDeniedCode,
+	)
+	var state, recoveryKind, errorKind, errorCode, apiFormat, requestID, responseID string
+	var retryAbsent bool
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT context.state,
+       coalesce(context.recovery_kind, ''),
+       context.error_kind,
+       context.error_code,
+       context.api_format,
+       context.provider_request_id,
+       context.provider_response_id,
+       context.retry_at IS NULL
+FROM model_call_contexts context
+WHERE context.project_id = $1
+  AND context.agent_id = $2
+  AND context.input_event_sequence = $3
+`, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(
+		&state,
+		&recoveryKind,
+		&errorKind,
+		&errorCode,
+		&apiFormat,
+		&requestID,
+		&responseID,
+		&retryAbsent,
+	); err != nil {
+		t.Fatalf("load denied managed model context: %v", err)
+	}
+	if state != string(executionstore.ModelCallContextFailed) || recoveryKind != "" ||
+		errorKind != string(modelprotocol.ErrorKindRuntime) ||
+		errorCode != storeerr.ManagedWorkAdmissionDeniedCode || apiFormat != "" ||
+		requestID != "" || responseID != "" || !retryAbsent {
+		t.Fatalf(
+			"denied context = %q/%q/%q/%q api=%q request=%q response=%q retry_absent=%v",
+			state,
+			recoveryKind,
+			errorKind,
+			errorCode,
+			apiFormat,
+			requestID,
+			responseID,
+			retryAbsent,
+		)
+	}
+	var errorBlocks int
+	var metadataCode string
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*), coalesce(max(block.metadata->>'omnara_error_code'), '')
+FROM model_call_contexts context
+JOIN model_outputs output ON output.agent_id = context.agent_id
+  AND output.model_call_context_id = context.id
+JOIN content_blocks block ON block.agent_id = output.agent_id
+  AND block.owner_model_output_id = output.id
+WHERE context.project_id = $1
+  AND context.agent_id = $2
+  AND context.input_event_sequence = $3
+  AND block.block_kind = 'error'
+`, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(&errorBlocks, &metadataCode); err != nil {
+		t.Fatalf("load managed admission error block: %v", err)
+	}
+	if errorBlocks != 1 || metadataCode != storeerr.ManagedWorkAdmissionDeniedCode {
+		t.Fatalf("managed admission error blocks/code = %d/%q, want 1/%q", errorBlocks, metadataCode, storeerr.ManagedWorkAdmissionDeniedCode)
+	}
+
+	var contexts int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)
+FROM model_call_contexts
+WHERE project_id = $1 AND agent_id = $2 AND input_event_sequence = $3
+	`, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(&contexts); err != nil {
+		t.Fatalf("count denied managed model contexts: %v", err)
+	}
+	if contexts != 1 || len(resolver.selections) != 0 {
+		t.Fatalf("denied managed model contexts/resolver calls = %d/%d, want 1/0", contexts, len(resolver.selections))
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		turn.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release denied model runtime lock: %v", err)
+	}
+	claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
+		ctx,
+		kernelTestClaimInput(now.Add(time.Minute)),
+	)
+	if err != nil && !errors.Is(err, storeerr.ErrNoClaimableAgentWakeup) {
+		t.Fatalf("claim after denied managed model work: %v", err)
+	}
+	if found {
+		t.Fatalf("claim after denied managed model work = %+v, want no work", claim)
+	}
+	var wakeups int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)::integer
+FROM agent_wakeups wake
+JOIN agents agent ON agent.id = wake.agent_id
+WHERE agent.project_id = $1 AND wake.agent_id = $2
+`, kernelTestProjectID, agentID).Scan(&wakeups); err != nil {
+		t.Fatalf("count wakeups after denied managed model work: %v", err)
+	}
+	if wakeups != 0 {
+		t.Fatalf("wakeups after denied managed model work = %d, want 0", wakeups)
+	}
+
+	tenantAgentID, tenantUserID := fixture.createNamedAgentWithModelOptions(
+		t,
+		ctx,
+		"Tenant Admission Allowed",
+		"openai/tenant-admission-model",
+		now.Add(10*time.Millisecond),
+		kernelConfiguredModelOptions{},
+	)
+	tenantTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		tenantAgentID,
+		tenantUserID,
+		"exercise tenant model admission",
+		now.Add(11*time.Millisecond),
+	)
+	tenantModel := &sequenceKernelModel{
+		providerModelSlug: "tenant-admission-model",
+		responses: []model.Response{{
+			ID:         "resp-tenant-admission-model",
+			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "done"}},
+			StopReason: model.StopReasonEndTurn,
+		}},
+	}
+	tenantExecutor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, tenantModel),
+		ToolExecutor:  tools.Executor{Store: fixture.Store},
+		Now:           func() time.Time { return now.Add(12 * time.Millisecond) },
+	}
+	if err := tenantExecutor.ExecuteModelWork(ctx, tenantTurn); err != nil {
+		t.Fatalf("execute tenant model while managed admission is closed: %v", err)
+	}
+	if tenantModel.respondedCount() != 1 {
+		t.Fatalf("tenant model responses = %d, want 1", tenantModel.respondedCount())
+	}
+
+	if _, err := fixture.Pool.Exec(ctx, `
+UPDATE org_managed_work_admission
+SET new_managed_work_allowed = true
+WHERE org_id = $1
+`, kernelTestOrgID); err != nil {
+		t.Fatalf("reopen managed work admission: %v", err)
+	}
+	reopenedAgentID, reopenedUserID := fixture.createNamedAgentWithModelOptions(
+		t,
+		ctx,
+		"Managed Admission Reopened",
+		"managed/managed-model",
+		now.Add(20*time.Millisecond),
+		kernelConfiguredModelOptions{},
+	)
+	reopenedTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		reopenedAgentID,
+		reopenedUserID,
+		"exercise reopened managed model admission",
+		now.Add(21*time.Millisecond),
+	)
+	if err := executor.ExecuteModelWork(ctx, reopenedTurn); err != nil {
+		t.Fatalf("execute reopened managed model work: %v", err)
+	}
+	if len(resolver.selections) != 1 || modelClient.respondedCount() != 1 {
+		t.Fatalf("reopened model resolver/responses = %d/%d, want 1/1", len(resolver.selections), modelClient.respondedCount())
+	}
+}
 
 func TestAgentExecutorDurablyRetriesUnclassifiedModelResolverFailure(t *testing.T) {
 	ctx := context.Background()

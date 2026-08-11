@@ -426,6 +426,24 @@ func provisionDefaultMachinePoolGrantsForProject(
 	return tx.Commit(ctx)
 }
 
+func setManagedWorkAdmissionForTest(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	orgID ID,
+	allowed bool,
+) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, $2)
+ON CONFLICT (org_id) DO UPDATE
+SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
+`, orgID, allowed); err != nil {
+		t.Fatalf("set managed work admission: %v", err)
+	}
+}
+
 func permissionRequestForStorageTest(t *testing.T, toolName string) json.RawMessage {
 	t.Helper()
 	authorization, err := toolpermission.NewAuthorization(

@@ -186,6 +186,118 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 	}
 }
 
+func TestManagedModelRetryContinuesAfterAdmissionCloses(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	fixture.provisionClusterModel(t, ctx, "managed-retry-prod", "managed-retry-model")
+	agentID, userID := fixture.createNamedAgentWithModelOptions(
+		t,
+		ctx,
+		"Managed Retry Admission",
+		"managed-retry/managed-retry-model",
+		now,
+		kernelConfiguredModelOptions{},
+	)
+	work := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"continue an admitted model call",
+		now.Add(time.Millisecond),
+	)
+	modelClient := &sequenceKernelModel{
+		providerModelSlug: "managed-retry-model",
+		errs: []error{model.ProviderError{
+			Kind:    model.ErrorKindTransient,
+			Source:  "test-provider",
+			Message: "retry this request",
+		}},
+		responses: []model.Response{{
+			ID:         "resp-managed-retry",
+			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "done after retry"}},
+			StopReason: model.StopReasonEndTurn,
+		}},
+	}
+	currentNow := now.Add(2 * time.Millisecond)
+	executor := AgentExecutor{
+		Store:           fixture.Store,
+		ModelResolver:   liveTestModelResolver(fixture.Store, modelClient),
+		ToolExecutor:    tools.Executor{Store: fixture.Store},
+		StreamPublisher: &capturingStreamPublisher{},
+		Now:             func() time.Time { return currentNow },
+		ModelRetryDelay: immediateKernelModelRetryDelay,
+	}
+	if err := executor.ExecuteModelWork(ctx, work); err != nil {
+		t.Fatalf("execute admitted model attempt: %v", err)
+	}
+	if modelClient.preparedCount() != 1 {
+		t.Fatalf("prepared requests after admitted attempt = %d, want 1", modelClient.preparedCount())
+	}
+	if _, err := fixture.Pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, false)
+`, kernelTestOrgID); err != nil {
+		t.Fatalf("close managed work admission: %v", err)
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		work.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release admitted model attempt: %v", err)
+	}
+	currentNow = now.Add(time.Minute)
+	retry, found, err := fixture.Store.Execution().ClaimNextAgentWork(
+		ctx,
+		kernelTestClaimInput(currentNow),
+	)
+	if err != nil {
+		t.Fatalf("claim admitted model retry: %v", err)
+	}
+	if !found || retry.Kind != executionstore.AgentWorkModel ||
+		retry.Model.ModelCallContextID == storage.NilID {
+		t.Fatalf("retry claim = %+v found=%v, want model retry continuation", retry, found)
+	}
+	if err := executor.ExecuteModelWork(ctx, modelWorkExecutionFromClaimForKernelTest(retry, currentNow)); err != nil {
+		t.Fatalf("execute admitted model retry after admission closes: %v", err)
+	}
+	if modelClient.preparedCount() != 2 || modelClient.respondedCount() != 2 {
+		t.Fatalf(
+			"prepared/responded requests after retry = %d/%d, want 2/2",
+			modelClient.preparedCount(),
+			modelClient.respondedCount(),
+		)
+	}
+	var contexts, failedContexts, succeededContexts int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*),
+       count(*) FILTER (WHERE state = 'failed'),
+       count(*) FILTER (WHERE state = 'succeeded')
+FROM model_call_contexts
+WHERE project_id = $1
+  AND agent_id = $2
+  AND input_event_sequence = $3
+  AND operation_kind = 'normal'
+`, kernelTestProjectID, agentID, work.OpeningEventSequence).Scan(
+		&contexts,
+		&failedContexts,
+		&succeededContexts,
+	); err != nil {
+		t.Fatalf("count admitted model retry contexts: %v", err)
+	}
+	if contexts != 2 || failedContexts != 1 || succeededContexts != 1 {
+		t.Fatalf(
+			"model retry contexts failed/succeeded/total = %d/%d/%d, want 1/1/2",
+			failedContexts,
+			succeededContexts,
+			contexts,
+		)
+	}
+}
+
 func TestAgentExecutorRetriesWithoutProviderReplayAfterReplayRejection(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)

@@ -42,6 +42,7 @@ export const zError = z.object({
         'service_unavailable',
         'idempotency_key_conflict',
         'state_transition_conflict',
+        'managed_work_admission_denied',
         'pending_work',
         'not_wake_capable',
         'daemon_runtime_unregistered',

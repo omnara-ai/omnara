@@ -73,6 +73,9 @@ func (t *toolCallTransaction) startProcess(
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("load process execution config: %w", err)
 	}
+	if !executionConfig.NewManagedWorkAllowed {
+		return ProcessRecord{}, storeerr.ErrManagedWorkAdmissionDenied
+	}
 	cwd := resolveProcessCwd(executionConfig.MachineCwd, executionConfig.BindingCwd, input.Cwd)
 	bindingEnvironmentOverlay, err := machineEnvironmentOverlayFromColumns(
 		executionConfig.BindingEnvOverlay,

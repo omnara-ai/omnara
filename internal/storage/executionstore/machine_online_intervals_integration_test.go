@@ -470,6 +470,151 @@ WHERE id = $1
 	}
 }
 
+func TestDaemonLeaseRefreshesPreserveCommittedConfirmationTime(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	mustCreateProjectOperatorUser(
+		t,
+		ctx,
+		store,
+		"daemon-confirmation-time@example.com",
+		"Daemon Confirmation Time",
+	)
+	machine, err := store.Execution().CreateDaemonMachine(
+		ctx,
+		executionstore.CreateDaemonMachineInput{
+			OrgID:          testOrgID,
+			DisplayName:    "Daemon confirmation time",
+			IdempotencyKey: "daemon-confirmation-time",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create daemon machine: %v", err)
+	}
+	token, err := store.Execution().CreateBYOMachineDaemonToken(
+		ctx,
+		executionstore.CreateBYOMachineDaemonTokenInput{
+			OrgID:     testOrgID,
+			MachineID: machine.ID,
+			Name:      "daemon",
+			Token:     "daemon-confirmation-time-token",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create daemon token: %v", err)
+	}
+	daemonInstanceID := testID("daemon-confirmation-time-instance")
+	runtime, err := store.Execution().RegisterDaemonRuntime(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            testOrgID,
+			MachineID:        machine.ID,
+			DaemonTokenID:    token.ID,
+			DaemonInstanceID: daemonInstanceID,
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     time.Hour,
+		},
+	)
+	if err != nil {
+		t.Fatalf("register daemon runtime: %v", err)
+	}
+
+	var committedLastSeen, committedLeaseExpires, committedUpdatedAt time.Time
+	if err := pool.QueryRow(ctx, `
+UPDATE daemon_runtimes
+SET last_seen_at = statement_timestamp() + interval '5 minutes',
+    lease_expires_at = statement_timestamp() + interval '10 minutes',
+    updated_at = statement_timestamp() + interval '5 minutes'
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+RETURNING last_seen_at, lease_expires_at, updated_at
+`, testOrgID, machine.ID, runtime.ID).Scan(
+		&committedLastSeen,
+		&committedLeaseExpires,
+		&committedUpdatedAt,
+	); err != nil {
+		t.Fatalf("seed committed daemon times: %v", err)
+	}
+	authority := executionstore.DaemonRuntimeAuthority{
+		OrgID:           testOrgID,
+		MachineID:       machine.ID,
+		DaemonRuntimeID: runtime.ID,
+		DaemonTokenID:   token.ID,
+	}
+	heartbeat, err := store.Execution().HeartbeatDaemonRuntime(
+		ctx,
+		executionstore.DaemonRuntimeLeaseInput{
+			Authority:        authority,
+			DaemonInstanceID: daemonInstanceID,
+			LeaseTimeout:     time.Minute,
+		},
+	)
+	if err != nil {
+		t.Fatalf("heartbeat daemon runtime: %v", err)
+	}
+	if !heartbeat.LastSeenAt.Equal(committedLastSeen) ||
+		!heartbeat.LeaseExpiresAt.Equal(committedLeaseExpires) ||
+		!heartbeat.UpdatedAt.Equal(committedUpdatedAt) {
+		t.Fatalf("heartbeat regressed committed daemon times: %+v", heartbeat)
+	}
+	refreshed, err := store.Execution().RegisterDaemonRuntime(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            testOrgID,
+			MachineID:        machine.ID,
+			DaemonTokenID:    token.ID,
+			DaemonInstanceID: daemonInstanceID,
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     time.Minute,
+		},
+	)
+	if err != nil {
+		t.Fatalf("refresh daemon runtime registration: %v", err)
+	}
+	if !refreshed.LastSeenAt.Equal(committedLastSeen) ||
+		!refreshed.LeaseExpiresAt.Equal(committedLeaseExpires) ||
+		!refreshed.UpdatedAt.Equal(committedUpdatedAt) {
+		t.Fatalf("registration refresh regressed committed daemon times: %+v", refreshed)
+	}
+
+	var openConfirmedThrough time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT confirmed_through
+FROM machine_online_interval_facts
+WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3 AND ended_at IS NULL
+`, testOrgID, machine.ID, runtime.ID).Scan(&openConfirmedThrough); err != nil {
+		t.Fatalf("load open interval confirmation: %v", err)
+	}
+	if !openConfirmedThrough.Equal(committedLastSeen) {
+		t.Fatalf(
+			"open interval confirmed through %s, want %s",
+			openConfirmedThrough,
+			committedLastSeen,
+		)
+	}
+	if _, err := store.Execution().EndDaemonRuntime(ctx, authority); err != nil {
+		t.Fatalf("end daemon runtime: %v", err)
+	}
+	var intervalEndedAt, closedConfirmedThrough time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT ended_at, confirmed_through
+FROM machine_online_interval_facts
+WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
+`, testOrgID, machine.ID, runtime.ID).Scan(&intervalEndedAt, &closedConfirmedThrough); err != nil {
+		t.Fatalf("load closed interval confirmation: %v", err)
+	}
+	if intervalEndedAt.Before(committedLastSeen) || !closedConfirmedThrough.Equal(intervalEndedAt) {
+		t.Fatalf(
+			"closed interval ended at %s and confirmed through %s, want no earlier than %s",
+			intervalEndedAt,
+			closedConfirmedThrough,
+			committedLastSeen,
+		)
+	}
+}
+
 type machineOnlineIntervalTestRecord struct {
 	ID              ID
 	DaemonRuntimeID ID

@@ -655,19 +655,26 @@ RETURNING machine.wake_attempt_expires_at;
 UPDATE daemon_runtimes runtime
 SET daemon_token_id = token.id,
     state = 'active',
-    last_seen_at = statement_timestamp(),
-    lease_expires_at = statement_timestamp() + (sqlc.arg(lease_timeout_milliseconds)::bigint * interval '1 millisecond'),
+    last_seen_at = GREATEST(runtime.last_seen_at, lease_clock.observed_at),
+    lease_expires_at = CASE
+        WHEN runtime.state = 'active'
+         AND lease_clock.observed_at < runtime.last_seen_at
+            THEN runtime.lease_expires_at
+        ELSE GREATEST(runtime.last_seen_at, lease_clock.observed_at)
+            + (sqlc.arg(lease_timeout_milliseconds)::bigint * interval '1 millisecond')
+    END,
     ended_at = NULL,
     state_reason_code = NULL,
     state_reason_message = '',
     capacity = sqlc.arg(capacity),
     metadata = sqlc.arg(metadata),
-    updated_at = statement_timestamp()
+    updated_at = GREATEST(runtime.updated_at, lease_clock.observed_at)
 FROM machine_daemon_tokens token
 JOIN machines machine ON machine.org_id = token.org_id
   AND machine.id = token.machine_id
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state = 'active'
+CROSS JOIN (SELECT statement_timestamp() AS observed_at) lease_clock
 WHERE runtime.org_id = sqlc.arg(org_id)
 	AND runtime.machine_id = sqlc.arg(machine_id)
 	AND runtime.daemon_instance_id = sqlc.arg(daemon_instance_id)
@@ -712,16 +719,22 @@ RETURNING machine.id;
 
 -- name: HeartbeatDaemonRuntime :one
 UPDATE daemon_runtimes runtime
-SET last_seen_at = statement_timestamp(),
-    lease_expires_at = statement_timestamp() + (sqlc.arg(lease_timeout_milliseconds)::bigint * interval '1 millisecond'),
+SET last_seen_at = GREATEST(runtime.last_seen_at, lease_clock.observed_at),
+    lease_expires_at = CASE
+        WHEN lease_clock.observed_at < runtime.last_seen_at
+            THEN runtime.lease_expires_at
+        ELSE lease_clock.observed_at
+            + (sqlc.arg(lease_timeout_milliseconds)::bigint * interval '1 millisecond')
+    END,
     capacity = CASE WHEN sqlc.arg(capacity)::jsonb = '{}'::jsonb THEN runtime.capacity ELSE sqlc.arg(capacity)::jsonb END,
     metadata = CASE WHEN sqlc.arg(metadata)::jsonb = '{}'::jsonb THEN runtime.metadata ELSE sqlc.arg(metadata)::jsonb END,
-    updated_at = statement_timestamp()
+    updated_at = GREATEST(runtime.updated_at, lease_clock.observed_at)
 FROM machine_daemon_tokens token
 JOIN machines machine ON machine.org_id = token.org_id
   AND machine.id = token.machine_id
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state = 'active'
+CROSS JOIN (SELECT statement_timestamp() AS observed_at) lease_clock
 WHERE runtime.org_id = sqlc.arg(org_id) AND runtime.machine_id = sqlc.arg(machine_id) AND runtime.id = sqlc.arg(id)
   AND runtime.daemon_instance_id = sqlc.arg(daemon_instance_id)
   AND runtime.state = 'active'

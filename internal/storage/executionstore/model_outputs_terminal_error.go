@@ -29,6 +29,7 @@ type RecordModelCallErrorAndCompleteContextInput struct {
 	ErrorCode               string
 	ErrorMessage            string
 	ErrorDetails            json.RawMessage
+	ErrorBlockMetadata      json.RawMessage
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 }
@@ -46,6 +47,13 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	}
 	var err error
 	input.ErrorDetails, err = normalizedJSONObject(input.ErrorDetails, "model call error details")
+	if err != nil {
+		return events.Event{}, err
+	}
+	input.ErrorBlockMetadata, err = normalizedJSONObject(
+		input.ErrorBlockMetadata,
+		"model call error block metadata",
+	)
 	if err != nil {
 		return events.Event{}, err
 	}
@@ -162,6 +170,7 @@ func recordTerminalModelCallFailureTx(
 		modelCallErrorOutputInput{
 			ServedProviderModelSlug: input.ServedProviderModelSlug,
 			ErrorMessage:            input.ErrorMessage,
+			Metadata:                input.ErrorBlockMetadata,
 			Usage:                   normalizedUsage,
 		},
 	)
@@ -194,6 +203,7 @@ func sameTerminalModelCallErrorContextIntent(
 type modelCallErrorOutputInput struct {
 	ServedProviderModelSlug string
 	ErrorMessage            string
+	Metadata                json.RawMessage
 	Usage                   modelenvelope.Usage
 }
 
@@ -227,6 +237,7 @@ func publishModelCallErrorOutputTx(
 		OwnerModelOutputID: modelOutput.ID,
 		BlockKind:          ContentBlockKindError,
 		TextContent:        input.ErrorMessage,
+		Metadata:           input.Metadata,
 	}); err != nil {
 		return TypedAgentEventRecord{}, err
 	}
@@ -275,6 +286,7 @@ func replayModelCallErrorOutputTx(
 	authorityInput := modelCallErrorAuthorityInput(contextRow, modelCallErrorOutputInput{
 		ServedProviderModelSlug: input.ServedProviderModelSlug,
 		ErrorMessage:            input.ErrorMessage,
+		Metadata:                input.ErrorBlockMetadata,
 		Usage:                   input.Usage,
 	})
 	modelOutput, err := createModelOutputAuthorityTx(ctx, tx, authorityInput)
@@ -304,7 +316,9 @@ func replayModelCallErrorOutputTx(
 		return TypedAgentEventRecord{}, fmt.Errorf("list terminal model error content blocks for replay: %w", err)
 	}
 	if len(blocks) != 1 || blocks[0].Ordinal != 0 || blocks[0].BlockKind != string(ContentBlockKindError) ||
-		blocks[0].TextContent != input.ErrorMessage || blocks[0].ArtifactID != nil || blocks[0].ToolCallID != nil {
+		blocks[0].TextContent != input.ErrorMessage ||
+		!sameJSON(blocks[0].Metadata, normalizedJSON(input.ErrorBlockMetadata)) ||
+		blocks[0].ArtifactID != nil || blocks[0].ToolCallID != nil {
 		return TypedAgentEventRecord{}, storeerr.ErrIdempotencyConflict
 	}
 	return eventRecord, nil

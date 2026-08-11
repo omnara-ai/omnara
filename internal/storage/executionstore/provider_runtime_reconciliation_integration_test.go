@@ -1520,6 +1520,37 @@ func (f providerRuntimeStorageFixture) createQueuedProcess(
 	seed string,
 ) (processDaemonFixture, ID, ID) {
 	t.Helper()
+	processFixture := f.createProcessFixture(t, ctx, machine, seed)
+	toolCallID := createToolCallForProcessTest(t, ctx, processFixture, seed, "run_command")
+	process, err := startProcessForTest(
+		ctx,
+		f.store,
+		executionstore.ExecuteToolCallInput{
+			ProjectID:     testProjectID,
+			AgentID:       processFixture.AgentID,
+			ToolCallID:    toolCallID,
+			RuntimeLockID: processFixture.Lock.ID,
+		},
+		executionstore.CreateProcessInput{
+			AgentMachineBindingID: processFixture.BindingID,
+			Command:               "sleep 3600",
+			ShellSelector:         "sh",
+			Cwd:                   "/work",
+		},
+	)
+	if err != nil {
+		t.Fatalf("start queued process: %v", err)
+	}
+	return processFixture, process.ID, toolCallID
+}
+
+func (f providerRuntimeStorageFixture) createProcessFixture(
+	t *testing.T,
+	ctx context.Context,
+	machine providerRuntimeMachine,
+	seed string,
+) processDaemonFixture {
+	t.Helper()
 	poolGrant, err := f.store.Execution().CreateProjectMachinePoolGrant(
 		ctx,
 		executionstore.CreateProjectMachinePoolGrantInput{
@@ -1592,27 +1623,7 @@ func (f providerRuntimeStorageFixture) createQueuedProcess(
 		GrantID:   machineGrant.ID,
 		Now:       time.Now().UTC(),
 	}
-	toolCallID := createToolCallForProcessTest(t, ctx, processFixture, seed, "run_command")
-	process, err := startProcessForTest(
-		ctx,
-		f.store,
-		executionstore.ExecuteToolCallInput{
-			ProjectID:     testProjectID,
-			AgentID:       agentID,
-			ToolCallID:    toolCallID,
-			RuntimeLockID: lock.ID,
-		},
-		executionstore.CreateProcessInput{
-			AgentMachineBindingID: binding.ID,
-			Command:               "sleep 3600",
-			ShellSelector:         "sh",
-			Cwd:                   "/work",
-		},
-	)
-	if err != nil {
-		t.Fatalf("start queued process: %v", err)
-	}
-	return processFixture, process.ID, toolCallID
+	return processFixture
 }
 
 func (f providerRuntimeStorageFixture) insertNeverConnectedMachine(
