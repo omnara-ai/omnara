@@ -18,35 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type CreatePoolMachineResult = executionstore.CreatePoolMachineResult
-type CreatePoolMachineInput = executionstore.CreatePoolMachineInput
-type DeleteProjectMachinePoolGrantResult = executionstore.DeleteProjectMachinePoolGrantResult
-type PoolMachineRecord = executionstore.PoolMachineRecord
-type DeletePoolMachineInput = executionstore.DeletePoolMachineInput
-type MachineDeletingInput = executionstore.MachineDeletingInput
-type CreateDaemonMachineInput = executionstore.CreateDaemonMachineInput
-type CreateProjectMachineGrantInput = executionstore.CreateProjectMachineGrantInput
-type LaunchAgentResult = executionstore.LaunchAgentResult
-type LaunchAgentInput = executionstore.LaunchAgentInput
-type ChangeAgentConfigResult = executionstore.ChangeAgentConfigResult
-type ChangeAgentConfigInput = executionstore.ChangeAgentConfigInput
-type MachinePoolRecord = executionstore.MachinePoolRecord
-type MachineRecord = executionstore.MachineRecord
-type ProjectMachinePoolGrantRecord = executionstore.ProjectMachinePoolGrantRecord
-type ProjectMachineGrantRecord = executionstore.ProjectMachineGrantRecord
-type AgentRecord = executionstore.AgentRecord
-type AgentRuntimeLockRecord = executionstore.AgentRuntimeLockRecord
-type CreateProjectMachinePoolGrantInput = executionstore.CreateProjectMachinePoolGrantInput
-type TransactToolCallInput = executionstore.ExecuteToolCallInput
-type PrincipalRecord = identitystore.PrincipalRecord
-type DeleteMachineInput = executionstore.DeleteMachineInput
-type ToolCallCompletionInput = executionstore.ToolCallCompletionInput
-
-const PrincipalTypeUser = identitystore.PrincipalTypeUser
-const ToolCallStateCompleted = executionstore.ToolCallStateCompleted
-const ToolResultOutcomeSucceeded = executionstore.ToolResultOutcomeSucceeded
-const machineBindingKindExplicit = executionstore.MachineBindingKindExplicit
-
 func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -66,17 +37,17 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 	}
 
 	type createOutcome struct {
-		result CreatePoolMachineResult
+		result executionstore.CreatePoolMachineResult
 		err    error
 	}
 	createDone := make(chan createOutcome, 1)
 	go func() {
-		result, createErr := executeToolCallOnceForLockOrder[CreatePoolMachineResult](
+		result, createErr := executeToolCallOnceForLockOrder[executionstore.CreatePoolMachineResult](
 			ctx,
 			fixture.store,
 			fixture.transaction(fixture.createToolCallID),
 			executionstore.CreatePoolMachineForToolCall(
-				CreatePoolMachineInput{MachinePoolID: fixture.machinePool.ID},
+				executionstore.CreatePoolMachineInput{MachinePoolID: fixture.machinePool.ID},
 				acceptedPoolMachineCompletionForTest,
 			),
 		)
@@ -94,7 +65,7 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 	}
 
 	type revokeOutcome struct {
-		result DeleteProjectMachinePoolGrantResult
+		result executionstore.DeleteProjectMachinePoolGrantResult
 		err    error
 	}
 	revokeDone := make(chan revokeOutcome, 1)
@@ -113,7 +84,7 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 		t.Fatalf("release lifecycle lock control transaction: %v", err)
 	}
 
-	var created CreatePoolMachineResult
+	var created executionstore.CreatePoolMachineResult
 	select {
 	case outcome := <-createDone:
 		if outcome.err != nil {
@@ -123,7 +94,7 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for pool-machine creation")
 	}
-	var revoked DeleteProjectMachinePoolGrantResult
+	var revoked executionstore.DeleteProjectMachinePoolGrantResult
 	select {
 	case outcome := <-revokeDone:
 		if outcome.err != nil {
@@ -174,7 +145,7 @@ func TestMultiPoolLaunchLocksEveryPoolBeforeAnyGrant(t *testing.T) {
 			)
 			secondGrant, err := fixture.store.Execution().CreateProjectMachinePoolGrant(
 				ctx,
-				CreateProjectMachinePoolGrantInput{
+				executionstore.CreateProjectMachinePoolGrantInput{
 					OrgID:          testOrgID,
 					ProjectID:      testProjectID,
 					MachinePoolID:  secondPool.ID,
@@ -185,8 +156,8 @@ func TestMultiPoolLaunchLocksEveryPoolBeforeAnyGrant(t *testing.T) {
 				t.Fatalf("create second pool grant: %v", err)
 			}
 			type source struct {
-				pool  MachinePoolRecord
-				grant ProjectMachinePoolGrantRecord
+				pool  executionstore.MachinePoolRecord
+				grant executionstore.ProjectMachinePoolGrantRecord
 			}
 			sources := []source{
 				{pool: fixture.machinePool, grant: fixture.poolGrant},
@@ -237,18 +208,18 @@ tools:
 			}
 
 			type launchOutcome struct {
-				result LaunchAgentResult
+				result executionstore.LaunchAgentResult
 				err    error
 			}
 			launchDone := make(chan launchOutcome, 1)
 			go func() {
 				result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(
 					context.Background(),
-					LaunchAgentInput{
+					executionstore.LaunchAgentInput{
 						ProjectID:      testProjectID,
 						ProfileID:      profile.ID,
 						AgentConfigID:  profile.CurrentConfigID,
-						LaunchedBy:     PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+						LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 						IdempotencyKey: "multi-pool-launch-" + slug,
 					},
 				)
@@ -308,17 +279,17 @@ func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
 	}
 
 	type deleteOutcome struct {
-		result PoolMachineRecord
+		result executionstore.PoolMachineRecord
 		err    error
 	}
 	deleteDone := make(chan deleteOutcome, 1)
 	go func() {
-		result, deleteErr := executeToolCallOnceForLockOrder[PoolMachineRecord](
+		result, deleteErr := executeToolCallOnceForLockOrder[executionstore.PoolMachineRecord](
 			ctx,
 			fixture.store,
 			fixture.transaction(fixture.deleteToolCallID),
 			executionstore.DeletePoolMachineForToolCall(
-				DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
+				executionstore.DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
 				acceptedPoolMachineCompletionForTest,
 			),
 		)
@@ -361,12 +332,12 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pool machine: %v", err)
 	}
-	deleted, err := executeToolCallOnceForLockOrder[PoolMachineRecord](
+	deleted, err := executeToolCallOnceForLockOrder[executionstore.PoolMachineRecord](
 		ctx,
 		fixture.store,
 		fixture.transaction(fixture.deleteToolCallID),
 		executionstore.DeletePoolMachineForToolCall(
-			DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
+			executionstore.DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
 			acceptedPoolMachineCompletionForTest,
 		),
 	)
@@ -375,7 +346,7 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 	}
 	deleting, claimed, err := fixture.store.Execution().ClaimPoolMachineDeletion(
 		ctx,
-		MachineDeletingInput{
+		executionstore.MachineDeletingInput{
 			OrgID:                    testOrgID,
 			MachineID:                deleted.Machine.ID,
 			LifecycleReasonCode:      "machine_tool_delete",
@@ -453,7 +424,7 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "daemon-token-delete-"+slug)
 			machine, err := fixture.store.Execution().CreateDaemonMachine(
 				ctx,
-				CreateDaemonMachineInput{
+				executionstore.CreateDaemonMachineInput{
 					OrgID:          testOrgID,
 					DisplayName:    "Daemon Token Deletion",
 					IdempotencyKey: "daemon-token-delete-" + slug,
@@ -495,7 +466,7 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 				go func() {
 					_, deleteErr := fixture.store.Execution().DeleteMachine(
 						context.Background(),
-						DeleteMachineInput{OrgID: testOrgID, MachineID: machine.ID},
+						executionstore.DeleteMachineInput{OrgID: testOrgID, MachineID: machine.ID},
 					)
 					deleteDone <- deleteErr
 				}()
@@ -553,7 +524,7 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "project-machine-delete")
 	machine, err := fixture.store.Execution().CreateDaemonMachine(
 		ctx,
-		CreateDaemonMachineInput{
+		executionstore.CreateDaemonMachineInput{
 			OrgID:          testOrgID,
 			DisplayName:    "Project Deletion Explicit Machine",
 			IdempotencyKey: "project-deletion-explicit-machine",
@@ -564,7 +535,7 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 	}
 	grant, _, err := fixture.store.Execution().CreateProjectMachineGrant(
 		ctx,
-		CreateProjectMachineGrantInput{
+		executionstore.CreateProjectMachineGrantInput{
 			OrgID:          testOrgID,
 			ProjectID:      testProjectID,
 			MachineID:      machine.ID,
@@ -582,7 +553,7 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 			AgentID:               fixture.agent.ID,
 			ProjectMachineGrantID: grant.ID,
 			MachineRef:            "mchr-prjdel",
-			BindingKind:           machineBindingKindExplicit,
+			BindingKind:           executionstore.MachineBindingKindExplicit,
 		},
 	)
 	if err != nil {
@@ -590,7 +561,7 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 	}
 	actor, err := executionstore.OmnaraActorParams(
 		testOrgID,
-		PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 	)
 	if err != nil {
 		t.Fatalf("build project deletion actor: %v", err)
@@ -625,7 +596,7 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 	go func() {
 		_, deleteErr := fixture.store.Execution().IntegrationDeleteMachineOnce(
 			ctx,
-			DeleteMachineInput{OrgID: testOrgID, MachineID: machine.ID},
+			executionstore.DeleteMachineInput{OrgID: testOrgID, MachineID: machine.ID},
 		)
 		machineDeleteDone <- deleteErr
 	}()
@@ -724,16 +695,16 @@ model:
 	}
 
 	type launchOutcome struct {
-		result LaunchAgentResult
+		result executionstore.LaunchAgentResult
 		err    error
 	}
 	launchDone := make(chan launchOutcome, 1)
 	go func() {
-		result, launchErr := store.Execution().IntegrationLaunchAgentOnce(ctx, LaunchAgentInput{
+		result, launchErr := store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 			ProjectID:      testProjectID,
 			ProfileID:      profile.ID,
 			AgentConfigID:  profile.CurrentConfigID,
-			LaunchedBy:     PrincipalRecord{Type: PrincipalTypeUser, ID: user.ID},
+			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID},
 			IdempotencyKey: "project-profile-order",
 		})
 		launchDone <- launchOutcome{result: result, err: launchErr}
@@ -771,7 +742,7 @@ func TestLaunchAndConfigReconciliationSerializePoolBeforeMachineEnvironment(t *t
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "launch-config-environment")
 	machine, err := fixture.store.Execution().CreateDaemonMachine(
 		ctx,
-		CreateDaemonMachineInput{
+		executionstore.CreateDaemonMachineInput{
 			OrgID:          testOrgID,
 			DisplayName:    "Shared Environment Machine",
 			IdempotencyKey: "shared-environment-machine",
@@ -782,7 +753,7 @@ func TestLaunchAndConfigReconciliationSerializePoolBeforeMachineEnvironment(t *t
 	}
 	if _, _, err := fixture.store.Execution().CreateProjectMachineGrant(
 		ctx,
-		CreateProjectMachineGrantInput{
+		executionstore.CreateProjectMachineGrantInput{
 			OrgID:          testOrgID,
 			ProjectID:      testProjectID,
 			MachineID:      machine.ID,
@@ -837,16 +808,16 @@ tools:
 	}
 
 	type launchOutcome struct {
-		result LaunchAgentResult
+		result executionstore.LaunchAgentResult
 		err    error
 	}
 	launchDone := make(chan launchOutcome, 1)
 	go func() {
-		result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, LaunchAgentInput{
+		result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 			ProjectID:      testProjectID,
 			ProfileID:      profile.ID,
 			AgentConfigID:  profile.CurrentConfigID,
-			LaunchedBy:     PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 			IdempotencyKey: "shared-environment-launch",
 		})
 		launchDone <- launchOutcome{result: result, err: launchErr}
@@ -863,15 +834,15 @@ tools:
 	}
 
 	type configChangeOutcome struct {
-		result ChangeAgentConfigResult
+		result executionstore.ChangeAgentConfigResult
 		err    error
 	}
 	configDone := make(chan configChangeOutcome, 1)
 	go func() {
-		result, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(ctx, ChangeAgentConfigInput{
+		result, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(ctx, executionstore.ChangeAgentConfigInput{
 			CreateAgentConfigInput: changeInputFromRecord(nextConfig),
 			AgentID:                fixture.agent.ID,
-			ActorType:              PrincipalTypeUser,
+			ActorType:              identitystore.PrincipalTypeUser,
 			ActorID:                fixture.userID,
 			IdempotencyKey:         "shared-environment-change",
 		})
@@ -882,7 +853,7 @@ tools:
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release pool and environment lock control transaction: %v", err)
 	}
-	var launched LaunchAgentResult
+	var launched executionstore.LaunchAgentResult
 	select {
 	case outcome := <-launchDone:
 		if outcome.err != nil {
@@ -892,7 +863,7 @@ tools:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for launch")
 	}
-	var changed ChangeAgentConfigResult
+	var changed executionstore.ChangeAgentConfigResult
 	select {
 	case outcome := <-configDone:
 		if outcome.err != nil {
@@ -915,7 +886,7 @@ tools:
 			ProjectID:   testProjectID,
 			AgentID:     fixture.agent.ID,
 			MachineID:   machine.ID,
-			BindingKind: string(machineBindingKindExplicit),
+			BindingKind: string(executionstore.MachineBindingKindExplicit),
 		},
 	); err != nil {
 		t.Fatalf("load reconciled explicit machine binding: %v", err)
@@ -952,11 +923,11 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 
 		launchDone := make(chan launchAttemptOutcome, 1)
 		go func() {
-			result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, LaunchAgentInput{
+			result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 				ProjectID:      testProjectID,
 				ProfileID:      profile.ID,
 				AgentConfigID:  profile.CurrentConfigID,
-				LaunchedBy:     PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+				LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 				IdempotencyKey: "explicit-launch-wins",
 			})
 			launchDone <- launchAttemptOutcome{result: result, err: launchErr}
@@ -1038,11 +1009,11 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 
 		launchDone := make(chan launchAttemptOutcome, 1)
 		go func() {
-			result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, LaunchAgentInput{
+			result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 				ProjectID:      testProjectID,
 				ProfileID:      profile.ID,
 				AgentConfigID:  profile.CurrentConfigID,
-				LaunchedBy:     PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+				LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 				IdempotencyKey: "explicit-revoke-launch",
 			})
 			launchDone <- launchAttemptOutcome{result: result, err: launchErr}
@@ -1108,10 +1079,10 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 		go func() {
 			result, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(
 				ctx,
-				ChangeAgentConfigInput{
+				executionstore.ChangeAgentConfigInput{
 					CreateAgentConfigInput: changeInputFromRecord(nextConfig),
 					AgentID:                fixture.agent.ID,
-					ActorType:              PrincipalTypeUser,
+					ActorType:              identitystore.PrincipalTypeUser,
 					ActorID:                fixture.userID,
 					IdempotencyKey:         "explicit-config-wins",
 				},
@@ -1185,10 +1156,10 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 		go func() {
 			result, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(
 				ctx,
-				ChangeAgentConfigInput{
+				executionstore.ChangeAgentConfigInput{
 					CreateAgentConfigInput: changeInputFromRecord(nextConfig),
 					AgentID:                fixture.agent.ID,
-					ActorType:              PrincipalTypeUser,
+					ActorType:              identitystore.PrincipalTypeUser,
 					ActorID:                fixture.userID,
 					IdempotencyKey:         "explicit-revoke-config",
 				},
@@ -1215,23 +1186,23 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 }
 
 type explicitGrantLifecycleFixture struct {
-	machine    MachineRecord
-	grant      ProjectMachineGrantRecord
+	machine    executionstore.MachineRecord
+	grant      executionstore.ProjectMachineGrantRecord
 	configYAML string
 }
 
 type launchAttemptOutcome struct {
-	result LaunchAgentResult
+	result executionstore.LaunchAgentResult
 	err    error
 }
 
 type configChangeAttemptOutcome struct {
-	result ChangeAgentConfigResult
+	result executionstore.ChangeAgentConfigResult
 	err    error
 }
 
 type grantRevocationAttemptOutcome struct {
-	result ProjectMachineGrantRecord
+	result executionstore.ProjectMachineGrantRecord
 	err    error
 }
 
@@ -1242,7 +1213,7 @@ func createExplicitGrantLifecycleFixture(
 	label string,
 ) explicitGrantLifecycleFixture {
 	t.Helper()
-	machine, err := fixture.store.Execution().CreateDaemonMachine(ctx, CreateDaemonMachineInput{
+	machine, err := fixture.store.Execution().CreateDaemonMachine(ctx, executionstore.CreateDaemonMachineInput{
 		OrgID:          testOrgID,
 		DisplayName:    "Explicit Lifecycle " + label,
 		IdempotencyKey: "explicit-lifecycle-machine-" + label,
@@ -1252,7 +1223,7 @@ func createExplicitGrantLifecycleFixture(
 	}
 	grant, _, err := fixture.store.Execution().CreateProjectMachineGrant(
 		ctx,
-		CreateProjectMachineGrantInput{
+		executionstore.CreateProjectMachineGrantInput{
 			OrgID:          testOrgID,
 			ProjectID:      testProjectID,
 			MachineID:      machine.ID,
@@ -1279,7 +1250,7 @@ tools:
 	}
 }
 
-func receiveLaunchAttempt(t *testing.T, done <-chan launchAttemptOutcome) LaunchAgentResult {
+func receiveLaunchAttempt(t *testing.T, done <-chan launchAttemptOutcome) executionstore.LaunchAgentResult {
 	t.Helper()
 	select {
 	case outcome := <-done:
@@ -1289,11 +1260,11 @@ func receiveLaunchAttempt(t *testing.T, done <-chan launchAttemptOutcome) Launch
 		return outcome.result
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for launch")
-		return LaunchAgentResult{}
+		return executionstore.LaunchAgentResult{}
 	}
 }
 
-func receiveConfigChangeAttempt(t *testing.T, done <-chan configChangeAttemptOutcome) ChangeAgentConfigResult {
+func receiveConfigChangeAttempt(t *testing.T, done <-chan configChangeAttemptOutcome) executionstore.ChangeAgentConfigResult {
 	t.Helper()
 	select {
 	case outcome := <-done:
@@ -1303,14 +1274,14 @@ func receiveConfigChangeAttempt(t *testing.T, done <-chan configChangeAttemptOut
 		return outcome.result
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for config change")
-		return ChangeAgentConfigResult{}
+		return executionstore.ChangeAgentConfigResult{}
 	}
 }
 
 func receiveGrantRevocationAttempt(
 	t *testing.T,
 	done <-chan grantRevocationAttemptOutcome,
-) ProjectMachineGrantRecord {
+) executionstore.ProjectMachineGrantRecord {
 	t.Helper()
 	select {
 	case outcome := <-done:
@@ -1320,7 +1291,7 @@ func receiveGrantRevocationAttempt(
 		return outcome.result
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for grant revocation")
-		return ProjectMachineGrantRecord{}
+		return executionstore.ProjectMachineGrantRecord{}
 	}
 }
 
@@ -1395,7 +1366,7 @@ func TestProjectDeletionReplansAfterConcurrentAgentArchive(t *testing.T) {
 				ctx,
 				testOrgID,
 				testProjectID,
-				PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+				identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 			)
 			return err
 		},
@@ -1416,7 +1387,7 @@ func TestOrganizationDeletionReplansAfterConcurrentAgentArchive(t *testing.T) {
 			_, err := fixture.store.Organizations().DeleteOrganization(
 				ctx,
 				testOrgID,
-				PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+				identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 			)
 			return err
 		},
@@ -1444,7 +1415,7 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 	)
 	targetMachine, err := fixture.store.Execution().CreateDaemonMachine(
 		ctx,
-		CreateDaemonMachineInput{
+		executionstore.CreateDaemonMachineInput{
 			OrgID:          testOrgID,
 			DisplayName:    "Project Admission Target",
 			IdempotencyKey: "project-admission-target",
@@ -1473,7 +1444,7 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 			ctx,
 			testOrgID,
 			testProjectID,
-			PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+			identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 		)
 		deleteDone <- deleteErr
 	}()
@@ -1483,7 +1454,7 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 	go func() {
 		_, createErr := fixture.store.Execution().CreateProjectMachinePoolGrant(
 			ctx,
-			CreateProjectMachinePoolGrantInput{
+			executionstore.CreateProjectMachinePoolGrantInput{
 				OrgID:          testOrgID,
 				ProjectID:      testProjectID,
 				MachinePoolID:  targetPool.ID,
@@ -1496,7 +1467,7 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 	go func() {
 		_, _, createErr := fixture.store.Execution().CreateProjectMachineGrant(
 			ctx,
-			CreateProjectMachineGrantInput{
+			executionstore.CreateProjectMachineGrantInput{
 				OrgID:          testOrgID,
 				ProjectID:      testProjectID,
 				MachineID:      targetMachine.ID,
@@ -1578,7 +1549,7 @@ func TestMCPReconciliationWaitingBehindProjectDeletionRejectsInactiveProject(t *
 			ctx,
 			testOrgID,
 			testProjectID,
-			PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+			identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 		)
 		deleteDone <- deleteErr
 	}()
@@ -1657,7 +1628,7 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 			ctx,
 			testProjectID,
 			fixture.agent.ID,
-			PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+			identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 		)
 		archiveDone <- archiveErr
 	}()
@@ -1740,7 +1711,7 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 			ctx,
 			testProjectID,
 			fixture.agent.ID,
-			PrincipalRecord{Type: PrincipalTypeUser, ID: fixture.userID},
+			identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 		)
 		archiveDone <- archiveErr
 	}()
@@ -1776,10 +1747,10 @@ type machineLifecycleLockOrderFixture struct {
 	store            *Store
 	now              time.Time
 	userID           ID
-	machinePool      MachinePoolRecord
-	poolGrant        ProjectMachinePoolGrantRecord
-	agent            AgentRecord
-	runtimeLock      AgentRuntimeLockRecord
+	machinePool      executionstore.MachinePoolRecord
+	poolGrant        executionstore.ProjectMachinePoolGrantRecord
+	agent            executionstore.AgentRecord
+	runtimeLock      executionstore.AgentRuntimeLockRecord
 	createToolCallID ID
 	deleteToolCallID ID
 }
@@ -1813,7 +1784,7 @@ func newMachineLifecycleLockOrderFixture(
 	)
 	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
 		ctx,
-		CreateProjectMachinePoolGrantInput{
+		executionstore.CreateProjectMachinePoolGrantInput{
 			OrgID:          testOrgID,
 			ProjectID:      testProjectID,
 			MachinePoolID:  machinePool.ID,
@@ -1891,8 +1862,8 @@ tools:
 	}
 }
 
-func (f machineLifecycleLockOrderFixture) transaction(toolCallID ID) TransactToolCallInput {
-	return TransactToolCallInput{
+func (f machineLifecycleLockOrderFixture) transaction(toolCallID ID) executionstore.ExecuteToolCallInput {
+	return executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       f.agent.ID,
 		ToolCallID:    toolCallID,
@@ -1902,13 +1873,13 @@ func (f machineLifecycleLockOrderFixture) transaction(toolCallID ID) TransactToo
 
 func (f machineLifecycleLockOrderFixture) createMachineOnce(
 	ctx context.Context,
-) (CreatePoolMachineResult, error) {
-	return executeToolCallOnceForLockOrder[CreatePoolMachineResult](
+) (executionstore.CreatePoolMachineResult, error) {
+	return executeToolCallOnceForLockOrder[executionstore.CreatePoolMachineResult](
 		ctx,
 		f.store,
 		f.transaction(f.createToolCallID),
 		executionstore.CreatePoolMachineForToolCall(
-			CreatePoolMachineInput{MachinePoolID: f.machinePool.ID},
+			executionstore.CreatePoolMachineInput{MachinePoolID: f.machinePool.ID},
 			acceptedPoolMachineCompletionForTest,
 		),
 	)
@@ -1917,7 +1888,7 @@ func (f machineLifecycleLockOrderFixture) createMachineOnce(
 func executeToolCallOnceForLockOrder[T any](
 	ctx context.Context,
 	store *Store,
-	input TransactToolCallInput,
+	input executionstore.ExecuteToolCallInput,
 	command executionstore.ToolCallCommand,
 ) (T, error) {
 	executed, err := store.Execution().IntegrationExecuteToolCallOnce(ctx, input, command)
@@ -1964,7 +1935,7 @@ func assertPoolMachineRevokedAfterConcurrentCreate(
 	if err != nil {
 		t.Fatalf("load concurrently completed create-machine tool call: %v", err)
 	}
-	if toolCall.State != ToolCallStateCompleted {
+	if toolCall.State != executionstore.ToolCallStateCompleted {
 		t.Fatalf("create-machine tool call state = %q, want completed", toolCall.State)
 	}
 }
