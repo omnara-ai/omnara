@@ -25,6 +25,38 @@ ALTER TABLE machines
             )
         );
 
+ALTER TABLE daemon_runtimes
+    ADD CONSTRAINT daemon_runtimes_time_order_check
+        CHECK (
+            created_at <= last_seen_at
+            AND (ended_at IS NULL OR ended_at >= last_seen_at)
+        );
+
+-- +goose StatementBegin
+CREATE FUNCTION reject_daemon_runtime_last_seen_regression() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'daemon runtime last_seen_at cannot precede its prior lifecycle frontier',
+        CONSTRAINT = 'daemon_runtimes_last_seen_monotonic';
+END;
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd
+
+CREATE TRIGGER daemon_runtimes_last_seen_monotonic
+    BEFORE UPDATE OF state, last_seen_at
+    ON daemon_runtimes
+    FOR EACH ROW
+    WHEN (
+        NEW.last_seen_at < OLD.last_seen_at
+        OR (
+            OLD.state = 'ended'
+            AND NEW.state = 'active'
+            AND NEW.last_seen_at < OLD.ended_at
+        )
+    )
+    EXECUTE FUNCTION reject_daemon_runtime_last_seen_regression();
+
 CREATE INDEX machines_provider_runtime_mismatch_due_idx
     ON machines(provider_runtime_mismatch_since, id)
     WHERE provider_runtime_mismatch_since IS NOT NULL

@@ -236,6 +236,8 @@ func TestProviderRuntimeCandidatesDeriveCrashedDaemonInactivity(t *testing.T) {
 UPDATE daemon_runtimes
 SET state = 'active',
     state_reason_code = NULL,
+    last_seen_at = ended_at,
+    lease_expires_at = ended_at + interval '1 microsecond',
     ended_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $1 AND machine_id = $2 AND id = $3
@@ -1699,15 +1701,7 @@ func (f providerRuntimeStorageFixture) insertInactiveBYOMachine(
 	if err != nil {
 		t.Fatalf("register BYO runtime exclusion daemon: %v", err)
 	}
-	if _, err := f.pool.Exec(ctx, `
-UPDATE daemon_runtimes
-SET last_seen_at = statement_timestamp() - interval '6 minutes',
-    lease_expires_at = statement_timestamp() - interval '5 minutes',
-    updated_at = statement_timestamp()
-WHERE org_id = $1 AND machine_id = $2 AND id = $3
-`, testOrgID, machine.ID, runtime.ID); err != nil {
-		t.Fatalf("expire BYO runtime exclusion daemon lease: %v", err)
-	}
+	expireDaemonRuntimeLeaseForTest(t, ctx, f.store, testOrgID, machine.ID, runtime.ID)
 	return machine.ID
 }
 

@@ -1757,15 +1757,7 @@ func TestMachineDaemonOffersExpiredRuntimeReturnsNoOffers(t *testing.T) {
 		"daemon-offers-expired-runtime",
 		"run_command",
 	)
-	if _, err := pool.Exec(ctx, `
-		UPDATE daemon_runtimes
-		SET last_seen_at = statement_timestamp() - INTERVAL '2 seconds',
-		    lease_expires_at = statement_timestamp() - INTERVAL '1 second',
-		    updated_at = statement_timestamp()
-		WHERE org_id = $1 AND machine_id = $2 AND id = $3
-	`, project.OrgUUID, process.MachineUUID, process.RuntimeUUID); err != nil {
-		t.Fatalf("expire daemon runtime lease: %v", err)
-	}
+	expireDaemonRuntimeForHTTPTest(t, ctx, pool, process.RuntimeUUID)
 
 	offers, err := store.Execution().ListDaemonProcessOffers(
 		ctx,
@@ -1784,14 +1776,15 @@ func TestMachineDaemonOffersExpiredRuntimeReturnsNoOffers(t *testing.T) {
 		)
 	}
 
-	if _, err := pool.Exec(ctx, `
-		UPDATE daemon_runtimes
-		SET last_seen_at = statement_timestamp(),
-		    lease_expires_at = statement_timestamp() + INTERVAL '1 hour',
-		    updated_at = statement_timestamp()
-		WHERE org_id = $1 AND machine_id = $2 AND id = $3
-	`, project.OrgUUID, process.MachineUUID, process.RuntimeUUID); err != nil {
-		t.Fatalf("restore daemon runtime lease: %v", err)
+	if _, err := store.Execution().HeartbeatDaemonRuntime(
+		ctx,
+		executionstore.DaemonRuntimeLeaseInput{
+			Authority:        process.authority(),
+			DaemonInstanceID: httpTestID("daemon-http-machine-routes"),
+			LeaseTimeout:     time.Hour,
+		},
+	); err != nil {
+		t.Fatalf("heartbeat expired daemon runtime: %v", err)
 	}
 	offers, err = store.Execution().ListDaemonProcessOffers(
 		ctx,

@@ -118,6 +118,83 @@ WHERE interval.org_id = $1 AND interval.machine_id = $2 AND interval.daemon_runt
 	}
 }
 
+func TestDaemonRuntimeTemporalInvariantsRejectImpossibleHistory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "daemon-runtime-temporal-invariants")
+
+	_, err := fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET last_seen_at = last_seen_at - interval '1 microsecond'
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_last_seen_monotonic")
+
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET created_at = last_seen_at + interval '1 microsecond'
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_time_order_check")
+
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET state = 'ended',
+    state_reason_code = 'invalid_time_order',
+    ended_at = last_seen_at - interval '1 microsecond',
+    updated_at = statement_timestamp()
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+	`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_time_order_check")
+
+	var lastSeenAt time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_seen_at
+FROM daemon_runtimes
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID).Scan(&lastSeenAt); err != nil {
+		t.Fatalf("load daemon runtime last seen time: %v", err)
+	}
+	waitForDatabaseTime(t, ctx, fixture.Store.pool, lastSeenAt.Add(time.Millisecond))
+	ended, err := fixture.Store.Execution().EndDaemonRuntime(ctx, fixture.authority())
+	if err != nil {
+		t.Fatalf("end daemon runtime: %v", err)
+	}
+	if ended.EndedAt == nil || !ended.EndedAt.After(lastSeenAt) {
+		t.Fatalf("ended daemon runtime = %+v, want end after %s", ended, lastSeenAt)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET state = 'ended', updated_at = statement_timestamp()
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID); err != nil {
+		t.Fatalf("repeat ended daemon runtime state: %v", err)
+	}
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET state = 'active',
+    state_reason_code = NULL,
+    state_reason_message = '',
+    ended_at = NULL,
+    updated_at = statement_timestamp()
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_last_seen_monotonic")
+
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE daemon_runtimes
+SET state = 'active',
+    state_reason_code = NULL,
+    state_reason_message = '',
+    last_seen_at = $4::timestamptz,
+    lease_expires_at = $4::timestamptz + interval '1 hour',
+    ended_at = NULL,
+    updated_at = statement_timestamp()
+WHERE org_id = $1 AND machine_id = $2 AND id = $3
+`, fixture.OrgID, fixture.MachineID, fixture.RuntimeID, lastSeenAt)
+	assertPgConstraint(t, err, "23514", "daemon_runtimes_last_seen_monotonic")
+}
+
 func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -274,15 +351,14 @@ RETURNING last_seen_at
 		!intervals[1].StartedAt.Equal(revivedLastSeen) {
 		t.Fatalf("revived online intervals = %+v", intervals)
 	}
-	expireDaemonRuntimeLeaseForTest(t, ctx, store, testOrgID, machine.ID, runtime.ID)
-	var revivedLeaseExpires time.Time
-	if err := pool.QueryRow(
+	revivedLeaseExpires := expireDaemonRuntimeLeaseForTest(
+		t,
 		ctx,
-		`SELECT lease_expires_at FROM daemon_runtimes WHERE id = $1`,
+		store,
+		testOrgID,
+		machine.ID,
 		runtime.ID,
-	).Scan(&revivedLeaseExpires); err != nil {
-		t.Fatalf("load expired revived daemon runtime lease: %v", err)
-	}
+	)
 
 	renewed, err := store.Execution().HeartbeatDaemonRuntime(
 		ctx,

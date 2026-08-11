@@ -914,7 +914,7 @@ func TestDaemonSocketRouteHeartbeatRenewalDrainsQueuedWorkAfterExpiredReconnect(
 		"daemon-socket-route-expired-reconnect",
 		"run_command",
 	)
-	expireDaemonRuntimeForSocketRouteTest(t, ctx, pool, process.RuntimeUUID)
+	expireDaemonRuntimeForHTTPTest(t, ctx, pool, process.RuntimeUUID)
 
 	socketURL := "ws" + strings.TrimPrefix(
 		httpServer.URL,
@@ -986,19 +986,34 @@ func loadDaemonRuntimeLeaseForTest(
 	return record
 }
 
-func expireDaemonRuntimeForSocketRouteTest(
+func expireDaemonRuntimeForHTTPTest(
 	t *testing.T,
 	ctx context.Context,
 	pool queryRower,
 	runtimeID storage.ID,
 ) {
 	t.Helper()
-	var updated storage.ID
-	if err := pool.QueryRow(ctx, `UPDATE daemon_runtimes `+
-		`SET last_seen_at = statement_timestamp() - INTERVAL '2 seconds', `+
-		`lease_expires_at = statement_timestamp() - INTERVAL '1 second', `+
-		`updated_at = statement_timestamp() WHERE id = $1 RETURNING id`, runtimeID).Scan(&updated); err != nil {
-		t.Fatalf("expire daemon runtime: %v", err)
+	var leaseExpiresAt time.Time
+	if err := pool.QueryRow(ctx, `
+UPDATE daemon_runtimes
+SET last_seen_at = statement_timestamp(),
+    lease_expires_at = statement_timestamp() + interval '1 millisecond',
+    updated_at = statement_timestamp()
+WHERE id = $1
+  AND state = 'active'
+RETURNING lease_expires_at
+`, runtimeID).Scan(&leaseExpiresAt); err != nil {
+		t.Fatalf("shorten daemon runtime lease: %v", err)
+	}
+	for {
+		var databaseNow time.Time
+		if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&databaseNow); err != nil {
+			t.Fatalf("load database time: %v", err)
+		}
+		if databaseNow.After(leaseExpiresAt) {
+			return
+		}
+		time.Sleep(leaseExpiresAt.Sub(databaseNow) + time.Millisecond)
 	}
 }
 

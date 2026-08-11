@@ -211,6 +211,25 @@ WHERE datname = current_database()
 	}
 }
 
+func waitForDatabaseTime(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	target time.Time,
+) {
+	t.Helper()
+	for {
+		var now time.Time
+		if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&now); err != nil {
+			t.Fatalf("load database time: %v", err)
+		}
+		if !now.Before(target) {
+			return
+		}
+		time.Sleep(target.Sub(now))
+	}
+}
+
 func userPrincipal(id ID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: id}
 }
