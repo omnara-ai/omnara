@@ -38,6 +38,7 @@ func TestDiscoveryRejectsOversizedResponse(t *testing.T) {
 		"/models",
 		"models endpoint",
 		route.Headers{},
+		discoveryMaxResponseSize,
 	)
 	if err == nil || !strings.Contains(err.Error(), "response exceeds the byte limit") {
 		t.Fatalf("discovery error = %v, want response limit error", err)

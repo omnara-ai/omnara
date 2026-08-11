@@ -32,7 +32,7 @@ func testLimitsCatalog(t *testing.T, handler http.HandlerFunc) (*LimitsCatalog, 
 		handler(w, r)
 	}))
 	t.Cleanup(server.Close)
-	return &LimitsCatalog{url: server.URL + "/api/v1/models", client: server.Client()}, &requests
+	return &LimitsCatalog{baseURL: server.URL + "/api/v1", client: server.Client()}, &requests
 }
 
 func TestFillMissingLimitsFromCatalog(t *testing.T) {

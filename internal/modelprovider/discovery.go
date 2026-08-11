@@ -60,7 +60,8 @@ func DiscoverModels(
 	client = outboundhttp.CloneWithoutRedirects(client)
 	if providerConfig.APIVariant == modelprotocol.APIVariantOpenRouter {
 		body, err := getDiscoveryEndpoint(
-			ctx, client, providerConfig.BaseURL, "/key", "OpenRouter key endpoint", auth,
+			ctx, client, providerConfig.BaseURL, "/key", "OpenRouter key endpoint",
+			auth, discoveryMaxResponseSize,
 		)
 		if err != nil {
 			return nil, err
@@ -76,21 +77,12 @@ func DiscoverModels(
 	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages {
 		modelsPath += "?limit=" + discoveryPageLimit
 	}
-	body, err := getDiscoveryEndpoint(
-		ctx, client, providerConfig.BaseURL, modelsPath, "models endpoint", auth,
+	entries, err := fetchModelEntries(
+		ctx, client, providerConfig.BaseURL, modelsPath, "models endpoint",
+		auth, discoveryMaxResponseSize,
 	)
 	if err != nil {
 		return nil, err
-	}
-	var decoded struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(body, &decoded); err != nil || decoded.Data == nil {
-		return nil, errors.New("models endpoint returned an unrecognized response")
-	}
-	var entries []discoveredModelEntry
-	if err := json.Unmarshal(decoded.Data, &entries); err != nil || entries == nil {
-		return nil, errors.New("models endpoint returned an unrecognized response")
 	}
 	type rankedModel struct {
 		model     DiscoveredModel
@@ -103,11 +95,7 @@ func DiscoverModels(
 			continue
 		}
 		contextWindowTokens := entry.contextWindowTokens()
-		maxOutputTokens := entry.maxOutputTokens()
-		if contextWindowTokens != nil && maxOutputTokens != nil &&
-			*maxOutputTokens >= *contextWindowTokens {
-			maxOutputTokens = nil
-		}
+		maxOutputTokens := clampedMaxOutput(contextWindowTokens, entry.maxOutputTokens())
 		displayName := entry.DisplayName
 		if displayName == "" {
 			displayName = entry.Name
@@ -137,11 +125,32 @@ func DiscoverModels(
 	return models, nil
 }
 
+func fetchModelEntries(
+	ctx context.Context,
+	client *http.Client,
+	baseURL, path, name string,
+	auth route.Auth,
+	maxResponseSize int,
+) ([]discoveredModelEntry, error) {
+	body, err := getDiscoveryEndpoint(ctx, client, baseURL, path, name, auth, maxResponseSize)
+	if err != nil {
+		return nil, err
+	}
+	var decoded struct {
+		Data []discoveredModelEntry `json:"data"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil || decoded.Data == nil {
+		return nil, fmt.Errorf("%s returned an unrecognized response", name)
+	}
+	return decoded.Data, nil
+}
+
 func getDiscoveryEndpoint(
 	ctx context.Context,
 	client *http.Client,
 	baseURL, path, name string,
 	auth route.Auth,
+	maxResponseSize int,
 ) ([]byte, error) {
 	endpoint, err := route.StaticEndpoint{BaseURL: baseURL, Path: path}.URL()
 	if err != nil {
@@ -152,19 +161,21 @@ func getDiscoveryEndpoint(
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	if err := auth.Apply(req); err != nil {
-		return nil, err
+	if auth != nil {
+		if err := auth.Apply(req); err != nil {
+			return nil, err
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s request failed: %w", name, err)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, discoveryMaxResponseSize+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxResponseSize)+1))
 	closeErr := resp.Body.Close()
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("read %s response: %w", name, err), closeErr)
 	}
-	if len(body) > discoveryMaxResponseSize {
+	if len(body) > maxResponseSize {
 		return nil, errors.Join(fmt.Errorf("%s response exceeds the byte limit", name), closeErr)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -233,6 +244,13 @@ func (e discoveredModelEntry) maxOutputTokens() *int {
 		return modelTokenCount(e.TopProvider.MaxCompletionTokens)
 	}
 	return nil
+}
+
+func clampedMaxOutput(contextWindow, maxOutput *int) *int {
+	if contextWindow != nil && maxOutput != nil && *maxOutput >= *contextWindow {
+		return nil
+	}
+	return maxOutput
 }
 
 func modelTokenCount(raw json.RawMessage) *int {

@@ -2,10 +2,7 @@ package modelprovider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -17,7 +14,7 @@ import (
 )
 
 const (
-	openRouterCatalogURL       = "https://openrouter.ai/api/v1/models"
+	openRouterCatalogBaseURL   = "https://openrouter.ai/api/v1"
 	catalogRequestTimeout      = 8 * time.Second
 	catalogMaxResponseSize     = 16 * 1024 * 1024
 	catalogRefreshInterval     = time.Hour
@@ -37,8 +34,8 @@ type catalogModel struct {
 }
 
 type LimitsCatalog struct {
-	url    string
-	client *http.Client
+	baseURL string
+	client  *http.Client
 
 	mu           sync.Mutex
 	entries      map[string]catalogLimits
@@ -51,8 +48,8 @@ func NewLimitsCatalog() *LimitsCatalog {
 	client := newSSRFHTTPClient(false)
 	client.Timeout = catalogRequestTimeout
 	return &LimitsCatalog{
-		url:    openRouterCatalogURL,
-		client: outboundhttp.CloneWithoutRedirects(client),
+		baseURL: openRouterCatalogBaseURL,
+		client:  outboundhttp.CloneWithoutRedirects(client),
 	}
 }
 
@@ -77,10 +74,7 @@ func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []Discover
 		if maxOutput == nil {
 			maxOutput = limits.maxOutputTokens
 		}
-		if maxOutput != nil && *maxOutput >= *limits.contextWindowTokens {
-			maxOutput = nil
-		}
-		models[i].MaxOutputTokens = maxOutput
+		models[i].MaxOutputTokens = clampedMaxOutput(limits.contextWindowTokens, maxOutput)
 	}
 	return models
 }
@@ -130,40 +124,18 @@ func (c *LimitsCatalog) snapshot(ctx context.Context) map[string]catalogLimits {
 func (c *LimitsCatalog) fetch(ctx context.Context) (map[string]catalogLimits, error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), catalogRequestTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
+	catalogEntries, err := fetchModelEntries(
+		ctx, c.client, c.baseURL, "/models", "model limits catalog",
+		nil, catalogMaxResponseSize,
+	)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("model limits catalog request failed: %w", err)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, catalogMaxResponseSize+1))
-	closeErr := resp.Body.Close()
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("read model limits catalog response: %w", err), closeErr)
-	}
-	if len(body) > catalogMaxResponseSize {
-		return nil, errors.Join(errors.New("model limits catalog response exceeds the byte limit"), closeErr)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("model limits catalog returned status %d", resp.StatusCode)
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close model limits catalog response: %w", closeErr)
-	}
-	return parseCatalogEntries(body)
+	return buildCatalogEntries(catalogEntries)
 }
 
-func parseCatalogEntries(body []byte) (map[string]catalogLimits, error) {
-	var decoded struct {
-		Data []discoveredModelEntry `json:"data"`
-	}
-	if err := json.Unmarshal(body, &decoded); err != nil || decoded.Data == nil {
-		return nil, errors.New("model limits catalog returned an unrecognized response")
-	}
-	entries := make(map[string]catalogLimits, len(decoded.Data)*2)
+func buildCatalogEntries(catalogEntries []discoveredModelEntry) (map[string]catalogLimits, error) {
+	entries := make(map[string]catalogLimits, len(catalogEntries)*2)
 	ambiguous := make(map[string]struct{})
 	add := func(key string, limits catalogLimits) {
 		if key == "" {
@@ -182,7 +154,7 @@ func parseCatalogEntries(body []byte) (map[string]catalogLimits, error) {
 		entries[key] = limits
 	}
 	var variants []catalogModel
-	for _, entry := range decoded.Data {
+	for _, entry := range catalogEntries {
 		slug := strings.TrimSpace(entry.ID)
 		contextWindowTokens := entry.contextWindowTokens()
 		if slug == "" || contextWindowTokens == nil {
