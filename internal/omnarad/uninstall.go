@@ -178,8 +178,13 @@ func readUninstallDirectory(path string) ([]os.DirEntry, error) {
 
 func uninstallDaemon(ctx context.Context, home string, log *slog.Logger) (resultErr error) {
 	var config *daemonConfig
+	homeRetired := false
 	defer func() {
-		reportUninstall(ctx, config, resultErr, log)
+		reportErr := resultErr
+		if homeRetired {
+			reportErr = nil
+		}
+		reportUninstall(ctx, config, reportErr, log)
 	}()
 	installLock, err := acquireInstallLock(ctx, home)
 	if err != nil {
@@ -231,6 +236,7 @@ func uninstallDaemon(ctx context.Context, home string, log *slog.Logger) (result
 			os.Remove(tombstone),
 		)
 	}
+	homeRetired = true
 	resultErr = errors.Join(resultErr, localstore.SyncDir(parent), daemonLock.Release(), installLock.Release())
 	daemonLock = nil
 	installLock = nil
