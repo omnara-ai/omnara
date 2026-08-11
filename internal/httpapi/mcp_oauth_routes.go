@@ -124,7 +124,7 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
 	metadata := body.Metadata
-	if err := validateMCPOAuthMetadata(metadata); err != nil {
+	if err := metadata.ValidateWithReservedKey(secrets.KeyMCPURL); err != nil {
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
 	}
@@ -449,8 +449,8 @@ func mcpOAuthSecretMetadata(
 	if len(existing) == 0 {
 		return metadata, nil
 	}
-	decoded, err := resourcemeta.FromJSON(existing)
-	if err != nil {
+	decoded := map[string]string{}
+	if err := json.Unmarshal(existing, &decoded); err != nil {
 		return nil, fmt.Errorf("parse existing secret metadata: %w", err)
 	}
 	for _, key := range slices.Sorted(maps.Keys(decoded)) {
@@ -495,30 +495,4 @@ func (s *Server) mcpOAuthClientMetadataURL() (string, bool) {
 		return "", false
 	}
 	return s.absolutePublicURL(mcpOAuthClientMetadataPath), true
-}
-
-func validateMCPOAuthMetadata(metadata resourcemeta.Metadata) error {
-	if metadata == nil {
-		return nil
-	}
-	if err := metadata.Validate(); err != nil {
-		return err
-	}
-	if len(metadata) >= resourcemeta.MaxEntries {
-		return fmt.Errorf(
-			"metadata cannot have more than %d entries; the %s key is reserved",
-			resourcemeta.MaxEntries-1, secrets.KeyMCPURL,
-		)
-	}
-	if _, ok := metadata[secrets.KeyMCPURL]; ok {
-		return fmt.Errorf("metadata key %q is reserved", secrets.KeyMCPURL)
-	}
-	raw, err := metadata.JSON()
-	if err != nil {
-		return err
-	}
-	if len(raw) > secretstore.MaxSecretMetadataBytes {
-		return fmt.Errorf("metadata exceeds %d bytes", secretstore.MaxSecretMetadataBytes)
-	}
-	return nil
 }

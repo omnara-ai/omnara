@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -443,7 +444,7 @@ func (f kernelFixture) provisionClusterModel(
 		OwnerKind:      secretstore.SecretOwnerOrg,
 		Name:           providerConfigName + "-credential",
 		Material:       secrets.GenericMaterial{Value: "test-key"},
-		Metadata:       json.RawMessage(`{}`),
+		Metadata:       resourcemeta.Metadata{},
 		Actor:          kernelTestUserPrincipal(kernelTestUserID),
 	})
 	if err != nil {

@@ -555,7 +555,10 @@ func insertMachinePool(
 	qtx *dbsqlc.Queries,
 	input CreateMachinePoolInput,
 ) (MachinePoolRecord, error) {
-	metadata, err := metadataColumn(input.Metadata, "machine pool metadata")
+	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
+		return MachinePoolRecord{}, fmt.Errorf("machine pool metadata: %w", err)
+	}
+	metadata, err := input.Metadata.JSON()
 	if err != nil {
 		return MachinePoolRecord{}, err
 	}
@@ -748,7 +751,10 @@ func updateMachinePoolRow(
 	id ID,
 	input CreateMachinePoolInput,
 ) (dbsqlc.MachinePool, error) {
-	metadata, err := metadataColumn(input.Metadata, "machine pool metadata")
+	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
+		return dbsqlc.MachinePool{}, fmt.Errorf("machine pool metadata: %w", err)
+	}
+	metadata, err := input.Metadata.JSON()
 	if err != nil {
 		return dbsqlc.MachinePool{}, err
 	}

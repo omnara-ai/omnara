@@ -7948,6 +7948,22 @@ components:
       additionalProperties:
         type: string
         maxLength: 512
+    MachineMetadata:
+      type: object
+      description: User-supplied metadata stored on a machine, provided directly or copied from the machine pool that provisions it. A restriction of Metadata that leaves room for one reserved pair - Omnara sets observed_platform on the machine to the platform reported by its daemon, so the key is reserved and at most 15 user pairs are accepted.
+      x-go-type: resourcemeta.Metadata
+      x-go-type-import:
+        path: github.com/omnara-ai/omnara/internal/resourcemeta
+      x-go-type-skip-optional-pointer: true
+      maxProperties: 15
+      propertyNames:
+        minLength: 1
+        maxLength: 64
+      not:
+        required: [observed_platform]
+      additionalProperties:
+        type: string
+        maxLength: 512
     CreateAgentInputRequest:
       type: object
       additionalProperties: false
@@ -9538,7 +9554,7 @@ components:
           minimum: 1
           maximum: 2147483647
         metadata:
-          $ref: '#/components/schemas/Metadata'
+          $ref: '#/components/schemas/MachineMetadata'
     UpdateMachinePoolRequest:
       type: object
       additionalProperties: false
@@ -9617,7 +9633,7 @@ components:
           minimum: 1
           maximum: 2147483647
         metadata:
-          $ref: '#/components/schemas/Metadata'
+          $ref: '#/components/schemas/MachineMetadata'
     MachinePool:
       type: object
       additionalProperties: false
@@ -9841,7 +9857,7 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         metadata:
-          $ref: '#/components/schemas/Metadata'
+          $ref: '#/components/schemas/MachineMetadata'
     UpdateMachineRequest:
       type: object
       additionalProperties: false

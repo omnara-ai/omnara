@@ -26,6 +26,22 @@ func (m Metadata) Validate() error {
 	return nil
 }
 
+func (m Metadata) ValidateWithReservedKey(reserved string) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	if len(m) >= MaxEntries {
+		return fmt.Errorf(
+			"metadata cannot have more than %d entries; the %s key is reserved",
+			MaxEntries-1, reserved,
+		)
+	}
+	if _, ok := m[reserved]; ok {
+		return fmt.Errorf("metadata key %q is reserved", reserved)
+	}
+	return nil
+}
+
 func ValidateEntry(key, value string) error {
 	if key == "" || utf8.RuneCountInString(key) > MaxKeyLength {
 		return fmt.Errorf("metadata keys must be 1-%d characters", MaxKeyLength)
@@ -39,6 +55,9 @@ func ValidateEntry(key, value string) error {
 func (m Metadata) JSON() (json.RawMessage, error) {
 	if m == nil {
 		m = Metadata{}
+	}
+	if err := m.Validate(); err != nil {
+		return nil, err
 	}
 	raw, err := json.Marshal(m)
 	if err != nil {
@@ -54,6 +73,9 @@ func FromJSON(raw json.RawMessage) (Metadata, error) {
 	}
 	if err := json.Unmarshal(raw, &metadata); err != nil {
 		return nil, fmt.Errorf("decode metadata: %w", err)
+	}
+	if err := metadata.Validate(); err != nil {
+		return nil, err
 	}
 	return metadata, nil
 }

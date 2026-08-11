@@ -225,7 +225,10 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	if isNilID(input.OrgID) || input.DisplayName == "" {
 		return MachineRecord{}, errors.New("org and display name are required")
 	}
-	metadata, err := metadataColumn(input.Metadata, "machine metadata")
+	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
+		return MachineRecord{}, fmt.Errorf("machine metadata: %w", err)
+	}
+	metadata, err := input.Metadata.JSON()
 	if err != nil {
 		return MachineRecord{}, err
 	}

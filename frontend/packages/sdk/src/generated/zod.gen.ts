@@ -917,6 +917,11 @@ export const zUpdateAgentConfigResponse = z.object({
     event_id: zAgentEventId
 });
 
+/**
+ * User-supplied metadata stored on a machine, provided directly or copied from the machine pool that provisions it. A restriction of Metadata that leaves room for one reserved pair - Omnara sets observed_platform on the machine to the platform reported by its daemon, so the key is reserved and at most 15 user pairs are accepted.
+ */
+export const zMachineMetadata = z.record(z.string(), z.string().max(512));
+
 export const zAgentInputEnvelope = z.object({
     agent_input: zAgentInput
 });
@@ -1651,7 +1656,7 @@ export const zCreateMachinePoolRequestBase = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
-    metadata: zMetadata.optional()
+    metadata: zMachineMetadata.optional()
 });
 
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
@@ -1698,7 +1703,7 @@ export const zUpdateMachinePoolRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
-    metadata: zMetadata.optional()
+    metadata: zMachineMetadata.optional()
 });
 
 export const zMachinePool = z.object({
@@ -1787,7 +1792,7 @@ export const zCreateMachineRequest = z.object({
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
     secret_env: z.record(z.string(), zSecretId).optional(),
-    metadata: zMetadata.optional()
+    metadata: zMachineMetadata.optional()
 });
 
 export const zUpdateMachineRequest = z.object({

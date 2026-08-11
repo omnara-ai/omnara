@@ -293,6 +293,21 @@ func (r *responseContractRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error)
 	return hijacker.Hijack()
 }
 
+func validateResponseContentType(route *routers.Route, status int, contentType string) error {
+	response := route.Operation.Responses.Status(status)
+	if response == nil || response.Value == nil || len(response.Value.Content) == 0 {
+		return nil
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return fmt.Errorf("parse response Content-Type %q: %w", contentType, err)
+	}
+	if response.Value.Content.Get(mediaType) == nil {
+		return fmt.Errorf("response Content-Type %q is not declared for status %d", contentType, status)
+	}
+	return nil
+}
+
 func validateResponseContract(request *http.Request, recorder *responseContractRecorder) {
 	if recorder.hijacked {
 		return
@@ -329,6 +344,12 @@ func validateResponseContract(request *http.Request, recorder *responseContractR
 		))
 	}
 	if !recorder.buffering {
+		if err := validateResponseContentType(route, recorder.status, recorder.Header().Get("Content-Type")); err != nil {
+			panic(fmt.Sprintf(
+				"openapi response contract violation: %s %s returned %d: %v",
+				request.Method, request.URL.Path, recorder.status, err,
+			))
+		}
 		return
 	}
 	if recorder.body.Len() == 0 {

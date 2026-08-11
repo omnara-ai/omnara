@@ -1153,6 +1153,13 @@ export type Metadata = {
     [key: string]: string;
 };
 
+/**
+ * User-supplied metadata stored on a machine, provided directly or copied from the machine pool that provisions it. A restriction of Metadata that leaves room for one reserved pair - Omnara sets observed_platform on the machine to the platform reported by its daemon, so the key is reserved and at most 15 user pairs are accepted.
+ */
+export type MachineMetadata = {
+    [key: string]: string;
+};
+
 export type CreateAgentInputRequest = {
     /**
      * At most 20 inline media blocks per submission, each holding up to 10 MiB of decoded media and up to 24 MiB decoded across the submission. Non-media blocks may hold up to 1 MiB combined. The whole request body is capped at 48 MiB.
@@ -2001,7 +2008,7 @@ export type CreateMachinePoolRequestBase = {
     min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
-    metadata?: Metadata;
+    metadata?: MachineMetadata;
 };
 
 export type UpdateMachinePoolRequest = {
@@ -2040,7 +2047,7 @@ export type UpdateMachinePoolRequest = {
     min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
-    metadata?: Metadata;
+    metadata?: MachineMetadata;
 };
 
 export type MachinePool = {
@@ -2143,7 +2150,7 @@ export type CreateMachineRequest = {
     secret_env?: {
         [key: string]: SecretId;
     };
-    metadata?: Metadata;
+    metadata?: MachineMetadata;
 };
 
 export type UpdateMachineRequest = {
