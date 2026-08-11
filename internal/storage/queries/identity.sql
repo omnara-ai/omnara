@@ -9,6 +9,10 @@ VALUES (sqlc.arg(id), sqlc.arg(name), sqlc.narg(idempotency_key), transaction_ti
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at;
 
+-- name: CreateOrgManagedWorkAdmission :exec
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES (sqlc.arg(org_id), sqlc.arg(new_managed_work_allowed));
+
 -- name: GetOrgByIdempotencyKey :one
 SELECT id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at
 FROM orgs

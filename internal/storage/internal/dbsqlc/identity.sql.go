@@ -642,6 +642,21 @@ func (q *Queries) CreateOrgInvitation(ctx context.Context, arg CreateOrgInvitati
 	return i, err
 }
 
+const createOrgManagedWorkAdmission = `-- name: CreateOrgManagedWorkAdmission :exec
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, $2)
+`
+
+type CreateOrgManagedWorkAdmissionParams struct {
+	OrgID                 uuid.UUID
+	NewManagedWorkAllowed bool
+}
+
+func (q *Queries) CreateOrgManagedWorkAdmission(ctx context.Context, arg CreateOrgManagedWorkAdmissionParams) error {
+	_, err := q.db.Exec(ctx, createOrgManagedWorkAdmission, arg.OrgID, arg.NewManagedWorkAllowed)
+	return err
+}
+
 const createPersonalAccessToken = `-- name: CreatePersonalAccessToken :one
 INSERT INTO personal_access_tokens(user_id, name, token_id, token_hash, created_at)
 VALUES ($1, $2, $3, $4, statement_timestamp())

@@ -265,6 +265,61 @@ func createOrgRouteUser(
 	return user, pat.Token
 }
 
+func TestCreateOrganizationPersistsHostedManagedWorkAdmission(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("allowed_%t", allowed), func(t *testing.T) {
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			template := testDefaultOpenRouterTemplate()
+			provisioner := hostedCredentialProvisionerFunc(func(
+				_ context.Context,
+				request modelprovider.HostedCredentialRequest,
+			) (modelprovider.ProvisionHostedCredentialResponse, error) {
+				return modelprovider.ProvisionHostedCredentialResponse{
+					CredentialValue:       "sk-admission-" + request.OrgID,
+					NewManagedWorkAllowed: allowed,
+				}, nil
+			})
+			handler := newIntegrationServer(
+				pool,
+				WithDefaultModelProvider(&template),
+				WithHostedCredentialProvisioner(provisioner),
+			)
+			store := integrationStoreForHandler(t, handler)
+			_, token := createOrgRouteUser(t, pool, store, fmt.Sprintf("hosted-admission-%t", allowed))
+
+			created := requestJSONWithHeaders(
+				t,
+				handler,
+				http.MethodPost,
+				"/api/v1/orgs",
+				fmt.Sprintf(`{"name":"Hosted Admission %t"}`, allowed),
+				fmt.Sprintf("hosted-admission-%t", allowed),
+				http.StatusCreated,
+				authHeaders(token),
+			)
+			orgID, err := publicid.Decode(
+				publicid.KindOrganization,
+				created["org"].(map[string]any)["id"].(string),
+			)
+			if err != nil {
+				t.Fatalf("decode organization ID: %v", err)
+			}
+			var stored bool
+			if err := pool.QueryRow(ctx, `
+				SELECT new_managed_work_allowed
+				FROM org_managed_work_admission
+				WHERE org_id = $1
+			`, orgID).Scan(&stored); err != nil {
+				t.Fatalf("read managed-work admission: %v", err)
+			}
+			if stored != allowed {
+				t.Fatalf("managed-work admission = %t, want %t", stored, allowed)
+			}
+		})
+	}
+}
+
 func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -275,7 +330,10 @@ func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t
 		request modelprovider.HostedCredentialRequest,
 	) (modelprovider.ProvisionHostedCredentialResponse, error) {
 		provisionRequest = request
-		return modelprovider.ProvisionHostedCredentialResponse{CredentialValue: "sk-cluster-openrouter"}, nil
+		return modelprovider.ProvisionHostedCredentialResponse{
+			CredentialValue:       "sk-cluster-openrouter",
+			NewManagedWorkAllowed: true,
+		}, nil
 	})
 	handler := newIntegrationServer(
 		pool,

@@ -43,7 +43,8 @@ type HostedCredentialRequest struct {
 }
 
 type ProvisionHostedCredentialResponse struct {
-	CredentialValue string `json:"credential_value"`
+	CredentialValue       string `json:"credential_value"`
+	NewManagedWorkAllowed bool   `json:"new_managed_work_allowed"`
 }
 
 var ErrHostedCredentialConflict = errors.New("hosted credential setup is blocked by an unresolved attempt")

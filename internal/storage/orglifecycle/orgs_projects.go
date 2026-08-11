@@ -20,12 +20,13 @@ import (
 )
 
 type CreateOrgForUserInput struct {
-	OrgID                ID
-	UserID               ID
-	Name                 string
-	IdempotencyKey       string
-	DefaultMachinePools  []executionstore.DefaultMachinePoolTemplate
-	DefaultModelProvider *modelstore.ProvisionedDefaultModelProvider
+	OrgID                     ID
+	UserID                    ID
+	Name                      string
+	IdempotencyKey            string
+	DefaultMachinePools       []executionstore.DefaultMachinePoolTemplate
+	DefaultModelProvider      *modelstore.ProvisionedDefaultModelProvider
+	InitialManagedWorkAllowed *bool
 }
 
 func (s *Service) CreateOrgForUser(
@@ -60,6 +61,20 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, err
 	}
 	if record.Created {
+		if input.InitialManagedWorkAllowed != nil {
+			if err := s.q.WithTx(tx).CreateOrgManagedWorkAdmission(
+				ctx,
+				dbsqlc.CreateOrgManagedWorkAdmissionParams{
+					OrgID:                 record.Org.ID,
+					NewManagedWorkAllowed: *input.InitialManagedWorkAllowed,
+				},
+			); err != nil {
+				return identitystore.CreateOrgForUserRecord{}, fmt.Errorf(
+					"create organization managed-work admission: %w",
+					err,
+				)
+			}
+		}
 		if err := s.execution.ProvisionOrganizationDefaultsTx(
 			ctx,
 			tx,

@@ -36,7 +36,7 @@ func TestHTTPHostedCredentialProvisionerBuildsAuthenticatedRoute(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"credential_value":"sk-provisioned"}`))
+		_, _ = w.Write([]byte(`{"credential_value":"sk-provisioned","new_managed_work_allowed":true}`))
 	}))
 	defer server.Close()
 
@@ -49,8 +49,8 @@ func TestHTTPHostedCredentialProvisionerBuildsAuthenticatedRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision hosted credential: %v", err)
 	}
-	if response.CredentialValue != "sk-provisioned" {
-		t.Fatalf("credential value = %q, want provisioned value", response.CredentialValue)
+	if response.CredentialValue != "sk-provisioned" || !response.NewManagedWorkAllowed {
+		t.Fatalf("provisioning response = %+v", response)
 	}
 	if !reflect.DeepEqual(gotRequest, validHostedCredentialRequest()) {
 		t.Fatalf("unexpected provision request: %+v", gotRequest)
@@ -62,7 +62,9 @@ func TestHTTPHostedCredentialProvisionerAcceptsAdditiveResponseFields(t *testing
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"credential_value":"secret","private_policy":{"version":2}}`))
+		_, _ = w.Write([]byte(
+			`{"credential_value":"secret","new_managed_work_allowed":false,"private_policy":{"version":2}}`,
+		))
 	}))
 	defer server.Close()
 
@@ -75,8 +77,8 @@ func TestHTTPHostedCredentialProvisionerAcceptsAdditiveResponseFields(t *testing
 	if err != nil {
 		t.Fatalf("provision credential: %v", err)
 	}
-	if response.CredentialValue != "secret" {
-		t.Fatalf("credential value = %q, want secret", response.CredentialValue)
+	if response.CredentialValue != "secret" || response.NewManagedWorkAllowed {
+		t.Fatalf("provisioning response = %+v", response)
 	}
 }
 

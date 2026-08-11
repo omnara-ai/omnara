@@ -99,6 +99,7 @@ func (s strictOpenAPIServer) CreateOrganization(
 		return nil, err
 	}
 	var provisionedProvider *modelstore.ProvisionedDefaultModelProvider
+	var initialManagedWorkAllowed *bool
 	if s.server.defaultModelProvider != nil {
 		if err := s.server.store.Identity().PreflightOrgCreationCapacity(ctx, principal.ID); err != nil {
 			return nil, s.createOrganizationStorageError("check organization creation capacity", err)
@@ -106,23 +107,28 @@ func (s strictOpenAPIServer) CreateOrganization(
 		if s.server.hostedCredentialProvisioner == nil {
 			return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "hosted credential provisioner unavailable")
 		}
-		provisionedProvider, err = s.provisionDefaultModelProvider(
+		var managedWorkAllowed bool
+		provisionedProvider, managedWorkAllowed, err = s.provisionDefaultModelProvider(
 			ctx,
 			publicOrgID,
 			publicCreatorUserID,
 			*s.server.defaultModelProvider,
 		)
+		if err == nil {
+			initialManagedWorkAllowed = &managedWorkAllowed
+		}
 	}
 	if err != nil {
 		return nil, hostedCredentialProvisioningAPIError(err)
 	}
 	input := orglifecycle.CreateOrgForUserInput{
-		OrgID:                orgID,
-		UserID:               principal.ID,
-		Name:                 request.Body.Name,
-		IdempotencyKey:       idempotencyKey,
-		DefaultMachinePools:  s.server.defaultPools,
-		DefaultModelProvider: provisionedProvider,
+		OrgID:                     orgID,
+		UserID:                    principal.ID,
+		Name:                      request.Body.Name,
+		IdempotencyKey:            idempotencyKey,
+		DefaultMachinePools:       s.server.defaultPools,
+		DefaultModelProvider:      provisionedProvider,
+		InitialManagedWorkAllowed: initialManagedWorkAllowed,
 	}
 	record, err := s.server.store.Organizations().CreateOrgForUser(ctx, input)
 	if err != nil {
@@ -189,9 +195,9 @@ func (s strictOpenAPIServer) provisionDefaultModelProvider(
 	publicOrgID string,
 	publicCreatorUserID string,
 	template modelstore.DefaultModelProviderTemplate,
-) (*modelstore.ProvisionedDefaultModelProvider, error) {
+) (*modelstore.ProvisionedDefaultModelProvider, bool, error) {
 	if s.server.hostedCredentialProvisioner == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "hosted credential provisioner unavailable")
+		return nil, false, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "hosted credential provisioner unavailable")
 	}
 	provisionCtx, cancel := context.WithTimeout(ctx, modelprovider.HostedCredentialProvisionTimeout)
 	response, provisionErr := s.server.hostedCredentialProvisioner.ProvisionHostedCredential(
@@ -211,12 +217,12 @@ func (s strictOpenAPIServer) provisionDefaultModelProvider(
 			"provisioner", template.Provisioner,
 			"error", provisionErr,
 		)
-		return nil, provisionErr
+		return nil, false, provisionErr
 	}
 	return &modelstore.ProvisionedDefaultModelProvider{
 		Template:        template,
 		CredentialValue: response.CredentialValue,
-	}, nil
+	}, response.NewManagedWorkAllowed, nil
 }
 
 func hostedCredentialProvisioningAPIError(err error) error {
