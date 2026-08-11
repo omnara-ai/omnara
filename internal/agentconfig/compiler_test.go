@@ -930,7 +930,6 @@ tools:
 
 func TestCompileYAMLRejectsMissingInstruction(t *testing.T) {
 	if _, err := Compile(SourceFormatYAML, []byte(`
-name: test
 model:
   provider_config: openai-prod
   name: gpt-test
@@ -941,7 +940,6 @@ model:
 
 func TestCompileYAMLRejectsWhitespaceInstruction(t *testing.T) {
 	if _, err := Compile(SourceFormatYAML, []byte(`
-name: test
 instruction: "   "
 model:
   provider_config: openai-prod
@@ -1454,14 +1452,12 @@ tools:
 
 func TestCompileYAMLRejectsInvalidModel(t *testing.T) {
 	for name, source := range map[string]string{
-		"missing_model": "name: test\n",
+		"missing_model": "instruction: Help the user make progress.\n",
 		"missing_model_name": `
-name: test
 model:
   provider_config: openai-prod
 `,
 		"removed_model_options": `
-name: test
 instruction: Help the user make progress.
 model:
   provider_config: openai-prod
@@ -1470,7 +1466,6 @@ model:
     temperature: 0.2
 `,
 		"removed_compat_options": `
-name: test
 instruction: Help the user make progress.
 model:
   provider_config: openai-prod
@@ -1490,7 +1485,6 @@ model:
 func TestCompileYAMLPersistsOnlyResolvedConfiguredModel(t *testing.T) {
 	supportsTools := true
 	result, err := Compile(SourceFormatYAML, []byte(`
-name: test
 instruction: Help the user make progress.
 model:
   provider_config: openai-prod
@@ -1798,7 +1792,6 @@ tools:
 		t.Fatal("expected unknown tool to be rejected")
 	}
 	if _, err := Compile(SourceFormatYAML, []byte(`
-name: test
 model:
   provider_config: openai-prod
   name: gpt-test
@@ -1899,7 +1892,6 @@ skills:
 
 func validAgentSource(extra string) string {
 	base := `
-name: test
 instruction: Help the user make progress.
 model:
   provider_config: openai-prod

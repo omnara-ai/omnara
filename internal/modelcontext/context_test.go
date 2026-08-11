@@ -953,7 +953,6 @@ tools:
 			compiled, err := agentconfig.Compile(
 				agentconfig.SourceFormatYAML,
 				[]byte(`
-name: skill-context
 instruction: Use attached skills.
 model:
   provider_config: deterministic-test
@@ -1122,7 +1121,6 @@ func TestRuntimeContractToolSpecsDoesNotDuplicateExplicitSkillTool(t *testing.T)
 	compiled, err := agentconfig.Compile(
 		agentconfig.SourceFormatYAML,
 		[]byte(`
-name: explicit-skill
 instruction: Use attached skills.
 model:
   provider_config: deterministic-test
@@ -1390,7 +1388,6 @@ func TestBuildIgnoresCheckpointPublishedAfterFixedFrontier(t *testing.T) {
 
 func testAgentConfigRecord() executionstore.AgentConfigRecord {
 	result, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
-name: test
 instruction: Help the user make progress.
 model:
   provider_config: deterministic-test
@@ -1410,7 +1407,6 @@ model:
 func testAgentConfigRecordWithTools(t *testing.T, tools ...string) executionstore.AgentConfigRecord {
 	t.Helper()
 	source := `
-name: test
 instruction: Help the user make progress.
 model:
   provider_config: deterministic-test
@@ -1435,7 +1431,6 @@ tools:
 func testAgentConfigRecordWithMCP(t *testing.T) executionstore.AgentConfigRecord {
 	t.Helper()
 	result, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
-name: test
 instruction: Help the user make progress.
 model:
   provider_config: deterministic-test

@@ -565,7 +565,7 @@ func createPublicHTTPAgent(
 	token string,
 ) map[string]any {
 	t.Helper()
-	sourceYAML := "name: " + seed + " Agent\ninstruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
+	sourceYAML := "instruction: Help the user make progress (" + seed + ").\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	config := createPublicHTTPAgentConfig(t, handler, project, seed, "yaml", sourceYAML, token, http.StatusCreated)
 	return createPublicHTTPAgentProfile(
 		t,

@@ -1761,7 +1761,7 @@ func createWorkerAgentWithToolPermissionsAndMachine(
 	machineName string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	sourceYAML := "name: Worker Kernel Test\ninstruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: worker-kernel-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /work\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: worker-kernel-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /work\n"
 	if len(permissionModes) > 0 {
 		sourceYAML += "tools:\n"
 		names := make([]string, 0, len(permissionModes))
@@ -1796,8 +1796,7 @@ func createWorkerAgentWithCatalogDefaultToolsForProject(
 	tools ...string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	sourceYAML := "name: Worker Kernel Test\n" +
-		"instruction: Help the user make progress.\n" +
+	sourceYAML := "instruction: Help the user make progress.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: worker-kernel-test\n"
@@ -1821,8 +1820,7 @@ func createWorkerAgentWithToolPermissionsForProject(
 	permissionModes map[string]string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	sourceYAML := "name: Worker Kernel Test\n" +
-		"instruction: Help the user make progress.\n" +
+	sourceYAML := "instruction: Help the user make progress.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: worker-kernel-test\n"

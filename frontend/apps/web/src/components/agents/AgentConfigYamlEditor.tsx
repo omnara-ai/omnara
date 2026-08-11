@@ -53,13 +53,11 @@ function shouldTriggerSuggestionsForChange(event: monaco.editor.IModelContentCha
   return !event.isFlush && event.changes.some((change) => change.text.includes('\n'))
 }
 
-function agentConfigYamlPlaceholder({ includeName = false }: { includeName?: boolean } = {}) {
-  return `${includeName ? 'name: my-agent\n' : ''}instruction: |
+const agentConfigYamlPlaceholder = `instruction: |
   You are a helpful assistant.
 model:
   provider_config: <provider-config-name>
   name: <model-name>`
-}
 
 function agentConfigYamlAriaLabel(readOnly: boolean) {
   return readOnly ? 'Config preview (YAML)' : 'Config (YAML)'
@@ -69,7 +67,6 @@ export interface AgentConfigYamlEditorProps {
   id: string
   value: string
   onChange: (value: string) => void
-  showNamePlaceholder?: boolean
   readOnly?: boolean
   className?: string
 }
@@ -78,7 +75,6 @@ export function AgentConfigYamlEditor({
   id,
   value,
   onChange,
-  showNamePlaceholder,
   readOnly = false,
   className,
 }: AgentConfigYamlEditorProps) {
@@ -110,7 +106,7 @@ export function AgentConfigYamlEditor({
       lineHeight: 18,
       minimap: { enabled: false },
       padding: { top: 12, bottom: 12 },
-      placeholder: agentConfigYamlPlaceholder({ includeName: showNamePlaceholder }),
+      placeholder: agentConfigYamlPlaceholder,
       quickSuggestions: { comments: false, other: true, strings: true },
       readOnly: initialReadOnlyRef.current,
       scrollBeyondLastLine: false,
@@ -150,7 +146,7 @@ export function AgentConfigYamlEditor({
       model.dispose()
       modelRef.current = null
     }
-  }, [id, showNamePlaceholder])
+  }, [id])
 
   useEffect(() => {
     const model = modelRef.current

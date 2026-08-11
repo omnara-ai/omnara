@@ -518,7 +518,6 @@ func injectModelReadyFrontier(
 		return input.ID
 	}
 	config := mustCreateAgentConfigFromYAML(t, ctx, fixture.Store, key+"-config", `
-name: Boundary Agent
 instruction: Follow the newly configured direction.
 model:
   provider_config: openai-prod

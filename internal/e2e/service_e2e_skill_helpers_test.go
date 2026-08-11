@@ -133,7 +133,6 @@ func (p *deterministicProject) updateAgentProfileConfigWithMachineAndSkill(
 ) {
 	t.Helper()
 	lines := []string{
-		"name: Deterministic Service E2E Skill",
 		"instruction: Help the user make progress.",
 		"model:",
 		"  provider_config: " + providerConfig,

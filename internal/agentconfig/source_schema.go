@@ -26,7 +26,6 @@ const (
 
 type AgentConfigSource struct {
 	Version        string                           `json:"version,omitempty"`
-	Name           string                           `json:"name,omitempty"`
 	Instruction    string                           `json:"instruction"`
 	Model          AgentConfigModelSource           `json:"model"`
 	MachineSources []AgentConfigMachineSource       `json:"machine_sources,omitempty"`
@@ -211,7 +210,6 @@ func agentConfigSourceJSONSchemaJSON() ([]byte, error) {
 func agentConfigSourceSchema() *kjsonschema.Schema {
 	schema := kjsonschema.Object(
 		kjsonschema.Prop("version", kjsonschema.Enum("v1")),
-		kjsonschema.Prop("name", kjsonschema.String()),
 		kjsonschema.Prop("instruction", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
 		kjsonschema.Prop("model", kjsonschema.Ref("#/$defs/AgentConfigModelSource")),
 		kjsonschema.Prop("machine_sources", kjsonschema.AnyOf(

@@ -431,7 +431,6 @@ func defaultCompactionAgentConfig() executionstore.AgentConfigRecord {
 	compiled, err := agentconfig.Compile(
 		agentconfig.SourceFormatYAML,
 		[]byte(`
-name: compaction test
 instruction: Continue the task.
 model:
   provider_config: openai-prod

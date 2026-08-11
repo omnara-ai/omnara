@@ -392,7 +392,6 @@ WHERE id = $1
 		t.Fatalf("seed agent configs to limit: %v", err)
 	}
 	sourceYAML := `
-name: Limited Agent
 instruction: distinct config
 model:
   provider_config: openai-prod

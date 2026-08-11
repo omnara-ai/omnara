@@ -38,8 +38,7 @@ func createHTTPRuntimeAgentWithMachineSource(
 	machineName string,
 ) executionstore.LaunchAgentResult {
 	t.Helper()
-	sourceYAML := `name: ` + name + `
-instruction: HTTP integration test agent.
+	sourceYAML := `instruction: HTTP integration test agent.
 model:
   provider_config: openai-prod
   name: http-test

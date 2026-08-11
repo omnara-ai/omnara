@@ -96,6 +96,7 @@ test('creates an agent from YAML', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
 
   await page.getByRole('button', { name: 'YAML' }).click()
+  await page.getByLabel('Agent name (optional)').fill('YAML E2E Agent')
 
   await page.getByLabel('Name', { exact: true }).fill('YAML E2E Agent')
   const editorInput = page.getByRole('textbox', { name: 'Config (YAML)' })
@@ -103,7 +104,6 @@ test('creates an agent from YAML', async ({ page }) => {
 
   await editorInput.focus()
   const yamlLines = [
-    'name: YAML E2E Agent',
     'instruction: Test agent creation from YAML.',
     `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
   ]
