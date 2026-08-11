@@ -22,11 +22,21 @@ const daemonRestartDelay = 3 * time.Second
 const daemonRestartSignal = syscall.SIGUSR1
 const supervisorChildShutdownTimeout = 20 * time.Second
 
-func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger) error {
+func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger) (resultErr error) {
 	store, err := localstore.New(home)
 	if err != nil {
 		return err
 	}
+	installLock, acquired, err := tryAcquireInstallLock(home)
+	if err != nil {
+		return err
+	}
+	if !acquired {
+		return errors.New("daemon installation is being modified")
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, installLock.Release())
+	}()
 	lock, err := localstore.TryAcquireLock(store.DaemonLockPath())
 	if errors.Is(err, localstore.ErrLockHeld) {
 		return errors.New("another daemon is already running in OMNARA_HOME")
@@ -43,6 +53,9 @@ func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger)
 	signal.Notify(restart, daemonRestartSignal)
 	defer signal.Stop(restart)
 	if err := lock.WritePID(os.Getpid()); err != nil {
+		return err
+	}
+	if err := installLock.Release(); err != nil {
 		return err
 	}
 	logPath, err := ensureServiceLog(home)

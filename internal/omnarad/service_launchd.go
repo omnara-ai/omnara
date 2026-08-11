@@ -22,6 +22,7 @@ import (
 )
 
 const launchdServiceLabel = "com.omnara.omnarad"
+const daemonServiceManager = "launchd"
 
 var launchdPlistTemplate = template.Must(
 	template.New(launchdServiceLabel + ".plist").
@@ -79,9 +80,18 @@ type launchdPlistTemplateData struct {
 }
 
 type launchdServiceState struct {
-	registered bool
-	running    bool
-	pid        int
+	definitionPath string
+	registered     bool
+	running        bool
+	pid            int
+}
+
+type launchdManagedDaemonStatus struct {
+	managerAvailable bool
+	definitionPath   string
+	registered       bool
+	running          bool
+	pid              int
 }
 
 func ensureDaemonService(
@@ -206,27 +216,33 @@ func ensureDaemonService(
 	return true, nil
 }
 
-func inspectDaemonService(ctx context.Context) (managedDaemonStatus, error) {
+func inspectDaemonService(ctx context.Context) (launchdManagedDaemonStatus, error) {
 	launchctl, err := exec.LookPath("launchctl")
 	if errors.Is(err, exec.ErrNotFound) {
-		return managedDaemonStatus{}, nil
+		return launchdManagedDaemonStatus{}, nil
 	}
 	if err != nil {
-		return managedDaemonStatus{}, fmt.Errorf("find launchctl: %w", err)
+		return launchdManagedDaemonStatus{}, fmt.Errorf("find launchctl: %w", err)
 	}
 	domain := "gui/" + strconv.Itoa(os.Geteuid())
 	probe := runServiceCommand(ctx, serviceCommandTimeout, launchctl, "print", domain)
 	if probe.err != nil {
 		if launchdUnavailable(probe) {
-			return managedDaemonStatus{}, nil
+			return launchdManagedDaemonStatus{}, nil
 		}
-		return managedDaemonStatus{}, serviceCommandError(launchctl, []string{"print", domain}, probe)
+		return launchdManagedDaemonStatus{}, serviceCommandError(launchctl, []string{"print", domain}, probe)
 	}
 	state, err := inspectLaunchdService(ctx, launchctl, domain+"/"+launchdServiceLabel)
 	if err != nil {
-		return managedDaemonStatus{}, err
+		return launchdManagedDaemonStatus{}, err
 	}
-	return managedDaemonStatus{manager: "launchd", running: launchdServiceReady(state), pid: state.pid}, nil
+	return launchdManagedDaemonStatus{
+		managerAvailable: true,
+		definitionPath:   state.definitionPath,
+		registered:       state.registered,
+		running:          launchdServiceReady(state),
+		pid:              state.pid,
+	}, nil
 }
 
 func stopDaemonService(ctx context.Context) error {
@@ -262,6 +278,51 @@ func stopDaemonService(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func uninstallDaemonService(ctx context.Context, home string) error {
+	userHome, err := serviceUserHome()
+	if err != nil {
+		return err
+	}
+	plistPath := filepath.Join(userHome, "Library", "LaunchAgents", launchdServiceLabel+".plist")
+	body, exists, err := readOwnedServiceFile(plistPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		homeEntry := []byte(
+			"<key>OMNARA_HOME</key>\n    <string>" + escapeXMLValue(home) + "</string>",
+		)
+		if !bytes.Contains(body, homeEntry) {
+			return fmt.Errorf("launchd service does not belong to Omnara home %s", home)
+		}
+	}
+	status, err := inspectDaemonService(ctx)
+	if err != nil {
+		return err
+	}
+	if !exists && status.registered {
+		return errors.New("launchd service is registered without an owned service definition")
+	}
+	if status.registered && filepath.Clean(status.definitionPath) != filepath.Clean(plistPath) {
+		return fmt.Errorf("launchd service is registered from an unowned definition: %q", status.definitionPath)
+	}
+	if exists && !status.managerAvailable {
+		return errors.New("launchd is unavailable; cannot safely unregister the Omnara service")
+	}
+	if exists && status.managerAvailable {
+		if err := stopDaemonService(ctx); err != nil {
+			return err
+		}
+	}
+	if !exists {
+		return nil
+	}
+	if err := os.Remove(plistPath); err != nil {
+		return fmt.Errorf("remove launchd service definition: %w", err)
+	}
+	return localstore.SyncDir(filepath.Dir(plistPath))
 }
 
 func renderLaunchdPlist(home, userHome, binaryPath, logPath string) ([]byte, error) {
@@ -343,6 +404,8 @@ func inspectLaunchdService(ctx context.Context, launchctl, serviceTarget string)
 			continue
 		}
 		switch key {
+		case "path":
+			state.definitionPath = value
 		case "state":
 			state.running = value == "running"
 		case "pid":

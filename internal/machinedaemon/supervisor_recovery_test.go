@@ -112,9 +112,108 @@ func TestAuthorityLossDeletesStateAndReportsUnresolvedContainment(
 	}
 	if got := logs.String(); !strings.Contains(
 		got,
-		"supervisor stopped before containment closure was proved",
+		"could not confirm agent process prc_authority_loss stopped",
 	) {
 		t.Fatalf("authority-loss warning = %q", got)
+	}
+}
+
+func TestStopLocalMachineRejectsMissingState(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	machine, err := localstore.Machine(home, "ins_missing_state", "mch_missing_state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := machine.LifetimeLockPath("prc_missing_state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := localstore.TryAcquireLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	err = StopLocalMachine(
+		context.Background(),
+		home,
+		"ins_missing_state",
+		"mch_missing_state",
+		"daemon_uninstalled",
+	)
+	if err == nil || !strings.Contains(err.Error(), "local process state is missing") {
+		t.Fatalf("stop error = %v", err)
+	}
+}
+
+func TestStopLocalMachinePreservesStoppedState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	home := t.TempDir()
+	client := New(Config{
+		OmnaraHome:             home,
+		ExpectedInstallationID: "ins_stopped",
+		ExpectedMachineID:      "mch_stopped",
+	}, nil, nil)
+	_, err := client.stateStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine, err := client.machineStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.closeState(); err != nil {
+		t.Fatal(err)
+	}
+	if err := StopLocalMachine(
+		ctx,
+		home,
+		"ins_stopped",
+		"mch_stopped",
+		"daemon_uninstalled",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(machine.StateDBPath()); err != nil {
+		t.Fatalf("stopped machine state was removed: %v", err)
+	}
+}
+
+func TestDeleteStoppedLocalMachinePreservesStateWhileSupervisorLives(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	client := New(Config{
+		OmnaraHome:             t.TempDir(),
+		ExpectedInstallationID: "ins_live",
+		ExpectedMachineID:      "mch_live",
+	}, nil, nil)
+	if _, err := client.stateStore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	machine, err := client.machineStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := machine.LifetimeLockPath("prc_live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := localstore.TryAcquireLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := client.deleteStoppedLocalMachine(canceled, machine); err == nil {
+		t.Fatal("delete stopped local machine succeeded")
+	}
+	if _, err := os.Stat(machine.StateDBPath()); err != nil {
+		t.Fatalf("live machine state was removed: %v", err)
 	}
 }
 
