@@ -50,7 +50,7 @@ SET name = sqlc.arg(name),
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
-  AND management_kind = 'tenant'
+  AND management_kind = sqlc.arg(management_kind)
   AND deleted_at IS NULL
 RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb;
 
@@ -226,6 +226,12 @@ SELECT id, org_id, name, management_kind, description, provider, default_machine
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id) AND management_kind = 'cluster' AND deleted_at IS NULL
 ORDER BY name, id;
+
+-- name: ListClusterManagedMachinePoolsByName :many
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
+FROM machine_pools
+WHERE name = sqlc.arg(name) AND management_kind = 'cluster' AND deleted_at IS NULL
+ORDER BY org_id, id;
 
 -- name: GetPoolGrantConfigValidationContext :one
 SELECT pool.provider,

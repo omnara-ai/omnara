@@ -1583,6 +1583,65 @@ func (q *Queries) ListClusterManagedMachinePools(ctx context.Context, arg ListCl
 	return items, nil
 }
 
+const listClusterManagedMachinePoolsByName = `-- name: ListClusterManagedMachinePoolsByName :many
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
+FROM machine_pools
+WHERE name = $1 AND management_kind = 'cluster' AND deleted_at IS NULL
+ORDER BY org_id, id
+`
+
+type ListClusterManagedMachinePoolsByNameParams struct {
+	Name string
+}
+
+func (q *Queries) ListClusterManagedMachinePoolsByName(ctx context.Context, arg ListClusterManagedMachinePoolsByNameParams) ([]MachinePool, error) {
+	rows, err := q.db.Query(ctx, listClusterManagedMachinePoolsByName, arg.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MachinePool{}
+	for rows.Next() {
+		var i MachinePool
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.ManagementKind,
+			&i.Description,
+			&i.Provider,
+			&i.DefaultMachineCpu,
+			&i.DefaultMachineMemoryMb,
+			&i.DefaultMachineEnv,
+			&i.DefaultMachineSecretEnv,
+			&i.DefaultMachineProviderOptions,
+			&i.DefaultCwd,
+			&i.ProviderConfig,
+			&i.ProviderAuthSecretID,
+			&i.ProviderAuthEnvVar,
+			&i.MaxTotalMachines,
+			&i.MaxTotalCpu,
+			&i.MaxTotalMemoryMb,
+			&i.MaxMachineCpu,
+			&i.MaxMachineMemoryMb,
+			&i.Metadata,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RuntimeProtectionEnabled,
+			&i.MinMachineCpu,
+			&i.MinMachineMemoryMb,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMachinePools = `-- name: ListMachinePools :many
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu,
        default_machine_memory_mb, default_machine_env, default_machine_secret_env,
@@ -2642,7 +2701,7 @@ SET name = $1,
     updated_at = statement_timestamp()
 WHERE org_id = $20
   AND id = $21
-  AND management_kind = 'tenant'
+  AND management_kind = $22
   AND deleted_at IS NULL
 RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 `
@@ -2669,6 +2728,7 @@ type UpdateMachinePoolParams struct {
 	Metadata                      json.RawMessage
 	OrgID                         uuid.UUID
 	ID                            uuid.UUID
+	ManagementKind                string
 }
 
 func (q *Queries) UpdateMachinePool(ctx context.Context, arg UpdateMachinePoolParams) (MachinePool, error) {
@@ -2694,6 +2754,7 @@ func (q *Queries) UpdateMachinePool(ctx context.Context, arg UpdateMachinePoolPa
 		arg.Metadata,
 		arg.OrgID,
 		arg.ID,
+		arg.ManagementKind,
 	)
 	var i MachinePool
 	err := row.Scan(
