@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 type rejectingMachinePoolProviders struct {
@@ -136,7 +137,10 @@ func createDefaultMachinePoolForTest(
 	input.DefaultMachineSecretEnv = normalizedJSON(input.DefaultMachineSecretEnv)
 	input.DefaultMachineProviderOptions = normalizedJSON(input.DefaultMachineProviderOptions)
 	input.ProviderConfig = normalizedJSON(input.ProviderConfig)
-	input.Metadata = normalizedJSON(input.Metadata)
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		t.Fatalf("encode machine pool metadata: %v", err)
+	}
 	row, err := store.q.InsertMachinePool(ctx, dbsqlc.InsertMachinePoolParams{
 		OrgID:                         input.OrgID,
 		Name:                          input.Name,
@@ -157,7 +161,7 @@ func createDefaultMachinePoolForTest(
 		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		Metadata:                      input.Metadata,
+		Metadata:                      metadata,
 	})
 	if err != nil {
 		t.Fatalf("create default machine pool: %v", err)
@@ -404,7 +408,7 @@ tools: {}
 		})
 		winnerDone <- launchOutcome{result: result, err: err}
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "-- name: LockAgentLaunchIdempotencyKey", blockerPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "-- name: LockAgentLaunchIdempotencyKey", blockerPID)
 
 	replayDone := make(chan launchOutcome, 1)
 	go func() {
@@ -416,7 +420,7 @@ tools: {}
 		})
 		replayDone <- launchOutcome{result: result, err: err}
 	}()
-	waitForDatabaseLockWaitCount(t, ctx, pool, "-- name: LockAgentLaunchIdempotencyKey", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentLaunchIdempotencyKey", 2)
 	if err := blocker.Commit(ctx); err != nil {
 		t.Fatalf("release launch idempotency key: %v", err)
 	}
@@ -1199,30 +1203,11 @@ tools:
 		})
 		loweredDone <- configChangeResult{result: result, err: changeErr}
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		select {
-		case change := <-loweredDone:
-			t.Fatalf("config change completed before waiting on pool lock: %v", change.err)
-		default:
-		}
-		var waiters int
-		if err := pool.QueryRow(ctx, `
-SELECT count(*)::integer
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query LIKE '%LockMachinePoolForLifecycle%'
-`).Scan(&waiters); err != nil {
-			t.Fatalf("count config change pool lock waiters: %v", err)
-		}
-		if waiters > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for config change to lock machine pool")
-		}
-		time.Sleep(10 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
+	select {
+	case change := <-loweredDone:
+		t.Fatalf("config change completed before waiting on pool lock: %v", change.err)
+	default:
 	}
 	if _, err := lockOrderQ.LockMachineForLifecycle(
 		ctx,
@@ -1305,30 +1290,11 @@ WHERE datname = current_database()
 		})
 		removalDone <- configChangeResult{result: result, err: changeErr}
 	}()
-	deadline = time.Now().Add(5 * time.Second)
-	for {
-		select {
-		case change := <-removalDone:
-			t.Fatalf("config removal completed before waiting on machine lock: %v", change.err)
-		default:
-		}
-		var waiters int
-		if err := pool.QueryRow(ctx, `
-SELECT count(*)::integer
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query LIKE '%LockMachineForLifecycle%'
-`).Scan(&waiters); err != nil {
-			t.Fatalf("count config removal machine lock waiters: %v", err)
-		}
-		if waiters > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for config removal to lock pool machines")
-		}
-		time.Sleep(10 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
+	select {
+	case change := <-removalDone:
+		t.Fatalf("config removal completed before waiting on machine lock: %v", change.err)
+	default:
 	}
 	machineAgentLockCtx, cancelMachineAgentLock := context.WithTimeout(ctx, time.Second)
 	defer cancelMachineAgentLock()

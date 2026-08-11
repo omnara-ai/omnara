@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestCancelAgentTerminatesAcceptedProcessBeforeRunCommandResolves(t *testing.T) {
@@ -281,7 +282,7 @@ func TestProcessReadinessAndAgentCancellationResolveAtomically(t *testing.T) {
 		)
 		cancelDone <- cancelErr
 	}()
-	time.Sleep(100 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Store.pool, "LockAgentInProject", 2)
 	if err := agentLock.Commit(ctx); err != nil {
 		t.Fatalf("release agent lock: %v", err)
 	}
@@ -429,7 +430,8 @@ func TestProcessAcceptAndAgentCancellationResolveAtomically(t *testing.T) {
 		)
 		cancelDone <- cancelErr
 	}()
-	time.Sleep(100 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Store.pool, "LockDaemonProcessForAccept", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Store.pool, "CancelUnresolvedProcessesForAgentTurn", 1)
 	if err := processLock.Commit(ctx); err != nil {
 		t.Fatalf("release process lock: %v", err)
 	}
@@ -631,7 +633,7 @@ func TestAcceptedProcessActionCancellationAndDaemonReportResolveAtomically(
 		)
 		reportDone <- reportOutcome{application: application, err: reportErr}
 	}()
-	time.Sleep(100 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Store.pool, "LockAgentInProject", 2)
 	if err := agentLock.Commit(ctx); err != nil {
 		t.Fatalf("release agent lock: %v", err)
 	}

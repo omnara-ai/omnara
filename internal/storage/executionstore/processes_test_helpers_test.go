@@ -561,9 +561,13 @@ func newProcessMachineFixtureWithoutDaemonRuntime(
 	}
 }
 
-func expireDaemonRuntimeForTest(t *testing.T, ctx context.Context, fixture processDaemonFixture) {
+func expireDaemonRuntimeForTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+) time.Time {
 	t.Helper()
-	expireDaemonRuntimeLeaseForTest(
+	return expireDaemonRuntimeLeaseForTest(
 		t,
 		ctx,
 		fixture.Store,
@@ -578,41 +582,24 @@ func expireDaemonRuntimeLeaseForTest(
 	ctx context.Context,
 	store *Store,
 	orgID, machineID, runtimeID ID,
-) {
+) time.Time {
 	t.Helper()
-	var startedAt, databaseNow time.Time
+	var leaseExpiresAt time.Time
 	if err := store.pool.QueryRow(ctx, `
-		SELECT started_at, statement_timestamp()
-		FROM machine_online_intervals
-		WHERE org_id = $1
-		  AND machine_id = $2
-		  AND daemon_runtime_id = $3
-		  AND ended_at IS NULL
-	`, orgID, machineID, runtimeID).Scan(&startedAt, &databaseNow); err != nil {
-		t.Fatalf("load open daemon runtime interval: %v", err)
-	}
-
-	leaseExpiresAt := startedAt.Add(time.Microsecond)
-	if wait := leaseExpiresAt.Sub(databaseNow); wait >= 0 {
-		time.Sleep(wait + time.Millisecond)
-	}
-	commandTag, err := store.pool.Exec(ctx, `
 		UPDATE daemon_runtimes
-		SET last_seen_at = $4,
-		    lease_expires_at = $5,
+		SET last_seen_at = statement_timestamp(),
+		    lease_expires_at = statement_timestamp() + interval '1 millisecond',
 		    updated_at = statement_timestamp()
 		WHERE org_id = $1
 		  AND machine_id = $2
 		  AND id = $3
 		  AND state = 'active'
-		  AND $5 < statement_timestamp()
-	`, orgID, machineID, runtimeID, startedAt, leaseExpiresAt)
-	if err != nil {
-		t.Fatalf("expire daemon runtime: %v", err)
+		RETURNING lease_expires_at
+	`, orgID, machineID, runtimeID).Scan(&leaseExpiresAt); err != nil {
+		t.Fatalf("shorten daemon runtime lease: %v", err)
 	}
-	if commandTag.RowsAffected() != 1 {
-		t.Fatalf("expire daemon runtime rows = %d, want 1", commandTag.RowsAffected())
-	}
+	waitForDatabaseTime(t, ctx, store.pool, leaseExpiresAt)
+	return leaseExpiresAt
 }
 
 func assertMachineState(
@@ -646,16 +633,13 @@ func assertMachineObservedPlatform(t *testing.T, ctx context.Context, store *Sto
 		t.Fatalf("get machine: %v", err)
 	}
 	var metadata struct {
-		ObservedPlatform struct {
-			OS   string `json:"os"`
-			Arch string `json:"arch"`
-		} `json:"observed_platform"`
+		ObservedPlatform string `json:"observed_platform"`
 	}
 	if err := json.Unmarshal(machine.Metadata, &metadata); err != nil {
 		t.Fatalf("parse machine metadata: %v", err)
 	}
-	if metadata.ObservedPlatform.OS != osName || metadata.ObservedPlatform.Arch != arch {
-		t.Fatalf("observed platform = %+v, want %s/%s", metadata.ObservedPlatform, osName, arch)
+	if metadata.ObservedPlatform != osName+"/"+arch {
+		t.Fatalf("observed platform = %q, want %s/%s", metadata.ObservedPlatform, osName, arch)
 	}
 }
 

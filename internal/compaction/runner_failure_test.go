@@ -28,6 +28,30 @@ func TestCompactionRequestPolicyUsesLiveMaximumAsSafetyCeiling(t *testing.T) {
 	}
 }
 
+func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.T) {
+	input := runInput(testPlan(2, 2, 2))
+	claim := newCompactionClaim(compactionClaimInput(input, time.Time{}), 0, time.Time{})
+	claim.Claimed = false
+	claim.Context.State = executionstore.ModelCallContextFailed
+	claim.Context.ErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
+
+	store := &fakeStore{}
+	client := &summaryModel{}
+	result, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
+	if err != nil {
+		t.Fatalf("return supplied terminal compaction claim: %v", err)
+	}
+	if result.State != RunTerminal || result.ModelCallContextID != claim.Context.ID ||
+		len(store.claimInputs) != 0 || len(client.requests) != 0 {
+		t.Fatalf(
+			"terminal result=%+v claims=%+v requests=%d",
+			result,
+			store.claimInputs,
+			len(client.requests),
+		)
+	}
+}
+
 func TestRunnerClaimsNewContextForDueRetry(t *testing.T) {
 	now := time.Unix(123, 0).UTC()
 	input := runInput(testPlan(1, 1, 1))

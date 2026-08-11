@@ -16,6 +16,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 type CreateDaemonMachineInput struct {
@@ -26,7 +28,7 @@ type CreateDaemonMachineInput struct {
 	Env            json.RawMessage
 	SecretEnv      json.RawMessage
 	IdempotencyKey string
-	Metadata       json.RawMessage
+	Metadata       resourcemeta.Metadata
 }
 
 type UpdateMachineInput struct {
@@ -161,7 +163,7 @@ type CreateProjectMachineGrantInput struct {
 	MachineID      ID
 	Description    string
 	IdempotencyKey string
-	Metadata       json.RawMessage
+	Metadata       resourcemeta.Metadata
 }
 
 type MachineDaemonTokenRecord struct {
@@ -187,7 +189,7 @@ type CreateBYOMachineDaemonTokenInput struct {
 	MachineID ID
 	Name      string
 	Token     string
-	Metadata  json.RawMessage
+	Metadata  resourcemeta.Metadata
 }
 
 type MachineDaemonBootstrapInput struct {
@@ -225,8 +227,10 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	if isNilID(input.OrgID) || input.DisplayName == "" {
 		return MachineRecord{}, errors.New("org and display name are required")
 	}
-	var err error
-	input.Metadata, err = normalizedJSONObject(input.Metadata, "machine metadata")
+	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
+		return MachineRecord{}, fmt.Errorf("machine metadata: %w", err)
+	}
+	metadata, err := input.Metadata.JSON()
 	if err != nil {
 		return MachineRecord{}, err
 	}
@@ -266,7 +270,7 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 			SecretEnv:              secretEnv,
 			IdempotencyKey:         sqlcTextFromEmpty(input.IdempotencyKey),
 			LifecycleReasonMessage: "",
-			Metadata:               input.Metadata,
+			Metadata:               metadata,
 		},
 	)
 	if err == nil {
@@ -619,8 +623,7 @@ func (s *Store) CreateProjectMachineGrant(
 			"org, project, and machine are required",
 		)
 	}
-	var err error
-	input.Metadata, err = normalizedJSONObject(input.Metadata, "project machine grant metadata")
+	metadata, err := metadataColumn(input.Metadata, "project machine grant metadata")
 	if err != nil {
 		return ProjectMachineGrantRecord{}, MachineRecord{}, err
 	}
@@ -664,7 +667,7 @@ func (s *Store) CreateProjectMachineGrant(
 			ProjectMachinePoolGrantID: nil,
 			Description:               input.Description,
 			IdempotencyKey:            sqlcTextFromEmpty(input.IdempotencyKey),
-			Metadata:                  input.Metadata,
+			Metadata:                  metadata,
 		},
 	)
 	if err == nil {
@@ -698,7 +701,7 @@ func (s *Store) CreateProjectMachineGrant(
 				grant.SourceKind != ProjectMachineGrantSourceKindExplicit ||
 				grant.ProjectMachinePoolGrantID != NilID ||
 				grant.Description != input.Description ||
-				!sameJSON(grant.Metadata, input.Metadata) {
+				!sameJSON(grant.Metadata, metadata) {
 				return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.ErrIdempotencyConflict
 			}
 			if err := tx.Commit(ctx); err != nil {

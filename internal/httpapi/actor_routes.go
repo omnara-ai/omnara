@@ -6,6 +6,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -187,13 +188,17 @@ func publicActorFromRecord(
 	if err != nil {
 		return openapi.Actor{}, err
 	}
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
+	if err != nil {
+		return openapi.Actor{}, err
+	}
 	response := openapi.Actor{
 		Id:             id,
 		OrgId:          publicOrgID,
 		ProjectId:      projectID,
 		Provider:       openapi.ActorProvider(record.Provider),
 		ProviderUserId: record.ProviderUserID,
-		Metadata:       jsonOrFallback(record.Metadata, []byte(`{}`)),
+		Metadata:       metadata,
 		CreatedAt:      record.CreatedAt,
 		UpdatedAt:      record.UpdatedAt,
 	}

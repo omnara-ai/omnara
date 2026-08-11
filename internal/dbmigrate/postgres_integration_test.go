@@ -68,7 +68,7 @@ func TestMachinePoolDeletionCredentialMigrationUpgradesExistingPools(t *testing.
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := dbmigrate.ApplyPostgres(ctx, db, productionMigrationsThrough(t, 15)); err != nil {
+	if err := dbmigrate.ApplyPostgres(ctx, db, productionMigrationsThrough(t, 16)); err != nil {
 		t.Fatalf("apply migrations through current main: %v", err)
 	}
 
@@ -85,7 +85,7 @@ SELECT EXISTS (
 		t.Fatal(err)
 	}
 	if columnExists {
-		t.Fatal("machine pool deletion credential column exists before migration 16")
+		t.Fatal("machine pool deletion credential column exists before migration 17")
 	}
 
 	orgID := uuid.New()
@@ -221,7 +221,7 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions,configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_memberships,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,projects,secret_grants,secret_oauth_refresh_leases,secret_versions,secrets,skill_grants,skills"
+	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions,configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission,org_memberships,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,projects,secret_grants,secret_oauth_refresh_leases,secret_versions,secrets,skill_grants,skills"
 	var actual string
 	if err := db.QueryRowContext(ctx, `
 SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')

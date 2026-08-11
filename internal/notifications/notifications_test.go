@@ -952,7 +952,6 @@ func TestRoutedPublisherDropsUnknownIntent(t *testing.T) {
 	}, fakePresenceStore{}, nil)
 
 	publisher.PublishPostCommit(context.Background(), unknownIntent{})
-	time.Sleep(20 * time.Millisecond)
 
 	if got := bus.daemonCount(); got != 0 {
 		t.Fatalf("daemon publishes for unknown intent = %d, want 0", got)

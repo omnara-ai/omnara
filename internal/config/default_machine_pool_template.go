@@ -10,29 +10,31 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"gopkg.in/yaml.v3"
+
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 type defaultMachinePoolTemplateFile struct {
-	Name                          string            `yaml:"name"`
-	Description                   string            `yaml:"description"`
-	Provider                      string            `yaml:"provider"`
-	DefaultMachineCPU             *int              `yaml:"default_machine_cpu"`
-	DefaultMachineMemoryMB        *int              `yaml:"default_machine_memory_mb"`
-	DefaultMachineEnv             map[string]string `yaml:"default_machine_env"`
-	DefaultMachineSecretEnv       map[string]string `yaml:"default_machine_secret_env"`
-	DefaultMachineProviderOptions map[string]any    `yaml:"default_machine_provider_options"`
-	DefaultCwd                    string            `yaml:"default_cwd"`
-	ProviderConfig                map[string]any    `yaml:"provider_config"`
-	ProviderAuthEnvVar            string            `yaml:"provider_auth_env_var"`
-	RuntimeProtectionEnabled      bool              `yaml:"runtime_protection_enabled"`
-	MaxTotalMachines              *int32            `yaml:"max_total_machines"`
-	MaxTotalCPU                   *int              `yaml:"max_total_cpu"`
-	MaxTotalMemoryMB              *int              `yaml:"max_total_memory_mb"`
-	MinMachineCPU                 *int              `yaml:"min_machine_cpu"`
-	MinMachineMemoryMB            *int              `yaml:"min_machine_memory_mb"`
-	MaxMachineCPU                 *int              `yaml:"max_machine_cpu"`
-	MaxMachineMemoryMB            *int              `yaml:"max_machine_memory_mb"`
-	Metadata                      map[string]any    `yaml:"metadata"`
+	Name                          string                `yaml:"name"`
+	Description                   string                `yaml:"description"`
+	Provider                      string                `yaml:"provider"`
+	DefaultMachineCPU             *int                  `yaml:"default_machine_cpu"`
+	DefaultMachineMemoryMB        *int                  `yaml:"default_machine_memory_mb"`
+	DefaultMachineEnv             map[string]string     `yaml:"default_machine_env"`
+	DefaultMachineSecretEnv       map[string]string     `yaml:"default_machine_secret_env"`
+	DefaultMachineProviderOptions map[string]any        `yaml:"default_machine_provider_options"`
+	DefaultCwd                    string                `yaml:"default_cwd"`
+	ProviderConfig                map[string]any        `yaml:"provider_config"`
+	ProviderAuthEnvVar            string                `yaml:"provider_auth_env_var"`
+	RuntimeProtectionEnabled      bool                  `yaml:"runtime_protection_enabled"`
+	MaxTotalMachines              *int32                `yaml:"max_total_machines"`
+	MaxTotalCPU                   *int                  `yaml:"max_total_cpu"`
+	MaxTotalMemoryMB              *int                  `yaml:"max_total_memory_mb"`
+	MinMachineCPU                 *int                  `yaml:"min_machine_cpu"`
+	MinMachineMemoryMB            *int                  `yaml:"min_machine_memory_mb"`
+	MaxMachineCPU                 *int                  `yaml:"max_machine_cpu"`
+	MaxMachineMemoryMB            *int                  `yaml:"max_machine_memory_mb"`
+	Metadata                      resourcemeta.Metadata `yaml:"metadata"`
 }
 
 type defaultMachinePoolTemplatesFile struct {
@@ -176,7 +178,14 @@ func defaultMachinePoolTemplateFromFile(
 		parsed.ProviderConfig = map[string]any{}
 	}
 	if parsed.Metadata == nil {
-		parsed.Metadata = map[string]any{}
+		parsed.Metadata = resourcemeta.Metadata{}
+	}
+	if err := parsed.Metadata.Validate(); err != nil {
+		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf(
+			"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES %s.metadata: %w",
+			label,
+			err,
+		)
 	}
 	defaultMachineEnv, err := json.Marshal(parsed.DefaultMachineEnv)
 	if err != nil {
@@ -210,14 +219,6 @@ func defaultMachinePoolTemplateFromFile(
 			err,
 		)
 	}
-	metadata, err := json.Marshal(parsed.Metadata)
-	if err != nil {
-		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf(
-			"marshal OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES %s.metadata: %w",
-			label,
-			err,
-		)
-	}
 	return executionstore.DefaultMachinePoolTemplate{
 		Name:                          parsed.Name,
 		Description:                   parsed.Description,
@@ -238,6 +239,6 @@ func defaultMachinePoolTemplateFromFile(
 		MinMachineMemoryMB:            parsed.MinMachineMemoryMB,
 		MaxMachineCPU:                 parsed.MaxMachineCPU,
 		MaxMachineMemoryMB:            parsed.MaxMachineMemoryMB,
-		Metadata:                      json.RawMessage(metadata),
+		Metadata:                      parsed.Metadata,
 	}, nil
 }

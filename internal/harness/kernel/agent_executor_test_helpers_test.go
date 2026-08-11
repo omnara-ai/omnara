@@ -23,10 +23,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
@@ -173,13 +175,41 @@ func (f kernelFixture) createAgent(
 	tools ...string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	return f.createAgentWithModelOptions(t, ctx, modelSelection, now, kernelConfiguredModelOptions{}, tools...)
+	return f.createNamedAgentWithModelOptions(
+		t,
+		ctx,
+		"Kernel Test",
+		modelSelection,
+		now,
+		kernelConfiguredModelOptions{},
+		tools...,
+	)
 }
 
 func (f kernelFixture) createAgentWithModelOptions(
 	t *testing.T,
 	ctx context.Context,
 	modelSelection string,
+	now time.Time,
+	modelOptions kernelConfiguredModelOptions,
+	tools ...string,
+) (storage.ID, storage.ID) {
+	t.Helper()
+	return f.createNamedAgentWithModelOptions(
+		t,
+		ctx,
+		"Kernel Test",
+		modelSelection,
+		now,
+		modelOptions,
+		tools...,
+	)
+}
+
+func (f kernelFixture) createNamedAgentWithModelOptions(
+	t *testing.T,
+	ctx context.Context,
+	name, modelSelection string,
 	now time.Time,
 	modelOptions kernelConfiguredModelOptions,
 	tools ...string,
@@ -194,7 +224,7 @@ func (f kernelFixture) createAgentWithModelOptions(
 		time.RFC3339Nano,
 	)
 	launchIdempotencyKey := agentProfileIdempotencyKey + "-launch"
-	sourceYAML := "name: Kernel Test\ninstruction: Help the user make progress.\nmodel:\n  provider_config: " + providerConfigName + "\n  name: " + configuredModelName + "\n"
+	sourceYAML := "name: " + name + "\ninstruction: Help the user make progress.\nmodel:\n  provider_config: " + providerConfigName + "\n  name: " + configuredModelName + "\n"
 	if len(tools) > 0 {
 		sourceYAML += "tools:\n"
 		sort.Strings(tools)
@@ -205,7 +235,7 @@ func (f kernelFixture) createAgentWithModelOptions(
 	profileRecord := f.createConfigAndProfileBookmarkWithModelOptions(
 		t,
 		ctx,
-		"Kernel Test",
+		name,
 		agentProfileIdempotencyKey,
 		sourceYAML,
 		now,
@@ -364,6 +394,18 @@ func (f kernelFixture) ensureModelSelection(
 			t.Fatalf("create model provider config %q: %v", providerConfigName, err)
 		}
 	}
+	if providerConfig.ManagementKind == management.Cluster {
+		configuredModel, err := f.Store.Models().GetConfiguredModelByName(
+			ctx,
+			kernelTestOrgID,
+			providerConfig.ID,
+			configuredModelName,
+		)
+		if err != nil {
+			t.Fatalf("load cluster configured model %s/%s: %v", providerConfigName, configuredModelName, err)
+		}
+		return configuredModel
+	}
 	configuredModel, err := f.Store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
 		OrgID:                 kernelTestOrgID,
 		ModelProviderConfigID: providerConfig.ID,
@@ -383,6 +425,74 @@ func (f kernelFixture) ensureModelSelection(
 		t.Fatalf("grant configured model %s/%s: %v", providerConfigName, configuredModelName, err)
 	}
 	return configuredModel
+}
+
+func (f kernelFixture) provisionClusterModel(
+	t *testing.T,
+	ctx context.Context,
+	providerConfigName, configuredModelName string,
+) {
+	t.Helper()
+	tx, err := f.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin cluster model provisioning: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	credential, _, err := f.Store.Secrets().CreateTx(ctx, tx, secretstore.CreateSecretInput{
+		OrgID:          kernelTestOrgID,
+		ManagementKind: management.Cluster,
+		OwnerKind:      secretstore.SecretOwnerOrg,
+		Name:           providerConfigName + "-credential",
+		Material:       secrets.GenericMaterial{Value: "test-key"},
+		Metadata:       resourcemeta.Metadata{},
+		Actor:          kernelTestUserPrincipal(kernelTestUserID),
+	})
+	if err != nil {
+		t.Fatalf("provision cluster model credential: %v", err)
+	}
+	if err := f.Store.Models().ProvisionDefaultTx(
+		ctx,
+		tx,
+		kernelTestOrgID,
+		kernelTestProjectID,
+		kernelTestUserID,
+		credential.ID,
+		modelstore.DefaultModelProviderTemplate{
+			Provisioner:          "kernel-test",
+			Name:                 providerConfigName,
+			CredentialSecretName: credential.Name,
+			APIFormat:            modelprotocol.APIFormatOpenAIResponses,
+			BaseURL:              "https://api.openai.com/v1",
+			AuthKind:             modelstore.ModelProviderAuthKindBearerToken,
+			Models: []modelstore.DefaultConfiguredModelTemplate{{
+				Name:                configuredModelName,
+				ProviderModelSlug:   configuredModelName,
+				ContextWindowTokens: 128000,
+				MaxOutputTokens:     8192,
+			}},
+		},
+	); err != nil {
+		t.Fatalf("provision cluster model: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit cluster model provisioning: %v", err)
+	}
+}
+
+func (f kernelFixture) setManagedWorkAdmission(
+	t *testing.T,
+	ctx context.Context,
+	allowed bool,
+) {
+	t.Helper()
+	if _, err := f.Pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, $2)
+ON CONFLICT (org_id) DO UPDATE
+SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
+`, kernelTestOrgID, allowed); err != nil {
+		t.Fatalf("set managed work admission to %v: %v", allowed, err)
+	}
 }
 
 func firstKernelTestInt(value *int, fallback int) int {
@@ -612,7 +722,6 @@ func nextToolWorkExecution(
 		fixture,
 		prior.AgentID,
 		executionstore.AgentWorkTool,
-		prior.Now.Add(time.Second),
 	)
 	return ToolWorkExecution{
 		ProjectID:          claim.ProjectID,
@@ -654,15 +763,22 @@ func executeNextToolWork(
 			t.Errorf("release tool-work runtime: %v", err)
 		}
 	}
-	if scope.Started() {
-		go func() {
-			<-scope.Done()
-			release()
-		}()
-	} else {
+	if !scope.Started() {
 		release()
+		return scope
 	}
-	return scope
+	settled := tools.NewAsyncExecutionScope(nil)
+	reservation, err := tools.ReserveAsyncExecution(tools.WithAsyncExecutionScope(ctx, settled))
+	if err != nil {
+		t.Fatalf("reserve runtime release tracking: %v", err)
+	}
+	settled.Seal()
+	go func() {
+		<-scope.Done()
+		release()
+		reservation.Done(scope.Err())
+	}()
+	return settled
 }
 
 func executeNextModelWork(
@@ -679,7 +795,6 @@ func executeNextModelWork(
 		fixture,
 		prior.AgentID,
 		executionstore.AgentWorkModel,
-		prior.Now.Add(3*time.Second),
 	)
 	work := modelWorkExecutionFromClaimForKernelTest(claim, prior.Now.Add(4*time.Second))
 	if err := executor.ExecuteModelWork(ctx, work); err != nil {
@@ -694,43 +809,27 @@ func claimNextAgentWorkForKernelTest(
 	fixture kernelFixture,
 	agentID storage.ID,
 	kind executionstore.AgentWorkKind,
-	now time.Time,
 ) executionstore.ClaimedAgentWork {
 	t.Helper()
-	const retryInterval = 25 * time.Millisecond
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		claimAt := now
-		if wallNow := time.Now().UTC(); claimAt.Before(wallNow) {
-			claimAt = wallNow.Add(time.Second)
-		}
-		claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
-			ctx,
-			kernelTestClaimInput(claimAt),
-		)
-		if errors.Is(err, storeerr.ErrNoClaimableAgentWakeup) || (err == nil && !found) {
-			time.Sleep(retryInterval)
-			continue
-		}
-		if err != nil {
-			t.Fatalf("claim next agent work: %v", err)
-		}
-		if !found || claim.Kind == executionstore.AgentWorkNone {
-			time.Sleep(retryInterval)
-			continue
-		}
-		if claim.AgentID != agentID || claim.Kind != kind {
-			t.Fatalf(
-				"claimed agent work = %+v, want agent %s kind %d",
-				claim,
-				agentID,
-				kind,
-			)
-		}
-		return claim
+	claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
+		ctx,
+		kernelTestClaimInput(time.Time{}),
+	)
+	if err != nil {
+		t.Fatalf("claim next agent work: %v", err)
 	}
-	t.Fatalf("timed out claiming agent %s work kind %d", agentID, kind)
-	return executionstore.ClaimedAgentWork{}
+	if !found || claim.Kind == executionstore.AgentWorkNone {
+		t.Fatalf("no claimable work for agent %s, want kind %d", agentID, kind)
+	}
+	if claim.AgentID != agentID || claim.Kind != kind {
+		t.Fatalf(
+			"claimed agent work = %+v, want agent %s kind %d",
+			claim,
+			agentID,
+			kind,
+		)
+	}
+	return claim
 }
 
 func executeAsyncToolTurn(

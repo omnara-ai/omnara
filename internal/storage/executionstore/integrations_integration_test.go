@@ -22,6 +22,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestIntegrationInstallBindingsIdentityAndOAuthReplay(t *testing.T) {
@@ -368,7 +369,7 @@ func TestIntegrationInstallRechecksProfileAfterLockWait(t *testing.T) {
 		record, installErr := store.Integrations().UpsertIntegrationInstall(context.Background(), input)
 		done <- installResult{record: record, err: installErr}
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "-- name: LockAgentProfile", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "-- name: LockAgentProfile", blockingPID)
 	if _, err := blockingTx.Exec(
 		ctx,
 		`UPDATE agent_profiles SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
@@ -453,7 +454,7 @@ func TestIntegrationInstallRechecksAgentAfterArchiveWait(t *testing.T) {
 		)
 		archiveDone <- archiveErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	type installResult struct {
 		record integrationstore.IntegrationInstallRecord
 		err    error
@@ -466,7 +467,7 @@ func TestIntegrationInstallRechecksAgentAfterArchiveWait(t *testing.T) {
 		)
 		installDone <- installResult{record: record, err: installErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release integration agent blocker: %v", err)
 	}
@@ -544,7 +545,7 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 		)
 		archiveDone <- archiveErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	targetDone := make(chan error, 1)
 	go func() {
 		_, targetErr := store.Integrations().CreateIntegrationTarget(
@@ -553,7 +554,7 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 		)
 		targetDone <- targetErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release integration target agent blocker: %v", err)
 	}
@@ -657,14 +658,14 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 			}
 			if targetWins {
 				startTarget()
-				waitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
 				startDelete()
 			} else {
 				startDelete()
-				waitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
 				startTarget()
 			}
-			waitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 2)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 2)
 			if err := blockingTx.Commit(ctx); err != nil {
 				t.Fatalf("release integration install blocker: %v", err)
 			}
@@ -837,7 +838,7 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 					install.ID,
 				)
 			}()
-			waitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
 
 			scopeDeleteDone := make(chan error, 1)
 			go func() {
@@ -862,7 +863,7 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 			if scope == "organization" {
 				gateQuery = "LockOrganizationLifecycleExclusive"
 			}
-			waitForNamedLockWaiters(t, ctx, pool, gateQuery, 1)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, gateQuery, 1)
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release integration install control transaction: %v", err)
 			}
@@ -1037,7 +1038,7 @@ func TestIntegrationInstallUpdateUsesPostLockDatabaseTime(t *testing.T) {
 		record, updateErr := store.Integrations().UpsertIntegrationInstall(context.Background(), input)
 		done <- updateResult{record: record, err: updateErr}
 	}()
-	waitForDatabaseLockWait(
+	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		pool,

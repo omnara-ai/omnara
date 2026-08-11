@@ -232,10 +232,6 @@ func (s strictOpenAPIServer) registerMachineDaemonRuntime(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(body.Metadata)
-	if err != nil {
-		return nil, err
-	}
 	observedPlatform, err := rawJSONFromPointer(body.ObservedPlatform)
 	if err != nil {
 		return nil, err
@@ -249,7 +245,6 @@ func (s strictOpenAPIServer) registerMachineDaemonRuntime(
 			DaemonInstanceID: body.DaemonInstanceId,
 			DaemonVersion:    body.DaemonVersion,
 			Capacity:         capacity,
-			Metadata:         metadata,
 			ObservedPlatform: observedPlatform,
 			ProcessClaims:    claims,
 			LeaseTimeout:     s.server.daemonRuntimeLeaseDuration,

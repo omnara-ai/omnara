@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -87,7 +88,7 @@ type PutActorInput struct {
 	// set, including when set to an empty value; when unset the stored
 	// values are kept.
 	DisplayName *string
-	Metadata    json.RawMessage
+	Metadata    resourcemeta.Metadata
 }
 
 const (
@@ -97,44 +98,7 @@ const (
 	MaxActorProviderUserIDLength = 128
 	// MaxActorDisplayNameLength bounds actor display names, in characters.
 	MaxActorDisplayNameLength = 256
-	// MaxActorMetadataEntries bounds the number of metadata entries per actor.
-	MaxActorMetadataEntries = 16
-	// MaxActorMetadataKeyLength bounds actor metadata keys, in characters.
-	MaxActorMetadataKeyLength = 64
-	// MaxActorMetadataValueLength bounds actor metadata values, in characters.
-	MaxActorMetadataValueLength = 512
 )
-
-func validateActorMetadata(metadata json.RawMessage) error {
-	if len(metadata) == 0 {
-		return nil
-	}
-	var entries map[string]string
-	if err := json.Unmarshal(metadata, &entries); err != nil || entries == nil {
-		return fmt.Errorf("%w: metadata must be an object of string values", storeerr.ErrInvalidActorRequest)
-	}
-	if len(entries) > MaxActorMetadataEntries {
-		return fmt.Errorf(
-			"%w: metadata cannot have more than %d entries",
-			storeerr.ErrInvalidActorRequest, MaxActorMetadataEntries,
-		)
-	}
-	for key, value := range entries {
-		if key == "" || utf8.RuneCountInString(key) > MaxActorMetadataKeyLength {
-			return fmt.Errorf(
-				"%w: metadata keys must be 1-%d characters",
-				storeerr.ErrInvalidActorRequest, MaxActorMetadataKeyLength,
-			)
-		}
-		if utf8.RuneCountInString(value) > MaxActorMetadataValueLength {
-			return fmt.Errorf(
-				"%w: metadata values must be at most %d characters",
-				storeerr.ErrInvalidActorRequest, MaxActorMetadataValueLength,
-			)
-		}
-	}
-	return nil
-}
 
 // PutActor upserts an external actor by (provider_tenant_id,
 // provider_user_id). Unset attributes keep their stored values, set
@@ -185,10 +149,10 @@ func putActorTx(ctx context.Context, q *dbsqlc.Queries, input PutActorInput) (Ac
 	if input.DisplayName != nil {
 		displayName = strings.TrimSpace(*input.DisplayName)
 	}
-	metadataSet := len(input.Metadata) != 0
-	metadata := input.Metadata
-	if !metadataSet {
-		metadata = json.RawMessage(`{}`)
+	metadataSet := input.Metadata != nil
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		return ActorRecord{}, err
 	}
 	row, err := q.PutActor(ctx, dbsqlc.PutActorParams{
 		ProjectID:        input.ProjectID,
@@ -246,10 +210,9 @@ func validatePutActorInput(input PutActorInput) error {
 			storeerr.ErrInvalidActorRequest, MaxActorDisplayNameLength,
 		)
 	}
-	metadataSet := len(input.Metadata) != 0
-	if metadataSet {
-		if err := validateActorMetadata(input.Metadata); err != nil {
-			return err
+	if input.Metadata != nil {
+		if err := input.Metadata.Validate(); err != nil {
+			return fmt.Errorf("%w: %w", storeerr.ErrInvalidActorRequest, err)
 		}
 	}
 	return nil

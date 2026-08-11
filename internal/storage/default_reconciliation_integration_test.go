@@ -22,6 +22,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 type defaultReconciliationMachinePoolProviders struct {
@@ -545,7 +546,7 @@ func TestReconcileDefaultsWaitingBehindOrganizationDeletionRejectsInactiveOrgani
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
 	desiredPool := poolTemplate
 	desiredPool.Description = "must not be applied"
 	reconcileDone := make(chan error, 1)
@@ -558,7 +559,7 @@ func TestReconcileDefaultsWaitingBehindOrganizationDeletionRejectsInactiveOrgani
 		)
 		reconcileDone <- reconcileErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleShared", 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release control transaction: %v", err)
 	}
@@ -637,7 +638,7 @@ func TestReconcileDefaultsWaitingBehindProjectDeletionCreatesNoModel(t *testing.
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "DeleteProjectModelGrantsForProjectDeletion", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProjectModelGrantsForProjectDeletion", 1)
 	desiredProvider := providerTemplate
 	desiredProvider.Models = append(
 		append([]modelstore.DefaultConfiguredModelTemplate(nil), providerTemplate.Models...),
@@ -654,7 +655,7 @@ func TestReconcileDefaultsWaitingBehindProjectDeletionCreatesNoModel(t *testing.
 		)
 		reconcileDone <- reconcileErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release control transaction: %v", err)
 	}
@@ -751,7 +752,7 @@ INSERT INTO machines(
 		)
 		reconcileDone <- reconcileErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
 	deleteDone := make(chan error, 1)
 	go func() {
 		deleteTx, deleteErr := pool.Begin(ctx)
@@ -772,7 +773,7 @@ INSERT INTO machines(
 		}
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForUpdate", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForUpdate", 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release control transaction: %v", err)
 	}
@@ -941,7 +942,7 @@ machine_sources:
 		)
 		reconcileDone <- reconcileErr
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
 	changeDone := make(chan error, 1)
 	go func() {
 		_, changeErr := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
@@ -1040,31 +1041,15 @@ func waitForDefaultReconciliationLockWaiter(
 	done <-chan error,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		select {
-		case err := <-done:
-			t.Fatalf("%s completed before waiting on %s: %v", operation, queryName, err)
-		default:
-		}
-		var waiters int
-		if err := pool.QueryRow(
-			ctx,
-			`SELECT count(*)::integer
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query LIKE '%' || $1 || '%'`,
-			"-- name: "+queryName+" ",
-		).Scan(&waiters); err != nil {
-			t.Fatalf("count %s waiters: %v", queryName, err)
-		}
-		if waiters > 0 {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s to wait on %s", operation, queryName)
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("%s completed before waiting on %s: %v", operation, queryName, err)
+	default:
+	}
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, queryName, 1)
+	select {
+	case err := <-done:
+		t.Fatalf("%s completed while waiting on %s: %v", operation, queryName, err)
+	default:
 	}
 }

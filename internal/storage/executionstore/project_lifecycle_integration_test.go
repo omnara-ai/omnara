@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
@@ -55,7 +56,7 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			profileDone <- profileOutcome{record: record, err: createErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockResourceCreation", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockResourceCreation", 1)
 
 		deleteDone := make(chan error, 1)
 		go func() {
@@ -67,7 +68,7 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			deleteDone <- deleteErr
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release project child control transaction: %v", err)
 		}
@@ -138,7 +139,7 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			deleteDone <- deleteErr
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 		profileDone := make(chan error, 1)
 		go func() {
@@ -153,7 +154,7 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			profileDone <- createErr
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release project deletion control transaction: %v", err)
 		}
@@ -298,15 +299,15 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 
 			if updateWins {
 				startUpdates()
-				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
-				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockConfiguredModelForUse", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockConfiguredModelForUse", 1)
 				startDelete()
-				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
 			} else {
 				startDelete()
-				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 				startUpdates()
-				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
 			}
 
 			if err := controlTx.Commit(ctx); err != nil {
@@ -390,7 +391,7 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 	putDone := make(chan error, 1)
 	go func() {
 		displayName := "Created too late"
@@ -418,7 +419,7 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 			},
 		)
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release actor lifecycle control transaction: %v", err)
 	}
@@ -493,7 +494,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			invitationDone <- invitationOutcome{record: record, err: createErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockResourceCreation", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockResourceCreation", 1)
 
 		deleteDone := make(chan error, 1)
 		go func() {
@@ -504,7 +505,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			deleteDone <- deleteErr
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleExclusive", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleExclusive", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release organization child control transaction: %v", err)
 		}
@@ -566,7 +567,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			deleteDone <- deleteErr
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 		invitationDone := make(chan error, 1)
 		go func() {
@@ -580,7 +581,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			invitationDone <- createErr
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleShared", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleShared", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release organization deletion control transaction: %v", err)
 		}
@@ -683,7 +684,7 @@ func TestProjectMembershipAdmissionWaitingBehindDeletionRejectsInactiveProject(t
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 	userRoleDone := make(chan error, 1)
 	go func() {
@@ -705,7 +706,7 @@ func TestProjectMembershipAdmissionWaitingBehindDeletionRejectsInactiveProject(t
 		})
 		keyRoleDone <- addErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release source lock control transaction: %v", err)

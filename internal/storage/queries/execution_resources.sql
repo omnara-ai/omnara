@@ -317,10 +317,16 @@ SELECT pool_grant.id,
        pool.default_machine_env,
        pool.default_machine_secret_env,
        pool.default_machine_provider_options,
-       pool.default_cwd
+       pool.default_cwd,
+       CASE
+           WHEN pool.management_kind = 'cluster'
+               THEN COALESCE(admission.new_managed_work_allowed, true)
+           ELSE true
+       END AS new_managed_work_allowed
 FROM machine_pools pool
 JOIN project_machine_pool_grants pool_grant ON pool_grant.org_id = pool.org_id
   AND pool_grant.machine_pool_id = pool.id
+LEFT JOIN org_managed_work_admission admission ON admission.org_id = pool.org_id
 WHERE pool_grant.org_id = sqlc.arg(org_id)
   AND pool_grant.project_id = sqlc.arg(project_id)
   AND pool_grant.machine_pool_id = sqlc.arg(machine_pool_id)

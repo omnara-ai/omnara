@@ -11,17 +11,17 @@ WITH cutoff AS MATERIALIZED (
   JOIN machines machine ON machine.org_id = process.org_id
     AND machine.id = process.machine_id
   LEFT JOIN LATERAL (
-    SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS observed_at
-    FROM daemon_runtimes runtime
+    SELECT runtime.effective_end_at AS unreachable_at
+    FROM daemon_runtime_connection_facts runtime
     WHERE runtime.org_id = process.org_id
       AND runtime.machine_id = process.machine_id
-    ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
     LIMIT 1
   ) latest_runtime ON true
   CROSS JOIN cutoff
   WHERE process.state IN ('queued', 'starting', 'running')
     AND process.created_at <= cutoff.unreachable_before
-    AND coalesce(latest_runtime.observed_at, process.created_at) <= cutoff.unreachable_before
+    AND coalesce(latest_runtime.unreachable_at, process.created_at) <= cutoff.unreachable_before
     AND tool_call.type = 'built_in'
     AND tool_call.state = 'waiting'
     AND machine.lifecycle_state = 'active'
@@ -50,17 +50,17 @@ WITH cutoff AS MATERIALIZED (
   JOIN machines machine ON machine.org_id = action.org_id
     AND machine.id = process.machine_id
   LEFT JOIN LATERAL (
-    SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS observed_at
-    FROM daemon_runtimes runtime
+    SELECT runtime.effective_end_at AS unreachable_at
+    FROM daemon_runtime_connection_facts runtime
     WHERE runtime.org_id = action.org_id
       AND runtime.machine_id = process.machine_id
-    ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
     LIMIT 1
   ) latest_runtime ON true
   CROSS JOIN cutoff
   WHERE action.state IN ('queued', 'accepted')
     AND action.created_at <= cutoff.unreachable_before
-    AND coalesce(latest_runtime.observed_at, action.created_at) <= cutoff.unreachable_before
+    AND coalesce(latest_runtime.unreachable_at, action.created_at) <= cutoff.unreachable_before
     AND (
       action.state = 'accepted'
       OR process.state IN ('starting', 'running')
@@ -98,15 +98,15 @@ WITH cutoff AS MATERIALIZED (
          work.machine_id,
          greatest(
            work.earliest_work_at,
-           coalesce(latest_runtime.observed_at, work.earliest_work_at)
+           coalesce(latest_runtime.unreachable_at, work.earliest_work_at)
          )::timestamptz AS unreachable_at
   FROM machine_work work
   LEFT JOIN LATERAL (
-    SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS observed_at
-    FROM daemon_runtimes runtime
+    SELECT runtime.effective_end_at AS unreachable_at
+    FROM daemon_runtime_connection_facts runtime
     WHERE runtime.org_id = work.org_id
       AND runtime.machine_id = work.machine_id
-    ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
     LIMIT 1
   ) latest_runtime ON true
 )
@@ -125,11 +125,11 @@ JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
 JOIN machines machine ON machine.org_id = process.org_id
   AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
-  SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
-  FROM daemon_runtimes runtime
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
   WHERE runtime.org_id = process.org_id
     AND runtime.machine_id = process.machine_id
-  ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
   LIMIT 1
 ) latest_runtime ON true
 LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
@@ -159,11 +159,11 @@ SELECT machine.lifecycle_state = 'active'
     OR machine.wake_attempt_expires_at <= statement_timestamp()
   )
   AND greatest((
-    SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz
-    FROM daemon_runtimes runtime
+    SELECT runtime.effective_end_at
+    FROM daemon_runtime_connection_facts runtime
     WHERE runtime.org_id = machine.org_id
       AND runtime.machine_id = machine.id
-    ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
     LIMIT 1
   ), sqlc.arg(fallback_at)::timestamptz) <= statement_timestamp() - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
   AND NOT EXISTS (
@@ -221,11 +221,11 @@ JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
 JOIN machines machine ON machine.org_id = process.org_id
   AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
-  SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
-  FROM daemon_runtimes runtime
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
   WHERE runtime.org_id = process.org_id
     AND runtime.machine_id = process.machine_id
-  ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
   LIMIT 1
 ) latest_runtime ON true
 LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
@@ -258,11 +258,11 @@ JOIN tool_calls tool_call ON tool_call.agent_id = action.agent_id
 JOIN machines machine ON machine.org_id = process.org_id
   AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
-  SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
-  FROM daemon_runtimes runtime
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
   WHERE runtime.org_id = process.org_id
     AND runtime.machine_id = process.machine_id
-  ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
   LIMIT 1
 ) latest_runtime ON true
 LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
@@ -301,11 +301,11 @@ JOIN tool_calls tool_call ON tool_call.agent_id = action.agent_id
 JOIN machines machine ON machine.org_id = process.org_id
   AND machine.id = process.machine_id
 LEFT JOIN LATERAL (
-  SELECT coalesce(runtime.ended_at, runtime.lease_expires_at)::timestamptz AS unreachable_at
-  FROM daemon_runtimes runtime
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
   WHERE runtime.org_id = process.org_id
     AND runtime.machine_id = process.machine_id
-  ORDER BY coalesce(runtime.ended_at, runtime.lease_expires_at) DESC, runtime.id DESC
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
   LIMIT 1
 ) latest_runtime ON true
 LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id

@@ -209,29 +209,6 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 	return id, err
 }
 
-const getAgentConfigRevisionForModelCall = `-- name: GetAgentConfigRevisionForModelCall :one
-SELECT configured_model.current_revision_id
-FROM agent_configs config
-JOIN configured_models configured_model ON configured_model.org_id = config.org_id
-  AND configured_model.id = config.configured_model_id
-WHERE config.project_id = $1
-  AND config.id = $2
-`
-
-type GetAgentConfigRevisionForModelCallParams struct {
-	ProjectID     uuid.UUID
-	AgentConfigID uuid.UUID
-}
-
-// @sqlc-vet-disable configured-models-deleted-at
-// Model-call lineage must survive soft deletion so the unavailable model can fail durably.
-func (q *Queries) GetAgentConfigRevisionForModelCall(ctx context.Context, arg GetAgentConfigRevisionForModelCallParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getAgentConfigRevisionForModelCall, arg.ProjectID, arg.AgentConfigID)
-	var current_revision_id uuid.UUID
-	err := row.Scan(&current_revision_id)
-	return current_revision_id, err
-}
-
 const getCompactionModelCallContextByIdentity = `-- name: GetCompactionModelCallContextByIdentity :one
 SELECT context.id
 FROM model_call_contexts context
@@ -426,6 +403,43 @@ func (q *Queries) GetModelCallContextTurnID(ctx context.Context, arg GetModelCal
 	var turn_id uuid.UUID
 	err := row.Scan(&turn_id)
 	return turn_id, err
+}
+
+const getModelCallRevisionForClaim = `-- name: GetModelCallRevisionForClaim :one
+SELECT configured_model.current_revision_id,
+       CASE
+           WHEN provider.management_kind = 'cluster'
+               THEN COALESCE(admission.new_managed_work_allowed, true)
+           ELSE true
+       END AS new_managed_work_allowed
+FROM agent_configs config
+JOIN configured_models configured_model ON configured_model.org_id = config.org_id
+  AND configured_model.id = config.configured_model_id
+JOIN model_provider_configs provider ON provider.org_id = configured_model.org_id
+  AND provider.id = configured_model.model_provider_config_id
+LEFT JOIN org_managed_work_admission admission ON admission.org_id = config.org_id
+WHERE config.project_id = $1
+  AND config.id = $2
+`
+
+type GetModelCallRevisionForClaimParams struct {
+	ProjectID     uuid.UUID
+	AgentConfigID uuid.UUID
+}
+
+type GetModelCallRevisionForClaimRow struct {
+	CurrentRevisionID     uuid.UUID
+	NewManagedWorkAllowed bool
+}
+
+// @sqlc-vet-disable configured-models-deleted-at
+// @sqlc-vet-disable model-provider-configs-deleted-at
+// Model-call lineage must survive soft deletion so the unavailable model can fail durably.
+func (q *Queries) GetModelCallRevisionForClaim(ctx context.Context, arg GetModelCallRevisionForClaimParams) (GetModelCallRevisionForClaimRow, error) {
+	row := q.db.QueryRow(ctx, getModelCallRevisionForClaim, arg.ProjectID, arg.AgentConfigID)
+	var i GetModelCallRevisionForClaimRow
+	err := row.Scan(&i.CurrentRevisionID, &i.NewManagedWorkAllowed)
+	return i, err
 }
 
 const getNormalModelCallContextByIdentity = `-- name: GetNormalModelCallContextByIdentity :one

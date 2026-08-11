@@ -33,6 +33,10 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeServiceUnavailable:      {http.StatusServiceUnavailable, "service unavailable"},
 	openapi.ErrorCodeIdempotencyKeyConflict:  {http.StatusConflict, "idempotency key conflict"},
 	openapi.ErrorCodeStateTransitionConflict: {http.StatusConflict, "state transition conflict"},
+	openapi.ErrorCodeManagedWorkAdmissionDenied: {
+		http.StatusConflict,
+		"new managed work is temporarily unavailable",
+	},
 	openapi.ErrorCodeDaemonRuntimeUnregistered: {
 		http.StatusGone,
 		"daemon runtime is no longer registered for this machine",
@@ -76,6 +80,7 @@ var sentinelCodes = []sentinelMapping{
 	{storeerr.ErrDaemonInstanceSuperseded, openapi.ErrorCodeGone, false},
 	{storeerr.ErrProcessActionReportBlocked, openapi.ErrorCodeInvalidRequest, false},
 	{storeerr.ErrStateTransitionConflict, openapi.ErrorCodeStateTransitionConflict, false},
+	{storeerr.ErrManagedWorkAdmissionDenied, openapi.ErrorCodeManagedWorkAdmissionDenied, true},
 	{storeerr.ErrMachineProviderUnavailable, openapi.ErrorCodeServiceUnavailable, true},
 	{storeerr.ErrModelGrantUnavailable, openapi.ErrorCodeInvalidRequest, false},
 	{storeerr.ErrUnauthorized, openapi.ErrorCodeForbidden, false},

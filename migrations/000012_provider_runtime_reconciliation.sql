@@ -1,6 +1,12 @@
 -- +goose Up
 
--- Provider runtime protection and neutral daemon-online interval facts.
+-- Operator-managed work admission, provider runtime protection, and neutral daemon-online interval facts.
+
+-- Missing rows admit new managed work; rows materialize per-organization overrides.
+CREATE TABLE org_managed_work_admission (
+    org_id uuid PRIMARY KEY REFERENCES orgs(id) ON DELETE CASCADE,
+    new_managed_work_allowed boolean NOT NULL
+);
 
 ALTER TABLE machine_pools
     ADD COLUMN runtime_protection_enabled boolean NOT NULL DEFAULT false;
@@ -19,11 +25,67 @@ ALTER TABLE machines
             )
         );
 
+ALTER TABLE daemon_runtimes
+    ADD CONSTRAINT daemon_runtimes_time_order_check
+        CHECK (
+            created_at <= last_seen_at
+            AND (ended_at IS NULL OR ended_at >= last_seen_at)
+        );
+
+-- +goose StatementBegin
+CREATE FUNCTION reject_daemon_runtime_last_seen_regression() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'daemon runtime last_seen_at cannot precede its prior lifecycle frontier',
+        CONSTRAINT = 'daemon_runtimes_last_seen_monotonic';
+END;
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd
+
+CREATE TRIGGER daemon_runtimes_last_seen_monotonic
+    BEFORE UPDATE OF state, last_seen_at
+    ON daemon_runtimes
+    FOR EACH ROW
+    WHEN (
+        NEW.last_seen_at < OLD.last_seen_at
+        OR (
+            OLD.state = 'ended'
+            AND NEW.state = 'active'
+            AND NEW.last_seen_at < OLD.ended_at
+        )
+    )
+    EXECUTE FUNCTION reject_daemon_runtime_last_seen_regression();
+
 CREATE INDEX machines_provider_runtime_mismatch_due_idx
     ON machines(provider_runtime_mismatch_since, id)
     WHERE provider_runtime_mismatch_since IS NOT NULL
       AND lifecycle_state = 'active'
       AND deleted_at IS NULL;
+
+DROP INDEX daemon_runtimes_machine_recent_idx;
+
+-- Keep this expression aligned with daemon_runtime_connection_facts.effective_end_at.
+CREATE INDEX daemon_runtimes_machine_recent_idx
+    ON daemon_runtimes(
+        org_id,
+        machine_id,
+        (CASE
+            WHEN ended_at IS NULL THEN lease_expires_at
+            ELSE LEAST(ended_at, lease_expires_at)
+        END) DESC,
+        id DESC
+    );
+
+CREATE VIEW daemon_runtime_connection_facts AS
+SELECT runtime.id,
+       runtime.org_id,
+       runtime.machine_id,
+       CASE
+           WHEN runtime.ended_at IS NULL THEN runtime.lease_expires_at
+           ELSE LEAST(runtime.ended_at, runtime.lease_expires_at)
+       END AS effective_end_at
+FROM daemon_runtimes runtime;
 
 CREATE TABLE machine_online_intervals (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -86,7 +148,7 @@ BEGIN
     IF OLD.state = 'active' AND NEW.state = 'ended' THEN
         interval_end := LEAST(NEW.ended_at, OLD.lease_expires_at);
         UPDATE machine_online_intervals
-        SET ended_at = GREATEST(machine_online_intervals.started_at, interval_end),
+        SET ended_at = interval_end,
             end_reason_code = COALESCE(NULLIF(NEW.state_reason_code, ''), 'daemon_runtime_ended')
         WHERE org_id = NEW.org_id
           AND machine_id = NEW.machine_id
@@ -99,7 +161,7 @@ BEGIN
        AND NEW.state = 'active'
        AND OLD.lease_expires_at <= NEW.last_seen_at THEN
         UPDATE machine_online_intervals
-        SET ended_at = GREATEST(machine_online_intervals.started_at, OLD.lease_expires_at),
+        SET ended_at = OLD.lease_expires_at,
             end_reason_code = 'daemon_lease_expired'
         WHERE org_id = NEW.org_id
           AND machine_id = NEW.machine_id
@@ -187,6 +249,8 @@ SELECT runtime.org_id,
        statement_timestamp()
 FROM online_daemon_runtimes runtime;
 
+-- Open intervals confirm only committed heartbeats, bounded by the tracking start for rollout-seeded runtimes.
+-- Closed intervals settle through their lease-capped end.
 CREATE VIEW machine_online_interval_facts AS
 SELECT online_interval.id,
        online_interval.org_id,
@@ -195,20 +259,16 @@ SELECT online_interval.id,
        online_interval.started_at,
        online_interval.ended_at,
        online_interval.end_reason_code,
-       GREATEST(
-           online_interval.started_at,
+       COALESCE(online_interval.ended_at, runtime.lease_expires_at) AS effective_end_at,
+       LEAST(
+           statement_timestamp(),
            COALESCE(online_interval.ended_at, runtime.lease_expires_at)
-       ) AS effective_end_at,
-       GREATEST(
-           online_interval.started_at,
-           LEAST(
-               statement_timestamp(),
-               GREATEST(
-                   online_interval.started_at,
-                   COALESCE(online_interval.ended_at, runtime.lease_expires_at)
-               )
-           )
-       ) AS observed_through
+       ) AS observed_through,
+       CASE
+           WHEN online_interval.ended_at IS NULL
+               THEN GREATEST(online_interval.started_at, runtime.last_seen_at)
+           ELSE online_interval.ended_at
+       END AS confirmed_through
 FROM machine_online_intervals online_interval
 JOIN daemon_runtimes runtime
   ON runtime.org_id = online_interval.org_id

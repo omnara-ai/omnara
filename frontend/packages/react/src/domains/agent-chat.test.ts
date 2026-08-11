@@ -173,7 +173,7 @@ function delta(
   deltaEvent: ModelOutputStreamDelta,
   overrides: Partial<ModelOutputDelta> = {},
 ): ModelOutputDelta {
-  return {
+  const frame = {
     turn_id: 'turn',
     model_call_context_id: 'mcc',
     seq,
@@ -181,6 +181,10 @@ function delta(
     source_seq_end: seq,
     event: deltaEvent,
     ...overrides,
+  }
+  return {
+    coalesced_count: frame.source_seq_end - frame.source_seq_start + 1,
+    ...frame,
   }
 }
 
@@ -1170,6 +1174,21 @@ describe('projectAgentChat delta previews', () => {
       deltas: [
         previewDelta(1, 'Hello '),
         previewDelta(2, 'world', { source_seq_start: 3, source_seq_end: 3 }),
+      ],
+    })
+    expect(messages).toEqual([])
+  })
+
+  it('withholds the preview when loss hides inside one frame', () => {
+    const { messages } = projectAgentChat({
+      ...emptyData,
+      deltas: [
+        previewDelta(1, 'Hello '),
+        previewDelta(2, 'world', {
+          source_seq_start: 2,
+          source_seq_end: 4,
+          coalesced_count: 2,
+        }),
       ],
     })
     expect(messages).toEqual([])

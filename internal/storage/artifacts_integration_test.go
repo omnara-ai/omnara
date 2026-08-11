@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 type recordingBlobStore struct {
@@ -408,7 +409,7 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			)
 			deleteDone <- deleteErr
 		}()
-		waitForNamedLockWaiters(t, ctx, pool, "LockAgentMachineSources", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentMachineSources", 1)
 
 		artifactDone := make(chan artifactOutcome, 1)
 		go func() {
@@ -423,7 +424,7 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			)
 			artifactDone <- artifactOutcome{record: record, err: createErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, pool, "InsertArtifact", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "InsertArtifact", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release artifact creation control transaction: %v", err)
 		}
@@ -506,7 +507,7 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			)
 			deleteDone <- deleteErr
 		}()
-		waitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 
 		artifactDone := make(chan artifactOutcome, 1)
 		go func() {
@@ -521,7 +522,7 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			)
 			artifactDone <- artifactOutcome{record: record, err: createErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release project deletion control transaction: %v", err)
 		}

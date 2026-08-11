@@ -8,6 +8,8 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 func (s *Store) encryptSecretPayload(
@@ -52,21 +54,18 @@ func encryptedPayloadFromSecretVersion(version SecretVersionRecord) secrets.Encr
 	}
 }
 
-func normalizedSecretMetadata(metadata json.RawMessage) (json.RawMessage, error) {
-	if len(metadata) == 0 {
-		return json.RawMessage(`{}`), nil
+func normalizedSecretMetadata(metadata resourcemeta.Metadata) (json.RawMessage, error) {
+	if err := metadata.Validate(); err != nil {
+		return nil, err
 	}
-	if len(metadata) > MaxSecretMetadataBytes {
+	raw, err := metadata.JSON()
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > MaxSecretMetadataBytes {
 		return nil, fmt.Errorf("secret metadata exceeds %d bytes", MaxSecretMetadataBytes)
 	}
-	var value map[string]string
-	if err := json.Unmarshal(metadata, &value); err != nil {
-		return nil, fmt.Errorf("parse secret metadata: %w", err)
-	}
-	if value == nil {
-		return nil, errors.New("secret metadata must be a JSON object with string values")
-	}
-	return json.Marshal(value)
+	return raw, nil
 }
 
 func secretMetadataFilterJSON(metadata map[string]string) (json.RawMessage, error) {

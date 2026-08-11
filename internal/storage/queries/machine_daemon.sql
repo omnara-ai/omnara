@@ -163,8 +163,8 @@ SET last_observed_at = statement_timestamp(),
     provider_runtime_mismatch_since = NULL,
     wake_attempt_expires_at = NULL,
     metadata = CASE
-      WHEN sqlc.arg(observed_platform)::jsonb = '{}'::jsonb THEN metadata
-      ELSE jsonb_set(metadata, '{observed_platform}', sqlc.arg(observed_platform)::jsonb, true)
+      WHEN sqlc.arg(observed_platform)::text = '' THEN metadata
+      ELSE jsonb_set(metadata, '{observed_platform}', to_jsonb(sqlc.arg(observed_platform)::text), true)
     END,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)

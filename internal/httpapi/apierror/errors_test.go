@@ -78,6 +78,12 @@ func TestFromError(t *testing.T) {
 			openapi.ErrorCodeDaemonRuntimeUnregistered,
 		},
 		{
+			"managed work admission denied",
+			storeerr.ErrManagedWorkAdmissionDenied,
+			http.StatusConflict,
+			openapi.ErrorCodeManagedWorkAdmissionDenied,
+		},
+		{
 			"unclassified",
 			errors.New("pq: connection reset"),
 			http.StatusInternalServerError,
@@ -115,6 +121,13 @@ func TestFromErrorHidesOpaqueSentinelDetail(t *testing.T) {
 	}
 	if got.Message != "service unavailable" {
 		t.Fatalf("FromError(%v).Message = %q, want opaque base message", err, got.Message)
+	}
+	admission := FromError(fmt.Errorf(
+		"operator policy detail: %w",
+		storeerr.ErrManagedWorkAdmissionDenied,
+	))
+	if admission.Message != "new managed work is temporarily unavailable" {
+		t.Fatalf("managed admission message = %q, want opaque base message", admission.Message)
 	}
 }
 

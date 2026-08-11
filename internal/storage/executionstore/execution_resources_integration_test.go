@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestInstallationIsSeededSingleton(t *testing.T) {
@@ -295,30 +296,11 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 		})
 		updateDone <- updateErr
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		select {
-		case updateErr := <-updateDone:
-			t.Fatalf("machine update completed before binding commit: %v", updateErr)
-		default:
-		}
-		var waiters int
-		if err := pool.QueryRow(ctx, `
-SELECT count(*)::integer
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query LIKE '%LockMachineExecutionDefaults%'
-`).Scan(&waiters); err != nil {
-			t.Fatalf("count machine environment lock waiters: %v", err)
-		}
-		if waiters > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for machine update")
-		}
-		time.Sleep(10 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineExecutionDefaults", 1)
+	select {
+	case updateErr := <-updateDone:
+		t.Fatalf("machine update completed before binding commit: %v", updateErr)
+	default:
 	}
 	if err := bindingTx.Commit(ctx); err != nil {
 		t.Fatalf("commit binding: %v", err)

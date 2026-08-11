@@ -35,11 +35,6 @@ func (s *Store) CreateSecret(
 	if err := s.validateCreateSecretInput(ctx, &input); err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
-	metadata, err := normalizedSecretMetadata(input.Metadata)
-	if err != nil {
-		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
-	}
-	input.Metadata = metadata
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, fmt.Errorf("begin create secret: %w", err)
@@ -112,6 +107,10 @@ func (s *Store) createSecretTx(
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
 	}
+	metadata, err := normalizedSecretMetadata(input.Metadata)
+	if err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
+	}
 	if err := validateSecretOwnerMembershipTx(
 		ctx,
 		qtx,
@@ -138,7 +137,7 @@ func (s *Store) createSecretTx(
 		OwnerUserID:      sqlcIDFromNil(input.OwnerUserID),
 		Name:             input.Name,
 		Kind:             string(material.Kind),
-		Metadata:         input.Metadata,
+		Metadata:         metadata,
 		CurrentVersionID: &versionID,
 	})
 	if err != nil {
@@ -240,7 +239,6 @@ func (s *Store) UpdateSecretMetadata(
 	if err != nil {
 		return SecretRecord{}, invalidSecretRequest("%v", err)
 	}
-	input.Metadata = metadata
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, fmt.Errorf("begin update secret metadata: %w", err)
@@ -288,7 +286,7 @@ func (s *Store) UpdateSecretMetadata(
 			OrgID:    input.OrgID,
 			ID:       input.SecretID,
 			Name:     input.Name,
-			Metadata: input.Metadata,
+			Metadata: metadata,
 		},
 	)
 	if err != nil {

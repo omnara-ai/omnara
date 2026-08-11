@@ -20,6 +20,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 type MachineSourceKind string
@@ -177,7 +179,7 @@ type CreateMachinePoolInput struct {
 	MinMachineMemoryMB            *int
 	MaxMachineCPU                 *int
 	MaxMachineMemoryMB            *int
-	Metadata                      json.RawMessage
+	Metadata                      resourcemeta.Metadata
 }
 
 type UpdateMachinePoolInput struct {
@@ -201,30 +203,30 @@ type UpdateMachinePoolInput struct {
 	MinMachineMemoryMB            patch.NullableInt
 	MaxMachineCPU                 patch.NullableInt
 	MaxMachineMemoryMB            patch.NullableInt
-	Metadata                      json.RawMessage
+	Metadata                      resourcemeta.Metadata
 }
 
 type DefaultMachinePoolTemplate struct {
-	Name                          string          `json:"name"`
-	Description                   string          `json:"description"`
-	Provider                      string          `json:"provider"`
-	DefaultMachineCPU             *int            `json:"default_machine_cpu"`
-	DefaultMachineMemoryMB        *int            `json:"default_machine_memory_mb"`
-	DefaultMachineEnv             json.RawMessage `json:"default_machine_env"`
-	DefaultMachineSecretEnv       json.RawMessage `json:"default_machine_secret_env"`
-	DefaultMachineProviderOptions json.RawMessage `json:"default_machine_provider_options"`
-	DefaultCwd                    string          `json:"default_cwd"`
-	ProviderConfig                json.RawMessage `json:"provider_config"`
-	ProviderAuthEnvVar            string          `json:"provider_auth_env_var"`
-	RuntimeProtectionEnabled      bool            `json:"runtime_protection_enabled"`
-	MaxTotalMachines              int32           `json:"max_total_machines"`
-	MaxTotalCPU                   *int            `json:"max_total_cpu"`
-	MaxTotalMemoryMB              *int            `json:"max_total_memory_mb"`
-	MinMachineCPU                 *int            `json:"min_machine_cpu"`
-	MinMachineMemoryMB            *int            `json:"min_machine_memory_mb"`
-	MaxMachineCPU                 *int            `json:"max_machine_cpu"`
-	MaxMachineMemoryMB            *int            `json:"max_machine_memory_mb"`
-	Metadata                      json.RawMessage `json:"metadata"`
+	Name                          string                `json:"name"`
+	Description                   string                `json:"description"`
+	Provider                      string                `json:"provider"`
+	DefaultMachineCPU             *int                  `json:"default_machine_cpu"`
+	DefaultMachineMemoryMB        *int                  `json:"default_machine_memory_mb"`
+	DefaultMachineEnv             json.RawMessage       `json:"default_machine_env"`
+	DefaultMachineSecretEnv       json.RawMessage       `json:"default_machine_secret_env"`
+	DefaultMachineProviderOptions json.RawMessage       `json:"default_machine_provider_options"`
+	DefaultCwd                    string                `json:"default_cwd"`
+	ProviderConfig                json.RawMessage       `json:"provider_config"`
+	ProviderAuthEnvVar            string                `json:"provider_auth_env_var"`
+	RuntimeProtectionEnabled      bool                  `json:"runtime_protection_enabled"`
+	MaxTotalMachines              int32                 `json:"max_total_machines"`
+	MaxTotalCPU                   *int                  `json:"max_total_cpu"`
+	MaxTotalMemoryMB              *int                  `json:"max_total_memory_mb"`
+	MinMachineCPU                 *int                  `json:"min_machine_cpu"`
+	MinMachineMemoryMB            *int                  `json:"min_machine_memory_mb"`
+	MaxMachineCPU                 *int                  `json:"max_machine_cpu"`
+	MaxMachineMemoryMB            *int                  `json:"max_machine_memory_mb"`
+	Metadata                      resourcemeta.Metadata `json:"metadata"`
 }
 
 func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) CreateMachinePoolInput {
@@ -382,7 +384,7 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 		sameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) &&
 		sameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) &&
 		sameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
-		sameJSON(record.Metadata, input.Metadata)
+		sameMetadata(record.Metadata, input.Metadata)
 }
 
 func prepareMachinePoolCreateInput(
@@ -524,7 +526,6 @@ func prepareMachinePoolConfigInput(
 		return machinePoolDefaults{}, fmt.Errorf("machine pool default_machine fields %w", err)
 	}
 	input.ProviderConfig = normalizedJSON(input.ProviderConfig)
-	input.Metadata = normalizedJSON(input.Metadata)
 	return machinePoolDefaults{Provisioning: poolProvisioning, Environment: poolEnvironment}, nil
 }
 
@@ -558,6 +559,13 @@ func insertMachinePool(
 	qtx *dbsqlc.Queries,
 	input CreateMachinePoolInput,
 ) (MachinePoolRecord, error) {
+	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
+		return MachinePoolRecord{}, fmt.Errorf("machine pool metadata: %w", err)
+	}
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		return MachinePoolRecord{}, err
+	}
 	row, err := qtx.InsertMachinePool(ctx, dbsqlc.InsertMachinePoolParams{
 		OrgID:                         input.OrgID,
 		Name:                          input.Name,
@@ -581,7 +589,7 @@ func insertMachinePool(
 		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		Metadata:                      input.Metadata,
+		Metadata:                      metadata,
 	})
 	if err != nil {
 		return MachinePoolRecord{}, err
@@ -627,6 +635,10 @@ func (s *Store) UpdateMachinePool(
 			storeerr.ErrStateTransitionConflict,
 		)
 	}
+	lockedMetadata, err := resourcemeta.FromJSON(locked.Metadata)
+	if err != nil {
+		return MachinePoolRecord{}, fmt.Errorf("decode machine pool metadata: %w", err)
+	}
 	merged := CreateMachinePoolInput{
 		OrgID:                         input.OrgID,
 		Name:                          locked.Name,
@@ -650,7 +662,7 @@ func (s *Store) UpdateMachinePool(
 		MinMachineMemoryMB:            intPtrFromSQLC(locked.MinMachineMemoryMb),
 		MaxMachineCPU:                 intPtrFromSQLC(locked.MaxMachineCpu),
 		MaxMachineMemoryMB:            intPtrFromSQLC(locked.MaxMachineMemoryMb),
-		Metadata:                      locked.Metadata,
+		Metadata:                      lockedMetadata,
 	}
 	if input.Name != nil {
 		merged.Name = *input.Name
@@ -706,7 +718,7 @@ func (s *Store) UpdateMachinePool(
 	if input.MaxMachineMemoryMB.Set {
 		merged.MaxMachineMemoryMB = input.MaxMachineMemoryMB.Value
 	}
-	if len(input.Metadata) > 0 {
+	if input.Metadata != nil {
 		merged.Metadata = input.Metadata
 	}
 	merged.Name = strings.TrimSpace(merged.Name)
@@ -775,6 +787,13 @@ func updateMachinePoolRow(
 	id ID,
 	input CreateMachinePoolInput,
 ) (dbsqlc.MachinePool, error) {
+	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
+		return dbsqlc.MachinePool{}, fmt.Errorf("machine pool metadata: %w", err)
+	}
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		return dbsqlc.MachinePool{}, err
+	}
 	return qtx.UpdateMachinePool(ctx, dbsqlc.UpdateMachinePoolParams{
 		OrgID:                         input.OrgID,
 		ID:                            id,
@@ -797,7 +816,7 @@ func updateMachinePoolRow(
 		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		Metadata:                      input.Metadata,
+		Metadata:                      metadata,
 	})
 }
 

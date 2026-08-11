@@ -3,6 +3,7 @@
 package blackbox
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -950,10 +951,6 @@ func (e agentEvent) textContent() string {
 	return strings.Join(parts, "\n")
 }
 
-// awaitAgentEvent polls the agent's event log until an event matches the
-// predicate or the timeout elapses. On timeout it dumps the agent's full
-// event timeline and fails the test. Model turns on free-tier providers can
-// queue, so callers should pass generous timeouts.
 func awaitAgentEvent(
 	t *testing.T,
 	agentID string,
@@ -963,24 +960,19 @@ func awaitAgentEvent(
 ) agentEvent {
 	t.Helper()
 	step(t, "wait up to %s for %s", timeout, what)
-	deadline := time.Now().Add(timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	afterSequence := int64(0)
 	for {
-		if time.Now().After(deadline) {
-			logAgentEventTimeline(t, agentID)
-			t.Fatalf("timed out after %s waiting for %s (agent %s)", timeout, what, agentID)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		res, err := fx.client.do(ctx, http.MethodGet,
 			fmt.Sprintf("%s/agents/%s/events?after_sequence=%d&limit=500", fx.projectPath, agentID, afterSequence),
 			nil,
-			requestOptions{useAuth: true, scope: t.Name(), note: "poll events (" + what + ")"})
-		cancel()
+			requestOptions{useAuth: true, scope: t.Name(), note: "backfill events (" + what + ")"})
 		if err != nil {
-			t.Fatalf("poll events: %v", err)
+			t.Fatalf("backfill events: %v", err)
 		}
 		if res.status != http.StatusOK {
-			t.Fatalf("poll events: unexpected status\n%s", res.describe())
+			t.Fatalf("backfill events: unexpected status\n%s", res.describe())
 		}
 		var page struct {
 			Data              []agentEvent `json:"data"`
@@ -996,11 +988,84 @@ func awaitAgentEvent(
 			}
 		}
 		afterSequence = page.NextAfterSequence
-		if page.HasMore {
-			continue
+		if !page.HasMore {
+			break
 		}
-		time.Sleep(2 * time.Second)
 	}
+	return streamAgentEventUntilMatch(t, ctx, agentID, afterSequence, timeout, what, match)
+}
+
+func streamAgentEventUntilMatch(
+	t *testing.T,
+	ctx context.Context,
+	agentID string,
+	afterSequence int64,
+	timeout time.Duration,
+	what string,
+	match func(agentEvent) bool,
+) agentEvent {
+	t.Helper()
+	streamPath := fmt.Sprintf("%s/agents/%s/events/stream?after_sequence=%d", fx.projectPath, agentID, afterSequence)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fx.client.baseURL+streamPath, nil)
+	if err != nil {
+		t.Fatalf("build event stream request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+fx.client.token)
+	req.Header.Set("Accept", "text/event-stream")
+	fx.log.printf(t.Name(), "GET %s -> streaming (%s)", streamPath, what)
+	streamClient := &http.Client{Transport: fx.client.http.Transport}
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			logAgentEventTimeline(t, agentID)
+			t.Fatalf("timed out after %s waiting for %s (agent %s)", timeout, what, agentID)
+		}
+		t.Fatalf("open event stream: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		t.Fatalf("event stream: unexpected status %d\n%s", resp.StatusCode, string(body))
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	eventName := ""
+	var data []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case line == "":
+			if len(data) > 0 {
+				frame := strings.Join(data, "\n")
+				if eventName == "error" {
+					t.Fatalf("event stream error frame: %s (agent %s, waiting for %s)", frame, agentID, what)
+				}
+				var event agentEvent
+				if err := json.Unmarshal([]byte(frame), &event); err != nil {
+					t.Fatalf("decode event stream frame: %v\nframe: %s", err, frame)
+				}
+				if match(event) {
+					return event
+				}
+			}
+			eventName = ""
+			data = nil
+		case strings.HasPrefix(line, ":"):
+		case strings.HasPrefix(line, "event: "):
+			eventName = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			data = append(data, strings.TrimPrefix(line, "data: "))
+		}
+	}
+	if ctx.Err() != nil {
+		logAgentEventTimeline(t, agentID)
+		t.Fatalf("timed out after %s waiting for %s (agent %s)", timeout, what, agentID)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("event stream read: %v (agent %s, waiting for %s)", err, agentID, what)
+	}
+	t.Fatalf("event stream ended before %s (agent %s)", what, agentID)
+	return agentEvent{}
 }
 
 // createInput posts a text input to an agent and returns the input id.

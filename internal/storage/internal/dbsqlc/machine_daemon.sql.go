@@ -2298,8 +2298,8 @@ SET last_observed_at = statement_timestamp(),
     provider_runtime_mismatch_since = NULL,
     wake_attempt_expires_at = NULL,
     metadata = CASE
-      WHEN $1::jsonb = '{}'::jsonb THEN metadata
-      ELSE jsonb_set(metadata, '{observed_platform}', $1::jsonb, true)
+      WHEN $1::text = '' THEN metadata
+      ELSE jsonb_set(metadata, '{observed_platform}', to_jsonb($1::text), true)
     END,
     updated_at = statement_timestamp()
 WHERE org_id = $2
@@ -2308,7 +2308,7 @@ WHERE org_id = $2
 `
 
 type UpdateMachineObservationParams struct {
-	ObservedPlatform json.RawMessage
+	ObservedPlatform string
 	OrgID            uuid.UUID
 	ID               uuid.UUID
 }

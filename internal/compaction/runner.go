@@ -33,6 +33,16 @@ func (r Runner) run(
 	if err := r.validate(input); err != nil {
 		return RunResult{}, err
 	}
+	var claim executionstore.ModelCallClaim
+	if initialClaim != nil {
+		claim = *initialClaim
+		if err := validateInitialCompactionClaim(input, claim); err != nil {
+			return RunResult{}, err
+		}
+		if !claim.Claimed {
+			return r.resultForUnclaimed(ctx, claim)
+		}
+	}
 	protectOpening, err := r.openingEventsRequireVerbatimRetention(ctx, input)
 	if err != nil {
 		return RunResult{}, err
@@ -73,7 +83,6 @@ func (r Runner) run(
 	if err != nil {
 		return RunResult{}, err
 	}
-	var claim executionstore.ModelCallClaim
 	if initialClaim == nil {
 		claim, err = r.Store.ClaimCompactionModelCall(
 			ctx,
@@ -89,29 +98,24 @@ func (r Runner) run(
 		if err != nil {
 			return RunResult{}, err
 		}
-	} else {
-		claim = *initialClaim
-		if err := validateInitialCompactionClaim(input, claim); err != nil {
-			return RunResult{}, err
+		if !claim.Claimed && claim.Context.State == executionstore.ModelCallContextFailed &&
+			claim.Context.RecoveryKind == executionstore.ModelCallRecoveryRetry {
+			claim, err = r.Store.ClaimNextModelCallContext(
+				ctx,
+				executionstore.ClaimNextModelCallContextInput{
+					ProjectID:                     input.Plan.ProjectID,
+					AgentID:                       input.Plan.AgentID,
+					PredecessorModelCallContextID: claim.Context.ID,
+					RuntimeLockID:                 input.RuntimeLockID,
+				},
+			)
+			if err != nil {
+				return RunResult{}, err
+			}
 		}
-	}
-	if !claim.Claimed && claim.Context.State == executionstore.ModelCallContextFailed &&
-		claim.Context.RecoveryKind == executionstore.ModelCallRecoveryRetry {
-		claim, err = r.Store.ClaimNextModelCallContext(
-			ctx,
-			executionstore.ClaimNextModelCallContextInput{
-				ProjectID:                     input.Plan.ProjectID,
-				AgentID:                       input.Plan.AgentID,
-				PredecessorModelCallContextID: claim.Context.ID,
-				RuntimeLockID:                 input.RuntimeLockID,
-			},
-		)
-		if err != nil {
-			return RunResult{}, err
+		if !claim.Claimed {
+			return r.resultForUnclaimed(ctx, claim)
 		}
-	}
-	if !claim.Claimed {
-		return r.resultForUnclaimed(ctx, claim)
 	}
 	selection, err := compactionModelSelection(claim.Context, snapshot)
 	if err != nil {
@@ -408,15 +412,20 @@ func (r Runner) run(
 
 func validateInitialCompactionClaim(input RunInput, claim executionstore.ModelCallClaim) error {
 	contextRow := claim.Context
-	if !claim.Created || !claim.Claimed || contextRow.ID == storage.NilID ||
-		contextRow.ProjectID != input.Plan.ProjectID ||
-		contextRow.AgentID != input.Plan.AgentID ||
-		contextRow.OperationKind != executionstore.ModelCallOperationCompaction ||
-		contextRow.InputEventSequence != input.Plan.InputEventSequence ||
-		contextRow.SourceEventSequenceEnd == nil ||
-		*contextRow.SourceEventSequenceEnd != input.Plan.EventSequenceEnd ||
-		contextRow.RuntimeLockID != input.RuntimeLockID ||
-		contextRow.State != executionstore.ModelCallContextStarted {
+	matchesRequest := claim.Created &&
+		contextRow.ID != storage.NilID &&
+		contextRow.ProjectID == input.Plan.ProjectID &&
+		contextRow.AgentID == input.Plan.AgentID &&
+		contextRow.OperationKind == executionstore.ModelCallOperationCompaction &&
+		contextRow.InputEventSequence == input.Plan.InputEventSequence &&
+		contextRow.SourceEventSequenceEnd != nil &&
+		*contextRow.SourceEventSequenceEnd == input.Plan.EventSequenceEnd &&
+		contextRow.RuntimeLockID == input.RuntimeLockID
+	started := claim.Claimed && contextRow.State == executionstore.ModelCallContextStarted
+	denied := !claim.Claimed &&
+		contextRow.State == executionstore.ModelCallContextFailed &&
+		contextRow.RecoveryKind == ""
+	if !matchesRequest || (!started && !denied) {
 		return fmt.Errorf(
 			"initial compaction claim does not match the requested operation: %w",
 			storeerr.ErrStateTransitionConflict,

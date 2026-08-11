@@ -287,11 +287,10 @@ func serveRunnerReconciliationConn(
 	state.reconciliationMu.Lock()
 	defer state.reconciliationMu.Unlock()
 
-	if err := writeRunnerMessage(
-		context.WithoutCancel(ctx),
-		conn,
-		state.status(ctx),
-	); err != nil {
+	write := func(value any) error {
+		return writeRunnerMessage(context.WithoutCancel(ctx), conn, value)
+	}
+	if err := write(state.status(ctx)); err != nil {
 		return
 	}
 	for {
@@ -301,33 +300,21 @@ func serveRunnerReconciliationConn(
 		}
 		if next.SupervisorInstanceID != state.bootstrap.SupervisorInstanceID ||
 			next.SupervisorToken != state.bootstrap.SupervisorToken {
-			_ = writeRunnerMessage(
-				context.WithoutCancel(ctx),
-				conn,
-				runnerResponse{
-					OK:        false,
-					Error:     "supervisor reconciliation identity changed",
-					ErrorCode: runnerErrorSupervisorIdentityMismatch,
-				},
-			)
+			_ = write(runnerResponse{
+				OK:        false,
+				Error:     "supervisor reconciliation identity changed",
+				ErrorCode: runnerErrorSupervisorIdentityMismatch,
+			})
 			return
 		}
 		if next.Method == runnerMethodBeginReconciliation {
-			_ = writeRunnerMessage(
-				context.WithoutCancel(ctx),
-				conn,
-				runnerResponse{
-					OK:    false,
-					Error: "supervisor reconciliation is already active",
-				},
-			)
+			_ = write(runnerResponse{
+				OK:    false,
+				Error: "supervisor reconciliation is already active",
+			})
 			return
 		}
-		if err := writeRunnerMessage(
-			context.WithoutCancel(ctx),
-			conn,
-			state.handle(ctx, next),
-		); err != nil {
+		if err := write(state.handle(ctx, next)); err != nil {
 			return
 		}
 	}

@@ -41,6 +41,10 @@ func (*kernelSkillStoreStub) GetSkillForDispatch(
 func TestAgentExecutorDependencyComposition(t *testing.T) {
 	aggregate := storage.NewStore(nil)
 	explicit := &kernelSkillStoreStub{}
+	sigV4CredentialCache, err := mcp.NewSigV4CredentialCache()
+	if err != nil {
+		t.Fatalf("create SigV4 credential cache: %v", err)
+	}
 
 	defaults := (AgentExecutor{Store: aggregate}).contextBuilder()
 	if defaults.Store == nil || defaults.Skills != aggregate.Skills() {
@@ -57,8 +61,12 @@ func TestAgentExecutorDependencyComposition(t *testing.T) {
 		t.Fatalf("empty context dependencies = %+v, want unresolved dependencies", empty)
 	}
 
-	toolDefaults := (AgentExecutor{Store: aggregate}).configuredToolExecutor()
-	if toolDefaults.Store != aggregate || toolDefaults.Skills != nil {
+	toolDefaults := (AgentExecutor{
+		Store:                aggregate,
+		SigV4CredentialCache: sigV4CredentialCache,
+	}).configuredToolExecutor()
+	if toolDefaults.Store != aggregate || toolDefaults.Skills != nil ||
+		toolDefaults.SigV4CredentialCache != sigV4CredentialCache {
 		t.Fatalf("default tool dependencies = %+v, want aggregate store with deferred skill resolution", toolDefaults)
 	}
 	toolOverride := (AgentExecutor{

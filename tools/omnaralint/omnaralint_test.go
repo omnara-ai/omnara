@@ -39,6 +39,15 @@ func TestAnalyzerRejectsContextUnawareProductionSleep(t *testing.T) {
 	)
 }
 
+func TestAnalyzerRejectsUnjustifiedTestSleep(t *testing.T) {
+	analysistest.Run(
+		t,
+		analysistest.TestData(),
+		Analyzer,
+		"github.com/omnara-ai/omnara/internal/testsleep",
+	)
+}
+
 func TestAnalyzerExcludesGeneratedStorageCodeFromTimeRules(t *testing.T) {
 	analysistest.Run(
 		t,

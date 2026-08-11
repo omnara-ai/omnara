@@ -17,6 +17,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 type ProjectMachinePoolGrantRecord struct {
@@ -98,7 +100,7 @@ type CreateProjectMachinePoolGrantInput struct {
 	MaxMachineCPU                        *int
 	MaxMachineMemoryMB                   *int
 	IdempotencyKey                       string
-	Metadata                             json.RawMessage
+	Metadata                             resourcemeta.Metadata
 }
 
 type UpdateProjectMachinePoolGrantInput struct {
@@ -119,7 +121,7 @@ type UpdateProjectMachinePoolGrantInput struct {
 	MinMachineMemoryMB                   patch.NullableInt
 	MaxMachineCPU                        patch.NullableInt
 	MaxMachineMemoryMB                   patch.NullableInt
-	Metadata                             *json.RawMessage
+	Metadata                             *resourcemeta.Metadata
 }
 
 type projectMachinePoolGrantConfig struct {
@@ -382,7 +384,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 	if err != nil {
 		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
 	}
-	input.Metadata, err = normalizedJSONObject(input.Metadata, "project machine pool grant metadata")
+	metadata, err := metadataColumn(input.Metadata, "project machine pool grant metadata")
 	if err != nil {
 		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -474,7 +476,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
 			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
 			IdempotencyKey:                       sqlcTextFromEmpty(input.IdempotencyKey),
-			Metadata:                             input.Metadata,
+			Metadata:                             metadata,
 		},
 	)
 	if err != nil {
@@ -525,7 +527,7 @@ func sameProjectMachinePoolGrantCreateIntent(
 		sameIntPtr(grant.MinMachineMemoryMB, config.MinMachineMemoryMB) &&
 		sameIntPtr(grant.MaxMachineCPU, config.MaxMachineCPU) &&
 		sameIntPtr(grant.MaxMachineMemoryMB, config.MaxMachineMemoryMB) &&
-		sameJSON(grant.Metadata, input.Metadata)
+		sameMetadata(grant.Metadata, input.Metadata)
 }
 
 func (s *Store) UpdateProjectMachinePoolGrant(
@@ -584,7 +586,7 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 	}
 	metadata := current.Metadata
 	if input.Metadata != nil {
-		metadata, err = normalizedJSONObject(*input.Metadata, "project machine pool grant metadata")
+		metadata, err = metadataColumn(*input.Metadata, "project machine pool grant metadata")
 		if err != nil {
 			return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
 		}

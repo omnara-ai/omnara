@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -399,7 +400,7 @@ func TestCreateAgentContentInputReplayDoesNotRewriteActor(t *testing.T) {
 			ProviderTenantID: "replay-tenant",
 			ProviderUserID:   "replay-external",
 			DisplayName:      &originalName,
-			Metadata:         json.RawMessage(`{"seat":"original"}`),
+			Metadata:         resourcemeta.Metadata{"seat": "original"},
 		},
 		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"same"}]`),
 		IdempotencyKey: "idem-actor-replay-no-rewrite",
@@ -420,7 +421,7 @@ func TestCreateAgentContentInputReplayDoesNotRewriteActor(t *testing.T) {
 		ProviderTenantID: "replay-tenant",
 		ProviderUserID:   "replay-external",
 		DisplayName:      &renamed,
-		Metadata:         json.RawMessage(`{"seat":"changed"}`),
+		Metadata:         resourcemeta.Metadata{"seat": "changed"},
 	}
 	replayed, _, created, err := store.Execution().CreateAgentContentInput(ctx, replay)
 	if err != nil {

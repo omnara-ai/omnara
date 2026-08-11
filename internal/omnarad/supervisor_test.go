@@ -1,6 +1,7 @@
 package omnarad
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -60,18 +62,16 @@ exit 7
 
 func TestSupervisorSignalsRestartAndStop(t *testing.T) {
 	home := t.TempDir()
-	count := filepath.Join(t.TempDir(), "count")
 	environment := filepath.Join(t.TempDir(), "environment")
 	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
 printf '%s\n' "${OMNARA_RUNNER_PATH-unset}" >> "$SUPERVISOR_ENVIRONMENT"
-printf x >> "$SUPERVISOR_COUNT"
+printf 'started\n'
 trap 'exit 0' USR1 TERM
 while :; do sleep 1; done
 `)
-	t.Setenv("SUPERVISOR_COUNT", count)
 	t.Setenv("SUPERVISOR_ENVIRONMENT", environment)
 	t.Setenv("OMNARA_API_URL", "")
 	t.Setenv("OMNARA_MACHINE_TOKEN", "")
@@ -79,13 +79,14 @@ while :; do sleep 1; done
 	t.Setenv("OMNARA_RUNNER_PATH", "/temporary/bin")
 	ctx, cancel := context.WithCancel(context.Background())
 	restart := make(chan os.Signal, 1)
+	childOutput := newLineChannelWriter()
 	done := make(chan error, 1)
 	go func() {
-		done <- runSupervisorLoop(ctx, home, time.Hour, restart, io.Discard, io.Discard, discardLogger())
+		done <- runSupervisorLoop(ctx, home, time.Hour, restart, childOutput, io.Discard, discardLogger())
 	}()
-	waitForFileSize(t, count, 1)
+	waitForMarkerLine(t, childOutput.lines, "started")
 	restart <- daemonRestartSignal
-	waitForFileSize(t, count, 2)
+	waitForMarkerLine(t, childOutput.lines, "started")
 	if got := readTestFile(t, environment); got != "/temporary/bin\nunset\n" {
 		t.Fatalf("child environments = %q", got)
 	}
@@ -114,18 +115,16 @@ func TestRestartDuringCrashBackoffClearsEnvironmentOverrides(t *testing.T) {
 }
 
 func TestTerminateSupervisorChildKillsAfterTimeout(t *testing.T) {
-	ready := filepath.Join(t.TempDir(), "ready")
+	output := newLineChannelWriter()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSupervisorChildSignalHelper$")
-	cmd.Env = append(os.Environ(),
-		"OMNARA_SUPERVISOR_CHILD_SIGNAL_HELPER=1",
-		"OMNARA_SUPERVISOR_CHILD_SIGNAL_READY="+ready,
-	)
+	cmd.Stdout = output
+	cmd.Env = append(os.Environ(), "OMNARA_SUPERVISOR_CHILD_SIGNAL_HELPER=1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	waitForFileSize(t, ready, 0)
+	waitForMarkerLine(t, output.lines, "signal-helper-ready")
 	if err := terminateSupervisorChild(
 		cmd, done, syscall.SIGTERM, 10*time.Millisecond, discardLogger(),
 	); err != nil {
@@ -140,6 +139,9 @@ func TestTerminateSupervisorChildKillsAfterTimeout(t *testing.T) {
 func TestRunForegroundSupervisorOwnsExistingLock(t *testing.T) {
 	home := t.TempDir()
 	ready := filepath.Join(t.TempDir(), "ready")
+	if err := syscall.Mkfifo(ready, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +154,22 @@ while :; do sleep 1; done
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- runForegroundSupervisor(ctx, home, discardLogger()) }()
-	waitForFileSize(t, ready, 0)
+	readyOpened := make(chan error, 1)
+	go func() {
+		f, err := os.Open(ready)
+		if err == nil {
+			err = f.Close()
+		}
+		readyOpened <- err
+	}()
+	select {
+	case err := <-readyOpened:
+		if err != nil {
+			t.Fatalf("open ready fifo: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("supervised daemon did not start")
+	}
 	store, err := localstore.New(home)
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +236,7 @@ func TestSupervisorChildSignalHelper(t *testing.T) {
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, daemonRestartSignal, syscall.SIGTERM)
 	defer signal.Stop(signals)
-	if err := os.WriteFile(os.Getenv("OMNARA_SUPERVISOR_CHILD_SIGNAL_READY"), nil, 0o600); err != nil {
+	if _, err := os.Stdout.WriteString("signal-helper-ready\n"); err != nil {
 		t.Fatal(err)
 	}
 	select {}
@@ -250,10 +267,9 @@ func TestStoppedLifecycleCommandsDoNotNeedConfiguration(t *testing.T) {
 
 func TestNoServiceStatusStopAndRestart(t *testing.T) {
 	home := t.TempDir()
-	process, ready, restarted := startLockOwnerHelper(t, home)
+	process, lines := startLockOwnerHelper(t, home)
 	t.Setenv("OMNARA_HOME", home)
 	t.Setenv("PATH", t.TempDir())
-	waitForFileSize(t, ready, 0)
 
 	var stdout strings.Builder
 	var stderr strings.Builder
@@ -282,7 +298,7 @@ func TestNoServiceStatusStopAndRestart(t *testing.T) {
 	if code := Run(context.Background(), []string{"restart"}, nil, &stdout, &stderr, discardLogger()); code != 0 {
 		t.Fatalf("restart exit code = %d stderr = %q", code, stderr.String())
 	}
-	waitForFileSize(t, restarted, 0)
+	waitForMarkerLine(t, lines, "restart-received")
 	if stdout.String() != "omnarad is restarting (no-service)\n" {
 		t.Fatalf("restart output = %q", stdout.String())
 	}
@@ -307,8 +323,7 @@ func TestNoServiceStatusStopAndRestart(t *testing.T) {
 
 func TestTemporaryRestartReplacesNoServiceDaemon(t *testing.T) {
 	home := t.TempDir()
-	process, ready, _ := startLockOwnerHelper(t, home)
-	waitForFileSize(t, ready, 0)
+	process, _ := startLockOwnerHelper(t, home)
 	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
 	defer server.Close()
 	setConfiguredDaemonEnvironment(t, home, server.URL, "/stored/bin")
@@ -361,12 +376,7 @@ func TestTemporaryRestartReplacesNoServiceDaemon(t *testing.T) {
 
 func TestRestartValidatesBeforeSignalingNoServiceDaemon(t *testing.T) {
 	home := t.TempDir()
-	process, ready, restarted := startLockOwnerHelper(t, home)
-	t.Cleanup(func() {
-		_ = process.Process.Signal(syscall.SIGTERM)
-		_ = process.Wait()
-	})
-	waitForFileSize(t, ready, 0)
+	process, lines := startLockOwnerHelper(t, home)
 	server := bootstrapServer(t, "good-token", "inst-a", "mch-a")
 	defer server.Close()
 	writeTestDaemonConfig(t, home, daemonConfig{
@@ -384,8 +394,21 @@ func TestRestartValidatesBeforeSignalingNoServiceDaemon(t *testing.T) {
 	if code := Run(context.Background(), []string{"restart"}, nil, &stdout, &stderr, discardLogger()); code != 1 {
 		t.Fatalf("invalid restart exit code = %d", code)
 	}
-	if _, err := os.Stat(restarted); !os.IsNotExist(err) {
-		t.Fatalf("daemon was signaled after failed validation: %v", err)
+	if err := process.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("stop lock owner: %v", err)
+	}
+	if err := process.Wait(); err != nil {
+		t.Fatalf("wait for lock owner: %v", err)
+	}
+	for {
+		select {
+		case line := <-lines:
+			if line == "restart-received" {
+				t.Fatal("daemon was signaled after failed validation")
+			}
+		default:
+			return
+		}
 	}
 }
 
@@ -405,15 +428,15 @@ func TestLockOwnerHelper(t *testing.T) {
 	if err := lock.WritePID(os.Getpid()); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(os.Getenv("OMNARA_LOCK_READY"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, daemonRestartSignal, syscall.SIGTERM)
 	defer signal.Stop(signals)
+	if _, err := os.Stdout.WriteString("lock-ready\n"); err != nil {
+		t.Fatal(err)
+	}
 	for received := range signals {
 		if received == daemonRestartSignal {
-			if err := os.WriteFile(os.Getenv("OMNARA_RESTART_RECEIVED"), nil, 0o600); err != nil {
+			if _, err := os.Stdout.WriteString("restart-received\n"); err != nil {
 				t.Fatal(err)
 			}
 			continue
@@ -422,16 +445,14 @@ func TestLockOwnerHelper(t *testing.T) {
 	}
 }
 
-func startLockOwnerHelper(t *testing.T, home string) (*exec.Cmd, string, string) {
+func startLockOwnerHelper(t *testing.T, home string) (*exec.Cmd, <-chan string) {
 	t.Helper()
-	ready := filepath.Join(t.TempDir(), "ready")
-	restarted := filepath.Join(t.TempDir(), "restarted")
+	output := newLineChannelWriter()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestLockOwnerHelper$")
+	cmd.Stdout = output
 	cmd.Env = append(os.Environ(),
 		"OMNARA_LOCK_OWNER_HELPER=1",
 		"OMNARA_HOME="+home,
-		"OMNARA_LOCK_READY="+ready,
-		"OMNARA_RESTART_RECEIVED="+restarted,
 	)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start lock owner: %v", err)
@@ -442,18 +463,45 @@ func startLockOwnerHelper(t *testing.T, home string) (*exec.Cmd, string, string)
 			_ = cmd.Wait()
 		}
 	})
-	return cmd, ready, restarted
+	waitForMarkerLine(t, output.lines, "lock-ready")
+	return cmd, output.lines
 }
 
-func waitForFileSize(t *testing.T, path string, size int64) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		info, err := os.Stat(path)
-		if err == nil && info.Size() >= size {
-			return
+type lineChannelWriter struct {
+	mu      sync.Mutex
+	partial []byte
+	lines   chan string
+}
+
+func newLineChannelWriter() *lineChannelWriter {
+	return &lineChannelWriter{lines: make(chan string, 64)}
+}
+
+func (w *lineChannelWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.partial = append(w.partial, p...)
+	for {
+		i := bytes.IndexByte(w.partial, '\n')
+		if i < 0 {
+			return len(p), nil
 		}
-		time.Sleep(10 * time.Millisecond)
+		w.lines <- string(w.partial[:i])
+		w.partial = w.partial[i+1:]
 	}
-	t.Fatalf("%s did not reach size %d", path, size)
+}
+
+func waitForMarkerLine(t *testing.T, lines <-chan string, want string) {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case line := <-lines:
+			if line == want {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for marker %q", want)
+		}
+	}
 }

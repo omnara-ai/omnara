@@ -82,6 +82,6 @@ func waitDarwinZombie(t *testing.T, pid int) {
 		if time.Now().After(deadline) {
 			t.Fatalf("process %d did not become a zombie", pid)
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(time.Millisecond) //nolint:omnaralint // No exit signal exists that would not reap the zombie.
 	}
 }

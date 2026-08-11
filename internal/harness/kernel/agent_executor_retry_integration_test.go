@@ -11,9 +11,11 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
@@ -183,6 +185,200 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 			contexts,
 			operationFrontiers,
 		)
+	}
+}
+
+func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	fixture.provisionClusterModel(t, ctx, "managed-retry-prod", "managed-retry-model")
+	agentID, userID := fixture.createNamedAgentWithModelOptions(
+		t,
+		ctx,
+		"Managed Retry Admission",
+		"managed-retry/managed-retry-model",
+		now,
+		kernelConfiguredModelOptions{},
+	)
+	work := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"continue an admitted model call",
+		now.Add(time.Millisecond),
+	)
+	modelClient := &sequenceKernelModel{
+		providerModelSlug: "managed-retry-model",
+		errs: []error{model.ProviderError{
+			Kind:    model.ErrorKindTransient,
+			Source:  "test-provider",
+			Message: "retry this request",
+		}},
+	}
+	currentNow := now.Add(2 * time.Millisecond)
+	executor := AgentExecutor{
+		Store:           fixture.Store,
+		ModelResolver:   liveTestModelResolver(fixture.Store, modelClient),
+		ToolExecutor:    tools.Executor{Store: fixture.Store},
+		StreamPublisher: &capturingStreamPublisher{},
+		Now:             func() time.Time { return currentNow },
+		ModelRetryDelay: immediateKernelModelRetryDelay,
+	}
+	if err := executor.ExecuteModelWork(ctx, work); err != nil {
+		t.Fatalf("execute admitted model attempt: %v", err)
+	}
+	if modelClient.preparedCount() != 1 {
+		t.Fatalf("prepared requests after admitted attempt = %d, want 1", modelClient.preparedCount())
+	}
+	fixture.setManagedWorkAdmission(t, ctx, false)
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		work.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release admitted model attempt: %v", err)
+	}
+	currentNow = now.Add(time.Minute)
+	retry, found, err := fixture.Store.Execution().ClaimNextAgentWork(
+		ctx,
+		kernelTestClaimInput(currentNow),
+	)
+	if err != nil {
+		t.Fatalf("claim admitted model retry: %v", err)
+	}
+	if !found || retry.Kind != executionstore.AgentWorkModel ||
+		retry.Model.ModelCallContextID == storage.NilID {
+		t.Fatalf("retry claim = %+v found=%v, want model retry continuation", retry, found)
+	}
+	if err := executor.ExecuteModelWork(ctx, modelWorkExecutionFromClaimForKernelTest(retry, currentNow)); err != nil {
+		t.Fatalf("deny managed model retry after admission closes: %v", err)
+	}
+	if modelClient.preparedCount() != 1 || modelClient.respondedCount() != 1 {
+		t.Fatalf(
+			"prepared/responded requests after denied retry = %d/%d, want 1/1",
+			modelClient.preparedCount(),
+			modelClient.respondedCount(),
+		)
+	}
+	assertDurableModelErrorForKernelTest(
+		t,
+		ctx,
+		fixture,
+		agentID,
+		work.TurnID,
+		string(modelprotocol.ErrorKindRuntime),
+		storeerr.ManagedWorkAdmissionDeniedCode,
+	)
+	var contexts, retryableContexts, admissionDeniedContexts int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*),
+       count(*) FILTER (WHERE state = 'failed' AND recovery_kind = 'retry'),
+       count(*) FILTER (
+           WHERE state = 'failed'
+             AND recovery_kind IS NULL
+             AND error_code = $4
+       )
+FROM model_call_contexts
+WHERE project_id = $1
+  AND agent_id = $2
+  AND input_event_sequence = $3
+  AND operation_kind = 'normal'
+`, kernelTestProjectID, agentID, work.OpeningEventSequence, storeerr.ManagedWorkAdmissionDeniedCode).Scan(
+		&contexts,
+		&retryableContexts,
+		&admissionDeniedContexts,
+	); err != nil {
+		t.Fatalf("count denied model retry contexts: %v", err)
+	}
+	if contexts != 2 || retryableContexts != 1 || admissionDeniedContexts != 1 {
+		t.Fatalf(
+			"model retry contexts total/retryable/admission-denied = %d/%d/%d, want 2/1/1",
+			contexts,
+			retryableContexts,
+			admissionDeniedContexts,
+		)
+	}
+}
+
+func TestManagedModelRetryReplayReturnsExistingAttemptAfterAdmissionCloses(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	fixture.provisionClusterModel(t, ctx, "managed-replay-prod", "managed-replay-model")
+	agentID, userID := fixture.createNamedAgentWithModelOptions(
+		t,
+		ctx,
+		"Managed Retry Replay",
+		"managed-replay/managed-replay-model",
+		fixture.Now,
+		kernelConfiguredModelOptions{},
+	)
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"create one retry attempt",
+		fixture.Now.Add(time.Millisecond),
+	)
+	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
+	if err != nil {
+		t.Fatalf("load managed retry replay agent: %v", err)
+	}
+	initial, err := fixture.Store.Execution().ClaimNormalModelCall(
+		ctx,
+		executionstore.ClaimNormalModelCallInput{
+			ProjectID:          kernelTestProjectID,
+			AgentID:            agentID,
+			RuntimeLockID:      turn.RuntimeLockID,
+			OpeningInputIDs:    turn.InputIDs,
+			AgentConfigID:      agent.CurrentConfigID,
+			InputEventSequence: turn.OpeningEventSequence,
+		},
+	)
+	if err != nil {
+		t.Fatalf("claim initial managed replay attempt: %v", err)
+	}
+	if _, err := fixture.Store.Execution().RecordRetryableModelCallFailure(
+		ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID:          kernelTestProjectID,
+			AgentID:            agentID,
+			ModelCallContextID: initial.Context.ID,
+			RuntimeLockID:      turn.RuntimeLockID,
+			ErrorKind:          model.ErrorKindTransient,
+			ErrorCode:          "provider_unavailable",
+			ErrorMessage:       "retry this request",
+			RetryDelay:         0,
+		},
+	); err != nil {
+		t.Fatalf("record managed replay predecessor: %v", err)
+	}
+	retryInput := executionstore.ClaimNextModelCallContextInput{
+		ProjectID:                     kernelTestProjectID,
+		AgentID:                       agentID,
+		PredecessorModelCallContextID: initial.Context.ID,
+		RuntimeLockID:                 turn.RuntimeLockID,
+	}
+	retry, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, retryInput)
+	if err != nil {
+		t.Fatalf("create managed retry attempt: %v", err)
+	}
+	if !retry.Created || !retry.Claimed || retry.Context.State != executionstore.ModelCallContextStarted {
+		t.Fatalf("managed retry = %+v, want newly started attempt", retry)
+	}
+
+	fixture.setManagedWorkAdmission(t, ctx, false)
+	replayed, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, retryInput)
+	if err != nil {
+		t.Fatalf("replay existing managed retry after admission closes: %v", err)
+	}
+	if replayed.Context.ID != retry.Context.ID || replayed.Created || replayed.Claimed ||
+		replayed.Context.State != executionstore.ModelCallContextStarted ||
+		replayed.Context.ErrorCode != "" {
+		t.Fatalf("replayed managed retry = %+v, want unchanged existing attempt", replayed)
 	}
 }
 

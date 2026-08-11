@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testing.T) {
@@ -53,7 +54,7 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 		)
 		createDone <- createOutcome{result: result, err: createErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 	agentLockCtx, cancelAgentLock := context.WithTimeout(ctx, 2*time.Second)
 	defer cancelAgentLock()
@@ -78,7 +79,7 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 		)
 		revokeDone <- revokeOutcome{result: result, err: revokeErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release lifecycle lock control transaction: %v", err)
@@ -225,7 +226,7 @@ tools:
 				)
 				launchDone <- launchOutcome{result: result, err: launchErr}
 			}()
-			waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 			grantLockCtx, cancelGrantLock := context.WithTimeout(ctx, 2*time.Second)
 			defer cancelGrantLock()
@@ -295,7 +296,7 @@ func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
 		)
 		deleteDone <- deleteOutcome{result: result, err: deleteErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
 	agentLockCtx, cancelAgentLock := context.WithTimeout(ctx, 2*time.Second)
 	defer cancelAgentLock()
@@ -380,7 +381,7 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 			deleting.Machine.DeleteAttempts,
 		)
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 	machineLockCtx, cancelMachineLock := context.WithTimeout(ctx, 2*time.Second)
 	defer cancelMachineLock()
@@ -473,14 +474,14 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 			}
 			if tokenWins {
 				startToken()
-				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 				startDelete()
 			} else {
 				startDelete()
-				waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 				startToken()
 			}
-			waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release machine lock control transaction: %v", err)
 			}
@@ -590,7 +591,7 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 		)
 		projectDeleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
 	machineDeleteDone := make(chan error, 1)
 	go func() {
@@ -600,7 +601,7 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 		)
 		machineDeleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release explicit machine lock control transaction: %v", err)
@@ -709,7 +710,7 @@ model:
 		})
 		launchDone <- launchOutcome{result: result, err: launchErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
 
 	profileLockCtx, cancelProfileLock := context.WithTimeout(ctx, 2*time.Second)
 	defer cancelProfileLock()
@@ -822,7 +823,7 @@ tools:
 		})
 		launchDone <- launchOutcome{result: result, err: launchErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 	environmentCtx, cancelEnvironment := context.WithTimeout(ctx, 2*time.Second)
 	defer cancelEnvironment()
@@ -848,7 +849,7 @@ tools:
 		})
 		configDone <- configChangeOutcome{result: result, err: changeErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release pool and environment lock control transaction: %v", err)
@@ -932,7 +933,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			})
 			launchDone <- launchAttemptOutcome{result: result, err: launchErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineEnvironmentKey", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineEnvironmentKey", 1)
 
 		revokeDone := make(chan grantRevocationAttemptOutcome, 1)
 		go func() {
@@ -944,7 +945,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			)
 			revokeDone <- grantRevocationAttemptOutcome{result: result, err: revokeErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release explicit launch control transaction: %v", err)
 		}
@@ -1005,7 +1006,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			)
 			revokeDone <- grantRevocationAttemptOutcome{result: result, err: revokeErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
 		launchDone := make(chan launchAttemptOutcome, 1)
 		go func() {
@@ -1018,7 +1019,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			})
 			launchDone <- launchAttemptOutcome{result: result, err: launchErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release explicit revocation control transaction: %v", err)
 		}
@@ -1089,7 +1090,7 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			)
 			configDone <- configChangeAttemptOutcome{result: result, err: changeErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineEnvironmentKey", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineEnvironmentKey", 1)
 
 		revokeDone := make(chan grantRevocationAttemptOutcome, 1)
 		go func() {
@@ -1101,7 +1102,7 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			)
 			revokeDone <- grantRevocationAttemptOutcome{result: result, err: revokeErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release explicit config control transaction: %v", err)
 		}
@@ -1150,7 +1151,7 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			)
 			revokeDone <- grantRevocationAttemptOutcome{result: result, err: revokeErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
 		configDone := make(chan configChangeAttemptOutcome, 1)
 		go func() {
@@ -1166,7 +1167,7 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			)
 			configDone <- configChangeAttemptOutcome{result: result, err: changeErr}
 		}()
-		waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release explicit config revocation control transaction: %v", err)
 		}
@@ -1448,7 +1449,7 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 	poolGrantDone := make(chan error, 1)
 	go func() {
@@ -1476,7 +1477,7 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 		)
 		explicitGrantDone <- createErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release source lock control transaction: %v", err)
@@ -1553,7 +1554,7 @@ func TestMCPReconciliationWaitingBehindProjectDeletionRejectsInactiveProject(t *
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 	reconcileDone := make(chan error, 1)
 	go func() {
@@ -1568,7 +1569,7 @@ func TestMCPReconciliationWaitingBehindProjectDeletionRejectsInactiveProject(t *
 		)
 		reconcileDone <- reconcileErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release source lock control transaction: %v", err)
@@ -1632,7 +1633,7 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 		)
 		archiveDone <- archiveErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
 	reconcileDone := make(chan error, 1)
 	go func() {
@@ -1647,7 +1648,7 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 		)
 		reconcileDone <- reconcileErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release agent lock control transaction: %v", err)
@@ -1715,11 +1716,11 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 		)
 		archiveDone <- archiveErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 	deleteDone := make(chan error, 1)
 	go func() { deleteDone <- deleteScope(fixture) }()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 2)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 2)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release source lock control transaction: %v", err)
 	}

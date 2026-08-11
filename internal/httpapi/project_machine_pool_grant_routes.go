@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -60,10 +61,7 @@ func (s strictOpenAPIServer) createProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
+	metadata := request.Body.Metadata
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -252,11 +250,9 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := rawJSONFromPointer(request.Body.Metadata)
-	if err != nil {
-		return nil, err
-	}
-	var envOverlayPatch, secretEnvOverlayPatch, providerOptionsOverlayPatch, metadataPatch *json.RawMessage
+	metadata := request.Body.Metadata
+	var envOverlayPatch, secretEnvOverlayPatch, providerOptionsOverlayPatch *json.RawMessage
+	var metadataPatch *resourcemeta.Metadata
 	if request.Body.DefaultMachineEnvOverlay != nil {
 		envOverlayPatch = &defaultMachineEnvOverlay
 	}
@@ -351,7 +347,7 @@ func projectMachinePoolGrantResponse(
 	if err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
-	metadata, err := jsonMapOrFallback(record.Metadata, json.RawMessage(`{}`))
+	metadata, err := resourcemeta.FromJSON(record.Metadata)
 	if err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err
 	}

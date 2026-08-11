@@ -674,18 +674,15 @@ func TestSSEIgnoresNullIDResponse(t *testing.T) {
 
 func TestSSEWallClockTimeout(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
-		// Comment lines keep the connection alive but never deliver
-		// the response. Without the SSE wall-clock the call hangs.
-		for range 200 {
-			_, _ = w.Write([]byte(": keepalive\n\n"))
-			if flusher != nil {
-				flusher.Flush()
-			}
-			time.Sleep(20 * time.Millisecond)
+		_, _ = w.Write([]byte(": keepalive\n\n"))
+		if flusher != nil {
+			flusher.Flush()
 		}
+		<-r.Context().Done()
 	}))
 	t.Cleanup(ts.Close)
 
@@ -706,15 +703,27 @@ func TestSSEWallClockTimeout(t *testing.T) {
 }
 
 func TestSSECanOutliveRequestTimeoutAfterHeaders(t *testing.T) {
+	sseHeadersSent := make(chan struct{})
+	release := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if r.URL.Path == "/hang" {
+			<-r.Context().Done()
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
 		if flusher != nil {
 			flusher.Flush()
 		}
+		close(sseHeadersSent)
 
-		time.Sleep(150 * time.Millisecond)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
 		_, _ = w.Write([]byte("data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n\n"))
 		if flusher != nil {
 			flusher.Flush()
@@ -725,15 +734,33 @@ func TestSSECanOutliveRequestTimeoutAfterHeaders(t *testing.T) {
 	client := mcp.New(mcp.Options{
 		HTTPClient:          mcpTestHTTPClient(true),
 		RequestTimeout:      50 * time.Millisecond,
-		SSEWallClockTimeout: time.Second,
+		SSEWallClockTimeout: 30 * time.Second,
 	})
-	conn := mcp.Conn{EndpointURL: ts.URL}
-	result, err := client.Call(context.Background(), conn, "ping", json.RawMessage(`{}`), 1)
-	if err != nil {
-		t.Fatalf("call: %v", err)
+
+	type callResult struct {
+		result json.RawMessage
+		err    error
 	}
-	if !strings.Contains(string(result), `"ok":true`) {
-		t.Errorf("expected ok:true in result, got %s", result)
+	done := make(chan callResult, 1)
+	go func() {
+		conn := mcp.Conn{EndpointURL: ts.URL}
+		result, err := client.Call(context.Background(), conn, "ping", json.RawMessage(`{}`), 1)
+		done <- callResult{result: result, err: err}
+	}()
+
+	<-sseHeadersSent
+	probeConn := mcp.Conn{EndpointURL: ts.URL + "/hang"}
+	if _, err := client.Call(context.Background(), probeConn, "ping", json.RawMessage(`{}`), 2); err == nil {
+		t.Fatal("expected request timeout error from hanging endpoint")
+	}
+	close(release)
+
+	out := <-done
+	if out.err != nil {
+		t.Fatalf("call: %v", out.err)
+	}
+	if !strings.Contains(string(out.result), `"ok":true`) {
+		t.Errorf("expected ok:true in result, got %s", out.result)
 	}
 }
 

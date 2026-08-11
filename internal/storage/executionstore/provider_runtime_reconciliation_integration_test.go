@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestProviderRuntimeCandidateStorageLifecycleAndPagination(t *testing.T) {
@@ -236,6 +237,8 @@ func TestProviderRuntimeCandidatesDeriveCrashedDaemonInactivity(t *testing.T) {
 UPDATE daemon_runtimes
 SET state = 'active',
     state_reason_code = NULL,
+    last_seen_at = ended_at,
+    lease_expires_at = ended_at + interval '1 microsecond',
     ended_at = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $1 AND machine_id = $2 AND id = $3
@@ -253,11 +256,8 @@ WHERE org_id = $1 AND id = $2
 			}
 			var expectedInactiveSince time.Time
 			if err := fixture.pool.QueryRow(ctx, `
-SELECT CASE
-  WHEN runtime.state = 'active' THEN runtime.lease_expires_at
-  ELSE LEAST(runtime.ended_at, runtime.lease_expires_at)
-END
-FROM daemon_runtimes runtime
+SELECT runtime.effective_end_at
+FROM daemon_runtime_connection_facts runtime
 WHERE runtime.org_id = $1 AND runtime.machine_id = $2 AND runtime.id = $3
 `, testOrgID, machine.machineID, machine.runtimeID).Scan(&expectedInactiveSince); err != nil {
 				t.Fatalf("load expected inactive timestamp: %v", err)
@@ -326,7 +326,7 @@ FOR UPDATE
 		)
 		done <- markResult{marked: marked, err: err}
 	}()
-	waitForDatabaseLockWait(
+	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		fixture.pool,
@@ -392,7 +392,7 @@ func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *test
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
 	type wakeResult struct {
 		disposition executionstore.MachineWakeDisposition
@@ -409,7 +409,7 @@ func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *test
 		)
 		wakeDone <- wakeResult{disposition: disposition, err: wakeErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleShared", 1)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release machine wake control transaction: %v", err)
@@ -869,7 +869,7 @@ func TestRuntimeProtectionUpdateAndPoolDeletionSerializePoolBeforeMachine(t *tes
 		)
 		updateDone <- updateErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
 	deleteDone := make(chan error, 1)
 	go func() {
@@ -880,7 +880,7 @@ func TestRuntimeProtectionUpdateAndPoolDeletionSerializePoolBeforeMachine(t *tes
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release runtime protection update control transaction: %v", err)
@@ -1088,7 +1088,7 @@ func TestProviderRuntimeClaimAndPoolDeletionSerializePoolBeforeMachine(t *testin
 		)
 		claimDone <- claimResult{claimed: claimed, err: claimErr}
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
 	deleteDone := make(chan error, 1)
 	go func() {
@@ -1099,7 +1099,7 @@ func TestProviderRuntimeClaimAndPoolDeletionSerializePoolBeforeMachine(t *testin
 		)
 		deleteDone <- deleteErr
 	}()
-	waitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release provider runtime claim control transaction: %v", err)
@@ -1746,6 +1746,37 @@ func (f providerRuntimeStorageFixture) createQueuedProcess(
 	seed string,
 ) (processDaemonFixture, ID, ID) {
 	t.Helper()
+	processFixture := f.createProcessFixture(t, ctx, machine, seed)
+	toolCallID := createToolCallForProcessTest(t, ctx, processFixture, seed, "run_command")
+	process, err := startProcessForTest(
+		ctx,
+		f.store,
+		executionstore.ExecuteToolCallInput{
+			ProjectID:     testProjectID,
+			AgentID:       processFixture.AgentID,
+			ToolCallID:    toolCallID,
+			RuntimeLockID: processFixture.Lock.ID,
+		},
+		executionstore.CreateProcessInput{
+			AgentMachineBindingID: processFixture.BindingID,
+			Command:               "sleep 3600",
+			ShellSelector:         "sh",
+			Cwd:                   "/work",
+		},
+	)
+	if err != nil {
+		t.Fatalf("start queued process: %v", err)
+	}
+	return processFixture, process.ID, toolCallID
+}
+
+func (f providerRuntimeStorageFixture) createProcessFixture(
+	t *testing.T,
+	ctx context.Context,
+	machine providerRuntimeMachine,
+	seed string,
+) processDaemonFixture {
+	t.Helper()
 	poolGrant, err := f.store.Execution().CreateProjectMachinePoolGrant(
 		ctx,
 		executionstore.CreateProjectMachinePoolGrantInput{
@@ -1818,27 +1849,7 @@ func (f providerRuntimeStorageFixture) createQueuedProcess(
 		GrantID:   machineGrant.ID,
 		Now:       time.Now().UTC(),
 	}
-	toolCallID := createToolCallForProcessTest(t, ctx, processFixture, seed, "run_command")
-	process, err := startProcessForTest(
-		ctx,
-		f.store,
-		executionstore.ExecuteToolCallInput{
-			ProjectID:     testProjectID,
-			AgentID:       agentID,
-			ToolCallID:    toolCallID,
-			RuntimeLockID: lock.ID,
-		},
-		executionstore.CreateProcessInput{
-			AgentMachineBindingID: binding.ID,
-			Command:               "sleep 3600",
-			ShellSelector:         "sh",
-			Cwd:                   "/work",
-		},
-	)
-	if err != nil {
-		t.Fatalf("start queued process: %v", err)
-	}
-	return processFixture, process.ID, toolCallID
+	return processFixture
 }
 
 func (f providerRuntimeStorageFixture) insertNeverConnectedMachine(
@@ -1917,15 +1928,7 @@ func (f providerRuntimeStorageFixture) insertInactiveBYOMachine(
 	if err != nil {
 		t.Fatalf("register BYO runtime exclusion daemon: %v", err)
 	}
-	if _, err := f.pool.Exec(ctx, `
-UPDATE daemon_runtimes
-SET last_seen_at = statement_timestamp() - interval '6 minutes',
-    lease_expires_at = statement_timestamp() - interval '5 minutes',
-    updated_at = statement_timestamp()
-WHERE org_id = $1 AND machine_id = $2 AND id = $3
-`, testOrgID, machine.ID, runtime.ID); err != nil {
-		t.Fatalf("expire BYO runtime exclusion daemon lease: %v", err)
-	}
+	expireDaemonRuntimeLeaseForTest(t, ctx, f.store, testOrgID, machine.ID, runtime.ID)
 	return machine.ID
 }
 

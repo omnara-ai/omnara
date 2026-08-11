@@ -1003,7 +1003,18 @@ func TestReportAcknowledgementNamesOnlyItsExactLocalReport(t *testing.T) {
 	}
 	first := send("report-first")
 	second := send("report-second")
-	waitForReportWaiters(t, transport, "report-first", "report-second")
+	enqueued := make(map[string]bool, 2)
+	for range 2 {
+		select {
+		case message := <-transport.send:
+			enqueued[message.ReportID] = true
+		case <-ctx.Done():
+			t.Fatalf("reports were not enqueued: %v", ctx.Err())
+		}
+	}
+	if !enqueued["report-first"] || !enqueued["report-second"] {
+		t.Fatalf("enqueued reports = %v", enqueued)
+	}
 
 	transport.ackReport(daemonprotocol.Message{
 		Type:      "report_ack",
@@ -1041,36 +1052,6 @@ func TestReportAcknowledgementNamesOnlyItsExactLocalReport(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("first report did not receive its own acknowledgement")
-	}
-}
-
-func waitForReportWaiters(
-	t *testing.T,
-	transport *daemonSocketTransport,
-	reportIDs ...string,
-) {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for {
-		ready := true
-		transport.mu.Lock()
-		for _, reportID := range reportIDs {
-			if len(transport.reportAcks[reportID]) != 1 {
-				ready = false
-				break
-			}
-		}
-		transport.mu.Unlock()
-		if ready {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf(
-				"report waiters were not registered for %v",
-				reportIDs,
-			)
-		}
-		time.Sleep(time.Millisecond)
 	}
 }
 

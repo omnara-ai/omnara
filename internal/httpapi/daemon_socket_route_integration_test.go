@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
@@ -172,12 +173,21 @@ type daemonSocketRouteTestPresence struct {
 	mu             sync.Mutex
 	records        map[uuid.UUID]notifications.DaemonPresence
 	runtimeRecords map[uuid.UUID]notifications.DaemonPresence
+	updates        chan notifications.DaemonPresence
 }
 
 func newDaemonSocketRouteTestPresence() *daemonSocketRouteTestPresence {
 	return &daemonSocketRouteTestPresence{
 		records:        map[uuid.UUID]notifications.DaemonPresence{},
 		runtimeRecords: map[uuid.UUID]notifications.DaemonPresence{},
+		updates:        make(chan notifications.DaemonPresence, 64),
+	}
+}
+
+func (p *daemonSocketRouteTestPresence) recordUpdate(presence notifications.DaemonPresence) {
+	select {
+	case p.updates <- presence:
+	default:
 	}
 }
 
@@ -194,6 +204,7 @@ func (p *daemonSocketRouteTestPresence) PutIfRuntime(
 		return notifications.ErrPresenceNotOwned
 	}
 	p.records[machineID] = presence
+	p.recordUpdate(presence)
 	return nil
 }
 
@@ -209,6 +220,7 @@ func (p *daemonSocketRouteTestPresence) PutIfMissing(
 		return notifications.ErrPresenceNotOwned
 	}
 	p.records[machineID] = presence
+	p.recordUpdate(presence)
 	return nil
 }
 
@@ -694,15 +706,15 @@ func TestDaemonSocketRouteReplacesStaleDifferentRuntimePresence(t *testing.T) {
 	if err == nil {
 		defer conn.Close(websocket.StatusNormalClosure, "test done")
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	timeout := time.After(5 * time.Second)
 	for {
-		got, ok, err := presence.Get(ctx, process.MachineUUID)
-		if err != nil {
-			t.Fatalf("presence after stale socket: %v", err)
-		}
-		if ok && got.RuntimeID == process.RuntimeUUID &&
-			got.ReplicaID == daemonSocketRouteReplicaID &&
-			got.ConnectionID != livePresence.ConnectionID {
+		select {
+		case got := <-presence.updates:
+			if got.RuntimeID != process.RuntimeUUID ||
+				got.ReplicaID != daemonSocketRouteReplicaID ||
+				got.ConnectionID == livePresence.ConnectionID {
+				continue
+			}
 			if runtimePresence, runtimeOK, err := presence.GetRuntime(ctx, livePresence.RuntimeID); err != nil ||
 				!runtimeOK ||
 				runtimePresence.ConnectionID != livePresence.ConnectionID {
@@ -715,16 +727,16 @@ func TestDaemonSocketRouteReplacesStaleDifferentRuntimePresence(t *testing.T) {
 				)
 			}
 			return
-		}
-		if time.Now().After(deadline) {
+		case <-timeout:
+			got, ok, err := presence.Get(ctx, process.MachineUUID)
 			t.Fatalf(
-				"stale presence was not replaced by current runtime: got %+v ok=%v old %+v",
+				"stale presence was not replaced by current runtime: got %+v ok=%v err=%v old %+v",
 				got,
 				ok,
+				err,
 				livePresence,
 			)
 		}
-		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -738,6 +750,8 @@ func TestDaemonSocketRouteHeartbeatRenewsPostgresLeaseCoarsely(t *testing.T) {
 	)
 	leaseDuration := 4 * time.Second
 	presence := newDaemonSocketRouteTestPresence()
+	timer := clock.NewMock()
+	timer.Set(time.Now())
 	server := mustNewServer(
 		t,
 		store,
@@ -746,6 +760,7 @@ func TestDaemonSocketRouteHeartbeatRenewsPostgresLeaseCoarsely(t *testing.T) {
 			presence,
 			daemonSocketRouteReplicaID,
 		),
+		WithTimer(timer),
 		func(server *Server) {
 			server.daemonRuntimeLeaseDuration = leaseDuration
 		},
@@ -851,7 +866,7 @@ func TestDaemonSocketRouteHeartbeatRenewsPostgresLeaseCoarsely(t *testing.T) {
 		)
 	}
 
-	time.Sleep(leaseDuration/2 + 150*time.Millisecond)
+	timer.Add(leaseDuration / 2)
 	writeSocketMessage(t, ctx, conn, heartbeat)
 	thirdAck := readSocketMessage(t, ctx, conn)
 	if thirdAck.Type != "heartbeat_ack" {
@@ -914,7 +929,7 @@ func TestDaemonSocketRouteHeartbeatRenewalDrainsQueuedWorkAfterExpiredReconnect(
 		"daemon-socket-route-expired-reconnect",
 		"run_command",
 	)
-	expireDaemonRuntimeForSocketRouteTest(t, ctx, pool, process.RuntimeUUID)
+	expireDaemonRuntimeForHTTPTest(t, ctx, pool, process.RuntimeUUID)
 
 	socketURL := "ws" + strings.TrimPrefix(
 		httpServer.URL,
@@ -986,19 +1001,34 @@ func loadDaemonRuntimeLeaseForTest(
 	return record
 }
 
-func expireDaemonRuntimeForSocketRouteTest(
+func expireDaemonRuntimeForHTTPTest(
 	t *testing.T,
 	ctx context.Context,
 	pool queryRower,
 	runtimeID storage.ID,
 ) {
 	t.Helper()
-	var updated storage.ID
-	if err := pool.QueryRow(ctx, `UPDATE daemon_runtimes `+
-		`SET last_seen_at = statement_timestamp() - INTERVAL '2 seconds', `+
-		`lease_expires_at = statement_timestamp() - INTERVAL '1 second', `+
-		`updated_at = statement_timestamp() WHERE id = $1 RETURNING id`, runtimeID).Scan(&updated); err != nil {
-		t.Fatalf("expire daemon runtime: %v", err)
+	var leaseExpiresAt time.Time
+	if err := pool.QueryRow(ctx, `
+UPDATE daemon_runtimes
+SET last_seen_at = statement_timestamp(),
+    lease_expires_at = statement_timestamp() + interval '1 millisecond',
+    updated_at = statement_timestamp()
+WHERE id = $1
+  AND state = 'active'
+RETURNING lease_expires_at
+`, runtimeID).Scan(&leaseExpiresAt); err != nil {
+		t.Fatalf("shorten daemon runtime lease: %v", err)
+	}
+	for {
+		var databaseNow time.Time
+		if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&databaseNow); err != nil {
+			t.Fatalf("load database time: %v", err)
+		}
+		if databaseNow.After(leaseExpiresAt) {
+			return
+		}
+		time.Sleep(leaseExpiresAt.Sub(databaseNow) + time.Millisecond)
 	}
 }
 

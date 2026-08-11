@@ -533,7 +533,15 @@ func failMachineTransaction(
 	cause error,
 	retryable bool,
 ) (transactionalPhaseResult, error) {
-	content, err := machineToolFailureContent(code, cause.Error(), retryable)
+	return failMachineTransactionWithMessage(code, cause.Error(), cause, retryable)
+}
+
+func failMachineTransactionWithMessage(
+	code, message string,
+	cause error,
+	retryable bool,
+) (transactionalPhaseResult, error) {
+	content, err := machineToolFailureContent(code, message, retryable)
 	if err != nil {
 		return nil, fmt.Errorf("marshal machine tool failure: %w", err)
 	}
@@ -545,6 +553,14 @@ func failMachineTransactionForStorageError(
 	cause error,
 	retryable bool,
 ) (transactionalPhaseResult, error) {
+	if errors.Is(cause, storeerr.ErrManagedWorkAdmissionDenied) {
+		return failMachineTransactionWithMessage(
+			storeerr.ManagedWorkAdmissionDeniedCode,
+			managedWorkAdmissionDeniedMessage,
+			cause,
+			false,
+		)
+	}
 	if !errors.Is(cause, storeerr.ErrInvalidRequest) &&
 		!errors.Is(cause, storeerr.ErrNotFound) &&
 		!errors.Is(cause, storeerr.ErrStateTransitionConflict) {
