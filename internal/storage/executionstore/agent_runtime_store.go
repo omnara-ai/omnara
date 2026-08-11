@@ -25,6 +25,7 @@ const (
 type insertAgentInput struct {
 	OrgID           ID
 	ProjectID       ID
+	ProfileID       ID
 	Name            string
 	CurrentConfigID ID
 	IdempotencyKey  string
@@ -34,6 +35,7 @@ type AgentRecord struct {
 	ID                  ID         `json:"id"`
 	OrgID               ID         `json:"org_id"`
 	ProjectID           ID         `json:"project_id"`
+	ProfileID           ID         `json:"profile_id,omitempty"`
 	State               AgentState `json:"state"`
 	Name                string     `json:"name,omitempty"`
 	CurrentConfigID     ID         `json:"current_config_id"`
@@ -84,6 +86,7 @@ func insertAgentWithProjectLifecycleLockTx(
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
 		OrgID:           input.OrgID,
 		ProjectID:       input.ProjectID,
+		ProfileID:       sqlcIDFromNil(input.ProfileID),
 		Name:            input.Name,
 		CurrentConfigID: input.CurrentConfigID,
 		IdempotencyKey:  sqlcTextFromEmpty(input.IdempotencyKey),

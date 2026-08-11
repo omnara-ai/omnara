@@ -2702,7 +2702,7 @@ paths:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: profile
           in: query
-          description: Return only agents whose current config is a version of this agent profile.
+          description: Return only agents launched from this agent profile.
           schema:
             type: string
         - name: sort
@@ -7534,6 +7534,8 @@ components:
           $ref: '#/components/schemas/OrganizationID'
         project_id:
           $ref: '#/components/schemas/ProjectID'
+        profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
         state:
           type: string
           enum: [active, archived]

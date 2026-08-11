@@ -1,4 +1,9 @@
-import { useCreateAgent, useCreateAgentConfig, useCreateAgentProfile } from '@omnara/react'
+import {
+  useCreateAgent,
+  useCreateAgentConfig,
+  useCreateAgentProfile,
+  useUpdateAgentProfile,
+} from '@omnara/react'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { type SyntheticEvent, useCallback, useReducer, useState } from 'react'
 
@@ -42,6 +47,7 @@ export function CreateAgentPage() {
 
   const createAgentConfig = useCreateAgentConfig(activeOrg.id, projectId)
   const createAgentProfile = useCreateAgentProfile(activeOrg.id, projectId)
+  const updateAgentProfile = useUpdateAgentProfile(activeOrg.id, projectId)
   const createAgent = useCreateAgent(activeOrg.id, projectId)
   const navigate = useNavigate()
   const [mode, dispatchMode] = useReducer(
@@ -94,8 +100,17 @@ export function CreateAgentPage() {
       let profile = savedProfile
       if (profile?.name !== name || profile.yaml !== yaml) {
         const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
-        const created = await createAgentProfile.mutateAsync({ name, config: config.id })
-        profile = { name, yaml, profileId: created.id, configId: config.id }
+        if (profile?.name === name) {
+          await updateAgentProfile.mutateAsync({
+            agentProfileID: profile.profileId,
+            config: config.id,
+            expected_current_config_id: profile.configId,
+          })
+          profile = { ...profile, yaml, configId: config.id }
+        } else {
+          const created = await createAgentProfile.mutateAsync({ name, config: config.id })
+          profile = { name, yaml, profileId: created.id, configId: config.id }
+        }
         setSavedProfile(profile)
       }
       if (action === 'launch') {

@@ -798,7 +798,7 @@ WHERE agents.project_id = $2
     )
   )
 RETURNING id, org_id, project_id, state, name,
-  current_config_id, integration_target_id,
+  profile_id, current_config_id, integration_target_id,
   coalesce(idempotency_key, '') AS idempotency_key,
   next_event_sequence, created_at, updated_at, archived_at
 `
@@ -815,6 +815,7 @@ type SetAgentIntegrationTargetRow struct {
 	ProjectID           uuid.UUID
 	State               string
 	Name                string
+	ProfileID           *uuid.UUID
 	CurrentConfigID     uuid.UUID
 	IntegrationTargetID *uuid.UUID
 	IdempotencyKey      string
@@ -833,6 +834,7 @@ func (q *Queries) SetAgentIntegrationTarget(ctx context.Context, arg SetAgentInt
 		&i.ProjectID,
 		&i.State,
 		&i.Name,
+		&i.ProfileID,
 		&i.CurrentConfigID,
 		&i.IntegrationTargetID,
 		&i.IdempotencyKey,

@@ -917,6 +917,7 @@ export type Agent = {
     id: AgentId;
     org_id: OrganizationId;
     project_id: ProjectId;
+    profile_id?: AgentProfileId;
     state: 'active' | 'archived';
     name: string;
     integration_target?: IntegrationTarget;
@@ -7043,7 +7044,7 @@ export type ListAgentsData = {
          */
         name?: string;
         /**
-         * Return only agents whose current config is a version of this agent profile.
+         * Return only agents launched from this agent profile.
          */
         profile?: string;
         sort?: ResourceListSort;

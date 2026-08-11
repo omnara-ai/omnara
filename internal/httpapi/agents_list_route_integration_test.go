@@ -222,6 +222,110 @@ func TestListAgents(t *testing.T) {
 	)
 }
 
+func TestListAgentsByProfile(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "list-agents-by-profile")
+	config := createPublicHTTPAgentConfig(
+		t,
+		handler,
+		project,
+		"list-agents-by-profile",
+		"yaml",
+		"name: Shared Config\ninstruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken,
+		http.StatusCreated,
+	)
+	configID := config["id"].(string)
+	firstProfile := createPublicHTTPAgentProfile(
+		t,
+		handler,
+		project,
+		"list-agents-by-profile-first",
+		"First Profile",
+		configID,
+		project.AdminToken,
+		http.StatusCreated,
+	)
+	secondProfile := createPublicHTTPAgentProfile(
+		t,
+		handler,
+		project,
+		"list-agents-by-profile-second",
+		"Second Profile",
+		configID,
+		project.AdminToken,
+		http.StatusCreated,
+	)
+	firstProfileID := firstProfile["id"].(string)
+	secondProfileID := secondProfile["id"].(string)
+
+	profileLaunch := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents",
+		`{"profile":"`+firstProfileID+`","config":"`+configID+`"}`,
+		"idem-list-agents-by-profile-first-launch",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	profileAgent := profileLaunch["agent"].(map[string]any)
+	if got := profileAgent["profile_id"]; got != firstProfileID {
+		t.Fatalf("launched agent profile_id = %v, want %s", got, firstProfileID)
+	}
+
+	configLaunch := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents",
+		`{"config":"`+configID+`"}`,
+		"idem-list-agents-by-profile-config-launch",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	configAgent := configLaunch["agent"].(map[string]any)
+	if _, ok := configAgent["profile_id"]; ok {
+		t.Fatalf("config-only agent unexpectedly has profile_id: %+v", configAgent)
+	}
+
+	firstPage := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/agents?profile="+firstProfileID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	firstData := firstPage["data"].([]any)
+	if len(firstData) != 1 {
+		t.Fatalf("first profile returned %d agents, want 1", len(firstData))
+	}
+	if got := firstData[0].(map[string]any)["id"]; got != profileAgent["id"] {
+		t.Fatalf("first profile agent = %v, want %v", got, profileAgent["id"])
+	}
+
+	secondPage := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/agents?profile="+secondProfileID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if data := secondPage["data"].([]any); len(data) != 0 {
+		t.Fatalf("second profile returned %d agents, want 0", len(data))
+	}
+}
+
 func seedListAgentAt(
 	t *testing.T,
 	ctx context.Context,

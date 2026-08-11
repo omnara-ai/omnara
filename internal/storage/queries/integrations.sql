@@ -269,6 +269,6 @@ WHERE agents.project_id = sqlc.arg(project_id)
     )
   )
 RETURNING id, org_id, project_id, state, name,
-  current_config_id, integration_target_id,
+  profile_id, current_config_id, integration_target_id,
   coalesce(idempotency_key, '') AS idempotency_key,
   next_event_sequence, created_at, updated_at, archived_at;
