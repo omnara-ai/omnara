@@ -107,9 +107,6 @@ func (c *Client) replayReportOutbox(
 				break
 			}
 			delete(forced, report.ID)
-			if c.reportSettled != nil {
-				c.reportSettled(report.ID, ack.status)
-			}
 			progress = true
 			if ack.status == daemonprotocol.AckStatusPermanentReject {
 				// Recompute this process's report frontier before sending more.

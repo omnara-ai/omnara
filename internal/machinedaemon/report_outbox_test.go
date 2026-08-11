@@ -375,14 +375,75 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sent := make(chan statedb.Report, 2)
+	const (
+		barrierProcessID   = "prc_zz_settlement_barrier"
+		barrierInstanceID  = "supervisor-instance-settlement-barrier"
+		barrierSupervisorT = "supervisor-token-settlement-barrier"
+	)
+	if err := store.ReserveProcess(
+		ctx,
+		statedb.Process{
+			ProcessID:            barrierProcessID,
+			SupervisorInstanceID: barrierInstanceID,
+			SupervisorToken:      barrierSupervisorT,
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkPrepared(ctx, barrierProcessID, barrierInstanceID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkAccepted(ctx, barrierProcessID, barrierInstanceID); err != nil {
+		t.Fatal(err)
+	}
+	barrierSupervisor, err := statedb.OpenSupervisor(
+		ctx,
+		dbPath,
+		"ins_rejected_action_terminal",
+		"mch_rejected_action_terminal",
+		barrierProcessID,
+		barrierInstanceID,
+		barrierSupervisorT,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer barrierSupervisor.Close()
+	if execute, err := barrierSupervisor.AuthorizeSpawnOnce(
+		ctx,
+	); err != nil || !execute {
+		t.Fatalf("commit barrier execution: execute=%t err=%v", execute, err)
+	}
+	if err := barrierSupervisor.RecordSpawned(
+		ctx,
+		"process_group",
+		"456",
+	); err != nil {
+		t.Fatal(err)
+	}
+	barrierReport := freezeOutboxReport(
+		t,
+		barrierSupervisor.FreezeStartedReport,
+		ctx,
+		statedb.Report{
+			ProcessID: barrierProcessID,
+			Kind:      statedb.ReportProcessStarted,
+			Body: mustOutboxJSON(t, map[string]any{
+				"type":        "process_started",
+				"process_id":  barrierProcessID,
+				"started_at":  "2026-07-27T11:59:59Z",
+				"observed_at": "2026-07-27T12:00:00Z",
+				"result": map[string]any{
+					"output":      "",
+					"next_cursor": 0,
+				},
+			}),
+		},
+	)
+
+	sent := make(chan statedb.Report, 3)
 	client := New(Config{RetryInterval: 10 * time.Millisecond}, nil, nil)
 	client.state = store
 	client.transport = rejectActionReportTransport{sent: sent}
-	settled := make(chan string, 2)
-	client.reportSettled = func(reportID string, _ daemonprotocol.AckStatus) {
-		settled <- reportID
-	}
 	replayCtx, cancelReplay := context.WithCancel(ctx)
 	replayDone := make(chan struct{})
 	go func() {
@@ -392,6 +453,7 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 	for _, expected := range []statedb.Report{
 		actionReport,
 		terminalReport,
+		barrierReport,
 	} {
 		select {
 		case report := <-sent:
@@ -405,18 +467,6 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatalf("outbox did not deliver report %s", expected.ID)
 		}
-	}
-	settledIDs := make(map[string]bool, 2)
-	for range 2 {
-		select {
-		case reportID := <-settled:
-			settledIDs[reportID] = true
-		case <-time.After(time.Second):
-			t.Fatalf("reports did not settle: %v", settledIDs)
-		}
-	}
-	if !settledIDs[actionReport.ID] || !settledIDs[terminalReport.ID] {
-		t.Fatalf("settled reports = %v", settledIDs)
 	}
 	cancelReplay()
 	select {

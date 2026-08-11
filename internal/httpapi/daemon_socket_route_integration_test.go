@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
@@ -749,13 +750,8 @@ func TestDaemonSocketRouteHeartbeatRenewsPostgresLeaseCoarsely(t *testing.T) {
 	)
 	leaseDuration := 4 * time.Second
 	presence := newDaemonSocketRouteTestPresence()
-	var clockMu sync.Mutex
-	clock := time.Now()
-	advanceClock := func(d time.Duration) {
-		clockMu.Lock()
-		defer clockMu.Unlock()
-		clock = clock.Add(d)
-	}
+	timer := clock.NewMock()
+	timer.Set(time.Now())
 	server := mustNewServer(
 		t,
 		store,
@@ -764,11 +760,7 @@ func TestDaemonSocketRouteHeartbeatRenewsPostgresLeaseCoarsely(t *testing.T) {
 			presence,
 			daemonSocketRouteReplicaID,
 		),
-		WithNowFunc(func() time.Time {
-			clockMu.Lock()
-			defer clockMu.Unlock()
-			return clock
-		}),
+		WithTimer(timer),
 		func(server *Server) {
 			server.daemonRuntimeLeaseDuration = leaseDuration
 		},
@@ -874,7 +866,7 @@ func TestDaemonSocketRouteHeartbeatRenewsPostgresLeaseCoarsely(t *testing.T) {
 		)
 	}
 
-	advanceClock(leaseDuration / 2)
+	timer.Add(leaseDuration / 2)
 	writeSocketMessage(t, ctx, conn, heartbeat)
 	thirdAck := readSocketMessage(t, ctx, conn)
 	if thirdAck.Type != "heartbeat_ack" {

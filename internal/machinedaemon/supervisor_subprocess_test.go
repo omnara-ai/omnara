@@ -22,29 +22,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/processaction"
 )
 
-const fenceWriterParkedPipeName = "fence-writer-parked.pipe"
-
-func installFenceWriterParkedPipe() {
-	home := os.Getenv(omnaraHomeEnvironmentName)
-	if home == "" {
-		return
-	}
-	pipe, err := os.OpenFile(
-		filepath.Join(home, fenceWriterParkedPipeName),
-		os.O_RDWR,
-		0,
-	)
-	if err != nil {
-		return
-	}
-	fenceWriterParkedTestHook = func() {
-		_, _ = pipe.Write([]byte{'p'})
-	}
-}
-
 func TestMain(m *testing.M) {
 	if len(os.Args) == 4 && os.Args[1] == runnerSubcommand {
-		installFenceWriterParkedPipe()
 		lockFD, err := strconv.Atoi(os.Args[3])
 		if err == nil {
 			err = RunCommandSupervisorFromBootstrap(

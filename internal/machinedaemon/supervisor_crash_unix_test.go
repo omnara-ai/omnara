@@ -4,8 +4,9 @@ package machinedaemon
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -206,38 +207,36 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 
 	commandDir := t.TempDir()
 	releasePath := commandDir + string(os.PathSeparator) + "release"
+	exitedPath := commandDir + string(os.PathSeparator) + "exited"
 	if err := syscall.Mkfifo(releasePath, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	home := t.TempDir()
-	parkedPath := filepath.Join(home, fenceWriterParkedPipeName)
-	if err := syscall.Mkfifo(parkedPath, 0o600); err != nil {
+	if err := syscall.Mkfifo(exitedPath, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fixture := newDetachedSupervisorTestFixtureWithConfig(
+	fixture := newDetachedSupervisorTestFixture(
 		t,
 		ctx,
-		Config{OmnaraHome: home},
 		ProcessAssignment{
 			ID: "prc_natural_exit_fence",
 			Process: Process{
-				Command:       `read -r line < "$RELEASE"`,
+				Command:       `exec 3> "$EXITED"; read -r line < "$RELEASE"`,
 				ShellSelector: "default",
 				Cwd:           commandDir,
 				IOMode:        "pipe",
 			},
 			Env: map[string]string{
 				"RELEASE": releasePath,
+				"EXITED":  exitedPath,
 			},
 		},
 	)
 	fixture.acceptAndStart(t, ctx)
-	parked, err := os.OpenFile(parkedPath, os.O_RDONLY, 0)
+	exited, err := os.Open(exitedPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer parked.Close()
-	awaitFenceWriterParked(t, parked, 5*time.Second)
+	defer exited.Close()
 	runner, ok := fixture.runtime.runner.(*ipcProcessRunner)
 	if !ok {
 		t.Fatalf("runner type = %T", fixture.runtime.runner)
@@ -261,7 +260,7 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	if err := release.Close(); err != nil {
 		t.Fatal(err)
 	}
-	awaitFenceWriterParked(t, parked, 5*time.Second)
+	awaitFifoEOF(t, exited, 5*time.Second)
 
 	process, found, err := fixture.store.Process(
 		ctx,
@@ -293,7 +292,7 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	}
 }
 
-func awaitFenceWriterParked(
+func awaitFifoEOF(
 	t *testing.T,
 	pipe *os.File,
 	timeout time.Duration,
@@ -306,11 +305,11 @@ func awaitFenceWriterParked(
 	}()
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("wait for fence writer: %v", err)
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("wait for process exit: %v", err)
 		}
 	case <-time.After(timeout):
-		t.Fatal("no supervisor writer parked at the reconciliation fence")
+		t.Fatal("process did not exit")
 	}
 }
 

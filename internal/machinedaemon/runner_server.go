@@ -128,13 +128,12 @@ func runCommandSupervisor(
 		})
 	}
 	state := &runnerServerState{
-		bootstrap:           bootstrap,
-		processState:        processState,
-		machine:             machine,
-		inflight:            make(map[string]*runnerActionCall),
-		shutdown:            requestShutdown,
-		startedDone:         make(chan struct{}),
-		onFenceWriterParked: fenceWriterParkedTestHook,
+		bootstrap:    bootstrap,
+		processState: processState,
+		machine:      machine,
+		inflight:     make(map[string]*runnerActionCall),
+		shutdown:     requestShutdown,
+		startedDone:  make(chan struct{}),
 	}
 	defer func() {
 		_ = listener.Close()
@@ -199,14 +198,11 @@ func serveCommandSupervisor(
 	}
 }
 
-var fenceWriterParkedTestHook func()
-
 type runnerServerState struct {
-	bootstrap           supervisorIdentityBootstrap
-	processState        *statedb.Supervisor
-	machine             localstore.MachineStore
-	shutdown            func()
-	onFenceWriterParked func()
+	bootstrap    supervisorIdentityBootstrap
+	processState *statedb.Supervisor
+	machine      localstore.MachineStore
+	shutdown     func()
 
 	reconciliationMu sync.RWMutex
 
@@ -321,12 +317,6 @@ func serveRunnerReconciliationConn(
 		if err := write(state.handle(ctx, next)); err != nil {
 			return
 		}
-	}
-}
-
-func (s *runnerServerState) noteFenceWriterParked() {
-	if hook := s.onFenceWriterParked; hook != nil {
-		hook()
 	}
 }
 
@@ -677,7 +667,6 @@ func (s *runnerServerState) observeProcessExit(
 	observationErr := waitProcessCommandLeaderExit(runner)
 
 	// Closing admission blocks new effects but lets already-marked calls finish.
-	s.noteFenceWriterParked()
 	s.reconciliationMu.RLock()
 	s.effectBoundaryMu.Lock()
 	_ = retrySupervisorStateWrite(ctx, func() error {
@@ -734,7 +723,6 @@ func (s *runnerServerState) finishStartWithoutExactOutcome(
 		return
 	}
 
-	s.noteFenceWriterParked()
 	s.reconciliationMu.RLock()
 	s.effectBoundaryMu.Lock()
 	_ = retrySupervisorStateWrite(ctx, func() error {
@@ -1454,14 +1442,12 @@ func (s *runnerServerState) autonomousStateWrite(
 	ctx context.Context,
 	write func() error,
 ) error {
-	s.noteFenceWriterParked()
 	s.reconciliationMu.RLock()
 	defer s.reconciliationMu.RUnlock()
 	return retrySupervisorStateWrite(ctx, write)
 }
 
 func (s *runnerServerState) autonomousLocalClosure(ctx context.Context) {
-	s.noteFenceWriterParked()
 	s.reconciliationMu.RLock()
 	defer s.reconciliationMu.RUnlock()
 	if err := retrySupervisorStateWrite(ctx, func() error {

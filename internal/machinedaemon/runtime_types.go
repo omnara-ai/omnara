@@ -66,8 +66,6 @@ type Client struct {
 	wakeSignals   chan struct{}
 	sleepPlatform sleepPlatform
 	sleepDisabled atomic.Bool
-
-	reportSettled func(reportID string, status daemonprotocol.AckStatus)
 }
 
 type registerResponse struct {
