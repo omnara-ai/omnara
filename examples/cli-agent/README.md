@@ -36,7 +36,7 @@ config — and replays recent history (up to the last 500 events) from the
 events endpoint before attaching to the live stream. `--cloud` and `--local`
 only apply when starting a new agent.
 
-`OMNARA_API_KEY` takes an `omnara_pat_` personal access token, which must
+`OMNARA_API_KEY` takes an `omnara_pat_v1_` personal access token, which must
 already belong to at least one organization. With multiple organizations, the
 CLI shows an arrow-key picker (or set `OMNARA_ORG_ID`). With the local
 machine option, the agent is told the CLI's working directory and

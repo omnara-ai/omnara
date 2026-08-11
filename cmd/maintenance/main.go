@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/dbschema"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
@@ -28,6 +29,7 @@ const (
 	runtimeLockReapBatchSize         int32 = 100
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
+	minimumPostgresSchemaVersion     int64 = 16
 )
 
 func main() {
@@ -47,6 +49,7 @@ func main() {
 	db, err := storage.Open(
 		context.Background(),
 		cfg.DatabaseURL,
+		storage.WithDefaultApplicationName("omnara-maintenance"),
 		storage.WithQueryTracer(metrics.NewDBRecorder(metricSet, metrics.SubsystemDB)),
 	)
 	if err != nil {
@@ -54,6 +57,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	databaseReady := func(ctx context.Context) error {
+		return dbschema.RequireVersion(ctx, db, minimumPostgresSchemaVersion)
+	}
+	if err := databaseReady(context.Background()); err != nil {
+		logger.Error("check database schema", "error", err)
+		os.Exit(1)
+	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -108,7 +118,7 @@ func main() {
 		logger,
 		cfg.MaintenanceMetricsAddr,
 		metricSet,
-		metrics.ReadyAll(store.Ping, redisClient.Ping),
+		metrics.ReadyAll(databaseReady, redisClient.Ping),
 	)
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicURL)
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)

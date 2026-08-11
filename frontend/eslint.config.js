@@ -12,7 +12,13 @@ const browserOnlyGlobal = (name) => ({
 })
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', 'packages/sdk/src/generated/**'] },
+  {
+    ignores: [
+      '**/dist/**',
+      'packages/sdk/src/generated/**',
+      'packages/sdk/testdata/pre-canonical-token/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,

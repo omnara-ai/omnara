@@ -1,0 +1,44 @@
+openapi: 3.1.0
+info:
+  title: Compatibility fixture
+  version: head
+paths:
+  /api/v1/personal-access-tokens:
+    post:
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+                    pattern: '^omnara_pat_v1_[0-9A-Za-z]{43}_[0-9A-Za-z]{6}$'
+  /api/v1/orgs/{orgID}/api-keys:
+    post:
+      parameters:
+        - name: orgID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+                    pattern: '^omnara_org_v1_[0-9A-Za-z]{43}_[0-9A-Za-z]{6}$'
+  /api/v1/unchanged:
+    get:
+      responses:
+        '200':
+          description: OK

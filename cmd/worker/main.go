@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/dbschema"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
@@ -27,7 +28,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
-const integrationHTTPClientTimeout = 5 * time.Minute
+const (
+	integrationHTTPClientTimeout       = 5 * time.Minute
+	minimumPostgresSchemaVersion int64 = 16
+)
 
 func main() {
 	log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
@@ -50,6 +54,7 @@ func main() {
 	db, err := storage.Open(
 		context.Background(),
 		cfg.DatabaseURL,
+		storage.WithDefaultApplicationName("omnara-worker"),
 		storage.WithQueryTracer(metrics.NewDBRecorder(metricSet, metrics.SubsystemDB)),
 	)
 	if err != nil {
@@ -57,6 +62,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	databaseReady := func(ctx context.Context) error {
+		return dbschema.RequireVersion(ctx, db, minimumPostgresSchemaVersion)
+	}
+	if err := databaseReady(context.Background()); err != nil {
+		log.Error("check database schema", "error", err)
+		os.Exit(1)
+	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -118,7 +130,7 @@ func main() {
 		log,
 		cfg.WorkerMetricsAddr,
 		metricSet,
-		metrics.ReadyAll(store.Ping, redisClient.Ping),
+		metrics.ReadyAll(databaseReady, redisClient.Ping),
 	)
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
 	integrationHTTPClient := metrics.NewObservedHTTPClient(

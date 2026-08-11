@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/dbschema"
 	"github.com/omnara-ai/omnara/internal/email"
 	"github.com/omnara-ai/omnara/internal/httpapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
@@ -36,9 +37,10 @@ import (
 )
 
 const (
-	outboundHTTPClientTimeout  = 30 * time.Second
-	defaultReconciliationPlan  = "plan"
-	defaultReconciliationApply = "apply"
+	outboundHTTPClientTimeout          = 30 * time.Second
+	defaultReconciliationPlan          = "plan"
+	defaultReconciliationApply         = "apply"
+	minimumPostgresSchemaVersion int64 = 16
 )
 
 func main() {
@@ -78,6 +80,7 @@ func main() {
 	db, err := storage.Open(
 		context.Background(),
 		cfg.DatabaseURL,
+		storage.WithDefaultApplicationName("omnara-api"),
 		storage.WithQueryTracer(metrics.NewDBRecorder(metricSet, metrics.SubsystemDB)),
 	)
 	if err != nil {
@@ -85,6 +88,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	databaseReady := func(ctx context.Context) error {
+		return dbschema.RequireVersion(ctx, db, minimumPostgresSchemaVersion)
+	}
+	if err := databaseReady(context.Background()); err != nil {
+		log.Error("check database schema", "error", err)
+		os.Exit(1)
+	}
 
 	redisClient, err := redistore.Connect(cfg.RedisURL)
 	if err != nil {
@@ -178,7 +188,7 @@ func main() {
 	defer stop()
 	ctx, cancel := context.WithCancel(signalCtx)
 	defer cancel()
-	metricsErr := metrics.Serve(ctx, log, cfg.APIMetricsAddr, metricSet, metrics.ReadyAll(store.Ping, redisClient.Ping))
+	metricsErr := metrics.Serve(ctx, log, cfg.APIMetricsAddr, metricSet, metrics.ReadyAll(databaseReady, redisClient.Ping))
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -250,11 +260,18 @@ func runDefaultReconciliation(
 	if len(cfg.DefaultMachinePools) == 0 && cfg.DefaultModelProvider == nil {
 		return errors.New("no default templates are configured")
 	}
-	db, err := storage.Open(ctx, cfg.DatabaseURL)
+	db, err := storage.Open(
+		ctx,
+		cfg.DatabaseURL,
+		storage.WithDefaultApplicationName("omnara-api-reconcile-defaults"),
+	)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
+	if err := dbschema.RequireVersion(ctx, db, minimumPostgresSchemaVersion); err != nil {
+		return fmt.Errorf("check database schema: %w", err)
+	}
 	store := storage.NewStore(db, storage.WithMachinePoolProviders(machinepool.DefaultCatalog()))
 	result, reconcileErr := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
 		Apply:                mode == defaultReconciliationApply,

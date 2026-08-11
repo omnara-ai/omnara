@@ -678,9 +678,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	projectAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  projectAdmin.ID,
-			Name:    "project admin",
-			TokenID: "machine-pool-project-admin",
+			UserID: projectAdmin.ID,
+			Name:   "project admin",
 		},
 	)
 	if err != nil {

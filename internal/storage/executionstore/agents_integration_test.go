@@ -1538,7 +1538,6 @@ tools:
 		OrgID:     testOrgID,
 		MachineID: firstMachine.ID,
 		Name:      "live source removal",
-		Token:     "token-live-explicit-source-removal",
 	})
 	if err != nil {
 		t.Fatalf("create live source removal daemon token: %v", err)
@@ -1546,7 +1545,7 @@ tools:
 	runtime, err := store.Execution().RegisterDaemonRuntime(ctx, executionstore.RegisterDaemonRuntimeInput{
 		OrgID:            testOrgID,
 		MachineID:        firstMachine.ID,
-		DaemonTokenID:    token.ID,
+		DaemonTokenID:    token.Record.ID,
 		DaemonInstanceID: testID("daemon-live-explicit-source-removal"),
 		DaemonVersion:    "1.0.0",
 		LeaseTimeout:     time.Hour,
@@ -1583,7 +1582,7 @@ tools:
 			AgentID:   agentID,
 			MachineID: firstMachine.ID,
 			BindingID: bindingID,
-			TokenID:   token.ID,
+			TokenID:   token.Record.ID,
 			RuntimeID: runtime.ID,
 			DaemonID:  testID("daemon-live-explicit-source-removal"),
 			UserID:    user.ID,

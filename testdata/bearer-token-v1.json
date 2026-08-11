@@ -1,0 +1,72 @@
+{
+  "alphabet": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+  "secret_length": 43,
+  "checksum_length": 6,
+  "checksum": "CRC-32/IEEE",
+  "checksum_encoding_vectors": [
+    { "value": 0, "encoded": "000000" },
+    { "value": 4294967295, "encoded": "4gfFC3" }
+  ],
+  "vectors": [
+    {
+      "kind": "pat",
+      "secret": "0000000000000000000000000000000000000000000",
+      "token": "omnara_pat_v1_0000000000000000000000000000000000000000000_3ovNGW"
+    },
+    {
+      "kind": "org",
+      "secret": "0000000000000000000000000000000000000000000",
+      "token": "omnara_org_v1_0000000000000000000000000000000000000000000_3wUAKj"
+    },
+    {
+      "kind": "daemon",
+      "secret": "0000000000000000000000000000000000000000000",
+      "token": "omnara_daemon_v1_0000000000000000000000000000000000000000000_49kVrl"
+    },
+    {
+      "kind": "pat",
+      "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
+      "token": "omnara_pat_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_02iP9r"
+    },
+    {
+      "kind": "org",
+      "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
+      "token": "omnara_org_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_06McxS"
+    },
+    {
+      "kind": "daemon",
+      "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
+      "token": "omnara_daemon_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_0uXuZW"
+    },
+    {
+      "kind": "pat",
+      "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "token": "omnara_pat_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_316EAv"
+    },
+    {
+      "kind": "org",
+      "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "token": "omnara_org_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_2zJMPM"
+    },
+    {
+      "kind": "daemon",
+      "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "token": "omnara_daemon_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_2lsHvM"
+    },
+    {
+      "kind": "pat",
+      "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "token": "omnara_pat_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_3IA9xN"
+    },
+    {
+      "kind": "org",
+      "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "token": "omnara_org_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_3IaMWa"
+    },
+    {
+      "kind": "daemon",
+      "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "token": "omnara_daemon_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_2Ls0H2"
+    }
+  ]
+}

@@ -258,7 +258,7 @@ func (s *Store) PollDeviceAuthFlow(
 		}
 		return DeviceAuthFlowPollRecord{Status: DeviceAuthFlowStatusPending, Interval: DeviceAuthPollInterval}, nil
 	}
-	tokenInput := CreatePersonalAccessTokenInput{
+	preparedToken, err := preparePersonalAccessTokenInput(CreatePersonalAccessTokenInput{
 		UserID: *flow.ApprovedByUserID,
 		ActorPrincipal: PrincipalRecord{
 			Type:             PrincipalTypeUser,
@@ -266,11 +266,11 @@ func (s *Store) PollDeviceAuthFlow(
 			BrowserSessionID: *flow.ApprovedBrowserSessionID,
 		},
 		Name: flow.TokenName,
-	}
-	if err := preparePersonalAccessTokenInput(&tokenInput); err != nil {
+	})
+	if err != nil {
 		return DeviceAuthFlowPollRecord{}, err
 	}
-	if _, err := createPersonalAccessTokenTx(ctx, qtx, tokenInput); errors.Is(err, storeerr.ErrUnauthorized) {
+	if _, err := createPersonalAccessTokenTx(ctx, qtx, preparedToken); errors.Is(err, storeerr.ErrUnauthorized) {
 		updated, denyErr := qtx.DenyInvalidatedApprovedAuthDeviceFlow(
 			ctx,
 			dbsqlc.DenyInvalidatedApprovedAuthDeviceFlowParams{ID: flow.ID},
@@ -303,7 +303,7 @@ func (s *Store) PollDeviceAuthFlow(
 	}
 	return DeviceAuthFlowPollRecord{
 		Status:   DeviceAuthFlowStatusApproved,
-		Token:    tokenInput.Token,
+		Token:    preparedToken.token,
 		Interval: DeviceAuthPollInterval,
 	}, nil
 }

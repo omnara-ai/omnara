@@ -2,5 +2,6 @@ dist
 node_modules
 pnpm-lock.yaml
 packages/sdk/src/generated
+packages/sdk/testdata/pre-canonical-token
 apps/web/playwright-report
 apps/web/test-results

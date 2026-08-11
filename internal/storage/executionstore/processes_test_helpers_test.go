@@ -425,7 +425,6 @@ func newProcessDaemonFixtureInStore(
 			OrgID:     testOrgID,
 			MachineID: createdMachine.ID,
 			Name:      "daemon",
-			Token:     "token-" + testName,
 		},
 	)
 	if err != nil {
@@ -437,7 +436,7 @@ func newProcessDaemonFixtureInStore(
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            createdMachine.OrgID,
 			MachineID:        createdMachine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: daemonID,
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -478,7 +477,7 @@ func newProcessDaemonFixtureInStore(
 		AgentID:   agentID,
 		MachineID: machine.ID,
 		BindingID: binding.ID,
-		TokenID:   token.ID,
+		TokenID:   token.Record.ID,
 		RuntimeID: runtime.ID,
 		DaemonID:  daemonID,
 		UserID:    userID,

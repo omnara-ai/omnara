@@ -1864,7 +1864,6 @@ tools:
 				OrgID:     testOrgID,
 				MachineID: binding.MachineID,
 				Name:      "multi daemon",
-				Token:     "token-launch-multi-" + binding.MachineRef,
 			},
 		)
 		if err != nil {
@@ -1875,7 +1874,7 @@ tools:
 			executionstore.RegisterDaemonRuntimeInput{
 				OrgID:            testOrgID,
 				MachineID:        binding.MachineID,
-				DaemonTokenID:    token.ID,
+				DaemonTokenID:    token.Record.ID,
 				DaemonInstanceID: testID("daemon-launch-multi-" + binding.MachineRef),
 				DaemonVersion:    "1.0.0",
 				LeaseTimeout:     testDaemonRuntimeLeaseTimeout,

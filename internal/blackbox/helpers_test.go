@@ -239,7 +239,7 @@ func TestMain(m *testing.M) {
 	token := os.Getenv("OMNARA_BLACKBOX_TOKEN")
 	if baseURL == "" || token == "" {
 		fmt.Fprintln(os.Stderr, "blackbox suite: OMNARA_BLACKBOX_API_URL and OMNARA_BLACKBOX_TOKEN must be set")
-		fmt.Fprintln(os.Stderr, "example: OMNARA_BLACKBOX_API_URL=https://api.example.com OMNARA_BLACKBOX_TOKEN=omnara_pat_... make test-blackbox")
+		fmt.Fprintln(os.Stderr, "example: OMNARA_BLACKBOX_API_URL=https://api.example.com OMNARA_BLACKBOX_TOKEN=omnara_pat_v1_... make test-blackbox")
 		os.Exit(2)
 	}
 

@@ -52,7 +52,10 @@ A machine starts as a record in the control plane — the daemon attaches to it 
 
 ## Install the daemon
 
-The daemon uses a **machine token** to connect. The token is shown only once when created.
+The daemon uses a **machine token** to connect. It has the versioned
+`omnara_daemon_v1_<secret>_<checksum>` shape and is shown only once when
+created. The final six characters detect copy/paste mistakes; they are not a
+replacement for keeping the whole token secret.
 
 <Tabs>
 <Tab title="Console">

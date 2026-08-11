@@ -2397,7 +2397,6 @@ func createExecutableBinding(
 			OrgID:     toolsTestOrgID,
 			MachineID: machine.ID,
 			Name:      name + " daemon",
-			Token:     "tools-target-token-" + name,
 		},
 	)
 	if err != nil {
@@ -2408,7 +2407,7 @@ func createExecutableBinding(
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            toolsTestOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: toolsTestID("daemon-tools-" + name),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,
@@ -2422,7 +2421,7 @@ func createExecutableBinding(
 		GrantID:       grant.ID,
 		MachineID:     machine.ID,
 		RuntimeID:     runtime.ID,
-		DaemonTokenID: token.ID,
+		DaemonTokenID: token.Record.ID,
 		DisplayName:   machine.DisplayName,
 	}
 }

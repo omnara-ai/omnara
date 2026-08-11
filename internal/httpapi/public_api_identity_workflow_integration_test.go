@@ -20,6 +20,7 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/omnara-ai/omnara/internal/authn"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -190,9 +191,8 @@ func TestPublicIdentityOrgBootstrapUsesAuthenticatedUser(t *testing.T) {
 	ownerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  user.ID,
-			Name:    "owner",
-			TokenID: "owner",
+			UserID: user.ID,
+			Name:   "owner",
 		},
 	)
 	if err != nil {
@@ -283,9 +283,8 @@ func TestPublicInvitationFlow(t *testing.T) {
 	inviteePAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  invitee.ID,
-			Name:    "invitee",
-			TokenID: "invitee",
+			UserID: invitee.ID,
+			Name:   "invitee",
 		},
 	)
 	if err != nil {
@@ -381,7 +380,7 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 		t.Fatalf("add org membership: %v", err)
 	}
 	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: member.ID, Name: "member", TokenID: "member-mgmt-member",
+		UserID: member.ID, Name: "member",
 	})
 	if err != nil {
 		t.Fatalf("create member token: %v", err)
@@ -470,7 +469,7 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 		t.Fatalf("add project admin project membership: %v", err)
 	}
 	projectAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: projectAdmin.ID, Name: "project-admin", TokenID: "member-mgmt-project-admin",
+		UserID: projectAdmin.ID, Name: "project-admin",
 	})
 	if err != nil {
 		t.Fatalf("create project admin token: %v", err)
@@ -493,7 +492,7 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 		t.Fatalf("add developer project membership: %v", err)
 	}
 	developerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: developer.ID, Name: "developer", TokenID: "member-mgmt-developer",
+		UserID: developer.ID, Name: "developer",
 	})
 	if err != nil {
 		t.Fatalf("create developer token: %v", err)
@@ -566,9 +565,8 @@ func TestOrgAdminCreatesPrivateProjectByDefault(t *testing.T) {
 	creatorPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  creator.ID,
-			Name:    "creator",
-			TokenID: "creator",
+			UserID: creator.ID,
+			Name:   "creator",
 		},
 	)
 	if err != nil {
@@ -577,9 +575,8 @@ func TestOrgAdminCreatesPrivateProjectByDefault(t *testing.T) {
 	otherPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  other.ID,
-			Name:    "other",
-			TokenID: "other",
+			UserID: other.ID,
+			Name:   "other",
 		},
 	)
 	if err != nil {
@@ -664,9 +661,8 @@ func TestProjectOperatorCanRunAgentsButCannotManageProjectResources(
 	operatorPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  operator.ID,
-			Name:    "operator",
-			TokenID: "operator-project",
+			UserID: operator.ID,
+			Name:   "operator",
 		},
 	)
 	if err != nil {
@@ -761,9 +757,8 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  member.ID,
-			Name:    "member",
-			TokenID: "visibility-member",
+			UserID: member.ID,
+			Name:   "member",
 		},
 	)
 	if err != nil {
@@ -772,9 +767,8 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 	outsiderPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  outsider.ID,
-			Name:    "outsider",
-			TokenID: "visibility-outsider",
+			UserID: outsider.ID,
+			Name:   "outsider",
 		},
 	)
 	if err != nil {
@@ -1026,7 +1020,11 @@ func TestBrowserSessionRequiresCSRFForMutations(t *testing.T) {
 	req = newJSONRequest(http.MethodPost, path, `{"name":"Invalid Bearer Org"}`)
 	req.Host = "omnara.test"
 	req.Header.Set("Origin", "http://omnara.test")
-	req.Header.Set("Authorization", "Bearer "+identitystore.PersonalAccessTokenPlaintextPrefix+"missing")
+	unknownPAT, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
+	if err != nil {
+		t.Fatalf("format unknown personal access token: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+unknownPAT)
 	req.Header.Set(httpauth.CSRFHeaderName, "browser-csrf-token")
 	req.AddCookie(&http.Cookie{Name: httpauth.BrowserSessionCookieName, Value: "browser-session-token"})
 	rec = performRequest(handler, req)
@@ -1036,6 +1034,21 @@ func TestBrowserSessionRequiresCSRFForMutations(t *testing.T) {
 			rec.Code,
 			rec.Body.String(),
 		)
+	}
+
+	checksumCorruptPAT := unknownPAT[:len(unknownPAT)-1] + "0"
+	if unknownPAT[len(unknownPAT)-1] == '0' {
+		checksumCorruptPAT = unknownPAT[:len(unknownPAT)-1] + "1"
+	}
+	req = newJSONRequest(http.MethodPost, path, `{"name":"Checksum Bearer Org"}`)
+	req.Host = "omnara.test"
+	req.Header.Set("Origin", "http://omnara.test")
+	req.Header.Set("Authorization", "Bearer "+checksumCorruptPAT)
+	req.Header.Set(httpauth.CSRFHeaderName, "browser-csrf-token")
+	req.AddCookie(&http.Cookie{Name: httpauth.BrowserSessionCookieName, Value: "browser-session-token"})
+	rec = performRequest(handler, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected checksum-corrupt bearer to fail before cookie auth, got %d body=%s", rec.Code, rec.Body.String())
 	}
 
 	req = newJSONRequest(http.MethodPost, path, `{"name":"JWT Bearer Org"}`)
@@ -1067,7 +1080,7 @@ func TestBrowserSessionRequiresCSRFForMutations(t *testing.T) {
 		t.Fatalf("decode PAT response: %v", err)
 	}
 	token, _ := patResponse["token"].(string)
-	if !strings.HasPrefix(token, identitystore.PersonalAccessTokenPlaintextPrefix) {
+	if err := bearertoken.Validate(token, bearertoken.KindPersonalAccess); err != nil {
 		t.Fatalf("expected one-time plaintext PAT, got %+v", patResponse)
 	}
 	requestJSONWithHeaders(
@@ -1153,7 +1166,10 @@ func TestBearerAuthStorageErrorReturnsServiceUnavailable(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	pool.Close()
 
-	token := identitystore.FormatPersonalAccessToken("closedpool", "abcdefghijklmnopqrstuvwxyzabcdef")
+	token, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
+	if err != nil {
+		t.Fatalf("format valid personal access token: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/invitations", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := performRequest(handler, req)
@@ -1628,9 +1644,8 @@ func TestPasswordAuthChangeAndRevokeAllRequireSession(t *testing.T) {
 	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  completed.User.ID,
-			Name:    "compromise",
-			TokenID: "compromise",
+			UserID: completed.User.ID,
+			Name:   "compromise",
 		},
 	)
 	if err != nil {
@@ -1676,15 +1691,15 @@ func TestPasswordAuthChangeAndRevokeAllRequireSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create revoke-all machine: %v", err)
 	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
+	daemonToken, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     orgID,
 			MachineID: machine.ID,
 			Name:      "revoke-all",
-			Token:     "token-http-revoke-all",
 		},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("create revoke-all machine token: %v", err)
 	}
 	req = newAuthJSONRequest(
@@ -1741,7 +1756,7 @@ func TestPasswordAuthChangeAndRevokeAllRequireSession(t *testing.T) {
 	}
 	if _, err := store.Execution().AuthenticateMachineDaemonToken(
 		ctx,
-		"token-http-revoke-all",
+		daemonToken.Token,
 	); err != nil {
 		t.Fatalf("machine daemon token after revoke-all: %v", err)
 	}
@@ -1778,9 +1793,8 @@ func TestPasswordlessUserCanRevokeAllAuthTokens(t *testing.T) {
 	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  user.ID,
-			Name:    "passwordless compromise",
-			TokenID: "passwordless-compromise",
+			UserID: user.ID,
+			Name:   "passwordless compromise",
 		},
 	)
 	if err != nil {
@@ -1806,15 +1820,15 @@ func TestPasswordlessUserCanRevokeAllAuthTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create passwordless revoke machine: %v", err)
 	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
+	daemonToken, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     orgID,
 			MachineID: machine.ID,
 			Name:      "passwordless revoke",
-			Token:     "token-http-passwordless-revoke",
 		},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("create passwordless daemon token: %v", err)
 	}
 
@@ -1837,7 +1851,7 @@ func TestPasswordlessUserCanRevokeAllAuthTokens(t *testing.T) {
 	}
 	if _, err := store.Execution().AuthenticateMachineDaemonToken(
 		ctx,
-		"token-http-passwordless-revoke",
+		daemonToken.Token,
 	); err != nil {
 		t.Fatalf("passwordless daemon token after revoke-all: %v", err)
 	}
@@ -2055,9 +2069,8 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  user.ID,
-			Name:    "device pending PAT",
-			TokenID: "device-pending-pat",
+			UserID: user.ID,
+			Name:   "device pending PAT",
 		},
 	)
 	if err != nil {
@@ -2198,7 +2211,7 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &tokenResponse); err != nil {
 		t.Fatalf("decode token response: %v", err)
 	}
-	if !strings.HasPrefix(tokenResponse.AccessToken, identitystore.PersonalAccessTokenPlaintextPrefix) ||
+	if err := bearertoken.Validate(tokenResponse.AccessToken, bearertoken.KindPersonalAccess); err != nil ||
 		tokenResponse.TokenType != "Bearer" {
 		t.Fatalf("token response = %+v", tokenResponse)
 	}
@@ -3492,9 +3505,8 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 	viewerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  viewer.ID,
-			Name:    "viewer",
-			TokenID: "machine-viewer",
+			UserID: viewer.ID,
+			Name:   "viewer",
 		},
 	)
 	if err != nil {
@@ -3515,9 +3527,8 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 	creatorPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  creator.ID,
-			Name:    "creator",
-			TokenID: "machine-creator",
+			UserID: creator.ID,
+			Name:   "creator",
 		},
 	)
 	if err != nil {

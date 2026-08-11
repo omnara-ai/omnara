@@ -405,8 +405,6 @@ type CreatePersonalAccessTokenInput struct {
 	UserID         ID
 	ActorPrincipal PrincipalRecord
 	Name           string
-	TokenID        string
-	Token          string
 }
 
 type PersonalAccessTokenRecord struct {
@@ -426,8 +424,6 @@ type CreateOrgAPIKeyInput struct {
 	CreatedByUserID ID
 	Name            string
 	OrgRole         string
-	TokenID         string
-	Token           string
 }
 
 type OrgAPIKeyRecord struct {

@@ -4,6 +4,8 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authn"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
@@ -34,6 +37,182 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
+
+func TestCanonicalBearerCredentialsPersistOnlyFullTokenDigests(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	store := NewStore(pool)
+	seedDefaultProject(t, ctx, store)
+
+	user := mustCreateIdentityUser(t, ctx, store, "canonical-tokens@example.com", "Canonical Tokens")
+	if _, err := store.Identity().AddOrgMembership(
+		ctx,
+		identitystore.AddOrgMembershipInput{OrgID: testOrgID, UserID: user.ID, Role: "admin"},
+	); err != nil {
+		t.Fatalf("add token creator membership: %v", err)
+	}
+	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: "canonical PAT"},
+	)
+	if err != nil {
+		t.Fatalf("create personal access token: %v", err)
+	}
+	orgKey, err := store.Identity().CreateOrgAPIKeyWithPlaintext(
+		ctx,
+		identitystore.CreateOrgAPIKeyInput{
+			OrgID:           testOrgID,
+			CreatedByUserID: user.ID,
+			Name:            "canonical org key",
+			OrgRole:         "member",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create organization API key: %v", err)
+	}
+	machine, err := store.Execution().CreateDaemonMachine(
+		ctx,
+		executionstore.CreateDaemonMachineInput{
+			OrgID:          testOrgID,
+			DisplayName:    "Canonical Token Machine",
+			IdempotencyKey: "canonical-token-machine",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create BYO machine: %v", err)
+	}
+	daemon, err := store.Execution().CreateBYOMachineDaemonToken(
+		ctx,
+		executionstore.CreateBYOMachineDaemonTokenInput{
+			OrgID:     testOrgID,
+			MachineID: machine.ID,
+			Name:      "canonical daemon token",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create daemon token: %v", err)
+	}
+
+	for _, credential := range []struct {
+		name  string
+		token string
+		kind  bearertoken.Kind
+	}{
+		{name: "personal", token: pat.Token, kind: bearertoken.KindPersonalAccess},
+		{name: "organization", token: orgKey.Token, kind: bearertoken.KindOrganization},
+		{name: "daemon", token: daemon.Token, kind: bearertoken.KindDaemon},
+	} {
+		if err := bearertoken.Validate(credential.token, credential.kind); err != nil {
+			t.Fatalf("validate %s token: %v", credential.name, err)
+		}
+	}
+	for name, managementID := range map[string]string{
+		"personal":     pat.Record.TokenID,
+		"organization": orgKey.Record.TokenID,
+	} {
+		if managementID == "" || strings.Contains(
+			map[string]string{"personal": pat.Token, "organization": orgKey.Token}[name],
+			managementID,
+		) {
+			t.Fatalf("%s management token id %q is empty or embedded in bearer", name, managementID)
+		}
+	}
+
+	assertStoredToken := func(table string, id ID, token, recordTokenID string) {
+		t.Helper()
+		var tokenHash string
+		if recordTokenID == "" {
+			if err := pool.QueryRow(ctx, `SELECT token_hash FROM `+table+` WHERE id = $1`, id).Scan(&tokenHash); err != nil {
+				t.Fatalf("load %s token hash: %v", table, err)
+			}
+		} else {
+			var tokenID string
+			if err := pool.QueryRow(
+				ctx,
+				`SELECT token_id, token_hash FROM `+table+` WHERE id = $1`,
+				id,
+			).Scan(&tokenID, &tokenHash); err != nil {
+				t.Fatalf("load %s token fields: %v", table, err)
+			}
+			if tokenID != recordTokenID {
+				t.Fatalf("%s token id = %q, want %q", table, tokenID, recordTokenID)
+			}
+		}
+		digest := sha256.Sum256([]byte(token))
+		wantHash := hex.EncodeToString(digest[:])
+		if tokenHash != wantHash || tokenHash == token || len(tokenHash) != 64 {
+			t.Fatalf("%s stored token hash = %q, want SHA-256 %q", table, tokenHash, wantHash)
+		}
+	}
+	assertStoredToken("personal_access_tokens", pat.Record.ID, pat.Token, pat.Record.TokenID)
+	assertStoredToken("org_api_keys", orgKey.Record.ID, orgKey.Token, orgKey.Record.TokenID)
+	assertStoredToken("machine_daemon_tokens", daemon.Record.ID, daemon.Token, "")
+
+	// Exact kind/shape validation happens before storage access. A valid token
+	// reaches the closed pool, while wrong-kind and legacy tokens remain plain
+	// unauthorized results.
+	pool.Close()
+	if _, err := store.Identity().AuthenticatePersonalAccessToken(ctx, pat.Token); err == nil || errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("valid PAT against closed pool error = %v, want storage error", err)
+	}
+	for name, authenticate := range map[string]func() error{
+		"corrupt PAT checksum": func() error {
+			_, err := store.Identity().AuthenticatePersonalAccessToken(ctx, corruptBearerChecksum(pat.Token))
+			return err
+		},
+		"corrupt org checksum": func() error {
+			_, err := store.Identity().AuthenticateOrgAPIKey(ctx, corruptBearerChecksum(orgKey.Token))
+			return err
+		},
+		"corrupt daemon checksum": func() error {
+			_, err := store.Execution().AuthenticateMachineDaemonToken(ctx, corruptBearerChecksum(daemon.Token))
+			return err
+		},
+	} {
+		if err := authenticate(); !errors.Is(err, storeerr.ErrUnauthorized) {
+			t.Fatalf("%s error = %v, want unauthorized before database access", name, err)
+		}
+	}
+	for name, authenticate := range map[string]func() error{
+		"org token as PAT": func() error {
+			_, err := store.Identity().AuthenticatePersonalAccessToken(ctx, orgKey.Token)
+			return err
+		},
+		"daemon token as org key": func() error {
+			_, err := store.Identity().AuthenticateOrgAPIKey(ctx, daemon.Token)
+			return err
+		},
+		"PAT as daemon token": func() error {
+			_, err := store.Execution().AuthenticateMachineDaemonToken(ctx, pat.Token)
+			return err
+		},
+		"legacy PAT": func() error {
+			_, err := store.Identity().AuthenticatePersonalAccessToken(ctx, "omnara_pat_old_secret")
+			return err
+		},
+		"legacy org key": func() error {
+			_, err := store.Identity().AuthenticateOrgAPIKey(ctx, "omnara_org_old_secret")
+			return err
+		},
+		"legacy daemon token": func() error {
+			_, err := store.Execution().AuthenticateMachineDaemonToken(ctx, "omnara_daemon_old")
+			return err
+		},
+	} {
+		if err := authenticate(); !errors.Is(err, storeerr.ErrUnauthorized) {
+			t.Fatalf("%s error = %v, want unauthorized before database access", name, err)
+		}
+	}
+}
+
+func corruptBearerChecksum(token string) string {
+	replacement := byte('0')
+	if token[len(token)-1] == replacement {
+		replacement = '1'
+	}
+	return token[:len(token)-1] + string(replacement)
+}
 
 func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 	t.Parallel()
@@ -75,24 +254,22 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 	); err != nil {
 		t.Fatalf("add org owner membership: %v", err)
 	}
-	developerToken, err := store.Identity().CreatePersonalAccessToken(
+	developerToken, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  developer.ID,
-			Name:    "Developer token",
-			TokenID: "test",
-			Token:   "omnara_pat_test_dev-token",
+			UserID: developer.ID,
+			Name:   "Developer token",
 		},
 	)
 	if err != nil {
 		t.Fatalf("create pat: %v", err)
 	}
-	principal, err := store.Identity().AuthenticatePersonalAccessToken(ctx, "omnara_pat_test_dev-token")
+	principal, err := store.Identity().AuthenticatePersonalAccessToken(ctx, developerToken.Token)
 	if err != nil {
 		t.Fatalf("authenticate pat: %v", err)
 	}
 	if principal.Type != identitystore.PrincipalTypeUser || principal.ID != developer.ID ||
-		principal.PersonalAccessTokenID != developerToken.ID ||
+		principal.PersonalAccessTokenID != developerToken.Record.ID ||
 		principal.OrgID != NilID {
 		t.Fatalf("unexpected principal: %+v", principal)
 	}
@@ -2584,23 +2761,21 @@ func TestAuthUsageTimestampTouchesAreThrottled(t *testing.T) {
 		t.Fatalf("stale browser session last_seen_at = %s, want after %s", browserLastSeen, staleBrowserLastSeen)
 	}
 
-	pat, err := store.Identity().CreatePersonalAccessToken(
+	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  user.ID,
-			Name:    "Touch PAT",
-			TokenID: "touch",
-			Token:   "omnara_pat_touch_secret",
+			UserID: user.ID,
+			Name:   "Touch PAT",
 		},
 	)
 	if err != nil {
 		t.Fatalf("create personal access token: %v", err)
 	}
-	if _, err := store.Identity().AuthenticatePersonalAccessToken(ctx, "omnara_pat_touch_secret"); err != nil {
+	if _, err := store.Identity().AuthenticatePersonalAccessToken(ctx, pat.Token); err != nil {
 		t.Fatalf("authenticate unused PAT: %v", err)
 	}
 	var patLastUsed *time.Time
-	if err := pool.QueryRow(ctx, `SELECT last_used_at FROM personal_access_tokens WHERE id = $1`, pat.ID).
+	if err := pool.QueryRow(ctx, `SELECT last_used_at FROM personal_access_tokens WHERE id = $1`, pat.Record.ID).
 		Scan(&patLastUsed); err != nil {
 		t.Fatalf("load PAT last_used_at: %v", err)
 	}
@@ -2610,11 +2785,11 @@ func TestAuthUsageTimestampTouchesAreThrottled(t *testing.T) {
 	firstPATAuthAt := *patLastUsed
 	if _, err := store.Identity().AuthenticatePersonalAccessToken(
 		ctx,
-		"omnara_pat_touch_secret",
+		pat.Token,
 	); err != nil {
 		t.Fatalf("authenticate fresh PAT: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT last_used_at FROM personal_access_tokens WHERE id = $1`, pat.ID).
+	if err := pool.QueryRow(ctx, `SELECT last_used_at FROM personal_access_tokens WHERE id = $1`, pat.Record.ID).
 		Scan(&patLastUsed); err != nil {
 		t.Fatalf("load fresh PAT last_used_at: %v", err)
 	}
@@ -2627,13 +2802,13 @@ func TestAuthUsageTimestampTouchesAreThrottled(t *testing.T) {
 		SET last_used_at = transaction_timestamp() - interval '61 minutes'
 		WHERE id = $1
 		RETURNING last_used_at
-	`, pat.ID).Scan(&stalePATLastUsed); err != nil {
+	`, pat.Record.ID).Scan(&stalePATLastUsed); err != nil {
 		t.Fatalf("age PAT last_used_at: %v", err)
 	}
-	if _, err := store.Identity().AuthenticatePersonalAccessToken(ctx, "omnara_pat_touch_secret"); err != nil {
+	if _, err := store.Identity().AuthenticatePersonalAccessToken(ctx, pat.Token); err != nil {
 		t.Fatalf("authenticate stale PAT: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT last_used_at FROM personal_access_tokens WHERE id = $1`, pat.ID).
+	if err := pool.QueryRow(ctx, `SELECT last_used_at FROM personal_access_tokens WHERE id = $1`, pat.Record.ID).
 		Scan(&patLastUsed); err != nil {
 		t.Fatalf("load stale PAT last_used_at: %v", err)
 	}
@@ -4348,12 +4523,26 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	if approved.Status != identitystore.DeviceAuthFlowStatusApproved || approved.Token == "" {
 		t.Fatalf("approved poll = %+v, want approved token", approved)
 	}
+	if err := bearertoken.Validate(approved.Token, bearertoken.KindPersonalAccess); err != nil {
+		t.Fatalf("validate device-flow PAT: %v", err)
+	}
 	principal, err := store.Identity().AuthenticatePersonalAccessToken(ctx, approved.Token)
 	if err != nil {
 		t.Fatalf("authenticate minted device token: %v", err)
 	}
 	if principal.Type != identitystore.PrincipalTypeUser || principal.ID != user.ID || principal.PersonalAccessTokenID == NilID {
 		t.Fatalf("minted token principal = %+v, want user PAT principal", principal)
+	}
+	var deviceTokenHash string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT token_hash FROM personal_access_tokens WHERE id = $1`,
+		principal.PersonalAccessTokenID,
+	).Scan(&deviceTokenHash); err != nil {
+		t.Fatalf("load device-flow PAT hash: %v", err)
+	}
+	if deviceTokenHash != identitystore.HashBearerToken(approved.Token) {
+		t.Fatalf("device-flow PAT hash = %q", deviceTokenHash)
 	}
 	replay, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
@@ -5967,15 +6156,15 @@ func TestCompromiseRevocationBlocksStalePersonalAccessTokenCreation(t *testing.T
 	); err != nil {
 		t.Fatalf("create pat with active session: %v", err)
 	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(
+	createdDaemonToken, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     testOrgID,
 			MachineID: machine.ID,
 			Name:      "active",
-			Token:     "token-compromise-active",
 		},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("create daemon token with active session: %v", err)
 	}
 	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
@@ -6048,7 +6237,7 @@ func TestCompromiseRevocationBlocksStalePersonalAccessTokenCreation(t *testing.T
 	}
 	if _, err := store.Execution().AuthenticateMachineDaemonToken(
 		ctx,
-		"token-compromise-active",
+		createdDaemonToken.Token,
 	); err != nil {
 		t.Fatalf("daemon token after compromise: %v", err)
 	}

@@ -8,8 +8,8 @@ Two kinds of API keys exist, and both are sent the same way:
 
 | Credential | Shape | Acts as |
 | --- | --- | --- |
-| Personal API key | `omnara_pat_…` | You — your roles, your project access |
-| Org API key | `omnara_org_…` | The org itself — a service account for integrations and automations |
+| Personal API key | `omnara_pat_v1_…` | You — your roles, your project access |
+| Org API key | `omnara_org_v1_…` | The org itself — a service account for integrations and automations |
 
 (Connected machines authenticate with their own daemon tokens, minted in the [connect flow](/machines/connect#install-the-daemon) and valid only on daemon routes.)
 
@@ -40,13 +40,13 @@ Tokens are minted where a human can approve them — creating one is deliberatel
 - **Console** — go to **API Tokens** in the sidebar and click **New token**. The full token is shown once.
 - **Device login** — for CLIs and dev tools, below.
 
-The token format is `omnara_pat_<token_id>_<secret>`. Only a hash of the secret is stored server-side, so treat the one-time display as the only copy that will ever exist.
+Personal tokens use the versioned `omnara_pat_v1_<secret>_<checksum>` format. The secret has at least 256 bits of cryptographic entropy; the final six characters are a typo-detecting checksum, not a cryptographic integrity check. Only a SHA-256 hash of the complete token is stored server-side, so treat the one-time display as the only copy that will ever exist.
 
 ## Org API keys for services
 
 Services shouldn't run as a person — when that person leaves or their access changes, the integration breaks. An org API key is its own principal: it holds an org role (`admin` or `member`) and per-project roles, granted exactly like a member's.
 
-Create one in the console: open **API Tokens**, switch to the **Organization** tab, and under **Organization API tokens** click **New token**. Pick a name and org role; the `omnara_org_…` token is shown once. Then grant the key project roles from its detail panel — a member-role key sees nothing until you do, same as a human member.
+Create one in the console: open **API Tokens**, switch to the **Organization** tab, and under **Organization API tokens** click **New token**. Pick a name and org role; the `omnara_org_v1_…` token is shown once. Then grant the key project roles from its detail panel — a member-role key sees nothing until you do, same as a human member.
 
 Key management stays human-gated: creating, renaming, changing roles, and revoking all require a console session, so one API key can never mint or escalate another. Listing and reading key metadata work with regular API auth ([List org API keys](/api-reference/endpoints/users-and-api-keys/list-org-api-keys)). Revocation is permanent and drops the key's org and project roles ([Revoke](/api-reference/endpoints/users-and-api-keys/revoke-an-org-api-key)).
 
@@ -92,7 +92,7 @@ While the user hasn't decided, you get `202`:
 (`slow_down` means you're polling too fast — back off to the returned interval.) On approval, `200` delivers a normal API key:
 
 ```json
-{ "access_token": "omnara_pat_hcyd5n6a2…", "token_type": "Bearer" }
+{ "access_token": "omnara_pat_v1_…", "token_type": "Bearer" }
 ```
 
 A denied or expired flow returns `400` with `"access_denied"` or `"expired_token"`. The resulting token is a regular personal access token for the approving user, named after `token_name` — it appears in their token list like any other.
@@ -100,3 +100,7 @@ A denied or expired flow returns `400` with `"access_denied"` or `"expired_token
 ## Managing tokens
 
 The **API Tokens** page — or [List personal access tokens](/api-reference/endpoints/users-and-api-keys/list-the-authenticated-users-personal-access-tokens) — shows your tokens with creation and last-used times, metadata only: the secret is never shown again. `last_used_at` tells you which tokens are actually alive; prune the rest, and [revoke](/api-reference/endpoints/users-and-api-keys/revoke-a-personal-access-token) immediately if a token leaks — revocation is permanent.
+
+Personal and organization token records also expose a `token_id`. This is a
+stable, non-secret management/display identifier; it is deliberately separate
+from the bearer value and is not embedded in it.

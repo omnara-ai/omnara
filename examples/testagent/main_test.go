@@ -15,6 +15,8 @@ import (
 	"testing"
 )
 
+const testPersonalAccessToken = "omnara_pat_v1_0000000000000000000000000000000000000000000_3ovNGW"
+
 func TestChatBootstrapsAgentAndSendsInput(t *testing.T) {
 	var mu sync.Mutex
 	var paths []string
@@ -31,7 +33,7 @@ func TestChatBootstrapsAgentAndSendsInput(t *testing.T) {
 		mu.Lock()
 		paths = append(paths, r.Method+" "+r.URL.Path)
 		mu.Unlock()
-		if r.Header.Get("Authorization") != "Bearer omnara_pat_test" {
+		if r.Header.Get("Authorization") != "Bearer "+testPersonalAccessToken {
 			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -108,7 +110,7 @@ func TestChatBootstrapsAgentAndSendsInput(t *testing.T) {
 	var stderr bytes.Buffer
 	err := run(
 		context.Background(),
-		[]string{"--api-url", server.URL, "--token", "omnara_pat_test", "chat", yamlPath},
+		[]string{"--api-url", server.URL, "--token", testPersonalAccessToken, "chat", yamlPath},
 		strings.NewReader("hello\n"),
 		&stdout,
 		&stderr,
@@ -184,7 +186,7 @@ func TestChatUsesProvidedOrgAndProject(t *testing.T) {
 		mu.Lock()
 		paths = append(paths, r.Method+" "+r.URL.Path)
 		mu.Unlock()
-		if r.Header.Get("Authorization") != "Bearer omnara_pat_test" {
+		if r.Header.Get("Authorization") != "Bearer "+testPersonalAccessToken {
 			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -225,7 +227,7 @@ func TestChatUsesProvidedOrgAndProject(t *testing.T) {
 			"--api-url",
 			server.URL,
 			"--token",
-			"omnara_pat_test",
+			testPersonalAccessToken,
 			"--org-id",
 			"org_existing",
 			"--project-id",
@@ -354,7 +356,7 @@ func containsSubsequence(got, want []string) bool {
 
 func TestGlobalConfigReadsEnvironment(t *testing.T) {
 	t.Setenv("OMNARA_API_URL", "http://api.example.test")
-	t.Setenv("OMNARA_TOKEN", "omnara_pat_test")
+	t.Setenv("OMNARA_TOKEN", testPersonalAccessToken)
 	t.Setenv("OMNARA_ORG_ID", "org_env")
 	t.Setenv("OMNARA_PROJECT_ID", "prj_env")
 
@@ -362,14 +364,14 @@ func TestGlobalConfigReadsEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse global flags: %v", err)
 	}
-	if cfg.APIURL != "http://api.example.test" || cfg.Token != "omnara_pat_test" || cfg.OrgID != "org_env" ||
+	if cfg.APIURL != "http://api.example.test" || cfg.Token != testPersonalAccessToken || cfg.OrgID != "org_env" ||
 		cfg.ProjectID != "prj_env" {
 		t.Fatalf("unexpected config from env: %+v", cfg)
 	}
 }
 
 func TestGlobalConfigRequiresOrgAndProjectTogether(t *testing.T) {
-	t.Setenv("OMNARA_TOKEN", "omnara_pat_test")
+	t.Setenv("OMNARA_TOKEN", testPersonalAccessToken)
 
 	_, err := parseGlobalFlags([]string{"--org-id", "org_1"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "must be specified together") {
@@ -381,9 +383,9 @@ func TestGlobalConfigRejectsNonOmnaraPAT(t *testing.T) {
 	t.Setenv("OMNARA_TOKEN", "plain-secret")
 
 	_, err := parseGlobalFlags(nil, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), `must start with "omnara_pat_"`) ||
+	if err == nil || !strings.Contains(err.Error(), "personal access token is invalid") ||
 		!strings.Contains(err.Error(), "create an Omnara PAT") {
-		t.Fatalf("parse global flags error = %v, want PAT prefix error", err)
+		t.Fatalf("parse global flags error = %v, want invalid PAT error", err)
 	}
 }
 

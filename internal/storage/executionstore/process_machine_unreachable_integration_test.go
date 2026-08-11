@@ -52,7 +52,6 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 			OrgID:     testOrgID,
 			MachineID: createdMachine.ID,
 			Name:      "daemon",
-			Token:     "token-archive-machine",
 		},
 	)
 	if err != nil {
@@ -63,7 +62,7 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            createdMachine.OrgID,
 			MachineID:        createdMachine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: testID("daemon-delete-machine"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,

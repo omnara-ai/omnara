@@ -23,6 +23,58 @@ docker compose -f compose.yaml --profile app up -d
 
 Open `http://localhost:8000` and sign up — the local email driver is `console`, so the verification link will appear in `docker compose logs api`.
 
+## Production database upgrades
+
+Run the release's one-shot `migrate` image successfully before starting the
+matching API, worker, and maintenance binaries. The migrator requires a direct
+PostgreSQL writer connection: use the RDS writer endpoint, a Kubernetes Service
+that reaches the primary, or the equivalent direct primary endpoint on another
+platform. Do not send migrations through RDS Proxy or a transaction-pooling
+PgBouncer endpoint. Migrations rely on a session-level advisory lock and
+session-scoped timeouts, while transaction poolers are free to switch the
+underlying session.
+
+Long-running services may use a compatible database proxy. Keep each service's
+pgxpool limits aligned with the proxy and database connection budgets; see the
+[database configuration](/self-hosting/configuration#database-and-redis).
+
+Every runtime checks its minimum schema before it connects to Redis or begins
+work. A new binary fails clearly when `migrate` has not reached the schema it
+needs. An older binary may keep running against a newer additive schema during
+a normal rolling deployment, but an older migration binary refuses to run
+against a database newer than its own migration set. This asymmetry prevents an
+accidental rollback job from treating an expanded schema as current.
+
+## Canonical credential cutover
+
+The release that introduces versioned `omnara_*_v1_…` credentials is an
+intentional clean break from pre-canonical tokens. It does not migrate or revoke
+old rows. Before deploying this release, plan to replace existing personal and
+organization keys, install a newly issued token on each BYO machine, and
+reprovision existing managed machines. Active old rows continue to count toward
+the existing token quotas until you revoke them.
+
+A mixed API fleet is unsafe during this one cutover: old APIs reject new
+personal and organization keys, while new APIs reject every old credential.
+Managed daemon credentials can be issued by the API during agent launch, by
+workers through machine tools, and by maintenance reconciliation, so coordinate
+all three processes. Either:
+
+1. Upgrade or quiesce worker and maintenance issuers while every API remains on
+   the old release. New daemon tokens work against the old API.
+2. Pause credential issuance and provisioning, stop every old API replica, then
+   start every new API replica together.
+
+Or quiesce issuance/provisioning and replace API, worker, and maintenance as one
+coordinated deployment. Do not leave an old managed-token issuer running after
+any new API authenticator is serving. Daemon binaries themselves treat their
+credential as opaque and do not need a lockstep upgrade.
+
+If you roll the API back, newly issued personal and organization keys stop
+working on the old binary; newly issued daemon tokens continue to work there.
+Rolling a worker or maintenance process back while the new API remains live is
+unsafe because it can resume issuing old daemon credentials.
+
 ## Exposing the deployment publicly
 
 Email links, OAuth callbacks, the machine connect command, and cloud sandboxes all build URLs from `OMNARA_PUBLIC_URL`. These features will not function without this as a publicly-accessible URL.

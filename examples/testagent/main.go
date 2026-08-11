@@ -21,15 +21,15 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
 
 const (
-	defaultAPIURL             = "http://localhost:8080"
-	personalAccessTokenPrefix = "omnara_pat_"
-	maxJSONResponseBytes      = 16 * 1024 * 1024
-	maxErrorResponseBytes     = 64 * 1024
+	defaultAPIURL         = "http://localhost:8080"
+	maxJSONResponseBytes  = 16 * 1024 * 1024
+	maxErrorResponseBytes = 64 * 1024
 )
 
 const (
@@ -151,10 +151,9 @@ func parseGlobalFlags(args []string, stderr io.Writer) (cliConfig, error) {
 	if cfg.Token == "" {
 		return cliConfig{}, errors.New("token is required; set --token or OMNARA_TOKEN")
 	}
-	if !strings.HasPrefix(cfg.Token, personalAccessTokenPrefix) {
-		return cliConfig{}, fmt.Errorf(
-			"personal access token must start with %q; create an Omnara PAT after logging in",
-			personalAccessTokenPrefix,
+	if err := bearertoken.Validate(cfg.Token, bearertoken.KindPersonalAccess); err != nil {
+		return cliConfig{}, errors.New(
+			"personal access token is invalid; create an Omnara PAT after logging in",
 		)
 	}
 	if _, err := url.ParseRequestURI(cfg.APIURL); err != nil {
