@@ -193,25 +193,37 @@ export function CreateAgentPage() {
         </Field>
       </FieldGroup>
       {/* -bottom-6 offsets the scroll container's p-6 so the bar sits flush with the viewport edge. */}
-      <div className="bg-background sticky -bottom-6 z-10 -mb-6 flex items-center justify-end gap-4 border-t py-4">
-        {errorMessage && (
-          <p className="text-destructive whitespace-pre-wrap text-sm">{errorMessage}</p>
-        )}
+      <div className="bg-background sticky -bottom-6 z-10 -mb-6 flex items-center justify-between gap-4 border-t py-4">
         <Button
           type="button"
-          variant="outline"
-          disabled={!canSubmit}
+          variant="ghost"
+          disabled={isSubmitting}
           onClick={() => {
-            void submit('profile')
+            void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
           }}
         >
-          {pendingAction === 'profile' && <Spinner />}
-          Create profile
+          Cancel
         </Button>
-        <Button type="submit" disabled={!canSubmit}>
-          {pendingAction === 'launch' && <Spinner />}
-          Create & launch agent
-        </Button>
+        <div className="flex items-center gap-4">
+          {errorMessage && (
+            <p className="text-destructive whitespace-pre-wrap text-sm">{errorMessage}</p>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!canSubmit}
+            onClick={() => {
+              void submit('profile')
+            }}
+          >
+            {pendingAction === 'profile' && <Spinner />}
+            Create profile
+          </Button>
+          <Button type="submit" disabled={!canSubmit}>
+            {pendingAction === 'launch' && <Spinner />}
+            Create & launch agent
+          </Button>
+        </div>
       </div>
       <ConfirmDiscardYamlDialog
         open={mode.confirmDiscard}

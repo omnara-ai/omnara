@@ -19,6 +19,7 @@ export function GrantModelButton() {
     <>
       <Button
         type="button"
+        variant="outline"
         size="sm"
         onClick={() => {
           setOpen(true)

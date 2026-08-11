@@ -26,6 +26,7 @@ export function GrantMachineButton({
     <>
       <Button
         type="button"
+        variant="outline"
         size="sm"
         onClick={() => {
           setOpen(true)
