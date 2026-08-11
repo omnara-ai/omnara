@@ -59,7 +59,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	help ci test-all test verify verify-go verify-static fmt-check golangci-version-check golangci-lint govulncheck race-machinedaemon \
 	go-modules-check integration-packages-check tagged-packages-check \
 	openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
-	migration-create state-migration-create migration-fix migration-check migration-checksums migration-compat-check goose-version-check sqlite-libc-check \
+	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance \
 	test-service-e2e \
@@ -221,10 +221,6 @@ migration-check:
 		done; \
 	done
 	$(MIGRATION_CHECK) check
-
-migration-checksums:
-	$(MIGRATION_CHECK) update
-	$(MIGRATION_CHECK) compare-releases
 
 migration-compat-check:
 	$(MIGRATION_CHECK) compare-releases

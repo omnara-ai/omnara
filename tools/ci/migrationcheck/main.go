@@ -10,10 +10,10 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stderr io.Writer) int {
 	if len(args) == 0 {
 		return usage(stderr)
 	}
@@ -33,14 +33,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return usage(stderr)
 		}
 		commandErr = compareReleasedRepository(root)
-	case "update":
-		if len(args) != 1 {
-			return usage(stderr)
-		}
-		commandErr = updateRepository(root)
-		if commandErr == nil {
-			_, commandErr = fmt.Fprintln(stdout, "migration checksum manifests updated")
-		}
 	default:
 		return usage(stderr)
 	}
@@ -59,7 +51,7 @@ func repositoryRoot() (string, error) {
 }
 
 func usage(stderr io.Writer) int {
-	return operationalFailure(stderr, "usage: migrationcheck check|update|compare-releases")
+	return operationalFailure(stderr, "usage: migrationcheck check|compare-releases")
 }
 
 func operationalFailure(stderr io.Writer, message string) int {
