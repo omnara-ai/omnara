@@ -36,7 +36,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
         with:
-          blocking: error
+          blocking: warning
           directory: frontend
           project: "*"
           scope: changed
