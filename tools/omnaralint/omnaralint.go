@@ -125,6 +125,12 @@ func checkGoFile(pass *analysis.Pass, file *ast.File) {
 					"production polling waits must be context-aware; use timers/select on ctx.Done instead of raw time.Sleep",
 				)
 			}
+			if isTest && isPackageFunction(object, "time", "Sleep") {
+				pass.Reportf(
+					n.Pos(),
+					"test sleeps hide race conditions; wait on a deterministic signal instead, or annotate with nolint explaining why none can exist",
+				)
+			}
 			if inStorage && !isTest && !inGeneratedDBSQLC && isPackageFunction(object, "time", "Now") {
 				pass.Reportf(
 					n.Pos(),

@@ -206,6 +206,9 @@ type runnerServerState struct {
 
 	reconciliationMu sync.RWMutex
 
+	fenceParkMu         sync.Mutex
+	onFenceWriterParked func()
+
 	mu              sync.RWMutex
 	prepared        *localProcessRunner
 	assignment      ProcessAssignment
@@ -274,7 +277,13 @@ func serveRunnerConn(
 		state.reconciliationMu.RLock()
 		defer state.reconciliationMu.RUnlock()
 	}
-	response := state.handle(ctx, request)
+	var sendStage func(runnerResponse)
+	if request.NotifyStages {
+		sendStage = func(frame runnerResponse) {
+			_ = writeRunnerMessage(context.WithoutCancel(ctx), conn, frame)
+		}
+	}
+	response := state.handle(ctx, request, sendStage)
 	_ = writeRunnerMessage(context.WithoutCancel(ctx), conn, response)
 }
 
@@ -287,11 +296,22 @@ func serveRunnerReconciliationConn(
 	state.reconciliationMu.Lock()
 	defer state.reconciliationMu.Unlock()
 
-	if err := writeRunnerMessage(
-		context.WithoutCancel(ctx),
-		conn,
-		state.status(ctx),
-	); err != nil {
+	var writeMu sync.Mutex
+	write := func(value any) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return writeRunnerMessage(context.WithoutCancel(ctx), conn, value)
+	}
+	if request.NotifyStages {
+		previous := state.setFenceWriterParked(func() {
+			_ = write(runnerResponse{
+				OK:    true,
+				Stage: runnerStageFenceWriterParked,
+			})
+		})
+		defer state.setFenceWriterParked(previous)
+	}
+	if err := write(state.status(ctx)); err != nil {
 		return
 	}
 	for {
@@ -301,35 +321,46 @@ func serveRunnerReconciliationConn(
 		}
 		if next.SupervisorInstanceID != state.bootstrap.SupervisorInstanceID ||
 			next.SupervisorToken != state.bootstrap.SupervisorToken {
-			_ = writeRunnerMessage(
-				context.WithoutCancel(ctx),
-				conn,
-				runnerResponse{
-					OK:        false,
-					Error:     "supervisor reconciliation identity changed",
-					ErrorCode: runnerErrorSupervisorIdentityMismatch,
-				},
-			)
+			_ = write(runnerResponse{
+				OK:        false,
+				Error:     "supervisor reconciliation identity changed",
+				ErrorCode: runnerErrorSupervisorIdentityMismatch,
+			})
 			return
 		}
 		if next.Method == runnerMethodBeginReconciliation {
-			_ = writeRunnerMessage(
-				context.WithoutCancel(ctx),
-				conn,
-				runnerResponse{
-					OK:    false,
-					Error: "supervisor reconciliation is already active",
-				},
-			)
+			_ = write(runnerResponse{
+				OK:    false,
+				Error: "supervisor reconciliation is already active",
+			})
 			return
 		}
-		if err := writeRunnerMessage(
-			context.WithoutCancel(ctx),
-			conn,
-			state.handle(ctx, next),
-		); err != nil {
+		var sendStage func(runnerResponse)
+		if next.NotifyStages {
+			sendStage = func(frame runnerResponse) {
+				_ = write(frame)
+			}
+		}
+		if err := write(state.handle(ctx, next, sendStage)); err != nil {
 			return
 		}
+	}
+}
+
+func (s *runnerServerState) setFenceWriterParked(hook func()) func() {
+	s.fenceParkMu.Lock()
+	previous := s.onFenceWriterParked
+	s.onFenceWriterParked = hook
+	s.fenceParkMu.Unlock()
+	return previous
+}
+
+func (s *runnerServerState) noteFenceWriterParked() {
+	s.fenceParkMu.Lock()
+	hook := s.onFenceWriterParked
+	s.fenceParkMu.Unlock()
+	if hook != nil {
+		hook()
 	}
 }
 
@@ -349,6 +380,7 @@ func runnerMethodMutates(method runnerMethod) bool {
 func (s *runnerServerState) handle(
 	ctx context.Context,
 	request runnerRequest,
+	sendStage func(runnerResponse),
 ) runnerResponse {
 	switch request.Method {
 	case runnerMethodStatus:
@@ -358,7 +390,7 @@ func (s *runnerServerState) handle(
 	case runnerMethodStartOnce:
 		return s.startOnce(ctx)
 	case runnerMethodApplyOnce:
-		return s.applyOnce(ctx, request.Payload)
+		return s.applyOnce(ctx, request.Payload, sendStage)
 	case runnerMethodCloseUngranted:
 		return s.closeUngranted(ctx)
 	case runnerMethodTerminate:
@@ -680,6 +712,7 @@ func (s *runnerServerState) observeProcessExit(
 	observationErr := waitProcessCommandLeaderExit(runner)
 
 	// Closing admission blocks new effects but lets already-marked calls finish.
+	s.noteFenceWriterParked()
 	s.reconciliationMu.RLock()
 	s.effectBoundaryMu.Lock()
 	_ = retrySupervisorStateWrite(ctx, func() error {
@@ -736,6 +769,7 @@ func (s *runnerServerState) finishStartWithoutExactOutcome(
 		return
 	}
 
+	s.noteFenceWriterParked()
 	s.reconciliationMu.RLock()
 	s.effectBoundaryMu.Lock()
 	_ = retrySupervisorStateWrite(ctx, func() error {
@@ -986,6 +1020,7 @@ func (s *runnerServerState) enforceTimeout(
 func (s *runnerServerState) applyOnce(
 	ctx context.Context,
 	body json.RawMessage,
+	sendStage func(runnerResponse),
 ) runnerResponse {
 	var action ProcessAction
 	if err := json.Unmarshal(body, &action); err != nil {
@@ -996,7 +1031,17 @@ func (s *runnerServerState) applyOnce(
 		return runnerResponse{OK: false, Error: err.Error()}
 	}
 	if first {
-		call.err = s.runApplyOnce(ctx, action)
+		var committed func()
+		if sendStage != nil {
+			committed = func() {
+				sendStage(runnerResponse{
+					OK:       true,
+					Stage:    runnerStageActionCommitted,
+					ActionID: action.ID,
+				})
+			}
+		}
+		call.err = s.runApplyOnce(ctx, action, committed)
 		close(call.done)
 		s.finishActionCall(action.ID, call)
 	} else {
@@ -1055,6 +1100,7 @@ func (s *runnerServerState) finishActionCall(
 func (s *runnerServerState) runApplyOnce(
 	ctx context.Context,
 	action ProcessAction,
+	committed func(),
 ) error {
 	if preflight := preflightActionResult(
 		action,
@@ -1069,6 +1115,9 @@ func (s *runnerServerState) runApplyOnce(
 	if err != nil {
 		s.effectBoundaryMu.Unlock()
 		return err
+	}
+	if committed != nil {
+		committed()
 	}
 	var applied *processActionResult
 	var noEffectDecision statedb.NoEffectDecision
@@ -1455,12 +1504,14 @@ func (s *runnerServerState) autonomousStateWrite(
 	ctx context.Context,
 	write func() error,
 ) error {
+	s.noteFenceWriterParked()
 	s.reconciliationMu.RLock()
 	defer s.reconciliationMu.RUnlock()
 	return retrySupervisorStateWrite(ctx, write)
 }
 
 func (s *runnerServerState) autonomousLocalClosure(ctx context.Context) {
+	s.noteFenceWriterParked()
 	s.reconciliationMu.RLock()
 	defer s.reconciliationMu.RUnlock()
 	if err := retrySupervisorStateWrite(ctx, func() error {

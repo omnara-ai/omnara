@@ -66,6 +66,8 @@ type Client struct {
 	wakeSignals   chan struct{}
 	sleepPlatform sleepPlatform
 	sleepDisabled atomic.Bool
+
+	reportSettled func(reportID string, status daemonprotocol.AckStatus)
 }
 
 type registerResponse struct {
@@ -195,6 +197,7 @@ type processClosureResult struct {
 type processRuntime struct {
 	processID            string
 	supervisorInstanceID string
+	supervisorPID        int
 	runner               processRunner
 }
 

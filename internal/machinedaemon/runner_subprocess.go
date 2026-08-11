@@ -266,6 +266,7 @@ func (subprocessRunnerLauncher) Prepare(
 		return nil, fail(startErr)
 	}
 	supervisorStarted = true
+	rt.supervisorPID = command.Process.Pid
 	supervisorDone = make(chan struct{})
 	go func() {
 		waitErr := command.Wait()

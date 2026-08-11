@@ -327,7 +327,7 @@ func (s *daemonSocket) handleHeartbeat(ctx context.Context, msg daemonprotocol.M
 	if msg.DaemonInstanceID == uuid.Nil {
 		return errors.New("daemon_instance_id is required")
 	}
-	now := time.Now()
+	now := s.server.now()
 	observedPlatform := compactDaemonRawJSON(msg.ObservedPlatform)
 	renewedLease := false
 	if s.shouldRenewDaemonRuntimeLease(now, observedPlatform) {

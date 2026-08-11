@@ -379,6 +379,10 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 	client := New(Config{RetryInterval: 10 * time.Millisecond}, nil, nil)
 	client.state = store
 	client.transport = rejectActionReportTransport{sent: sent}
+	settled := make(chan string, 2)
+	client.reportSettled = func(reportID string, _ daemonprotocol.AckStatus) {
+		settled <- reportID
+	}
 	replayCtx, cancelReplay := context.WithCancel(ctx)
 	replayDone := make(chan struct{})
 	go func() {
@@ -402,41 +406,17 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 			t.Fatalf("outbox did not deliver report %s", expected.ID)
 		}
 	}
-	deadline := time.Now().Add(time.Second)
-	for {
-		rejected, rejectedFound, rejectedErr := store.ReportBySlot(
-			ctx,
-			statedb.ReportActionTerminal,
-			processID,
-			action.ID,
-		)
-		terminal, terminalFound, terminalErr := store.ReportBySlot(
-			ctx,
-			statedb.ReportProcessTerminal,
-			processID,
-			"",
-		)
-		if rejectedErr != nil || terminalErr != nil {
-			t.Fatalf(
-				"read settled reports: action_err=%v terminal_err=%v",
-				rejectedErr,
-				terminalErr,
-			)
+	settledIDs := make(map[string]bool, 2)
+	for range 2 {
+		select {
+		case reportID := <-settled:
+			settledIDs[reportID] = true
+		case <-time.After(time.Second):
+			t.Fatalf("reports did not settle: %v", settledIDs)
 		}
-		if rejectedFound &&
-			rejected.State == statedb.ReportRejected &&
-			terminalFound &&
-			terminal.State == statedb.ReportAcknowledged {
-			break
-		}
-		if !time.Now().Before(deadline) {
-			t.Fatalf(
-				"reports did not settle: action=%+v terminal=%+v",
-				rejected,
-				terminal,
-			)
-		}
-		time.Sleep(10 * time.Millisecond)
+	}
+	if !settledIDs[actionReport.ID] || !settledIDs[terminalReport.ID] {
+		t.Fatalf("settled reports = %v", settledIDs)
 	}
 	cancelReplay()
 	select {

@@ -17,14 +17,17 @@ type ipcProcessRunner struct {
 	supervisorInstanceID string
 	done                 chan struct{}
 	doneOnce             sync.Once
+	onActionCommitted    func(actionID string)
+	notifyFenceParked    bool
 
 	reconciliationMu sync.RWMutex
 	reconciliation   *runnerReconciliationSession
 }
 
 type runnerReconciliationSession struct {
-	conn net.Conn
-	mu   sync.Mutex
+	conn   net.Conn
+	frames *runnerFrameReader
+	mu     sync.Mutex
 }
 
 func (r *ipcProcessRunner) BeginReconciliation(
@@ -45,16 +48,25 @@ func (r *ipcProcessRunner) BeginReconciliation(
 		SupervisorToken:      r.supervisorToken,
 		SupervisorInstanceID: r.supervisorInstanceID,
 		Method:               runnerMethodBeginReconciliation,
+		NotifyStages:         r.notifyFenceParked,
 	}
 	if err := writeRunnerMessage(ctx, conn, request); err != nil {
 		_ = conn.Close()
 		return err
 	}
-	if _, err := readRunnerResponse(ctx, conn); err != nil {
+	session := &runnerReconciliationSession{
+		conn:   conn,
+		frames: newRunnerFrameReader(conn),
+	}
+	response, err := session.frames.response(ctx, r.routeStage)
+	if err == nil {
+		err = runnerResponseError(response)
+	}
+	if err != nil {
 		_ = conn.Close()
 		return err
 	}
-	r.reconciliation = &runnerReconciliationSession{conn: conn}
+	r.reconciliation = session
 	return nil
 }
 
@@ -112,9 +124,22 @@ func (r *ipcProcessRunner) ApplyOnce(
 	}
 	_, err = r.call(
 		ctx,
-		runnerRequest{Method: runnerMethodApplyOnce, Payload: body},
+		runnerRequest{
+			Method:       runnerMethodApplyOnce,
+			Payload:      body,
+			NotifyStages: r.onActionCommitted != nil,
+		},
 	)
 	return err
+}
+
+func (r *ipcProcessRunner) routeStage(response runnerResponse) {
+	if response.Stage != runnerStageActionCommitted {
+		return
+	}
+	if hook := r.onActionCommitted; hook != nil {
+		hook(response.ActionID)
+	}
 }
 
 func (r *ipcProcessRunner) CloseUngranted(ctx context.Context) error {
@@ -199,7 +224,7 @@ func (r *ipcProcessRunner) call(
 	r.reconciliationMu.RLock()
 	if session := r.reconciliation; session != nil {
 		defer r.reconciliationMu.RUnlock()
-		return session.call(ctx, request)
+		return session.call(ctx, request, r.routeStage)
 	}
 	r.reconciliationMu.RUnlock()
 	conn, err := localipc.Dial(ctx, r.endpoint)
@@ -214,12 +239,23 @@ func (r *ipcProcessRunner) call(
 	if err := writeRunnerMessage(ctx, conn, request); err != nil {
 		return runnerResponse{}, err
 	}
+	if request.NotifyStages {
+		response, err := newRunnerFrameReader(conn).response(
+			ctx,
+			r.routeStage,
+		)
+		if err != nil {
+			return runnerResponse{}, err
+		}
+		return response, runnerResponseError(response)
+	}
 	return readRunnerResponse(ctx, conn)
 }
 
 func (s *runnerReconciliationSession) call(
 	ctx context.Context,
 	request runnerRequest,
+	onStage func(runnerResponse),
 ) (runnerResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -227,8 +263,8 @@ func (s *runnerReconciliationSession) call(
 		_ = s.conn.Close()
 		return runnerResponse{}, err
 	}
-	var response runnerResponse
-	if err := readRunnerMessage(ctx, s.conn, &response); err != nil {
+	response, err := s.frames.response(ctx, onStage)
+	if err != nil {
 		_ = s.conn.Close()
 		return runnerResponse{}, err
 	}

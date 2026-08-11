@@ -71,6 +71,20 @@ type Server struct {
 	daemonSocketFallbackDrainInterval time.Duration
 	daemonSocketFallbackDrainJitter   time.Duration
 	skillDownloadSigningKey           []byte
+	nowFunc                           func() time.Time
+}
+
+func (s *Server) now() time.Time {
+	if s.nowFunc != nil {
+		return s.nowFunc()
+	}
+	return time.Now()
+}
+
+func WithNowFunc(now func() time.Time) Option {
+	return func(s *Server) {
+		s.nowFunc = now
+	}
 }
 
 type daemonNotificationConfig struct {

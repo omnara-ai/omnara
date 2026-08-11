@@ -10,44 +10,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
-
-func waitForApplicationLockWaiter(
-	t *testing.T,
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	applicationName string,
-) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var waiting bool
-		if err := pool.QueryRow(
-			ctx,
-			`SELECT EXISTS (
-  SELECT 1
-  FROM pg_stat_activity
-  WHERE datname = current_database()
-    AND application_name = $1
-    AND wait_event_type = 'Lock'
-)`,
-			applicationName,
-		).Scan(&waiting); err != nil {
-			t.Fatalf("find application lock waiter: %v", err)
-		}
-		if waiting {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s lock waiter", applicationName)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
 
 func claimReplacementAfterReapedNormalModelCall(
 	t *testing.T,

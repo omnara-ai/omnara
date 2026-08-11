@@ -412,35 +412,26 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 	if err != nil {
 		t.Fatal(err)
 	}
-	var terminal statedb.Process
-	var actionReport statedb.Report
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		process, found, readErr := store.Process(ctx, processID)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if found && process.Phase == statedb.ProcessTerminal &&
-			process.LocalClosed {
-			report, reportFound, reportErr := store.ReportBySlot(
-				ctx,
-				statedb.ReportActionTerminal,
-				processID,
-				actionID,
-			)
-			if reportErr != nil {
-				t.Fatal(reportErr)
-			}
-			if reportFound {
-				terminal = process
-				actionReport = report
-				break
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("supervisor did not durably close: %+v", process)
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-prepared.runner.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("supervisor retained itself while reports were unacknowledged")
+	}
+	terminal, found, err := store.Process(ctx, processID)
+	if err != nil || !found {
+		t.Fatalf("read closed process state: found=%t err=%v", found, err)
+	}
+	if terminal.Phase != statedb.ProcessTerminal || !terminal.LocalClosed {
+		t.Fatalf("supervisor did not durably close: %+v", terminal)
+	}
+	actionReport, found, err := store.ReportBySlot(
+		ctx,
+		statedb.ReportActionTerminal,
+		processID,
+		actionID,
+	)
+	if err != nil || !found {
+		t.Fatalf("read frozen action report: found=%t err=%v", found, err)
 	}
 	if !terminal.ExecCommitted || terminal.ContainmentKind == "" ||
 		!terminal.ContainmentEmpty {
@@ -454,11 +445,6 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 		t.Fatalf("frozen action report = %+v", actionReport)
 	}
 
-	select {
-	case <-prepared.runner.Done():
-	case <-time.After(5 * time.Second):
-		t.Fatal("supervisor retained itself while reports were unacknowledged")
-	}
 	marker, err := os.ReadFile(markerPath)
 	if err != nil {
 		t.Fatal(err)

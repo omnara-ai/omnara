@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestProviderRuntimeCandidateStorageLifecycleAndPagination(t *testing.T) {
@@ -325,7 +326,7 @@ FOR UPDATE
 		)
 		done <- markResult{marked: marked, err: err}
 	}()
-	waitForDatabaseLockWait(
+	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		fixture.pool,

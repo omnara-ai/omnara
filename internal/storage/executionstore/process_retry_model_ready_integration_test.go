@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
@@ -58,7 +59,7 @@ func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	); err != nil {
 		t.Fatalf("lock agent before concurrent retry claims: %v", err)
 	}
-	var blockerPID int
+	var blockerPID int32
 	if err := blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID); err != nil {
 		t.Fatalf("load retry-claim blocker backend: %v", err)
 	}
@@ -83,36 +84,14 @@ func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	}
 	close(start)
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var waiters int
-		if err := fixture.Store.pool.QueryRow(ctx, `
-WITH RECURSIVE blocking_chain(waiter_pid, blocker_pid) AS (
-  SELECT activity.pid, unnest(pg_blocking_pids(activity.pid))
-  FROM pg_stat_activity activity
-  WHERE activity.datname = current_database()
-  UNION
-  SELECT chain.waiter_pid, unnest(pg_blocking_pids(blocker.pid))
-  FROM blocking_chain chain
-  JOIN pg_stat_activity blocker ON blocker.pid = chain.blocker_pid
-)
-SELECT count(DISTINCT activity.pid)::integer
-FROM pg_stat_activity activity
-JOIN blocking_chain chain ON chain.waiter_pid = activity.pid
-WHERE activity.datname = current_database()
-  AND activity.wait_event_type = 'Lock'
-  AND chain.blocker_pid = $1
-  AND activity.query LIKE '%-- name: LockAgentInProject :one%'`, blockerPID).Scan(&waiters); err != nil {
-			t.Fatalf("count blocked retry claims: %v", err)
-		}
-		if waiters >= 2 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("concurrent retry claims did not both block on the agent lock; waiters=%d", waiters)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	integrationdb.WaitForNamedLockWaitersBlockedByChain(
+		t,
+		ctx,
+		fixture.Store.pool,
+		"LockAgentInProject",
+		blockerPID,
+		2,
+	)
 	if err := blocker.Commit(ctx); err != nil {
 		t.Fatalf("release retry-claim blocker: %v", err)
 	}

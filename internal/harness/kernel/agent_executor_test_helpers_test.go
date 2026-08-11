@@ -722,7 +722,6 @@ func nextToolWorkExecution(
 		fixture,
 		prior.AgentID,
 		executionstore.AgentWorkTool,
-		prior.Now.Add(time.Second),
 	)
 	return ToolWorkExecution{
 		ProjectID:          claim.ProjectID,
@@ -764,15 +763,22 @@ func executeNextToolWork(
 			t.Errorf("release tool-work runtime: %v", err)
 		}
 	}
-	if scope.Started() {
-		go func() {
-			<-scope.Done()
-			release()
-		}()
-	} else {
+	if !scope.Started() {
 		release()
+		return scope
 	}
-	return scope
+	settled := tools.NewAsyncExecutionScope(nil)
+	reservation, err := tools.ReserveAsyncExecution(tools.WithAsyncExecutionScope(ctx, settled))
+	if err != nil {
+		t.Fatalf("reserve runtime release tracking: %v", err)
+	}
+	settled.Seal()
+	go func() {
+		<-scope.Done()
+		release()
+		reservation.Done(scope.Err())
+	}()
+	return settled
 }
 
 func executeNextModelWork(
@@ -789,7 +795,6 @@ func executeNextModelWork(
 		fixture,
 		prior.AgentID,
 		executionstore.AgentWorkModel,
-		prior.Now.Add(3*time.Second),
 	)
 	work := modelWorkExecutionFromClaimForKernelTest(claim, prior.Now.Add(4*time.Second))
 	if err := executor.ExecuteModelWork(ctx, work); err != nil {
@@ -804,43 +809,27 @@ func claimNextAgentWorkForKernelTest(
 	fixture kernelFixture,
 	agentID storage.ID,
 	kind executionstore.AgentWorkKind,
-	now time.Time,
 ) executionstore.ClaimedAgentWork {
 	t.Helper()
-	const retryInterval = 25 * time.Millisecond
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		claimAt := now
-		if wallNow := time.Now().UTC(); claimAt.Before(wallNow) {
-			claimAt = wallNow.Add(time.Second)
-		}
-		claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
-			ctx,
-			kernelTestClaimInput(claimAt),
-		)
-		if errors.Is(err, storeerr.ErrNoClaimableAgentWakeup) || (err == nil && !found) {
-			time.Sleep(retryInterval)
-			continue
-		}
-		if err != nil {
-			t.Fatalf("claim next agent work: %v", err)
-		}
-		if !found || claim.Kind == executionstore.AgentWorkNone {
-			time.Sleep(retryInterval)
-			continue
-		}
-		if claim.AgentID != agentID || claim.Kind != kind {
-			t.Fatalf(
-				"claimed agent work = %+v, want agent %s kind %d",
-				claim,
-				agentID,
-				kind,
-			)
-		}
-		return claim
+	claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
+		ctx,
+		kernelTestClaimInput(time.Time{}),
+	)
+	if err != nil {
+		t.Fatalf("claim next agent work: %v", err)
 	}
-	t.Fatalf("timed out claiming agent %s work kind %d", agentID, kind)
-	return executionstore.ClaimedAgentWork{}
+	if !found || claim.Kind == executionstore.AgentWorkNone {
+		t.Fatalf("no claimable work for agent %s, want kind %d", agentID, kind)
+	}
+	if claim.AgentID != agentID || claim.Kind != kind {
+		t.Fatalf(
+			"claimed agent work = %+v, want agent %s kind %d",
+			claim,
+			agentID,
+			kind,
+		)
+	}
+	return claim
 }
 
 func executeAsyncToolTurn(

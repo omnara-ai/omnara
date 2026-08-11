@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestAgentLaunchRequiresConfigAndCanRecordProfile(t *testing.T) {
@@ -527,7 +528,7 @@ model:
 	go func() {
 		deleteDone <- store.Execution().DeleteAgentProfile(context.Background(), testProjectID, profile.ID)
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "-- name: LockAgentProfile", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "-- name: LockAgentProfile", blockingPID)
 
 	if _, err := qtx.RetargetAgentProfile(ctx, dbsqlc.RetargetAgentProfileParams{
 		CurrentConfigID:         retargetConfig.ID,
@@ -608,7 +609,7 @@ FOR UPDATE
 	go func() {
 		deleteDone <- store.Execution().DeleteAgentProfile(context.Background(), testProjectID, profile.ID)
 	}()
-	waitForDatabaseLockWaitCount(t, ctx, pool, "-- name: DeleteAgentProfileVersions", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteAgentProfileVersions", 1)
 
 	launchDone := make(chan error, 1)
 	go func() {
@@ -621,7 +622,7 @@ FOR UPDATE
 		})
 		launchDone <- launchErr
 	}()
-	waitForDatabaseLockWaitCount(t, ctx, pool, "-- name: LockAgentProfile", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentProfile", 1)
 
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release profile-version blocker: %v", err)
@@ -1018,10 +1019,11 @@ FOR UPDATE
 		resultCh <- captureResult{snapshot: snapshot, err: err}
 	}()
 	<-started
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	select {
 	case result := <-resultCh:
 		t.Fatalf("capture returned before the held agent lock was released: snapshot=%+v err=%v", result.snapshot, result.err)
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 
 	var sequence int64

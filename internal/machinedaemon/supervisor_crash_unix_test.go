@@ -5,7 +5,6 @@ package machinedaemon
 import (
 	"context"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,18 +21,25 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 
 	commandDir := t.TempDir()
 	markerPath := commandDir + string(os.PathSeparator) + "process-effect"
+	syncPath := commandDir + string(os.PathSeparator) + "process-effect-sync"
+	if err := syscall.Mkfifo(syncPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	fixture := newDetachedSupervisorTestFixture(
 		t,
 		ctx,
 		ProcessAssignment{
 			ID: "prc_supervisor_sigkill",
 			Process: Process{
-				Command:       `printf x >> "$MARKER"; sleep 30`,
+				Command:       `printf x >> "$MARKER"; printf x > "$SYNC"; sleep 30`,
 				ShellSelector: "default",
 				Cwd:           commandDir,
 				IOMode:        "pipe",
 			},
-			Env: map[string]string{"MARKER": markerPath},
+			Env: map[string]string{
+				"MARKER": markerPath,
+				"SYNC":   syncPath,
+			},
 		},
 	)
 	fixture.acceptAndStart(t, ctx)
@@ -55,7 +61,16 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 		}
 		_ = syscall.Kill(-containmentID, syscall.SIGKILL)
 	})
-	waitForFileContents(t, markerPath, "x", 5*time.Second)
+	syncFile, err := os.Open(syncPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncFile.Read(make([]byte, 1)); err != nil {
+		t.Fatalf("process effect rendezvous: %v", err)
+	}
+	if err := syncFile.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	action := ProcessAction{
 		ID:         "act_supervisor_sigkill",
@@ -68,18 +83,31 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 			),
 		}),
 	}
+	runner, ok := fixture.runtime.runner.(*ipcProcessRunner)
+	if !ok {
+		t.Fatalf("runner type = %T", fixture.runtime.runner)
+	}
+	committed := make(chan string, 1)
+	runner.onActionCommitted = func(actionID string) {
+		select {
+		case committed <- actionID:
+		default:
+		}
+	}
 	actionResult := make(chan error, 1)
 	go func() {
 		actionResult <- fixture.runtime.runner.ApplyOnce(ctx, action)
 	}()
-	waitForCommittedAction(t, fixture.store, action.ID, 5*time.Second)
+	select {
+	case actionID := <-committed:
+		if actionID != action.ID {
+			t.Fatalf("committed action = %q, want %q", actionID, action.ID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("action %s did not cross its effect boundary", action.ID)
+	}
 
-	supervisorPID := waitForDetachedSupervisorPID(
-		t,
-		fixture.runtime.processID,
-		fixture.runtime.supervisorInstanceID,
-		5*time.Second,
-	)
+	supervisorPID := fixture.runtime.supervisorPID
 	if err := syscall.Kill(supervisorPID, syscall.SIGKILL); err != nil {
 		t.Fatalf("kill detached supervisor: %v", err)
 	}
@@ -195,22 +223,22 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 
 	commandDir := t.TempDir()
 	releasePath := commandDir + string(os.PathSeparator) + "release"
-	exitingPath := commandDir + string(os.PathSeparator) + "exiting"
+	if err := syscall.Mkfifo(releasePath, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	fixture := newDetachedSupervisorTestFixture(
 		t,
 		ctx,
 		ProcessAssignment{
 			ID: "prc_natural_exit_fence",
 			Process: Process{
-				Command: `while [ ! -f "$RELEASE" ]; do sleep 0.01; done; ` +
-					`printf x > "$EXITING"`,
+				Command:       `read -r line < "$RELEASE"`,
 				ShellSelector: "default",
 				Cwd:           commandDir,
 				IOMode:        "pipe",
 			},
 			Env: map[string]string{
 				"RELEASE": releasePath,
-				"EXITING": exitingPath,
 			},
 		},
 	)
@@ -219,6 +247,7 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	if !ok {
 		t.Fatalf("runner type = %T", fixture.runtime.runner)
 	}
+	runner.notifyFenceParked = true
 	if err := runner.BeginReconciliation(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -228,11 +257,17 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 			_ = runner.EndReconciliation()
 		}
 	}()
-	if err := os.WriteFile(releasePath, []byte("go"), 0o600); err != nil {
+	release, err := os.OpenFile(releasePath, os.O_WRONLY, 0)
+	if err != nil {
 		t.Fatal(err)
 	}
-	waitForFileContents(t, exitingPath, "x", 5*time.Second)
-	time.Sleep(200 * time.Millisecond)
+	if _, err := release.Write([]byte("go\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := release.Close(); err != nil {
+		t.Fatal(err)
+	}
+	awaitFenceWriterParked(t, runner, 5*time.Second)
 
 	process, found, err := fixture.store.Process(
 		ctx,
@@ -264,95 +299,20 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	}
 }
 
-func waitForCommittedAction(
+func awaitFenceWriterParked(
 	t *testing.T,
-	store *statedb.Store,
-	actionID string,
+	runner *ipcProcessRunner,
 	timeout time.Duration,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		_, found, err := store.Action(context.Background(), actionID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if found {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("action %s did not cross its effect boundary", actionID)
-		}
-		time.Sleep(10 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var frame runnerResponse
+	if err := runner.reconciliation.frames.read(ctx, &frame); err != nil {
+		t.Fatalf("wait for fence writer: %v", err)
 	}
-}
-
-func waitForDetachedSupervisorPID(
-	t *testing.T,
-	processID, supervisorInstanceID string,
-	timeout time.Duration,
-) int {
-	t.Helper()
-	bootstrapName, err := supervisorIdentityBootstrapFileName(
-		processID,
-		supervisorInstanceID,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(timeout)
-	for {
-		output, commandErr := exec.Command(
-			"ps",
-			"-ww",
-			"-axo",
-			"pid=,command=",
-		).Output()
-		if commandErr != nil {
-			t.Fatalf("list supervisor processes: %v", commandErr)
-		}
-		for _, line := range strings.Split(string(output), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) < 2 ||
-				!strings.Contains(line, runnerSubcommand) ||
-				!strings.Contains(line, bootstrapName) {
-				continue
-			}
-			pid, parseErr := strconv.Atoi(fields[0])
-			if parseErr == nil {
-				return pid
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf(
-				"detached supervisor %s/%s was not discoverable",
-				processID,
-				supervisorInstanceID,
-			)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func waitForFileContents(
-	t *testing.T,
-	path, want string,
-	timeout time.Duration,
-) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		body, err := os.ReadFile(path)
-		if err == nil && string(body) == want {
-			return
-		}
-		if err != nil && !os.IsNotExist(err) {
-			t.Fatal(err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("file %s did not contain %q", path, want)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if frame.Stage != runnerStageFenceWriterParked {
+		t.Fatalf("fence frame = %+v", frame)
 	}
 }
 
@@ -374,6 +334,6 @@ func waitForProcessGroupEmpty(
 		if time.Now().After(deadline) {
 			t.Fatalf("process group %d remained active", groupID)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) //nolint:omnaralint // The OS exposes no exit event for a non-child process group.
 	}
 }

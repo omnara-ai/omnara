@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestStartProcessLocksMachineBeforeAgent(t *testing.T) {
@@ -143,7 +144,7 @@ func assertMachineLockPrecedesAgentLock(
 	go func() {
 		done <- mutation(context.Background(), newIntegrationStore(writerPool))
 	}()
-	waitForApplicationLockWaiter(t, ctx, fixture.Store.pool, applicationName)
+	integrationdb.WaitForApplicationLockWaiter(t, ctx, fixture.Store.pool, applicationName)
 
 	agentTx, err := fixture.Store.pool.Begin(ctx)
 	if err != nil {

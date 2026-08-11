@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestIntegrationInstallBindingsIdentityAndOAuthReplay(t *testing.T) {
@@ -367,7 +368,7 @@ func TestIntegrationInstallRechecksProfileAfterLockWait(t *testing.T) {
 		record, installErr := store.Integrations().UpsertIntegrationInstall(context.Background(), input)
 		done <- installResult{record: record, err: installErr}
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "-- name: LockAgentProfile", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "-- name: LockAgentProfile", blockingPID)
 	if _, err := blockingTx.Exec(
 		ctx,
 		`UPDATE agent_profiles SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
@@ -536,7 +537,7 @@ func TestIntegrationInstallUpdateUsesPostLockDatabaseTime(t *testing.T) {
 		record, updateErr := store.Integrations().UpsertIntegrationInstall(context.Background(), input)
 		done <- updateResult{record: record, err: updateErr}
 	}()
-	waitForDatabaseLockWait(
+	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		pool,

@@ -1375,7 +1375,6 @@ func TestPublicEventStreamDeliversLiveWakeupViaRedis(t *testing.T) {
 	if !scanner.Scan() || !strings.HasPrefix(scanner.Text(), ":") {
 		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
 	}
-	time.Sleep(100 * time.Millisecond)
 
 	postStart := time.Now()
 	createInputResp := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents/"+agentPublicID+"/inputs", `{"content_blocks":[{"type":"text","text":"live wakeup payload"}]}`, "idem-sse-live", http.StatusCreated, authHeaders(project.AdminToken))

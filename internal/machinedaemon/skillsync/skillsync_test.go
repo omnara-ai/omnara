@@ -165,14 +165,18 @@ func TestManagerIsNotIdleUntilInstallReportIsSent(t *testing.T) {
 	if !m.Idle() {
 		t.Fatal("new manager must be idle")
 	}
-	go m.HandleOffer(context.Background(), daemonprotocol.SkillOffer{
-		RequestID:         "r1",
-		SkillID:           "skl_test",
-		RevisionID:        "skr_test",
-		Digest:            digest,
-		DownloadToken:     "download-token",
-		DownloadExpiresAt: time.Now().Add(time.Minute).Unix(),
-	})
+	offerDone := make(chan struct{})
+	go func() {
+		defer close(offerDone)
+		m.HandleOffer(context.Background(), daemonprotocol.SkillOffer{
+			RequestID:         "r1",
+			SkillID:           "skl_test",
+			RevisionID:        "skr_test",
+			Digest:            digest,
+			DownloadToken:     "download-token",
+			DownloadExpiresAt: time.Now().Add(time.Minute).Unix(),
+		})
+	}()
 	select {
 	case <-downloadStarted:
 	case <-time.After(time.Second):
@@ -194,9 +198,10 @@ func TestManagerIsNotIdleUntilInstallReportIsSent(t *testing.T) {
 		t.Fatal("manager must not be idle while sending the install report")
 	}
 	releaseReport()
-	deadline := time.Now().Add(time.Second)
-	for !m.Idle() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	select {
+	case <-offerDone:
+	case <-time.After(time.Second):
+		t.Fatal("offer handling did not finish after the install report")
 	}
 	if !m.Idle() {
 		t.Fatal("manager did not become idle after sending the install report")

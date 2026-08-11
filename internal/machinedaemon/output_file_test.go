@@ -754,18 +754,11 @@ func TestProcessOutputAsyncSyncFailureIsSticky(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("asynchronous sync was not attempted")
 	}
-	deadline := time.Now().Add(time.Second)
-	for {
-		output.mu.Lock()
-		sticky := output.stickyErr
-		output.mu.Unlock()
-		if errors.Is(sticky, injected) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("asynchronous sync error was not retained: %v", sticky)
-		}
-		time.Sleep(time.Millisecond)
+	output.mu.Lock()
+	sticky := output.stickyErr
+	output.mu.Unlock()
+	if !errors.Is(sticky, injected) {
+		t.Fatalf("asynchronous sync error was not retained: %v", sticky)
 	}
 	if n, err := output.Write([]byte("def")); n != 0 ||
 		!errors.Is(err, injected) {
