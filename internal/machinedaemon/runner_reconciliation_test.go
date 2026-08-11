@@ -489,6 +489,7 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 	defer listener.Close()
 	defer localipc.Cleanup(endpoint)
 
+	parked := make(chan struct{}, 1)
 	state := &runnerServerState{
 		bootstrap: supervisorIdentityBootstrap{
 			ProcessID:            processID,
@@ -499,6 +500,12 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 		shutdown:     func() {},
 		inflight:     make(map[string]*runnerActionCall),
 		startedDone:  make(chan struct{}),
+		onFenceWriterParked: func() {
+			select {
+			case parked <- struct{}{}:
+			default:
+			}
+		},
 	}
 	serveDone := make(chan struct{})
 	go func() {
@@ -568,13 +575,6 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 	if err := owner.BeginReconciliation(ctx); err != nil {
 		t.Fatal(err)
 	}
-	parked := make(chan struct{}, 1)
-	state.setFenceWriterParked(func() {
-		select {
-		case parked <- struct{}{}:
-		default:
-		}
-	})
 	terminalDone := make(chan struct{})
 	go func() {
 		defer close(terminalDone)

@@ -5,6 +5,7 @@ package machinedaemon
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -83,29 +84,11 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 			),
 		}),
 	}
-	runner, ok := fixture.runtime.runner.(*ipcProcessRunner)
-	if !ok {
-		t.Fatalf("runner type = %T", fixture.runtime.runner)
-	}
-	committed := make(chan string, 1)
-	runner.onActionCommitted = func(actionID string) {
-		select {
-		case committed <- actionID:
-		default:
-		}
-	}
 	actionResult := make(chan error, 1)
 	go func() {
 		actionResult <- fixture.runtime.runner.ApplyOnce(ctx, action)
 	}()
-	select {
-	case actionID := <-committed:
-		if actionID != action.ID {
-			t.Fatalf("committed action = %q, want %q", actionID, action.ID)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatalf("action %s did not cross its effect boundary", action.ID)
-	}
+	awaitActionRow(t, ctx, fixture.store, action.ID, 5*time.Second)
 
 	supervisorPID := fixture.runtime.supervisorPID
 	if err := syscall.Kill(supervisorPID, syscall.SIGKILL); err != nil {
@@ -226,9 +209,15 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	if err := syscall.Mkfifo(releasePath, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fixture := newDetachedSupervisorTestFixture(
+	home := t.TempDir()
+	parkedPath := filepath.Join(home, fenceWriterParkedPipeName)
+	if err := syscall.Mkfifo(parkedPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := newDetachedSupervisorTestFixtureWithConfig(
 		t,
 		ctx,
+		Config{OmnaraHome: home},
 		ProcessAssignment{
 			ID: "prc_natural_exit_fence",
 			Process: Process{
@@ -243,11 +232,16 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 		},
 	)
 	fixture.acceptAndStart(t, ctx)
+	parked, err := os.OpenFile(parkedPath, os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parked.Close()
+	awaitFenceWriterParked(t, parked, 5*time.Second)
 	runner, ok := fixture.runtime.runner.(*ipcProcessRunner)
 	if !ok {
 		t.Fatalf("runner type = %T", fixture.runtime.runner)
 	}
-	runner.notifyFenceParked = true
 	if err := runner.BeginReconciliation(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +261,7 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	if err := release.Close(); err != nil {
 		t.Fatal(err)
 	}
-	awaitFenceWriterParked(t, runner, 5*time.Second)
+	awaitFenceWriterParked(t, parked, 5*time.Second)
 
 	process, found, err := fixture.store.Process(
 		ctx,
@@ -301,18 +295,46 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 
 func awaitFenceWriterParked(
 	t *testing.T,
-	runner *ipcProcessRunner,
+	pipe *os.File,
 	timeout time.Duration,
 ) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	var frame runnerResponse
-	if err := runner.reconciliation.frames.read(ctx, &frame); err != nil {
-		t.Fatalf("wait for fence writer: %v", err)
+	done := make(chan error, 1)
+	go func() {
+		_, err := pipe.Read(make([]byte, 1))
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("wait for fence writer: %v", err)
+		}
+	case <-time.After(timeout):
+		t.Fatal("no supervisor writer parked at the reconciliation fence")
 	}
-	if frame.Stage != runnerStageFenceWriterParked {
-		t.Fatalf("fence frame = %+v", frame)
+}
+
+func awaitActionRow(
+	t *testing.T,
+	ctx context.Context,
+	store *statedb.Store,
+	actionID string,
+	timeout time.Duration,
+) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		_, found, err := store.Action(ctx, actionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("action %s did not cross its effect boundary", actionID)
+		}
+		time.Sleep(10 * time.Millisecond) //nolint:omnaralint // SQLite exposes no cross-process commit event.
 	}
 }
 

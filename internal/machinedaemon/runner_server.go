@@ -128,12 +128,13 @@ func runCommandSupervisor(
 		})
 	}
 	state := &runnerServerState{
-		bootstrap:    bootstrap,
-		processState: processState,
-		machine:      machine,
-		inflight:     make(map[string]*runnerActionCall),
-		shutdown:     requestShutdown,
-		startedDone:  make(chan struct{}),
+		bootstrap:           bootstrap,
+		processState:        processState,
+		machine:             machine,
+		inflight:            make(map[string]*runnerActionCall),
+		shutdown:            requestShutdown,
+		startedDone:         make(chan struct{}),
+		onFenceWriterParked: fenceWriterParkedTestHook,
 	}
 	defer func() {
 		_ = listener.Close()
@@ -198,16 +199,16 @@ func serveCommandSupervisor(
 	}
 }
 
+var fenceWriterParkedTestHook func()
+
 type runnerServerState struct {
-	bootstrap    supervisorIdentityBootstrap
-	processState *statedb.Supervisor
-	machine      localstore.MachineStore
-	shutdown     func()
+	bootstrap           supervisorIdentityBootstrap
+	processState        *statedb.Supervisor
+	machine             localstore.MachineStore
+	shutdown            func()
+	onFenceWriterParked func()
 
 	reconciliationMu sync.RWMutex
-
-	fenceParkMu         sync.Mutex
-	onFenceWriterParked func()
 
 	mu              sync.RWMutex
 	prepared        *localProcessRunner
@@ -277,13 +278,7 @@ func serveRunnerConn(
 		state.reconciliationMu.RLock()
 		defer state.reconciliationMu.RUnlock()
 	}
-	var sendStage func(runnerResponse)
-	if request.NotifyStages {
-		sendStage = func(frame runnerResponse) {
-			_ = writeRunnerMessage(context.WithoutCancel(ctx), conn, frame)
-		}
-	}
-	response := state.handle(ctx, request, sendStage)
+	response := state.handle(ctx, request)
 	_ = writeRunnerMessage(context.WithoutCancel(ctx), conn, response)
 }
 
@@ -296,20 +291,8 @@ func serveRunnerReconciliationConn(
 	state.reconciliationMu.Lock()
 	defer state.reconciliationMu.Unlock()
 
-	var writeMu sync.Mutex
 	write := func(value any) error {
-		writeMu.Lock()
-		defer writeMu.Unlock()
 		return writeRunnerMessage(context.WithoutCancel(ctx), conn, value)
-	}
-	if request.NotifyStages {
-		previous := state.setFenceWriterParked(func() {
-			_ = write(runnerResponse{
-				OK:    true,
-				Stage: runnerStageFenceWriterParked,
-			})
-		})
-		defer state.setFenceWriterParked(previous)
 	}
 	if err := write(state.status(ctx)); err != nil {
 		return
@@ -335,31 +318,14 @@ func serveRunnerReconciliationConn(
 			})
 			return
 		}
-		var sendStage func(runnerResponse)
-		if next.NotifyStages {
-			sendStage = func(frame runnerResponse) {
-				_ = write(frame)
-			}
-		}
-		if err := write(state.handle(ctx, next, sendStage)); err != nil {
+		if err := write(state.handle(ctx, next)); err != nil {
 			return
 		}
 	}
 }
 
-func (s *runnerServerState) setFenceWriterParked(hook func()) func() {
-	s.fenceParkMu.Lock()
-	previous := s.onFenceWriterParked
-	s.onFenceWriterParked = hook
-	s.fenceParkMu.Unlock()
-	return previous
-}
-
 func (s *runnerServerState) noteFenceWriterParked() {
-	s.fenceParkMu.Lock()
-	hook := s.onFenceWriterParked
-	s.fenceParkMu.Unlock()
-	if hook != nil {
+	if hook := s.onFenceWriterParked; hook != nil {
 		hook()
 	}
 }
@@ -380,7 +346,6 @@ func runnerMethodMutates(method runnerMethod) bool {
 func (s *runnerServerState) handle(
 	ctx context.Context,
 	request runnerRequest,
-	sendStage func(runnerResponse),
 ) runnerResponse {
 	switch request.Method {
 	case runnerMethodStatus:
@@ -390,7 +355,7 @@ func (s *runnerServerState) handle(
 	case runnerMethodStartOnce:
 		return s.startOnce(ctx)
 	case runnerMethodApplyOnce:
-		return s.applyOnce(ctx, request.Payload, sendStage)
+		return s.applyOnce(ctx, request.Payload)
 	case runnerMethodCloseUngranted:
 		return s.closeUngranted(ctx)
 	case runnerMethodTerminate:
@@ -1020,7 +985,6 @@ func (s *runnerServerState) enforceTimeout(
 func (s *runnerServerState) applyOnce(
 	ctx context.Context,
 	body json.RawMessage,
-	sendStage func(runnerResponse),
 ) runnerResponse {
 	var action ProcessAction
 	if err := json.Unmarshal(body, &action); err != nil {
@@ -1031,17 +995,7 @@ func (s *runnerServerState) applyOnce(
 		return runnerResponse{OK: false, Error: err.Error()}
 	}
 	if first {
-		var committed func()
-		if sendStage != nil {
-			committed = func() {
-				sendStage(runnerResponse{
-					OK:       true,
-					Stage:    runnerStageActionCommitted,
-					ActionID: action.ID,
-				})
-			}
-		}
-		call.err = s.runApplyOnce(ctx, action, committed)
+		call.err = s.runApplyOnce(ctx, action)
 		close(call.done)
 		s.finishActionCall(action.ID, call)
 	} else {
@@ -1100,7 +1054,6 @@ func (s *runnerServerState) finishActionCall(
 func (s *runnerServerState) runApplyOnce(
 	ctx context.Context,
 	action ProcessAction,
-	committed func(),
 ) error {
 	if preflight := preflightActionResult(
 		action,
@@ -1115,9 +1068,6 @@ func (s *runnerServerState) runApplyOnce(
 	if err != nil {
 		s.effectBoundaryMu.Unlock()
 		return err
-	}
-	if committed != nil {
-		committed()
 	}
 	var applied *processActionResult
 	var noEffectDecision statedb.NoEffectDecision

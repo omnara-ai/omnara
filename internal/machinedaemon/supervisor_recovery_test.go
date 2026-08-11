@@ -900,7 +900,7 @@ func TestActionBoundaryPersistenceFailurePreventsEffect(t *testing.T) {
 		Seq:        1,
 		Payload:    json.RawMessage(`{"data":"must-not-write"}`),
 	}
-	if err := state.runApplyOnce(ctx, action, nil); err == nil {
+	if err := state.runApplyOnce(ctx, action); err == nil {
 		t.Fatal("action succeeded after its persistence boundary failed")
 	}
 	if err := writer.Close(); err != nil {
@@ -973,7 +973,7 @@ func TestActionAfterExecutionClosureFreezesNoEffectOutcome(t *testing.T) {
 				Seq:        1,
 				Payload:    test.payload,
 			}
-			if err := state.runApplyOnce(ctx, action, nil); err != nil {
+			if err := state.runApplyOnce(ctx, action); err != nil {
 				t.Fatal(err)
 			}
 			runner.terminalMu.Lock()
