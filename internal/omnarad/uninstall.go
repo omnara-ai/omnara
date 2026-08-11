@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
@@ -22,6 +24,7 @@ func runUninstallCommand(
 	stdin *os.File,
 	stdout io.Writer,
 	stderr io.Writer,
+	log *slog.Logger,
 ) int {
 	home, err := localstore.ResolveHome()
 	if err != nil {
@@ -39,7 +42,7 @@ func runUninstallCommand(
 		}
 		_, _ = fmt.Fprintf(
 			stderr,
-			"Uninstall omnarad?\nThis will stop the daemon and agent processes, remove its user service, and permanently delete:\n  %s\nType \"uninstall\" to continue: ",
+			"Uninstall omnarad?\nWARNING: This will stop the daemon and agent processes, remove its user service, and permanently delete this entire directory and everything beneath it:\n  %s\nThis includes files you added and files stored on any filesystem mounted inside this directory. This cannot be undone.\nType \"uninstall\" to continue: ",
 			home,
 		)
 		answer, readErr := bufio.NewReader(stdin).ReadString('\n')
@@ -52,7 +55,7 @@ func runUninstallCommand(
 			return 1
 		}
 	}
-	if err := uninstallDaemon(ctx, home); err != nil {
+	if err := uninstallDaemon(ctx, home, log); err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -173,7 +176,11 @@ func readUninstallDirectory(path string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
-func uninstallDaemon(ctx context.Context, home string) (resultErr error) {
+func uninstallDaemon(ctx context.Context, home string, log *slog.Logger) (resultErr error) {
+	var config *daemonConfig
+	defer func() {
+		reportUninstall(ctx, config, resultErr, log)
+	}()
 	installLock, err := acquireInstallLock(ctx, home)
 	if err != nil {
 		return err
@@ -181,7 +188,7 @@ func uninstallDaemon(ctx context.Context, home string) (resultErr error) {
 	defer func() {
 		resultErr = errors.Join(resultErr, installLock.Release())
 	}()
-	config, err := inspectUninstallHome(home)
+	config, err = inspectUninstallHome(home)
 	if err != nil {
 		return err
 	}
@@ -231,6 +238,25 @@ func uninstallDaemon(ctx context.Context, home string) (resultErr error) {
 		return errors.Join(resultErr, fmt.Errorf("remove retired Omnara home %s: %w", tombstone, err))
 	}
 	return errors.Join(resultErr, localstore.SyncDir(parent))
+}
+
+func reportUninstall(ctx context.Context, config *daemonConfig, uninstallErr error, log *slog.Logger) {
+	if config == nil {
+		return
+	}
+	detail := ""
+	if uninstallErr != nil {
+		detail = uninstallErr.Error()
+	}
+	reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	client := machinedaemon.New(machinedaemon.Config{
+		APIURL:       config.APIURL,
+		MachineToken: config.MachineToken,
+	}, nil, log)
+	if err := client.ReportUninstall(reportCtx, detail); err != nil {
+		log.Warn("report daemon uninstall failed", "error", err)
+	}
 }
 
 func removeManagedPathSymlink(home string) error {

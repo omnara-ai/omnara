@@ -2907,7 +2907,7 @@ export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
-        stage: 'startup_script' | 'daemon_install' | 'daemon_update';
+        stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
         exit_status?: number;
         capture_status?: number;
         daemon_version?: string;

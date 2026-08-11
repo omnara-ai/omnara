@@ -47,5 +47,7 @@ func MachineFailureReport(ctx context.Context, input executionstore.MachineFailu
 		fields["machine.failure_report.target_version"] = input.TargetVersion
 	}
 	log.Attach(ctx, fields)
-	log.Level(ctx, log.WarnLevel)
+	if input.Stage != executionstore.MachineFailureStageDaemonUninstalled {
+		log.Level(ctx, log.WarnLevel)
+	}
 }

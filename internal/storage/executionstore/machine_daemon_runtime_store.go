@@ -184,15 +184,15 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	); err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("revoke sibling system bootstrap tokens: %w", err)
 	}
-	if _, err := qtx.ClearMachineUpdateFailureReport(
+	if _, err := qtx.ClearResolvedMachineFailureReport(
 		ctx,
-		dbsqlc.ClearMachineUpdateFailureReportParams{
+		dbsqlc.ClearResolvedMachineFailureReportParams{
 			OrgID:         input.OrgID,
 			MachineID:     input.MachineID,
 			DaemonVersion: input.DaemonVersion,
 		},
 	); err != nil {
-		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("clear stale daemon update failure report: %w", err)
+		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("clear resolved machine failure report: %w", err)
 	}
 	reconciliation, err := reconcileRegisteredRuntimeTx(ctx, txNotifications, tx, qtx, input)
 	if err != nil {

@@ -5,6 +5,9 @@ package omnarad
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -82,7 +85,18 @@ func TestRunUninstallAcceptsConfigOnlyInstallation(t *testing.T) {
 	if err := os.MkdirAll(userHome, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeTestDaemonConfig(t, home, testUninstallConfig())
+	reports := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reports++
+		if got := r.URL.Query().Get("stage"); got != "daemon_uninstalled" {
+			t.Errorf("uninstall stage = %q", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	config := testUninstallConfig()
+	config.APIURL = server.URL
+	writeTestDaemonConfig(t, home, config)
 	t.Setenv("HOME", userHome)
 	t.Setenv("OMNARA_HOME", home)
 	t.Setenv("PATH", t.TempDir())
@@ -99,6 +113,15 @@ func TestRunUninstallAcceptsConfigOnlyInstallation(t *testing.T) {
 	}
 	if _, err := os.Lstat(home); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("daemon home still exists: %v", err)
+	}
+	if reports != 1 {
+		t.Fatalf("successful uninstall reports = %d, want 1", reports)
+	}
+	reportCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reportUninstall(reportCtx, &config, nil, discardLogger())
+	if reports != 2 {
+		t.Fatalf("canceled-context uninstall reports = %d, want 2", reports)
 	}
 }
 
@@ -259,7 +282,19 @@ func TestRunUninstallPreservesUnprovenMachineState(t *testing.T) {
 	if err := os.MkdirAll(userHome, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	var reportedStage, reportedDetail string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reportedStage = r.URL.Query().Get("stage")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		reportedDetail = string(body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
 	config := testUninstallConfig()
+	config.APIURL = server.URL
 	writeTestDaemonConfig(t, home, config)
 	machine, err := localstore.Machine(home, config.InstallationID, config.MachineID)
 	if err != nil {
@@ -331,6 +366,10 @@ func TestRunUninstallPreservesUnprovenMachineState(t *testing.T) {
 	}
 	if _, err := os.Stat(machine.StateDBPath()); err != nil {
 		t.Fatalf("machine state was removed: %v", err)
+	}
+	if reportedStage != "daemon_uninstall" ||
+		!strings.Contains(reportedDetail, "containment closure was proved") {
+		t.Fatalf("uninstall report stage=%q detail=%q", reportedStage, reportedDetail)
 	}
 }
 

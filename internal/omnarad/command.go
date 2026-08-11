@@ -259,7 +259,7 @@ func Run(
 	case command.Status != nil:
 		return runStatusCommand(ctx, stdout, stderr)
 	case command.Uninstall != nil:
-		return runUninstallCommand(ctx, command.Uninstall.Yes, stdin, stdout, stderr)
+		return runUninstallCommand(ctx, command.Uninstall.Yes, stdin, stdout, stderr, log)
 	}
 	return 1
 }

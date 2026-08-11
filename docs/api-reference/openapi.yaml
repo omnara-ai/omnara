@@ -215,7 +215,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [startup_script, daemon_install, daemon_update]
+            enum: [startup_script, daemon_install, daemon_update, daemon_uninstall, daemon_uninstalled]
         - name: exit_status
           in: query
           required: false

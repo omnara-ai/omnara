@@ -71,10 +71,9 @@ type systemdServiceState struct {
 }
 
 type managedDaemonStatus struct {
-	manager    string
-	registered bool
-	running    bool
-	pid        int
+	manager string
+	running bool
+	pid     int
 }
 
 func ensureDaemonService(
@@ -246,10 +245,9 @@ func inspectDaemonService(ctx context.Context) (managedDaemonStatus, error) {
 		return managedDaemonStatus{}, err
 	}
 	return managedDaemonStatus{
-		manager:    "systemd",
-		registered: state.loaded,
-		running:    state.mainPID > 0,
-		pid:        state.mainPID,
+		manager: "systemd",
+		running: state.mainPID > 0,
+		pid:     state.mainPID,
 	}, nil
 }
 

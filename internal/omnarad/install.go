@@ -87,28 +87,6 @@ func runInstallCommand(
 	return 0
 }
 
-func installDaemon(
-	ctx context.Context,
-	home string,
-	executable string,
-	releaseManifestURL string,
-) (result daemonInstallResult, resultErr error) {
-	if err := validateInstallInputs(executable, releaseManifestURL); err != nil {
-		return daemonInstallResult{}, err
-	}
-	if err := localstore.EnsurePrivateDir(home); err != nil {
-		return daemonInstallResult{}, err
-	}
-	lock, err := acquireInstallLock(ctx, home)
-	if err != nil {
-		return daemonInstallResult{}, err
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, lock.Release())
-	}()
-	return installDaemonLocked(ctx, home, executable, releaseManifestURL)
-}
-
 func installDaemonLocked(
 	ctx context.Context,
 	home string,
