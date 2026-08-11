@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 const backlogRankStride int64 = 1024
@@ -472,7 +473,7 @@ WHERE project_id = $3
 	}
 	go moveBeforeSecond(third.ID)
 	go moveBeforeSecond(fourth.ID)
-	waitForDatabaseLockWaitCount(t, ctx, pool, "FROM agents", 2)
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "FROM agents", 2)
 
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release agent lock: %v", err)
@@ -602,7 +603,7 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 		}
 		waitingResult <- createResult{input: result.AgentInput, err: err}
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "FROM agents", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "FROM agents", blockingPID)
 
 	firstContent := json.RawMessage(`[{"type":"text","text":"first"}]`)
 	firstBlocks, err := executionstore.IntegrationParseAgentInputContentBlocks(firstContent)

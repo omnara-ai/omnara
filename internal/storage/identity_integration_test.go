@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authn"
@@ -33,6 +32,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
@@ -4418,7 +4418,7 @@ func TestDeviceAuthFlowPollSerializesWithCompromiseRevocation(t *testing.T) {
 	go func() {
 		revokeCh <- store.AccountSecurity().RevokeUserTokensForCompromiseWithPasswordIfPresent(ctx, user.ID, "")
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "FROM users", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "FROM users", blockingPID)
 
 	type pollResult struct {
 		record identitystore.DeviceAuthFlowPollRecord
@@ -4429,7 +4429,7 @@ func TestDeviceAuthFlowPollSerializesWithCompromiseRevocation(t *testing.T) {
 		record, err := store.Identity().PollDeviceAuthFlow(ctx, identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode})
 		pollCh <- pollResult{record: record, err: err}
 	}()
-	waitForDatabaseLockWaitCount(t, ctx, pool, "FROM users", 2)
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "FROM users", 2)
 	if err := lockTx.Commit(ctx); err != nil {
 		t.Fatalf("release user lock: %v", err)
 	}
@@ -4521,7 +4521,7 @@ func TestDeviceAuthFlowApprovalRejectsExpiryAfterLockWait(t *testing.T) {
 			ApprovedBrowserSessionID: session.ID,
 		})
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "user_code_hash", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "user_code_hash", blockingPID)
 	if _, err := lockTx.Exec(
 		ctx,
 		`UPDATE auth_device_flows SET expires_at = statement_timestamp() - interval '1 millisecond' WHERE user_code_hash = $1`,
@@ -4694,7 +4694,7 @@ func TestPasswordSignupRejectsExpiryAfterTokenLockWait(t *testing.T) {
 		})
 		done <- err
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "FOR UPDATE OF token", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "FOR UPDATE OF token", blockingPID)
 	if _, err := lockTx.Exec(
 		ctx,
 		`UPDATE user_auth_tokens SET expires_at = statement_timestamp() - interval '1 millisecond' WHERE token_hash = $1`,
@@ -4835,7 +4835,7 @@ func TestPasswordSignupConcurrentVerificationFirstCommitWins(t *testing.T) {
 		)
 		results <- signupResult{name: "second", record: record, err: err}
 	}()
-	time.Sleep(100 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "GetActiveUserAuthTokenByHashForUpdate", 2)
 	select {
 	case result := <-results:
 		t.Fatalf("signup completion finished while auth tokens were locked: %+v", result)
@@ -5024,7 +5024,7 @@ func TestConcurrentPasswordResetRequestsLeaveOneUsableToken(t *testing.T) {
 			results <- resetResult{record: record, err: resetErr}
 		}()
 	}
-	waitForApplicationNamedLockWaiters(t, ctx, pool, applicationName, "LockUserForUpdate", 2)
+	integrationdb.WaitForApplicationNamedLockWaiters(t, ctx, pool, applicationName, "LockUserForUpdate", 2)
 	if err := lockTx.Commit(ctx); err != nil {
 		t.Fatalf("release password reset request user: %v", err)
 	}
@@ -5136,7 +5136,7 @@ func TestPasswordResetRequestAndCompletionSerialize(t *testing.T) {
 		)
 		requestDone <- requestResult{record: record, err: requestErr}
 	}()
-	waitForApplicationNamedLockWaiters(t, ctx, pool, applicationName, "LockUserForUpdate", 2)
+	integrationdb.WaitForApplicationNamedLockWaiters(t, ctx, pool, applicationName, "LockUserForUpdate", 2)
 	if err := lockTx.Commit(ctx); err != nil {
 		t.Fatalf("release password reset race user: %v", err)
 	}
@@ -5222,7 +5222,7 @@ func TestPasswordResetRejectsExpiryAfterTokenLockWait(t *testing.T) {
 		})
 		done <- err
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "FOR UPDATE OF token", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "FOR UPDATE OF token", blockingPID)
 	if _, err := lockTx.Exec(
 		ctx,
 		`UPDATE user_auth_tokens SET expires_at = statement_timestamp() - interval '1 millisecond' WHERE token_hash = $1`,
@@ -5326,7 +5326,7 @@ func TestPasswordLoginAndResetSerializeSessionCreation(t *testing.T) {
 		})
 		resetCh <- err
 	}()
-	time.Sleep(100 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 2)
 	assertErrorResultBlocked(t, "password login", loginCh)
 	assertErrorResultBlocked(t, "password reset", resetCh)
 	if err := tx.Commit(ctx); err != nil {
@@ -5446,7 +5446,7 @@ func TestPasswordChangeAndResetSerializePasswordMutation(t *testing.T) {
 		})
 		resetCh <- err
 	}()
-	time.Sleep(100 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 2)
 	assertErrorResultBlocked(t, "password change", changeCh)
 	assertErrorResultBlocked(t, "password reset", resetCh)
 	if err := tx.Commit(ctx); err != nil {
@@ -6258,13 +6258,13 @@ func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 		}
 		patCh <- tokenCreationRaceResult{token: created.Token}
 	}()
-	time.Sleep(100 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 1)
 	assertRaceResultBlocked(t, "PAT creation", patCh)
 	revokeCh := make(chan error, 1)
 	go func() {
 		revokeCh <- store.AccountSecurity().RevokeUserTokensForCompromiseWithPasswordIfPresent(ctx, user.ID, "")
 	}()
-	time.Sleep(100 * time.Millisecond)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 2)
 	assertRaceResultBlocked(t, "PAT creation", patCh)
 	assertErrorResultBlocked(t, "compromise revocation", revokeCh)
 	if err := tx.Commit(ctx); err != nil {
@@ -6459,70 +6459,5 @@ func assertErrorResultBlocked(t *testing.T, name string, ch <-chan error) {
 	case err := <-ch:
 		t.Fatalf("%s completed while user row lock was held: %v", name, err)
 	default:
-	}
-}
-
-func waitForDatabaseLockWait(
-	t *testing.T,
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	queryFragment string,
-	blockingPID int32,
-) time.Time {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var transactionStartedAt time.Time
-		err := pool.QueryRow(ctx, `
-SELECT xact_start
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query ILIKE '%' || $1 || '%'
-  AND $2::integer = ANY(pg_blocking_pids(pid))
-ORDER BY pid
-LIMIT 1
-`, queryFragment, blockingPID).Scan(&transactionStartedAt)
-		if err == nil {
-			return transactionStartedAt
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			t.Fatalf("check database lock wait: %v", err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for database query containing %q", queryFragment)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func waitForDatabaseLockWaitCount(
-	t *testing.T,
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	queryFragment string,
-	minimum int,
-) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var count int
-		err := pool.QueryRow(ctx, `
-SELECT count(*)
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query ILIKE '%' || $1 || '%'
-`, queryFragment).Scan(&count)
-		if err != nil {
-			t.Fatalf("count database lock waits: %v", err)
-		}
-		if count >= minimum {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %d database queries containing %q", minimum, queryFragment)
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }

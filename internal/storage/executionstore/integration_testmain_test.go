@@ -5,14 +5,12 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -146,71 +144,6 @@ func createSecretTestUser(
 	return user
 }
 
-func waitForDatabaseLockWait(
-	t *testing.T,
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	queryFragment string,
-	blockingPID int32,
-) time.Time {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var transactionStartedAt time.Time
-		err := pool.QueryRow(ctx, `
-SELECT xact_start
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query ILIKE '%' || $1 || '%'
-  AND $2::integer = ANY(pg_blocking_pids(pid))
-ORDER BY pid
-LIMIT 1
-`, queryFragment, blockingPID).Scan(&transactionStartedAt)
-		if err == nil {
-			return transactionStartedAt
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			t.Fatalf("check database lock wait: %v", err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for database query containing %q", queryFragment)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func waitForDatabaseLockWaitCount(
-	t *testing.T,
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	queryFragment string,
-	minimum int,
-) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var count int
-		err := pool.QueryRow(ctx, `
-SELECT count(*)
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND wait_event_type = 'Lock'
-  AND query ILIKE '%' || $1 || '%'
-`, queryFragment).Scan(&count)
-		if err != nil {
-			t.Fatalf("count database lock waits: %v", err)
-		}
-		if count >= minimum {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %d database queries containing %q", minimum, queryFragment)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
 func waitForDatabaseTime(
 	t *testing.T,
 	ctx context.Context,
@@ -218,15 +151,8 @@ func waitForDatabaseTime(
 	target time.Time,
 ) {
 	t.Helper()
-	for {
-		var now time.Time
-		if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&now); err != nil {
-			t.Fatalf("load database time: %v", err)
-		}
-		if !now.Before(target) {
-			return
-		}
-		time.Sleep(target.Sub(now))
+	if _, err := pool.Exec(ctx, `SELECT pg_sleep_until($1)`, target); err != nil {
+		t.Fatalf("wait for database time: %v", err)
 	}
 }
 

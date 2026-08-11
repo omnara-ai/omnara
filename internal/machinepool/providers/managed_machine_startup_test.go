@@ -221,16 +221,8 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 
 func TestManagedMachineStartupBlocksDaemonUntilStartupScriptFinishes(t *testing.T) {
 	dir := t.TempDir()
-	markerPath := filepath.Join(dir, "startup-running")
-	stopPath := filepath.Join(dir, "startup-stop")
-	donePath := filepath.Join(dir, "startup-done")
 	server, _ := managedLauncherTestServer(t, "#!/bin/sh\necho daemon-started\n")
-	startupScript := fmt.Sprintf(
-		"echo running > %q\nwhile [ ! -f %q ]; do sleep 0.05; done\necho done > %q\n",
-		markerPath,
-		stopPath,
-		donePath,
-	)
+	startupScript := "echo startup-running\nread release\necho startup-done\n"
 	startupScriptPayload := base64.StdEncoding.EncodeToString([]byte(startupScript))
 	fakeBin := managedStartupTestBin(t, dir, startupScriptPayload, startupScript)
 
@@ -246,6 +238,10 @@ func TestManagedMachineStartupBlocksDaemonUntilStartupScriptFinishes(t *testing.
 		"NO_PROXY=127.0.0.1",
 		"no_proxy=127.0.0.1",
 	)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("stdin pipe: %v", err)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("stdout pipe: %v", err)
@@ -258,9 +254,7 @@ func TestManagedMachineStartupBlocksDaemonUntilStartupScriptFinishes(t *testing.
 		t.Fatalf("start launcher: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := os.WriteFile(stopPath, []byte("stop\n"), 0o644); err == nil {
-			waitForFileContent(t, donePath, "done")
-		}
+		_ = stdin.Close()
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
@@ -289,25 +283,46 @@ func TestManagedMachineStartupBlocksDaemonUntilStartupScriptFinishes(t *testing.
 		}
 		outputLine <- ""
 	}()
-	waitForFileContent(t, markerPath, "running")
+	stderrLines := make(chan string, 16)
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			stderrLines <- scanner.Text()
+		}
+		close(stderrLines)
+	}()
+	waitForStderrLine := func(want string) {
+		t.Helper()
+		for {
+			select {
+			case line, ok := <-stderrLines:
+				if !ok {
+					t.Fatalf("launcher stderr closed before %q", want)
+				}
+				if line == want {
+					return
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("launcher stderr did not print %q", want)
+			}
+		}
+	}
+	waitForStderrLine("startup-running")
 	select {
 	case line := <-outputLine:
 		t.Fatalf("launcher output line = %q, want daemon blocked while startup runs", line)
-	case <-time.After(200 * time.Millisecond):
+	default:
 	}
-	if _, err := os.Stat(donePath); !os.IsNotExist(err) {
-		t.Fatalf("startup done stat = %v, want startup script still running when daemon exits", err)
-	}
-	if err := os.WriteFile(stopPath, []byte("stop\n"), 0o644); err != nil {
+	if _, err := io.WriteString(stdin, "release\n"); err != nil {
 		t.Fatalf("release startup script: %v", err)
 	}
-	waitForFileContent(t, donePath, "done")
+	waitForStderrLine("startup-done")
 	select {
 	case line := <-outputLine:
 		if line != "daemon-started" {
 			t.Fatalf("launcher output line = %q, want daemon-started", line)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("daemon did not start after startup script finished")
 	}
 }
@@ -512,18 +527,4 @@ cat <<'%s'
 %s%s
 `, strconv.Quote(realBase64), strconv.Quote(bootstrapPayload), strconv.Quote(realBase64), strconv.Quote(expectedPayload), delimiter, startupScript, delimiter))
 	return fakeBin
-}
-
-func waitForFileContent(t *testing.T, path, want string) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if data, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(data)) == want {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("file %s did not contain %q before deadline", path, want)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }

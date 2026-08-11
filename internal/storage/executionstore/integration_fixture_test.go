@@ -112,46 +112,6 @@ func openIntegrationDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	return integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 }
 
-func waitForApplicationNamedLockWaiters(
-	t *testing.T,
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	applicationName, queryName string,
-	want int64,
-) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var waiters int64
-		if err := pool.QueryRow(
-			ctx,
-			`SELECT count(*)
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND application_name = $1
-  AND wait_event_type = 'Lock'
-  AND query LIKE '%' || $2 || '%'`,
-			applicationName,
-			"-- name: "+queryName+" ",
-		).Scan(&waiters); err != nil {
-			t.Fatalf("count %s lock waiters for %s: %v", queryName, applicationName, err)
-		}
-		if waiters >= want {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf(
-				"timed out waiting for %d %s lock waiters for %s; saw %d",
-				want,
-				queryName,
-				applicationName,
-				waiters,
-			)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
 func machineProvisioningFromRecordForTest(t *testing.T, machine executionstore.MachineRecord) executionstore.MachineProvisioningConfig {
 	t.Helper()
 	machineProvisioning, err := executionstore.MachineProvisioningFromRecord(machine)

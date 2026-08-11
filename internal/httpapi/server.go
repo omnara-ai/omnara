@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
@@ -71,6 +72,13 @@ type Server struct {
 	daemonSocketFallbackDrainInterval time.Duration
 	daemonSocketFallbackDrainJitter   time.Duration
 	skillDownloadSigningKey           []byte
+	timer                             clock.Clock
+}
+
+func WithTimer(timer clock.Clock) Option {
+	return func(s *Server) {
+		s.timer = timer
+	}
 }
 
 type daemonNotificationConfig struct {
@@ -318,6 +326,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		daemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		daemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		modelDiscoverer:                   modelprovider.DiscoverModels,
+		timer:                             clock.New(),
 	}
 	var authStore httpauth.Store
 	var compromiseRevoker httpauth.CompromiseRevoker

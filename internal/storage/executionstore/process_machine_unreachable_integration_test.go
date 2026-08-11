@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
@@ -1284,7 +1285,7 @@ FOR UPDATE
 		)
 		done <- recheckResult{unreachable: unreachable, err: recheckErr}
 	}()
-	recheckStartedAt := waitForDatabaseLockWait(
+	recheckStartedAt := integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		fixture.Store.pool,

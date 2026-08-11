@@ -2,6 +2,7 @@ package localstore
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,14 +14,17 @@ import (
 func TestChildLockInheritanceHasNoOwnershipGap(t *testing.T) {
 	const stageEnv = "OMNARA_CHILD_LOCK_TEST_STAGE"
 	const pathEnv = "OMNARA_CHILD_LOCK_TEST_PATH"
-	const readyEnv = "OMNARA_CHILD_LOCK_TEST_READY"
-	const releaseEnv = "OMNARA_CHILD_LOCK_TEST_RELEASE"
 	const fdEnv = "OMNARA_CHILD_LOCK_TEST_FD"
 	if os.Getenv(stageEnv) == "child" {
-		// Check inheritance before child code can adopt the descriptor.
-		time.Sleep(250 * time.Millisecond)
 		fd, err := strconv.Atoi(os.Getenv(fdEnv))
 		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stdout.Write([]byte("R")); err != nil {
+			t.Fatal(err)
+		}
+		proceed := make([]byte, 1)
+		if _, err := io.ReadFull(os.Stdin, proceed); err != nil {
 			t.Fatal(err)
 		}
 		lock, err := AdoptLock(os.Getenv(pathEnv), fd)
@@ -28,27 +32,17 @@ func TestChildLockInheritanceHasNoOwnershipGap(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = lock.Release() }()
-		if err := os.WriteFile(os.Getenv(readyEnv), nil, 0o600); err != nil {
+		if _, err := os.Stdout.Write([]byte("A")); err != nil {
 			t.Fatal(err)
 		}
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			if _, err := os.Stat(os.Getenv(releaseEnv)); err == nil {
-				return
-			} else if !errors.Is(err, os.ErrNotExist) {
-				t.Fatal(err)
-			}
-			if time.Now().After(deadline) {
-				t.Fatal("parent did not release child lock test")
-			}
-			time.Sleep(10 * time.Millisecond)
+		if _, err := io.ReadFull(os.Stdin, proceed); !errors.Is(err, io.EOF) {
+			t.Fatalf("parent did not release child lock test: %v", err)
 		}
+		return
 	}
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "lifetime.lock")
-	readyPath := filepath.Join(dir, "ready")
-	releasePath := filepath.Join(dir, "release")
 	lock, err := TryAcquireLock(path)
 	if err != nil {
 		t.Fatalf("acquire parent lock: %v", err)
@@ -66,10 +60,18 @@ func TestChildLockInheritanceHasNoOwnershipGap(t *testing.T) {
 		os.Environ(),
 		stageEnv+"=child",
 		pathEnv+"="+path,
-		readyEnv+"="+readyPath,
-		releaseEnv+"="+releasePath,
 		fdEnv+"="+strconv.Itoa(fd),
 	)
+	childStdin, err := command.StdinPipe()
+	if err != nil {
+		_ = lock.Release()
+		t.Fatalf("open child stdin: %v", err)
+	}
+	childStdout, err := command.StdoutPipe()
+	if err != nil {
+		_ = lock.Release()
+		t.Fatalf("open child stdout: %v", err)
+	}
 	startErr := func() error {
 		defer restoreInheritance()
 		return command.Start()
@@ -85,17 +87,37 @@ func TestChildLockInheritanceHasNoOwnershipGap(t *testing.T) {
 		close(childDone)
 	}()
 	t.Cleanup(func() {
-		_ = os.WriteFile(releasePath, nil, 0o600)
+		_ = childStdin.Close()
 		_ = command.Process.Kill()
 		select {
 		case <-childDone:
 		case <-time.After(5 * time.Second):
 		}
 	})
+	childSignal := func(what string) byte {
+		signal := make([]byte, 1)
+		if _, err := io.ReadFull(childStdout, signal); err != nil {
+			select {
+			case <-childDone:
+				t.Fatalf(
+					"child exited before %s: read=%v wait=%v",
+					what,
+					err,
+					childErr,
+				)
+			default:
+			}
+			t.Fatalf("read child %s signal: %v", what, err)
+		}
+		return signal[0]
+	}
 	if err := lock.RelinquishInherited(); err != nil {
 		t.Fatalf("relinquish parent lock copy: %v", err)
 	}
 
+	if signal := childSignal("pre-adoption readiness"); signal != 'R' {
+		t.Fatalf("pre-adoption readiness signal = %q", signal)
+	}
 	contender, err := TryAcquireLock(path)
 	if contender != nil {
 		_ = contender.Release()
@@ -107,24 +129,13 @@ func TestChildLockInheritanceHasNoOwnershipGap(t *testing.T) {
 		)
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if _, err := os.Stat(readyPath); err == nil {
-			break
-		} else if !errors.Is(err, os.ErrNotExist) {
-			t.Fatal(err)
-		}
-		select {
-		case <-childDone:
-			t.Fatalf("child exited before adopting lock: %v", childErr)
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("child did not adopt inherited lock")
-		}
-		time.Sleep(10 * time.Millisecond)
+	if _, err := childStdin.Write([]byte("G")); err != nil {
+		t.Fatalf("release child adoption: %v", err)
 	}
-	if err := os.WriteFile(releasePath, nil, 0o600); err != nil {
+	if signal := childSignal("lock adoption"); signal != 'A' {
+		t.Fatalf("lock adoption signal = %q", signal)
+	}
+	if err := childStdin.Close(); err != nil {
 		t.Fatalf("release child lock helper: %v", err)
 	}
 	<-childDone

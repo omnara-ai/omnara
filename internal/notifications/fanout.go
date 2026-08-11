@@ -173,3 +173,7 @@ func (s *fanoutSubscription[T]) Unsubscribe() error {
 	})
 	return s.err
 }
+
+func (s *fanoutSubscription[T]) Done() <-chan struct{} {
+	return s.done
+}

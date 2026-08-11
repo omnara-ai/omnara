@@ -583,7 +583,7 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 			true,
 		)
 	}()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) //nolint:omnaralint // Go exposes no event for a goroutine parking at the fence.
 	process, found, err := store.Process(ctx, processID)
 	if err != nil || !found {
 		t.Fatalf("read fenced process: found=%t err=%v", found, err)

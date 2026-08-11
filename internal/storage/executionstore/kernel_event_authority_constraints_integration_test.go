@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestKernelEventLineageFieldsAreImmutable(t *testing.T) {
@@ -735,7 +736,7 @@ VALUES ($1, 'agent_input', $2, 0, 'text', 'concurrent block', statement_timestam
 `, fixture.AgentID, inputID)
 		insertDone <- insertErr
 	}()
-	waitForDatabaseLockWait(
+	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		fixture.Store.pool,
@@ -824,7 +825,7 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3 AND state = 'started'
 `, testProjectID, fixture.AgentID, contextID)
 		closureDone <- closureErr
 	}()
-	waitForDatabaseLockWait(
+	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		fixture.Store.pool,

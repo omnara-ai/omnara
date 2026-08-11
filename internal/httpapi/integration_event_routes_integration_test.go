@@ -2859,6 +2859,13 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
+	releaseSlowLookups := make(chan struct{})
+	blockUntilReleased := func(r *http.Request) {
+		select {
+		case <-releaseSlowLookups:
+		case <-r.Context().Done():
+		}
+	}
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
@@ -2879,11 +2886,11 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 					t.Fatalf("parse users.info form: %v", err)
 				}
 				if r.Form.Get("user") != "U_BOT" {
-					time.Sleep(4 * time.Second)
+					blockUntilReleased(r)
 				}
 				writeSlackLookupTestResponse(t, w, r)
 			case "/conversations.info":
-				time.Sleep(4 * time.Second)
+				blockUntilReleased(r)
 				writeSlackLookupTestResponse(t, w, r)
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -2893,6 +2900,7 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 		}),
 	)
 	defer slackServer.Close()
+	defer close(releaseSlowLookups)
 	fixture := newSlackEventsIntegrationFixture(
 		t,
 		ctx,

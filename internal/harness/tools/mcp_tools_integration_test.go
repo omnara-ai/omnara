@@ -446,7 +446,8 @@ func TestMCPDispatchRunsAsynchronouslyUnderRuntimeOwnership(t *testing.T) {
 		}
 	}}
 	executor := Executor{Store: fixture.Store, MCP: client}
-	result, err := executor.Dispatch(ctx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP tool: %v", err)
 	}
@@ -510,7 +511,8 @@ WHERE call.id = $1
 	}
 	released = true
 	close(release)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 }
 
 func TestMCPDispatchRecordsRemoteToolErrorAsFailed(t *testing.T) {
@@ -532,7 +534,8 @@ func TestMCPDispatchRecordsRemoteToolErrorAsFailed(t *testing.T) {
 		}, nil
 	}}
 	executor := Executor{Store: fixture.Store, MCP: client}
-	result, err := executor.Dispatch(ctx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP tool: %v", err)
 	}
@@ -540,7 +543,8 @@ func TestMCPDispatchRecordsRemoteToolErrorAsFailed(t *testing.T) {
 		t.Fatalf("MCP dispatch result = %+v, want deferred", result)
 	}
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 	record, err := fixture.Store.Execution().GetToolCall(
 		ctx,
 		toolsTestProjectID,
@@ -585,7 +589,8 @@ func TestMCPDispatchPersistsMediaAndStructuredContentInOrder(t *testing.T) {
 		}, nil
 	}}
 	executor := Executor{Store: fixture.Store, MCP: client}
-	result, err := executor.Dispatch(ctx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP media tool: %v", err)
 	}
@@ -593,7 +598,8 @@ func TestMCPDispatchPersistsMediaAndStructuredContentInOrder(t *testing.T) {
 		t.Fatalf("MCP dispatch result = %+v, want deferred", result)
 	}
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 	record, err := fixture.Store.Execution().GetToolCall(
 		ctx,
 		toolsTestProjectID,
@@ -698,7 +704,8 @@ func TestMCPDispatchDoesNotRefreshAfterOwnershipLoss(t *testing.T) {
 		return nil, mcp.ErrSessionExpired
 	}
 	executor := Executor{Store: fixture.Store, MCP: client}
-	result, err := executor.Dispatch(ctx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP tool before ownership loss: %v", err)
 	}
@@ -706,7 +713,8 @@ func TestMCPDispatchDoesNotRefreshAfterOwnershipLoss(t *testing.T) {
 		t.Fatalf("MCP dispatch result = %+v, want deferred", result)
 	}
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 	if client.callToolCount.Load() != 1 {
 		t.Fatalf("MCP tool calls = %d, want 1", client.callToolCount.Load())
 	}
@@ -736,7 +744,8 @@ func TestMCPDispatchRecordsUnknownOutcomeWhenExecutionIsInterrupted(t *testing.T
 	}}
 	executor := Executor{Store: fixture.Store, MCP: client}
 	executionCtx, cancelExecution := context.WithCancel(ctx)
-	result, err := executor.Dispatch(executionCtx, fixture.turn(), call)
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(executionCtx, scope), fixture.turn(), call)
 	if err != nil {
 		t.Fatalf("dispatch MCP tool: %v", err)
 	}
@@ -751,7 +760,8 @@ func TestMCPDispatchRecordsUnknownOutcomeWhenExecutionIsInterrupted(t *testing.T
 	cancelExecution()
 
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	waitIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
 	record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
 	if err != nil {
 		t.Fatalf("load interrupted MCP tool call: %v", err)
@@ -762,7 +772,17 @@ func TestMCPDispatchRecordsUnknownOutcomeWhenExecutionIsInterrupted(t *testing.T
 	}
 }
 
-func waitIntegrationToolCallState(
+func settleIntegrationAsyncDispatch(t *testing.T, scope *AsyncExecutionScope) {
+	t.Helper()
+	scope.Seal()
+	select {
+	case <-scope.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("async MCP tool execution did not finish")
+	}
+}
+
+func assertIntegrationToolCallState(
 	t *testing.T,
 	ctx context.Context,
 	fixture integrationToolFixture,
@@ -770,19 +790,12 @@ func waitIntegrationToolCallState(
 	want string,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var state string
-		if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM tool_calls WHERE id = $1`, toolCallID).Scan(&state); err != nil {
-			t.Fatalf("load MCP tool call state: %v", err)
-		}
-		if state == want {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("MCP tool call state = %q, want %q", state, want)
-		}
-		time.Sleep(10 * time.Millisecond)
+	var state string
+	if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM tool_calls WHERE id = $1`, toolCallID).Scan(&state); err != nil {
+		t.Fatalf("load MCP tool call state: %v", err)
+	}
+	if state != want {
+		t.Fatalf("MCP tool call state = %q, want %q", state, want)
 	}
 }
 

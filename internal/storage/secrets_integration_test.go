@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func oauthSecretMaterialForTest(
@@ -96,7 +97,7 @@ func TestUpdateSecretMetadataUsesPostLockDatabaseTime(t *testing.T) {
 		})
 		done <- updateResult{record: record, err: updateErr}
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "FROM secrets", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "FROM secrets", blockingPID)
 	var releaseFloor time.Time
 	if err := lockTx.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releaseFloor); err != nil {
 		t.Fatalf("read secret lock release floor: %v", err)
@@ -867,7 +868,7 @@ func TestOAuthRefreshLeaseExpiryIsCheckedAfterRowLockWait(t *testing.T) {
 		})
 		rotationResult <- rotateErr
 	}()
-	waitForDatabaseLockWait(t, ctx, pool, "secret_oauth_refresh_leases", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "secret_oauth_refresh_leases", blockingPID)
 	if _, err := pool.Exec(ctx, `SELECT pg_sleep(0.3)`); err != nil {
 		t.Fatalf("wait for oauth refresh lease expiry: %v", err)
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 type countingSecretKeyWrapper struct {
@@ -222,7 +223,7 @@ WHERE org_id = $1 AND machine_id = $2 AND id = $3
 		)
 		done <- acceptResult{found: found, err: acceptErr}
 	}()
-	waitForDatabaseLockWait(t, ctx, fixture.Store.pool, "-- name: LockDaemonProcessForAccept", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, fixture.Store.pool, "-- name: LockDaemonProcessForAccept", blockingPID)
 	if _, err := blockingTx.Exec(ctx, `SELECT pg_sleep(0.3)`); err != nil {
 		t.Fatalf("wait for daemon runtime lease expiry: %v", err)
 	}

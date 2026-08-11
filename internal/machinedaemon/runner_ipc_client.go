@@ -112,7 +112,10 @@ func (r *ipcProcessRunner) ApplyOnce(
 	}
 	_, err = r.call(
 		ctx,
-		runnerRequest{Method: runnerMethodApplyOnce, Payload: body},
+		runnerRequest{
+			Method:  runnerMethodApplyOnce,
+			Payload: body,
+		},
 	)
 	return err
 }
