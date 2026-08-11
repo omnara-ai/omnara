@@ -13,20 +13,27 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 type migrationSet struct {
-	directory string
-	manifest  string
+	directory        string
+	manifest         string
+	releaseTagPrefix string
 }
 
 var migrationSets = []migrationSet{
 	{
-		directory: "internal/machinedaemon/statedb/migrations",
-		manifest:  "internal/machinedaemon/statedb/migrations/checksums.sha256",
+		directory:        "internal/machinedaemon/statedb/migrations",
+		manifest:         "internal/machinedaemon/statedb/migrations/checksums.sha256",
+		releaseTagPrefix: "omnarad-v",
 	},
-	{directory: "migrations", manifest: "migrations/checksums.sha256"},
+	{
+		directory:        "migrations",
+		manifest:         "migrations/checksums.sha256",
+		releaseTagPrefix: "cluster-v",
+	},
 }
 
 type snapshot interface {
@@ -42,20 +49,34 @@ func checkRepository(root string) error {
 	return err
 }
 
-func compareRepository(root, baseRef string) error {
-	if !isFullObjectID(baseRef) {
-		return fmt.Errorf("trusted base must be a full Git object ID, got %q", baseRef)
-	}
+// A release tag is the immutability boundary because publishing starts when the
+// tag is pushed. Waiting for the final GitHub Release would miss images exposed
+// by a partially completed publish workflow.
+func compareReleasedRepository(root string) error {
 	current := worktreeSnapshot{root: root}
 	currentManifests, err := checkSnapshot(current)
 	if err != nil {
 		return err
 	}
-	base := gitSnapshot{root: root, ref: baseRef}
-	if err := base.verifyCommit(); err != nil {
-		return err
+	for _, set := range migrationSets {
+		boundary, err := latestReleaseBoundary(root, set.releaseTagPrefix)
+		if err != nil {
+			return fmt.Errorf("resolve release boundary for %s: %w", set.directory, err)
+		}
+		base := gitSnapshot{root: root, ref: boundary.commit}
+		if err := base.verifyCommit(); err != nil {
+			return fmt.Errorf("verify release boundary %s: %w", boundary.tag, err)
+		}
+		if err := compareMigrationSet(
+			set,
+			base,
+			current,
+			currentManifests[set.manifest],
+		); err != nil {
+			return fmt.Errorf("release %s: %w", boundary.tag, err)
+		}
 	}
-	return compareSnapshots(base, current, currentManifests)
+	return nil
 }
 
 func checkSnapshot(source snapshot) (map[string]manifest, error) {
@@ -89,46 +110,157 @@ func checkSnapshot(source snapshot) (map[string]manifest, error) {
 
 func compareSnapshots(base, current snapshot, currentManifests map[string]manifest) error {
 	for _, set := range migrationSets {
-		baseFiles, err := base.listSQL(set.directory)
-		if err != nil {
-			return fmt.Errorf("list trusted %s: %w", set.directory, err)
-		}
-		for _, filePath := range baseFiles {
-			before, err := base.readFile(filePath)
-			if err != nil {
-				return fmt.Errorf("read trusted migration %s: %w", filePath, err)
-			}
-			after, exists, err := current.readOptional(filePath)
-			if err != nil {
-				return fmt.Errorf("read current migration %s: %w", filePath, err)
-			}
-			if !exists {
-				return fmt.Errorf("committed migration %s was deleted or renamed", filePath)
-			}
-			if !bytes.Equal(before, after) {
-				return fmt.Errorf("committed migration %s was modified", filePath)
-			}
-		}
-
-		baseManifestBody, exists, err := base.readOptional(set.manifest)
-		if err != nil {
-			return fmt.Errorf("read trusted %s: %w", set.manifest, err)
-		}
-		if !exists {
-			continue
-		}
-		baseManifest, err := parseManifest(set, baseManifestBody)
-		if err != nil {
-			return fmt.Errorf("parse trusted %s: %w", set.manifest, err)
-		}
-		for filePath, baseDigest := range baseManifest {
-			currentDigest, ok := currentManifests[set.manifest][filePath]
-			if !ok || currentDigest != baseDigest {
-				return fmt.Errorf("committed checksum entry for %s was modified or removed", filePath)
-			}
+		if err := compareMigrationSet(set, base, current, currentManifests[set.manifest]); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func compareMigrationSet(set migrationSet, base, current snapshot, currentManifest manifest) error {
+	baseFiles, err := base.listSQL(set.directory)
+	if err != nil {
+		return fmt.Errorf("list released %s: %w", set.directory, err)
+	}
+	for _, filePath := range baseFiles {
+		before, err := base.readFile(filePath)
+		if err != nil {
+			return fmt.Errorf("read released migration %s: %w", filePath, err)
+		}
+		after, exists, err := current.readOptional(filePath)
+		if err != nil {
+			return fmt.Errorf("read current migration %s: %w", filePath, err)
+		}
+		if !exists {
+			return fmt.Errorf("released migration %s was deleted or renamed", filePath)
+		}
+		if !bytes.Equal(before, after) {
+			return fmt.Errorf("released migration %s was modified", filePath)
+		}
+	}
+
+	baseManifestBody, exists, err := base.readOptional(set.manifest)
+	if err != nil {
+		return fmt.Errorf("read released %s: %w", set.manifest, err)
+	}
+	if !exists {
+		return nil
+	}
+	baseManifest, err := parseManifest(set, baseManifestBody)
+	if err != nil {
+		return fmt.Errorf("parse released %s: %w", set.manifest, err)
+	}
+	for filePath, baseDigest := range baseManifest {
+		currentDigest, ok := currentManifest[filePath]
+		if !ok || currentDigest != baseDigest {
+			return fmt.Errorf("released checksum entry for %s was modified or removed", filePath)
+		}
+	}
+	return nil
+}
+
+type releaseBoundary struct {
+	tag     string
+	commit  string
+	version [3]uint64
+}
+
+func latestReleaseBoundary(root, prefix string) (releaseBoundary, error) {
+	command := exec.CommandContext(
+		context.Background(),
+		"git",
+		"-C",
+		root,
+		"tag",
+		"--list",
+		prefix+"*",
+	)
+	output, err := command.Output()
+	if err != nil {
+		return releaseBoundary{}, fmt.Errorf("list %s release tags: %w", prefix, err)
+	}
+	var latest releaseBoundary
+	for _, tag := range strings.Fields(string(output)) {
+		version, err := parseReleaseTag(tag, prefix)
+		if err != nil {
+			return releaseBoundary{}, err
+		}
+		if latest.tag == "" || compareReleaseVersions(version, latest.version) > 0 {
+			latest = releaseBoundary{tag: tag, version: version}
+		}
+	}
+	if latest.tag == "" {
+		return releaseBoundary{}, fmt.Errorf(
+			"no %sMAJOR.MINOR.PATCH tag is available; fetch trusted release tags before checking migrations",
+			prefix,
+		)
+	}
+	commitCommand := exec.CommandContext(
+		context.Background(),
+		"git",
+		"-C",
+		root,
+		"rev-parse",
+		"--verify",
+		"refs/tags/"+latest.tag+"^{commit}",
+	)
+	commitOutput, err := commitCommand.Output()
+	if err != nil {
+		return releaseBoundary{}, fmt.Errorf("resolve release tag %s: %w", latest.tag, err)
+	}
+	latest.commit = strings.TrimSpace(string(commitOutput))
+	if !isFullObjectID(latest.commit) {
+		return releaseBoundary{}, fmt.Errorf(
+			"release tag %s resolved to invalid commit %q",
+			latest.tag,
+			latest.commit,
+		)
+	}
+	return latest, nil
+}
+
+func parseReleaseTag(tag, prefix string) ([3]uint64, error) {
+	versionText, found := strings.CutPrefix(tag, prefix)
+	if !found {
+		return [3]uint64{}, fmt.Errorf("release tag %q must start with %s", tag, prefix)
+	}
+	parts := strings.Split(versionText, ".")
+	if len(parts) != 3 {
+		return [3]uint64{}, fmt.Errorf("release tag %q must use %sMAJOR.MINOR.PATCH", tag, prefix)
+	}
+	var version [3]uint64
+	for index, part := range parts {
+		if part == "" || len(part) > 1 && part[0] == '0' {
+			return [3]uint64{}, fmt.Errorf("release tag %q must use %sMAJOR.MINOR.PATCH", tag, prefix)
+		}
+		for _, character := range part {
+			if character < '0' || character > '9' {
+				return [3]uint64{}, fmt.Errorf(
+					"release tag %q must use %sMAJOR.MINOR.PATCH",
+					tag,
+					prefix,
+				)
+			}
+		}
+		value, err := strconv.ParseUint(part, 10, 64)
+		if err != nil {
+			return [3]uint64{}, fmt.Errorf("release tag %q must use %sMAJOR.MINOR.PATCH", tag, prefix)
+		}
+		version[index] = value
+	}
+	return version, nil
+}
+
+func compareReleaseVersions(left, right [3]uint64) int {
+	for index := range left {
+		if left[index] < right[index] {
+			return -1
+		}
+		if left[index] > right[index] {
+			return 1
+		}
+	}
+	return 0
 }
 
 func verifyManifestFiles(source snapshot, set migrationSet, files []string, entries manifest) error {
@@ -234,6 +366,8 @@ func renderManifest(files map[string][]byte) []byte {
 
 func updateRepository(root string) error {
 	source := worktreeSnapshot{root: root}
+	// The manifest describes the current tree; release comparison decides which
+	// entries are immutable. This lets an unreleased suffix be edited and rehashed.
 	type update struct {
 		path string
 		body []byte
@@ -251,25 +385,6 @@ func updateRepository(root string) error {
 				return fmt.Errorf("read %s: %w", filePath, err)
 			}
 			files[filePath] = body
-		}
-		existingBody, exists, err := source.readOptional(set.manifest)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", set.manifest, err)
-		}
-		if exists {
-			existing, err := parseManifest(set, existingBody)
-			if err != nil {
-				return fmt.Errorf("parse %s: %w", set.manifest, err)
-			}
-			for filePath, want := range existing {
-				body, ok := files[filePath]
-				if !ok {
-					return fmt.Errorf("refusing to update: committed migration %s is missing", filePath)
-				}
-				if sha256.Sum256(body) != want {
-					return fmt.Errorf("refusing to update: committed migration %s was modified", filePath)
-				}
-			}
 		}
 		updates = append(updates, update{path: set.manifest, body: renderManifest(files)})
 	}

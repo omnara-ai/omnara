@@ -28,11 +28,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return usage(stderr)
 		}
 		commandErr = checkRepository(root)
-	case "compare":
-		if len(args) != 2 {
+	case "compare-releases":
+		if len(args) != 1 {
 			return usage(stderr)
 		}
-		commandErr = compareRepository(root, args[1])
+		commandErr = compareReleasedRepository(root)
 	case "update":
 		if len(args) != 1 {
 			return usage(stderr)
@@ -59,7 +59,7 @@ func repositoryRoot() (string, error) {
 }
 
 func usage(stderr io.Writer) int {
-	return operationalFailure(stderr, "usage: migrationcheck check|update|compare <trusted-base-sha>")
+	return operationalFailure(stderr, "usage: migrationcheck check|update|compare-releases")
 }
 
 func operationalFailure(stderr io.Writer, message string) int {

@@ -224,10 +224,10 @@ migration-check:
 
 migration-checksums:
 	$(MIGRATION_CHECK) update
+	$(MIGRATION_CHECK) compare-releases
 
 migration-compat-check:
-	@test -n "$(COMPAT_BASE_SHA)" || { printf 'COMPAT_BASE_SHA is required\n'; exit 2; }
-	$(MIGRATION_CHECK) compare "$(COMPAT_BASE_SHA)"
+	$(MIGRATION_CHECK) compare-releases
 
 compatibility-check: migration-compat-check openapi-compat-check
 
