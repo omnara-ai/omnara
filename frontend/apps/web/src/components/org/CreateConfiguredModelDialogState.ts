@@ -1,4 +1,4 @@
-import type { ModelProviderConfig } from '@omnara/sdk'
+import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
 
 export interface ConfiguredModelFormValues {
   /** Provider id; '' falls back to the first available provider. */
@@ -19,6 +19,35 @@ export const configuredModelFormDefaults: ConfiguredModelFormValues = {
   maxOutputTokens: '',
   defaultMaxOutputTokens: '',
   projectGrantIds: [],
+}
+
+type DiscoveredModelPrefillField =
+  | 'name'
+  | 'providerModelSlug'
+  | 'contextWindowTokens'
+  | 'maxOutputTokens'
+
+/**
+ * Field updates for picking a discovered model: the slug always, the
+ * provider-reported token limits when advertised, and a generated name only
+ * while the name field is still empty.
+ */
+export function discoveredModelPrefill(
+  providerName: string | undefined,
+  values: ConfiguredModelFormValues,
+  model: DiscoveredProviderModel,
+): [DiscoveredModelPrefillField, string][] {
+  const updates: [DiscoveredModelPrefillField, string][] = [['providerModelSlug', model.slug]]
+  if (values.name.trim() === '' && providerName !== undefined) {
+    updates.push(['name', `${providerName} - ${model.slug}`])
+  }
+  if (model.context_window_tokens !== undefined) {
+    updates.push(['contextWindowTokens', String(model.context_window_tokens)])
+  }
+  if (model.max_output_tokens !== undefined) {
+    updates.push(['maxOutputTokens', String(model.max_output_tokens)])
+  }
+  return updates
 }
 
 export function configuredModelFormValid(

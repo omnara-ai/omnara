@@ -190,6 +190,11 @@ export type CreateModelProviderConfigResponse = {
     model_discovery: ModelDiscoveryResult;
 };
 
+export type GetModelProviderConfigResponse = {
+    config: ModelProviderConfig;
+    model_discovery: ModelDiscoveryResult;
+};
+
 /**
  * Result of validating the configured credential and probing the provider's /models endpoint. A failed check does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
  */
@@ -9989,10 +9994,10 @@ export type GetModelProviderConfigResponses = {
     /**
      * Route response.
      */
-    200: ModelProviderConfig;
+    200: GetModelProviderConfigResponse;
 };
 
-export type GetModelProviderConfigResponse = GetModelProviderConfigResponses[keyof GetModelProviderConfigResponses];
+export type GetModelProviderConfigResponse2 = GetModelProviderConfigResponses[keyof GetModelProviderConfigResponses];
 
 export type UpdateModelProviderConfigData = {
     body: UpdateModelProviderConfigRequest;

@@ -336,6 +336,11 @@ export const zCreateModelProviderConfigResponse = z.object({
     model_discovery: zModelDiscoveryResult
 });
 
+export const zGetModelProviderConfigResponse = z.object({
+    config: zModelProviderConfig,
+    model_discovery: zModelDiscoveryResult
+});
+
 export const zModelProviderConfigList = z.object({
     data: z.array(zModelProviderConfig),
     next_cursor: z.string().nullable()
@@ -2783,7 +2788,7 @@ export const zDeleteModelProviderConfigResponse = z.void();
 /**
  * Route response.
  */
-export const zGetModelProviderConfigResponse = zModelProviderConfig;
+export const zGetModelProviderConfigResponse2 = zGetModelProviderConfigResponse;
 
 /**
  * Route response.

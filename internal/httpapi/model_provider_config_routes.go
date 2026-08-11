@@ -449,9 +449,13 @@ func (s strictOpenAPIServer) GetModelProviderConfig(
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	response, err := modelProviderConfigResponse(record)
+	configResponse, err := modelProviderConfigResponse(record)
 	if err != nil {
 		return nil, err
+	}
+	response := openapigen.GetModelProviderConfigResponse{
+		Config:         configResponse,
+		ModelDiscovery: s.discoverProviderModels(ctx, org.ID, record),
 	}
 	return openapigen.GetModelProviderConfig200JSONResponse(response), nil
 }

@@ -4678,7 +4678,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ModelProviderConfig'
+                $ref: '#/components/schemas/GetModelProviderConfigResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6414,6 +6414,15 @@ components:
         updated_at:
           $ref: '#/components/schemas/Timestamp'
     CreateModelProviderConfigResponse:
+      type: object
+      additionalProperties: false
+      required: [config, model_discovery]
+      properties:
+        config:
+          $ref: '#/components/schemas/ModelProviderConfig'
+        model_discovery:
+          $ref: '#/components/schemas/ModelDiscoveryResult'
+    GetModelProviderConfigResponse:
       type: object
       additionalProperties: false
       required: [config, model_discovery]

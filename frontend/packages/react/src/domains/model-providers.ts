@@ -10,6 +10,7 @@ import {
   type UpdateModelProviderConfigRequest,
 } from '@omnara/sdk'
 import {
+  getModelProviderConfigOptions,
   listConfiguredModelsInfiniteOptions,
   listModelProviderConfigsInfiniteOptions,
   listModelProviderConfigsQueryKey,
@@ -47,6 +48,23 @@ export function useModelProviders(orgID: string, options?: ModelProviderListOpti
     }),
     ...cursorPagination,
     enabled: list.enabled,
+  })
+}
+
+/**
+ * Single provider config plus its model discovery result. The route probes the
+ * provider's /models endpoint on every fetch, so keep it disabled until the
+ * discovery data is actually needed.
+ */
+export function useModelProvider(
+  orgID: string,
+  modelProviderConfigID: string,
+  options?: { enabled?: boolean },
+) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getModelProviderConfigOptions({ path: { orgID, modelProviderConfigID }, client }),
+    enabled: (options?.enabled ?? true) && modelProviderConfigID !== '',
   })
 }
 
