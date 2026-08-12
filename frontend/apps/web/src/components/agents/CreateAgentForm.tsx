@@ -84,7 +84,7 @@ export function CreateAgentForm({
     status: idle,
   }))
   const [configDraft, setConfigDraft] = useState<BasicConfig>(() =>
-    initialTemplate && catalog
+    initialTemplate
       ? { ...emptyBasicConfig, ...agentTemplateConfig(initialTemplate, catalog, defaultPool) }
       : emptyBasicConfig,
   )
@@ -99,7 +99,6 @@ export function CreateAgentForm({
   }, [])
 
   function applyTemplate(template: AgentTemplate) {
-    if (catalog == null) return
     setConfigDraft((prev) => ({ ...prev, ...agentTemplateConfig(template, catalog, defaultPool) }))
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
     setAppliedTemplate(template)

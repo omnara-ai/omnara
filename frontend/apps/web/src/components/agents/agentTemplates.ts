@@ -75,15 +75,16 @@ export const generalAgentTemplateId = generalAgent.id
 /**
  * The builder-draft fields a template prefills: instruction, the shared
  * tool set with catalog-default permissions, and the default machine pool.
+ * A missing catalog or pool degrades to prefilling less, never to blocking.
  */
 export function agentTemplateConfig(
   template: AgentTemplate,
-  catalog: ToolCatalog,
+  catalog?: ToolCatalog,
   defaultPool?: MachinePoolSummary,
 ): Pick<BasicConfig, 'instruction' | 'tools' | 'machineSources'> {
   return {
     instruction: template.instruction,
-    tools: agentTemplateTools(catalog),
+    tools: catalog ? agentTemplateTools(catalog) : [],
     machineSources: defaultPool
       ? [
           {

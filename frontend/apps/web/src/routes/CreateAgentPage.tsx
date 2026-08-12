@@ -21,7 +21,9 @@ export function CreateAgentPage() {
   })
   const catalog = toolCatalog.data
   const defaultPool = poolGrantsQuery.data?.pages[0]?.data[0]?.machine_pool
-  const templatesReady = catalog != null && !poolGrantsQuery.isPending
+  // Settled is enough: if either fetch failed, templates still apply with
+  // whatever prefill data is available instead of blocking forever.
+  const templatesReady = !toolCatalog.isPending && !poolGrantsQuery.isPending
   const linkedTemplate = agentTemplates.find((template) => template.id === search.template)
 
   if (projectIsPending) return <FullPageSpinner />
