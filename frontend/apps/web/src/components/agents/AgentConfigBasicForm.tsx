@@ -1,9 +1,8 @@
 import { useToolCatalog } from '@omnara/react'
-import { useCallback, useEffect, useState } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useState } from 'react'
 
 import {
-  type BasicMachineSource,
-  type BasicMcpServer,
+  type BasicConfig,
   isBasicConfigComplete,
   serializeBasicConfig,
 } from '@/components/agents/agentConfigBasicSerialization'
@@ -14,40 +13,23 @@ import {
   type ModelSelection,
 } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
-import { AgentConfigToolsField, type BasicTool } from '@/components/agents/AgentConfigToolsField'
+import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
-
-interface BasicConfigDraft {
-  instruction: string
-  providerConfig: string
-  modelName: string
-  machineSources: BasicMachineSource[]
-  tools: BasicTool[]
-  mcpServers: BasicMcpServer[]
-  skillIds: string[]
-}
-
-const emptyDraft: BasicConfigDraft = {
-  instruction: '',
-  providerConfig: '',
-  modelName: '',
-  machineSources: [],
-  tools: [],
-  mcpServers: [],
-  skillIds: [],
-}
 
 export function AgentConfigBasicForm({
   orgId,
   projectId,
+  draft,
+  onDraftChange,
   onYamlChange,
 }: {
   orgId: string
   projectId: string
+  draft: BasicConfig
+  onDraftChange: Dispatch<SetStateAction<BasicConfig>>
   onYamlChange: (yaml: string) => void
 }) {
-  const [draft, setDraft] = useState<BasicConfigDraft>(emptyDraft)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const toolCatalog = useToolCatalog()
   const { instruction, machineSources, mcpServers, modelName, providerConfig, skillIds, tools } =
@@ -81,13 +63,16 @@ export function AgentConfigBasicForm({
     unavailableSkillIds.length,
   ])
 
-  const onModelChange = useCallback((selection: ModelSelection) => {
-    setDraft((prev) => ({
-      ...prev,
-      providerConfig: selection.providerConfig,
-      modelName: selection.modelName,
-    }))
-  }, [])
+  const onModelChange = useCallback(
+    (selection: ModelSelection) => {
+      onDraftChange((prev) => ({
+        ...prev,
+        providerConfig: selection.providerConfig,
+        modelName: selection.modelName,
+      }))
+    },
+    [onDraftChange],
+  )
 
   return (
     <FieldGroup className="gap-8">
@@ -100,7 +85,7 @@ export function AgentConfigBasicForm({
           placeholder="You are a research assistant. When given a topic, gather sources and produce a short summary with citations."
           className="min-h-36 resize-y"
           onChange={(event) => {
-            setDraft((prev) => ({ ...prev, instruction: event.target.value }))
+            onDraftChange((prev) => ({ ...prev, instruction: event.target.value }))
           }}
         />
       </Field>
@@ -115,14 +100,14 @@ export function AgentConfigBasicForm({
         projectId={projectId}
         sources={machineSources}
         onSourcesChange={(sources) => {
-          setDraft((prev) => ({ ...prev, machineSources: sources }))
+          onDraftChange((prev) => ({ ...prev, machineSources: sources }))
         }}
       />
       <AgentConfigToolsField
         catalog={toolCatalog.data}
         tools={tools}
         onToolsChange={(nextTools) => {
-          setDraft((prev) => ({ ...prev, tools: nextTools }))
+          onDraftChange((prev) => ({ ...prev, tools: nextTools }))
         }}
       />
       <AgentConfigSkillsField
@@ -130,7 +115,7 @@ export function AgentConfigBasicForm({
         projectId={projectId}
         selectedIds={skillIds}
         onSelectedIdsChange={(nextSkillIds) => {
-          setDraft((prev) => ({ ...prev, skillIds: nextSkillIds }))
+          onDraftChange((prev) => ({ ...prev, skillIds: nextSkillIds }))
         }}
         onUnavailableIdsChange={setUnavailableSkillIds}
       />
@@ -140,7 +125,7 @@ export function AgentConfigBasicForm({
         permissionProfile={toolCatalog.data?.mcp_tool_permissions}
         servers={mcpServers}
         onServersChange={(servers) => {
-          setDraft((prev) => ({ ...prev, mcpServers: servers }))
+          onDraftChange((prev) => ({ ...prev, mcpServers: servers }))
         }}
       />
     </FieldGroup>

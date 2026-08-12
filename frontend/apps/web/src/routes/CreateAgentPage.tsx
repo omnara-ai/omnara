@@ -9,12 +9,19 @@ import { type SyntheticEvent, useCallback, useReducer, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import {
+  type BasicConfig,
+  emptyBasicConfig,
+} from '@/components/agents/agentConfigBasicSerialization'
+import {
   agentConfigModeReducer,
   initialAgentConfigModeState,
 } from '@/components/agents/agentConfigModeMachine'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
+import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
+import type { AgentTemplate } from '@/components/agents/agentTemplates'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
+import { useApplyAgentTemplate } from '@/components/agents/useApplyAgentTemplate'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -59,12 +66,24 @@ export function CreateAgentPage() {
     message: '',
     status: idle,
   })
+  const [configDraft, setConfigDraft] = useState<BasicConfig>(emptyBasicConfig)
+  const [appliedTemplate, setAppliedTemplate] = useState<AgentTemplate | null>(null)
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
   const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null)
   // Stable identity: the builder's serialize effect depends on this callback.
   const handleBuilderYamlChange = useCallback((value: string) => {
     dispatchMode({ type: 'builder-yaml-changed', yaml: value })
   }, [])
+  const setName = useCallback((update: (name: string) => string) => {
+    setDraft((prev) => ({ ...prev, name: update(prev.name) }))
+  }, [])
+
+  const applyTemplate = useApplyAgentTemplate({
+    orgId: activeOrg.id,
+    projectId,
+    setConfigDraft,
+    setName,
+  })
 
   if (projectIsPending) return <FullPageSpinner />
 
@@ -161,16 +180,27 @@ export function CreateAgentPage() {
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">New agent</h1>
-        <PillTabs
-          value={mode.mode}
-          onValueChange={(nextMode) => {
-            dispatchMode({ type: 'switch-mode', mode: nextMode })
-          }}
-          tabs={[
-            { value: 'builder', label: 'Builder' },
-            { value: 'yaml', label: 'YAML' },
-          ]}
-        />
+        <div className="flex items-center gap-2">
+          {showBuilder && (
+            <AgentTemplateMenu
+              disabled={!applyTemplate.ready}
+              onApply={(template) => {
+                applyTemplate.apply(template)
+                setAppliedTemplate(template)
+              }}
+            />
+          )}
+          <PillTabs
+            value={mode.mode}
+            onValueChange={(nextMode) => {
+              dispatchMode({ type: 'switch-mode', mode: nextMode })
+            }}
+            tabs={[
+              { value: 'builder', label: 'Builder' },
+              { value: 'yaml', label: 'YAML' },
+            ]}
+          />
+        </div>
       </div>
 
       <FieldGroup className="max-w-3xl gap-8">
@@ -191,6 +221,8 @@ export function CreateAgentPage() {
           <AgentConfigBasicForm
             orgId={activeOrg.id}
             projectId={projectId}
+            draft={configDraft}
+            onDraftChange={setConfigDraft}
             onYamlChange={handleBuilderYamlChange}
           />
         </div>
@@ -209,7 +241,9 @@ export function CreateAgentPage() {
           <Input
             id="agent-message"
             value={draft.message}
-            placeholder="Kick the agent off with a message"
+            placeholder={
+              appliedTemplate?.firstMessagePlaceholder ?? 'Kick the agent off with a message'
+            }
             onChange={(event) => {
               setDraft((prev) => ({ ...prev, message: event.target.value }))
             }}
