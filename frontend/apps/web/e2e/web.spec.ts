@@ -289,6 +289,7 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
   const failures = installFailureTracking(page, [/^page: Canceled$/])
   await createProfile(page, 'Draft Keeper Profile', 'Keep unsaved edits across tab switches.')
 
+  await page.getByRole('button', { name: 'YAML' }).click()
   await typeInConfigEditor(page, '# draft edit\n')
   await expect(page.getByRole('button', { name: 'Save revision' })).toBeEnabled()
 
@@ -328,6 +329,7 @@ test('keeps the save pending across tab switches while the revision uploads', as
     await route.continue()
   })
 
+  await page.getByRole('button', { name: 'YAML' }).click()
   await typeInConfigEditor(page, '# pending save\n')
 
   const saveButton = page.getByRole('button', { name: 'Save revision' })
@@ -373,6 +375,29 @@ test('deletes a profile from its detail page', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Something went wrong' })).toBeVisible()
   await expect(page.getByText(/^404: /)).toBeVisible()
   await expect(page.getByText('Deleted Profile E2E')).toHaveCount(0)
+  expect(failures).toEqual([])
+})
+
+test('edits a profile with the Builder', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await createProfile(page, 'Builder Edit Agent', 'Original instruction.')
+
+  const instruction = page.getByLabel('Instruction')
+  await expect(instruction).toHaveValue('Original instruction.')
+  const save = page.getByRole('button', { name: 'Save revision' })
+  await expect(save).toBeDisabled()
+
+  await instruction.fill('Updated instruction.')
+  await expect(save).toBeEnabled()
+  await save.click()
+  await expect(save).toBeDisabled()
+
+  await page.getByRole('button', { name: 'YAML' }).click()
+  await expect(page.locator('.monaco-editor')).toContainText('Updated instruction.')
+
+  await page.getByRole('button', { name: 'Integrations' }).click()
+  await expect(page.getByText('No integrations yet.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add integration' })).toBeVisible()
   expect(failures).toEqual([])
 })
 
