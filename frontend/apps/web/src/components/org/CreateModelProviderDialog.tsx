@@ -1,5 +1,5 @@
 import { useCreateModelProvider, useDeleteModelProvider } from '@omnara/react'
-import type { ModelDiscoveryResult, ModelProviderConfig } from '@omnara/sdk'
+import type { ModelCatalog, ModelProviderConfig } from '@omnara/sdk'
 import { type SyntheticEvent, useRef, useState } from 'react'
 
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
@@ -42,7 +42,7 @@ type DialogPhase =
   | {
       step: 'models'
       provider: ModelProviderConfig
-      discovery: ModelDiscoveryResult
+      discovery: ModelCatalog
       providerCreated: boolean
     }
 
@@ -78,7 +78,7 @@ export function CreateModelProviderDialog({
       setPhase({
         step: 'models',
         provider: result.config,
-        discovery: result.model_discovery,
+        discovery: result.model_catalog,
         providerCreated: result.created,
       })
     } catch (err) {
