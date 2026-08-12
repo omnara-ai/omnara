@@ -8,7 +8,7 @@ import {
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
@@ -85,13 +85,6 @@ export function AgentProfileView() {
     }
   }
 
-  const deletedRef = useRef(false)
-  useEffect(() => {
-    return () => {
-      if (deletedRef.current) removeProfileQuery(profileId)
-    }
-  }, [profileId, removeProfileQuery])
-
   async function launch() {
     if (
       configDirty &&
@@ -119,8 +112,9 @@ export function AgentProfileView() {
     if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
     deleteProfile.mutate(profile.id, {
       onSuccess: () => {
-        deletedRef.current = true
-        void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
+        void navigate({ to: '/projects/$projectId/agents', params: { projectId } }).then(() => {
+          removeProfileQuery(profile.id)
+        })
       },
       onError: (error) => {
         window.alert(error instanceof ApiError ? error.message : 'Could not delete agent profile')
