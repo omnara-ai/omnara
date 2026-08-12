@@ -235,7 +235,7 @@ func TestListAgentsByProfile(t *testing.T) {
 		project,
 		"list-agents-by-profile",
 		"yaml",
-		"name: Shared Config\ninstruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		"instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
 		project.AdminToken,
 		http.StatusCreated,
 	)
