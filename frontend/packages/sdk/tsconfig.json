@@ -1,8 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": [],
-    "resolveJsonModule": true
+    "types": []
   },
   "include": ["src", "openapi-ts.config.ts"]
 }

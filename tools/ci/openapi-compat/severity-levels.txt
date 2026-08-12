@@ -1,1 +1,2 @@
+response-property-pattern-added err
 response-property-pattern-changed err

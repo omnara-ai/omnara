@@ -318,7 +318,6 @@ func TestAuthenticatedLogsNilPrincipalIDsAsNull(t *testing.T) {
 	}
 	for _, key := range []string{
 		"org.id",
-		"project.id",
 		"personal_access_token.id",
 		"machine_daemon_token.id",
 	} {

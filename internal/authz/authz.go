@@ -1,11 +1,9 @@
 package authz
 
 const (
-	PrincipalUser              = "user"
-	PrincipalOrgAPIKey         = "org_api_key"
-	PrincipalAgent             = "agent"
-	PrincipalMachineDaemon     = "machine_daemon"
-	PrincipalMachinePoolDaemon = "machine_pool_daemon"
+	PrincipalUser          = "user"
+	PrincipalOrgAPIKey     = "org_api_key"
+	PrincipalMachineDaemon = "machine_daemon"
 )
 
 const (

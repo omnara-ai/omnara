@@ -1893,6 +1893,9 @@ export type PersonalAccessToken = {
 };
 
 export type CreatePersonalAccessTokenResponse = {
+    /**
+     * Opaque bearer credential. Clients must not parse or validate its internal format.
+     */
     token: string;
     token_record: PersonalAccessToken;
 };
@@ -1927,6 +1930,9 @@ export type CreateOrgApiKeyRequest = {
 };
 
 export type CreateOrgApiKeyResponse = {
+    /**
+     * Opaque bearer credential. Clients must not parse or validate its internal format.
+     */
     token: string;
     api_key: OrgApiKey;
 };
@@ -2377,6 +2383,9 @@ export type MachineDaemonToken = {
 };
 
 export type CreateMachineDaemonTokenResponse = {
+    /**
+     * Opaque bearer credential. Clients must not parse or validate its internal format.
+     */
     token: string;
     token_record: MachineDaemonToken;
 };

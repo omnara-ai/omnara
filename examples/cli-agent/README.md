@@ -36,10 +36,11 @@ config — and replays recent history (up to the last 500 events) from the
 events endpoint before attaching to the live stream. `--cloud` and `--local`
 only apply when starting a new agent.
 
-`OMNARA_API_KEY` takes an `omnara_pat_v1_` personal access token, which must
-already belong to at least one organization. With multiple organizations, the
-CLI shows an arrow-key picker (or set `OMNARA_ORG_ID`). With the local
-machine option, the agent is told the CLI's working directory and
+`OMNARA_API_KEY` takes a personal access token, which the CLI treats as an
+opaque value. Omnara currently issues these with the `omnara_pat_v1_` prefix.
+The token must already belong to at least one organization. With multiple
+organizations, the CLI shows an arrow-key picker (or set `OMNARA_ORG_ID`). With
+the local machine option, the agent is told the CLI's working directory and
 `run_command` starts there via the injected machine source. The model in
 `agent-profile.yaml` selects a
 provider config and configured model that must already exist in the org (the

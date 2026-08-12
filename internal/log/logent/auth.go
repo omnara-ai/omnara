@@ -126,7 +126,6 @@ func principal(p identitystore.PrincipalRecord) log.Fields {
 		"principal.type":           p.Type,
 		"principal.id":             p.ID,
 		"org.id":                   p.OrgID,
-		"project.id":               p.ProjectID,
 		"personal_access_token.id": p.PersonalAccessTokenID,
 		"org_api_key.id":           p.OrgAPIKeyID,
 		"browser_session.id":       p.BrowserSessionID,

@@ -5892,7 +5892,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Omnara personal or organization access token
-      description: A canonical personal (`omnara_pat_v1_`) or organization (`omnara_org_v1_`) bearer token.
+      description: An opaque Omnara personal or organization bearer token. Clients must not parse or validate its internal format.
     browserSessionCookie:
       type: apiKey
       in: cookie
@@ -5907,7 +5907,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Omnara machine daemon token
-      description: Canonical `omnara_daemon_v1_` bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
+      description: An opaque Omnara machine-daemon bearer token. Clients must not parse or validate its internal format. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -9302,7 +9302,8 @@ components:
       properties:
         token:
           type: string
-          pattern: '^omnara_pat_v1_[0-9A-Za-z]{43}_[0-9A-Za-z]{6}$'
+          minLength: 1
+          description: Opaque bearer credential. Clients must not parse or validate its internal format.
         token_record:
           $ref: '#/components/schemas/PersonalAccessToken'
     OrgAPIKeyRole:
@@ -9357,7 +9358,8 @@ components:
       properties:
         token:
           type: string
-          pattern: '^omnara_org_v1_[0-9A-Za-z]{43}_[0-9A-Za-z]{6}$'
+          minLength: 1
+          description: Opaque bearer credential. Clients must not parse or validate its internal format.
         api_key:
           $ref: '#/components/schemas/OrgAPIKey'
     UpdateOrgAPIKeyRequest:
@@ -10333,7 +10335,8 @@ components:
       properties:
         token:
           type: string
-          pattern: '^omnara_daemon_v1_[0-9A-Za-z]{43}_[0-9A-Za-z]{6}$'
+          minLength: 1
+          description: Opaque bearer credential. Clients must not parse or validate its internal format.
         token_record:
           $ref: '#/components/schemas/MachineDaemonToken'
     ListMachineDaemonTokensResponse:

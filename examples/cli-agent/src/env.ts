@@ -5,8 +5,6 @@ import { fileURLToPath } from 'node:url'
 
 export const exampleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-const personalAccessTokenPattern = /^omnara_pat_v1_[0-9A-Za-z]{43}_[0-9A-Za-z]{6}$/
-
 export interface CliEnv {
   apiUrl: string
   apiKey: string
@@ -32,9 +30,6 @@ export function loadEnv(): CliEnv {
   const apiKey = process.env.OMNARA_API_KEY?.trim() ?? ''
   if (apiKey === '') {
     throw new Error('OMNARA_API_KEY is required; copy .env.example to .env and set a personal access token')
-  }
-  if (!personalAccessTokenPattern.test(apiKey)) {
-    throw new Error('OMNARA_API_KEY must be a valid Omnara personal access token')
   }
   const orgId = process.env.OMNARA_ORG_ID?.trim() || undefined
   const apiUrl = (process.env.OMNARA_API_URL?.trim() || 'http://localhost:8080').replace(/\/+$/, '')

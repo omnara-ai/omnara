@@ -13,6 +13,11 @@ Two kinds of API keys exist, and both are sent the same way:
 
 (Connected machines authenticate with their own daemon tokens, minted in the [connect flow](/machines/connect#install-the-daemon) and valid only on daemon routes.)
 
+These shapes describe credentials Omnara issues today. Treat every bearer token
+as an opaque string: store and send the complete value, but do not parse it,
+validate its checksum, or branch on its prefix or version. The server owns
+format validation and may introduce additional formats later.
+
 ## Using an API key
 
 Send either key as a bearer token. This example uses a personal key because `/me` is a user-only endpoint:
@@ -40,7 +45,7 @@ Tokens are minted where a human can approve them — creating one is deliberatel
 - **Console** — go to **API Tokens** in the sidebar and click **New token**. The full token is shown once.
 - **Device login** — for CLIs and dev tools, below.
 
-Personal tokens use the versioned `omnara_pat_v1_<secret>_<checksum>` format. The secret has at least 256 bits of cryptographic entropy; the final six characters are a typo-detecting checksum, not a cryptographic integrity check. Only a SHA-256 hash of the complete token is stored server-side, so treat the one-time display as the only copy that will ever exist.
+Omnara currently issues personal tokens in the versioned `omnara_pat_v1_<secret>_<checksum>` format. The secret has at least 256 bits of cryptographic entropy; the final six characters are a typo-detecting checksum, not a cryptographic integrity check. Only a SHA-256 hash of the complete token is stored server-side, so treat the one-time display as the only copy that will ever exist. This format is server-owned; consumers must still treat the complete token as opaque.
 
 ## Org API keys for services
 

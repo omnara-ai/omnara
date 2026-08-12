@@ -139,7 +139,7 @@ func (s *Store) AuthenticatePersonalAccessToken(
 	if err != nil {
 		return PrincipalRecord{}, fmt.Errorf("authenticate personal access token: %w", err)
 	}
-	return PrincipalRecord{Type: row.PrincipalType, ID: row.UserID, PersonalAccessTokenID: row.PersonalAccessTokenID}, nil
+	return NewPersonalAccessTokenPrincipal(row.UserID, row.PersonalAccessTokenID), nil
 }
 
 type ListPersonalAccessTokensInput struct {

@@ -259,13 +259,9 @@ func (s *Store) PollDeviceAuthFlow(
 		return DeviceAuthFlowPollRecord{Status: DeviceAuthFlowStatusPending, Interval: DeviceAuthPollInterval}, nil
 	}
 	preparedToken, err := preparePersonalAccessTokenInput(CreatePersonalAccessTokenInput{
-		UserID: *flow.ApprovedByUserID,
-		ActorPrincipal: PrincipalRecord{
-			Type:             PrincipalTypeUser,
-			ID:               *flow.ApprovedByUserID,
-			BrowserSessionID: *flow.ApprovedBrowserSessionID,
-		},
-		Name: flow.TokenName,
+		UserID:         *flow.ApprovedByUserID,
+		ActorPrincipal: NewBrowserSessionPrincipal(*flow.ApprovedByUserID, *flow.ApprovedBrowserSessionID),
+		Name:           flow.TokenName,
 	})
 	if err != nil {
 		return DeviceAuthFlowPollRecord{}, err

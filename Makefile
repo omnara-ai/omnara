@@ -144,31 +144,27 @@ openapi-check:
 openapi-compat-fixture-check:
 	@$(OASDIFF) breaking --allow-external-refs=false --fail-on WARN --format text \
 		--severity-levels tools/ci/openapi-compat/severity-levels.txt \
-		--err-ignore tools/ci/openapi-compat/approved-breaks.md \
-		tools/ci/openapi-compat/testdata/approved-base.yaml \
-		tools/ci/openapi-compat/testdata/approved-head.yaml >/dev/null
+		tools/ci/openapi-compat/testdata/base.yaml \
+		tools/ci/openapi-compat/testdata/compatible-head.yaml >/dev/null
 	@set +e; \
 		output="$$( $(OASDIFF) breaking --allow-external-refs=false --fail-on WARN --format text \
 			--severity-levels tools/ci/openapi-compat/severity-levels.txt \
-			--err-ignore tools/ci/openapi-compat/approved-breaks.md \
-			tools/ci/openapi-compat/testdata/approved-base.yaml \
-			tools/ci/openapi-compat/testdata/unapproved-head.yaml 2>&1 )"; \
+			tools/ci/openapi-compat/testdata/base.yaml \
+			tools/ci/openapi-compat/testdata/pattern-breaking-head.yaml 2>&1 )"; \
 		status=$$?; set -e; \
-		test "$$status" -eq 1 || { printf '%s\nexpected exact unapproved pattern fixture to exit 1, got %s\n' "$$output" "$$status"; exit 1; }
+		test "$$status" -eq 1 || { printf '%s\nexpected added response pattern fixture to exit 1, got %s\n' "$$output" "$$status"; exit 1; }
 	@set +e; \
 		output="$$( $(OASDIFF) breaking --allow-external-refs=false --fail-on WARN --format text \
 			--severity-levels tools/ci/openapi-compat/severity-levels.txt \
-			--err-ignore tools/ci/openapi-compat/approved-breaks.md \
-			tools/ci/openapi-compat/testdata/approved-base.yaml \
-			tools/ci/openapi-compat/testdata/unrelated-head.yaml 2>&1 )"; \
+			tools/ci/openapi-compat/testdata/base.yaml \
+			tools/ci/openapi-compat/testdata/route-breaking-head.yaml 2>&1 )"; \
 		status=$$?; set -e; \
-		test "$$status" -eq 1 || { printf '%s\nexpected unrelated breaking fixture to exit 1, got %s\n' "$$output" "$$status"; exit 1; }
+		test "$$status" -eq 1 || { printf '%s\nexpected removed route fixture to exit 1, got %s\n' "$$output" "$$status"; exit 1; }
 
 openapi-compat-check:
 	@test -n "$(COMPAT_BASE_SHA)" || { printf 'COMPAT_BASE_SHA is required\n'; exit 2; }
 	$(OASDIFF) breaking --allow-external-refs=false --fail-on WARN --format $(OASDIFF_FORMAT) \
 		--severity-levels tools/ci/openapi-compat/severity-levels.txt \
-		--err-ignore tools/ci/openapi-compat/approved-breaks.md \
 		"$(COMPAT_BASE_SHA):api/openapi/openapi.yaml" api/openapi/openapi.yaml
 
 migration-create:

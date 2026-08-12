@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
@@ -148,13 +147,8 @@ func parseGlobalFlags(args []string, stderr io.Writer) (cliConfig, error) {
 	if err := fs.Parse(args); err != nil {
 		return cliConfig{}, err
 	}
-	if cfg.Token == "" {
+	if strings.TrimSpace(cfg.Token) == "" {
 		return cliConfig{}, errors.New("token is required; set --token or OMNARA_TOKEN")
-	}
-	if err := bearertoken.Validate(cfg.Token, bearertoken.KindPersonalAccess); err != nil {
-		return cliConfig{}, errors.New(
-			"personal access token is invalid; create an Omnara PAT after logging in",
-		)
 	}
 	if _, err := url.ParseRequestURI(cfg.APIURL); err != nil {
 		return cliConfig{}, fmt.Errorf("invalid api url: %w", err)

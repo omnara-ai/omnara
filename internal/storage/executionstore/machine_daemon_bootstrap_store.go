@@ -379,12 +379,7 @@ func (s *Store) AuthenticateMachineDaemonToken(
 	if err != nil {
 		return identitystore.PrincipalRecord{}, fmt.Errorf("authenticate machine daemon token: %w", err)
 	}
-	return identitystore.PrincipalRecord{
-		Type:                 identitystore.PrincipalTypeMachineDaemon,
-		ID:                   row.MachineID,
-		OrgID:                row.OrgID,
-		MachineDaemonTokenID: row.ID,
-	}, nil
+	return identitystore.NewMachineDaemonPrincipal(row.OrgID, row.MachineID, row.ID), nil
 }
 
 func (s *Store) BootstrapMachineDaemon(

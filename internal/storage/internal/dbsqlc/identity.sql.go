@@ -193,7 +193,7 @@ func (q *Queries) ApproveAuthDeviceFlow(ctx context.Context, arg ApproveAuthDevi
 
 const authenticateBrowserSession = `-- name: AuthenticateBrowserSession :one
 WITH authenticated AS MATERIALIZED (
-  SELECT 'user'::text AS principal_type, bs.user_id, bs.id AS browser_session_id, bs.csrf_token_hash, bs.last_seen_at
+  SELECT bs.user_id, bs.id AS browser_session_id, bs.csrf_token_hash, bs.last_seen_at
   FROM browser_sessions bs
   WHERE bs.token_hash = $1
     AND bs.revoked_at IS NULL
@@ -216,7 +216,7 @@ WITH authenticated AS MATERIALIZED (
   WHERE session.id = touch_candidate.id
   RETURNING session.id
 )
-SELECT authenticated.principal_type, authenticated.user_id, authenticated.browser_session_id,
+SELECT authenticated.user_id, authenticated.browser_session_id,
   authenticated.csrf_token_hash, authenticated.last_seen_at
 FROM authenticated
 LEFT JOIN touched ON true
@@ -229,7 +229,6 @@ type AuthenticateBrowserSessionParams struct {
 }
 
 type AuthenticateBrowserSessionRow struct {
-	PrincipalType    string
 	UserID           uuid.UUID
 	BrowserSessionID uuid.UUID
 	CsrfTokenHash    string
@@ -240,7 +239,6 @@ func (q *Queries) AuthenticateBrowserSession(ctx context.Context, arg Authentica
 	row := q.db.QueryRow(ctx, authenticateBrowserSession, arg.TokenHash, arg.IdleTimeoutSeconds, arg.TouchIntervalSeconds)
 	var i AuthenticateBrowserSessionRow
 	err := row.Scan(
-		&i.PrincipalType,
 		&i.UserID,
 		&i.BrowserSessionID,
 		&i.CsrfTokenHash,
@@ -251,7 +249,7 @@ func (q *Queries) AuthenticateBrowserSession(ctx context.Context, arg Authentica
 
 const authenticatePersonalAccessToken = `-- name: AuthenticatePersonalAccessToken :one
 WITH authenticated AS MATERIALIZED (
-  SELECT 'user'::text AS principal_type, pat.user_id, pat.id AS personal_access_token_id, pat.last_used_at
+  SELECT pat.user_id, pat.id AS personal_access_token_id, pat.last_used_at
   FROM personal_access_tokens pat
   WHERE pat.token_hash = $1
     AND pat.revoked_at IS NULL
@@ -268,7 +266,7 @@ WITH authenticated AS MATERIALIZED (
     )
   RETURNING token.id
 )
-SELECT principal_type, user_id, personal_access_token_id, last_used_at
+SELECT user_id, personal_access_token_id, last_used_at
 FROM authenticated
 `
 
@@ -278,7 +276,6 @@ type AuthenticatePersonalAccessTokenParams struct {
 }
 
 type AuthenticatePersonalAccessTokenRow struct {
-	PrincipalType         string
 	UserID                uuid.UUID
 	PersonalAccessTokenID uuid.UUID
 	LastUsedAt            *time.Time
@@ -287,12 +284,7 @@ type AuthenticatePersonalAccessTokenRow struct {
 func (q *Queries) AuthenticatePersonalAccessToken(ctx context.Context, arg AuthenticatePersonalAccessTokenParams) (AuthenticatePersonalAccessTokenRow, error) {
 	row := q.db.QueryRow(ctx, authenticatePersonalAccessToken, arg.TokenHash, arg.TouchIntervalSeconds)
 	var i AuthenticatePersonalAccessTokenRow
-	err := row.Scan(
-		&i.PrincipalType,
-		&i.UserID,
-		&i.PersonalAccessTokenID,
-		&i.LastUsedAt,
-	)
+	err := row.Scan(&i.UserID, &i.PersonalAccessTokenID, &i.LastUsedAt)
 	return i, err
 }
 

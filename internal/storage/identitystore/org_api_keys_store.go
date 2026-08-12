@@ -143,12 +143,7 @@ func (s *Store) AuthenticateOrgAPIKey(
 	if err != nil {
 		return PrincipalRecord{}, fmt.Errorf("authenticate org api key: %w", err)
 	}
-	return PrincipalRecord{
-		Type:        row.PrincipalType,
-		ID:          row.OrgApiKeyID,
-		OrgID:       row.OrgID,
-		OrgAPIKeyID: row.OrgApiKeyID,
-	}, nil
+	return NewOrgAPIKeyPrincipal(row.OrgID, row.OrgApiKeyID), nil
 }
 
 func (s *Store) GetOrgAPIKey(ctx context.Context, orgID, keyID ID) (OrgAPIKeyRecord, error) {
