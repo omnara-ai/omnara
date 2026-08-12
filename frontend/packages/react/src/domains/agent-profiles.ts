@@ -113,7 +113,13 @@ export function useDeleteAgentProfile(orgID: string, projectID: string) {
       })
       return data
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, agentProfileID) => {
+      queryClient.removeQueries({
+        queryKey: getAgentProfileQueryKey({
+          path: { orgID, projectID, agentProfileID },
+          client,
+        }),
+      })
       await queryClient.invalidateQueries({
         queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
       })

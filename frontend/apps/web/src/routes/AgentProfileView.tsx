@@ -27,6 +27,15 @@ import { useProjectPage } from '@/lib/use-project-page'
 
 type ProfileTab = 'configuration' | 'agents'
 
+// The YAML draft lives here (not in ConfigurationTab) so it survives tab
+// switches. It is keyed to the profile and revision it was edited against,
+// and discarded once either changes.
+interface ConfigDraft {
+  profileId: string
+  configId: string
+  yaml: string
+}
+
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
   const { project } = useProjectPage()
@@ -39,12 +48,27 @@ export function AgentProfileView() {
 
   const [tab, setTab] = useState<ProfileTab>('configuration')
   const [deployOpen, setDeployOpen] = useState(false)
+  const [draft, setDraft] = useState<ConfigDraft | null>(null)
+
+  const savedYaml = profile.current_config.source ?? ''
+  const activeDraft =
+    draft?.profileId === profile.id && draft.configId === profile.current_config_id ? draft : null
+  const yaml = activeDraft?.yaml ?? savedYaml
+  const configDirty = yaml !== savedYaml
 
   const createAgent = useCreateAgent(activeOrg.id, projectId)
   const deleteProfile = useDeleteAgentProfile(activeOrg.id, projectId)
   const navigate = useNavigate()
 
   async function launch() {
+    if (
+      configDirty &&
+      !window.confirm(
+        'You have unsaved configuration changes. Launch uses the last saved revision. Continue?',
+      )
+    ) {
+      return
+    }
     try {
       const launched = await createAgent.mutateAsync({
         profile: profile.id,
@@ -129,6 +153,14 @@ export function AgentProfileView() {
           projectId={projectId}
           profile={profile}
           canManage={canManage}
+          yaml={yaml}
+          dirty={configDirty}
+          onYamlChange={(value) => {
+            setDraft({ profileId: profile.id, configId: profile.current_config_id, yaml: value })
+          }}
+          onDiscard={() => {
+            setDraft(null)
+          }}
         />
       ) : (
         <AgentsTable
@@ -159,27 +191,24 @@ function ConfigurationTab({
   projectId,
   profile,
   canManage,
+  yaml,
+  dirty,
+  onYamlChange,
+  onDiscard,
 }: {
   orgId: string
   projectId: string
   profile: AgentProfile
   canManage: boolean
+  yaml: string
+  dirty: boolean
+  onYamlChange: (value: string) => void
+  onDiscard: () => void
 }) {
   const createConfig = useCreateAgentConfig(orgId, projectId)
   const updateProfile = useUpdateAgentProfile(orgId, projectId)
-  const [yaml, setYaml] = useState(profile.current_config.source ?? '')
   const [error, setError] = useState('')
-  const [editedConfigId, setEditedConfigId] = useState(profile.current_config_id)
   const pending = createConfig.isPending || updateProfile.isPending
-
-  // Reset the editor when a new revision lands (after a save or elsewhere).
-  if (editedConfigId !== profile.current_config_id) {
-    setEditedConfigId(profile.current_config_id)
-    setYaml(profile.current_config.source ?? '')
-    setError('')
-  }
-
-  const dirty = yaml !== (profile.current_config.source ?? '')
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -218,7 +247,7 @@ function ConfigurationTab({
           <AgentConfigYamlField
             id="agent-profile-config-yaml"
             value={yaml}
-            onChange={setYaml}
+            onChange={onYamlChange}
             readOnly={!canManage}
             className="h-[28rem]"
           />
@@ -239,7 +268,7 @@ function ConfigurationTab({
                   type="button"
                   variant="ghost"
                   onClick={() => {
-                    setYaml(profile.current_config.source ?? '')
+                    onDiscard()
                     setError('')
                   }}
                 >
