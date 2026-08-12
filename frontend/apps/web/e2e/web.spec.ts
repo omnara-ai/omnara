@@ -21,10 +21,12 @@ function installFailureTracking(page: Page) {
   const failures: string[] = []
 
   page.on('pageerror', (error) => {
+    if (error.message === 'Canceled') return
     failures.push(`page: ${error.message}`)
   })
   page.on('requestfailed', (request) => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/auth/login') return
+    if (request.failure()?.errorText === 'net::ERR_ABORTED') return
     failures.push(`request: ${request.url()} (${request.failure()?.errorText ?? 'failed'})`)
   })
   page.on('response', (response) => {
@@ -143,6 +145,67 @@ test('creates a profile without launching an agent', async ({ page }) => {
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
   await expect(page.getByText('Profile Only Agent').first()).toBeVisible()
+  expect(failures).toEqual([])
+})
+
+test('keeps profile config edits across tabs and confirms launching with unsaved edits', async ({
+  page,
+}) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, adminEmail, createAgentPath)
+
+  await page.getByLabel('Name', { exact: true }).fill('Draft Keeper Profile')
+  await page.getByLabel('Instruction').fill('Keep unsaved edits across tab switches.')
+  await page.getByRole('button', { name: 'Create profile' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+
+  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
+  await expect(editor).toBeVisible()
+  await editor.focus()
+  await page.keyboard.insertText('# draft edit\n')
+  await expect(page.getByRole('button', { name: 'Save revision' })).toBeEnabled()
+
+  await page.getByRole('button', { name: 'Agents', exact: true }).click()
+  await expect(page.getByText('No agents from this profile yet', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Configuration' }).click()
+  await expect(page.getByText('# draft edit')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save revision' })).toBeEnabled()
+
+  const confirms: string[] = []
+  page.once('dialog', (dialog) => {
+    confirms.push(dialog.message())
+    void dialog.dismiss()
+  })
+  await page.getByRole('button', { name: 'Launch' }).click()
+  await expect.poll(() => confirms.length).toBe(1)
+  expect(confirms[0]).toContain('unsaved configuration changes')
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+
+  await page.getByRole('button', { name: 'Discard changes' }).click()
+  await expect(page.getByText('# draft edit')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save revision' })).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Launch' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
+  expect(failures).toEqual([])
+})
+
+test('deletes a profile from its detail page', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, adminEmail, createAgentPath)
+
+  await page.getByLabel('Name', { exact: true }).fill('Deleted Profile E2E')
+  await page.getByLabel('Instruction').fill('Delete this profile from its detail page.')
+  await page.getByRole('button', { name: 'Create profile' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+
+  page.once('dialog', (dialog) => void dialog.accept())
+  await page.getByRole('button', { name: 'Row actions' }).click()
+  await page.getByRole('menuitem', { name: 'Delete' }).click()
+
+  await expect(page).toHaveURL(`/projects/${projectID}/agents`)
+  await expect(page.getByRole('heading', { name: 'Agent profiles' })).toBeVisible()
+  await expect(page.getByText('Deleted Profile E2E')).toHaveCount(0)
   expect(failures).toEqual([])
 })
 

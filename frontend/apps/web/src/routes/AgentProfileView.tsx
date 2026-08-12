@@ -3,6 +3,7 @@ import {
   useCreateAgent,
   useCreateAgentConfig,
   useDeleteAgentProfile,
+  useRemoveAgentProfileQuery,
   useUpdateAgentProfile,
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
@@ -55,6 +56,7 @@ export function AgentProfileView() {
 
   const createAgent = useCreateAgent(activeOrg.id, projectId)
   const deleteProfile = useDeleteAgentProfile(activeOrg.id, projectId)
+  const removeProfileQuery = useRemoveAgentProfileQuery(activeOrg.id, projectId)
   const navigate = useNavigate()
 
   async function launch() {
@@ -84,7 +86,9 @@ export function AgentProfileView() {
     if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
     deleteProfile.mutate(profile.id, {
       onSuccess: () => {
-        void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
+        void navigate({ to: '/projects/$projectId/agents', params: { projectId } }).then(() => {
+          removeProfileQuery(profile.id)
+        })
       },
       onError: (error) => {
         window.alert(error instanceof ApiError ? error.message : 'Could not delete agent profile')

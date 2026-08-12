@@ -119,10 +119,21 @@ export function useDeleteAgentProfile(orgID: string, projectID: string) {
           path: { orgID, projectID, agentProfileID },
           client,
         }),
+        type: 'inactive',
       })
       await queryClient.invalidateQueries({
         queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
       })
     },
   })
+}
+
+export function useRemoveAgentProfileQuery(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return (agentProfileID: string) => {
+    queryClient.removeQueries({
+      queryKey: getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
+    })
+  }
 }

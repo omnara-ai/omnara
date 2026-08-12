@@ -26,6 +26,7 @@ export {
   useCreateAgentProfile,
   useCreateSlackSetup,
   useDeleteAgentProfile,
+  useRemoveAgentProfileQuery,
   useUpdateAgentProfile,
 } from './domains/agent-profiles'
 export {
