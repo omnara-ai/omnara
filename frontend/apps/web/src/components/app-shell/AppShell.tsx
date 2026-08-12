@@ -1,5 +1,6 @@
 import { useMe } from '@omnara/react'
 import { useRouterState } from '@tanstack/react-router'
+import { ArrowUpRight, BookOpen } from 'lucide-react'
 import { type ReactNode, useEffect } from 'react'
 
 import { NavUser } from '@/components/app-shell/NavUser'
@@ -12,6 +13,9 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
   SidebarProvider,
 } from '@/components/ui/sidebar'
 import { recordRecentPage } from '@/lib/recent-pages'
@@ -37,6 +41,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           <ProjectsNav />
         </SidebarContent>
         <SidebarFooter>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <a href="https://docs.omnara.com" target="_blank" rel="noreferrer">
+                  <BookOpen />
+                  <span>Documentation</span>
+                  <ArrowUpRight className="text-muted-foreground ml-auto size-3.5" />
+                </a>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
           <NavUser />
         </SidebarFooter>
       </Sidebar>
