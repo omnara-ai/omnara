@@ -227,7 +227,14 @@ test('keeps the save pending across tab switches while the revision uploads', as
   await expect(saveButton).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0)
 
+  const saveResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      /\/agent-profiles\/aprf_[a-z2-7]+\/config$/.test(new URL(response.url()).pathname),
+  )
   releaseSave()
+  expect((await saveResponse).ok()).toBe(true)
+
   await expect(saveButton).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0)
   await expect(page.getByText('# pending save')).toBeVisible()
@@ -237,6 +244,7 @@ test('keeps the save pending across tab switches while the revision uploads', as
 test('deletes a profile from its detail page', async ({ page }) => {
   const failures = installFailureTracking(page, [
     /agent-profiles\/aprf_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+    /^response: 404 .*\/agent-profiles\/aprf_[a-z2-7]+$/,
   ])
   await signIn(page, adminEmail, createAgentPath)
 
@@ -251,6 +259,11 @@ test('deletes a profile from its detail page', async ({ page }) => {
 
   await expect(page).toHaveURL(`/projects/${projectID}/agents`)
   await expect(page.getByRole('heading', { name: 'Agent profiles' })).toBeVisible()
+  await expect(page.getByText('Deleted Profile E2E')).toHaveCount(0)
+
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Something went wrong' })).toBeVisible()
+  await expect(page.getByText(/^404: /)).toBeVisible()
   await expect(page.getByText('Deleted Profile E2E')).toHaveCount(0)
   expect(failures).toEqual([])
 })

@@ -3,7 +3,6 @@ import {
   useCreateAgent,
   useCreateAgentConfig,
   useDeleteAgentProfile,
-  useRemoveAgentProfileQuery,
   useUpdateAgentProfile,
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
@@ -29,18 +28,23 @@ import { useProjectPage } from '@/lib/use-project-page'
 type ProfileTab = 'configuration' | 'agents'
 
 interface ConfigDraft {
-  profileId: string
   configId: string
   yaml: string
 }
 
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
-  const { project } = useProjectPage()
   const params = useParams({ strict: false })
   const projectId = params.projectId ?? ''
   const profileId = params.profileId ?? ''
   const { data: profile } = useAgentProfile(activeOrg.id, projectId, profileId)
+
+  return <ProfileView key={profile.id} profile={profile} projectId={projectId} />
+}
+
+function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId: string }) {
+  const { activeOrg } = useActiveOrg()
+  const { project } = useProjectPage()
   const canOperate = project?.access.can_operate ?? false
   const canManage = project?.access.can_manage ?? false
 
@@ -49,8 +53,7 @@ export function AgentProfileView() {
   const [draft, setDraft] = useState<ConfigDraft | null>(null)
 
   const savedYaml = profile.current_config.source ?? ''
-  const activeDraft =
-    draft?.profileId === profile.id && draft.configId === profile.current_config_id ? draft : null
+  const activeDraft = draft?.configId === profile.current_config_id ? draft : null
   const yaml = activeDraft?.yaml ?? savedYaml
   const configDirty = yaml !== savedYaml
 
@@ -58,16 +61,14 @@ export function AgentProfileView() {
   const createConfig = useCreateAgentConfig(activeOrg.id, projectId)
   const updateProfile = useUpdateAgentProfile(activeOrg.id, projectId)
   const deleteProfile = useDeleteAgentProfile(activeOrg.id, projectId)
-  const removeProfileQuery = useRemoveAgentProfileQuery(activeOrg.id, projectId)
   const navigate = useNavigate()
 
-  const revisionKey = `${profile.id}:${profile.current_config_id}`
   const [saveError, setSaveError] = useState('')
-  const [saveErrorRevision, setSaveErrorRevision] = useState(revisionKey)
+  const [saveErrorConfigId, setSaveErrorConfigId] = useState(profile.current_config_id)
   const savePending = createConfig.isPending || updateProfile.isPending
 
-  if (saveErrorRevision !== revisionKey) {
-    setSaveErrorRevision(revisionKey)
+  if (saveErrorConfigId !== profile.current_config_id) {
+    setSaveErrorConfigId(profile.current_config_id)
     setSaveError('')
   }
 
@@ -112,9 +113,7 @@ export function AgentProfileView() {
     if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
     deleteProfile.mutate(profile.id, {
       onSuccess: () => {
-        void navigate({ to: '/projects/$projectId/agents', params: { projectId } }).then(() => {
-          removeProfileQuery(profile.id)
-        })
+        void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
       },
       onError: (error) => {
         window.alert(error instanceof ApiError ? error.message : 'Could not delete agent profile')
@@ -184,7 +183,7 @@ export function AgentProfileView() {
           error={saveError}
           pending={savePending}
           onYamlChange={(value) => {
-            setDraft({ profileId: profile.id, configId: profile.current_config_id, yaml: value })
+            setDraft({ configId: profile.current_config_id, yaml: value })
           }}
           onDiscard={() => {
             setDraft(null)
