@@ -219,7 +219,6 @@ func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
 			OrgID:     testOrgID,
 			MachineID: machine.ID,
 			Name:      "machine-interval-daemon",
-			Token:     "machine-interval-token",
 		},
 	)
 	if err != nil {
@@ -231,7 +230,7 @@ func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            testOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: daemonInstanceID,
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,
@@ -254,7 +253,7 @@ func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
 				OrgID:           testOrgID,
 				MachineID:       machine.ID,
 				DaemonRuntimeID: runtime.ID,
-				DaemonTokenID:   token.ID,
+				DaemonTokenID:   token.Record.ID,
 			},
 			DaemonInstanceID: daemonInstanceID,
 			LeaseTimeout:     time.Hour,
@@ -272,7 +271,7 @@ func TestMachineOnlineIntervalsTrackAndCapDaemonLeaseSessions(t *testing.T) {
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            testOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: daemonInstanceID,
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,
@@ -305,7 +304,7 @@ WHERE org_id = $1 AND machine_id = $2 AND ended_at IS NULL
 			OrgID:           testOrgID,
 			MachineID:       machine.ID,
 			DaemonRuntimeID: runtime.ID,
-			DaemonTokenID:   token.ID,
+			DaemonTokenID:   token.Record.ID,
 		},
 	)
 	if err != nil {
@@ -367,7 +366,7 @@ RETURNING last_seen_at
 				OrgID:           testOrgID,
 				MachineID:       machine.ID,
 				DaemonRuntimeID: runtime.ID,
-				DaemonTokenID:   token.ID,
+				DaemonTokenID:   token.Record.ID,
 			},
 			DaemonInstanceID: daemonInstanceID,
 			LeaseTimeout:     time.Hour,
@@ -411,7 +410,7 @@ WHERE id = $1
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            testOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: testID("machine-interval-replacement-daemon"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,

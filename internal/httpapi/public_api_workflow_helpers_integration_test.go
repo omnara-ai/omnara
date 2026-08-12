@@ -401,9 +401,8 @@ func bootstrapPublicHTTPProject(
 	adminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		context.Background(),
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  admin.ID,
-			Name:    "test owner",
-			TokenID: seed + "-admin",
+			UserID: admin.ID,
+			Name:   "test owner",
 		},
 	)
 	if err != nil {

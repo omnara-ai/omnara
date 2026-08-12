@@ -14,7 +14,7 @@ import (
 
 const authenticateOrgAPIKey = `-- name: AuthenticateOrgAPIKey :one
 WITH authenticated AS MATERIALIZED (
-  SELECT 'org_api_key'::text AS principal_type, k.id AS org_api_key_id, k.org_id, k.last_used_at
+  SELECT k.id AS org_api_key_id, k.org_id, k.last_used_at
   FROM org_api_keys k
   WHERE k.token_hash = $1
     AND k.revoked_at IS NULL
@@ -31,7 +31,7 @@ WITH authenticated AS MATERIALIZED (
     )
   RETURNING key.id
 )
-SELECT principal_type, org_api_key_id, org_id, last_used_at
+SELECT org_api_key_id, org_id, last_used_at
 FROM authenticated
 `
 
@@ -41,21 +41,15 @@ type AuthenticateOrgAPIKeyParams struct {
 }
 
 type AuthenticateOrgAPIKeyRow struct {
-	PrincipalType string
-	OrgApiKeyID   uuid.UUID
-	OrgID         uuid.UUID
-	LastUsedAt    *time.Time
+	OrgApiKeyID uuid.UUID
+	OrgID       uuid.UUID
+	LastUsedAt  *time.Time
 }
 
 func (q *Queries) AuthenticateOrgAPIKey(ctx context.Context, arg AuthenticateOrgAPIKeyParams) (AuthenticateOrgAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, authenticateOrgAPIKey, arg.TokenHash, arg.TouchIntervalSeconds)
 	var i AuthenticateOrgAPIKeyRow
-	err := row.Scan(
-		&i.PrincipalType,
-		&i.OrgApiKeyID,
-		&i.OrgID,
-		&i.LastUsedAt,
-	)
+	err := row.Scan(&i.OrgApiKeyID, &i.OrgID, &i.LastUsedAt)
 	return i, err
 }
 

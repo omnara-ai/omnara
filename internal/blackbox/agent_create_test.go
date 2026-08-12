@@ -168,7 +168,7 @@ func TestCreateAgentAuthentication(t *testing.T) {
 		apiWith(t, http.MethodPost, fx.projectPath+"/agents", body,
 			requestOptions{
 				useAuth:       true,
-				tokenOverride: "omnara_pat_invalid_blackbox_token",
+				tokenOverride: "not-an-omnara-token",
 				note:          "create with invalid token",
 			}).
 			requireStatus(t, http.StatusUnauthorized).errorMessage(t)

@@ -1584,7 +1584,7 @@ export const zPersonalAccessToken = z.object({
 });
 
 export const zCreatePersonalAccessTokenResponse = z.object({
-    token: z.string().regex(/^omnara_pat_[^_]+_[^_]+$/),
+    token: z.string().min(1),
     token_record: zPersonalAccessToken
 });
 
@@ -1612,7 +1612,7 @@ export const zCreateOrgApiKeyRequest = z.object({
 });
 
 export const zCreateOrgApiKeyResponse = z.object({
-    token: z.string().regex(/^omnara_org_[^_]+_[^_]+$/),
+    token: z.string().min(1),
     api_key: zOrgApiKey
 });
 
@@ -1981,7 +1981,7 @@ export const zMachineDaemonToken = z.object({
 });
 
 export const zCreateMachineDaemonTokenResponse = z.object({
-    token: z.string(),
+    token: z.string().min(1),
     token_record: zMachineDaemonToken
 });
 

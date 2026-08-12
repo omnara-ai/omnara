@@ -1888,6 +1888,9 @@ export type PersonalAccessToken = {
     id: PersonalAccessTokenId;
     user_id: UserId;
     name: string;
+    /**
+     * Stable non-secret display identifier. It is not embedded in the bearer token.
+     */
     token_id: string;
     created_at: Timestamp;
     last_used_at: Timestamp | null;
@@ -1895,6 +1898,9 @@ export type PersonalAccessToken = {
 };
 
 export type CreatePersonalAccessTokenResponse = {
+    /**
+     * Opaque bearer credential.
+     */
     token: string;
     token_record: PersonalAccessToken;
 };
@@ -1908,6 +1914,9 @@ export type OrgApiKey = {
     id: OrgApiKeyId;
     org_id: OrganizationId;
     name: string;
+    /**
+     * Stable non-secret display identifier. It is not embedded in the bearer token.
+     */
     token_id: string;
     /**
      * The key's org role (admin or member). Empty for revoked keys.
@@ -1926,6 +1935,9 @@ export type CreateOrgApiKeyRequest = {
 };
 
 export type CreateOrgApiKeyResponse = {
+    /**
+     * Opaque bearer credential.
+     */
     token: string;
     api_key: OrgApiKey;
 };
@@ -2376,6 +2388,9 @@ export type MachineDaemonToken = {
 };
 
 export type CreateMachineDaemonTokenResponse = {
+    /**
+     * Opaque bearer credential.
+     */
     token: string;
     token_record: MachineDaemonToken;
 };

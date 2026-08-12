@@ -1,0 +1,19 @@
+openapi: 3.1.0
+info:
+  title: Compatibility fixture
+  version: pattern-v1
+paths:
+  /api/v1/resources:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: string
+                    pattern: '^value-v1-[a-z]+$'

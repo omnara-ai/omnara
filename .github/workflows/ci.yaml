@@ -48,6 +48,12 @@ jobs:
 
       - run: make verify-static
 
+      - name: Protect released migrations and check API compatibility
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          COMPAT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: make compatibility-check
+
       - run: make govulncheck
 
   go-tests:

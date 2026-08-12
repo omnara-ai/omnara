@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -435,14 +433,6 @@ func machineDaemonTokenResponse(record executionstore.MachineDaemonTokenRecord) 
 	}, nil
 }
 
-func newDaemonToken() (string, error) {
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return executionstore.MachineDaemonTokenPlaintextPrefix + hex.EncodeToString(b[:]), nil
-}
-
 func (s strictOpenAPIServer) ListBYOMachineDaemonTokens(
 	ctx context.Context,
 	request openapi.ListBYOMachineDaemonTokensRequestObject,
@@ -526,30 +516,25 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 		name = *body.Name
 	}
 	metadata := body.Metadata
-	token, err := newDaemonToken()
-	if err != nil {
-		return nil, err
-	}
-	record, err := s.server.store.Execution().CreateBYOMachineDaemonToken(
+	created, err := s.server.store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     machine.OrgID,
 			MachineID: machine.ID,
 			Name:      name,
-			Token:     token,
 			Metadata:  metadata,
 		},
 	)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	tokenRecord, err := machineDaemonTokenResponse(record)
+	tokenRecord, err := machineDaemonTokenResponse(created.Record)
 	if err != nil {
 		return nil, err
 	}
 	return openapi.CreateBYOMachineDaemonToken201JSONResponse(
 		openapi.CreateMachineDaemonTokenResponse{
-			Token:       token,
+			Token:       created.Token,
 			TokenRecord: tokenRecord,
 		},
 	), nil

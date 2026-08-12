@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
@@ -20,93 +20,65 @@ type CreatedPersonalAccessToken struct {
 	Token  string
 }
 
-func (s *Store) CreatePersonalAccessToken(
-	ctx context.Context,
-	input CreatePersonalAccessTokenInput,
-) (PersonalAccessTokenRecord, error) {
-	if err := preparePersonalAccessTokenInput(&input); err != nil {
-		return PersonalAccessTokenRecord{}, err
-	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return PersonalAccessTokenRecord{}, fmt.Errorf("begin create personal access token: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
-	row, err := createPersonalAccessTokenTx(ctx, qtx, input)
-	if err != nil {
-		return PersonalAccessTokenRecord{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return PersonalAccessTokenRecord{}, fmt.Errorf("commit create personal access token: %w", err)
-	}
-	return personalAccessTokenRecordFromSQLC(row), nil
-}
-
 func (s *Store) CreatePersonalAccessTokenWithPlaintext(
 	ctx context.Context,
 	input CreatePersonalAccessTokenInput,
 ) (CreatedPersonalAccessToken, error) {
-	if err := fillPersonalAccessTokenPlaintext(&input); err != nil {
-		return CreatedPersonalAccessToken{}, err
-	}
-	record, err := s.CreatePersonalAccessToken(ctx, input)
+	prepared, err := preparePersonalAccessTokenInput(input)
 	if err != nil {
 		return CreatedPersonalAccessToken{}, err
 	}
-	return CreatedPersonalAccessToken{Record: record, Token: input.Token}, nil
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return CreatedPersonalAccessToken{}, fmt.Errorf("begin create personal access token: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	row, err := createPersonalAccessTokenTx(ctx, s.q.WithTx(tx), prepared)
+	if err != nil {
+		return CreatedPersonalAccessToken{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CreatedPersonalAccessToken{}, fmt.Errorf("commit create personal access token: %w", err)
+	}
+	return CreatedPersonalAccessToken{
+		Record: personalAccessTokenRecordFromSQLC(row),
+		Token:  prepared.token,
+	}, nil
 }
 
-func preparePersonalAccessTokenInput(input *CreatePersonalAccessTokenInput) error {
+type preparedPersonalAccessToken struct {
+	input   CreatePersonalAccessTokenInput
+	tokenID string
+	token   string
+}
+
+func preparePersonalAccessTokenInput(input CreatePersonalAccessTokenInput) (preparedPersonalAccessToken, error) {
 	if input.Name == "" {
-		return errors.New("personal access token name is required")
+		return preparedPersonalAccessToken{}, errors.New("personal access token name is required")
 	}
 	if isNilID(input.UserID) {
-		return errors.New("personal access token user id is required")
+		return preparedPersonalAccessToken{}, errors.New("personal access token user id is required")
 	}
 	if input.ActorPrincipal.Type != "" && input.ActorPrincipal.ID != input.UserID {
-		return storeerr.ErrUnauthorized
+		return preparedPersonalAccessToken{}, storeerr.ErrUnauthorized
 	}
-	return fillPersonalAccessTokenPlaintext(input)
-}
-
-func fillPersonalAccessTokenPlaintext(input *CreatePersonalAccessTokenInput) error {
-	if input.Token != "" {
-		tokenID, err := PersonalAccessTokenIDFromPlaintext(input.Token)
-		if err != nil {
-			return err
-		}
-		if input.TokenID == "" {
-			input.TokenID = tokenID
-		} else if input.TokenID != tokenID {
-			return errors.New("personal access token id does not match token plaintext")
-		}
+	tokenID, err := randomTokenPart(10)
+	if err != nil {
+		return preparedPersonalAccessToken{}, fmt.Errorf("generate personal access token id: %w", err)
 	}
-	if input.TokenID == "" {
-		tokenID, err := randomTokenPart(10)
-		if err != nil {
-			return fmt.Errorf("generate personal access token id: %w", err)
-		}
-		input.TokenID = tokenID
+	token, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
+	if err != nil {
+		return preparedPersonalAccessToken{}, err
 	}
-	if input.Token == "" {
-		secret, err := randomTokenPart(32)
-		if err != nil {
-			return fmt.Errorf("generate personal access token secret: %w", err)
-		}
-		input.Token = FormatPersonalAccessToken(input.TokenID, secret)
-	}
-	if err := ValidatePersonalAccessTokenPlaintext(input.Token); err != nil {
-		return err
-	}
-	return nil
+	return preparedPersonalAccessToken{input: input, tokenID: tokenID, token: token}, nil
 }
 
 func createPersonalAccessTokenTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	input CreatePersonalAccessTokenInput,
+	prepared preparedPersonalAccessToken,
 ) (dbsqlc.PersonalAccessToken, error) {
+	input := prepared.input
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return dbsqlc.PersonalAccessToken{}, storeerr.ErrUnauthorized
@@ -121,8 +93,8 @@ func createPersonalAccessTokenTx(
 		dbsqlc.CreatePersonalAccessTokenParams{
 			UserID:    input.UserID,
 			Name:      input.Name,
-			TokenID:   input.TokenID,
-			TokenHash: HashBearerToken(input.Token),
+			TokenID:   prepared.tokenID,
+			TokenHash: HashBearerToken(prepared.token),
 		},
 	)
 	if err != nil {
@@ -151,10 +123,7 @@ func (s *Store) AuthenticatePersonalAccessToken(
 	ctx context.Context,
 	token string,
 ) (PrincipalRecord, error) {
-	if token == "" {
-		return PrincipalRecord{}, storeerr.ErrUnauthorized
-	}
-	if err := ValidatePersonalAccessTokenPlaintext(token); err != nil {
+	if err := bearertoken.Validate(token, bearertoken.KindPersonalAccess); err != nil {
 		return PrincipalRecord{}, storeerr.ErrUnauthorized
 	}
 	row, err := s.q.AuthenticatePersonalAccessToken(
@@ -170,7 +139,7 @@ func (s *Store) AuthenticatePersonalAccessToken(
 	if err != nil {
 		return PrincipalRecord{}, fmt.Errorf("authenticate personal access token: %w", err)
 	}
-	return PrincipalRecord{Type: row.PrincipalType, ID: row.UserID, PersonalAccessTokenID: row.PersonalAccessTokenID}, nil
+	return NewPersonalAccessTokenPrincipal(row.UserID, row.PersonalAccessTokenID), nil
 }
 
 type ListPersonalAccessTokensInput struct {
@@ -250,30 +219,6 @@ func (s *Store) RevokePersonalAccessToken(
 
 func HashBearerToken(token string) string {
 	return tokenutil.Hash(token)
-}
-
-func FormatPersonalAccessToken(tokenID, secret string) string {
-	return PersonalAccessTokenPlaintextPrefix + tokenID + "_" + secret
-}
-
-func ValidatePersonalAccessTokenPlaintext(token string) error {
-	_, err := PersonalAccessTokenIDFromPlaintext(token)
-	return err
-}
-
-func PersonalAccessTokenIDFromPlaintext(token string) (string, error) {
-	if !strings.HasPrefix(token, PersonalAccessTokenPlaintextPrefix) {
-		return "", errors.New("personal access token must use omnara_pat prefix")
-	}
-	rest := strings.TrimPrefix(token, PersonalAccessTokenPlaintextPrefix)
-	parts := strings.SplitN(rest, "_", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", errors.New("personal access token must include token id and secret")
-	}
-	if strings.Contains(parts[0], "_") || strings.Contains(parts[1], "_") {
-		return "", errors.New("personal access token id and secret must not contain underscores")
-	}
-	return parts[0], nil
 }
 
 func randomTokenPart(size int) (string, error) {

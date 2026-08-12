@@ -129,7 +129,7 @@ func TestUnikraftProviderProvisionIncludesStartupScriptOrchestration(t *testing.
 			t,
 			map[string]any{"provider_options": map[string]any{"startup_script": "echo startup-ready\n"}},
 		),
-		"omnara_daemon_"+strings.Repeat("a", 64),
+		"opaque-machine-token",
 		map[string]string{"USER_TOKEN": strings.Repeat("b", 256)},
 	)
 	if err != nil {

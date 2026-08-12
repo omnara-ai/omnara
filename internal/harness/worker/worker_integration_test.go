@@ -2154,7 +2154,6 @@ func createWorkerExecutableMachine(
 			OrgID:     workerTestOrgID,
 			MachineID: machine.ID,
 			Name:      "worker test daemon",
-			Token:     "worker-test-daemon-token-" + now.Format(time.RFC3339Nano),
 		},
 	)
 	if err != nil {
@@ -2165,7 +2164,7 @@ func createWorkerExecutableMachine(
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            workerTestOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: workerTestID("daemon-worker-runtime"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,

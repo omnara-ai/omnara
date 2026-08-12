@@ -35,7 +35,7 @@ func TestListOrgMembers(t *testing.T) {
 	}
 	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: member.ID, Name: "member", TokenID: "members-second"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: member.ID, Name: "member"},
 	)
 	if err != nil {
 		t.Fatalf("create member pat: %v", err)

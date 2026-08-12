@@ -5939,8 +5939,8 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: Omnara personal access token
-      description: A user's personal access token prefixed omnara_pat_.
+      bearerFormat: Omnara personal or organization access token
+      description: An opaque Omnara personal or organization bearer token.
     browserSessionCookie:
       type: apiKey
       in: cookie
@@ -5955,7 +5955,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Omnara machine daemon token
-      description: Machine daemon bearer token. The bootstrap route derives the canonical organization, installation, and machine identity from the token; runtime routes verify that the addressed runtime belongs to the token-derived machine.
+      description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -9337,6 +9337,7 @@ components:
           type: string
         token_id:
           type: string
+          description: Stable non-secret display identifier. It is not embedded in the bearer token.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         last_used_at:
@@ -9354,7 +9355,8 @@ components:
       properties:
         token:
           type: string
-          pattern: '^omnara_pat_[^_]+_[^_]+$'
+          minLength: 1
+          description: Opaque bearer credential.
         token_record:
           $ref: '#/components/schemas/PersonalAccessToken'
     OrgAPIKeyRole:
@@ -9374,6 +9376,7 @@ components:
           type: string
         token_id:
           type: string
+          description: Stable non-secret display identifier. It is not embedded in the bearer token.
         org_role:
           type: string
           description: The key's org role (admin or member). Empty for revoked keys.
@@ -9408,7 +9411,8 @@ components:
       properties:
         token:
           type: string
-          pattern: '^omnara_org_[^_]+_[^_]+$'
+          minLength: 1
+          description: Opaque bearer credential.
         api_key:
           $ref: '#/components/schemas/OrgAPIKey'
     UpdateOrgAPIKeyRequest:
@@ -10384,6 +10388,8 @@ components:
       properties:
         token:
           type: string
+          minLength: 1
+          description: Opaque bearer credential.
         token_record:
           $ref: '#/components/schemas/MachineDaemonToken'
     ListMachineDaemonTokensResponse:

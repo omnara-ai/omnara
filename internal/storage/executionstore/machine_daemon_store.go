@@ -186,7 +186,6 @@ type CreateBYOMachineDaemonTokenInput struct {
 	OrgID     ID
 	MachineID ID
 	Name      string
-	Token     string
 	Metadata  resourcemeta.Metadata
 }
 

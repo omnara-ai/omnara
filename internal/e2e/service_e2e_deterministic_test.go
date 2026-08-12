@@ -905,7 +905,7 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 	}
 	adminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: adminUser.ID, Name: "e2e owner", TokenID: seed + "-admin"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: adminUser.ID, Name: "e2e owner"},
 	)
 	if err != nil {
 		t.Fatalf("create e2e owner pat: %v", err)

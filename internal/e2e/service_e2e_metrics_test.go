@@ -36,12 +36,14 @@ func TestServiceE2EMetricsEndpoints(t *testing.T) {
 	)
 
 	env.startWorker(t, ctx, "", serviceWorkerOptions{})
+	assertStatus(t, ctx, env.workerURL+"/readyz", http.StatusOK)
 	assertMetrics(t, ctx, env.workerURL+"/metrics",
 		"go_goroutines",
 		"omnara_db_query_duration_seconds",
 	)
 
 	env.startMaintenance(t, ctx)
+	assertStatus(t, ctx, env.maintenanceURL+"/readyz", http.StatusOK)
 	assertMetrics(t, ctx, env.maintenanceURL+"/metrics",
 		"go_goroutines",
 		"omnara_db_query_duration_seconds",

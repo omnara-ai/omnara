@@ -922,7 +922,7 @@ RETURNING id, user_id, name, token_id, token_hash, created_at, last_used_at, rev
 
 -- name: AuthenticatePersonalAccessToken :one
 WITH authenticated AS MATERIALIZED (
-  SELECT 'user'::text AS principal_type, pat.user_id, pat.id AS personal_access_token_id, pat.last_used_at
+  SELECT pat.user_id, pat.id AS personal_access_token_id, pat.last_used_at
   FROM personal_access_tokens pat
   WHERE pat.token_hash = sqlc.arg(token_hash)
     AND pat.revoked_at IS NULL
@@ -939,7 +939,7 @@ WITH authenticated AS MATERIALIZED (
     )
   RETURNING token.id
 )
-SELECT principal_type, user_id, personal_access_token_id, last_used_at
+SELECT user_id, personal_access_token_id, last_used_at
 FROM authenticated;
 
 -- name: RevokePersonalAccessTokensForUser :exec
@@ -979,7 +979,7 @@ RETURNING id, user_id, token_hash, csrf_token_hash, created_at, last_seen_at, ex
 
 -- name: AuthenticateBrowserSession :one
 WITH authenticated AS MATERIALIZED (
-  SELECT 'user'::text AS principal_type, bs.user_id, bs.id AS browser_session_id, bs.csrf_token_hash, bs.last_seen_at
+  SELECT bs.user_id, bs.id AS browser_session_id, bs.csrf_token_hash, bs.last_seen_at
   FROM browser_sessions bs
   WHERE bs.token_hash = sqlc.arg(token_hash)
     AND bs.revoked_at IS NULL
@@ -1002,7 +1002,7 @@ WITH authenticated AS MATERIALIZED (
   WHERE session.id = touch_candidate.id
   RETURNING session.id
 )
-SELECT authenticated.principal_type, authenticated.user_id, authenticated.browser_session_id,
+SELECT authenticated.user_id, authenticated.browser_session_id,
   authenticated.csrf_token_hash, authenticated.last_seen_at
 FROM authenticated
 LEFT JOIN touched ON true;
