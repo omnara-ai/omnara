@@ -144,27 +144,7 @@ openapi-check:
 	git diff --exit-code -- api/openapi internal/httpapi/openapi
 
 openapi-compat-fixture-check:
-	@$(OASDIFF_BREAKING) --format text \
-		tools/ci/openapi-compat/testdata/base.yaml \
-		tools/ci/openapi-compat/testdata/compatible-head.yaml
-	@set -e; \
-		for fixture in \
-			'added response pattern|base.yaml|pattern-breaking-head.yaml' \
-			'changed response pattern|pattern-v1-base.yaml|pattern-v2-head.yaml' \
-			'added response enum value|base.yaml|enum-breaking-head.yaml' \
-			'removed route|base.yaml|route-breaking-head.yaml'; do \
-			description="$${fixture%%|*}"; remainder="$${fixture#*|}"; \
-			base="$${remainder%%|*}"; head="$${remainder#*|}"; \
-			set +e; \
-			output="$$( $(OASDIFF_BREAKING) --format text \
-				"tools/ci/openapi-compat/testdata/$$base" \
-				"tools/ci/openapi-compat/testdata/$$head" 2>&1 )"; \
-			status=$$?; set -e; \
-			test "$$status" -eq 1 || { \
-				printf '%s\nexpected %s fixture to exit 1, got %s\n' "$$output" "$$description" "$$status"; \
-				exit 1; \
-			}; \
-		done
+	@tools/ci/openapi-compat/check-fixtures.sh $(OASDIFF_BREAKING)
 
 openapi-compat-check:
 	@test -n "$(COMPAT_BASE_SHA)" || { printf 'COMPAT_BASE_SHA is required\n'; exit 2; }
@@ -226,38 +206,7 @@ migration-compat-check:
 	$(MIGRATION_CHECK) compare-releases $(if $(MIGRATION_RELEASE_REF_ROOT),--release-ref-root "$(MIGRATION_RELEASE_REF_ROOT)")
 
 compatibility-check: ## Check API and released migrations after syncing with origin/main
-	@set -eu; \
-	base_sha='$(COMPAT_BASE_SHA)'; \
-	release_ref_root="refs/omnara/compatibility/$$$$"; \
-	cleanup_compatibility_refs() { \
-		git for-each-ref --format='delete %(refname)' "$$release_ref_root/" | git update-ref --stdin; \
-	}; \
-	handle_compatibility_signal() { \
-		signal=$$1; \
-		trap - EXIT "$$signal"; \
-		cleanup_compatibility_refs || :; \
-		kill -s "$$signal" "$$$$"; \
-	}; \
-	cleanup_compatibility_refs; \
-	trap cleanup_compatibility_refs EXIT; \
-	trap 'handle_compatibility_signal HUP' HUP; \
-	trap 'handle_compatibility_signal INT' INT; \
-	trap 'handle_compatibility_signal TERM' TERM; \
-	if test -z "$$base_sha"; then \
-		base_sha="$$(git ls-remote --exit-code "$(COMPAT_REMOTE)" refs/heads/main | awk 'NR == 1 { print $$1 }')"; \
-		test -n "$$base_sha" || { printf 'cannot resolve %s/main\n' "$(COMPAT_REMOTE)"; exit 2; }; \
-	fi; \
-	fetch_depth=''; \
-	if test "$$(git rev-parse --is-shallow-repository)" = true; then fetch_depth='--depth=1'; fi; \
-	if ! git cat-file -e "$$base_sha^{commit}" 2>/dev/null; then \
-		git fetch --no-tags $$fetch_depth "$(COMPAT_REMOTE)" "$$base_sha"; \
-	fi; \
-	git cat-file -e "$$base_sha^{commit}"; \
-	git fetch --no-tags --force $$fetch_depth "$(COMPAT_REMOTE)" \
-		"+refs/tags/cluster-v*:$$release_ref_root/cluster-v*" \
-		"+refs/tags/omnarad-v*:$$release_ref_root/omnarad-v*"; \
-	$(MAKE) --no-print-directory migration-compat-check MIGRATION_RELEASE_REF_ROOT="$$release_ref_root"; \
-	$(MAKE) --no-print-directory openapi-compat-check COMPAT_BASE_SHA="$$base_sha"
+	@tools/ci/compatibility-check.sh "$(COMPAT_BASE_SHA)" "$(COMPAT_REMOTE)" $(MAKE)
 
 goose-version-check:
 	@root="$$(GOFLAGS= $(GO) list -m -f '{{.Version}}' github.com/pressly/goose/v3)" || exit $$?; \
