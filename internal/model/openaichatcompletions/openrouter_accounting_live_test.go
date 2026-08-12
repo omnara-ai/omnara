@@ -33,7 +33,6 @@ func newLiveOpenRouterResponseCapture() (*http.Client, *liveOpenRouterResponseCa
 		if err != nil {
 			return nil, err
 		}
-		capture.body.Reset()
 		response.Body = struct {
 			io.Reader
 			io.Closer
@@ -62,7 +61,7 @@ func assertLiveOpenRouterReportedCost(
 	t *testing.T,
 	actual modelenvelope.ProviderReportedCostUSD,
 	capture *liveOpenRouterResponseCapture,
-) (bool, bool) {
+) *bool {
 	t.Helper()
 	usage := capturedLiveOpenRouterUsage(t, capture.body.Bytes())
 	baseCost := strings.TrimSpace(string(usage.Cost))
@@ -90,10 +89,10 @@ func assertLiveOpenRouterReportedCost(
 	}
 	if usage.IsBYOK == nil {
 		t.Log("verified live OpenRouter cost (is_byok omitted)")
-		return false, false
+		return nil
 	}
 	t.Logf("verified live OpenRouter cost (is_byok=%t)", *usage.IsBYOK)
-	return *usage.IsBYOK, true
+	return usage.IsBYOK
 }
 
 func capturedLiveOpenRouterUsage(t *testing.T, body []byte) liveOpenRouterUsage {

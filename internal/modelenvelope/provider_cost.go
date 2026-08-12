@@ -27,6 +27,8 @@ func SumProviderReportedCostUSD(
 	}
 	total := new(big.Rat)
 	for _, rawCost := range rawCosts {
+		// big.Rat accepts non-JSON forms such as fractions and signed values;
+		// the provider-cost parser is the grammar and range authority.
 		if _, ok := ParseProviderReportedCostUSD(rawCost); !ok {
 			return "", false
 		}

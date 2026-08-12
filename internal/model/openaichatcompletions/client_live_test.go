@@ -38,6 +38,7 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 		t.Fatal("OPENROUTER_API_KEY is required for live OpenRouter Chat Completions test")
 	}
 
+	// This account/model matrix must exercise both OpenRouter shared capacity and BYOK.
 	var sawBYOK, sawNonBYOK bool
 	for _, tc := range []struct {
 		name              string
@@ -76,20 +77,20 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 				APIVariant:        modelprotocol.APIVariantOpenRouter,
 				APIVariantOptions: tc.apiVariantOptions,
 			}, model.RequestPolicy{MaxOutputTokens: 64})
-			isBYOK, reported := assertLiveOpenRouterReportedCost(
+			isBYOK := assertLiveOpenRouterReportedCost(
 				t,
 				response.ProviderReportedCostUSD,
 				responseCapture,
 			)
-			if reported {
-				sawBYOK = sawBYOK || isBYOK
-				sawNonBYOK = sawNonBYOK || !isBYOK
+			if isBYOK != nil {
+				sawBYOK = sawBYOK || *isBYOK
+				sawNonBYOK = sawNonBYOK || !*isBYOK
 			}
 		})
 	}
 	if !sawBYOK || !sawNonBYOK {
 		t.Fatalf(
-			"live OpenRouter model matrix did not exercise both accounting routes (BYOK=%t, non-BYOK=%t)",
+			"live OpenRouter account/model matrix must exercise both accounting routes; check BYOK integrations or refresh the hardcoded models (BYOK=%t, non-BYOK=%t)",
 			sawBYOK,
 			sawNonBYOK,
 		)

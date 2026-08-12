@@ -7,28 +7,55 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
+// OpenRouter reports both account charges and upstream inference costs in USD.
 // https://openrouter.ai/docs/cookbook/administration/usage-accounting#cost-breakdown
 func openRouterReportedCost(
 	usage chatUsage,
-) (modelenvelope.ProviderReportedCostUSD, bool) {
+) (modelenvelope.ProviderReportedCostUSD, openRouterCostIssue) {
 	openRouterCost, valid := optionalProviderCost(usage.OpenRouterCost)
-	if !valid || openRouterCost.raw == "" {
-		return openRouterCost.normalized, valid
+	if !valid {
+		return "", openRouterCostIssueInvalid
 	}
 	isBYOK, valid := optionalProviderBool(usage.OpenRouterIsBYOK)
-	if !valid || isBYOK == nil || !*isBYOK {
-		return openRouterCost.normalized, true
+	if !valid {
+		return openRouterCost.normalized, openRouterCostIssueBYOKStateInvalid
+	}
+	if openRouterCost.raw == "" {
+		if isBYOK != nil && *isBYOK {
+			return "", openRouterCostIssueBYOKComponentMissing
+		}
+		return "", openRouterCostIssueNone
+	}
+	if isBYOK == nil {
+		return openRouterCost.normalized, openRouterCostIssueBYOKStateMissing
+	}
+	if !*isBYOK {
+		return openRouterCost.normalized, openRouterCostIssueNone
 	}
 
 	upstreamCost, valid := openRouterUpstreamCost(usage.OpenRouterCostDetails)
 	if !valid {
-		return "", false
+		return "", openRouterCostIssueInvalid
 	}
 	if upstreamCost.raw == "" {
-		return "", true
+		return "", openRouterCostIssueBYOKComponentMissing
 	}
-	return modelenvelope.SumProviderReportedCostUSD(openRouterCost.raw, upstreamCost.raw)
+	total, valid := modelenvelope.SumProviderReportedCostUSD(openRouterCost.raw, upstreamCost.raw)
+	if !valid {
+		return "", openRouterCostIssueInvalid
+	}
+	return total, openRouterCostIssueNone
 }
+
+type openRouterCostIssue uint8
+
+const (
+	openRouterCostIssueNone openRouterCostIssue = iota
+	openRouterCostIssueInvalid
+	openRouterCostIssueBYOKStateMissing
+	openRouterCostIssueBYOKStateInvalid
+	openRouterCostIssueBYOKComponentMissing
+)
 
 type openRouterCostDetails struct {
 	UpstreamInferenceCost json.RawMessage `json:"upstream_inference_cost"`

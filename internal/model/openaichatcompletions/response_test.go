@@ -226,13 +226,62 @@ func TestParseResponseDistinguishesFreeAndUnavailableOpenRouterCost(t *testing.T
 	}
 }
 
-func TestParseResponseReportsInvalidOpenRouterCost(t *testing.T) {
+func TestParseResponseReportsOpenRouterAccountingIssues(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		cost string
+		name              string
+		usage             string
+		wantCost          modelenvelope.ProviderReportedCostUSD
+		wantLevel         string
+		wantReasonField   string
+		wantReason        string
+		forbiddenLogValue string
 	}{
-		{name: "negative", cost: `-0.01`},
-		{name: "unrecognized shape", cost: `{"total":0.01}`},
+		{
+			name:              "negative cost",
+			usage:             `"cost":-0.01`,
+			wantLevel:         "warn",
+			wantReasonField:   "model_response.provider_reported_cost_usd.unavailable_reason",
+			wantReason:        "invalid_provider_value",
+			forbiddenLogValue: "-0.01",
+		},
+		{
+			name:              "unrecognized cost shape",
+			usage:             `"cost":{"total":0.01}`,
+			wantLevel:         "warn",
+			wantReasonField:   "model_response.provider_reported_cost_usd.unavailable_reason",
+			wantReason:        "invalid_provider_value",
+			forbiddenLogValue: `{"total":0.01}`,
+		},
+		{
+			name:            "missing BYOK identity preserves known account cost",
+			usage:           `"cost":0.0000125,"cost_details":[]`,
+			wantCost:        "0.0000125",
+			wantLevel:       "info",
+			wantReasonField: "model_response.provider_reported_cost_usd.accounting_limitation",
+			wantReason:      "byok_state_missing",
+		},
+		{
+			name:            "malformed BYOK identity preserves known account cost",
+			usage:           `"cost":0.0000125,"is_byok":"unknown","cost_details":[]`,
+			wantCost:        "0.0000125",
+			wantLevel:       "warn",
+			wantReasonField: "model_response.provider_reported_cost_usd.accounting_limitation",
+			wantReason:      "invalid_byok_state",
+		},
+		{
+			name:            "missing BYOK upstream cost",
+			usage:           `"cost":0,"is_byok":true`,
+			wantLevel:       "warn",
+			wantReasonField: "model_response.provider_reported_cost_usd.unavailable_reason",
+			wantReason:      "byok_cost_component_missing",
+		},
+		{
+			name:            "invalid BYOK cost details",
+			usage:           `"cost":0,"is_byok":true,"cost_details":[]`,
+			wantLevel:       "warn",
+			wantReasonField: "model_response.provider_reported_cost_usd.unavailable_reason",
+			wantReason:      "invalid_provider_value",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var logs bytes.Buffer
@@ -245,61 +294,11 @@ func TestParseResponseReportsInvalidOpenRouterCost(t *testing.T) {
 			p := protocol{client: Client{APIVariant: modelprotocol.APIVariantOpenRouter}}
 			body := json.RawMessage(`{"id":"chatcmpl_cost","model":"openai/gpt-5","choices":[{"index":0,` +
 				`"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
-				`"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":` + test.cost + `}}`)
+				`"usage":{"prompt_tokens":1,"completion_tokens":1,` + test.usage + `}}`)
 
 			response, err := p.ParseResponse(ctx, route.Response{StatusCode: http.StatusOK, Body: body})
 			if err != nil {
-				t.Fatalf("parse response with invalid OpenRouter cost: %v", err)
-			}
-			if response.ProviderReportedCostUSD != "" {
-				t.Fatalf("provider-reported cost = %q, want unavailable", response.ProviderReportedCostUSD)
-			}
-			event.Done(context.Background())
-
-			var record map[string]any
-			if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &record); err != nil {
-				t.Fatalf("decode model-call event: %v", err)
-			}
-			if record["level"] != "warn" ||
-				record["model_response.provider_reported_cost_usd.unavailable_reason"] != "invalid_provider_value" {
-				t.Fatalf("invalid provider cost event = %+v", record)
-			}
-			if strings.Contains(logs.String(), test.cost) {
-				t.Fatalf("model-call event included raw provider cost: %s", logs.String())
-			}
-		})
-	}
-}
-
-func TestParseResponseIsolatesOpenRouterAccountingExtensions(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		extensions string
-		wantCost   modelenvelope.ProviderReportedCostUSD
-	}{
-		{
-			name:       "unknown BYOK identity preserves known account cost",
-			extensions: `,"is_byok":"unknown","cost_details":[]`,
-			wantCost:   "0.0000125",
-		},
-		{
-			name:       "invalid BYOK details make all-in cost unavailable",
-			extensions: `,"is_byok":true,"cost_details":[]`,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			body := json.RawMessage(`{"id":"chatcmpl_cost","model":"openai/gpt-5","choices":[{"index":0,` +
-				`"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
-				`"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0.0000125` +
-				test.extensions + `}}`)
-			response, err := (protocol{client: Client{
-				APIVariant: modelprotocol.APIVariantOpenRouter,
-			}}).ParseResponse(context.Background(), route.Response{
-				StatusCode: http.StatusOK,
-				Body:       body,
-			})
-			if err != nil {
-				t.Fatalf("parse response: %v", err)
+				t.Fatalf("parse response with OpenRouter accounting issue: %v", err)
 			}
 			if response.Text() != "done" || response.ProviderReportedCostUSD != test.wantCost {
 				t.Fatalf(
@@ -309,7 +308,47 @@ func TestParseResponseIsolatesOpenRouterAccountingExtensions(t *testing.T) {
 					test.wantCost,
 				)
 			}
+			event.Done(context.Background())
+
+			var record map[string]any
+			if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &record); err != nil {
+				t.Fatalf("decode model-call event: %v", err)
+			}
+			if record["level"] != test.wantLevel || record[test.wantReasonField] != test.wantReason {
+				t.Fatalf("provider accounting event = %+v", record)
+			}
+			if test.forbiddenLogValue != "" && strings.Contains(logs.String(), test.forbiddenLogValue) {
+				t.Fatalf("model-call event included raw provider cost: %s", logs.String())
+			}
 		})
+	}
+}
+
+func TestOpenRouterAccountingDiagnosticsPreserveModelCallErrorLevel(t *testing.T) {
+	var logs bytes.Buffer
+	base := logpkg.WithLogger(
+		context.Background(),
+		slog.New(logpkg.NewJSONHandler(&logs, nil)),
+	)
+	event := logpkg.NewEvent(base, "model.call")
+	ctx := logpkg.WithEvent(base, event)
+	p := protocol{client: Client{APIVariant: modelprotocol.APIVariantOpenRouter}}
+	body := json.RawMessage(`{"id":"chatcmpl_cost","choices":[],"usage":{"cost":0.0000125}}`)
+
+	_, err := p.ParseResponse(ctx, route.Response{StatusCode: http.StatusOK, Body: body})
+	if err == nil {
+		t.Fatal("response without a choice was accepted")
+	}
+	logpkg.Error(ctx, err)
+	event.Done(context.Background())
+
+	var record map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &record); err != nil {
+		t.Fatalf("decode model-call event: %v", err)
+	}
+	if record["level"] != "error" ||
+		record["model_response.provider_reported_cost_usd.accounting_limitation"] != "byok_state_missing" {
+		t.Fatalf("model-call event = %+v", record)
 	}
 }
 

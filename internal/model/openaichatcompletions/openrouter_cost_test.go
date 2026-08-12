@@ -12,7 +12,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 		name  string
 		usage chatUsage
 		want  modelenvelope.ProviderReportedCostUSD
-		valid bool
+		issue openRouterCostIssue
 	}{
 		{
 			name: "OpenRouter-funded request uses account charge",
@@ -21,8 +21,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterCostDetails: json.RawMessage(`{"upstream_inference_cost":0.00001}`),
 				OpenRouterIsBYOK:      json.RawMessage(`false`),
 			},
-			want:  "0.0000125",
-			valid: true,
+			want: "0.0000125",
 		},
 		{
 			name: "missing BYOK identity preserves known account charge",
@@ -31,7 +30,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterCostDetails: json.RawMessage(`{"upstream_inference_cost":0.00001}`),
 			},
 			want:  "0.0000125",
-			valid: true,
+			issue: openRouterCostIssueBYOKStateMissing,
 		},
 		{
 			name: "null BYOK identity preserves known account charge",
@@ -41,7 +40,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterIsBYOK:      json.RawMessage(`null`),
 			},
 			want:  "0.0000125",
-			valid: true,
+			issue: openRouterCostIssueBYOKStateMissing,
 		},
 		{
 			name: "malformed BYOK identity preserves known account charge",
@@ -51,7 +50,14 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterIsBYOK:      json.RawMessage(`"unknown"`),
 			},
 			want:  "0.0000125",
-			valid: true,
+			issue: openRouterCostIssueBYOKStateInvalid,
+		},
+		{
+			name: "malformed BYOK identity remains observable without a reported cost",
+			usage: chatUsage{
+				OpenRouterIsBYOK: json.RawMessage(`"unknown"`),
+			},
+			issue: openRouterCostIssueBYOKStateInvalid,
 		},
 		{
 			name: "BYOK request includes free routing and upstream inference",
@@ -60,8 +66,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterCostDetails: json.RawMessage(`{"upstream_inference_cost":0.0000076}`),
 				OpenRouterIsBYOK:      json.RawMessage(`true`),
 			},
-			want:  "0.0000076",
-			valid: true,
+			want: "0.0000076",
 		},
 		{
 			name: "BYOK request includes routing fee and upstream inference",
@@ -70,8 +75,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterCostDetails: json.RawMessage(`{"upstream_inference_cost":19}`),
 				OpenRouterIsBYOK:      json.RawMessage(`true`),
 			},
-			want:  "19.95",
-			valid: true,
+			want: "19.95",
 		},
 		{
 			name: "BYOK request without upstream evidence remains unavailable",
@@ -79,7 +83,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterCost:   json.RawMessage(`0`),
 				OpenRouterIsBYOK: json.RawMessage(`true`),
 			},
-			valid: true,
+			issue: openRouterCostIssueBYOKComponentMissing,
 		},
 		{
 			name: "BYOK request without an OpenRouter charge remains unavailable",
@@ -87,7 +91,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterCostDetails: json.RawMessage(`{"upstream_inference_cost":0.0000076}`),
 				OpenRouterIsBYOK:      json.RawMessage(`true`),
 			},
-			valid: true,
+			issue: openRouterCostIssueBYOKComponentMissing,
 		},
 		{
 			name: "malformed BYOK upstream cost is invalid",
@@ -96,6 +100,7 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterCostDetails: json.RawMessage(`{"upstream_inference_cost":-1}`),
 				OpenRouterIsBYOK:      json.RawMessage(`true`),
 			},
+			issue: openRouterCostIssueInvalid,
 		},
 		{
 			name: "malformed BYOK cost details are invalid",
@@ -104,12 +109,13 @@ func TestOpenRouterReportedCost(t *testing.T) {
 				OpenRouterCostDetails: json.RawMessage(`[]`),
 				OpenRouterIsBYOK:      json.RawMessage(`true`),
 			},
+			issue: openRouterCostIssueInvalid,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, valid := openRouterReportedCost(test.usage)
-			if got != test.want || valid != test.valid {
-				t.Fatalf("openRouterReportedCost() = %q, %v; want %q, %v", got, valid, test.want, test.valid)
+			got, issue := openRouterReportedCost(test.usage)
+			if got != test.want || issue != test.issue {
+				t.Fatalf("openRouterReportedCost() = %q, %v; want %q, %v", got, issue, test.want, test.issue)
 			}
 		})
 	}

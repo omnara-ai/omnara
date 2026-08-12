@@ -144,11 +144,18 @@ func (p protocol) chatResponseEvidence(
 		Usage:                   usageFromResponse(response.Usage),
 	}
 	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter {
-		cost, valid := openRouterReportedCost(response.Usage)
-		if valid {
-			out.ProviderReportedCostUSD = cost
-		} else {
+		cost, issue := openRouterReportedCost(response.Usage)
+		out.ProviderReportedCostUSD = cost
+		switch issue {
+		case openRouterCostIssueNone:
+		case openRouterCostIssueInvalid:
 			logent.ModelResponseProviderCostInvalid(ctx)
+		case openRouterCostIssueBYOKStateMissing:
+			logent.ModelResponseProviderCostBYOKStateMissing(ctx)
+		case openRouterCostIssueBYOKStateInvalid:
+			logent.ModelResponseProviderCostBYOKStateInvalid(ctx)
+		case openRouterCostIssueBYOKComponentMissing:
+			logent.ModelResponseProviderCostBYOKComponentMissing(ctx)
 		}
 	}
 	return out
