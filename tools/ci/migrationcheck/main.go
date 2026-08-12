@@ -29,10 +29,13 @@ func run(args []string, stderr io.Writer) int {
 		}
 		commandErr = checkRepository(root)
 	case "compare-releases":
-		if len(args) != 1 {
+		releaseRefRoot := "refs/tags"
+		if len(args) == 3 && args[1] == "--release-ref-root" {
+			releaseRefRoot = args[2]
+		} else if len(args) != 1 {
 			return usage(stderr)
 		}
-		commandErr = compareReleasedRepository(root)
+		commandErr = compareReleasedRepository(root, releaseRefRoot)
 	default:
 		return usage(stderr)
 	}
@@ -51,7 +54,10 @@ func repositoryRoot() (string, error) {
 }
 
 func usage(stderr io.Writer) int {
-	return operationalFailure(stderr, "usage: migrationcheck check|compare-releases")
+	return operationalFailure(
+		stderr,
+		"usage: migrationcheck check|compare-releases [--release-ref-root REF_ROOT]",
+	)
 }
 
 func operationalFailure(stderr io.Writer, message string) int {

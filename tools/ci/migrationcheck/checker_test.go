@@ -123,7 +123,7 @@ func TestCompareReleasedRepositoryUsesIndependentReleaseStreams(t *testing.T) {
 	runMigrationGit(t, root, "tag", "omnarad-v1.1.0")
 
 	writeMigrationTestFile(t, root, "migrations/000002_draft.sql", "server draft two")
-	if err := compareReleasedRepository(root); err != nil {
+	if err := compareReleasedRepository(root, "refs/tags"); err != nil {
 		t.Fatalf("edit unreleased server migration: %v", err)
 	}
 
@@ -133,10 +133,54 @@ func TestCompareReleasedRepositoryUsesIndependentReleaseStreams(t *testing.T) {
 		"internal/machinedaemon/statedb/migrations/000002_next.sql",
 		"changed daemon release",
 	)
-	err := compareReleasedRepository(root)
+	err := compareReleasedRepository(root, "refs/tags")
 	if err == nil || !strings.Contains(err.Error(), "release omnarad-v1.1.0") ||
 		!strings.Contains(err.Error(), "released migration") {
 		t.Fatalf("changed released daemon migration error = %v", err)
+	}
+}
+
+func TestCompareReleasedRepositoryUsesOnlyConfiguredReleaseRefs(t *testing.T) {
+	root := newMigrationGitRepository(t)
+	writeMigrationTestFile(t, root, "migrations/000001_initial.sql", "server released")
+	writeMigrationTestFile(
+		t,
+		root,
+		"internal/machinedaemon/statedb/migrations/000001_initial.sql",
+		"daemon released",
+	)
+	runMigrationGit(t, root, "add", ".")
+	runMigrationGit(t, root, "commit", "-m", "trusted release")
+	releaseCommit := runMigrationGit(t, root, "rev-parse", "HEAD")
+	const releaseRefRoot = "refs/omnara/test-releases"
+	runMigrationGit(t, root, "update-ref", releaseRefRoot+"/cluster-v1.0.0", releaseCommit)
+	runMigrationGit(t, root, "update-ref", releaseRefRoot+"/omnarad-v1.0.0", releaseCommit)
+
+	writeMigrationTestFile(t, root, "migrations/000002_draft.sql", "server draft one")
+	writeMigrationTestFile(
+		t,
+		root,
+		"internal/machinedaemon/statedb/migrations/000002_draft.sql",
+		"daemon draft one",
+	)
+	runMigrationGit(t, root, "add", ".")
+	runMigrationGit(t, root, "commit", "-m", "local-only tags")
+	runMigrationGit(t, root, "tag", "cluster-v999.0.0")
+	runMigrationGit(t, root, "tag", "omnarad-v999.0.0")
+
+	writeMigrationTestFile(t, root, "migrations/000002_draft.sql", "server draft two")
+	writeMigrationTestFile(
+		t,
+		root,
+		"internal/machinedaemon/statedb/migrations/000002_draft.sql",
+		"daemon draft two",
+	)
+	if err := compareReleasedRepository(root, releaseRefRoot); err != nil {
+		t.Fatalf("configured release refs should ignore ambient tags: %v", err)
+	}
+	if err := compareReleasedRepository(root, "refs/tags"); err == nil ||
+		!strings.Contains(err.Error(), "released migration") {
+		t.Fatalf("ambient tag comparison error = %v, want released migration", err)
 	}
 }
 
@@ -152,7 +196,7 @@ func TestLatestReleaseBoundaryUsesSemanticVersionOrder(t *testing.T) {
 	wantCommit := runMigrationGit(t, root, "rev-parse", "HEAD")
 	runMigrationGit(t, root, "tag", "cluster-v1.10.0")
 
-	boundary, err := latestReleaseBoundary(root, "cluster-v")
+	boundary, err := latestReleaseBoundary(root, "refs/tags", "cluster-v")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,12 +211,12 @@ func TestLatestReleaseBoundaryFailsClosed(t *testing.T) {
 	runMigrationGit(t, root, "add", ".")
 	runMigrationGit(t, root, "commit", "-m", "first")
 
-	if _, err := latestReleaseBoundary(root, "cluster-v"); err == nil ||
+	if _, err := latestReleaseBoundary(root, "refs/tags", "cluster-v"); err == nil ||
 		!strings.Contains(err.Error(), "fetch trusted release tags") {
 		t.Fatalf("missing release tags error = %v", err)
 	}
 	runMigrationGit(t, root, "tag", "cluster-v01.2.3")
-	if _, err := latestReleaseBoundary(root, "cluster-v"); err == nil ||
+	if _, err := latestReleaseBoundary(root, "refs/tags", "cluster-v"); err == nil ||
 		!strings.Contains(err.Error(), "MAJOR.MINOR.PATCH") {
 		t.Fatalf("malformed release tag error = %v", err)
 	}

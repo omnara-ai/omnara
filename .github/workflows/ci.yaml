@@ -48,17 +48,11 @@ jobs:
 
       - run: make verify-static
 
-      - name: Verify compatibility with releases and trusted base
+      - name: Protect released migrations and check API compatibility
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         env:
           COMPAT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          git fetch --no-tags --depth=1 origin "$COMPAT_BASE_SHA"
-          git cat-file -e "$COMPAT_BASE_SHA^{commit}"
-          git fetch --no-tags --force --depth=1 origin \
-            '+refs/tags/cluster-v*:refs/tags/cluster-v*' \
-            '+refs/tags/omnarad-v*:refs/tags/omnarad-v*'
-          make compatibility-check
+        run: make compatibility-check
 
       - run: make govulncheck
 

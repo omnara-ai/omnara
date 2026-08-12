@@ -14,6 +14,7 @@ GOVULNCHECK ?= $(CI_TOOL) golang.org/x/vuln/cmd/govulncheck
 OAPI_CODEGEN ?= $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 OASDIFF ?= $(CI_TOOL) github.com/oasdiff/oasdiff
 OASDIFF_FORMAT ?= $(if $(CI),githubactions,text)
+COMPAT_REMOTE ?= origin
 AIR ?= $(CI_TOOL) github.com/air-verse/air
 MIGRATION_CHECK ?= $(GO) -C tools/ci run ./migrationcheck
 OMNARAD_VERSION ?= 0.0.0-dev
@@ -225,9 +226,39 @@ migration-check:
 	$(MIGRATION_CHECK) check
 
 migration-compat-check:
-	$(MIGRATION_CHECK) compare-releases
+	$(MIGRATION_CHECK) compare-releases $(if $(MIGRATION_RELEASE_REF_ROOT),--release-ref-root "$(MIGRATION_RELEASE_REF_ROOT)")
 
-compatibility-check: migration-compat-check openapi-compat-check
+compatibility-check: ## Check the API and released migrations against the latest origin/main
+	@set -eu; \
+	base_sha='$(COMPAT_BASE_SHA)'; \
+	release_ref_root="refs/omnara/compatibility/$$$$"; \
+	cleanup_compatibility_refs() { \
+		git for-each-ref --format='delete %(refname)' "$$release_ref_root/" | git update-ref --stdin; \
+	}; \
+	handle_compatibility_signal() { \
+		signal=$$1; \
+		trap - EXIT "$$signal"; \
+		cleanup_compatibility_refs || :; \
+		kill -s "$$signal" "$$$$"; \
+	}; \
+	cleanup_compatibility_refs; \
+	trap cleanup_compatibility_refs EXIT; \
+	trap 'handle_compatibility_signal HUP' HUP; \
+	trap 'handle_compatibility_signal INT' INT; \
+	trap 'handle_compatibility_signal TERM' TERM; \
+	if test -z "$$base_sha"; then \
+		base_sha="$$(git ls-remote --exit-code "$(COMPAT_REMOTE)" refs/heads/main | awk 'NR == 1 { print $$1 }')"; \
+		test -n "$$base_sha" || { printf 'cannot resolve %s/main\n' "$(COMPAT_REMOTE)"; exit 2; }; \
+	fi; \
+	if ! git cat-file -e "$$base_sha^{commit}" 2>/dev/null; then \
+		git fetch --no-tags --depth=1 "$(COMPAT_REMOTE)" "$$base_sha"; \
+	fi; \
+	git cat-file -e "$$base_sha^{commit}"; \
+	git fetch --no-tags --force --depth=1 "$(COMPAT_REMOTE)" \
+		"+refs/tags/cluster-v*:$$release_ref_root/cluster-v*" \
+		"+refs/tags/omnarad-v*:$$release_ref_root/omnarad-v*"; \
+	$(MAKE) --no-print-directory migration-compat-check MIGRATION_RELEASE_REF_ROOT="$$release_ref_root"; \
+	$(MAKE) --no-print-directory openapi-compat-check COMPAT_BASE_SHA="$$base_sha"
 
 goose-version-check:
 	@root="$$(GOFLAGS= $(GO) list -m -f '{{.Version}}' github.com/pressly/goose/v3)" || exit $$?; \

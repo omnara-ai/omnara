@@ -44,13 +44,13 @@ func checkRepository(root string) error {
 // A release tag is the immutability boundary because publishing starts when the
 // tag is pushed. Waiting for the final GitHub Release would miss images exposed
 // by a partially completed publish workflow.
-func compareReleasedRepository(root string) error {
+func compareReleasedRepository(root, releaseRefRoot string) error {
 	current := worktreeSnapshot{root: root}
 	if err := checkSnapshot(current); err != nil {
 		return err
 	}
 	for _, set := range migrationSets {
-		boundary, err := latestReleaseBoundary(root, set.releaseTagPrefix)
+		boundary, err := latestReleaseBoundary(root, releaseRefRoot, set.releaseTagPrefix)
 		if err != nil {
 			return fmt.Errorf("resolve release boundary for %s: %w", set.directory, err)
 		}
@@ -118,32 +118,38 @@ func compareMigrationSet(set migrationSet, base, current snapshot) error {
 
 type releaseBoundary struct {
 	tag     string
+	ref     string
 	commit  string
 	version [3]uint64
 }
 
-func latestReleaseBoundary(root, prefix string) (releaseBoundary, error) {
+func latestReleaseBoundary(root, releaseRefRoot, prefix string) (releaseBoundary, error) {
+	releaseRefPrefix := strings.TrimSuffix(releaseRefRoot, "/") + "/"
 	command := exec.CommandContext(
 		context.Background(),
 		"git",
 		"-C",
 		root,
-		"tag",
-		"--list",
-		prefix+"*",
+		"for-each-ref",
+		"--format=%(refname)",
+		releaseRefPrefix+prefix+"*",
 	)
 	output, err := command.Output()
 	if err != nil {
 		return releaseBoundary{}, fmt.Errorf("list %s release tags: %w", prefix, err)
 	}
 	var latest releaseBoundary
-	for _, tag := range strings.Fields(string(output)) {
+	for _, ref := range strings.Fields(string(output)) {
+		tag, found := strings.CutPrefix(ref, releaseRefPrefix)
+		if !found || strings.Contains(tag, "/") {
+			return releaseBoundary{}, fmt.Errorf("release ref %q is outside %s", ref, releaseRefPrefix)
+		}
 		version, err := parseReleaseTag(tag, prefix)
 		if err != nil {
 			return releaseBoundary{}, err
 		}
 		if latest.tag == "" || compareReleaseVersions(version, latest.version) > 0 {
-			latest = releaseBoundary{tag: tag, version: version}
+			latest = releaseBoundary{tag: tag, ref: ref, version: version}
 		}
 	}
 	if latest.tag == "" {
@@ -159,7 +165,7 @@ func latestReleaseBoundary(root, prefix string) (releaseBoundary, error) {
 		root,
 		"rev-parse",
 		"--verify",
-		"refs/tags/"+latest.tag+"^{commit}",
+		latest.ref+"^{commit}",
 	)
 	commitOutput, err := commitCommand.Output()
 	if err != nil {
