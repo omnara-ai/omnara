@@ -8,7 +8,7 @@ import {
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
@@ -55,9 +55,35 @@ export function AgentProfileView() {
   const configDirty = yaml !== savedYaml
 
   const createAgent = useCreateAgent(activeOrg.id, projectId)
+  const createConfig = useCreateAgentConfig(activeOrg.id, projectId)
+  const updateProfile = useUpdateAgentProfile(activeOrg.id, projectId)
   const deleteProfile = useDeleteAgentProfile(activeOrg.id, projectId)
   const removeProfileQuery = useRemoveAgentProfileQuery(activeOrg.id, projectId)
   const navigate = useNavigate()
+
+  const revisionKey = `${profile.id}:${profile.current_config_id}`
+  const [saveError, setSaveError] = useState('')
+  const [saveErrorRevision, setSaveErrorRevision] = useState(revisionKey)
+  const savePending = createConfig.isPending || updateProfile.isPending
+
+  if (saveErrorRevision !== revisionKey) {
+    setSaveErrorRevision(revisionKey)
+    setSaveError('')
+  }
+
+  async function saveRevision() {
+    setSaveError('')
+    try {
+      const config = await createConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
+      await updateProfile.mutateAsync({
+        agentProfileID: profile.id,
+        config: config.id,
+        expected_current_config_id: profile.current_config_id,
+      })
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : 'Could not update agent profile')
+    }
+  }
 
   const deletedRef = useRef(false)
   useEffect(() => {
@@ -155,18 +181,23 @@ export function AgentProfileView() {
 
       {tab === 'configuration' ? (
         <ConfigurationTab
-          key={profile.id}
           orgId={activeOrg.id}
           projectId={projectId}
           profile={profile}
           canManage={canManage}
           yaml={yaml}
           dirty={configDirty}
+          error={saveError}
+          pending={savePending}
           onYamlChange={(value) => {
             setDraft({ profileId: profile.id, configId: profile.current_config_id, yaml: value })
           }}
           onDiscard={() => {
             setDraft(null)
+            setSaveError('')
+          }}
+          onSave={() => {
+            void saveRevision()
           }}
         />
       ) : (
@@ -200,8 +231,11 @@ function ConfigurationTab({
   canManage,
   yaml,
   dirty,
+  error,
+  pending,
   onYamlChange,
   onDiscard,
+  onSave,
 }: {
   orgId: string
   projectId: string
@@ -209,35 +243,12 @@ function ConfigurationTab({
   canManage: boolean
   yaml: string
   dirty: boolean
+  error: string
+  pending: boolean
   onYamlChange: (value: string) => void
   onDiscard: () => void
+  onSave: () => void
 }) {
-  const createConfig = useCreateAgentConfig(orgId, projectId)
-  const updateProfile = useUpdateAgentProfile(orgId, projectId)
-  const [error, setError] = useState('')
-  const [errorRevision, setErrorRevision] = useState(profile.current_config_id)
-  const pending = createConfig.isPending || updateProfile.isPending
-
-  if (errorRevision !== profile.current_config_id) {
-    setErrorRevision(profile.current_config_id)
-    setError('')
-  }
-
-  async function submit(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError('')
-    try {
-      const config = await createConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
-      await updateProfile.mutateAsync({
-        agentProfileID: profile.id,
-        config: config.id,
-        expected_current_config_id: profile.current_config_id,
-      })
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not update agent profile')
-    }
-  }
-
   return (
     <div className="flex flex-col gap-6">
       <DetailList
@@ -253,7 +264,8 @@ function ConfigurationTab({
       />
       <form
         onSubmit={(event) => {
-          void submit(event)
+          event.preventDefault()
+          onSave()
         }}
       >
         <FieldGroup>
@@ -277,14 +289,7 @@ function ConfigurationTab({
                 Save revision
               </Button>
               {dirty && !pending && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    onDiscard()
-                    setError('')
-                  }}
-                >
+                <Button type="button" variant="ghost" onClick={onDiscard}>
                   Discard changes
                 </Button>
               )}
