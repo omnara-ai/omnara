@@ -17,23 +17,24 @@ const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONF
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
 const createAgentPath = `/projects/${projectID}/agents/new`
 
-function installFailureTracking(page: Page) {
+function installFailureTracking(page: Page, ignore: RegExp[] = []) {
   const failures: string[] = []
+  const record = (failure: string) => {
+    if (!ignore.some((pattern) => pattern.test(failure))) failures.push(failure)
+  }
 
   page.on('pageerror', (error) => {
-    if (error.message === 'Canceled') return
-    failures.push(`page: ${error.message}`)
+    record(`page: ${error.message}`)
   })
   page.on('requestfailed', (request) => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/auth/login') return
-    if (request.failure()?.errorText === 'net::ERR_ABORTED') return
-    failures.push(`request: ${request.url()} (${request.failure()?.errorText ?? 'failed'})`)
+    record(`request: ${request.url()} (${request.failure()?.errorText ?? 'failed'})`)
   })
   page.on('response', (response) => {
     const url = new URL(response.url())
     if (response.status() === 401 && url.pathname === '/api/v1/me') return
     if (response.status() >= 400) {
-      failures.push(`response: ${response.status()} ${url.pathname}`)
+      record(`response: ${response.status()} ${url.pathname}`)
     }
   })
 
@@ -151,7 +152,7 @@ test('creates a profile without launching an agent', async ({ page }) => {
 test('keeps profile config edits across tabs and confirms launching with unsaved edits', async ({
   page,
 }) => {
-  const failures = installFailureTracking(page)
+  const failures = installFailureTracking(page, [/^page: Canceled$/])
   await signIn(page, adminEmail, createAgentPath)
 
   await page.getByLabel('Name', { exact: true }).fill('Draft Keeper Profile')
@@ -190,8 +191,53 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
   expect(failures).toEqual([])
 })
 
+test('keeps the save pending across tab switches while the revision uploads', async ({ page }) => {
+  const failures = installFailureTracking(page, [/^page: Canceled$/])
+  await signIn(page, adminEmail, createAgentPath)
+
+  await page.getByLabel('Name', { exact: true }).fill('Pending Save Profile')
+  await page.getByLabel('Instruction').fill('Hold the save request while tabs switch.')
+  await page.getByRole('button', { name: 'Create profile' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+
+  let releaseSave!: () => void
+  const holdSave = new Promise<void>((resolve) => {
+    releaseSave = resolve
+  })
+  await page.route('**/agent-profiles/aprf_*/config', async (route) => {
+    await holdSave
+    await route.continue()
+  })
+
+  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
+  await expect(editor).toBeVisible()
+  await editor.focus()
+  await page.keyboard.insertText('# pending save\n')
+
+  const saveButton = page.getByRole('button', { name: 'Save revision' })
+  await expect(saveButton).toBeEnabled()
+  await saveButton.click()
+  await expect(saveButton).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Agents', exact: true }).click()
+  await expect(page.getByText('No agents from this profile yet', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Configuration' }).click()
+
+  await expect(page.getByText('# pending save')).toBeVisible()
+  await expect(saveButton).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0)
+
+  releaseSave()
+  await expect(saveButton).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0)
+  await expect(page.getByText('# pending save')).toBeVisible()
+  expect(failures).toEqual([])
+})
+
 test('deletes a profile from its detail page', async ({ page }) => {
-  const failures = installFailureTracking(page)
+  const failures = installFailureTracking(page, [
+    /agent-profiles\/aprf_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+  ])
   await signIn(page, adminEmail, createAgentPath)
 
   await page.getByLabel('Name', { exact: true }).fill('Deleted Profile E2E')
