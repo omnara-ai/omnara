@@ -142,9 +142,7 @@ export function RecentAgentsSection({
             ) : (
               <span className="text-muted-foreground">—</span>
             ),
-            <span className="text-muted-foreground">
-              {formatLastActive(row.agent.updated_at)}
-            </span>,
+            <span className="text-muted-foreground">{formatLastActive(row.agent.updated_at)}</span>,
           ]}
           onRowClick={(row) => {
             void navigate({
