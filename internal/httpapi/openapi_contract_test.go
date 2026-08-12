@@ -356,9 +356,9 @@ func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {
 	}
 	if got := openAPIStringSlice(doc.Components.Schemas["ModelProviderAPIVariant"].Enum); !slices.Equal(
 		got,
-		[]string{"default", "openrouter"},
+		[]string{"default", "openrouter", "bedrock"},
 	) {
-		t.Fatalf("ModelProviderAPIVariant enum = %v, want default/openrouter", got)
+		t.Fatalf("ModelProviderAPIVariant enum = %v, want default/openrouter/bedrock", got)
 	}
 	for _, schemaName := range []string{
 		"AgentConfigModel",

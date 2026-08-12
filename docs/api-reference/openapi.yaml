@@ -6313,7 +6313,7 @@ components:
       enum: [bearer_token, api_key_header]
     ModelProviderAPIVariant:
       type: string
-      enum: [default, openrouter]
+      enum: [default, openrouter, bedrock]
     ModelAPIVariantOptions:
       type: object
       x-go-type: json.RawMessage

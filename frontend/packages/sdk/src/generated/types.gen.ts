@@ -90,7 +90,7 @@ export type ModelApiFormat = 'openai-responses' | 'openai-chat-completions' | 'a
 
 export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header';
 
-export type ModelProviderApiVariant = 'default' | 'openrouter';
+export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 
 /**
  * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, and selected reasoning policy. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters.

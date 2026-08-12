@@ -472,6 +472,8 @@ func validateModelProviderAPIVariant(
 			return nil
 		}
 		return fmt.Errorf("api_variant %q requires api_format %q", value, modelprotocol.APIFormatOpenAIChatCompletions)
+	case modelprotocol.APIVariantBedrock:
+		return nil
 	default:
 		return fmt.Errorf("unsupported api_variant %q", value)
 	}

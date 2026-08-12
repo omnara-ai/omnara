@@ -24,7 +24,7 @@ The console guides you through this chain. The API exposes the same resources fo
 <Tab title="Console">
   <Steps>
     <Step title="Open the provider dialog">
-      Go to **Models** in the sidebar and click **New provider**. Pick **OpenAI**, **OpenRouter**, or **Anthropic**, and name the connection — this name (e.g. `openai-prod`) is what agent configs reference as `model.provider_config`.
+      Go to **Models** in the sidebar and click **New provider**. Pick a provider and name the connection — this name (e.g. `openai-prod`) is what agent configs reference as `model.provider_config`.
     </Step>
     <Step title="Create the credential inline">
       In the API key field, click **New secret**, name it, paste the provider's API key, and click **Create secret**. It's stored as an organization [secret](/organization/secrets) (`sec_…`); the provider only ever holds the reference.
