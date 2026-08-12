@@ -1,4 +1,3 @@
-// Package bearertoken generates and validates long-lived bearer credentials.
 package bearertoken
 
 import (
@@ -56,7 +55,6 @@ func format(kind Kind, secret string) (string, error) {
 	return body + string(checksumSeparator) + encodeChecksum(crc32.ChecksumIEEE([]byte(body))), nil
 }
 
-// Parse validates a token and returns its credential kind.
 func Parse(token string) (Kind, error) {
 	kind, prefix, ok := kindAndPrefix(token)
 	if !ok {

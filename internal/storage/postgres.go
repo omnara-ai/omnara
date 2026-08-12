@@ -25,7 +25,6 @@ func WithQueryTracer(tracer pgx.QueryTracer) OpenOption {
 	}
 }
 
-// WithDefaultApplicationName sets application_name only when configuration omits it.
 func WithDefaultApplicationName(name string) OpenOption {
 	return func(cfg *pgxpool.Config) {
 		if name == "" {
