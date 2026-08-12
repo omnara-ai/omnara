@@ -81,6 +81,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         config: config.id,
         expected_current_config_id: profile.current_config_id,
       })
+      setDraft(null)
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : 'Could not update agent profile')
     }
