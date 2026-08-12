@@ -37,11 +37,13 @@ import (
 )
 
 const (
-	outboundHTTPClientTimeout          = 30 * time.Second
-	defaultReconciliationPlan          = "plan"
-	defaultReconciliationApply         = "apply"
-	minimumPostgresSchemaVersion int64 = 16
+	outboundHTTPClientTimeout  = 30 * time.Second
+	defaultReconciliationPlan  = "plan"
+	defaultReconciliationApply = "apply"
 )
+
+// Version 17 adds agents.agent_profile_id, which API launch/list/read paths use.
+const minimumPostgresSchemaVersion int64 = 17
 
 func main() {
 	cfg, err := config.Load()

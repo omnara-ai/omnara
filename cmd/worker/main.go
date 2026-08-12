@@ -28,10 +28,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
-const (
-	integrationHTTPClientTimeout       = 5 * time.Minute
-	minimumPostgresSchemaVersion int64 = 16
-)
+const integrationHTTPClientTimeout = 5 * time.Minute
+
+// Version 17 adds agents.agent_profile_id, selected by worker-reachable agent lookups.
+const minimumPostgresSchemaVersion int64 = 17
 
 func main() {
 	log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))

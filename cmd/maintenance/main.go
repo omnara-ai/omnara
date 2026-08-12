@@ -29,8 +29,10 @@ const (
 	runtimeLockReapBatchSize         int32 = 100
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
-	minimumPostgresSchemaVersion     int64 = 16
 )
+
+// Maintenance does not execute the agent-profile queries introduced in version 17.
+const minimumPostgresSchemaVersion int64 = 16
 
 func main() {
 	logger := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))

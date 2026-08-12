@@ -571,13 +571,14 @@ SELECT pg_sleep(10);
 	}
 }
 
-func TestPostgresPopulatedVersion14UpgradesToVersion16(t *testing.T) {
+func TestPostgresPopulatedVersion14UpgradesToLatest(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
+	latestVersion := latestPostgresMigrationVersion(t)
 
 	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 14)); err != nil {
 		t.Fatalf("apply migrations through version 14: %v", err)
@@ -585,8 +586,8 @@ func TestPostgresPopulatedVersion14UpgradesToVersion16(t *testing.T) {
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 14 {
 		t.Fatalf("pre-upgrade schema version = %d, want 14", got)
 	}
-	if err := dbschema.RequireVersion(ctx, pool, 16); err == nil {
-		t.Fatal("version 14 database unexpectedly passed version 16 runtime readiness")
+	if err := dbschema.RequireVersion(ctx, pool, latestVersion); err == nil {
+		t.Fatalf("version 14 database unexpectedly passed version %d runtime readiness", latestVersion)
 	}
 
 	var orgID, projectID, poolID, grantID, machineID string
@@ -658,11 +659,11 @@ RETURNING id::text
 	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
 		t.Fatalf("upgrade populated version 14 database: %v", err)
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 16 {
-		t.Fatalf("upgraded schema version = %d, want 16", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != latestVersion {
+		t.Fatalf("upgraded schema version = %d, want %d", got, latestVersion)
 	}
-	if err := dbschema.RequireVersion(ctx, pool, 16); err != nil {
-		t.Fatalf("version 16 runtime readiness: %v", err)
+	if err := dbschema.RequireVersion(ctx, pool, latestVersion); err != nil {
+		t.Fatalf("version %d runtime readiness: %v", latestVersion, err)
 	}
 
 	var joinedRows int
@@ -1031,6 +1032,33 @@ func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.
 		t.Fatal(err)
 	}
 	return version
+}
+
+func latestPostgresMigrationVersion(t *testing.T) int64 {
+	t.Helper()
+	entries, err := os.ReadDir("../../migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var latest int64
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		prefix, _, ok := strings.Cut(entry.Name(), "_")
+		if !ok {
+			t.Fatalf("migration file lacks version prefix: %s", entry.Name())
+		}
+		version, err := strconv.ParseInt(prefix, 10, 64)
+		if err != nil {
+			t.Fatalf("parse migration version %s: %v", entry.Name(), err)
+		}
+		latest = max(latest, version)
+	}
+	if latest == 0 {
+		t.Fatal("no PostgreSQL migrations found")
+	}
+	return latest
 }
 
 func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {

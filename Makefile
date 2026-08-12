@@ -156,6 +156,13 @@ openapi-compat-fixture-check:
 	@set +e; \
 		output="$$( $(OASDIFF) breaking --allow-external-refs=false --fail-on WARN --format text \
 			--severity-levels tools/ci/openapi-compat/severity-levels.txt \
+			tools/ci/openapi-compat/testdata/pattern-v1-base.yaml \
+			tools/ci/openapi-compat/testdata/pattern-v2-head.yaml 2>&1 )"; \
+		status=$$?; set -e; \
+		test "$$status" -eq 1 || { printf '%s\nexpected changed response pattern fixture to exit 1, got %s\n' "$$output" "$$status"; exit 1; }
+	@set +e; \
+		output="$$( $(OASDIFF) breaking --allow-external-refs=false --fail-on WARN --format text \
+			--severity-levels tools/ci/openapi-compat/severity-levels.txt \
 			tools/ci/openapi-compat/testdata/base.yaml \
 			tools/ci/openapi-compat/testdata/route-breaking-head.yaml 2>&1 )"; \
 		status=$$?; set -e; \
