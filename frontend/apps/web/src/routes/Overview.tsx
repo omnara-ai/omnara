@@ -7,6 +7,7 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { FirstAgentCard } from '@/components/overview/FirstAgentCard'
+import { RecentAgentsSection } from '@/components/overview/RecentAgents'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { readRecentPages } from '@/lib/recent-pages'
@@ -71,27 +72,30 @@ export function Overview() {
       ) : showOnboarding ? (
         <FirstAgentCard projectId={onboardingProject.id} />
       ) : (
-        <div className="flex flex-col gap-3">
-          <SearchHeader title="Recent pages" />
-          <DataTable
-            columns={[
-              { header: 'Page' },
-              { header: 'Location' },
-              { header: 'Visited', className: 'w-44' },
-            ]}
-            data={recentPages}
-            getRowId={(page) => page.path}
-            rowCells={(page) => [
-              <span className="font-medium">{page.title}</span>,
-              page.context,
-              <span className="text-muted-foreground">{formatVisitedAt(page.visitedAt)}</span>,
-            ]}
-            onRowClick={(page) => {
-              void navigate({ href: page.path })
-            }}
-            emptyMessage="Pages you visit in this organization will appear here."
-          />
-        </div>
+        <>
+          <RecentAgentsSection orgId={activeOrg.id} projects={projects} />
+          <div className="flex flex-col gap-3">
+            <SearchHeader title="Recent pages" />
+            <DataTable
+              columns={[
+                { header: 'Page' },
+                { header: 'Location' },
+                { header: 'Visited', className: 'w-44' },
+              ]}
+              data={recentPages}
+              getRowId={(page) => page.path}
+              rowCells={(page) => [
+                <span className="font-medium">{page.title}</span>,
+                page.context,
+                <span className="text-muted-foreground">{formatVisitedAt(page.visitedAt)}</span>,
+              ]}
+              onRowClick={(page) => {
+                void navigate({ href: page.path })
+              }}
+              emptyMessage="Pages you visit in this organization will appear here."
+            />
+          </div>
+        </>
       )}
     </div>
   )
