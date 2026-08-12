@@ -1,7 +1,6 @@
 package openaichatcompletions
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -144,10 +143,8 @@ func (p protocol) chatResponseEvidence(
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
-	rawCost := bytes.TrimSpace(response.Usage.Cost)
-	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter &&
-		len(rawCost) != 0 && !bytes.Equal(rawCost, []byte("null")) {
-		cost, valid := modelenvelope.ParseProviderReportedCostUSD(string(rawCost))
+	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter {
+		cost, valid := openRouterReportedCost(response.Usage)
 		if valid {
 			out.ProviderReportedCostUSD = cost
 		} else {
@@ -285,8 +282,14 @@ type chatUsage struct {
 	PromptTokens            int              `json:"prompt_tokens"`
 	CompletionTokens        int              `json:"completion_tokens"`
 	Cost                    json.RawMessage  `json:"cost,omitempty"`
+	CostDetails             chatCostDetails  `json:"cost_details"`
+	IsBYOK                  bool             `json:"is_byok"`
 	PromptTokensDetails     chatTokenDetails `json:"prompt_tokens_details"`
 	CompletionTokensDetails chatTokenDetails `json:"completion_tokens_details"`
+}
+
+type chatCostDetails struct {
+	UpstreamInferenceCost json.RawMessage `json:"upstream_inference_cost"`
 }
 
 type chatTokenDetails struct {
