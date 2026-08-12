@@ -62,7 +62,7 @@ func assertLiveOpenRouterReportedCost(
 	t *testing.T,
 	actual modelenvelope.ProviderReportedCostUSD,
 	capture *liveOpenRouterResponseCapture,
-) {
+) (bool, bool) {
 	t.Helper()
 	usage := capturedLiveOpenRouterUsage(t, capture.body.Bytes())
 	baseCost := strings.TrimSpace(string(usage.Cost))
@@ -90,9 +90,10 @@ func assertLiveOpenRouterReportedCost(
 	}
 	if usage.IsBYOK == nil {
 		t.Log("verified live OpenRouter cost (is_byok omitted)")
-	} else {
-		t.Logf("verified live OpenRouter cost (is_byok=%t)", *usage.IsBYOK)
+		return false, false
 	}
+	t.Logf("verified live OpenRouter cost (is_byok=%t)", *usage.IsBYOK)
+	return *usage.IsBYOK, true
 }
 
 func capturedLiveOpenRouterUsage(t *testing.T, body []byte) liveOpenRouterUsage {

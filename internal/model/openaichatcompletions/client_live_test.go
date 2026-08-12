@@ -38,6 +38,7 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 		t.Fatal("OPENROUTER_API_KEY is required for live OpenRouter Chat Completions test")
 	}
 
+	var sawBYOK, sawNonBYOK bool
 	for _, tc := range []struct {
 		name              string
 		providerModelSlug string
@@ -75,8 +76,23 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 				APIVariant:        modelprotocol.APIVariantOpenRouter,
 				APIVariantOptions: tc.apiVariantOptions,
 			}, model.RequestPolicy{MaxOutputTokens: 64})
-			assertLiveOpenRouterReportedCost(t, response.ProviderReportedCostUSD, responseCapture)
+			isBYOK, reported := assertLiveOpenRouterReportedCost(
+				t,
+				response.ProviderReportedCostUSD,
+				responseCapture,
+			)
+			if reported {
+				sawBYOK = sawBYOK || isBYOK
+				sawNonBYOK = sawNonBYOK || !isBYOK
+			}
 		})
+	}
+	if !sawBYOK || !sawNonBYOK {
+		t.Fatalf(
+			"live OpenRouter model matrix did not exercise both accounting routes (BYOK=%t, non-BYOK=%t)",
+			sawBYOK,
+			sawNonBYOK,
+		)
 	}
 }
 
