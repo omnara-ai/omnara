@@ -854,8 +854,7 @@ func TestSlackSetupRejectsProfileWithoutIntegrationSendTool(t *testing.T) {
 		handler,
 		"slack-manifest-missing-tool",
 	)
-	sourceYAML := "name: Missing Integration Send\n" +
-		"instruction: Help the user make progress.\n" +
+	sourceYAML := "instruction: Help the user make progress.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n"
@@ -1023,7 +1022,7 @@ func createSlackReadyHTTPProfile(
 	token string,
 ) map[string]any {
 	t.Helper()
-	sourceYAML := "name: " + seed + " Agent\ninstruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\ntools:\n  send_integration_message: {}\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\ntools:\n  send_integration_message: {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,

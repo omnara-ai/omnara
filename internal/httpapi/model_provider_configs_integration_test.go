@@ -357,8 +357,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-configs",
-		agentConfigSourceBody(`name: Missing Grant
-instruction: Test.
+		agentConfigSourceBody(`instruction: Test.
 model:
   provider_config: openai-secondary
   name: gpt-ungranted
@@ -514,8 +513,7 @@ model:
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-configs",
-		agentConfigSourceBody(`name: Granted Model
-instruction: Test.
+		agentConfigSourceBody(`instruction: Test.
 model:
   provider_config: openai-secondary
   name: gpt-test
@@ -564,8 +562,7 @@ model:
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-configs",
-		agentConfigSourceBody(`name: Old Model Name
-instruction: Test.
+		agentConfigSourceBody(`instruction: Test.
 model:
   provider_config: openai-secondary
   name: gpt-test
@@ -579,8 +576,7 @@ model:
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-configs",
-		agentConfigSourceBody(`name: Renamed Model
-instruction: Test.
+		agentConfigSourceBody(`instruction: Test.
 model:
   provider_config: openai-secondary
   name: gpt-renamed
@@ -639,8 +635,7 @@ model:
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-configs",
-		agentConfigSourceBody(`name: Revoked Model
-instruction: Test.
+		agentConfigSourceBody(`instruction: Test.
 model:
   provider_config: openai-secondary
   name: gpt-renamed

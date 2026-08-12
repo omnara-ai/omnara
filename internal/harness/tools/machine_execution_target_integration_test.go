@@ -1966,8 +1966,7 @@ WHERE org_id = $1 AND name = $2 AND deleted_at IS NULL
 			t.Fatalf("create machine dispatch pool grant: %v", err)
 		}
 	}
-	sourceYAML := `name: Machine Dispatch Agent
-instruction: Test machine dispatch.
+	sourceYAML := `instruction: Test machine dispatch.
 model:
   provider_config: openai-prod
   name: tools-test
@@ -2269,8 +2268,7 @@ func createToolsRuntimeAgentWithMachineSourcesAndSkills(
 	now time.Time,
 ) executionstore.LaunchAgentResult {
 	t.Helper()
-	sourceYAML := `name: ` + name + `
-instruction: Test tool execution.
+	sourceYAML := `instruction: Test tool execution.
 model:
   provider_config: openai-prod
   name: tools-test

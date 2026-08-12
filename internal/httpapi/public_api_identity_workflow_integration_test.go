@@ -700,8 +700,7 @@ func TestProjectOperatorCanRunAgentsButCannotManageProjectResources(
 		authHeaders(operatorToken),
 	)
 	agentID := launched["agent"].(map[string]any)["id"].(string)
-	changedYAML := "name: operator-owned-by-admin Agent\n" +
-		"instruction: Operator must not author runtime config.\n" +
+	changedYAML := "instruction: Operator must not author runtime config.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n"

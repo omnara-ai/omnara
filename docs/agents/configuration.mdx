@@ -12,7 +12,6 @@ The example below includes every major section. If you are creating your first a
 
 ```yaml
 version: v1
-name: Repo assistant
 instruction: |
   Help engineers investigate issues in the acme/api repository.
   Run read-only commands freely; ask before anything destructive.
@@ -54,7 +53,6 @@ skills:
 | Field | Required | Notes |
 | --- | --- | --- |
 | `version` | no | Only `v1` today; include it for forward compatibility. |
-| `name` | no | Display name for agents launched from this config. |
 | `instruction` | **yes** | The system-level brief. This is the single highest-leverage field you control — be specific about the job, the boundaries, and when to ask a human. |
 
 ## Model

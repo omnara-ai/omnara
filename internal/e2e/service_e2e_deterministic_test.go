@@ -275,7 +275,6 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 
 	env.startAPI(t, ctx)
 	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "deterministic-config-change-runtime", strings.Join([]string{
-		"name: Config Change Runtime",
 		"instruction: Initial runtime instruction.",
 		"model:",
 		"  provider_config: openai-prod",
@@ -303,7 +302,6 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 	firstWorker.stop()
 
 	updatedYAML := strings.Join([]string{
-		"name: Config Change Runtime",
 		"instruction: Updated runtime instruction.",
 		"model:",
 		"  provider_config: openai-prod",
@@ -509,7 +507,6 @@ func TestServiceE2EDeterministicConfigChangeWaitsForOpenToolInteraction(t *testi
 	handlerInteractionIdentity.Store([3]string{projectUUID, agentUUID, interactionUUID})
 
 	project.updateConfig(t, ctx, agentID, strings.Join([]string{
-		"name: Config Changed With Open Tool",
 		"instruction: Continue only after the open question is answered.",
 		"model:",
 		"  provider_config: anthropic-prod",
@@ -853,7 +850,6 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithToolsAndModelOptions(
 ) deterministicProject {
 	t.Helper()
 	sourceYAML := strings.Join([]string{
-		"name: Deterministic Service E2E",
 		"instruction: Help the user make progress.",
 		"model:",
 		"  provider_config: " + providerConfig,

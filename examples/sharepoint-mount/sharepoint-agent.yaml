@@ -1,6 +1,5 @@
 # Agent config for a BYO machine whose daemon container has the SharePoint
 # library mounted (see connect-machine.sh). Replace the CHANGE_ME value.
-name: SharePoint filesystem agent
 instruction: |
   Help the user inspect and work with files in the mounted SharePoint document
   library. Your working directory is the mounted library. Prefer ordinary

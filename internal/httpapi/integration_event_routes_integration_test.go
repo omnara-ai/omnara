@@ -2707,8 +2707,7 @@ func TestSlackEventsRejectsLaunchWhenLatestConfigCannotSendIntegrationMessage(
 	if err != nil {
 		t.Fatalf("encode current config id: %v", err)
 	}
-	sourceYAML := "name: slack-events-missing-send-tool Agent\n" +
-		"instruction: Help the user make progress.\n" +
+	sourceYAML := "instruction: Help the user make progress.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n"

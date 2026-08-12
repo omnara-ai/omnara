@@ -44,7 +44,6 @@ The container needs `--cap-add SYS_ADMIN --device /dev/fuse` because rclone moun
 Once the machine is online, this minimal config points an agent at the machine and mount:
 
 ```yaml
-name: SharePoint filesystem agent
 instruction: |
   Help the user inspect and work with files in the mounted SharePoint document
   library. Your working directory is the mounted library. Prefer ordinary

@@ -221,7 +221,7 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("grant keep-recent configured model: %v", err)
 	}
-	sourceYAML := "name: Kernel Keep Recent\ninstruction: Help the user make progress.\nmodel:\n  provider_config: " + providerName + "\n  name: " + configuredModelName + "\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: " + providerName + "\n  name: " + configuredModelName + "\n"
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(providerConfigName string, selectedModelName string) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedKernelAgentConfigModel(configuredModel), nil

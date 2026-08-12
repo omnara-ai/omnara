@@ -1719,8 +1719,7 @@ func createIntegrationToolProfile(
 	withMCP bool,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
-	sourceYAML := `name: Integration Tool Agent ` + label + `
-instruction: Reply to users.
+	sourceYAML := `instruction: Reply to users.
 model:
   provider_config: openai-prod
   name: gpt-test

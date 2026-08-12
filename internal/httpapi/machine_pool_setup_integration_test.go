@@ -532,7 +532,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		)
 	}
 
-	ungrantedPoolSource := "name: Ungranted Pool Agent\ninstruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\ntools:\n  run_command: {}\n"
+	ungrantedPoolSource := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -887,7 +887,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("restored pool grant mismatch: %+v", restoredPoolGrant)
 	}
 
-	overCountSourceYAML := "name: Too Many Pool Machines Agent\ninstruction: Use too many machines.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 3\n    initial_num_machines: 3\ntools:\n  run_command: {}\n"
+	overCountSourceYAML := "instruction: Use too many machines.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 3\n    initial_num_machines: 3\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -962,7 +962,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("deleted pool grant lookup error = %v, want not found", err)
 	}
 
-	badSourceYAML := "name: Bad Machine Pool Setup Agent\ninstruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    machine_provider_options_overlay:\n      unknown: bad\ntools:\n  run_command: {}\n"
+	badSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    machine_provider_options_overlay:\n      unknown: bad\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -973,7 +973,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		project.AdminToken,
 		http.StatusBadRequest,
 	)
-	badMetroSourceYAML := "name: Bad Machine Pool Metro Agent\ninstruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    machine_provider_options_overlay:\n      metro: iad\ntools:\n  run_command: {}\n"
+	badMetroSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    machine_provider_options_overlay:\n      metro: iad\ntools:\n  run_command: {}\n"
 	badMetroConfig := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -988,7 +988,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("bad metro config response = %+v, want allowed_metros error", badMetroConfig)
 	}
 
-	sourceYAML := "name: Machine Pool Setup Agent\ninstruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 2\n    initial_num_machines: 2\n    cwd: /workspace\n    machine_cpu: 2\n    env_overlay:\n      SECRET_THING: agent-value\n      AGENT_ONLY: \"yes\"\ntools:\n  run_command: {}\n"
+	sourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 2\n    initial_num_machines: 2\n    cwd: /workspace\n    machine_cpu: 2\n    env_overlay:\n      SECRET_THING: agent-value\n      AGENT_ONLY: \"yes\"\ntools:\n  run_command: {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1410,7 +1410,7 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		authHeaders(project.AdminToken),
 	)
 
-	sourceYAML := "name: Cluster Pool Agent\ninstruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
+	sourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1422,7 +1422,7 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		http.StatusCreated,
 	)
 
-	badImageSourceYAML := "name: Bad Cluster Pool Image Agent\ninstruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    machine_provider_options_overlay:\n      image: registry.example/other:latest\ntools:\n  create_machine: {}\n"
+	badImageSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    machine_provider_options_overlay:\n      image: registry.example/other:latest\ntools:\n  create_machine: {}\n"
 	response := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1437,7 +1437,7 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		t.Fatalf("bad default pool image overlay error = %+v, want allowed_images", response)
 	}
 
-	badSourceYAML := "name: Bad Cluster Pool Agent\ninstruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    machine_provider_options_overlay:\n      startup_script:\n        - echo bad\ntools:\n  create_machine: {}\n"
+	badSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    machine_provider_options_overlay:\n      startup_script:\n        - echo bad\ntools:\n  create_machine: {}\n"
 	response = createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1476,7 +1476,7 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 	)
 	agentID := launched["agent"].(map[string]any)["id"].(string)
 
-	updateSourceYAML := "name: Cluster Pool Agent\ninstruction: Updated instruction, same machine source.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
+	updateSourceYAML := "instruction: Updated instruction, same machine source.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
 	updated := requestJSONWithHeaders(
 		t,
 		handler,

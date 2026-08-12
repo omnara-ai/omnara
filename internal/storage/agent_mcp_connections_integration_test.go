@@ -29,7 +29,6 @@ func TestAgentMCPConnectionsLifecycle(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 	agent := createLaunchTestAgent(t, ctx, store, "idem-mcp-connection-agent", `
-name: MCP Connection Agent
 instruction: Use MCP later.
 model:
   provider_config: openai-prod

@@ -224,7 +224,7 @@ func (f kernelFixture) createNamedAgentWithModelOptions(
 		time.RFC3339Nano,
 	)
 	launchIdempotencyKey := agentProfileIdempotencyKey + "-launch"
-	sourceYAML := "name: " + name + "\ninstruction: Help the user make progress.\nmodel:\n  provider_config: " + providerConfigName + "\n  name: " + configuredModelName + "\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: " + providerConfigName + "\n  name: " + configuredModelName + "\n"
 	if len(tools) > 0 {
 		sourceYAML += "tools:\n"
 		sort.Strings(tools)

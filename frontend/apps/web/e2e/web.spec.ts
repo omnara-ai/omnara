@@ -103,7 +103,6 @@ test('creates an agent from YAML', async ({ page }) => {
 
   await editorInput.focus()
   const yamlLines = [
-    'name: YAML E2E Agent',
     'instruction: Test agent creation from YAML.',
     `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
   ]

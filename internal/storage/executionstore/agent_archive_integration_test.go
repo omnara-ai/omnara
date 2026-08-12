@@ -34,7 +34,6 @@ func TestArchiveAgentCancelsCurrentTurnOpenWork(t *testing.T) {
 		"archive-open-work",
 		"Archive Open Work",
 		`
-name: Archive Open Work
 instruction: Ask before continuing.
 model:
   provider_config: openai-prod

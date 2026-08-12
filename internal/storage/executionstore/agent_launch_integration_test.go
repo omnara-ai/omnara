@@ -241,7 +241,6 @@ func launchPoolAgentForTest(
 ) executionstore.LaunchAgentResult {
 	t.Helper()
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, profileKey, profileName, `
-name: `+profileName+`
 instruction: Use a project machine pool.
 model:
   provider_config: openai-prod
@@ -313,7 +312,6 @@ func TestLaunchAgentValidatesProviderPoolConfigAtLaunch(t *testing.T) {
 		t.Fatalf("create pool grant: %v", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-provider-validation", "Launch Provider Validation Agent", `
-name: Launch Provider Validation Agent
 instruction: Trigger provider validation at launch.
 model:
   provider_config: openai-prod
@@ -363,7 +361,6 @@ func TestConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T) {
 		"concurrent-launch-replay",
 		"Concurrent Launch Replay",
 		`
-name: Concurrent Launch Replay
 instruction: Test same-key launch serialization.
 model:
   provider_config: openai-prod
@@ -484,7 +481,6 @@ func TestLaunchAgentPersistsProviderIntentWithoutExternalResolution(t *testing.T
 		"launch-provider-intent",
 		"Launch Provider Intent Agent",
 		`
-name: Launch Provider Intent Agent
 instruction: Persist a machine intent.
 model:
   provider_config: openai-prod
@@ -549,7 +545,6 @@ func TestLaunchAgentWithDefaultPool(t *testing.T) {
 		t.Fatalf("create default project pool grant: %v", err)
 	}
 	overCapacity := mustCompileAgentYAMLWithMachineSourceResolvers(t, ctx, store, `
-name: Cluster Pool Over Capacity
 instruction: Request too many default pool machines.
 model:
   provider_config: openai-prod
@@ -569,7 +564,6 @@ tools:
 		t.Fatalf("validate config with max_machines above the pool budget: %v", err)
 	}
 	imageOverride := mustCompileAgentYAMLWithMachineSourceResolvers(t, ctx, store, `
-name: Cluster Pool Image Override
 instruction: Override the default pool image.
 model:
   provider_config: openai-prod
@@ -590,7 +584,6 @@ tools:
 		t.Fatalf("default pool image override validation error = %v, want allowed overlay", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "default-pool", "Cluster Pool", `
-name: Cluster Pool
 instruction: Use the default pool.
 model:
   provider_config: openai-prod
@@ -994,7 +987,6 @@ func TestChangeAgentConfigReconcilesPoolMachineSources(t *testing.T) {
 		t.Fatalf("create live pool grant: %v", err)
 	}
 	emptyYAML := `
-name: Live Pool Sources
 instruction: Use pool machines.
 model:
   provider_config: openai-prod
@@ -1022,7 +1014,6 @@ tools:
 		t.Fatalf("launch agent without pool source: %v", err)
 	}
 	addedYAML := `
-name: Live Pool Sources
 instruction: Use pool machines.
 model:
   provider_config: openai-prod
@@ -1094,7 +1085,6 @@ tools:
 	}
 	originalMachine := initial.Machine
 	changedYAML := `
-name: Live Pool Sources
 instruction: Use pool machines.
 model:
   provider_config: openai-prod
@@ -1419,7 +1409,6 @@ func TestDefaultPoolGrantAllowsSecretEnvBeforeProjectSecretGrant(t *testing.T) {
 		t.Fatalf("create default project pool grant: %v", err)
 	}
 	compiled := mustCompileAgentYAMLWithMachineSourceResolvers(t, ctx, store, `
-name: Cluster Pool Secret Env
 instruction: Use default pool machines.
 model:
   provider_config: openai-prod
@@ -1490,7 +1479,6 @@ func TestLaunchAgentCreatesMachineBindingsInputAndConfigChange(t *testing.T) {
 		t.Fatalf("create project machine grant: %v", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-machine", "Launch Agent", `
-name: Launch Agent
 instruction: Inspect the repo and report progress.
 model:
   provider_config: openai-prod
@@ -1573,7 +1561,6 @@ tools:
 	}
 	requireCurrentAgentLaunchReplay(t, replayed, result.Agent)
 	updatedYAML := `
-name: Launch Agent
 instruction: Inspect the repo and report progress with extra detail.
 model:
   provider_config: openai-prod
@@ -1797,7 +1784,6 @@ func TestLaunchAgentCreatesMultipleMachineBindings(t *testing.T) {
 		t.Fatalf("create second grant: %v", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-multi", "Multi Launch Agent", `
-name: Multi Launch Agent
 instruction: Use the selected machines.
 model:
   provider_config: openai-prod
@@ -1963,7 +1949,6 @@ func TestLaunchAgentExpandsPoolInitialMachinesInStableOrder(t *testing.T) {
 		"launch-initial-pool",
 		"Launch Initial Pool Agent",
 		`
-name: Launch Initial Pool Agent
 instruction: Use explicit and pool machines.
 model:
   provider_config: openai-prod
@@ -2122,7 +2107,6 @@ func TestLaunchAgentPoolGrantReplacementUsesNewResolvedConfig(t *testing.T) {
 		"launch-config-replace",
 		"Launch Config Replace Agent",
 		`
-name: Launch Config Replace Agent
 instruction: Use a mutable project machine pool grant.
 model:
   provider_config: openai-prod
@@ -2332,7 +2316,6 @@ func TestLaunchAgentMultiplePoolSourcesKeepSourceOrder(t *testing.T) {
 		t.Fatalf("create second pool grant: %v", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-two-pools", "Launch Two Pools Agent", `
-name: Launch Two Pools Agent
 instruction: Use independent pool machines.
 model:
   provider_config: openai-prod
@@ -2459,7 +2442,6 @@ func TestLaunchAgentZeroInitialPoolValidatesGrantWithoutCreatingMachines(t *test
 		t.Fatalf("create pool grant: %v", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-zero-pool", "Launch Zero Pool Agent", `
-name: Launch Zero Pool Agent
 instruction: Use a pool later.
 model:
   provider_config: openai-prod
@@ -2542,7 +2524,6 @@ tools:
 		"launch-zero-ungranted-pool",
 		"Launch Zero Ungranted Pool Agent",
 		`
-name: Launch Zero Ungranted Pool Agent
 instruction: Use a pool later.
 model:
   provider_config: openai-prod
@@ -2648,7 +2629,6 @@ func TestLaunchAgentZeroInitialPoolSkipsCapacityCheck(t *testing.T) {
 		"launch-zero-capacity-pool",
 		"Launch Zero Capacity Pool Agent",
 		`
-name: Launch Zero Capacity Pool Agent
 instruction: Use a pool later.
 model:
   provider_config: openai-prod
@@ -2732,7 +2712,6 @@ func TestLaunchAgentInitialPoolCapacityRollsBackAllRows(t *testing.T) {
 		"launch-initial-capacity-pool",
 		"Launch Initial Capacity Pool Agent",
 		`
-name: Launch Initial Capacity Pool Agent
 instruction: Use too many pool machines.
 model:
   provider_config: openai-prod
@@ -2860,7 +2839,6 @@ func TestLaunchAgentPoolCPUCapacityRollsBackAllRows(t *testing.T) {
 		t.Fatalf("lower machine pool cpu cap: %v", err)
 	}
 	sourceYAML := `
-name: Launch CPU Capacity Pool Agent
 instruction: Use too much cpu.
 model:
   provider_config: openai-prod
@@ -2998,7 +2976,6 @@ func TestLaunchAgentProjectPoolGrantCapacityIgnoresRevokedGrantDeletingUsage(t *
 		"launch-project-pool-capacity-replace",
 		"Launch Project Pool Capacity Replace Agent",
 		`
-name: Launch Project Pool Capacity Replace Agent
 instruction: Use project pool capacity.
 model:
   provider_config: openai-prod
@@ -3174,7 +3151,6 @@ func TestLaunchAgentPoolPerMachineLimitsRollBackAllRows(t *testing.T) {
 				test.profileName,
 				test.displayName,
 				fmt.Sprintf(`
-name: %s
 instruction: Exercise a per-machine resource limit.
 model:
   provider_config: openai-prod
@@ -3187,7 +3163,7 @@ machine_sources:
     machine_memory_mb: %d
 tools:
   run_command: {}
-`, test.displayName, machinePool.Name, test.machineCPU, test.machineMemory),
+`, machinePool.Name, test.machineCPU, test.machineMemory),
 				now,
 			)
 
@@ -3278,7 +3254,6 @@ func TestConcurrentLaunchesRespectPoolCapacity(t *testing.T) {
 		"launch-concurrent-capacity-pool",
 		"Launch Concurrent Capacity Pool Agent",
 		`
-name: Launch Concurrent Capacity Pool Agent
 instruction: Use one pool machine.
 model:
   provider_config: openai-prod
@@ -4753,7 +4728,6 @@ func TestLaunchAgentWithPoolGrantRejectsCapacityAndRollsBack(t *testing.T) {
 		"launch-capacity-pool",
 		"Launch Capacity Pool Agent",
 		`
-name: Launch Capacity Pool Agent
 instruction: Use a project machine pool.
 model:
   provider_config: openai-prod
@@ -4842,7 +4816,6 @@ func TestClaimNormalModelCallValidatesActiveAgentConfigAtWatermark(t *testing.T)
 		"model-context-config",
 		"Model Context Config Agent",
 		`
-name: Model Context Config Agent
 instruction: Keep config watermarks typed.
 model:
   provider_config: openai-prod
@@ -4905,7 +4878,6 @@ model:
 		t.Fatalf("config at frontier = %s, want %s", snapshot.AgentConfig.ID, config.ID)
 	}
 	newConfig := mustCreateAgentConfigFromYAML(t, ctx, store, "model-context-config-changed", `
-name: Model Context Config Agent
 instruction: Keep changed config typed.
 model:
   provider_config: openai-prod
@@ -5001,7 +4973,6 @@ func TestModelCallRetryUsesCurrentConfiguredModelRevision(t *testing.T) {
 		"model-context-revision",
 		"Model Context Revision Agent",
 		`
-name: Model Context Revision Agent
 instruction: Keep resolved revisions durable.
 model:
   provider_config: openai-prod
@@ -5223,7 +5194,6 @@ func TestClaimNormalModelCallDoesNotPinProjectModelGrant(t *testing.T) {
 		"model-grant-context",
 		"Model Grant Context Agent",
 		`
-name: Model Grant Context Agent
 instruction: Keep runtime model grants enforced.
 model:
   provider_config: openai-prod
@@ -5326,7 +5296,6 @@ func TestRetargetAgentProfileAndLaunchLineage(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "retarget", "Retarget Agent", `
-name: Retarget Agent
 instruction: First instruction.
 model:
   provider_config: openai-prod
@@ -5355,7 +5324,6 @@ model:
 	}
 
 	updated, err := store.Execution().RetargetAgentProfile(ctx, retargetInput(`
-name: Retarget Agent
 instruction: Second instruction.
 model:
   provider_config: openai-prod
@@ -5394,7 +5362,6 @@ model:
 	}
 
 	noop, err := store.Execution().RetargetAgentProfile(ctx, retargetInput(`
-name: Retarget Agent
 instruction: Second instruction.
 model:
   provider_config: openai-prod
@@ -5407,7 +5374,6 @@ model:
 		t.Fatalf("expected no-op retarget to keep generation 2, got %d", noop.CurrentGeneration)
 	}
 	if _, err := store.Execution().RetargetAgentProfile(ctx, retargetInput(`
-name: Retarget Agent
 instruction: Stale writer instruction.
 model:
   provider_config: openai-prod
@@ -5436,6 +5402,28 @@ model:
 			retargetedLaunch.Agent.CurrentConfigID,
 			retargetedConfigID,
 		)
+	}
+	if retargetedLaunch.Agent.Name != "Retarget Agent" {
+		t.Fatalf("profile launch should use profile name, got agent=%+v", retargetedLaunch.Agent)
+	}
+
+	named, err := store.Execution().LaunchAgent(
+		ctx,
+		executionstore.LaunchAgentInput{
+			ProjectID:      testProjectID,
+			ProfileID:      profile.ID,
+			AgentConfigID:  retargetedConfigID,
+			LaunchedBy:     userPrincipal(user.ID),
+			Name:           "Explicit Name",
+			Message:        "named",
+			IdempotencyKey: "idem-launch-named",
+		},
+	)
+	if err != nil {
+		t.Fatalf("launch named agent: %v", err)
+	}
+	if named.Agent.Name != "Explicit Name" {
+		t.Fatalf("explicit launch name should override profile name, got agent=%+v", named.Agent)
 	}
 
 	pinned, err := store.Execution().LaunchAgent(
@@ -5472,12 +5460,29 @@ model:
 	if err != nil {
 		t.Fatalf("launch config-only agent: %v", err)
 	}
-	if configOnly.Agent.CurrentConfigID != retargetedConfigID || configOnly.Agent.Name != "Retarget Agent" {
-		t.Fatalf("config-only launch should use requested config and config name, got agent=%+v", configOnly.Agent)
+	if configOnly.Agent.CurrentConfigID != retargetedConfigID || configOnly.Agent.Name != "" {
+		t.Fatalf("config-only launch should use requested config and have no name, got agent=%+v", configOnly.Agent)
+	}
+
+	configOnlyNamed, err := store.Execution().LaunchAgent(
+		ctx,
+		executionstore.LaunchAgentInput{
+			ProjectID:      testProjectID,
+			AgentConfigID:  retargetedConfigID,
+			LaunchedBy:     userPrincipal(user.ID),
+			Name:           "Config Only Named",
+			Message:        "config only named",
+			IdempotencyKey: "idem-launch-config-only-named",
+		},
+	)
+	if err != nil {
+		t.Fatalf("launch named config-only agent: %v", err)
+	}
+	if configOnlyNamed.Agent.Name != "Config Only Named" {
+		t.Fatalf("config-only launch with explicit name should set agent name, got agent=%+v", configOnlyNamed.Agent)
 	}
 
 	other := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "retarget-other", "Other Agent", `
-name: Other Agent
 instruction: Unrelated profile.
 model:
   provider_config: openai-prod

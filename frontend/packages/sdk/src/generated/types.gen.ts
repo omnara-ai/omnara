@@ -910,6 +910,10 @@ export type ListAgentProfilesResponse = {
 export type CreateAgentRequest = {
     profile?: AgentProfileId;
     config: AgentConfigId;
+    /**
+     * Display name for the launched agent. Defaults to the profile name when launching from a profile.
+     */
+    name?: string;
     message?: string;
 };
 

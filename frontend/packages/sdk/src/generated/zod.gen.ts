@@ -683,6 +683,7 @@ export const zListAgentProfilesResponse = z.object({
 export const zCreateAgentRequest = z.object({
     profile: zAgentProfileId.optional(),
     config: zAgentConfigId,
+    name: z.string().optional(),
     message: z.string().optional()
 });
 

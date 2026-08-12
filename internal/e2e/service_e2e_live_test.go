@@ -331,7 +331,6 @@ type liveAPIFormatSwitchStage struct {
 
 func liveAPIFormatSwitchConfig(stage liveAPIFormatSwitchStage, mcpURL string) string {
 	return strings.Join([]string{
-		"name: Live API Format Switching",
 		"instruction: Use tools only when explicitly requested. Preserve exact tool results and opaque facts across the conversation.",
 		"model:",
 		"  provider_config: " + stage.ProviderConfig,
@@ -431,7 +430,6 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, opts.Seed)
 	env.startAPI(t, ctx)
 	sourceYAML := strings.Join([]string{
-		"name: Live Compaction Recall",
 		"instruction: Help the user make progress.",
 		"model:",
 		"  provider_config: " + opts.ProviderConfig,
