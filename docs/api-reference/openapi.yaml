@@ -5940,7 +5940,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Omnara personal or organization access token
-      description: An opaque Omnara personal or organization bearer token. Clients must not parse or validate its internal format.
+      description: An opaque Omnara personal or organization bearer token.
     browserSessionCookie:
       type: apiKey
       in: cookie
@@ -5955,7 +5955,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Omnara machine daemon token
-      description: An opaque Omnara machine-daemon bearer token. Clients must not parse or validate its internal format. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
+      description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -9356,7 +9356,7 @@ components:
         token:
           type: string
           minLength: 1
-          description: Opaque bearer credential. Clients must not parse or validate its internal format.
+          description: Opaque bearer credential.
         token_record:
           $ref: '#/components/schemas/PersonalAccessToken'
     OrgAPIKeyRole:
@@ -9412,7 +9412,7 @@ components:
         token:
           type: string
           minLength: 1
-          description: Opaque bearer credential. Clients must not parse or validate its internal format.
+          description: Opaque bearer credential.
         api_key:
           $ref: '#/components/schemas/OrgAPIKey'
     UpdateOrgAPIKeyRequest:
@@ -10389,7 +10389,7 @@ components:
         token:
           type: string
           minLength: 1
-          description: Opaque bearer credential. Clients must not parse or validate its internal format.
+          description: Opaque bearer credential.
         token_record:
           $ref: '#/components/schemas/MachineDaemonToken'
     ListMachineDaemonTokensResponse:
