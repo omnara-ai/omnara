@@ -23,9 +23,9 @@ const (
 	secretLength   = 43
 	checksumLength = 6
 
-	personalAccessPrefix = "omnara_pat_v1_"
-	organizationPrefix   = "omnara_org_v1_"
-	daemonPrefix         = "omnara_daemon_v1_"
+	personalAccessPrefix = "omnara_" + string(KindPersonalAccess) + "_v1_"
+	organizationPrefix   = "omnara_" + string(KindOrganization) + "_v1_"
+	daemonPrefix         = "omnara_" + string(KindDaemon) + "_v1_"
 
 	checksumSeparator = '_'
 	base62Radix       = uint32(len(alphabet))
