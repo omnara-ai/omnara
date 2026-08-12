@@ -4,7 +4,17 @@ import (
 	"context"
 
 	"github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/storage"
 )
+
+func ModelCatalogProbeFailed(ctx context.Context, modelProviderConfigID storage.ID, message string) {
+	log.Attach(ctx, log.Fields{
+		"model_catalog.probe.result":             "failed",
+		"model_catalog.probe.error":              message,
+		"model_catalog.model_provider_config_id": modelProviderConfigID,
+	})
+	log.Level(ctx, log.WarnLevel)
+}
 
 func ModelContextMediaOmitted(ctx context.Context, count int, bytes int64, budget int64) {
 	if count <= 0 {

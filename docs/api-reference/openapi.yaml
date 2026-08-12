@@ -4626,7 +4626,7 @@ paths:
       operationId: createModelProviderConfig
       tags: [Models]
       summary: Create model provider config
-      description: Create a model provider config, validate the configured credential where the provider exposes a validation endpoint, then probe the provider's /models endpoint. The result is returned as model_discovery; failed validation or discovery does not fail creation.
+      description: Create a model provider config, validate the configured credential where the provider exposes a validation endpoint, then probe the provider's /models endpoint. The result is returned as model_catalog; a failed probe does not fail creation.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -4794,6 +4794,49 @@ paths:
       responses:
         '204':
           description: Resource deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: modelProviderConfigID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ModelProviderConfigID'
+    get:
+      operationId: getModelCatalog
+      tags: [Models]
+      summary: Get model catalog
+      description: >-
+        Fetches the provider's live model catalog by validating the configured credential and
+        probing the provider's /models endpoint. The call waits on the upstream provider, so it
+        is slower than the other model provider config routes and can report failure as data.
+      responses:
+        '200':
+          description: Route response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelCatalog'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6471,15 +6514,15 @@ components:
     CreateModelProviderConfigResponse:
       type: object
       additionalProperties: false
-      required: [config, model_discovery]
+      required: [config, model_catalog]
       properties:
         config:
           $ref: '#/components/schemas/ModelProviderConfig'
-        model_discovery:
-          $ref: '#/components/schemas/ModelDiscoveryResult'
-    ModelDiscoveryResult:
+        model_catalog:
+          $ref: '#/components/schemas/ModelCatalog'
+    ModelCatalog:
       type: object
-      description: Result of validating the configured credential and probing the provider's /models endpoint. A failed check does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
+      description: The provider's model catalog, obtained by validating the configured credential and probing the provider's /models endpoint. A failed probe does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
       additionalProperties: false
       required: [status]
       properties:

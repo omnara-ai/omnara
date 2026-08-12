@@ -1,5 +1,9 @@
 import { useCreateConfiguredModel, useCreateProjectModelGrant } from '@omnara/react'
-import { type ConfiguredModel, type ModelProviderConfig } from '@omnara/sdk'
+import {
+  type ConfiguredModel,
+  type DiscoveredProviderModel,
+  type ModelProviderConfig,
+} from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 import { useState } from 'react'
 
@@ -15,22 +19,19 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { errorMessage } from '@/lib/submit-status'
 
 import { ConfiguredModelAdvancedFields } from './ConfiguredModelAdvancedFields'
+import { ConfiguredModelProviderField } from './ConfiguredModelProviderField'
 import {
   configuredModelFormDefaults,
   configuredModelFormValid,
+  discoveredModelPrefill,
+  providerChangeReset,
 } from './CreateConfiguredModelDialogState'
+import { ProviderModelSlugField } from './ProviderModelSlugField'
 
 export function CreateConfiguredModelDialog({
   open,
@@ -102,6 +103,20 @@ export function CreateConfiguredModelDialog({
     },
   })
 
+  function providerById(providerId: string) {
+    return providers.find((item) => item.id === providerId) ?? providers[0]
+  }
+
+  function applyDiscoveredModel(model: DiscoveredProviderModel) {
+    for (const [fieldName, fieldValue] of discoveredModelPrefill(
+      providerById(form.state.values.providerId)?.name,
+      form.state.values,
+      model,
+    )) {
+      form.setFieldValue(fieldName, fieldValue)
+    }
+  }
+
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
       setAdvancedOpen(false)
@@ -126,27 +141,19 @@ export function CreateConfiguredModelDialog({
           <FieldGroup>
             <form.Field name="providerId">
               {(field) => (
-                <Field>
-                  <FieldLabel htmlFor="cm-provider">Model provider</FieldLabel>
-                  <Select
-                    value={
-                      (providers.find((item) => item.id === field.state.value) ?? providers[0])
-                        ?.id ?? ''
+                <ConfiguredModelProviderField
+                  providers={providers}
+                  value={field.state.value}
+                  onChange={(nextValue) => {
+                    for (const [fieldName, fieldValue] of providerChangeReset(
+                      providerById(field.state.value)?.name,
+                      form.state.values,
+                    )) {
+                      form.setFieldValue(fieldName, fieldValue)
                     }
-                    onValueChange={field.handleChange}
-                  >
-                    <SelectTrigger id="cm-provider" className="w-full">
-                      <SelectValue placeholder="Select a provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {providers.map((option) => (
-                        <SelectItem key={option.id} value={option.id}>
-                          {option.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
+                    field.handleChange(nextValue)
+                  }}
+                />
               )}
             </form.Field>
             <form.Field name="name">
@@ -167,18 +174,19 @@ export function CreateConfiguredModelDialog({
             </form.Field>
             <form.Field name="providerModelSlug">
               {(field) => (
-                <Field>
-                  <FieldLabel htmlFor="cm-provider-model-slug">Provider model slug</FieldLabel>
-                  <Input
-                    id="cm-provider-model-slug"
-                    required
-                    value={field.state.value}
-                    placeholder="gpt-5.5"
-                    onChange={(event) => {
-                      field.handleChange(event.target.value)
-                    }}
-                  />
-                </Field>
+                <form.Subscribe selector={(state) => state.values.providerId}>
+                  {(providerId) => (
+                    <ProviderModelSlugField
+                      id="cm-provider-model-slug"
+                      orgId={orgId}
+                      provider={providerById(providerId)}
+                      enabled={open}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                      onSelect={applyDiscoveredModel}
+                    />
+                  )}
+                </form.Subscribe>
               )}
             </form.Field>
             <form.Field name="contextWindowTokens">

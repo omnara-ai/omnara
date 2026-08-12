@@ -94,6 +94,7 @@ export {
   useCreateModelProvider,
   useDeleteConfiguredModel,
   useDeleteModelProvider,
+  useModelCatalog,
   useModelProviders,
   useUpdateConfiguredModel,
   useUpdateModelProvider,
