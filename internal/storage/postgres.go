@@ -25,8 +25,7 @@ func WithQueryTracer(tracer pgx.QueryTracer) OpenOption {
 	}
 }
 
-// WithDefaultApplicationName sets the process name reported by PostgreSQL only
-// when the connection string or PostgreSQL environment did not provide one.
+// WithDefaultApplicationName sets application_name only when configuration omits it.
 func WithDefaultApplicationName(name string) OpenOption {
 	return func(cfg *pgxpool.Config) {
 		if name == "" {
@@ -62,9 +61,7 @@ func Open(ctx context.Context, databaseURL string, opts ...OpenOption) (*pgxpool
 }
 
 func parsePoolConfig(databaseURL string) (*pgxpool.Config, error) {
-	// pgxpool removes pool_* settings after parsing them. Parse once with pgx so
-	// we can distinguish an explicit setting (including environment/service-file
-	// input) from pgxpool's own default before applying Omnara's defaults.
+	// pgxpool strips pool_* settings; raw parsing preserves whether they were explicit.
 	raw, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, err

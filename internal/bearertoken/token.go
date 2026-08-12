@@ -1,6 +1,4 @@
-// Package bearertoken defines the canonical wire format for long-lived Omnara
-// bearer credentials. It deliberately does not hash or persist tokens; callers
-// continue to own those storage concerns.
+// Package bearertoken generates and validates long-lived bearer credentials.
 package bearertoken
 
 import (
@@ -31,15 +29,13 @@ const (
 
 	checksumSeparator = '_'
 	base62Radix       = uint32(len(alphabet))
-	// 248 is the largest multiple of 62 below 256. Rejecting larger bytes
-	// keeps every output character equally likely.
+	// Rejecting 248–255 prevents modulo bias across the 62-character alphabet.
 	unbiasedByteLimit = byte(256 - (256 % len(alphabet)))
 )
 
 var ErrInvalid = errors.New("invalid bearer token")
 
-// Generate returns a new token with at least 256 bits of uniformly sampled
-// secret entropy.
+// Generate returns a token with at least 256 bits of secret entropy.
 func Generate(kind Kind) (string, error) {
 	secret, err := generateSecret(rand.Reader)
 	if err != nil {
@@ -60,8 +56,7 @@ func format(kind Kind, secret string) (string, error) {
 	return body + string(checksumSeparator) + encodeChecksum(crc32.ChecksumIEEE([]byte(body))), nil
 }
 
-// Parse validates the complete token, including its kind, version, shape, and
-// checksum, and returns the credential kind.
+// Parse validates a token and returns its credential kind.
 func Parse(token string) (Kind, error) {
 	kind, prefix, ok := kindAndPrefix(token)
 	if !ok {

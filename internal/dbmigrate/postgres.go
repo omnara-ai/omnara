@@ -23,10 +23,8 @@ const (
 	migrationUnlockTimeout  = 5 * time.Second
 )
 
-// RunPostgres opens a direct PostgreSQL connection and applies migrations
-// within one bounded run. The database URL must not point at a transaction
-// pooler because migration correctness relies on session state and a
-// session-level advisory lock.
+// RunPostgres applies migrations over a direct connection; transaction poolers
+// are unsupported because the advisory lock is session-scoped.
 func RunPostgres(
 	ctx context.Context,
 	databaseURL string,
@@ -65,7 +63,7 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*sql.DB, error) {
 }
 
 func parsePostgresConfig(databaseURL string) (*pgx.ConnConfig, error) {
-	// Parse with pgxpool to remove pool_* settings before adapting the shared URL for Goose.
+	// pgxpool strips pool_* settings before ConnConfig is passed to database/sql.
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, err
@@ -135,10 +133,8 @@ func ApplyPostgres(
 	return nil
 }
 
-// deadlineSessionLocker restores a finite deadline around SessionUnlock.
-// Goose deliberately detaches the migration context before cleanup so a
-// canceled migration can attempt to release its advisory lock. Without this
-// wrapper, one unlock query on a dead connection could block forever.
+// Goose removes cancellation before SessionUnlock; restore a deadline so cleanup cannot hang.
+// See https://github.com/pressly/goose/blob/v3.27.2/provider_run.go#L300-L306.
 type deadlineSessionLocker struct {
 	delegate lock.SessionLocker
 	timeout  time.Duration

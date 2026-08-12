@@ -45,9 +45,8 @@ func checkRepository(root string) error {
 	return checkSnapshot(worktreeSnapshot{root: root})
 }
 
-// A release tag is the immutability boundary because publishing starts when the
-// tag is pushed. Waiting for the final GitHub Release would miss images exposed
-// by a partially completed publish workflow.
+// Publication starts on tag push; see .github/workflows/cluster-release.yaml
+// and .github/workflows/omnarad-release.yaml.
 func compareReleasedRepository(root, releaseRefRoot string) error {
 	current := worktreeSnapshot{root: root}
 	if err := checkSnapshot(current); err != nil {

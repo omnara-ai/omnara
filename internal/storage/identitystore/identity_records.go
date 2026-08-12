@@ -438,9 +438,8 @@ type OrgAPIKeyRecord struct {
 	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
 }
 
-// PrincipalRecord identifies an authenticated subject or an internal actor.
-// ID identifies the subject represented by Type. Credential-specific IDs
-// record how that subject authenticated; they never replace the subject ID.
+// PrincipalRecord identifies an authenticated subject or internal actor. ID is
+// the subject; credential-specific IDs record how it authenticated.
 type PrincipalRecord struct {
 	Type                  string
 	ID                    ID

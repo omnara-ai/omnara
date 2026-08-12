@@ -149,9 +149,6 @@ func TestCanonicalBearerCredentialsPersistOnlyFullTokenDigests(t *testing.T) {
 	assertStoredToken("org_api_keys", orgKey.Record.ID, orgKey.Token, orgKey.Record.TokenID)
 	assertStoredToken("machine_daemon_tokens", daemon.Record.ID, daemon.Token, "")
 
-	// Exact kind/shape validation happens before storage access. A valid token
-	// reaches the closed pool, while wrong-kind and legacy tokens remain plain
-	// unauthorized results.
 	pool.Close()
 	if _, err := store.Identity().AuthenticatePersonalAccessToken(ctx, pat.Token); err == nil || errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("valid PAT against closed pool error = %v, want storage error", err)
