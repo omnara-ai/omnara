@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Compatibility fixture
-  version: route-breaking
+  version: enum-breaking
 paths:
   /api/v1/resources:
     get:
@@ -19,4 +19,9 @@ paths:
                     minLength: 1
                   code:
                     type: string
-                    enum: [existing]
+                    enum: [existing, added]
+  /api/v1/unchanged:
+    get:
+      responses:
+        '200':
+          description: OK

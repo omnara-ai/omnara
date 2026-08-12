@@ -17,6 +17,9 @@ paths:
                   value:
                     type: string
                     minLength: 1
+                  code:
+                    type: string
+                    enum: [existing]
   /api/v1/unchanged:
     get:
       responses:

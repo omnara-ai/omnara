@@ -17,6 +17,9 @@ paths:
                   value:
                     type: string
                     minLength: 1
+                  code:
+                    type: string
+                    enum: [existing]
                   metadata:
                     type: object
   /api/v1/unchanged:

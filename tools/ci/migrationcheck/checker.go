@@ -34,6 +34,10 @@ var migrationSets = []migrationSet{
 type snapshot interface {
 	listSQL(directory string) ([]string, error)
 	readFile(filePath string) ([]byte, error)
+}
+
+type currentSnapshot interface {
+	snapshot
 	readOptional(filePath string) ([]byte, bool, error)
 }
 
@@ -83,16 +87,7 @@ func checkSnapshot(source snapshot) error {
 	return nil
 }
 
-func compareSnapshots(base, current snapshot) error {
-	for _, set := range migrationSets {
-		if err := compareMigrationSet(set, base, current); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func compareMigrationSet(set migrationSet, base, current snapshot) error {
+func compareMigrationSet(set migrationSet, base snapshot, current currentSnapshot) error {
 	baseFiles, err := base.listSQL(set.directory)
 	if err != nil {
 		return fmt.Errorf("list released %s: %w", set.directory, err)
@@ -323,19 +318,6 @@ func (snapshot gitSnapshot) listSQL(directory string) ([]string, error) {
 func (snapshot gitSnapshot) readFile(filePath string) ([]byte, error) {
 	command := snapshot.command("cat-file", "blob", snapshot.ref+":"+filePath)
 	return command.Output()
-}
-
-func (snapshot gitSnapshot) readOptional(filePath string) ([]byte, bool, error) {
-	command := snapshot.command("ls-tree", "--name-only", snapshot.ref, "--", filePath)
-	output, err := command.Output()
-	if err != nil {
-		return nil, false, err
-	}
-	if strings.TrimSpace(string(output)) != filePath {
-		return nil, false, nil
-	}
-	body, err := snapshot.readFile(filePath)
-	return body, err == nil, err
 }
 
 func (snapshot gitSnapshot) command(arguments ...string) *exec.Cmd {

@@ -291,6 +291,15 @@ func (source memorySnapshot) readOptional(filePath string) ([]byte, bool, error)
 	return body, ok, nil
 }
 
+func compareSnapshots(base snapshot, current currentSnapshot) error {
+	for _, set := range migrationSets {
+		if err := compareMigrationSet(set, base, current); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeMigrationTestFile(t *testing.T, root, filePath, body string) {
 	t.Helper()
 	fullPath := filepath.Join(root, filepath.FromSlash(filePath))

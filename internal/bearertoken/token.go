@@ -5,7 +5,6 @@ package bearertoken
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -84,7 +83,7 @@ func Parse(token string) (Kind, error) {
 		return "", err
 	}
 	want := encodeChecksum(crc32.ChecksumIEEE([]byte(token[:separator])))
-	if subtle.ConstantTimeCompare([]byte(presented), []byte(want)) != 1 {
+	if presented != want {
 		return "", fmt.Errorf("%w: checksum mismatch", ErrInvalid)
 	}
 	return kind, nil
@@ -132,7 +131,10 @@ func validateBase62(value string, length int, part string) error {
 		return fmt.Errorf("%w: %s must contain %d Base62 characters", ErrInvalid, part, length)
 	}
 	for i := range len(value) {
-		if !strings.ContainsRune(alphabet, rune(value[i])) {
+		character := value[i]
+		if !((character >= '0' && character <= '9') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= 'a' && character <= 'z')) {
 			return fmt.Errorf("%w: %s contains a non-Base62 character", ErrInvalid, part)
 		}
 	}
