@@ -191,7 +191,6 @@ export function CreateAgentPage() {
           <AgentConfigBasicForm
             orgId={activeOrg.id}
             projectId={projectId}
-            name={draft.name}
             onYamlChange={handleBuilderYamlChange}
           />
         </div>
@@ -199,7 +198,6 @@ export function CreateAgentPage() {
           <AgentConfigYamlField
             id="agent-yaml"
             value={mode.editorYaml}
-            showNamePlaceholder
             className="h-[28rem]"
             onChange={(value) => {
               dispatchMode({ type: 'editor-yaml-changed', yaml: value })

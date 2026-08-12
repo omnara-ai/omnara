@@ -831,7 +831,6 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 		t.Fatalf("create valid pool grant: %v", err)
 	}
 	compiled := mustCompileAgentYAMLWithMachineSourceResolvers(t, ctx, store, `
-name: Reserved Agent Env
 instruction: Use the pool.
 model:
   provider_config: openai-prod
@@ -1335,7 +1334,6 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 		t.Fatalf("create agent config minimum grant: %v", err)
 	}
 	compiled := mustCompileAgentYAMLWithMachineSourceResolvers(t, ctx, store, `
-name: Minimum CPU Agent
 instruction: Use the pool.
 model:
   provider_config: openai-prod
@@ -1612,7 +1610,6 @@ func TestDeleteMachinePoolRevokesGrantsAndMarksMachinesDeleting(t *testing.T) {
 		t.Fatalf("create pool grant: %v", err)
 	}
 	agent := createLaunchTestAgent(t, ctx, store, "idem-pool-archive-agent", `
-name: Pool Archive Agent
 instruction: Use a pool machine.
 model:
   provider_config: openai-prod
@@ -1990,7 +1987,6 @@ func TestProjectMachinePoolGrantRevocationRevokesGeneratedGrantsAndRequestsMachi
 		t.Fatalf("create pool grant: %v", err)
 	}
 	agent := createLaunchTestAgent(t, ctx, store, "idem-pool-revoke-agent", `
-name: Pool Revoke Agent
 instruction: Use a agent pool machine.
 model:
   provider_config: openai-prod
@@ -2159,7 +2155,6 @@ func TestProjectMachinePoolGrantRevocationFencesInFlightProvisioning(t *testing.
 		t.Fatalf("create pool grant: %v", err)
 	}
 	agent := createLaunchTestAgent(t, ctx, store, "idem-pool-revoke-provisioning-agent", `
-name: Pool Revoke Provisioning Agent
 instruction: Use a agent pool machine.
 model:
   provider_config: openai-prod
@@ -2291,7 +2286,6 @@ func TestProjectMachinePoolGrantRevocationOverwritesProviderNotConfiguredReason(
 		t.Fatalf("create pool grant: %v", err)
 	}
 	agent := createLaunchTestAgent(t, ctx, store, "idem-pool-revoke-provider-not-configured-agent", `
-name: Pool Revoke Provider Not Configured Agent
 instruction: Use a pool machine with missing provider config.
 model:
   provider_config: openai-prod
@@ -2442,7 +2436,6 @@ func TestProjectMachinePoolGrantRevocationStopsActivePoolMachineExecution(t *tes
 		t.Fatalf("create pool grant: %v", err)
 	}
 	agent := createLaunchTestAgent(t, ctx, store, "idem-pool-revoke-active-agent", `
-name: Pool Revoke Active Agent
 instruction: Use an active pool machine.
 model:
   provider_config: openai-prod

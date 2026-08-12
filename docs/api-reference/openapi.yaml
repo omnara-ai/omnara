@@ -7522,6 +7522,9 @@ components:
           $ref: '#/components/schemas/AgentProfileID'
         config:
           $ref: '#/components/schemas/AgentConfigID'
+        name:
+          type: string
+          description: Display name for the launched agent. Defaults to the profile name when launching from a profile.
         message:
           type: string
     Agent:

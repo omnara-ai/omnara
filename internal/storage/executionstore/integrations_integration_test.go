@@ -1339,7 +1339,6 @@ func createIntegrationTestProfile(
 ) executionstore.AgentProfileRecord {
 	t.Helper()
 	return mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, key, "Integration Test Agent "+key, `
-name: Integration Test Agent
 instruction: Reply to users.
 model:
   provider_config: openai-prod

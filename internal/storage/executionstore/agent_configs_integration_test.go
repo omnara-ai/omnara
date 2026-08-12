@@ -48,7 +48,6 @@ func TestCreateAgentConfigRequiresActiveProjectModelGrant(t *testing.T) {
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 6, 10, 9, 30, 0, 0, time.UTC)
 	sourceYAML := `
-name: Grant Required
 instruction: test
 model:
   provider_config: openai-prod
@@ -86,7 +85,6 @@ func TestCreateAgentConfigValidatesRuntimeModelOverridesAgainstGrant(t *testing.
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 6, 10, 10, 0, 0, 0, time.UTC)
 	sourceYAML := `
-name: Model Runtime Bounds
 instruction: test
 model:
   provider_config: openai-prod
@@ -142,7 +140,6 @@ func TestCreateAgentConfigAllowsProjectModelGrantModalityRestrictions(t *testing
 		t.Fatalf("create project model grant: %v", err)
 	}
 	sourceYAML := `
-name: Model Modality Bounds
 instruction: test
 model:
   provider_config: openai-prod

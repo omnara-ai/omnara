@@ -41,12 +41,10 @@ const emptyDraft: BasicConfigDraft = {
 export function AgentConfigBasicForm({
   orgId,
   projectId,
-  name,
   onYamlChange,
 }: {
   orgId: string
   projectId: string
-  name: string
   onYamlChange: (yaml: string) => void
 }) {
   const [draft, setDraft] = useState<BasicConfigDraft>(emptyDraft)
@@ -57,7 +55,6 @@ export function AgentConfigBasicForm({
 
   useEffect(() => {
     const config = {
-      name,
       instruction,
       providerConfig,
       modelName,
@@ -77,7 +74,6 @@ export function AgentConfigBasicForm({
     machineSources,
     mcpServers,
     modelName,
-    name,
     onYamlChange,
     providerConfig,
     skillIds,

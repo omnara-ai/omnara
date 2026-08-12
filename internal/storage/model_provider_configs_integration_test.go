@@ -638,8 +638,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create referenced configured model: %v", err)
 	}
-	referencedSource := `name: referenced-model
-instruction: Test referenced model mutability.
+	referencedSource := `instruction: Test referenced model mutability.
 model:
   provider_config: openai-referenced
   name: gpt-referenced
@@ -906,7 +905,6 @@ func TestDeleteConfiguredModelAllowsHistoricalAgentConfigReferences(t *testing.T
 	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
 
 	sourceYAML := `
-name: archived model test
 instruction: test
 model:
   provider_config: openai-prod
@@ -957,7 +955,6 @@ func TestDeleteConfiguredModelDoesNotRequireActiveProviderConfig(t *testing.T) {
 	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
 
 	config := mustCreateAgentConfigFromYAML(t, ctx, store, "archive-model-parent-archived", `
-name: archived parent model test
 instruction: test
 model:
   provider_config: openai-prod
@@ -1046,8 +1043,7 @@ func TestConfiguredModelUpdateSerializesWithAgentConfigCreation(t *testing.T) {
 		t.Fatalf("grant lock-test configured model: %v", err)
 	}
 
-	source := `name: lock-test
-instruction: Test configured model lock.
+	source := `instruction: Test configured model lock.
 model:
   provider_config: openai-lock
   name: gpt-lock
@@ -1211,8 +1207,7 @@ func TestCreateAgentConfigRejectsStaleToolRequirementAfterGrantChanges(t *testin
 		t.Fatalf("grant configured model with tools: %v", err)
 	}
 
-	source := `name: stale-tool-grant
-instruction: Test stale project grant tools.
+	source := `instruction: Test stale project grant tools.
 model:
   provider_config: openai-stale-grant
   name: gpt-stale-grant
@@ -1706,8 +1701,7 @@ func TestCreateAgentConfigUsesConfiguredModelAliasAfterRevisionUpdate(t *testing
 		t.Fatalf("grant stale-test configured model: %v", err)
 	}
 
-	source := `name: stale-test
-instruction: Test configured model alias after revision update.
+	source := `instruction: Test configured model alias after revision update.
 model:
   provider_config: openai-stale
   name: gpt-stale

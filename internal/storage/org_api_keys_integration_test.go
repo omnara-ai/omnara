@@ -369,7 +369,6 @@ func TestOrgAPIKeyLaunchesAgentsAndChangesConfigs(t *testing.T) {
 		"org-key-launch",
 		"Org Key Launch Agent",
 		`
-name: Org Key Launch Agent
 instruction: Launched by an org API key.
 model:
   provider_config: openai-prod
@@ -411,7 +410,6 @@ model:
 	}
 
 	updated := mustCreateAgentConfigFromYAML(t, ctx, store, "org-key-launch-v2", `
-name: Org Key Launch Agent
 instruction: Updated by an org API key.
 model:
   provider_config: openai-prod

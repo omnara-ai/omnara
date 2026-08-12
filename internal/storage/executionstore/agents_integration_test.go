@@ -38,7 +38,6 @@ func TestAgentLaunchRequiresConfigAndCanRecordProfile(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-profile-launch", "Launch Profile", `
-name: Launch Profile
 instruction: Start with the saved profile config.
 model:
   provider_config: openai-prod
@@ -250,7 +249,6 @@ func TestAgentConfigHistoryTablesAreImmutable(t *testing.T) {
 	now := time.Date(2026, 4, 29, 15, 20, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "history-immutable@example.com", "History Immutable")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "history-immutable", "History Immutable", `
-name: History Immutable
 instruction: Initial immutable history config.
 model:
   provider_config: openai-prod
@@ -270,7 +268,6 @@ model:
 		t.Fatalf("launch agent: %v", err)
 	}
 	alternateConfig := mustCreateAgentConfigFromYAML(t, ctx, store, "history-immutable-alternate", `
-name: History Immutable
 instruction: Alternate immutable history config.
 model:
   provider_config: openai-prod
@@ -444,7 +441,6 @@ func TestDeleteAgentProfileCascadesVersionsButKeepsConfigsAndAgents(t *testing.T
 	now := time.Date(2026, 4, 29, 15, 28, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "delete-profile@example.com", "Delete Profile")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "delete-profile", "Delete Profile", `
-name: Delete Profile
 instruction: Deletable helper profile.
 model:
   provider_config: openai-prod
@@ -500,14 +496,12 @@ func TestDeleteAgentProfileSerializesWithRetarget(t *testing.T) {
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 4, 29, 15, 29, 0, 0, time.UTC)
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "delete-retarget", "Delete Retarget", `
-name: Delete Retarget
 instruction: Initial profile.
 model:
   provider_config: openai-prod
   name: delete-retarget
 `, now)
 	retargetConfig := mustCreateAgentConfigFromYAML(t, ctx, store, "delete-retarget-next", `
-name: Delete Retarget
 instruction: Retargeted profile.
 model:
   provider_config: openai-prod
@@ -591,7 +585,6 @@ func TestAgentLaunchSerializesWithProfileDeletion(t *testing.T) {
 		"Launch Profile Delete",
 	)
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-profile-delete", "Launch Profile Delete", `
-name: Launch Profile Delete
 instruction: Launch only from a live profile.
 model:
   provider_config: openai-prod
@@ -662,7 +655,6 @@ func TestCreateAgentProfileIdempotentReplayReturnsExistingProfile(t *testing.T) 
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 4, 29, 15, 30, 0, 0, time.UTC)
 	sourceYAML := `
-name: Replay Profile
 instruction: Profile creation should replay cleanly.
 model:
   provider_config: openai-prod
@@ -696,7 +688,6 @@ model:
 		t.Fatalf("duplicate profile name error = %v, want ErrConflict", err)
 	}
 	retargetYAML := `
-name: Replay Profile
 instruction: Retargeted profile head.
 model:
   provider_config: openai-prod
@@ -735,7 +726,6 @@ model:
 		t.Fatalf("unexpected replayed retarget: retargeted=%+v replayed=%+v", retargeted, replayedRetarget)
 	}
 	conflictingRetargetYAML := `
-name: Replay Profile
 instruction: Conflicting retargeted profile head.
 model:
   provider_config: openai-prod
@@ -796,7 +786,6 @@ func TestChangeAgentConfigCreatesConfigChangeEventAndIsIdempotent(t *testing.T) 
 		"Agent Config Change Operator")
 
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-change", "Change Profile", `
-name: Change Profile
 instruction: Original instruction.
 model:
   provider_config: openai-prod
@@ -826,7 +815,6 @@ model:
 		t.Fatalf("operator config change with launch audit reason should be unauthorized, got %v", err)
 	}
 	updatedYAML := `
-name: Change Profile
 instruction: Updated instruction.
 model:
   provider_config: openai-prod
@@ -889,7 +877,6 @@ model:
 		t.Fatalf("config change replay by a different actor should conflict, got %v", err)
 	}
 	secondYAML := `
-name: Change Profile
 instruction: Second updated instruction.
 model:
   provider_config: openai-prod
@@ -976,7 +963,6 @@ func TestCaptureAgentConfigForModelContextSeesEventsCommittedBeforeLock(t *testi
 		t.Fatalf("create user: %v", err)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-capture", "Capture Profile", `
-name: Capture Profile
 instruction: Original instruction.
 model:
   provider_config: openai-prod
@@ -1125,7 +1111,6 @@ func TestCaptureAgentConfigForEventWatermarkUsesConfigActiveAtSequence(t *testin
 	now := time.Date(2026, 4, 29, 16, 45, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "watermark-config@example.com", "Watermark Config")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "watermark-config", "Watermark Config", `
-name: Watermark Config
 instruction: First watermark config.
 model:
   provider_config: openai-prod
@@ -1147,7 +1132,6 @@ model:
 	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(
 			mustCreateAgentConfigFromYAML(t, ctx, store, "watermark-config-second", `
-name: Watermark Config
 instruction: Second watermark config.
 model:
   provider_config: openai-prod
@@ -1203,7 +1187,6 @@ func TestChangeAgentConfigAcceptsLiveMCPDiffs(t *testing.T) {
 	now := time.Date(2026, 4, 29, 16, 30, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "agent-config-policy@example.com", "Agent Config Policy")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-policy", "Policy Profile", `
-name: Policy Profile
 instruction: Original instruction.
 model:
   provider_config: openai-prod
@@ -1223,7 +1206,6 @@ model:
 		t.Fatalf("launch with config: %v", err)
 	}
 	yaml := `
-name: Policy Profile
 instruction: Add MCP.
 model:
   provider_config: openai-prod
@@ -1328,7 +1310,6 @@ func TestChangeAgentConfigReconcilesExplicitMachineSources(t *testing.T) {
 		}
 	}
 	initialYAML := `
-name: Live Explicit Sources
 instruction: Use explicit machines.
 model:
   provider_config: openai-prod
@@ -1376,7 +1357,6 @@ tools:
 		t.Fatalf("shared machine bindings = first %+v second %+v", launch.MachineBindings, shared.MachineBindings)
 	}
 	invalidYAML := `
-name: Live Explicit Sources
 instruction: Use explicit machines.
 model:
   provider_config: openai-prod
@@ -1433,7 +1413,6 @@ tools:
 		t.Fatalf("invalid reconciliation advanced config to %s", afterInvalid.CurrentConfigID)
 	}
 	validYAML := `
-name: Live Explicit Sources
 instruction: Use explicit machines.
 model:
   provider_config: openai-prod
@@ -1503,7 +1482,6 @@ tools:
 		t.Fatalf("reconciled first binding environment = %s / %s", firstBinding.EnvOverlay, firstBinding.SecretEnvOverlay)
 	}
 	reorderedYAML := `
-name: Live Explicit Sources
 instruction: Use explicit machines.
 model:
   provider_config: openai-prod
@@ -1630,7 +1608,6 @@ tools:
 		sharedLock,
 	)
 	secondOnlyYAML := `
-name: Live Explicit Sources
 instruction: Use explicit machines.
 model:
   provider_config: openai-prod
@@ -1732,7 +1709,6 @@ func TestAgentConfigDedupesOnlyEquivalentAuthoredConfigs(t *testing.T) {
 		t.Fatalf("equivalent test configs should dedupe by hash: first=%s second=%s", first, second)
 	}
 	sourceA := `
-name: Equivalent Source
 instruction: test
 model:
   provider_config: openai-prod
@@ -1743,7 +1719,6 @@ model:
   provider_config: openai-prod
   name: equivalent
 instruction: test
-name: Equivalent Source
 `
 	compiledA := mustCompileAgentYAMLResolved(t, ctx, store, sourceA, now.Add(time.Second))
 	compiledB := mustCompileAgentYAMLResolved(t, ctx, store, sourceB, now.Add(time.Second))

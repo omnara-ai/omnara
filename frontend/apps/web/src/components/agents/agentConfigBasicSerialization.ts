@@ -49,7 +49,6 @@ export interface BasicMachineSource {
 }
 
 export interface BasicConfig {
-  name: string
   instruction: string
   providerConfig: string
   modelName: string
@@ -114,11 +113,6 @@ function yamlBlock(value: string) {
 
 export function serializeBasicConfig(config: BasicConfig) {
   const lines: string[] = []
-  const name = config.name.trim()
-
-  if (name !== '') {
-    lines.push(`name: ${yamlString(name)}`)
-  }
   lines.push(`instruction: ${yamlBlock(config.instruction.trimEnd())}`)
   lines.push('model:')
   lines.push(`  provider_config: ${yamlString(config.providerConfig.trim())}`)

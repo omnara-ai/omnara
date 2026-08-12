@@ -34,7 +34,6 @@ func TestAgentExecutorInitializesMCPConnectionsBeforeGeneration(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 	sourceYAML := `
-name: Kernel MCP
 instruction: Use MCP tools later.
 model:
   provider_config: openai-prod
@@ -216,7 +215,6 @@ func TestAgentExecutorModelRetryDoesNotReinitializeFailedMCPConnection(t *testin
 		t.Fatalf("create user: %v", err)
 	}
 	sourceYAML := `
-name: Kernel MCP Connect Retry
 instruction: Continue even if MCP cannot connect.
 model:
   provider_config: openai-prod
@@ -330,7 +328,6 @@ func TestAgentExecutorMCPInitializationFailsWhenListToolsFails(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 	sourceYAML := `
-name: Kernel MCP List Tools Failure
 instruction: Continue even if MCP tools/list fails.
 model:
   provider_config: openai-prod
@@ -429,7 +426,6 @@ func TestAgentExecutorRefreshesExpiredMCPConnectionForAsyncToolCall(t *testing.T
 		t.Fatalf("create user: %v", err)
 	}
 	sourceYAML := `
-name: Kernel MCP Refresh
 instruction: Use MCP tools.
 model:
   provider_config: openai-prod
@@ -534,7 +530,6 @@ func TestAgentExecutorAppliesMCPConfigChangeAfterPendingTool(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	oldSource := `
-name: Kernel MCP Config Change
 instruction: Use MCP tools.
 model:
   provider_config: openai-prod
@@ -674,7 +669,6 @@ func TestAgentExecutorMCPRefreshFailureCompletesToolAndRemovesMCPTools(t *testin
 		t.Fatalf("create user: %v", err)
 	}
 	sourceYAML := `
-name: Kernel MCP Refresh Failure
 instruction: Use MCP tools.
 model:
   provider_config: openai-prod
@@ -835,7 +829,6 @@ func TestAgentExecutorMCPInitializationFailuresStoreConnectionErrorWithoutBlocki
 		t.Fatalf("create user: %v", err)
 	}
 	sourceYAML := `
-name: Kernel MCP Failure
 instruction: Continue even if one MCP server fails.
 model:
   provider_config: openai-prod

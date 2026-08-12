@@ -61,7 +61,6 @@ func TestListMachinePoolSourcesKeepsCapturedNamesAfterSwap(t *testing.T) {
 		store,
 		"agent-pool-machine-name-swap-config",
 		fmt.Sprintf(`
-name: Agent Pool Machine Name Swap
 instruction: Use pool machines.
 model:
   provider_config: openai-prod
@@ -696,7 +695,6 @@ func TestCreatePoolMachineUsesDefaultPoolSource(t *testing.T) {
 		t.Fatalf("create default pool grant: %v", err)
 	}
 	config := mustCreateAgentConfigFromYAML(t, ctx, store, "agent-pool-machine-default-config", `
-name: Agent Cluster Pool Machine Config
 instruction: Use default pool machines.
 model:
   provider_config: openai-prod
@@ -965,7 +963,6 @@ func TestZeroCapMachinePoolLifecycle(t *testing.T) {
 	}
 
 	initialMachinesYAML := `
-name: Zero Cap Initial Machines
 instruction: Launch a pool machine immediately.
 model:
   provider_config: openai-prod
@@ -2066,7 +2063,6 @@ func createPoolMachineToolCalls(
 
 func agentPoolMachineConfigYAML(machinePoolName string, maxMachines int) string {
 	return `
-name: Agent Pool Machine Config
 instruction: Use pool machines.
 model:
   provider_config: openai-prod
@@ -2087,7 +2083,6 @@ func agentPoolMachineConfigYAMLWithDefaultMachineFields(
 	defaultMachineFields string,
 ) string {
 	return `
-name: Agent Pool Machine Config
 instruction: Use pool machines.
 model:
   provider_config: openai-prod

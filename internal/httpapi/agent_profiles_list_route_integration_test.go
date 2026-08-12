@@ -24,7 +24,7 @@ func TestListAgentProfiles(t *testing.T) {
 		project,
 		"list-profiles-b",
 		"yaml",
-		"name: B Agent\ninstruction: Help with B.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		"instruction: Help with B.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
 		project.AdminToken,
 		http.StatusCreated,
 	)
@@ -34,7 +34,7 @@ func TestListAgentProfiles(t *testing.T) {
 		project,
 		"list-profiles-a",
 		"yaml",
-		"name: A Agent\ninstruction: Help with A.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		"instruction: Help with A.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
 		project.AdminToken,
 		http.StatusCreated,
 	)
@@ -125,7 +125,7 @@ func TestListAgentProfiles(t *testing.T) {
 			project,
 			seed,
 			"yaml",
-			"name: Page "+string(rune('A'+i))+"\ninstruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+			"instruction: Help with page "+seed+".\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
 			project.AdminToken,
 			http.StatusCreated,
 		)
