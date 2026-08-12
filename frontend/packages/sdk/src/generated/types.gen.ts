@@ -92,6 +92,8 @@ export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header';
 
 export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 
+export type ModelProviderApiVariantResponse = string;
+
 /**
  * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, and selected reasoning policy. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters.
  */
@@ -166,7 +168,7 @@ export type ModelProviderConfig = {
     management_kind: ManagementKind;
     name: string;
     api_format: ModelApiFormat;
-    api_variant: ModelProviderApiVariant;
+    api_variant: ModelProviderApiVariantResponse;
     /**
      * Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
      */
@@ -842,7 +844,7 @@ export type AgentConfigModel = {
     configured_model_id: ConfiguredModelId;
     current_revision_id: ConfiguredModelRevisionId;
     api_format: ModelApiFormat;
-    api_variant: ModelProviderApiVariant;
+    api_variant: ModelProviderApiVariantResponse;
     /**
      * Effective token window after configured-model, project-grant, and agent-config settings are applied.
      */

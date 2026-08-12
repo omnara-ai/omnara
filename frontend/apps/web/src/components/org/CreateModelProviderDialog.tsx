@@ -143,6 +143,7 @@ export function CreateModelProviderDialog({
                         setValues((prev) => ({
                           ...prev,
                           provider: provider as ModelProviderOption,
+                          secretId: '',
                         }))
                       }}
                     >
@@ -224,11 +225,14 @@ export function CreateModelProviderDialog({
                   </div>
                 )}
                 <CredentialSecretField
+                  key={values.provider}
                   orgId={orgId}
                   enabled={open}
                   value={values.secretId}
                   onChange={(secretId) => {
-                    setValues((prev) => ({ ...prev, secretId }))
+                    setValues((prev) =>
+                      prev.provider === provider.value ? { ...prev, secretId } : prev,
+                    )
                   }}
                   label={`${provider.label} API key`}
                   placeholder={`Search secrets for your ${provider.label} API key…`}
