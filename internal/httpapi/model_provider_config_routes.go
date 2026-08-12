@@ -321,8 +321,8 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 		return nil, err
 	}
 	response := openapigen.CreateModelProviderConfigResponse{
-		Config:         configResponse,
-		ModelDiscovery: s.discoverProviderModels(ctx, org.ID, record),
+		Config:       configResponse,
+		ModelCatalog: s.providerModelCatalog(ctx, org.ID, record),
 	}
 	if record.Created {
 		return openapigen.CreateModelProviderConfig201JSONResponse(response), nil
@@ -330,19 +330,15 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 	return openapigen.CreateModelProviderConfig200JSONResponse(response), nil
 }
 
-func (s strictOpenAPIServer) discoverProviderModels(
+func (s strictOpenAPIServer) providerModelCatalog(
 	ctx context.Context,
 	orgID storage.ID,
 	record modelstore.ModelProviderConfigRecord,
-) openapigen.ModelDiscoveryResult {
-	failed := func(message string) openapigen.ModelDiscoveryResult {
-		s.server.log.Warn(
-			"model provider discovery failed",
-			"model_provider_config_id", record.ID,
-			"error", message,
-		)
-		return openapigen.ModelDiscoveryResult{
-			Status: openapigen.ModelDiscoveryResultStatusFailed,
+) openapigen.ModelCatalog {
+	failed := func(message string) openapigen.ModelCatalog {
+		logent.ModelCatalogProbeFailed(ctx, record.ID, message)
+		return openapigen.ModelCatalog{
+			Status: openapigen.ModelCatalogStatusFailed,
 			Error:  &message,
 		}
 	}
@@ -379,8 +375,8 @@ func (s strictOpenAPIServer) discoverProviderModels(
 		entry.MaxOutputTokens = model.MaxOutputTokens
 		discovered = append(discovered, entry)
 	}
-	return openapigen.ModelDiscoveryResult{
-		Status: openapigen.ModelDiscoveryResultStatusOk,
+	return openapigen.ModelCatalog{
+		Status: openapigen.ModelCatalogStatusOk,
 		Models: &discovered,
 	}
 }
@@ -449,15 +445,30 @@ func (s strictOpenAPIServer) GetModelProviderConfig(
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	configResponse, err := modelProviderConfigResponse(record)
+	response, err := modelProviderConfigResponse(record)
 	if err != nil {
 		return nil, err
 	}
-	response := openapigen.GetModelProviderConfigResponse{
-		Config:         configResponse,
-		ModelDiscovery: s.discoverProviderModels(ctx, org.ID, record),
-	}
 	return openapigen.GetModelProviderConfig200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) GetModelCatalog(
+	ctx context.Context,
+	request openapigen.GetModelCatalogRequestObject,
+) (openapigen.GetModelCatalogResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configID, ok := parseOpenAPIPublicID(publicid.KindModelProviderConfig, request.ModelProviderConfigID)
+	if !ok {
+		return nil, apierror.FromCode(openapigen.ErrorCodeNotFound, "not found")
+	}
+	record, err := s.server.store.Models().GetModelProviderConfig(ctx, org.ID, configID)
+	if err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
+	return openapigen.GetModelCatalog200JSONResponse(s.providerModelCatalog(ctx, org.ID, record)), nil
 }
 
 func (s strictOpenAPIServer) UpdateModelProviderConfig(

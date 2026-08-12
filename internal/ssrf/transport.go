@@ -39,6 +39,10 @@ func NewTransport(opts TransportOptions) *http.Transport {
 		ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
 		IdleConnTimeout:       opts.IdleConnTimeout,
 		ForceAttemptHTTP2:     true,
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: 15 * time.Second,
+			PingTimeout:     5 * time.Second,
+		},
 	}
 }
 

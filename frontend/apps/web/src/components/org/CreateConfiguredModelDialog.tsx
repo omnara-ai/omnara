@@ -29,6 +29,7 @@ import {
   configuredModelFormDefaults,
   configuredModelFormValid,
   discoveredModelPrefill,
+  providerChangeReset,
 } from './CreateConfiguredModelDialogState'
 import { ProviderModelSlugField } from './ProviderModelSlugField'
 
@@ -46,8 +47,6 @@ export function CreateConfiguredModelDialog({
   const createConfiguredModel = useCreateConfiguredModel(orgId)
   const createProjectModelGrant = useCreateProjectModelGrant(orgId)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  // Mirrors the providerId form field so the discovery query can react to it.
-  const [providerId, setProviderId] = useState('')
   const [phase, setPhase] = useState<RetryGrantsPhase<ConfiguredModel>>({
     kind: 'form',
     error: '',
@@ -96,7 +95,6 @@ export function CreateConfiguredModelDialog({
         }
         form.reset()
         setAdvancedOpen(false)
-        setProviderId('')
         setPhase({ kind: 'form', error: '' })
         onOpenChange(false)
       } catch (err) {
@@ -105,11 +103,13 @@ export function CreateConfiguredModelDialog({
     },
   })
 
-  const selectedProvider = providers.find((item) => item.id === providerId) ?? providers[0]
+  function providerById(providerId: string) {
+    return providers.find((item) => item.id === providerId) ?? providers[0]
+  }
 
   function applyDiscoveredModel(model: DiscoveredProviderModel) {
     for (const [fieldName, fieldValue] of discoveredModelPrefill(
-      selectedProvider?.name,
+      providerById(form.state.values.providerId)?.name,
       form.state.values,
       model,
     )) {
@@ -145,8 +145,13 @@ export function CreateConfiguredModelDialog({
                   providers={providers}
                   value={field.state.value}
                   onChange={(nextValue) => {
+                    for (const [fieldName, fieldValue] of providerChangeReset(
+                      providerById(field.state.value)?.name,
+                      form.state.values,
+                    )) {
+                      form.setFieldValue(fieldName, fieldValue)
+                    }
                     field.handleChange(nextValue)
-                    setProviderId(nextValue)
                   }}
                 />
               )}
@@ -169,15 +174,19 @@ export function CreateConfiguredModelDialog({
             </form.Field>
             <form.Field name="providerModelSlug">
               {(field) => (
-                <ProviderModelSlugField
-                  id="cm-provider-model-slug"
-                  orgId={orgId}
-                  provider={selectedProvider}
-                  enabled={open}
-                  value={field.state.value}
-                  onChange={field.handleChange}
-                  onSelect={applyDiscoveredModel}
-                />
+                <form.Subscribe selector={(state) => state.values.providerId}>
+                  {(providerId) => (
+                    <ProviderModelSlugField
+                      id="cm-provider-model-slug"
+                      orgId={orgId}
+                      provider={providerById(providerId)}
+                      enabled={open}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                      onSelect={applyDiscoveredModel}
+                    />
+                  )}
+                </form.Subscribe>
               )}
             </form.Field>
             <form.Field name="contextWindowTokens">

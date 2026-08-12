@@ -10,8 +10,8 @@ import {
   type UpdateModelProviderConfigRequest,
 } from '@omnara/sdk'
 import {
-  getModelProviderConfigOptions,
-  getModelProviderConfigQueryKey,
+  getModelCatalogOptions,
+  getModelCatalogQueryKey,
   listConfiguredModelsInfiniteOptions,
   listModelProviderConfigsInfiniteOptions,
   listModelProviderConfigsQueryKey,
@@ -53,18 +53,17 @@ export function useModelProviders(orgID: string, options?: ModelProviderListOpti
 }
 
 /**
- * Single provider config plus its model discovery result. The route probes the
- * provider's /models endpoint on every fetch, so keep it disabled until the
- * discovery data is actually needed.
+ * The provider's live model catalog. Every fetch probes the provider's /models
+ * endpoint, so keep it disabled until the catalog is actually needed.
  */
-export function useModelProvider(
+export function useModelCatalog(
   orgID: string,
   modelProviderConfigID: string,
   options?: { enabled?: boolean },
 ) {
   const client = useOmnaraClient()
   return useQuery({
-    ...getModelProviderConfigOptions({ path: { orgID, modelProviderConfigID }, client }),
+    ...getModelCatalogOptions({ path: { orgID, modelProviderConfigID }, client }),
     enabled: (options?.enabled ?? true) && modelProviderConfigID !== '',
   })
 }
@@ -225,7 +224,7 @@ export function useUpdateModelProvider(orgID: string) {
           queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
         }),
         queryClient.invalidateQueries({
-          queryKey: getModelProviderConfigQueryKey({
+          queryKey: getModelCatalogQueryKey({
             path: { orgID, modelProviderConfigID },
             client,
           }),

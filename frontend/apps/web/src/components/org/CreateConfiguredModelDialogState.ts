@@ -26,26 +26,54 @@ type DiscoveredModelPrefillField =
   | 'providerModelSlug'
   | 'contextWindowTokens'
   | 'maxOutputTokens'
+  | 'defaultMaxOutputTokens'
 
-/**
- * Field updates for picking a discovered model: the slug always, the
- * provider-reported token limits when advertised, and a generated name only
- * while the name field is still empty.
- */
+function isGeneratedName(providerName: string, values: ConfiguredModelFormValues) {
+  return values.name === `${providerName} - ${values.providerModelSlug}`
+}
+
 export function discoveredModelPrefill(
   providerName: string | undefined,
   values: ConfiguredModelFormValues,
   model: DiscoveredProviderModel,
 ): [DiscoveredModelPrefillField, string][] {
   const updates: [DiscoveredModelPrefillField, string][] = [['providerModelSlug', model.slug]]
-  if (values.name.trim() === '' && providerName !== undefined) {
+  if (
+    providerName !== undefined &&
+    (values.name.trim() === '' || isGeneratedName(providerName, values))
+  ) {
     updates.push(['name', `${providerName} - ${model.slug}`])
   }
-  if (model.context_window_tokens !== undefined) {
-    updates.push(['contextWindowTokens', String(model.context_window_tokens)])
+  updates.push([
+    'contextWindowTokens',
+    model.context_window_tokens === undefined ? '' : String(model.context_window_tokens),
+  ])
+  updates.push([
+    'maxOutputTokens',
+    model.max_output_tokens === undefined ? '' : String(model.max_output_tokens),
+  ])
+  if (
+    model.max_output_tokens !== undefined &&
+    values.defaultMaxOutputTokens !== '' &&
+    Number(values.defaultMaxOutputTokens) > model.max_output_tokens
+  ) {
+    updates.push(['defaultMaxOutputTokens', ''])
   }
-  if (model.max_output_tokens !== undefined) {
-    updates.push(['maxOutputTokens', String(model.max_output_tokens)])
+  return updates
+}
+
+export function providerChangeReset(
+  previousProviderName: string | undefined,
+  values: ConfiguredModelFormValues,
+): [DiscoveredModelPrefillField, string][] {
+  const updates: [DiscoveredModelPrefillField, string][] = [
+    ['providerModelSlug', ''],
+    ['contextWindowTokens', ''],
+    ['maxOutputTokens', ''],
+    ['defaultMaxOutputTokens', ''],
+  ]
+  if (previousProviderName !== undefined && isGeneratedName(previousProviderName, values)) {
+    updates.push(['name', ''])
   }
   return updates
 }

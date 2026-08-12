@@ -72,7 +72,7 @@ The console guides you through this chain. The API exposes the same resources fo
       "credential_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
       "...": "..."
     },
-    "model_discovery": {
+    "model_catalog": {
       "status": "ok",
       "models": [
         { "slug": "gpt-5.6", "display_name": "GPT-5.6" }
@@ -83,7 +83,7 @@ The console guides you through this chain. The API exposes the same resources fo
 
   Presets are available for `openai`, `anthropic`, and `openrouter`. For a proxy, local vLLM server, or another compatible endpoint, set the API format, base URL, endpoint path, and authentication method yourself.
 
-  Omnara attempts model discovery when it creates the provider. Discovery can fail without failing the request, which allows private or air-gapped endpoints. Check `model_discovery.status`; you can configure models manually if needed.
+  Omnara fetches the provider's model catalog when it creates the provider, and on demand via `GET …/model-provider-configs/{id}/model-catalog`. The catalog probe can fail without failing the request, which allows private or air-gapped endpoints. Check `model_catalog.status`; you can configure models manually if needed.
 
   A provider cannot be deleted while it still has configured models.
 </Tab>

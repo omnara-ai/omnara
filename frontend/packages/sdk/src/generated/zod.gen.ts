@@ -168,9 +168,9 @@ export const zDiscoveredProviderModel = z.object({
 });
 
 /**
- * Result of validating the configured credential and probing the provider's /models endpoint. A failed check does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
+ * The provider's model catalog, obtained by validating the configured credential and probing the provider's /models endpoint. A failed probe does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
  */
-export const zModelDiscoveryResult = z.object({
+export const zModelCatalog = z.object({
     status: z.enum(['ok', 'failed']),
     models: z.array(zDiscoveredProviderModel).optional(),
     error: z.string().optional()
@@ -333,12 +333,7 @@ export const zModelProviderConfig = z.object({
 
 export const zCreateModelProviderConfigResponse = z.object({
     config: zModelProviderConfig,
-    model_discovery: zModelDiscoveryResult
-});
-
-export const zGetModelProviderConfigResponse = z.object({
-    config: zModelProviderConfig,
-    model_discovery: zModelDiscoveryResult
+    model_catalog: zModelCatalog
 });
 
 export const zModelProviderConfigList = z.object({
@@ -2788,12 +2783,17 @@ export const zDeleteModelProviderConfigResponse = z.void();
 /**
  * Route response.
  */
-export const zGetModelProviderConfigResponse2 = zGetModelProviderConfigResponse;
+export const zGetModelProviderConfigResponse = zModelProviderConfig;
 
 /**
  * Route response.
  */
 export const zUpdateModelProviderConfigResponse = zModelProviderConfig;
+
+/**
+ * Route response.
+ */
+export const zGetModelCatalogResponse = zModelCatalog;
 
 /**
  * Route response.
