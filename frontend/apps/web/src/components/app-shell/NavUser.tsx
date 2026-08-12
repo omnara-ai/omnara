@@ -1,6 +1,6 @@
 import { useMe } from '@omnara/react'
 import { sessionLogout } from '@omnara/sdk/browser'
-import { ChevronsUpDown, LogOut, Monitor, Moon, Sun } from 'lucide-react'
+import { ChevronsUpDown, CircleHelp, LogOut, Monitor, Moon, Sun } from 'lucide-react'
 import { useState } from 'react'
 
 import {
@@ -122,6 +122,15 @@ export function NavUser() {
             <DropdownMenuSeparator />
             <ThemeMenuItems />
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              asChild
+              className="hover:bg-primary/15 focus:bg-primary/15 [&_svg]:!text-foreground"
+            >
+              <a href="https://docs.omnara.com/support" target="_blank" rel="noreferrer">
+                <CircleHelp />
+                <span className="translate-y-px">Need help?</span>
+              </a>
+            </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
               disabled={logoutStatus.kind === 'pending'}
