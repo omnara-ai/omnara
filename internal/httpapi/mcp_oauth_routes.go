@@ -397,10 +397,7 @@ func (s *Server) saveMCPOAuthSecret(
 			Name:           flowData.SecretName,
 			Metadata:       metadata,
 			Material:       material,
-			Actor: identitystore.PrincipalRecord{
-				Type: identitystore.PrincipalTypeUser,
-				ID:   flowData.CreatedByUserID,
-			},
+			Actor:          identitystore.NewUserPrincipal(flowData.CreatedByUserID),
 			MCPOAuthFlowID: flowData.FlowID,
 		})
 		if err != nil {
@@ -419,13 +416,10 @@ func (s *Server) saveMCPOAuthSecret(
 		return storage.NilID, err
 	}
 	if _, _, err := s.store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
-		OrgID:    flowData.OrgID,
-		SecretID: existing.ID,
-		Material: material,
-		Actor: identitystore.PrincipalRecord{
-			Type: identitystore.PrincipalTypeUser,
-			ID:   flowData.CreatedByUserID,
-		},
+		OrgID:          flowData.OrgID,
+		SecretID:       existing.ID,
+		Material:       material,
+		Actor:          identitystore.NewUserPrincipal(flowData.CreatedByUserID),
 		SecretMetadata: metadata,
 		MCPOAuthFlowID: flowData.FlowID,
 	}); err != nil {

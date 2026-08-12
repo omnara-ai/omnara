@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -21,55 +22,69 @@ import (
 func (s *Store) CreateBYOMachineDaemonToken(
 	ctx context.Context,
 	input CreateBYOMachineDaemonTokenInput,
-) (MachineDaemonTokenRecord, error) {
-	input, metadata, err := prepareBYOMachineDaemonTokenCreate(input)
+) (CreatedMachineDaemonToken, error) {
+	prepared, err := prepareBYOMachineDaemonTokenCreate(input)
 	if err != nil {
-		return MachineDaemonTokenRecord{}, err
+		return CreatedMachineDaemonToken{}, err
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return MachineDaemonTokenRecord{}, fmt.Errorf("begin create machine daemon token: %w", err)
+		return CreatedMachineDaemonToken{}, fmt.Errorf("begin create machine daemon token: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	record, err := createBYOMachineDaemonTokenTx(ctx, dbsqlc.New(tx), input, metadata)
+	record, err := createBYOMachineDaemonTokenTx(ctx, dbsqlc.New(tx), prepared)
 	if err != nil {
-		return MachineDaemonTokenRecord{}, err
+		return CreatedMachineDaemonToken{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return MachineDaemonTokenRecord{}, fmt.Errorf("commit create machine daemon token: %w", err)
+		return CreatedMachineDaemonToken{}, fmt.Errorf("commit create machine daemon token: %w", err)
 	}
-	return record, nil
+	return CreatedMachineDaemonToken{Record: record, Token: prepared.token}, nil
+}
+
+type preparedBYOMachineDaemonTokenCreate struct {
+	input    CreateBYOMachineDaemonTokenInput
+	token    string
+	metadata json.RawMessage
 }
 
 func prepareBYOMachineDaemonTokenCreate(
 	input CreateBYOMachineDaemonTokenInput,
-) (CreateBYOMachineDaemonTokenInput, json.RawMessage, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" || input.Token == "" {
-		return CreateBYOMachineDaemonTokenInput{}, nil, errors.New(
-			"org, machine, name, and token are required",
+) (preparedBYOMachineDaemonTokenCreate, error) {
+	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" {
+		return preparedBYOMachineDaemonTokenCreate{}, errors.New(
+			"org, machine, and name are required",
 		)
 	}
 	metadata, err := metadataColumn(input.Metadata, "daemon token metadata")
 	if err != nil {
-		return CreateBYOMachineDaemonTokenInput{}, nil, err
+		return preparedBYOMachineDaemonTokenCreate{}, err
 	}
-	return input, metadata, nil
+	token, err := bearertoken.Generate(bearertoken.KindDaemon)
+	if err != nil {
+		return preparedBYOMachineDaemonTokenCreate{}, err
+	}
+	return preparedBYOMachineDaemonTokenCreate{
+		input:    input,
+		token:    token,
+		metadata: metadata,
+	}, nil
 }
 
 func createBYOMachineDaemonTokenTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	input CreateBYOMachineDaemonTokenInput,
-	metadata json.RawMessage,
+	prepared preparedBYOMachineDaemonTokenCreate,
 ) (MachineDaemonTokenRecord, error) {
+	input := prepared.input
 	row, err := qtx.CreateBYOMachineDaemonToken(
 		ctx,
 		dbsqlc.CreateBYOMachineDaemonTokenParams{
 			OrgID:     input.OrgID,
 			MachineID: input.MachineID,
 			Name:      input.Name,
-			TokenHash: tokenutil.Hash(input.Token),
-			Metadata:  metadata,
+			TokenHash: tokenutil.Hash(prepared.token),
+			Metadata:  prepared.metadata,
 		},
 	)
 	if err != nil {
@@ -127,14 +142,10 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 	if input.ProvisionAttempt <= 0 {
 		return PoolMachineProviderProvisioningStart{}, errors.New("provision attempt is required")
 	}
-	secret, err := tokenutil.RandomHex(32)
+	token, err := bearertoken.Generate(bearertoken.KindDaemon)
 	if err != nil {
-		return PoolMachineProviderProvisioningStart{}, fmt.Errorf(
-			"generate machine daemon token: %w",
-			err,
-		)
+		return PoolMachineProviderProvisioningStart{}, err
 	}
-	token := MachineDaemonTokenPlaintextPrefix + secret
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineProviderProvisioningStart{}, fmt.Errorf(
@@ -384,7 +395,7 @@ func (s *Store) AuthenticateMachineDaemonToken(
 	ctx context.Context,
 	token string,
 ) (identitystore.PrincipalRecord, error) {
-	if token == "" {
+	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
 		return identitystore.PrincipalRecord{}, storeerr.ErrUnauthorized
 	}
 	row, err := s.q.AuthenticateMachineDaemonToken(
@@ -400,12 +411,7 @@ func (s *Store) AuthenticateMachineDaemonToken(
 	if err != nil {
 		return identitystore.PrincipalRecord{}, fmt.Errorf("authenticate machine daemon token: %w", err)
 	}
-	return identitystore.PrincipalRecord{
-		Type:                 identitystore.PrincipalTypeMachineDaemon,
-		ID:                   row.MachineID,
-		OrgID:                row.OrgID,
-		MachineDaemonTokenID: row.ID,
-	}, nil
+	return identitystore.NewMachineDaemonPrincipal(row.OrgID, row.MachineID, row.ID), nil
 }
 
 func (s *Store) BootstrapMachineDaemon(

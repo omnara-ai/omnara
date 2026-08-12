@@ -422,7 +422,7 @@ func createHTTPOrgMemberToken(
 	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{OrgID: orgID, UserID: user.ID, Role: authz.OrgRoleMember}); err != nil {
 		t.Fatalf("add %s org membership: %v", seed, err)
 	}
-	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: seed, TokenID: seed})
+	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: seed})
 	if err != nil {
 		t.Fatalf("create %s pat: %v", seed, err)
 	}

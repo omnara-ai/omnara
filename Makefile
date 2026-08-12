@@ -12,7 +12,13 @@ REPO_ROOT := $(CURDIR)
 GOLANGCI_LINT ?= $(REPO_ROOT)/.tools/custom-golangci-lint
 GOVULNCHECK ?= $(CI_TOOL) golang.org/x/vuln/cmd/govulncheck
 OAPI_CODEGEN ?= $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
+OASDIFF ?= $(CI_TOOL) github.com/oasdiff/oasdiff
+OASDIFF_FORMAT ?= $(if $(CI),githubactions,text)
+OASDIFF_BREAKING = $(OASDIFF) breaking --allow-external-refs=false --fail-on WARN \
+	--severity-levels tools/ci/openapi-compat/severity-levels.txt
+COMPAT_REMOTE ?= origin
 AIR ?= $(CI_TOOL) github.com/air-verse/air
+MIGRATION_CHECK ?= $(GO) -C tools/ci run ./migrationcheck
 OMNARAD_VERSION ?= 0.0.0-dev
 MIGRATION_DIRS := migrations internal/machinedaemon/statedb/migrations
 SQLC_OWNED_PATHS := internal/storage/internal/dbsqlc internal/storage/queries \
@@ -54,8 +60,8 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 .PHONY: \
 	help ci test-all test verify verify-go verify-static fmt-check golangci-version-check golangci-lint govulncheck race-machinedaemon \
 	go-modules-check integration-packages-check tagged-packages-check \
-	openapi-generate openapi-check \
-	migration-create state-migration-create migration-fix migration-check goose-version-check sqlite-libc-check \
+	openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
+	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance \
 	test-service-e2e \
@@ -79,7 +85,7 @@ verify: verify-go web-check ## Run the fast repository gate
 
 verify-go: verify-static unit race-machinedaemon
 
-verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
+verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
 
 fmt-check:
 	@files="$$(find . \( -path './.tools' -o -path './.cache' -o -path '*/node_modules' -o -path './frontend/apps/web/dist' \) -prune -o -name '*.go' -print | xargs gofmt -l)"; \
@@ -137,6 +143,14 @@ openapi-check:
 	test -z "$$untracked" || { printf 'untracked openapi-owned files:\n%s\n' "$$untracked"; exit 1; }; \
 	git diff --exit-code -- api/openapi internal/httpapi/openapi
 
+openapi-compat-fixture-check:
+	@tools/ci/openapi-compat/check-fixtures.sh $(OASDIFF_BREAKING)
+
+openapi-compat-check:
+	@test -n "$(COMPAT_BASE_SHA)" || { printf 'COMPAT_BASE_SHA is required\n'; exit 2; }
+	$(OASDIFF_BREAKING) --format $(OASDIFF_FORMAT) \
+		"$(COMPAT_BASE_SHA):api/openapi/openapi.yaml" api/openapi/openapi.yaml
+
 migration-create:
 	@test -n "$(NAME)" || { printf 'NAME is required\n'; exit 1; }
 	$(GOOSE) -env=none -dir migrations create "$(NAME)" sql
@@ -186,6 +200,13 @@ migration-check:
 			expected=$$((expected + 1)); \
 		done; \
 	done
+	$(MIGRATION_CHECK) check
+
+migration-compat-check:
+	$(MIGRATION_CHECK) compare-releases $(if $(MIGRATION_RELEASE_REF_ROOT),--release-ref-root "$(MIGRATION_RELEASE_REF_ROOT)")
+
+compatibility-check: ## Check API and released migrations after syncing with origin/main
+	@tools/ci/compatibility-check.sh "$(COMPAT_BASE_SHA)" "$(COMPAT_REMOTE)" $(MAKE)
 
 goose-version-check:
 	@root="$$(GOFLAGS= $(GO) list -m -f '{{.Version}}' github.com/pressly/goose/v3)" || exit $$?; \

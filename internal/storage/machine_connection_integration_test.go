@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -30,13 +30,11 @@ VALUES
 `, secondProjectID, unselectedProjectID, testOrgID, now); err != nil {
 		t.Fatalf("seed projects: %v", err)
 	}
-	token := executionstore.MachineDaemonTokenPlaintextPrefix + "machine-connection-success"
 	result, err := store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
 		OrgID:       testOrgID,
 		DisplayName: "Connected Machine",
 		ProjectIDs:  []ID{secondProjectID, testProjectID},
 		TokenName:   "web-console",
-		Token:       token,
 	})
 	if err != nil {
 		t.Fatalf("connect machine: %v", err)
@@ -44,8 +42,11 @@ VALUES
 	if !result.Machine.Created || result.Machine.DisplayName != "Connected Machine" {
 		t.Fatalf("unexpected machine: %+v", result.Machine)
 	}
-	if result.TokenRecord.MachineID != result.Machine.ID {
-		t.Fatalf("unexpected token record: %+v", result.TokenRecord)
+	if result.DaemonToken.Record.MachineID != result.Machine.ID {
+		t.Fatalf("unexpected token record: %+v", result.DaemonToken.Record)
+	}
+	if err := bearertoken.Validate(result.DaemonToken.Token, bearertoken.KindDaemon); err != nil {
+		t.Fatalf("connected machine token is not canonical: %v", err)
 	}
 	if len(result.ProjectGrants) != 2 {
 		t.Fatalf("project grants = %d, want 2", len(result.ProjectGrants))
@@ -66,7 +67,7 @@ VALUES
 	); count != 0 {
 		t.Fatalf("unselected project grant count = %d, want 0", count)
 	}
-	principal, err := store.Execution().AuthenticateMachineDaemonToken(ctx, token)
+	principal, err := store.Execution().AuthenticateMachineDaemonToken(ctx, result.DaemonToken.Token)
 	if err != nil {
 		t.Fatalf("authenticate connected machine token: %v", err)
 	}
@@ -78,7 +79,6 @@ VALUES
 		DisplayName: "Connected Without Grants",
 		ProjectIDs:  []ID{},
 		TokenName:   "web-console",
-		Token:       executionstore.MachineDaemonTokenPlaintextPrefix + "machine-connection-no-grants",
 	})
 	if err != nil {
 		t.Fatalf("connect machine without grants: %v", err)
@@ -106,13 +106,12 @@ FOR EACH ROW EXECUTE FUNCTION fail_machine_connection_grant()
 `); err != nil {
 		t.Fatalf("install grant failure trigger: %v", err)
 	}
-	token := executionstore.MachineDaemonTokenPlaintextPrefix + "machine-connection-rollback"
+	tokenName := "machine-connection-rollback"
 	_, err := store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
 		OrgID:       testOrgID,
 		DisplayName: "Rolled Back Machine",
 		ProjectIDs:  []ID{testProjectID},
-		TokenName:   "web-console",
-		Token:       token,
+		TokenName:   tokenName,
 	})
 	if err == nil {
 		t.Fatal("connect machine succeeded despite forced grant failure")
@@ -128,8 +127,8 @@ SELECT count(*) FROM machines WHERE org_id = $1 AND display_name = 'Rolled Back 
 	}
 	var tokenCount int
 	if err := pool.QueryRow(ctx, `
-SELECT count(*) FROM machine_daemon_tokens WHERE token_hash = $1
-`, tokenutil.Hash(token)).Scan(&tokenCount); err != nil {
+SELECT count(*) FROM machine_daemon_tokens WHERE org_id = $1 AND name = $2
+`, testOrgID, tokenName).Scan(&tokenCount); err != nil {
 		t.Fatalf("count rolled back tokens: %v", err)
 	}
 	if tokenCount != 0 {
@@ -156,7 +155,6 @@ func TestConnectBYOMachineRejectsInvalidProjectSelections(t *testing.T) {
 		OrgID:       testOrgID,
 		DisplayName: "Invalid Project Connection",
 		TokenName:   "web-console",
-		Token:       executionstore.MachineDaemonTokenPlaintextPrefix + "machine-connection-invalid-project",
 	}
 	duplicateInput := baseInput
 	duplicateInput.ProjectIDs = []ID{testProjectID, testProjectID}

@@ -23,6 +23,14 @@ docker compose -f compose.yaml --profile app up -d
 
 Open `http://localhost:8000` and sign up — the local email driver is `console`, so the verification link will appear in `docker compose logs api`.
 
+## Production database upgrades
+
+Run the release's one-shot `migrate` image before starting its API, worker, and
+maintenance services. Connect the migrator directly to the PostgreSQL writer;
+do not use RDS Proxy or transaction-pooling PgBouncer. Long-running services
+may use a compatible proxy. See [database configuration](/self-hosting/configuration#database-and-redis)
+for connection-pool defaults.
+
 ## Exposing the deployment publicly
 
 Email links, OAuth callbacks, the machine connect command, and cloud sandboxes all build URLs from `OMNARA_PUBLIC_URL`. These features will not function without this as a publicly-accessible URL.

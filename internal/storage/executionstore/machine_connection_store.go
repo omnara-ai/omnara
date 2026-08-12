@@ -16,12 +16,11 @@ type ConnectBYOMachineInput struct {
 	DisplayName string
 	ProjectIDs  []ID
 	TokenName   string
-	Token       string
 }
 
 type ConnectBYOMachineResult struct {
 	Machine       MachineRecord
-	TokenRecord   MachineDaemonTokenRecord
+	DaemonToken   CreatedMachineDaemonToken
 	ProjectGrants []ProjectMachineGrantRecord
 }
 
@@ -72,16 +71,15 @@ func (s *Store) ConnectBYOMachine(
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
-	tokenInput, tokenMetadata, err := prepareBYOMachineDaemonTokenCreate(CreateBYOMachineDaemonTokenInput{
+	preparedToken, err := prepareBYOMachineDaemonTokenCreate(CreateBYOMachineDaemonTokenInput{
 		OrgID:     input.OrgID,
 		MachineID: machine.ID,
 		Name:      input.TokenName,
-		Token:     input.Token,
 	})
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
-	tokenRecord, err := createBYOMachineDaemonTokenTx(ctx, qtx, tokenInput, tokenMetadata)
+	tokenRecord, err := createBYOMachineDaemonTokenTx(ctx, qtx, preparedToken)
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
@@ -110,8 +108,11 @@ func (s *Store) ConnectBYOMachine(
 		return ConnectBYOMachineResult{}, fmt.Errorf("commit connect BYO machine: %w", err)
 	}
 	return ConnectBYOMachineResult{
-		Machine:       machine,
-		TokenRecord:   tokenRecord,
+		Machine: machine,
+		DaemonToken: CreatedMachineDaemonToken{
+			Record: tokenRecord,
+			Token:  preparedToken.token,
+		},
 		ProjectGrants: grants,
 	}, nil
 }

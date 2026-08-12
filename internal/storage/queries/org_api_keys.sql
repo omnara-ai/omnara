@@ -5,7 +5,7 @@ RETURNING id, org_id, name, token_id, token_hash, created_by_user_id, created_at
 
 -- name: AuthenticateOrgAPIKey :one
 WITH authenticated AS MATERIALIZED (
-  SELECT 'org_api_key'::text AS principal_type, k.id AS org_api_key_id, k.org_id, k.last_used_at
+  SELECT k.id AS org_api_key_id, k.org_id, k.last_used_at
   FROM org_api_keys k
   WHERE k.token_hash = sqlc.arg(token_hash)
     AND k.revoked_at IS NULL
@@ -22,7 +22,7 @@ WITH authenticated AS MATERIALIZED (
     )
   RETURNING key.id
 )
-SELECT principal_type, org_api_key_id, org_id, last_used_at
+SELECT org_api_key_id, org_id, last_used_at
 FROM authenticated;
 
 -- name: GetOrgAPIKey :one

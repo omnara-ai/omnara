@@ -97,7 +97,6 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 			OrgID:     testOrgID,
 			MachineID: createdMachine.ID,
 			Name:      "daemon",
-			Token:     "token-runtime-machine",
 		},
 	)
 	if err != nil {
@@ -108,7 +107,7 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            createdMachine.OrgID,
 			MachineID:        createdMachine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: testID("daemon-runtime-machine-a"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -127,7 +126,7 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 				OrgID:           createdMachine.OrgID,
 				MachineID:       createdMachine.ID,
 				DaemonRuntimeID: runtimeA.ID,
-				DaemonTokenID:   token.ID,
+				DaemonTokenID:   token.Record.ID,
 			},
 			DaemonInstanceID: testID("daemon-runtime-machine-a"),
 			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -142,7 +141,7 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            createdMachine.OrgID,
 			MachineID:        createdMachine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: testID("daemon-runtime-machine-b"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -158,7 +157,7 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 			OrgID:           createdMachine.OrgID,
 			MachineID:       createdMachine.ID,
 			DaemonRuntimeID: runtimeA.ID,
-			DaemonTokenID:   token.ID,
+			DaemonTokenID:   token.Record.ID,
 		},
 	); err == nil {
 		t.Fatalf("ending superseded runtime should fail lease check")
@@ -175,7 +174,7 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 			OrgID:           createdMachine.OrgID,
 			MachineID:       createdMachine.ID,
 			DaemonRuntimeID: runtimeB.ID,
-			DaemonTokenID:   token.ID,
+			DaemonTokenID:   token.Record.ID,
 		},
 	); err != nil {
 		t.Fatalf("end active daemon runtime: %v", err)
@@ -411,7 +410,6 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 			OrgID:     testOrgID,
 			MachineID: machine.ID,
 			Name:      "daemon",
-			Token:     "token-runtime-bindings",
 		},
 	)
 	if err != nil {
@@ -422,7 +420,7 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            testOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: testID("daemon-runtime-bindings"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -489,7 +487,6 @@ func TestDaemonRuntimeCredentialRotationPreservesIdentityAndRevocationOwnership(
 			OrgID:     testOrgID,
 			MachineID: fixture.MachineID,
 			Name:      "replacement-token",
-			Token:     "replacement-token-runtime-isolation",
 		},
 	)
 	if err != nil {
@@ -501,7 +498,7 @@ func TestDaemonRuntimeCredentialRotationPreservesIdentityAndRevocationOwnership(
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            fixture.OrgID,
 			MachineID:        fixture.MachineID,
-			DaemonTokenID:    replacementToken.ID,
+			DaemonTokenID:    replacementToken.Record.ID,
 			DaemonInstanceID: fixture.DaemonID,
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -513,11 +510,11 @@ func TestDaemonRuntimeCredentialRotationPreservesIdentityAndRevocationOwnership(
 	if refreshed.ID != fixture.RuntimeID {
 		t.Fatalf("refreshed runtime id = %s, want %s", refreshed.ID, fixture.RuntimeID)
 	}
-	if refreshed.DaemonTokenID != replacementToken.ID {
+	if refreshed.DaemonTokenID != replacementToken.Record.ID {
 		t.Fatalf(
 			"refreshed runtime daemon token id = %s, want %s",
 			refreshed.DaemonTokenID,
-			replacementToken.ID,
+			replacementToken.Record.ID,
 		)
 	}
 
@@ -549,7 +546,7 @@ WHERE org_id = $1 AND machine_id = $2 AND id = $3
 		ctx,
 		testOrgID,
 		fixture.MachineID,
-		replacementToken.ID,
+		replacementToken.Record.ID,
 		"current_credential_revoked"); err != nil {
 		t.Fatalf("revoke current daemon token: %v", err)
 	}
@@ -579,14 +576,13 @@ func TestDaemonRuntimeCredentialTransferRevokesOldRuntimeAuthority(t *testing.T)
 			OrgID:     fixture.OrgID,
 			MachineID: fixture.MachineID,
 			Name:      "replacement-authority",
-			Token:     "replacement-runtime-authority",
 		},
 	)
 	if err != nil {
 		t.Fatalf("create replacement daemon token: %v", err)
 	}
 	replacementAuthority := fixture.authority()
-	replacementAuthority.DaemonTokenID = replacementToken.ID
+	replacementAuthority.DaemonTokenID = replacementToken.Record.ID
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID: testProjectID,
@@ -632,7 +628,7 @@ func TestDaemonRuntimeCredentialTransferRevokesOldRuntimeAuthority(t *testing.T)
 	refreshed, err := fixture.Store.Execution().RegisterDaemonRuntime(ctx, executionstore.RegisterDaemonRuntimeInput{
 		OrgID:            fixture.OrgID,
 		MachineID:        fixture.MachineID,
-		DaemonTokenID:    replacementToken.ID,
+		DaemonTokenID:    replacementToken.Record.ID,
 		DaemonInstanceID: fixture.DaemonID,
 		DaemonVersion:    "1.0.0",
 		LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -640,7 +636,7 @@ func TestDaemonRuntimeCredentialTransferRevokesOldRuntimeAuthority(t *testing.T)
 	if err != nil {
 		t.Fatalf("transfer daemon runtime authority: %v", err)
 	}
-	if refreshed.ID != fixture.RuntimeID || refreshed.DaemonTokenID != replacementToken.ID {
+	if refreshed.ID != fixture.RuntimeID || refreshed.DaemonTokenID != replacementToken.Record.ID {
 		t.Fatalf("refreshed runtime = %+v, want same runtime with replacement token", refreshed)
 	}
 
@@ -815,7 +811,6 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 		OrgID:     fixture.OrgID,
 		MachineID: fixture.MachineID,
 		Name:      "contended-replacement-authority",
-		Token:     "contended-replacement-runtime-authority",
 	})
 	if err != nil {
 		t.Fatalf("create replacement daemon token: %v", err)
@@ -855,7 +850,7 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 			executionstore.RegisterDaemonRuntimeInput{
 				OrgID:            fixture.OrgID,
 				MachineID:        fixture.MachineID,
-				DaemonTokenID:    replacementToken.ID,
+				DaemonTokenID:    replacementToken.Record.ID,
 				DaemonInstanceID: fixture.DaemonID,
 				DaemonVersion:    "1.0.0",
 				LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -909,7 +904,7 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 		t.Fatalf("transfer daemon credential under contention: %v", registration.err)
 	}
 	if registration.record.Runtime.ID != fixture.RuntimeID ||
-		registration.record.Runtime.DaemonTokenID != replacementToken.ID {
+		registration.record.Runtime.DaemonTokenID != replacementToken.Record.ID {
 		t.Fatalf("credential transfer registration = %+v", registration.record.Runtime)
 	}
 	accepted := <-acceptDone

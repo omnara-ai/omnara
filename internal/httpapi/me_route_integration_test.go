@@ -27,7 +27,7 @@ func TestGetCurrentUserReturnsIdentityAndOrgs(t *testing.T) {
 	}
 	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: "me", TokenID: "me"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: "me"},
 	)
 	if err != nil {
 		t.Fatalf("create pat: %v", err)
@@ -82,7 +82,7 @@ func TestGetCurrentUserReturnsIdentityAndOrgs(t *testing.T) {
 	}
 	otherPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: other.ID, Name: "other", TokenID: "other"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: other.ID, Name: "other"},
 	)
 	if err != nil {
 		t.Fatalf("create other pat: %v", err)

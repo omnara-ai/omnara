@@ -7,6 +7,72 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
+func TestPrincipalConstructors(t *testing.T) {
+	t.Parallel()
+	userID := uuid.MustParse("0198f0e5-eeb4-7000-8000-000000000001")
+	orgID := uuid.MustParse("0198f0e5-eeb4-7000-8000-000000000002")
+	machineID := uuid.MustParse("0198f0e5-eeb4-7000-8000-000000000003")
+	credentialID := uuid.MustParse("0198f0e5-eeb4-7000-8000-000000000004")
+
+	tests := []struct {
+		name string
+		got  identitystore.PrincipalRecord
+		want identitystore.PrincipalRecord
+	}{
+		{
+			name: "user",
+			got:  identitystore.NewUserPrincipal(userID),
+			want: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID},
+		},
+		{
+			name: "personal access token",
+			got:  identitystore.NewPersonalAccessTokenPrincipal(userID, credentialID),
+			want: identitystore.PrincipalRecord{
+				Type:                  identitystore.PrincipalTypeUser,
+				ID:                    userID,
+				PersonalAccessTokenID: credentialID,
+			},
+		},
+		{
+			name: "browser session",
+			got:  identitystore.NewBrowserSessionPrincipal(userID, credentialID),
+			want: identitystore.PrincipalRecord{
+				Type:             identitystore.PrincipalTypeUser,
+				ID:               userID,
+				BrowserSessionID: credentialID,
+			},
+		},
+		{
+			name: "organization API key",
+			got:  identitystore.NewOrgAPIKeyPrincipal(orgID, credentialID),
+			want: identitystore.PrincipalRecord{
+				Type:        identitystore.PrincipalTypeOrgAPIKey,
+				ID:          credentialID,
+				OrgID:       orgID,
+				OrgAPIKeyID: credentialID,
+			},
+		},
+		{
+			name: "machine daemon",
+			got:  identitystore.NewMachineDaemonPrincipal(orgID, machineID, credentialID),
+			want: identitystore.PrincipalRecord{
+				Type:                 identitystore.PrincipalTypeMachineDaemon,
+				ID:                   machineID,
+				OrgID:                orgID,
+				MachineDaemonTokenID: credentialID,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if test.got != test.want {
+				t.Fatalf("principal = %+v, want %+v", test.got, test.want)
+			}
+		})
+	}
+}
+
 func TestAccountPrincipalIDs(t *testing.T) {
 	t.Parallel()
 	id := uuid.MustParse("0198f0e5-eeb4-7000-8000-000000000001")
@@ -34,8 +100,8 @@ func TestAccountPrincipalIDs(t *testing.T) {
 			principal: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser},
 		},
 		{
-			name:      "unsupported principal",
-			principal: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeAgent, ID: id},
+			name:      "machine daemon is not an account principal",
+			principal: identitystore.NewMachineDaemonPrincipal(id, id, id),
 		},
 	}
 	for _, test := range tests {

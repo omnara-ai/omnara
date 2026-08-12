@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -105,16 +103,11 @@ func (s strictOpenAPIServer) ConnectBYOMachine(
 		}
 		projectIDs = append(projectIDs, parsed)
 	}
-	token, err := newDaemonToken()
-	if err != nil {
-		return nil, err
-	}
 	result, err := s.server.store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
 		OrgID:       org.ID,
 		DisplayName: request.Body.DisplayName,
 		ProjectIDs:  projectIDs,
 		TokenName:   "web-console",
-		Token:       token,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -123,7 +116,7 @@ func (s strictOpenAPIServer) ConnectBYOMachine(
 	if err != nil {
 		return nil, err
 	}
-	tokenRecord, err := machineDaemonTokenResponse(result.TokenRecord)
+	tokenRecord, err := machineDaemonTokenResponse(result.DaemonToken.Record)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +130,7 @@ func (s strictOpenAPIServer) ConnectBYOMachine(
 	}
 	return openapi.ConnectBYOMachine201JSONResponse(openapi.ConnectBYOMachineResponse{
 		Machine:       machine,
-		Token:         token,
+		Token:         result.DaemonToken.Token,
 		TokenRecord:   tokenRecord,
 		ProjectGrants: grants,
 	}), nil
@@ -504,14 +497,6 @@ func machineDaemonTokenResponse(record executionstore.MachineDaemonTokenRecord) 
 	}, nil
 }
 
-func newDaemonToken() (string, error) {
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return executionstore.MachineDaemonTokenPlaintextPrefix + hex.EncodeToString(b[:]), nil
-}
-
 func (s strictOpenAPIServer) ListBYOMachineDaemonTokens(
 	ctx context.Context,
 	request openapi.ListBYOMachineDaemonTokensRequestObject,
@@ -595,30 +580,25 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 		name = *body.Name
 	}
 	metadata := body.Metadata
-	token, err := newDaemonToken()
-	if err != nil {
-		return nil, err
-	}
-	record, err := s.server.store.Execution().CreateBYOMachineDaemonToken(
+	created, err := s.server.store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     machine.OrgID,
 			MachineID: machine.ID,
 			Name:      name,
-			Token:     token,
 			Metadata:  metadata,
 		},
 	)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	tokenRecord, err := machineDaemonTokenResponse(record)
+	tokenRecord, err := machineDaemonTokenResponse(created.Record)
 	if err != nil {
 		return nil, err
 	}
 	return openapi.CreateBYOMachineDaemonToken201JSONResponse(
 		openapi.CreateMachineDaemonTokenResponse{
-			Token:       token,
+			Token:       created.Token,
 			TokenRecord: tokenRecord,
 		},
 	), nil

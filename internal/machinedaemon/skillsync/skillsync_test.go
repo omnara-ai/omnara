@@ -57,7 +57,7 @@ func buildSkillArchive(t *testing.T, body string) ([]byte, string) {
 	return buf.Bytes(), "sha256:" + hex.EncodeToString(sum[:])
 }
 
-const testMachineToken = "omnara_mdt_test_token"
+const testMachineToken = "opaque-machine-token"
 
 type blockingSender struct {
 	reports chan daemonprotocol.SkillReport

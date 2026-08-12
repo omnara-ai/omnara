@@ -79,6 +79,7 @@ services:
     image: ghcr.io/omnara-ai/omnara-migrations:${OMNARA_RELEASE:-latest}
     environment:
       OMNARA_DATABASE_URL: postgres://omnara:omnara@postgres:5432/omnara?sslmode=disable
+      OMNARA_MIGRATION_TIMEOUT: ${OMNARA_MIGRATION_TIMEOUT:-30m}
     depends_on:
       postgres:
         condition: service_healthy

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -48,7 +49,7 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	machineID := machine["id"].(string)
-	requestJSONWithHeaders(
+	patMint := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
@@ -58,6 +59,9 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
+	if err := bearertoken.Validate(patMint["token"].(string), bearertoken.KindDaemon); err != nil {
+		t.Fatalf("PAT-minted daemon token is not canonical: %v", err)
+	}
 	adminKey := requestJSONWithHeaders(
 		t,
 		handler,
@@ -79,8 +83,8 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(adminKeyToken),
 	)
-	if orgKeyMint["token"].(string) == "" {
-		t.Fatal("org key minted daemon token missing plaintext token")
+	if err := bearertoken.Validate(orgKeyMint["token"].(string), bearertoken.KindDaemon); err != nil {
+		t.Fatalf("org-key-minted daemon token is not canonical: %v", err)
 	}
 	tokenResponse := requestJSONWithHeaders(
 		t,
@@ -93,6 +97,9 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		project.adminBrowserAuthHeaders(),
 	)
 	token := tokenResponse["token"].(string)
+	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
+		t.Fatalf("browser-minted daemon token is not canonical: %v", err)
+	}
 	tokenID := tokenResponse["token_record"].(map[string]any)["id"].(string)
 
 	requestJSONWithHeaders(
@@ -140,8 +147,8 @@ func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
 		t.Fatalf("unexpected connected machine: %+v", machine)
 	}
 	token := response["token"].(string)
-	if !strings.HasPrefix(token, executionstore.MachineDaemonTokenPlaintextPrefix) {
-		t.Fatalf("unexpected daemon token prefix: %q", token)
+	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
+		t.Fatalf("connected machine token is not canonical: %v", err)
 	}
 	tokenRecord := response["token_record"].(map[string]any)
 	if tokenRecord["machine_id"] != machineID || tokenRecord["name"] != "web-console" {
@@ -440,9 +447,8 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		t.Fatalf("add second org admin: %v", err)
 	}
 	orgAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID:  orgAdmin.ID,
-		Name:    "machine-defaults-admin",
-		TokenID: "machine-defaults-admin",
+		UserID: orgAdmin.ID,
+		Name:   "machine-defaults-admin",
 	})
 	if err != nil {
 		t.Fatalf("create second org admin token: %v", err)
@@ -490,9 +496,8 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		t.Fatalf("add org member: %v", err)
 	}
 	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID:  member.ID,
-		Name:    "machine-defaults-member",
-		TokenID: "machine-defaults-member",
+		UserID: member.ID,
+		Name:   "machine-defaults-member",
 	})
 	if err != nil {
 		t.Fatalf("create org member token: %v", err)
@@ -533,9 +538,8 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 	viewerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  viewer.ID,
-			Name:    "viewer",
-			TokenID: "machine-inventory-viewer",
+			UserID: viewer.ID,
+			Name:   "viewer",
 		},
 	)
 	if err != nil {
@@ -2658,25 +2662,24 @@ func createDaemonProcessFixtureWithToolCalls(
 	if err != nil {
 		t.Fatalf("create grant: %v", err)
 	}
-	token := executionstore.MachineDaemonTokenPlaintextPrefix + name
 	tokenRecord, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     project.OrgUUID,
 			MachineID: machine.ID,
 			Name:      "daemon",
-			Token:     token,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
+	token := tokenRecord.Token
 	registration, err := store.Execution().RegisterDaemonRuntimeWithReconciliation(
 		ctx,
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            project.OrgUUID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    tokenRecord.ID,
+			DaemonTokenID:    tokenRecord.Record.ID,
 			DaemonInstanceID: httpTestID("daemon-http-machine-routes"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,
@@ -2725,7 +2728,7 @@ func createDaemonProcessFixtureWithToolCalls(
 		MachineUUID:  machine.ID,
 		BindingUUID:  binding.ID,
 		RuntimeUUID:  runtime.ID,
-		TokenUUID:    tokenRecord.ID,
+		TokenUUID:    tokenRecord.Record.ID,
 		RuntimeLock:  lock,
 		ToolCallUUID: toolCall.ID,
 		ToolCall:     toolCall,

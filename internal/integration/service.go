@@ -86,13 +86,10 @@ func (s *Service) GetOrCreateTarget(
 			return integrationstore.IntegrationTargetRecord{}, executionstore.LaunchAgentResult{}, err
 		}
 		launch, err = s.execution.LaunchAgent(ctx, executionstore.LaunchAgentInput{
-			ProjectID:     install.ProjectID,
-			ProfileID:     install.AgentProfileID,
-			AgentConfigID: profile.CurrentConfigID,
-			LaunchedBy: identitystore.PrincipalRecord{
-				Type: identitystore.PrincipalTypeUser,
-				ID:   install.InstalledByUserID,
-			},
+			ProjectID:      install.ProjectID,
+			ProfileID:      install.AgentProfileID,
+			AgentConfigID:  profile.CurrentConfigID,
+			LaunchedBy:     identitystore.NewUserPrincipal(install.InstalledByUserID),
 			IdempotencyKey: "integration:" + install.Provider + ":" + install.ID.String() + ":" + input.ProviderRef,
 		})
 		if err != nil {

@@ -58,12 +58,10 @@ type VisibleProjectRecord struct {
 }
 
 const (
-	PrincipalTypeUser              = authz.PrincipalUser
-	PrincipalTypeOrgAPIKey         = authz.PrincipalOrgAPIKey
-	PrincipalTypeAgent             = authz.PrincipalAgent
-	PrincipalTypeSystem            = "system"
-	PrincipalTypeMachineDaemon     = authz.PrincipalMachineDaemon
-	PrincipalTypeMachinePoolDaemon = authz.PrincipalMachinePoolDaemon
+	PrincipalTypeUser          = authz.PrincipalUser
+	PrincipalTypeOrgAPIKey     = authz.PrincipalOrgAPIKey
+	PrincipalTypeSystem        = "system"
+	PrincipalTypeMachineDaemon = authz.PrincipalMachineDaemon
 
 	ProjectActionRead          = authz.ProjectRead
 	ProjectActionManage        = authz.ProjectManage
@@ -405,8 +403,6 @@ type CreatePersonalAccessTokenInput struct {
 	UserID         ID
 	ActorPrincipal PrincipalRecord
 	Name           string
-	TokenID        string
-	Token          string
 }
 
 type PersonalAccessTokenRecord struct {
@@ -426,8 +422,6 @@ type CreateOrgAPIKeyInput struct {
 	CreatedByUserID ID
 	Name            string
 	OrgRole         string
-	TokenID         string
-	Token           string
 }
 
 type OrgAPIKeyRecord struct {
@@ -444,15 +438,54 @@ type OrgAPIKeyRecord struct {
 	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
 }
 
+// PrincipalRecord identifies an authenticated subject or internal actor. ID is
+// the subject; credential-specific IDs record how it authenticated.
 type PrincipalRecord struct {
 	Type                  string
 	ID                    ID
 	OrgID                 ID
-	ProjectID             ID
 	PersonalAccessTokenID ID
 	OrgAPIKeyID           ID
 	BrowserSessionID      ID
 	MachineDaemonTokenID  ID
+}
+
+func NewUserPrincipal(userID ID) PrincipalRecord {
+	return PrincipalRecord{Type: PrincipalTypeUser, ID: userID}
+}
+
+func NewPersonalAccessTokenPrincipal(userID, tokenID ID) PrincipalRecord {
+	return PrincipalRecord{
+		Type:                  PrincipalTypeUser,
+		ID:                    userID,
+		PersonalAccessTokenID: tokenID,
+	}
+}
+
+func NewBrowserSessionPrincipal(userID, sessionID ID) PrincipalRecord {
+	return PrincipalRecord{
+		Type:             PrincipalTypeUser,
+		ID:               userID,
+		BrowserSessionID: sessionID,
+	}
+}
+
+func NewOrgAPIKeyPrincipal(orgID, keyID ID) PrincipalRecord {
+	return PrincipalRecord{
+		Type:        PrincipalTypeOrgAPIKey,
+		ID:          keyID,
+		OrgID:       orgID,
+		OrgAPIKeyID: keyID,
+	}
+}
+
+func NewMachineDaemonPrincipal(orgID, machineID, tokenID ID) PrincipalRecord {
+	return PrincipalRecord{
+		Type:                 PrincipalTypeMachineDaemon,
+		ID:                   machineID,
+		OrgID:                orgID,
+		MachineDaemonTokenID: tokenID,
+	}
 }
 
 func AccountPrincipalIDs(principal PrincipalRecord) (userID, orgAPIKeyID *ID) {

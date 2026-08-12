@@ -67,9 +67,8 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	authorPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  author.ID,
-			Name:    "Author",
-			TokenID: "input-author",
+			UserID: author.ID,
+			Name:   "Author",
 		},
 	)
 	if err != nil {
@@ -78,9 +77,8 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	otherPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  other.ID,
-			Name:    "Other",
-			TokenID: "input-other",
+			UserID: other.ID,
+			Name:   "Other",
 		},
 	)
 	if err != nil {
@@ -89,9 +87,8 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	viewerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  viewer.ID,
-			Name:    "Viewer",
-			TokenID: "input-viewer",
+			UserID: viewer.ID,
+			Name:   "Viewer",
 		},
 	)
 	if err != nil {

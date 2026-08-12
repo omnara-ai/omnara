@@ -1,0 +1,28 @@
+openapi: 3.1.0
+info:
+  title: Compatibility fixture
+  version: pattern-breaking
+paths:
+  /api/v1/resources:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: string
+                    minLength: 1
+                    pattern: '^value-v1-[a-z]+$'
+                  code:
+                    type: string
+                    enum: [existing]
+  /api/v1/unchanged:
+    get:
+      responses:
+        '200':
+          description: OK

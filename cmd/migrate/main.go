@@ -15,7 +15,11 @@ import (
 func main() {
 	logger := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
 
-	cfg := config.LoadMigrate()
+	cfg, err := config.LoadMigrate()
+	if err != nil {
+		logger.Error("load migrate config", "error", err)
+		os.Exit(1)
+	}
 	if err := cfg.ValidateMigrate(); err != nil {
 		logger.Error("validate migrate config", "error", err)
 		os.Exit(1)
@@ -24,17 +28,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	db, err := dbmigrate.OpenPostgres(ctx, cfg.DatabaseURL)
-	if err != nil {
-		logger.Error("open database", "error", err)
-		os.Exit(1)
-	}
-	defer func() { _ = db.Close() }()
-
-	if err := dbmigrate.ApplyPostgres(
+	if err := dbmigrate.RunPostgres(
 		ctx,
-		db,
+		cfg.DatabaseURL,
 		os.DirFS(cfg.MigrationsDir),
+		cfg.MigrationTimeout,
 	); err != nil {
 		logger.Error("apply migrations", "error", err)
 		os.Exit(1)

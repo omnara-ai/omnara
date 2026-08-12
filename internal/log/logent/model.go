@@ -51,3 +51,23 @@ func ModelResponseProviderCostInvalid(ctx context.Context) {
 	})
 	log.Level(ctx, log.WarnLevel)
 }
+
+func ModelResponseProviderCostBYOKStateMissing(ctx context.Context) {
+	log.Attach(ctx, log.Fields{
+		"model_response.provider_reported_cost_usd.accounting_limitation": "byok_state_missing",
+	})
+}
+
+func ModelResponseProviderCostBYOKStateInvalid(ctx context.Context) {
+	log.Attach(ctx, log.Fields{
+		"model_response.provider_reported_cost_usd.accounting_limitation": "invalid_byok_state",
+	})
+	log.Level(ctx, log.WarnLevel)
+}
+
+func ModelResponseProviderCostBYOKComponentMissing(ctx context.Context) {
+	log.Attach(ctx, log.Fields{
+		"model_response.provider_reported_cost_usd.unavailable_reason": "byok_cost_component_missing",
+	})
+	log.Level(ctx, log.WarnLevel)
+}

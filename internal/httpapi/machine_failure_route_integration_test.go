@@ -193,19 +193,18 @@ func TestMachineFailureRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create BYO machine: %v", err)
 	}
-	byoToken := executionstore.MachineDaemonTokenPlaintextPrefix + "byo-failure-report"
 	byoTokenRecord, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     project.OrgUUID,
 			MachineID: byoMachine.ID,
 			Name:      "failure reporter",
-			Token:     byoToken,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create BYO machine token: %v", err)
 	}
+	byoToken := byoTokenRecord.Token
 	requestFailure("daemon_install", 11, 0, "BYO install failed", byoToken, http.StatusNoContent)
 	var byoFailure []byte
 	if err := pool.QueryRow(
@@ -280,7 +279,7 @@ func TestMachineFailureRoute(t *testing.T) {
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            project.OrgUUID,
 			MachineID:        byoMachine.ID,
-			DaemonTokenID:    byoTokenRecord.ID,
+			DaemonTokenID:    byoTokenRecord.Record.ID,
 			DaemonInstanceID: httpTestID("machine-failure-still-failing"),
 			DaemonVersion:    "1.2.3",
 			LeaseTimeout:     time.Hour,
@@ -305,7 +304,7 @@ func TestMachineFailureRoute(t *testing.T) {
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            project.OrgUUID,
 			MachineID:        byoMachine.ID,
-			DaemonTokenID:    byoTokenRecord.ID,
+			DaemonTokenID:    byoTokenRecord.Record.ID,
 			DaemonInstanceID: httpTestID("machine-failure-updated"),
 			DaemonVersion:    "1.3.0",
 			LeaseTimeout:     time.Hour,
@@ -364,7 +363,7 @@ func TestMachineFailureRoute(t *testing.T) {
 			executionstore.RegisterDaemonRuntimeInput{
 				OrgID:            project.OrgUUID,
 				MachineID:        byoMachine.ID,
-				DaemonTokenID:    byoTokenRecord.ID,
+				DaemonTokenID:    byoTokenRecord.Record.ID,
 				DaemonInstanceID: httpTestID("machine-" + report.stage + "-cleared"),
 				DaemonVersion:    "1.3.0",
 				LeaseTimeout:     time.Hour,
@@ -383,7 +382,7 @@ func TestMachineFailureRoute(t *testing.T) {
 					OrgID:           project.OrgUUID,
 					MachineID:       byoMachine.ID,
 					DaemonRuntimeID: updated.Runtime.ID,
-					DaemonTokenID:   byoTokenRecord.ID,
+					DaemonTokenID:   byoTokenRecord.Record.ID,
 				},
 			); err != nil {
 				t.Fatal(err)
