@@ -11,6 +11,7 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query'
+import { useCallback } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -131,9 +132,12 @@ export function useDeleteAgentProfile(orgID: string, projectID: string) {
 export function useRemoveAgentProfileQuery(orgID: string, projectID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
-  return (agentProfileID: string) => {
-    queryClient.removeQueries({
-      queryKey: getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
-    })
-  }
+  return useCallback(
+    (agentProfileID: string) => {
+      queryClient.removeQueries({
+        queryKey: getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
+      })
+    },
+    [client, queryClient, orgID, projectID],
+  )
 }

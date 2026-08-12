@@ -8,7 +8,7 @@ import {
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { type SyntheticEvent, useState } from 'react'
+import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
 
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
@@ -59,6 +59,13 @@ export function AgentProfileView() {
   const removeProfileQuery = useRemoveAgentProfileQuery(activeOrg.id, projectId)
   const navigate = useNavigate()
 
+  const deletedRef = useRef(false)
+  useEffect(() => {
+    return () => {
+      if (deletedRef.current) removeProfileQuery(profileId)
+    }
+  }, [profileId, removeProfileQuery])
+
   async function launch() {
     if (
       configDirty &&
@@ -86,9 +93,8 @@ export function AgentProfileView() {
     if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
     deleteProfile.mutate(profile.id, {
       onSuccess: () => {
-        void navigate({ to: '/projects/$projectId/agents', params: { projectId } }).then(() => {
-          removeProfileQuery(profile.id)
-        })
+        deletedRef.current = true
+        void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
       },
       onError: (error) => {
         window.alert(error instanceof ApiError ? error.message : 'Could not delete agent profile')
@@ -209,7 +215,13 @@ function ConfigurationTab({
   const createConfig = useCreateAgentConfig(orgId, projectId)
   const updateProfile = useUpdateAgentProfile(orgId, projectId)
   const [error, setError] = useState('')
+  const [errorRevision, setErrorRevision] = useState(profile.current_config_id)
   const pending = createConfig.isPending || updateProfile.isPending
+
+  if (errorRevision !== profile.current_config_id) {
+    setErrorRevision(profile.current_config_id)
+    setError('')
+  }
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
