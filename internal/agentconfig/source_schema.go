@@ -115,6 +115,21 @@ func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	return parsed, nil
 }
 
+func ParseStoredSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return AgentConfigSource{}, errors.New("agent config source is required")
+	}
+	jsonSource, err := sourceJSON(format, raw)
+	if err != nil {
+		return AgentConfigSource{}, err
+	}
+	var parsed AgentConfigSource
+	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
+		return AgentConfigSource{}, fmt.Errorf("decode agent config source: %w", err)
+	}
+	return parsed, nil
+}
+
 func sourceJSON(format SourceFormat, raw []byte) ([]byte, error) {
 	switch format {
 	case SourceFormatJSON:

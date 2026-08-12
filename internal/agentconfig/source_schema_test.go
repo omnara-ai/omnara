@@ -28,6 +28,31 @@ machine_sources:
 	}
 }
 
+func TestParseStoredSourceAllowsLegacyName(t *testing.T) {
+	source := `
+name: legacy-agent
+instruction: Help the user make progress.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+machine_sources:
+  - machine_pool_name: Build Pool
+`
+	if _, err := ParseSource(SourceFormatYAML, []byte(source)); err == nil {
+		t.Fatal("expected ParseSource to reject legacy top-level name")
+	}
+	parsed, err := ParseStoredSource(SourceFormatYAML, []byte(source))
+	if err != nil {
+		t.Fatalf("parse stored source with legacy name: %v", err)
+	}
+	if len(parsed.MachineSources) != 1 {
+		t.Fatalf("machine sources = %d, want 1", len(parsed.MachineSources))
+	}
+	if parsed.Model.Name != "gpt-test" {
+		t.Fatalf("model name = %q, want gpt-test", parsed.Model.Name)
+	}
+}
+
 func TestParseSourceRejectsUnknownFieldsWithJSONSchema(t *testing.T) {
 	for name, source := range map[string]string{
 		"top_level": `
