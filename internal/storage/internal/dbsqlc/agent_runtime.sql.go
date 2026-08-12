@@ -61,7 +61,7 @@ func (q *Queries) ArchiveAgent(ctx context.Context, arg ArchiveAgentParams) (int
 
 const getAgent = `-- name: GetAgent :one
 SELECT id, org_id, project_id, state, name,
-       current_config_id, integration_target_id,
+       agent_profile_id, current_config_id, integration_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
        next_event_sequence, created_at, updated_at, archived_at
 FROM agents
@@ -78,6 +78,7 @@ type GetAgentRow struct {
 	ProjectID           uuid.UUID
 	State               string
 	Name                string
+	AgentProfileID      *uuid.UUID
 	CurrentConfigID     uuid.UUID
 	IntegrationTargetID *uuid.UUID
 	IdempotencyKey      string
@@ -96,6 +97,7 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (GetAgentRow
 		&i.ProjectID,
 		&i.State,
 		&i.Name,
+		&i.AgentProfileID,
 		&i.CurrentConfigID,
 		&i.IntegrationTargetID,
 		&i.IdempotencyKey,
@@ -109,7 +111,7 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (GetAgentRow
 
 const getAgentByIdempotencyKey = `-- name: GetAgentByIdempotencyKey :one
 SELECT id, org_id, project_id, state, name,
-       current_config_id, integration_target_id,
+       agent_profile_id, current_config_id, integration_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
        next_event_sequence, created_at, updated_at, archived_at
 FROM agents
@@ -128,6 +130,7 @@ type GetAgentByIdempotencyKeyRow struct {
 	ProjectID           uuid.UUID
 	State               string
 	Name                string
+	AgentProfileID      *uuid.UUID
 	CurrentConfigID     uuid.UUID
 	IntegrationTargetID *uuid.UUID
 	IdempotencyKey      string
@@ -146,6 +149,7 @@ func (q *Queries) GetAgentByIdempotencyKey(ctx context.Context, arg GetAgentById
 		&i.ProjectID,
 		&i.State,
 		&i.Name,
+		&i.AgentProfileID,
 		&i.CurrentConfigID,
 		&i.IntegrationTargetID,
 		&i.IdempotencyKey,
@@ -159,7 +163,7 @@ func (q *Queries) GetAgentByIdempotencyKey(ctx context.Context, arg GetAgentById
 
 const getAgentInProject = `-- name: GetAgentInProject :one
 SELECT id, org_id, project_id, state, name,
-       current_config_id, integration_target_id,
+       agent_profile_id, current_config_id, integration_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
        next_event_sequence, created_at, updated_at, archived_at
 FROM agents
@@ -177,6 +181,7 @@ type GetAgentInProjectRow struct {
 	ProjectID           uuid.UUID
 	State               string
 	Name                string
+	AgentProfileID      *uuid.UUID
 	CurrentConfigID     uuid.UUID
 	IntegrationTargetID *uuid.UUID
 	IdempotencyKey      string
@@ -195,6 +200,7 @@ func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectPa
 		&i.ProjectID,
 		&i.State,
 		&i.Name,
+		&i.AgentProfileID,
 		&i.CurrentConfigID,
 		&i.IntegrationTargetID,
 		&i.IdempotencyKey,
@@ -208,17 +214,17 @@ func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectPa
 
 const insertAgent = `-- name: InsertAgent :one
 INSERT INTO agents(
-    org_id, project_id, state, name, current_config_id,
+    org_id, project_id, state, name, agent_profile_id, current_config_id,
     idempotency_key, created_at, updated_at
 )
 VALUES (
     $1, $2, 'active', $3,
-    $4, $5,
+    $4, $5, $6,
     transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
 RETURNING id, org_id, project_id, state, name,
-          current_config_id, integration_target_id,
+          agent_profile_id, current_config_id, integration_target_id,
           coalesce(idempotency_key, '') AS idempotency_key,
           next_event_sequence, created_at, updated_at, archived_at
 `
@@ -227,6 +233,7 @@ type InsertAgentParams struct {
 	OrgID           uuid.UUID
 	ProjectID       uuid.UUID
 	Name            string
+	AgentProfileID  *uuid.UUID
 	CurrentConfigID uuid.UUID
 	IdempotencyKey  *string
 }
@@ -237,6 +244,7 @@ type InsertAgentRow struct {
 	ProjectID           uuid.UUID
 	State               string
 	Name                string
+	AgentProfileID      *uuid.UUID
 	CurrentConfigID     uuid.UUID
 	IntegrationTargetID *uuid.UUID
 	IdempotencyKey      string
@@ -251,6 +259,7 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Inser
 		arg.OrgID,
 		arg.ProjectID,
 		arg.Name,
+		arg.AgentProfileID,
 		arg.CurrentConfigID,
 		arg.IdempotencyKey,
 	)
@@ -261,6 +270,7 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Inser
 		&i.ProjectID,
 		&i.State,
 		&i.Name,
+		&i.AgentProfileID,
 		&i.CurrentConfigID,
 		&i.IntegrationTargetID,
 		&i.IdempotencyKey,
@@ -279,6 +289,7 @@ SELECT agent.id,
        agent.project_id,
        agent.state,
        agent.name,
+       agent.agent_profile_id,
        agent.current_config_id,
        agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
@@ -331,8 +342,9 @@ WHERE agent.project_id = $8
   AND (COALESCE(cardinality($10::text[]), 0) = 0 OR install.provider = ANY($10::text[]))
   AND (COALESCE(cardinality($11::text[]), 0) = 0 OR target.provider_ref_kind = ANY($11::text[]))
   AND ($12::boolean IS NULL OR (target.id IS NOT NULL) = $12::boolean)
+  AND ($13::uuid IS NULL OR agent.agent_profile_id = $13::uuid)
 )
-SELECT id, org_id, project_id, state, name, current_config_id,
+SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
        archived_at, integration_target_provider,
@@ -368,6 +380,7 @@ type ListAgentsForProjectParams struct {
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
+	AgentProfileID         *uuid.UUID
 }
 
 type ListAgentsForProjectRow struct {
@@ -376,6 +389,7 @@ type ListAgentsForProjectRow struct {
 	ProjectID                         uuid.UUID
 	State                             string
 	Name                              string
+	AgentProfileID                    *uuid.UUID
 	CurrentConfigID                   uuid.UUID
 	IntegrationTargetID               *uuid.UUID
 	IdempotencyKey                    string
@@ -408,6 +422,7 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 		arg.IntegrationProviders,
 		arg.IntegrationTargetKinds,
 		arg.HasIntegrationTarget,
+		arg.AgentProfileID,
 	)
 	if err != nil {
 		return nil, err
@@ -422,6 +437,7 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 			&i.ProjectID,
 			&i.State,
 			&i.Name,
+			&i.AgentProfileID,
 			&i.CurrentConfigID,
 			&i.IntegrationTargetID,
 			&i.IdempotencyKey,
@@ -455,6 +471,7 @@ SELECT agent.id,
        agent.project_id,
        agent.state,
        agent.name,
+       agent.agent_profile_id,
        agent.current_config_id,
        agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
@@ -494,12 +511,13 @@ WHERE agent.project_id = $1
   AND (COALESCE(cardinality($3::text[]), 0) = 0 OR install.provider = ANY($3::text[]))
   AND (COALESCE(cardinality($4::text[]), 0) = 0 OR target.provider_ref_kind = ANY($4::text[]))
   AND ($5::boolean IS NULL OR (target.id IS NOT NULL) = $5::boolean)
+  AND ($6::uuid IS NULL OR agent.agent_profile_id = $6::uuid)
   AND (
-    $6::boolean = false
-    OR (agent.created_at, agent.id) < ($7::timestamptz, $8::uuid)
+    $7::boolean = false
+    OR (agent.created_at, agent.id) < ($8::timestamptz, $9::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT $9::bigint
+LIMIT $10::bigint
 `
 
 type ListAgentsForProjectByCreatedAtDescParams struct {
@@ -508,6 +526,7 @@ type ListAgentsForProjectByCreatedAtDescParams struct {
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
+	AgentProfileID         *uuid.UUID
 	CursorSet              bool
 	CursorCreatedAt        time.Time
 	CursorID               uuid.UUID
@@ -520,6 +539,7 @@ type ListAgentsForProjectByCreatedAtDescRow struct {
 	ProjectID                         uuid.UUID
 	State                             string
 	Name                              string
+	AgentProfileID                    *uuid.UUID
 	CurrentConfigID                   uuid.UUID
 	IntegrationTargetID               *uuid.UUID
 	IdempotencyKey                    string
@@ -543,6 +563,7 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 		arg.IntegrationProviders,
 		arg.IntegrationTargetKinds,
 		arg.HasIntegrationTarget,
+		arg.AgentProfileID,
 		arg.CursorSet,
 		arg.CursorCreatedAt,
 		arg.CursorID,
@@ -561,6 +582,7 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 			&i.ProjectID,
 			&i.State,
 			&i.Name,
+			&i.AgentProfileID,
 			&i.CurrentConfigID,
 			&i.IntegrationTargetID,
 			&i.IdempotencyKey,

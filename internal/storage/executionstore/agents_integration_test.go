@@ -59,6 +59,9 @@ model:
 	if !launch.Created || launch.Agent.CurrentConfigID != profile.CurrentConfigID {
 		t.Fatalf("unexpected launched agent/config: agent=%+v profile=%+v", launch.Agent, profile)
 	}
+	if launch.Agent.AgentProfileID != profile.ID {
+		t.Fatalf("launched agent profile = %s, want %s", launch.Agent.AgentProfileID, profile.ID)
+	}
 	if launch.Agent.State != "active" {
 		t.Fatalf("launched agent state = %s, want active", launch.Agent.State)
 	}
@@ -110,6 +113,9 @@ model:
 	}
 	if configOnly.Agent.CurrentConfigID != profile.CurrentConfigID {
 		t.Fatalf("config-only launch current config = %s, want %s", configOnly.Agent.CurrentConfigID, profile.CurrentConfigID)
+	}
+	if configOnly.Agent.AgentProfileID != executionstore.NilID {
+		t.Fatalf("config-only launch profile = %s, want nil", configOnly.Agent.AgentProfileID)
 	}
 	if _, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
