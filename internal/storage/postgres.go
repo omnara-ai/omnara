@@ -82,6 +82,9 @@ func parsePoolConfig(databaseURL string) (*pgxpool.Config, error) {
 	if _, ok := raw.Config.RuntimeParams["pool_max_conn_lifetime"]; !ok {
 		cfg.MaxConnLifetime = 30 * time.Minute
 	}
+	if _, ok := raw.Config.RuntimeParams["pool_max_conn_idle_time"]; !ok {
+		cfg.MaxConnIdleTime = 30 * time.Minute
+	}
 	if _, ok := raw.Config.RuntimeParams["pool_max_conn_lifetime_jitter"]; !ok {
 		cfg.MaxConnLifetimeJitter = 5 * time.Minute
 	}

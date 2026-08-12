@@ -21,6 +21,9 @@ func TestParsePoolConfigUsesOmnaraDefaultsWhenOmitted(t *testing.T) {
 	if cfg.MaxConnLifetime != 30*time.Minute {
 		t.Fatalf("max connection lifetime = %s, want 30m", cfg.MaxConnLifetime)
 	}
+	if cfg.MaxConnIdleTime != 30*time.Minute {
+		t.Fatalf("max connection idle time = %s, want 30m", cfg.MaxConnIdleTime)
+	}
 	if cfg.MaxConnLifetimeJitter != 5*time.Minute {
 		t.Fatalf("max connection lifetime jitter = %s, want 5m", cfg.MaxConnLifetimeJitter)
 	}
@@ -35,13 +38,13 @@ func TestParsePoolConfigPreservesExplicitSettings(t *testing.T) {
 			name: "URL query",
 			databaseURL: testDatabaseURL +
 				"?pool_max_conns=23&pool_min_conns=4&pool_max_conn_lifetime=47m" +
-				"&pool_max_conn_lifetime_jitter=6m",
+				"&pool_max_conn_idle_time=19m&pool_max_conn_lifetime_jitter=6m",
 		},
 		{
 			name: "keyword DSN",
 			databaseURL: "host=database.invalid user=user password=password dbname=omnara " +
 				"pool_max_conns=23 pool_min_conns=4 pool_max_conn_lifetime=47m " +
-				"pool_max_conn_lifetime_jitter=6m",
+				"pool_max_conn_idle_time=19m pool_max_conn_lifetime_jitter=6m",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -57,6 +60,9 @@ func TestParsePoolConfigPreservesExplicitSettings(t *testing.T) {
 			}
 			if cfg.MaxConnLifetime != 47*time.Minute {
 				t.Fatalf("max connection lifetime = %s, want 47m", cfg.MaxConnLifetime)
+			}
+			if cfg.MaxConnIdleTime != 19*time.Minute {
+				t.Fatalf("max connection idle time = %s, want 19m", cfg.MaxConnIdleTime)
 			}
 			if cfg.MaxConnLifetimeJitter != 6*time.Minute {
 				t.Fatalf("max connection lifetime jitter = %s, want 6m", cfg.MaxConnLifetimeJitter)

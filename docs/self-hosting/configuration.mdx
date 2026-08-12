@@ -39,9 +39,14 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_MIGRATION_TIMEOUT` | Overall deadline for the one-shot migration process (Go duration) | `30m` | No |
 
 PostgreSQL 18 or newer is required. The API, worker, and maintenance services
-default to a pool of 1–10 connections, a 30-minute connection lifetime, and
-five minutes of lifetime jitter. Override these with `pool_*` settings in
-`OMNARA_DATABASE_URL`, and budget connections across all service replicas.
+default to a pool of 1–10 connections, a 30-minute idle timeout, a 30-minute
+connection lifetime, and five minutes of lifetime jitter. Override these with
+`pool_*` settings in `OMNARA_DATABASE_URL`, and budget connections across all
+service replicas.
+
+Direct PostgreSQL, RDS Proxy, and PgBouncer session pooling work with these
+settings. PgBouncer transaction pooling requires `max_prepared_statements > 0`;
+statement pooling is not supported.
 
 The migrator defaults to a 30-second lock timeout and a 15-minute statement
 timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
