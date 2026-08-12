@@ -204,9 +204,11 @@ type MachineBootstrapRecord struct {
 }
 
 const (
-	MachineFailureStageStartupScript = "startup_script"
-	MachineFailureStageDaemonInstall = "daemon_install"
-	MachineFailureStageDaemonUpdate  = "daemon_update"
+	MachineFailureStageStartupScript     = "startup_script"
+	MachineFailureStageDaemonInstall     = "daemon_install"
+	MachineFailureStageDaemonUpdate      = "daemon_update"
+	MachineFailureStageDaemonUninstall   = "daemon_uninstall"
+	MachineFailureStageDaemonUninstalled = "daemon_uninstalled"
 )
 
 type MachineFailureReportInput struct {

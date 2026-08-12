@@ -25,6 +25,7 @@ const (
 type insertAgentInput struct {
 	OrgID           ID
 	ProjectID       ID
+	AgentProfileID  ID
 	Name            string
 	CurrentConfigID ID
 	IdempotencyKey  string
@@ -34,6 +35,7 @@ type AgentRecord struct {
 	ID                  ID         `json:"id"`
 	OrgID               ID         `json:"org_id"`
 	ProjectID           ID         `json:"project_id"`
+	AgentProfileID      ID         `json:"agent_profile_id,omitempty"`
 	State               AgentState `json:"state"`
 	Name                string     `json:"name,omitempty"`
 	CurrentConfigID     ID         `json:"current_config_id"`
@@ -84,6 +86,7 @@ func insertAgentWithProjectLifecycleLockTx(
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
 		OrgID:           input.OrgID,
 		ProjectID:       input.ProjectID,
+		AgentProfileID:  sqlcIDFromNil(input.AgentProfileID),
 		Name:            input.Name,
 		CurrentConfigID: input.CurrentConfigID,
 		IdempotencyKey:  sqlcTextFromEmpty(input.IdempotencyKey),
@@ -185,6 +188,7 @@ type AgentListFilters struct {
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
+	AgentProfileID         *ID
 }
 
 type ListAgentsForProjectResult struct {
@@ -223,6 +227,7 @@ func (s *Store) ListAgentsForProject(
 		IntegrationProviders:   input.Filters.IntegrationProviders,
 		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
+		AgentProfileID:         input.Filters.AgentProfileID,
 	}
 	rows, err := s.q.ListAgentsForProject(ctx, params)
 	if err != nil {
@@ -264,6 +269,7 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 			IntegrationProviders:   input.Filters.IntegrationProviders,
 			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
+			AgentProfileID:         input.Filters.AgentProfileID,
 			CursorSet:              input.List.After.Set,
 			CursorCreatedAt:        cursorCreatedAt,
 			CursorID:               input.List.After.ID,

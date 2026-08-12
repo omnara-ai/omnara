@@ -24,7 +24,6 @@ const (
 
 type Compiled struct {
 	Version        string                       `json:"version,omitempty"`
-	Name           string                       `json:"name,omitempty"`
 	Instruction    string                       `json:"instruction"`
 	Model          ModelCompiled                `json:"model,omitempty"`
 	MachineSources []MachineSourceCompiled      `json:"machine_sources,omitempty"`
@@ -181,7 +180,6 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	}
 	compiled := Compiled{
 		Version:     source.Version,
-		Name:        source.Name,
 		Instruction: strings.TrimSpace(source.Instruction),
 		Model:       compiledModel.model,
 	}

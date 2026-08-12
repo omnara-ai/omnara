@@ -33,9 +33,12 @@ type daemonCommand struct {
 	Start *struct {
 		NoService bool `arg:"--no-service"`
 	} `arg:"subcommand:start"`
-	Stop          *struct{} `arg:"subcommand:stop"`
-	Restart       *struct{} `arg:"subcommand:restart"`
-	Status        *struct{} `arg:"subcommand:status"`
+	Stop      *struct{} `arg:"subcommand:stop"`
+	Restart   *struct{} `arg:"subcommand:restart"`
+	Status    *struct{} `arg:"subcommand:status"`
+	Uninstall *struct {
+		Yes bool `arg:"--yes"`
+	} `arg:"subcommand:uninstall"`
 	ProcessRunner *struct {
 		BootstrapPath string `arg:"positional,required"`
 		LockFD        int    `arg:"positional,required"`
@@ -125,7 +128,7 @@ func runStatusCommand(ctx context.Context, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if status.running {
-		_, _ = fmt.Fprintf(stdout, "omnarad is running (%s, pid %d)\n", status.manager, status.pid)
+		_, _ = fmt.Fprintf(stdout, "omnarad is running (%s, pid %d)\n", daemonServiceManager, status.pid)
 		return 0
 	}
 	pid, held, err := inspectDaemonRuntimeLock(home)
@@ -255,6 +258,8 @@ func Run(
 		return runRestartCommand(ctx, stdout, stderr, log)
 	case command.Status != nil:
 		return runStatusCommand(ctx, stdout, stderr)
+	case command.Uninstall != nil:
+		return runUninstallCommand(ctx, command.Uninstall.Yes, stdin, stdout, stderr, log)
 	}
 	return 1
 }

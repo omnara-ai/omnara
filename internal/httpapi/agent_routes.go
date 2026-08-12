@@ -601,6 +601,13 @@ func (s strictOpenAPIServer) listAgents(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	filters := executionstore.AgentListFilters{}
+	if params.AgentProfileId != nil && *params.AgentProfileId != "" {
+		agentProfileID, err := publicid.Decode(publicid.KindAgentProfile, *params.AgentProfileId)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent profile filter")
+		}
+		filters.AgentProfileID = &agentProfileID
+	}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agents",
@@ -746,11 +753,16 @@ func (s strictOpenAPIServer) createAgent(
 	if request.Body.Message != nil {
 		message = *request.Body.Message
 	}
+	name := ""
+	if request.Body.Name != nil {
+		name = strings.TrimSpace(*request.Body.Name)
+	}
 	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      project.ID,
 		ProfileID:      profileID,
 		AgentConfigID:  configID,
 		LaunchedBy:     principal,
+		Name:           name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
 	})

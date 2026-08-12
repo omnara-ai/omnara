@@ -3,6 +3,7 @@ package omnarad
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,12 +22,12 @@ func TestInstallDaemonFreshAndReuse(t *testing.T) {
 	writeTestExecutable(t, source, "#!/bin/sh\nprintf '1.2.3\\n'\n")
 	manifestURL := "https://releases.omnara.test/omnarad/latest/linux-amd64.txt"
 
-	if _, err := installDaemon(context.Background(), home, source, ""); err == nil ||
+	if _, err := installDaemonForTest(context.Background(), home, source, ""); err == nil ||
 		err.Error() != "--release-manifest-url is required for a new installation" {
 		t.Fatalf("missing manifest URL error = %v", err)
 	}
 
-	result, err := installDaemon(context.Background(), home, source, manifestURL)
+	result, err := installDaemonForTest(context.Background(), home, source, manifestURL)
 	if err != nil {
 		t.Fatalf("fresh install: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestInstallDaemonFreshAndReuse(t *testing.T) {
 
 	newSource := filepath.Join(t.TempDir(), "omnarad")
 	writeTestExecutable(t, newSource, "#!/bin/sh\nprintf '2.0.0\\n'\n")
-	result, err = installDaemon(context.Background(), home, newSource, manifestURL)
+	result, err = installDaemonForTest(context.Background(), home, newSource, manifestURL)
 	if err != nil {
 		t.Fatalf("reuse install: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestInstallDaemonFreshRetryAfterCopyFailure(t *testing.T) {
 	}
 	manifestURL := "https://releases.omnara.test/omnarad/latest/linux-amd64.txt"
 
-	if _, err := installDaemon(context.Background(), home, source, manifestURL); err == nil {
+	if _, err := installDaemonForTest(context.Background(), home, source, manifestURL); err == nil {
 		t.Fatal("fresh install with unreadable source succeeded")
 	}
 	for _, path := range []string{filepath.Join(home, installReceiptFileName), filepath.Join(home, "bin")} {
@@ -124,7 +125,7 @@ func TestInstallDaemonFreshRetryAfterCopyFailure(t *testing.T) {
 	if err := os.Chmod(source, 0o700); err != nil {
 		t.Fatalf("restore source permissions: %v", err)
 	}
-	if _, err := installDaemon(context.Background(), home, source, manifestURL); err != nil {
+	if _, err := installDaemonForTest(context.Background(), home, source, manifestURL); err != nil {
 		t.Fatalf("retry fresh install: %v", err)
 	}
 }
@@ -201,7 +202,7 @@ func TestInstallDaemonRejectsUnknownState(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			home := filepath.Join(t.TempDir(), "home")
 			testCase.setup(home)
-			_, err := installDaemon(context.Background(), home, source, manifestURL)
+			_, err := installDaemonForTest(context.Background(), home, source, manifestURL)
 			if err == nil || !strings.Contains(err.Error(), testCase.want) {
 				t.Fatalf("install error = %v, want %q", err, testCase.want)
 			}
@@ -228,7 +229,7 @@ func TestInstallDaemonRepairUsesReceipt(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	manifestURL := server.URL + "/latest/linux-amd64.txt"
-	if _, err := installDaemon(context.Background(), home, source, manifestURL); err != nil {
+	if _, err := installDaemonForTest(context.Background(), home, source, manifestURL); err != nil {
 		t.Fatalf("fresh install: %v", err)
 	}
 	receiptBefore, err := os.ReadFile(filepath.Join(home, installReceiptFileName))
@@ -237,7 +238,7 @@ func TestInstallDaemonRepairUsesReceipt(t *testing.T) {
 	}
 
 	otherURL := "https://other.example.test/omnarad/latest/linux-amd64.txt"
-	result, err := installDaemon(context.Background(), home, source, otherURL)
+	result, err := installDaemonForTest(context.Background(), home, source, otherURL)
 	if err != nil || result.replaced {
 		t.Fatalf("healthy managed reuse = result %+v error %v", result, err)
 	}
@@ -245,7 +246,7 @@ func TestInstallDaemonRepairUsesReceipt(t *testing.T) {
 	if err := os.Remove(canonical); err != nil {
 		t.Fatalf("remove canonical omnarad: %v", err)
 	}
-	result, err = installDaemon(context.Background(), home, source, otherURL)
+	result, err = installDaemonForTest(context.Background(), home, source, otherURL)
 	if err != nil || !result.replaced {
 		t.Fatalf("repair install = result %+v error %v", result, err)
 	}
@@ -273,7 +274,7 @@ func TestInstallDaemonRepairUsesReceipt(t *testing.T) {
 	if err := os.Mkdir(canonical, 0o700); err != nil {
 		t.Fatalf("create unsafe canonical path: %v", err)
 	}
-	if _, err := installDaemon(context.Background(), home, source, manifestURL); err == nil ||
+	if _, err := installDaemonForTest(context.Background(), home, source, manifestURL); err == nil ||
 		!strings.Contains(err.Error(), "must be a regular file") {
 		t.Fatalf("unsafe canonical error = %v", err)
 	}
@@ -322,6 +323,47 @@ func TestRunInstallNoStartFreshAndReuseReceipt(t *testing.T) {
 	)
 	if code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("repeat install exit code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunInstallHoldsInstallLockThroughConfiguration(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	observed := make(chan error, 1)
+	server := bootstrapServer(t, "token-a", "inst-a", "mch-a", func() {
+		lock, acquired, err := tryAcquireInstallLock(home)
+		if lock != nil {
+			_ = lock.Release()
+		}
+		if err != nil {
+			observed <- err
+			return
+		}
+		if acquired {
+			observed <- errors.New("install lock was released before configuration completed")
+			return
+		}
+		observed <- nil
+	})
+	defer server.Close()
+	setDaemonEnvironment(t, home, server.URL, "token-a")
+	var stderr strings.Builder
+	if code := Run(
+		context.Background(),
+		[]string{
+			"install",
+			"--release-manifest-url",
+			"https://releases.omnara.test/omnarad/latest/linux-amd64.txt",
+			"--no-start",
+		},
+		nil,
+		&strings.Builder{},
+		&stderr,
+		discardLogger(),
+	); code != 0 {
+		t.Fatalf("install exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if err := <-observed; err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -383,4 +425,26 @@ func assertInstallFileMode(t *testing.T, path string, want os.FileMode) {
 	if info.Mode().Perm() != want {
 		t.Fatalf("%s mode = %o, want %o", path, info.Mode().Perm(), want)
 	}
+}
+
+func installDaemonForTest(
+	ctx context.Context,
+	home string,
+	executable string,
+	releaseManifestURL string,
+) (result daemonInstallResult, resultErr error) {
+	if err := validateInstallInputs(executable, releaseManifestURL); err != nil {
+		return daemonInstallResult{}, err
+	}
+	if err := localstore.EnsurePrivateDir(home); err != nil {
+		return daemonInstallResult{}, err
+	}
+	lock, err := acquireInstallLock(ctx, home)
+	if err != nil {
+		return daemonInstallResult{}, err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, lock.Release())
+	}()
+	return installDaemonLocked(ctx, home, executable, releaseManifestURL)
 }

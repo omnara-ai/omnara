@@ -88,7 +88,6 @@ WHERE agent.project_id = $1
 	t.Setenv("OMNARA_E2E_API_LOG_LEVEL", "info")
 	api := env.startAPI(t, ctx)
 	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "mcp-initializes-before-generation", strings.Join([]string{
-		"name: MCP Service E2E",
 		"instruction: Initialize MCP before generation.",
 		"model:",
 		"  provider_config: openai-prod",
@@ -241,7 +240,6 @@ func TestServiceE2EMCPToolCall(t *testing.T) {
 
 	env.startAPI(t, ctx)
 	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "mcp-tool-call", strings.Join([]string{
-		"name: MCP Tool Call E2E",
 		"instruction: Call the MCP greet tool.",
 		"model:",
 		"  provider_config: openai-prod",
@@ -381,7 +379,6 @@ func TestServiceE2ELiveMCPConfigChanges(t *testing.T) {
 	defer openai.Close()
 
 	initialYAML := strings.Join([]string{
-		"name: Live MCP Config Changes",
 		"instruction: Follow the current MCP configuration.",
 		"model:",
 		"  provider_config: openai-prod",
@@ -423,7 +420,6 @@ func TestServiceE2ELiveMCPConfigChanges(t *testing.T) {
 	worker.stop()
 
 	project.updateConfig(t, ctx, agentID, strings.Join([]string{
-		"name: Live MCP Config Changes",
 		"instruction: Follow the current MCP configuration.",
 		"model:",
 		"  provider_config: openai-prod",

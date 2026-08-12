@@ -49,7 +49,6 @@ export interface BasicMachineSource {
 }
 
 export interface BasicConfig {
-  name: string
   instruction: string
   providerConfig: string
   modelName: string
@@ -59,7 +58,7 @@ export interface BasicConfig {
   skillIds: string[]
 }
 
-export type BasicConfigDraft = Omit<BasicConfig, 'name'>
+export type BasicConfigDraft = BasicConfig
 
 export function createEmptyBasicConfigDraft(): BasicConfigDraft {
   return {
@@ -73,9 +72,8 @@ export function createEmptyBasicConfigDraft(): BasicConfigDraft {
   }
 }
 
-export function serializeBasicConfigDraft(name: string, draft: BasicConfigDraft) {
-  const config: BasicConfig = { name, ...draft }
-  return isBasicConfigComplete(config) ? serializeBasicConfig(config) : ''
+export function serializeBasicConfigDraft(draft: BasicConfigDraft) {
+  return isBasicConfigComplete(draft) ? serializeBasicConfig(draft) : ''
 }
 
 const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
@@ -133,11 +131,6 @@ function yamlBlock(value: string) {
 
 function serializeBasicConfig(config: BasicConfig) {
   const lines: string[] = []
-  const name = config.name.trim()
-
-  if (name !== '') {
-    lines.push(`name: ${yamlString(name)}`)
-  }
   lines.push(`instruction: ${yamlBlock(config.instruction.trimEnd())}`)
   lines.push('model:')
   lines.push(`  provider_config: ${yamlString(config.providerConfig.trim())}`)

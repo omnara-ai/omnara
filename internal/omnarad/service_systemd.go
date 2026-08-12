@@ -20,6 +20,7 @@ import (
 )
 
 const systemdServiceName = "omnarad.service"
+const daemonServiceManager = "systemd"
 const minimumSystemdVersion = 240
 const systemdLingerWarningText = "warning: systemd user lingering is not enabled; run 'sudo loginctl enable-linger %s' " +
 	"to start omnarad at boot without an interactive login"
@@ -68,6 +69,12 @@ type systemdServiceState struct {
 	mainPID           int
 	fragmentPath      string
 	needsDaemonReload bool
+}
+
+type systemdManagedDaemonStatus struct {
+	managerAvailable bool
+	running          bool
+	pid              int
 }
 
 func ensureDaemonService(
@@ -219,26 +226,30 @@ func ensureDaemonService(
 	return true, nil
 }
 
-func inspectDaemonService(ctx context.Context) (managedDaemonStatus, error) {
+func inspectDaemonService(ctx context.Context) (systemdManagedDaemonStatus, error) {
 	systemctl, err := exec.LookPath("systemctl")
 	if errors.Is(err, exec.ErrNotFound) {
-		return managedDaemonStatus{}, nil
+		return systemdManagedDaemonStatus{}, nil
 	}
 	if err != nil {
-		return managedDaemonStatus{}, fmt.Errorf("find systemctl: %w", err)
+		return systemdManagedDaemonStatus{}, fmt.Errorf("find systemctl: %w", err)
 	}
 	probe := runServiceCommand(ctx, serviceCommandTimeout, systemctl, "--user", "show-environment")
 	if probe.err != nil {
 		if systemdUnavailable(probe) {
-			return managedDaemonStatus{}, nil
+			return systemdManagedDaemonStatus{}, nil
 		}
-		return managedDaemonStatus{}, serviceCommandError(systemctl, []string{"--user", "show-environment"}, probe)
+		return systemdManagedDaemonStatus{}, serviceCommandError(systemctl, []string{"--user", "show-environment"}, probe)
 	}
 	state, err := inspectSystemdService(ctx, systemctl)
 	if err != nil {
-		return managedDaemonStatus{}, err
+		return systemdManagedDaemonStatus{}, err
 	}
-	return managedDaemonStatus{manager: "systemd", running: state.mainPID > 0, pid: state.mainPID}, nil
+	return systemdManagedDaemonStatus{
+		managerAvailable: true,
+		running:          state.mainPID > 0,
+		pid:              state.mainPID,
+	}, nil
 }
 
 func stopDaemonService(ctx context.Context) error {
@@ -269,6 +280,98 @@ func stopDaemonService(ctx context.Context) error {
 		return serviceCommandError(systemctl, args, result)
 	}
 	return nil
+}
+
+func uninstallDaemonService(ctx context.Context, home string) error {
+	userHome, err := serviceUserHome()
+	if err != nil {
+		return err
+	}
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(configHome) {
+		configHome = filepath.Join(userHome, ".config")
+	}
+	unitPath := filepath.Join(configHome, "systemd", "user", systemdServiceName)
+	body, exists, err := readOwnedServiceFile(unitPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		homeLine := []byte(`Environment="OMNARA_HOME=` + escapeSystemdQuotedValue(home) + `"`)
+		if !bytes.Contains(body, homeLine) {
+			return fmt.Errorf("systemd service does not belong to Omnara home %s", home)
+		}
+	}
+	status, err := inspectDaemonService(ctx)
+	if err != nil {
+		return err
+	}
+	if exists && !status.managerAvailable {
+		return errors.New("systemd is unavailable; cannot safely unregister the Omnara service")
+	}
+	systemctl := ""
+	if status.managerAvailable {
+		systemctl, err = exec.LookPath("systemctl")
+		if err != nil {
+			return fmt.Errorf("find systemctl: %w", err)
+		}
+		if !exists {
+			args := []string{"--user", "daemon-reload"}
+			result := runServiceCommand(ctx, serviceCommandTimeout, systemctl, args...)
+			if result.err != nil {
+				return serviceCommandError(systemctl, args, result)
+			}
+		}
+		state, err := inspectSystemdService(ctx, systemctl)
+		if err != nil {
+			return err
+		}
+		if state.loaded && filepath.Clean(state.fragmentPath) != filepath.Clean(unitPath) {
+			return fmt.Errorf("systemd service is loaded from an unowned definition: %s", state.fragmentPath)
+		}
+		enabled, err := systemdServiceEnabled(ctx, systemctl)
+		if err != nil {
+			return err
+		}
+		if !exists && (state.loaded || enabled) {
+			return errors.New("systemd service is registered without an owned service definition")
+		}
+		if state.loaded || enabled {
+			args := []string{"--user", "disable", "--now", systemdServiceName}
+			result := runServiceCommand(ctx, serviceStopTimeout, systemctl, args...)
+			if result.err != nil {
+				return serviceCommandError(systemctl, args, result)
+			}
+		}
+	}
+	if err := removeSystemdWantsLink(unitPath); err != nil {
+		return err
+	}
+	if exists {
+		if err := os.Remove(unitPath); err != nil {
+			return fmt.Errorf("remove systemd service definition: %w", err)
+		}
+		if err := localstore.SyncDir(filepath.Dir(unitPath)); err != nil {
+			return err
+		}
+	}
+	if !status.managerAvailable || !exists {
+		return nil
+	}
+	args := []string{"--user", "daemon-reload"}
+	result := runServiceCommand(ctx, serviceCommandTimeout, systemctl, args...)
+	if result.err != nil {
+		return serviceCommandError(systemctl, args, result)
+	}
+	return nil
+}
+
+func removeSystemdWantsLink(unitPath string) error {
+	return removeMatchingSymlink(
+		filepath.Join(filepath.Dir(unitPath), "default.target.wants", systemdServiceName),
+		unitPath,
+		"systemd service enablement",
+	)
 }
 
 func renderSystemdUnit(home, userHome, binaryPath, logPath string) ([]byte, error) {

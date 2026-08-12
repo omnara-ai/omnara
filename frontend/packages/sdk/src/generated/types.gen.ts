@@ -910,6 +910,10 @@ export type ListAgentProfilesResponse = {
 export type CreateAgentRequest = {
     profile?: AgentProfileId;
     config: AgentConfigId;
+    /**
+     * Display name for the launched agent. Defaults to the profile name when launching from a profile.
+     */
+    name?: string;
     message?: string;
 };
 
@@ -917,6 +921,7 @@ export type Agent = {
     id: AgentId;
     org_id: OrganizationId;
     project_id: ProjectId;
+    agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
     name: string;
     integration_target?: IntegrationTarget;
@@ -2924,7 +2929,7 @@ export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
-        stage: 'startup_script' | 'daemon_install' | 'daemon_update';
+        stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
         exit_status?: number;
         capture_status?: number;
         daemon_version?: string;
@@ -7063,6 +7068,10 @@ export type ListAgentsData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Return only agents launched from this agent profile.
+         */
+        agent_profile_id?: AgentProfileId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.

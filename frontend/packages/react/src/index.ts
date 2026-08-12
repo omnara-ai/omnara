@@ -21,6 +21,7 @@ export {
   type AgentProfileListFilters,
   type AgentProfileListOptions,
   type AgentProfileListSort,
+  useAgentProfile,
   useAgentProfiles,
   useCreateAgentProfile,
   useCreateSlackSetup,

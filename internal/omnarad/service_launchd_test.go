@@ -297,6 +297,165 @@ exit 4
 	}
 }
 
+func TestLaunchdUninstallRemovesMatchingService(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	plistDir := filepath.Join(userHome, "Library", "LaunchAgents")
+	if err := os.MkdirAll(plistDir, 0o700); err != nil {
+		t.Fatalf("create launchd directory: %v", err)
+	}
+	plist, err := renderLaunchdPlist(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
+	if err != nil {
+		t.Fatalf("render launchd plist: %v", err)
+	}
+	plistPath := filepath.Join(plistDir, launchdServiceLabel+".plist")
+	if err := os.WriteFile(plistPath, plist, 0o644); err != nil {
+		t.Fatalf("write launchd plist: %v", err)
+	}
+	commands := filepath.Join(t.TempDir(), "commands")
+	domain := "gui/" + strconv.Itoa(os.Geteuid())
+	target := domain + "/" + launchdServiceLabel
+	commandDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(commandDir, "launchctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+if [ "$1" = print ] && [ "$2" = %s ]; then exit 0; fi
+if [ "$1" = print ] && [ "$2" = %s ]; then printf 'path = %%s\nstate = running\npid = %d\n' %s; exit 0; fi
+if [ "$1" = bootout ]; then exit 0; fi
+exit 4
+`, shellTestQuote(commands), shellTestQuote(domain), shellTestQuote(target), os.Getpid(), shellTestQuote(plistPath)))
+	t.Setenv("HOME", userHome)
+	t.Setenv("PATH", commandDir)
+	if err := uninstallDaemonService(context.Background(), home); err != nil {
+		t.Fatalf("uninstall launchd service: %v", err)
+	}
+	if _, err := os.Lstat(plistPath); !os.IsNotExist(err) {
+		t.Fatalf("launchd plist still exists: %v", err)
+	}
+	if !strings.Contains(readTestFile(t, commands), "bootout "+target) {
+		t.Fatalf("launchctl commands = %q", readTestFile(t, commands))
+	}
+}
+
+func TestLaunchdUninstallRejectsRegisteredForeignDefinition(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	plistDir := filepath.Join(userHome, "Library", "LaunchAgents")
+	if err := os.MkdirAll(plistDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plist, err := renderLaunchdPlist(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plistPath := filepath.Join(plistDir, launchdServiceLabel+".plist")
+	if err := os.WriteFile(plistPath, plist, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands := filepath.Join(t.TempDir(), "commands")
+	domain := "gui/" + strconv.Itoa(os.Geteuid())
+	target := domain + "/" + launchdServiceLabel
+	commandDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(commandDir, "launchctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+if [ "$1" = print ] && [ "$2" = %s ]; then exit 0; fi
+if [ "$1" = print ] && [ "$2" = %s ]; then
+  printf 'path = /Library/LaunchAgents/com.omnara.omnarad.plist\nstate = running\npid = %d\n'
+  exit 0
+fi
+if [ "$1" = bootout ]; then exit 0; fi
+exit 4
+`, shellTestQuote(commands), shellTestQuote(domain), shellTestQuote(target), os.Getpid()))
+	t.Setenv("HOME", userHome)
+	t.Setenv("PATH", commandDir)
+	if err := uninstallDaemonService(context.Background(), home); err == nil ||
+		!strings.Contains(err.Error(), "registered from an unowned definition") {
+		t.Fatalf("uninstall error = %v", err)
+	}
+	if _, err := os.Stat(plistPath); err != nil {
+		t.Fatalf("owned plist was removed: %v", err)
+	}
+	if got := readTestFile(t, commands); strings.Contains(got, "bootout "+target) {
+		t.Fatalf("launchctl commands = %q", got)
+	}
+}
+
+func TestLaunchdUninstallRejectsRegisteredServiceWithoutDefinition(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	commands := filepath.Join(t.TempDir(), "commands")
+	domain := "gui/" + strconv.Itoa(os.Geteuid())
+	target := domain + "/" + launchdServiceLabel
+	commandDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(commandDir, "launchctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+if [ "$1" = print ] && [ "$2" = %s ]; then exit 0; fi
+if [ "$1" = print ] && [ "$2" = %s ]; then printf 'state = waiting\n'; exit 0; fi
+if [ "$1" = bootout ]; then exit 0; fi
+exit 4
+`, shellTestQuote(commands), shellTestQuote(domain), shellTestQuote(target)))
+	t.Setenv("HOME", userHome)
+	t.Setenv("PATH", commandDir)
+	if err := uninstallDaemonService(context.Background(), home); err == nil ||
+		!strings.Contains(err.Error(), "registered without an owned service definition") {
+		t.Fatalf("uninstall error = %v", err)
+	}
+	if got := readTestFile(t, commands); strings.Contains(got, "bootout "+target) {
+		t.Fatalf("launchctl commands = %q", got)
+	}
+}
+
+func TestLaunchdUninstallRejectsUnavailableManager(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	plistDir := filepath.Join(userHome, "Library", "LaunchAgents")
+	if err := os.MkdirAll(plistDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plist, err := renderLaunchdPlist(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plistPath := filepath.Join(plistDir, launchdServiceLabel+".plist")
+	if err := os.WriteFile(plistPath, plist, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", userHome)
+	t.Setenv("PATH", t.TempDir())
+	if err := uninstallDaemonService(context.Background(), home); err == nil ||
+		!strings.Contains(err.Error(), "launchd is unavailable") {
+		t.Fatalf("uninstall error = %v", err)
+	}
+	if _, err := os.Stat(plistPath); err != nil {
+		t.Fatalf("launchd plist was removed: %v", err)
+	}
+}
+
+func TestLaunchdUninstallRejectsDifferentHome(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "daemon-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	plistDir := filepath.Join(userHome, "Library", "LaunchAgents")
+	if err := os.MkdirAll(plistDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plist, err := renderLaunchdPlist("/other/home", userHome, "/opt/omnarad", "/tmp/daemon.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plistPath := filepath.Join(plistDir, launchdServiceLabel+".plist")
+	if err := os.WriteFile(plistPath, plist, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", userHome)
+	t.Setenv("PATH", t.TempDir())
+	if err := uninstallDaemonService(context.Background(), home); err == nil ||
+		!strings.Contains(err.Error(), "does not belong") {
+		t.Fatalf("uninstall error = %v", err)
+	}
+	if _, err := os.Stat(plistPath); err != nil {
+		t.Fatalf("launchd plist was removed: %v", err)
+	}
+}
+
 func TestLaunchdServiceReadyRequiresLivePID(t *testing.T) {
 	if launchdServiceReady(launchdServiceState{registered: true, running: true}) {
 		t.Fatal("launchd service without a PID reported ready")

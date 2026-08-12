@@ -63,86 +63,89 @@
   --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, monospace;
   --radius: 0.375rem;
 
-  /* Palette: Amber #e8a33d over warm blacks — bg #0c0b0a, surface
-     #161512, alt surface #252320. Warm greys extrapolate from the
-     #252320 ink; deeper ambers (#c9882a, #b0731c) step the accent
-     down for hovers and small text on light. */
+  /* Palette: Technical indigo #5e6ad2 over strictly neutral greys — bg
+     #0b0b0c, surface #161618, alt surface / ink #232326. Chrome stays
+     neutral white/near-black/grey; indigo is reserved for action, active,
+     and selected states. #6872d9 lightens the accent for hover, #4e59c7
+     deepens it for pressed states and small text on light. */
   --background: #ffffff;
-  --foreground: #252320;
+  --foreground: #232326;
   --card: #ffffff;
-  --card-foreground: #252320;
+  --card-foreground: #232326;
   --popover: #ffffff;
-  --popover-foreground: #252320;
-  --primary: #e8a33d;
+  --popover-foreground: #232326;
+  --primary: #5e6ad2;
   --primary-foreground: #ffffff;
-  --primary-hover: #c9882a;
-  --secondary: color-mix(in oklab, #252320 6%, white);
-  --secondary-hover: color-mix(in oklab, #252320 10%, white);
-  --secondary-foreground: #252320;
-  --muted: color-mix(in oklab, #252320 6%, white);
-  --muted-foreground: color-mix(in oklab, #252320 64%, white);
-  --accent: color-mix(in oklab, #e8a33d 15%, white);
-  --accent-foreground: #252320;
+  --primary-hover: #6872d9;
+  --primary-active: #4e59c7;
+  --secondary: color-mix(in oklab, #232326 6%, white);
+  --secondary-hover: color-mix(in oklab, #232326 10%, white);
+  --secondary-foreground: #232326;
+  --muted: color-mix(in oklab, #232326 6%, white);
+  --muted-foreground: color-mix(in oklab, #232326 64%, white);
+  --accent: color-mix(in oklab, #5e6ad2 10%, white);
+  --accent-foreground: #232326;
   --destructive: oklch(0.58 0.24 27);
   --destructive-foreground: #ffffff;
   --warning: oklch(0.55 0.17 40);
   --overlay: oklch(0 0 0 / 50%);
-  --border: color-mix(in oklab, #252320 11%, white);
-  --input: color-mix(in oklab, #252320 15%, white);
-  --ring: #e8a33d;
-  --chart-1: #e8a33d;
-  --chart-2: #b0731c;
-  --chart-3: color-mix(in oklab, #252320 28%, white);
-  --chart-4: color-mix(in oklab, #e8a33d 45%, white);
-  --chart-5: #252320;
-  --sidebar: color-mix(in oklab, #e8a33d 5%, white);
-  --sidebar-foreground: #252320;
+  --border: color-mix(in oklab, #232326 11%, white);
+  --input: color-mix(in oklab, #232326 15%, white);
+  --ring: #5e6ad2;
+  --chart-1: #5e6ad2;
+  --chart-2: #4e59c7;
+  --chart-3: color-mix(in oklab, #232326 28%, white);
+  --chart-4: color-mix(in oklab, #5e6ad2 45%, white);
+  --chart-5: #232326;
+  --sidebar: color-mix(in oklab, #232326 3%, white);
+  --sidebar-foreground: #232326;
   /* One ramp step darker than the shared accent so active nav text stays
      readable on the light sidebar. */
-  --sidebar-primary: #b0731c;
+  --sidebar-primary: #4e59c7;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: color-mix(in oklab, #e8a33d 13%, white);
-  --sidebar-accent-foreground: #252320;
-  --sidebar-border: color-mix(in oklab, #252320 12%, white);
-  --sidebar-ring: #b0731c;
+  --sidebar-accent: color-mix(in oklab, #5e6ad2 10%, white);
+  --sidebar-accent-foreground: #232326;
+  --sidebar-border: color-mix(in oklab, #232326 12%, white);
+  --sidebar-ring: #4e59c7;
 }
 
 .dark {
-  --background: #0c0b0a;
-  --foreground: color-mix(in oklab, #ffffff 92%, #e8a33d);
-  --card: #161512;
-  --card-foreground: color-mix(in oklab, #ffffff 92%, #e8a33d);
-  --popover: #161512;
-  --popover-foreground: color-mix(in oklab, #ffffff 92%, #e8a33d);
-  --primary: #e8a33d;
+  --background: #0b0b0c;
+  --foreground: #ececee;
+  --card: #161618;
+  --card-foreground: #ececee;
+  --popover: #161618;
+  --popover-foreground: #ececee;
+  --primary: #5e6ad2;
   --primary-foreground: #ffffff;
-  --primary-hover: #c9882a;
-  --secondary: #252320;
-  --secondary-hover: color-mix(in oklab, #ffffff 8%, #252320);
-  --secondary-foreground: color-mix(in oklab, #ffffff 92%, #e8a33d);
-  --muted: #252320;
-  --muted-foreground: color-mix(in oklab, #ffffff 60%, #252320);
-  --accent: color-mix(in oklab, #e8a33d 13%, #0c0b0a);
-  --accent-foreground: color-mix(in oklab, #ffffff 92%, #e8a33d);
+  --primary-hover: #6872d9;
+  --primary-active: #4e59c7;
+  --secondary: #232326;
+  --secondary-hover: color-mix(in oklab, #ffffff 8%, #232326);
+  --secondary-foreground: #ececee;
+  --muted: #232326;
+  --muted-foreground: color-mix(in oklab, #ffffff 60%, #232326);
+  --accent: color-mix(in oklab, #5e6ad2 13%, #0b0b0c);
+  --accent-foreground: #ececee;
   --destructive: oklch(0.7 0.19 22);
   --destructive-foreground: #ffffff;
   --warning: oklch(0.72 0.16 45);
   --border: color-mix(in oklab, #ffffff 8%, transparent);
   --input: color-mix(in oklab, #ffffff 12%, transparent);
-  --ring: #e8a33d;
-  --chart-1: #e8a33d;
-  --chart-2: color-mix(in oklab, #e8a33d 55%, white);
-  --chart-3: color-mix(in oklab, #ffffff 55%, #252320);
-  --chart-4: #b0731c;
-  --chart-5: color-mix(in oklab, #e8a33d 30%, #252320);
-  --sidebar: #100f0d;
-  --sidebar-foreground: color-mix(in oklab, #ffffff 92%, #e8a33d);
-  --sidebar-primary: #e8a33d;
-  --sidebar-primary-foreground: #0c0b0a;
-  --sidebar-accent: color-mix(in oklab, #e8a33d 13%, #0c0b0a);
-  --sidebar-accent-foreground: color-mix(in oklab, #ffffff 92%, #e8a33d);
+  --ring: #5e6ad2;
+  --chart-1: #5e6ad2;
+  --chart-2: color-mix(in oklab, #5e6ad2 55%, white);
+  --chart-3: color-mix(in oklab, #ffffff 55%, #232326);
+  --chart-4: #4e59c7;
+  --chart-5: color-mix(in oklab, #5e6ad2 30%, #232326);
+  --sidebar: #101012;
+  --sidebar-foreground: #ececee;
+  --sidebar-primary: #8188df;
+  --sidebar-primary-foreground: #0b0b0c;
+  --sidebar-accent: color-mix(in oklab, #5e6ad2 13%, #0b0b0c);
+  --sidebar-accent-foreground: #ececee;
   --sidebar-border: color-mix(in oklab, #ffffff 8%, transparent);
-  --sidebar-ring: #e8a33d;
+  --sidebar-ring: #5e6ad2;
 }
 
 @theme inline {
@@ -213,5 +216,11 @@
     margin: 0;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizelegibility;
+  }
+
+  /* Tailwind v4 preflight leaves buttons with the browser's default cursor. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
   }
 }

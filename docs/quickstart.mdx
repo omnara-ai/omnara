@@ -34,7 +34,6 @@ Omnara is model-agnostic: you bring a provider API key, and agents use the model
 
       ```yaml
       version: v1
-      name: Research assistant
       instruction: |
         Research the questions the user sends you. Use web search for current
         information, cite sources, and ask for clarification when needed.
@@ -48,6 +47,8 @@ Omnara is model-agnostic: you bring a provider API key, and agents use the model
       ```
 
       `model.name` must match a configured model exactly, as shown on the **Models** page — substitute yours if it's named differently.
+
+      In **Agent name (optional)**, enter `Research assistant`.
 
       In **First message (optional)**, give it the task:
 
@@ -110,7 +111,6 @@ Omnara is model-agnostic: you bring a provider API key, and agents use the model
 
       ```yaml
       version: v1
-      name: Research assistant
       instruction: |
         Research the questions the user sends you. Use web search for current
         information, cite sources, and ask for clarification when needed.
@@ -150,6 +150,7 @@ Omnara is model-agnostic: you bring a provider API key, and agents use the model
           -H "Content-Type: application/json" \
           -d '{
             "config": "'"$CONFIG"'",
+            "name": "Research assistant",
             "message": "Find the Omnara blog post \"The Log Is the Agent.\" Before summarizing it, use ask_question to ask me one question: whether I want a technical or non-technical explanation. Then explain its main idea, give me three key takeaways, and link to the post."
           }' |
         jq -r '.agent.id'

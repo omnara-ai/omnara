@@ -99,7 +99,7 @@ func TestChatBootstrapsAgentAndSendsInput(t *testing.T) {
 	yamlPath := filepath.Join(dir, "agent.yaml")
 	if err := os.WriteFile(
 		yamlPath,
-		[]byte("name: Test Agent\ninstruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-5.5\n"),
+		[]byte("instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-5.5\n"),
 		0o600,
 	); err != nil {
 		t.Fatalf("write yaml: %v", err)
@@ -212,7 +212,7 @@ func TestChatUsesProvidedOrgAndProject(t *testing.T) {
 	yamlPath := filepath.Join(dir, "agent.yaml")
 	if err := os.WriteFile(
 		yamlPath,
-		[]byte("name: Test Agent\ninstruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-5.5\n"),
+		[]byte("instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-5.5\n"),
 		0o600,
 	); err != nil {
 		t.Fatalf("write yaml: %v", err)
@@ -297,7 +297,7 @@ func TestPromptContentBlocksAttachesImageReferences(t *testing.T) {
 func TestPromptContentBlocksAttachesBareYAMLReference(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "example.yaml")
-	yamlBytes := []byte("name: Test Agent\ninstruction: Help.\n")
+	yamlBytes := []byte("instruction: Help.\n")
 	if err := os.WriteFile(yamlPath, yamlBytes, 0o600); err != nil {
 		t.Fatalf("write yaml: %v", err)
 	}

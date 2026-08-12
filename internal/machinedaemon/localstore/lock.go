@@ -18,19 +18,23 @@ type Lock struct {
 var ErrLockHeld = errors.New("lock is already held")
 
 func TryAcquireLock(path string) (*Lock, error) {
-	return tryAcquireLock(path, true)
+	return tryAcquireLock(path, true, true)
+}
+
+func TryAcquireLockInExistingDir(path string) (*Lock, error) {
+	return tryAcquireLock(path, true, false)
 }
 
 func TryAcquireExistingLock(path string) (*Lock, error) {
-	return tryAcquireLock(path, false)
+	return tryAcquireLock(path, false, false)
 }
 
-func tryAcquireLock(path string, create bool) (*Lock, error) {
+func tryAcquireLock(path string, create, createDir bool) (*Lock, error) {
 	if path == "" {
 		return nil, errors.New("lock path is required")
 	}
 	dir := filepath.Dir(path)
-	if create {
+	if createDir {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("create lock dir: %w", err)
 		}

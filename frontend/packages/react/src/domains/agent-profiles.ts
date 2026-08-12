@@ -1,6 +1,16 @@
 import { type ListAgentProfilesData, sdk, type UpdateAgentProfileRequest } from '@omnara/sdk'
-import { listAgentProfilesInfiniteOptions, listAgentProfilesQueryKey } from '@omnara/sdk/tanstack'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  getAgentProfileOptions,
+  getAgentProfileQueryKey,
+  listAgentProfilesInfiniteOptions,
+  listAgentProfilesQueryKey,
+} from '@omnara/sdk/tanstack'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -32,6 +42,13 @@ export function useAgentProfiles(
     ...cursorPagination,
     enabled: list.enabled,
   })
+}
+
+export function useAgentProfile(orgID: string, projectID: string, agentProfileID: string) {
+  const client = useOmnaraClient()
+  return useSuspenseQuery(
+    getAgentProfileOptions({ path: { orgID, projectID, agentProfileID }, client }),
+  )
 }
 
 export function useCreateAgentProfile(orgID: string, projectID: string) {
@@ -69,10 +86,18 @@ export function useUpdateAgentProfile(orgID: string, projectID: string) {
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
-      })
+    onSuccess: async (_data, { agentProfileID }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getAgentProfileQueryKey({
+            path: { orgID, projectID, agentProfileID },
+            client,
+          }),
+        }),
+      ])
     },
   })
 }

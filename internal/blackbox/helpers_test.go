@@ -214,9 +214,8 @@ const (
 	defaultLiveModelSlug    = "nvidia/nemotron-3-ultra-550b-a55b:free"
 )
 
-func agentConfigYAML(name string) string {
+func agentConfigYAML() string {
 	return strings.Join([]string{
-		"name: " + name,
 		"instruction: You are a disposable test agent created by the API black-box suite. Reply concisely.",
 		"model:",
 		"  provider_config: " + providerConfigName,
@@ -226,7 +225,6 @@ func agentConfigYAML(name string) string {
 
 func liveAgentConfigYAML() string {
 	return strings.Join([]string{
-		"name: Blackbox Live Agent",
 		"instruction: You are a disposable test agent created by the API black-box suite. Follow the user's instructions exactly and reply concisely.",
 		"model:",
 		"  provider_config: " + liveProviderConfigName,
@@ -341,7 +339,7 @@ func bootstrapFixture(baseURL, token string, log *runLog) (*fixture, error) {
 
 	config, err := f.jsonStep(ctx, "create shared agent config",
 		http.MethodPost, f.projectPath+"/agent-configs",
-		map[string]any{"source_format": "yaml", "source": agentConfigYAML("Blackbox Agent")},
+		map[string]any{"source_format": "yaml", "source": agentConfigYAML()},
 		"", http.StatusCreated)
 	if err != nil {
 		return f, fmt.Errorf("create agent config: %w", err)

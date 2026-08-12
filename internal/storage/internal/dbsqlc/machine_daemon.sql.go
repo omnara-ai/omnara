@@ -217,25 +217,30 @@ func (q *Queries) ClearMachineSleep(ctx context.Context, arg ClearMachineSleepPa
 	return err
 }
 
-const clearMachineUpdateFailureReport = `-- name: ClearMachineUpdateFailureReport :execrows
+const clearResolvedMachineFailureReport = `-- name: ClearResolvedMachineFailureReport :execrows
 UPDATE machines
 SET failure_report = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = $1
   AND id = $2
   AND deleted_at IS NULL
-  AND failure_report->>'stage' = 'daemon_update'
-  AND failure_report->>'daemon_version' IS DISTINCT FROM $3::text
+  AND (
+    failure_report->>'stage' IN ('daemon_uninstall', 'daemon_uninstalled')
+    OR (
+      failure_report->>'stage' = 'daemon_update'
+      AND failure_report->>'daemon_version' IS DISTINCT FROM $3::text
+    )
+  )
 `
 
-type ClearMachineUpdateFailureReportParams struct {
+type ClearResolvedMachineFailureReportParams struct {
 	OrgID         uuid.UUID
 	MachineID     uuid.UUID
 	DaemonVersion string
 }
 
-func (q *Queries) ClearMachineUpdateFailureReport(ctx context.Context, arg ClearMachineUpdateFailureReportParams) (int64, error) {
-	result, err := q.db.Exec(ctx, clearMachineUpdateFailureReport, arg.OrgID, arg.MachineID, arg.DaemonVersion)
+func (q *Queries) ClearResolvedMachineFailureReport(ctx context.Context, arg ClearResolvedMachineFailureReportParams) (int64, error) {
+	result, err := q.db.Exec(ctx, clearResolvedMachineFailureReport, arg.OrgID, arg.MachineID, arg.DaemonVersion)
 	if err != nil {
 		return 0, err
 	}
@@ -2027,6 +2032,17 @@ WHERE machine.org_id = $7
   AND token.machine_id = machine.id
   AND token.id = $9
   AND token.revoked_at IS NULL
+  AND (
+    $1::text <> 'daemon_uninstalled'
+    OR NOT EXISTS (
+      SELECT 1
+      FROM daemon_runtimes runtime
+      WHERE runtime.org_id = machine.org_id
+        AND runtime.machine_id = machine.id
+        AND runtime.id = machine.current_daemon_runtime_id
+        AND runtime.state = 'active'
+    )
+  )
 RETURNING machine.failure_report
 `
 

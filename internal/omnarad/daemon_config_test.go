@@ -416,7 +416,7 @@ func TestWriteDaemonConfigTreatsCompleteStateDeletionAsFreshBootstrap(
 }
 
 func TestWriteDaemonConfigDoesNotUseInstallLock(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "home")
+	home := t.TempDir()
 	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
 	defer server.Close()
 	setDaemonEnvironment(t, home, server.URL, "token-a")
