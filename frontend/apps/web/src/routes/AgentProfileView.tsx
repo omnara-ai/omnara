@@ -27,9 +27,6 @@ import { useProjectPage } from '@/lib/use-project-page'
 
 type ProfileTab = 'configuration' | 'agents'
 
-// The YAML draft lives here (not in ConfigurationTab) so it survives tab
-// switches. It is keyed to the profile and revision it was edited against,
-// and discarded once either changes.
 interface ConfigDraft {
   profileId: string
   configId: string
