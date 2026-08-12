@@ -1,7 +1,6 @@
 package openaichatcompletions
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -144,14 +143,19 @@ func (p protocol) chatResponseEvidence(
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
-	rawCost := bytes.TrimSpace(response.Usage.Cost)
-	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter &&
-		len(rawCost) != 0 && !bytes.Equal(rawCost, []byte("null")) {
-		cost, valid := modelenvelope.ParseProviderReportedCostUSD(string(rawCost))
-		if valid {
-			out.ProviderReportedCostUSD = cost
-		} else {
+	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter {
+		cost, issue := openRouterReportedCost(response.Usage)
+		out.ProviderReportedCostUSD = cost
+		switch issue {
+		case openRouterCostIssueNone:
+		case openRouterCostIssueInvalid:
 			logent.ModelResponseProviderCostInvalid(ctx)
+		case openRouterCostIssueBYOKStateMissing:
+			logent.ModelResponseProviderCostBYOKStateMissing(ctx)
+		case openRouterCostIssueBYOKStateInvalid:
+			logent.ModelResponseProviderCostBYOKStateInvalid(ctx)
+		case openRouterCostIssueBYOKComponentMissing:
+			logent.ModelResponseProviderCostBYOKComponentMissing(ctx)
 		}
 	}
 	return out
@@ -284,7 +288,9 @@ func reasoningTextFromDetails(details []json.RawMessage) string {
 type chatUsage struct {
 	PromptTokens            int              `json:"prompt_tokens"`
 	CompletionTokens        int              `json:"completion_tokens"`
-	Cost                    json.RawMessage  `json:"cost,omitempty"`
+	OpenRouterCost          json.RawMessage  `json:"cost,omitempty"`
+	OpenRouterCostDetails   json.RawMessage  `json:"cost_details,omitempty"`
+	OpenRouterIsBYOK        json.RawMessage  `json:"is_byok,omitempty"`
 	PromptTokensDetails     chatTokenDetails `json:"prompt_tokens_details"`
 	CompletionTokensDetails chatTokenDetails `json:"completion_tokens_details"`
 }
