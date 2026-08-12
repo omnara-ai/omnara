@@ -93,7 +93,6 @@ export function CreateAgentForm({
   )
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
   const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null)
-  // Stable identity: the builder's serialize effect depends on this callback.
   const handleBuilderYamlChange = useCallback((value: string) => {
     dispatchMode({ type: 'builder-yaml-changed', yaml: value })
   }, [])
@@ -110,8 +109,6 @@ export function CreateAgentForm({
   const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
   const canSubmit = !isSubmitting && draft.name.trim() !== '' && yaml.trim() !== ''
 
-  // Every agent belongs to a profile, so both actions save the config as a
-  // profile first; "launch" additionally starts an agent from it.
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
     setDraft((prev) => ({ ...prev, status: submitting }))
@@ -244,7 +241,6 @@ export function CreateAgentForm({
           />
         </Field>
       </FieldGroup>
-      {/* -bottom-6 offsets the scroll container's p-6 so the bar sits flush with the viewport edge. */}
       <div className="bg-background sticky -bottom-6 z-10 -mb-6 flex items-center justify-between gap-4 border-t py-4">
         <Button
           type="button"
