@@ -56,10 +56,11 @@ func TestServiceE2ELiveOpenRouterModelTurn(t *testing.T) {
 		t.Fatal("OPENROUTER_API_KEY is required for live OpenRouter service E2E")
 	}
 	runLiveServiceModelTurn(t, ctx, liveServiceModelTurnOptions{
-		Seed:                "live-openrouter-model-turn",
-		ProviderConfig:      "openrouter-prod",
-		ConfiguredModelName: liveOpenRouterConfiguredModelName(),
-		BaseURL:             os.Getenv("OPENROUTER_BASE_URL"),
+		Seed:                        "live-openrouter-model-turn",
+		ProviderConfig:              "openrouter-prod",
+		ConfiguredModelName:         liveOpenRouterConfiguredModel,
+		BaseURL:                     os.Getenv("OPENROUTER_BASE_URL"),
+		RequireProviderReportedCost: true,
 	})
 }
 
@@ -312,10 +313,11 @@ func TestServiceE2ELiveAnthropicCompactionRecall(t *testing.T) {
 }
 
 type liveServiceModelTurnOptions struct {
-	Seed                string
-	ProviderConfig      string
-	ConfiguredModelName string
-	BaseURL             string
+	Seed                        string
+	ProviderConfig              string
+	ConfiguredModelName         string
+	BaseURL                     string
+	RequireProviderReportedCost bool
 }
 
 type liveAPIFormatSwitchStage struct {
@@ -369,7 +371,15 @@ func runLiveServiceModelTurn(t *testing.T, ctx context.Context, opts liveService
 		return count == 1, "live provider assistant output not recorded yet"
 	})
 	waitForLiveAgentIdle(t, ctx, env, project.projectID, agentID, worker)
-	assertLiveModelUsage(t, ctx, env, projectUUID, agentUUID, nonce)
+	assertLiveModelUsage(
+		t,
+		ctx,
+		env,
+		projectUUID,
+		agentUUID,
+		nonce,
+		opts.RequireProviderReportedCost,
+	)
 }
 
 func assertLiveModelUsage(
@@ -378,16 +388,21 @@ func assertLiveModelUsage(
 	env *serviceE2EEnvironment,
 	projectID, agentID string,
 	outputContains string,
+	requireProviderReportedCost bool,
 ) {
 	t.Helper()
-	var usage modelenvelope.Usage
+	var (
+		usage                   modelenvelope.Usage
+		providerReportedCostUSD *string
+	)
 	if err := env.db.QueryRow(ctx, `
 SELECT coalesce(context.input_tokens_total, 0),
        coalesce(context.uncached_input_tokens, 0),
        coalesce(context.cache_read_input_tokens, 0),
        coalesce(context.cache_write_input_tokens, 0),
        coalesce(context.output_tokens_total, 0),
-       coalesce(context.reasoning_output_tokens, 0)
+       coalesce(context.reasoning_output_tokens, 0),
+       context.provider_reported_cost_usd::text
 FROM agent_events event
 JOIN agents agent ON agent.id = event.agent_id
 JOIN content_blocks block
@@ -414,6 +429,7 @@ LIMIT 1`, projectID, agentID, outputContains).Scan(
 		&usage.CacheWriteTokens,
 		&usage.OutputTokens,
 		&usage.ReasoningTokens,
+		&providerReportedCostUSD,
 	); err != nil {
 		t.Fatalf("query live model usage: %v", err)
 	}
@@ -422,6 +438,14 @@ LIMIT 1`, projectID, agentID, outputContains).Scan(
 	}
 	if normalized := modelenvelope.NormalizeUsage(usage); normalized != usage {
 		t.Fatalf("live model usage is internally inconsistent: %+v", usage)
+	}
+	if requireProviderReportedCost {
+		if providerReportedCostUSD == nil {
+			t.Fatal("live provider-reported cost was not persisted")
+		}
+		if _, valid := modelenvelope.ParseProviderReportedCostUSD(*providerReportedCostUSD); !valid {
+			t.Fatalf("persisted live provider-reported cost is invalid: %q", *providerReportedCostUSD)
+		}
 	}
 }
 

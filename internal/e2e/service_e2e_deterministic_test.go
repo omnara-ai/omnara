@@ -1098,7 +1098,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		serviceE2EProviderConfigID(t, openRouterConfig),
 		modelOptions,
 		"service-e2e-openrouter",
-		liveOpenRouterConfiguredModelName(),
+		liveOpenRouterConfiguredModel,
 	)
 	anthropicSecret := e.requestJSON(
 		t,
@@ -1162,12 +1162,7 @@ func liveOpenAIChatConfiguredModelName() string {
 	return "gpt-4.1-mini"
 }
 
-func liveOpenRouterConfiguredModelName() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENROUTER_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "z-ai/glm-5.2"
-}
+const liveOpenRouterConfiguredModel = "z-ai/glm-5.2"
 
 func (e *serviceE2EEnvironment) createServiceE2EConfiguredModels(
 	t *testing.T,

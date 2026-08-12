@@ -17,6 +17,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
+const liveOpenRouterGeneralModelSlug = "z-ai/glm-5.2"
+
 func TestLiveOpenAIChatCompletionsText(t *testing.T) {
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	if apiKey == "" {
@@ -42,30 +44,38 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 		apiVariantOptions json.RawMessage
 	}{
 		{
-			name:              "glm",
-			providerModelSlug: liveOpenRouterProviderModelSlug(),
+			name:              "z-ai",
+			providerModelSlug: liveOpenRouterGeneralModelSlug,
 			apiVariantOptions: json.RawMessage(`{"reasoning":{"enabled":false}}`),
 		},
 		{
 			name:              "openai",
-			providerModelSlug: liveOpenRouterOpenAIProviderModelSlug(),
+			providerModelSlug: "openai/gpt-5.6-luna",
+			apiVariantOptions: json.RawMessage(`{}`),
+		},
+		{
+			name:              "mistral",
+			providerModelSlug: "mistralai/mistral-small-2603",
 			apiVariantOptions: json.RawMessage(`{}`),
 		},
 		{
 			name:              "anthropic",
-			providerModelSlug: liveOpenRouterAnthropicProviderModelSlug(),
+			providerModelSlug: "anthropic/claude-sonnet-5",
 			apiVariantOptions: json.RawMessage(`{}`),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			runLiveChatCompletionsText(t, Client{
+			httpClient, responseCapture := newLiveOpenRouterResponseCapture()
+			response := runLiveChatCompletionsText(t, Client{
 				Auth:              liveOpenRouterAuth(apiKey),
 				BaseURL:           liveOpenRouterBaseURL(),
 				EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
 				ProviderModelSlug: tc.providerModelSlug,
+				HTTPClient:        httpClient,
 				APIVariant:        modelprotocol.APIVariantOpenRouter,
 				APIVariantOptions: tc.apiVariantOptions,
 			}, model.RequestPolicy{MaxOutputTokens: 64})
+			assertLiveOpenRouterReportedCost(t, response.ProviderReportedCostUSD, responseCapture)
 		})
 	}
 }
@@ -89,7 +99,7 @@ func TestLiveOpenRouterChatCompletionsSettings(t *testing.T) {
 		Auth:              liveOpenRouterAuth(apiKey),
 		BaseURL:           liveOpenRouterBaseURL(),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: liveOpenRouterSettingsProviderModelSlug(),
+		ProviderModelSlug: liveOpenRouterGeneralModelSlug,
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
 		APIVariantOptions: json.RawMessage(
 			`{"provider":{"sort":"price"},"temperature":0,"reasoning":{"enabled":false}}`,
@@ -112,7 +122,7 @@ func TestLiveOpenRouterChatCompletionsStreamText(t *testing.T) {
 		Auth:              liveOpenRouterAuth(apiKey),
 		BaseURL:           liveOpenRouterBaseURL(),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: liveOpenRouterProviderModelSlug(),
+		ProviderModelSlug: liveOpenRouterGeneralModelSlug,
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
 		APIVariantOptions: json.RawMessage(`{"reasoning":{"enabled":false}}`),
 	}
@@ -174,7 +184,7 @@ func TestLiveOpenRouterChatCompletionsToolCall(t *testing.T) {
 		Auth:              liveOpenRouterAuth(apiKey),
 		BaseURL:           liveOpenRouterBaseURL(),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: liveOpenRouterToolProviderModelSlug(),
+		ProviderModelSlug: liveOpenRouterGeneralModelSlug,
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
 		APIVariantOptions: json.RawMessage(`{"provider":{"sort":"price"}}`),
 	}
@@ -221,7 +231,7 @@ func TestLiveOpenRouterChatCompletionsToolCall(t *testing.T) {
 	}
 }
 
-func runLiveChatCompletionsText(t *testing.T, client Client, policy model.RequestPolicy) {
+func runLiveChatCompletionsText(t *testing.T, client Client, policy model.RequestPolicy) model.Response {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -257,6 +267,7 @@ func runLiveChatCompletionsText(t *testing.T, client Client, policy model.Reques
 	if client.APIVariant == modelprotocol.APIVariantOpenRouter && resp.ProviderReportedCostUSD == "" {
 		t.Fatal("live OpenRouter response did not report cost")
 	}
+	return resp
 }
 
 func liveTextContent(t *testing.T, text string) json.RawMessage {
@@ -281,41 +292,6 @@ func liveOpenAIChatProviderModelSlug() string {
 		return providerModelSlug
 	}
 	return "gpt-4.1-mini"
-}
-
-func liveOpenRouterProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENROUTER_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "z-ai/glm-5.2"
-}
-
-func liveOpenRouterOpenAIProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENROUTER_OPENAI_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "openai/gpt-4.1-mini"
-}
-
-func liveOpenRouterAnthropicProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENROUTER_ANTHROPIC_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "anthropic/claude-sonnet-4.6"
-}
-
-func liveOpenRouterSettingsProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENROUTER_SETTINGS_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "z-ai/glm-5.2"
-}
-
-func liveOpenRouterToolProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENROUTER_TOOL_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "z-ai/glm-5.2"
 }
 
 func liveOpenRouterBaseURL() string {
