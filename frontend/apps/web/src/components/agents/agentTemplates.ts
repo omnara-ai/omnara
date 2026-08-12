@@ -1,5 +1,9 @@
-import type { ToolCatalog } from '@omnara/sdk'
+import type { MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
 
+import {
+  type BasicConfig,
+  newMachineSource,
+} from '@/components/agents/agentConfigBasicSerialization'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 
 export interface AgentTemplate {
@@ -7,10 +11,22 @@ export interface AgentTemplate {
   name: string
   description: string
   instruction: string
-  toolNames: readonly string[]
-  usesMachinePool: boolean
   firstMessagePlaceholder: string
 }
+
+/** Every template gets the same tool set: all built-in tools except the integration tools. */
+const templateToolNames = [
+  'run_command',
+  'write_process',
+  'read_process',
+  'stop_process',
+  'list_processes',
+  'list_machines',
+  'inspect_machine',
+  'ask_question',
+  'web_search',
+  'web_fetch',
+] as const
 
 const generalAgent: AgentTemplate = {
   id: 'general',
@@ -18,21 +34,6 @@ const generalAgent: AgentTemplate = {
   description: 'Researches, writes code, runs commands, and uses tools to finish tasks end to end.',
   instruction:
     "You are a general-purpose agent that can research, write code, run commands, and use connected tools to complete the user's task end to end.",
-  toolNames: [
-    'run_command',
-    'write_process',
-    'read_process',
-    'stop_process',
-    'list_processes',
-    'create_machine',
-    'delete_machine',
-    'list_machines',
-    'inspect_machine',
-    'ask_question',
-    'web_search',
-    'web_fetch',
-  ],
-  usesMachinePool: true,
   firstMessagePlaceholder: 'Research the top 3 CI providers and summarize the trade-offs',
 }
 
@@ -48,8 +49,6 @@ const deepResearcher: AgentTemplate = {
 4. Synthesize a report that answers the original question. Structure it by sub-question, cite every non-obvious claim inline, and close with a "confidence & gaps" section noting where sources disagreed or where you couldn't find good coverage.
 
 Be skeptical. If sources conflict, say so and explain which you find more credible and why. Don't paper over uncertainty with confident-sounding prose.`,
-  toolNames: ['web_search', 'web_fetch', 'ask_question'],
-  usesMachinePool: false,
   firstMessagePlaceholder:
     'How do the major vector databases compare on cost, latency, and recall?',
 }
@@ -66,22 +65,49 @@ const structuredExtractor: AgentTemplate = {
 4. Emit a single JSON object (or array, if the schema is a list) that validates against the schema. No prose, no markdown fences — just the JSON.
 
 When the input is ambiguous, pick the most conservative interpretation and note the ambiguity in a top-level "_extraction_notes" field only if the schema allows additionalProperties.`,
-  toolNames: [],
-  usesMachinePool: false,
   firstMessagePlaceholder: 'Paste raw text plus the JSON schema you want extracted',
 }
 
 export const agentTemplates = [generalAgent, deepResearcher, structuredExtractor]
 
-export function isAgentTemplateName(name: string) {
-  const trimmed = name.trim()
-  return agentTemplates.some((template) => template.name === trimmed)
+export const generalAgentTemplateId = generalAgent.id
+
+/**
+ * The builder-draft fields a template prefills: instruction, the shared
+ * tool set with catalog-default permissions, and the default machine pool.
+ */
+export function agentTemplateConfig(
+  template: AgentTemplate,
+  catalog: ToolCatalog,
+  defaultPool?: MachinePoolSummary,
+): Pick<BasicConfig, 'instruction' | 'tools' | 'machineSources'> {
+  return {
+    instruction: template.instruction,
+    tools: agentTemplateTools(catalog),
+    machineSources: defaultPool
+      ? [
+          {
+            ...newMachineSource('pool'),
+            name: defaultPool.name,
+            provider: defaultPool.provider,
+            managementKind: defaultPool.management_kind,
+          },
+        ]
+      : [],
+  }
 }
 
-export function agentTemplateTools(template: AgentTemplate, catalog: ToolCatalog): BasicTool[] {
+/** A user-typed name is preserved; an empty or template-suggested name is replaced. */
+export function agentTemplateName(currentName: string, template: AgentTemplate) {
+  const trimmed = currentName.trim()
+  const isTemplateName = agentTemplates.some((candidate) => candidate.name === trimmed)
+  return trimmed === '' || isTemplateName ? template.name : currentName
+}
+
+function agentTemplateTools(catalog: ToolCatalog): BasicTool[] {
   const entries = new Map(catalog.built_in_tools.map((entry) => [entry.name, entry]))
   const tools: BasicTool[] = []
-  for (const name of template.toolNames) {
+  for (const name of templateToolNames) {
     const entry = entries.get(name)
     if (entry == null) continue
     tools.push({ name, permission: structuredClone(entry.default_permission) })

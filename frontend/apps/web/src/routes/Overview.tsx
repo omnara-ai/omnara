@@ -1,4 +1,4 @@
-import { useMe, useProjects } from '@omnara/react'
+import { useAgentProfiles, useAgents, useMe, useProjects } from '@omnara/react'
 import type { VisibleProject } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
@@ -6,6 +6,8 @@ import { useMemo } from 'react'
 import { DataTable } from '@/components/data-table/DataTable'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SearchHeader } from '@/components/layout/SearchHeader'
+import { FirstAgentCard } from '@/components/overview/FirstAgentCard'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { readRecentPages } from '@/lib/recent-pages'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -23,6 +25,25 @@ export function Overview() {
   const navigate = useNavigate()
   const projectsQuery = useProjects(activeOrg.id)
   const projects = useInfiniteQueryItems(projectsQuery)
+
+  // A fresh org has a single manageable project with no profiles or agents;
+  // it gets the first-agent card instead of recent pages.
+  const firstProject = projects.length === 1 ? projects[0] : undefined
+  const onboardingProject = firstProject?.access.can_manage ? firstProject : undefined
+  const profilesQuery = useAgentProfiles(activeOrg.id, onboardingProject?.id ?? '', {
+    pageSize: 1,
+    enabled: onboardingProject != null,
+  })
+  const agentsQuery = useAgents(activeOrg.id, onboardingProject?.id ?? '', {
+    pageSize: 1,
+    enabled: onboardingProject != null,
+  })
+  const overviewPending =
+    onboardingProject != null && (profilesQuery.isPending || agentsQuery.isPending)
+  const showOnboarding =
+    onboardingProject != null &&
+    profilesQuery.data?.pages[0]?.data.length === 0 &&
+    agentsQuery.data?.pages[0]?.data.length === 0
 
   const projectById = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
@@ -47,27 +68,33 @@ export function Overview() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <PageBreadcrumb items={[{ label: activeOrg.name }, { label: 'Overview' }]} />
 
-      <div className="flex flex-col gap-3">
-        <SearchHeader title="Recent pages" />
-        <DataTable
-          columns={[
-            { header: 'Page' },
-            { header: 'Location' },
-            { header: 'Visited', className: 'w-44' },
-          ]}
-          data={recentPages}
-          getRowId={(page) => page.path}
-          rowCells={(page) => [
-            <span className="font-medium">{page.title}</span>,
-            page.context,
-            <span className="text-muted-foreground">{formatVisitedAt(page.visitedAt)}</span>,
-          ]}
-          onRowClick={(page) => {
-            void navigate({ href: page.path })
-          }}
-          emptyMessage="Pages you visit in this organization will appear here."
-        />
-      </div>
+      {overviewPending ? (
+        <Skeleton className="h-28 rounded-xl" />
+      ) : showOnboarding ? (
+        <FirstAgentCard projectId={onboardingProject.id} />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <SearchHeader title="Recent pages" />
+          <DataTable
+            columns={[
+              { header: 'Page' },
+              { header: 'Location' },
+              { header: 'Visited', className: 'w-44' },
+            ]}
+            data={recentPages}
+            getRowId={(page) => page.path}
+            rowCells={(page) => [
+              <span className="font-medium">{page.title}</span>,
+              page.context,
+              <span className="text-muted-foreground">{formatVisitedAt(page.visitedAt)}</span>,
+            ]}
+            onRowClick={(page) => {
+              void navigate({ href: page.path })
+            }}
+            emptyMessage="Pages you visit in this organization will appear here."
+          />
+        </div>
+      )}
     </div>
   )
 }
