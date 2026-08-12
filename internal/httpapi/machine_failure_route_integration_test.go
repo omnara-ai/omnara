@@ -363,7 +363,7 @@ func TestMachineFailureRoute(t *testing.T) {
 			executionstore.RegisterDaemonRuntimeInput{
 				OrgID:            project.OrgUUID,
 				MachineID:        byoMachine.ID,
-				DaemonTokenID:    byoTokenRecord.ID,
+				DaemonTokenID:    byoTokenRecord.Record.ID,
 				DaemonInstanceID: httpTestID("machine-" + report.stage + "-cleared"),
 				DaemonVersion:    "1.3.0",
 				LeaseTimeout:     time.Hour,
@@ -382,7 +382,7 @@ func TestMachineFailureRoute(t *testing.T) {
 					OrgID:           project.OrgUUID,
 					MachineID:       byoMachine.ID,
 					DaemonRuntimeID: updated.Runtime.ID,
-					DaemonTokenID:   byoTokenRecord.ID,
+					DaemonTokenID:   byoTokenRecord.Record.ID,
 				},
 			); err != nil {
 				t.Fatal(err)
