@@ -38,12 +38,12 @@ Long-running services may use a compatible database proxy. Keep each service's
 pgxpool limits aligned with the proxy and database connection budgets; see the
 [database configuration](/self-hosting/configuration#database-and-redis).
 
-Every runtime checks its minimum schema before it connects to Redis or begins
-work. A new binary fails clearly when `migrate` has not reached the schema it
-needs. An older binary may keep running against a newer additive schema during
-a normal rolling deployment, but an older migration binary refuses to run
-against a database newer than its own migration set. This asymmetry prevents an
-accidental rollback job from treating an expanded schema as current.
+Treat successful completion of the matching migration image as a deployment
+precondition for the API, worker, and maintenance processes. Runtime readiness
+checks database connectivity; it does not replace migration ordering. An older
+migration binary still refuses to run against a database newer than its own
+migration set, preventing an accidental rollback job from treating an expanded
+schema as current.
 
 ## Canonical credential cutover
 

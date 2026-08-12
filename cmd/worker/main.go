@@ -10,7 +10,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
-	"github.com/omnara-ai/omnara/internal/dbschema"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
@@ -29,9 +28,6 @@ import (
 )
 
 const integrationHTTPClientTimeout = 5 * time.Minute
-
-// Version 17 adds agents.agent_profile_id, selected by worker-reachable agent lookups.
-const minimumPostgresSchemaVersion int64 = 17
 
 func main() {
 	log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
@@ -62,13 +58,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	databaseReady := func(ctx context.Context) error {
-		return dbschema.RequireVersion(ctx, db, minimumPostgresSchemaVersion)
-	}
-	if err := databaseReady(context.Background()); err != nil {
-		log.Error("check database schema", "error", err)
-		os.Exit(1)
-	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -130,7 +119,7 @@ func main() {
 		log,
 		cfg.WorkerMetricsAddr,
 		metricSet,
-		metrics.ReadyAll(databaseReady, redisClient.Ping),
+		metrics.ReadyAll(db.Ping, redisClient.Ping),
 	)
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
 	integrationHTTPClient := metrics.NewObservedHTTPClient(

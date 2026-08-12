@@ -21,7 +21,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
-	"github.com/omnara-ai/omnara/internal/dbschema"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
@@ -586,10 +585,6 @@ func TestPostgresPopulatedVersion14UpgradesToLatest(t *testing.T) {
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 14 {
 		t.Fatalf("pre-upgrade schema version = %d, want 14", got)
 	}
-	if err := dbschema.RequireVersion(ctx, pool, latestVersion); err == nil {
-		t.Fatalf("version 14 database unexpectedly passed version %d runtime readiness", latestVersion)
-	}
-
 	var orgID, projectID, poolID, grantID, machineID string
 	if err := db.QueryRowContext(ctx, `
 INSERT INTO orgs(name, created_at, updated_at)
@@ -662,10 +657,6 @@ RETURNING id::text
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != latestVersion {
 		t.Fatalf("upgraded schema version = %d, want %d", got, latestVersion)
 	}
-	if err := dbschema.RequireVersion(ctx, pool, latestVersion); err != nil {
-		t.Fatalf("version %d runtime readiness: %v", latestVersion, err)
-	}
-
 	var joinedRows int
 	if err := db.QueryRowContext(ctx, `
 SELECT count(*)
