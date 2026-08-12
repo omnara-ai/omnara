@@ -11,18 +11,20 @@ export function CreateAgentPage() {
   const search = useSearch({ strict: false })
 
   const toolCatalog = useToolCatalog()
+  // Listing pool grants requires manage permission, so wait for the project
+  // and only query for users who may create agents here.
+  const canManage = project?.access.can_manage === true
   const poolGrantsQuery = useProjectMachinePoolGrants(activeOrg.id, projectId, {
     sort: 'name',
     pageSize: 1,
+    enabled: canManage,
   })
   const catalog = toolCatalog.data
   const defaultPool = poolGrantsQuery.data?.pages[0]?.data[0]?.machine_pool
   const templatesReady = catalog != null && !poolGrantsQuery.isPending
   const linkedTemplate = agentTemplates.find((template) => template.id === search.template)
 
-  // A template deep link waits for the data the prefill needs, so the form
-  // can mount with the template already applied as its initial state.
-  if (projectIsPending || (linkedTemplate && !templatesReady)) return <FullPageSpinner />
+  if (projectIsPending) return <FullPageSpinner />
 
   if (!project?.access.can_manage) {
     return (
@@ -38,6 +40,10 @@ export function CreateAgentPage() {
       </div>
     )
   }
+
+  // A template deep link waits for the data the prefill needs, so the form
+  // can mount with the template already applied as its initial state.
+  if (linkedTemplate && !templatesReady) return <FullPageSpinner />
 
   return (
     <CreateAgentForm

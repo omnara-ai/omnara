@@ -39,7 +39,7 @@ const generalAgent: AgentTemplate = {
 
 const deepResearcher: AgentTemplate = {
   id: 'deep-researcher',
-  name: 'Deep Researcher',
+  name: 'Deep researcher',
   description: 'Decomposes a question, reads sources in full, and writes a cited report.',
   instruction: `You are a research agent. Given a question or topic:
 
