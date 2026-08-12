@@ -124,6 +124,7 @@ export function AgentProfileView() {
 
       {tab === 'configuration' ? (
         <ConfigurationTab
+          key={profile.id}
           orgId={activeOrg.id}
           projectId={projectId}
           profile={profile}
