@@ -193,24 +193,53 @@ func (s strictOpenAPIServer) updateAgentProfile(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	if strings.TrimSpace(request.Body.ExpectedCurrentConfigId) == "" {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "expected_current_config_id is required")
-	}
-	expectedCurrentConfigID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.Body.ExpectedCurrentConfigId)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid expected_current_config_id")
-	}
-	if strings.TrimSpace(request.Body.Config) == "" {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "config is required")
-	}
-	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.Body.Config)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
-	}
 	principal, _ := principalFromContext(ctx)
 	if principal.ID == storage.NilID {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			"authenticated user principal is required to update an agent profile")
+	}
+	hasName := request.Body.Name != nil
+	hasConfig := request.Body.Config != nil || request.Body.ExpectedCurrentConfigId != nil
+	if hasName == hasConfig {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest,
+			"provide either name or config with expected_current_config_id")
+	}
+	if hasName {
+		name := strings.TrimSpace(*request.Body.Name)
+		if name == "" {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
+		}
+		profile, err := s.server.store.Execution().RenameAgentProfile(
+			ctx,
+			executionstore.RenameAgentProfileInput{
+				ProjectID: project.ID,
+				ProfileID: profileID,
+				Name:      name,
+			},
+		)
+		if err != nil {
+			return nil, apierror.ProjectScoped(err)
+		}
+		response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
+		if err != nil {
+			return nil, err
+		}
+		return openapi.UpdateAgentProfile200JSONResponse(response), nil
+	}
+	if request.Body.ExpectedCurrentConfigId == nil ||
+		strings.TrimSpace(*request.Body.ExpectedCurrentConfigId) == "" {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "expected_current_config_id is required")
+	}
+	expectedCurrentConfigID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, *request.Body.ExpectedCurrentConfigId)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid expected_current_config_id")
+	}
+	if request.Body.Config == nil || strings.TrimSpace(*request.Body.Config) == "" {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "config is required")
+	}
+	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, *request.Body.Config)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
 	}
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
@@ -573,11 +602,11 @@ func (s strictOpenAPIServer) getAgent(
 	request openapi.GetAgentRequestObject,
 	agent executionstore.AgentRecord,
 ) (openapi.GetAgentResponseObject, error) {
-	response, err := publicAgentResponseFromRecord(agent)
+	response, err := s.server.currentAgentResponse(ctx, agent)
 	if err != nil {
 		return nil, err
 	}
-	return openapi.GetAgent200JSONResponse(openapi.GetAgentResponse{Agent: response}), nil
+	return openapi.GetAgent200JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) ListAgents(
@@ -782,7 +811,7 @@ func (s strictOpenAPIServer) createAgent(
 		}
 		return openapi.CreateAgent201JSONResponse(response), nil
 	}
-	response, err := currentAgentResponse(result.Agent)
+	response, err := s.server.currentAgentResponse(ctx, result.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -913,12 +942,47 @@ func (s *Server) startPoolMachineDeletion(parent context.Context, machines []exe
 	}()
 }
 
-func currentAgentResponse(record executionstore.AgentRecord) (openapi.GetAgentResponse, error) {
+func (s *Server) currentAgentResponse(
+	ctx context.Context,
+	record executionstore.AgentRecord,
+) (openapi.GetAgentResponse, error) {
 	agent, err := publicAgentResponseFromRecord(record)
 	if err != nil {
 		return openapi.GetAgentResponse{}, err
 	}
-	return openapi.GetAgentResponse{Agent: agent}, nil
+	records, err := s.store.Execution().ListAgentMachineBindings(ctx, record.ProjectID, record.ID)
+	if err != nil {
+		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
+	}
+	bindings := make([]openapi.AgentMachineBinding, 0, len(records))
+	for _, record := range records {
+		binding, err := publicAgentMachineBindingResponse(record)
+		if err != nil {
+			return openapi.GetAgentResponse{}, err
+		}
+		bindings = append(bindings, binding)
+	}
+	connections, err := s.store.Execution().ListAgentMCPConnections(ctx, record.ProjectID, record.ID)
+	if err != nil {
+		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
+	}
+	mcpConnections := make([]openapi.AgentMCPConnection, 0, len(connections))
+	for _, connection := range connections {
+		mcpConnections = append(mcpConnections, openapi.AgentMCPConnection{
+			ServerKey:       connection.ServerKey,
+			EndpointUrl:     connection.EndpointURL,
+			State:           openapi.AgentMCPConnectionState(connection.State),
+			ProtocolVersion: ptrFromNonEmpty(connection.ProtocolVersion),
+			InitializeError: connection.InitializeError,
+			CreatedAt:       connection.CreatedAt,
+			UpdatedAt:       connection.UpdatedAt,
+		})
+	}
+	return openapi.GetAgentResponse{
+		Agent:           agent,
+		MachineBindings: bindings,
+		McpConnections:  mcpConnections,
+	}, nil
 }
 
 func (s *Server) launchAgentResponse(

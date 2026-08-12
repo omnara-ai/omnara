@@ -11,8 +11,10 @@ import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import {
   emptyProviderOptions,
   type EnvOverlayRow,
+  type ProviderOptionsDraft,
   type SecretEnvOverlayRow,
 } from '@/components/machines/machineOverrides'
+import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 
 /**
  * Best-effort inverse of serializeBasicConfig. Returns a builder draft only
@@ -158,13 +160,17 @@ function extractMachineSource(entry: unknown): BasicMachineSource | null {
     entry.secret_env_overlay,
     (key, secretId): SecretEnvOverlayRow => ({ id: crypto.randomUUID(), key, secretId }),
   )
+  const providerOverlay = isPool
+    ? extractProviderOverlay(entry.machine_provider_options_overlay)
+    : { provider: '', options: emptyProviderOptions }
   if (
     initialNumMachines == null ||
     maxMachines == null ||
     machineCpu == null ||
     machineMemoryMb == null ||
     envRows == null ||
-    secretEnvRows == null
+    secretEnvRows == null ||
+    providerOverlay == null
   ) {
     return null
   }
@@ -172,17 +178,44 @@ function extractMachineSource(entry: unknown): BasicMachineSource | null {
     id: crypto.randomUUID(),
     kind: isPool ? 'pool' : 'machine',
     name,
-    provider: '',
+    provider: providerOverlay.provider,
     managementKind: '',
     defaultCwd: typeof entry.cwd === 'string' ? entry.cwd : '',
     initialNumMachines,
     maxMachines,
     machineCpu,
     machineMemoryMb,
-    providerOptions: emptyProviderOptions,
+    providerOptions: providerOverlay.options,
     envRows,
     secretEnvRows,
   }
+}
+
+/**
+ * The overlay doesn't record which provider wrote it, so infer one whose
+ * option keys account for every entry. Providers sharing a key serialize that
+ * entry identically, so a wrong pick still round-trips; the combobox replaces
+ * the guess with the granted pool's real provider once it resolves.
+ */
+function extractProviderOverlay(
+  value: unknown,
+): { provider: string; options: ProviderOptionsDraft } | null {
+  if (value === undefined) return { provider: '', options: emptyProviderOptions }
+  if (!isRecord(value)) return null
+  for (const [provider, definition] of Object.entries(machinePoolProviderDefinitions)) {
+    const options = { ...emptyProviderOptions }
+    let matched = true
+    for (const [key, entry] of Object.entries(value)) {
+      if (typeof entry !== 'string') return null
+      if (key === definition.resource.key) options.resource = entry
+      else if (key === definition.location.key) options.location = entry
+      else if (key === 'startup_script') options.startupScript = entry
+      else matched = false
+      if (!matched) break
+    }
+    if (matched && Object.keys(value).length > 0) return { provider, options }
+  }
+  return null
 }
 
 function extractCountDraft(value: unknown): string | null {

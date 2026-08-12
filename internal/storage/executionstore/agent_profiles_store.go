@@ -204,6 +204,48 @@ func (s *Store) RetargetAgentProfile(
 	return record, nil
 }
 
+type RenameAgentProfileInput struct {
+	ProjectID ID
+	ProfileID ID
+	Name      string
+}
+
+func (s *Store) RenameAgentProfile(
+	ctx context.Context,
+	input RenameAgentProfileInput,
+) (AgentProfileRecord, error) {
+	if isNilID(input.ProjectID) || isNilID(input.ProfileID) {
+		return AgentProfileRecord{}, errors.New("project and profile are required")
+	}
+	if input.Name == "" {
+		return AgentProfileRecord{}, errors.New("name is required")
+	}
+	rows, err := s.q.RenameAgentProfile(
+		ctx,
+		dbsqlc.RenameAgentProfileParams{
+			ProjectID: input.ProjectID,
+			ProfileID: input.ProfileID,
+			Name:      input.Name,
+		},
+	)
+	if err != nil {
+		if isUniqueViolationOnConstraint(err, "agent_profiles_active_name_idx") {
+			return AgentProfileRecord{}, fmt.Errorf(
+				"agent profile name already exists: %w",
+				storeerr.ErrConflict,
+			)
+		}
+		return AgentProfileRecord{}, fmt.Errorf("rename agent profile: %w", err)
+	}
+	if rows == 0 {
+		return AgentProfileRecord{}, fmt.Errorf(
+			"agent profile not found: %w",
+			storeerr.ErrNotFound,
+		)
+	}
+	return s.GetAgentProfile(ctx, input.ProjectID, input.ProfileID)
+}
+
 func (s *Store) GetAgentProfile(ctx context.Context, projectID, id ID) (AgentProfileRecord, error) {
 	if isNilID(projectID) {
 		return AgentProfileRecord{}, errors.New("project id is required")

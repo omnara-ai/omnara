@@ -646,6 +646,72 @@ FOR UPDATE
 	}
 }
 
+func TestRenameAgentProfile(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	sourceYAML := `
+instruction: Profiles can be renamed.
+model:
+  provider_config: openai-prod
+  name: profile-rename
+`
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, "profile-rename", sourceYAML, now)
+	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+		ProjectID:       testProjectID,
+		Name:            "Rename Me",
+		CurrentConfigID: config.ID,
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	taken, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+		ProjectID:       testProjectID,
+		Name:            "Rename Taken",
+		CurrentConfigID: config.ID,
+	})
+	if err != nil {
+		t.Fatalf("create second profile: %v", err)
+	}
+
+	renamed, err := store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
+		ProjectID: testProjectID,
+		ProfileID: profile.ID,
+		Name:      "Renamed Profile",
+	})
+	if err != nil {
+		t.Fatalf("rename profile: %v", err)
+	}
+	if renamed.Name != "Renamed Profile" {
+		t.Fatalf("renamed profile name = %q, want %q", renamed.Name, "Renamed Profile")
+	}
+	if renamed.CurrentConfigID != profile.CurrentConfigID ||
+		renamed.CurrentGeneration != profile.CurrentGeneration {
+		t.Fatalf("rename changed config head: before=%+v after=%+v", profile, renamed)
+	}
+
+	if _, err := store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
+		ProjectID: testProjectID,
+		ProfileID: profile.ID,
+		Name:      taken.Name,
+	}); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("rename to taken name error = %v, want ErrConflict", err)
+	}
+
+	crossProjectID := testID("rename_other_project")
+	if _, err := store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
+		ProjectID: crossProjectID,
+		ProfileID: profile.ID,
+		Name:      "Cross Project Rename",
+	}); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("cross-project rename error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestCreateAgentProfileIdempotentReplayReturnsExistingProfile(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

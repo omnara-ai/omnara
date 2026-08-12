@@ -62,6 +62,7 @@ type MachineRecord struct {
 	ProviderProvisionAttemptedAt *time.Time             `json:"-"`
 	ConnectionState              MachineConnectionState `json:"connection_state"`
 	ConnectionStateReason        string                 `json:"connection_state_reason,omitempty"`
+	FailureReport                json.RawMessage        `json:"failure_report,omitempty"`
 	SandboxURL                   string                 `json:"-"`
 	LastObservedAt               *time.Time             `json:"last_observed_at,omitempty"`
 	CPU                          *int                   `json:"cpu,omitempty"`

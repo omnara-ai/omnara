@@ -110,6 +110,7 @@ func machineRecordFromGetSQLC(row dbsqlc.GetMachineRow) MachineRecord {
 		row.LifecycleVersion,
 	)
 	record.ConnectionStateReason = row.ConnectionStateReason
+	record.FailureReport = rawMessageFromSQLCPtr(row.FailureReport)
 	return record
 }
 

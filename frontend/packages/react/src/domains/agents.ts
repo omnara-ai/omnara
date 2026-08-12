@@ -1,6 +1,8 @@
 import { type ListAgentsData, sdk } from '@omnara/sdk'
 import {
+  getAgentConfigOptions,
   getAgentOptions,
+  getAgentQueryKey,
   getOrgOverviewQueryKey,
   listAgentsInfiniteOptions,
   listAgentsQueryKey,
@@ -8,6 +10,7 @@ import {
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query'
@@ -47,6 +50,34 @@ export function useAgent(orgID: string, projectID: string, agentID: string) {
 
 export function useCreateAgentConfig(orgID: string, projectID: string) {
   return useScopedMutation(sdk.createAgentConfig, { orgID, projectID })
+}
+
+/** Non-suspending config lookup; disabled while the id is absent. */
+export function useAgentConfig(orgID: string, projectID: string, agentConfigID?: string) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getAgentConfigOptions({
+      path: { orgID, projectID, agentConfigID: agentConfigID ?? '' },
+      client,
+    }),
+    enabled: agentConfigID !== undefined,
+  })
+}
+
+export function useUpdateAgentConfig(orgID: string, projectID: string, agentID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return useScopedMutation(
+    sdk.updateAgentConfig,
+    { orgID, projectID, agentID },
+    {
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({
+          queryKey: getAgentQueryKey({ path: { orgID, projectID, agentID }, client }),
+        })
+      },
+    },
+  )
 }
 
 export function useCreateAgent(orgID: string, projectID: string) {

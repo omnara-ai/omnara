@@ -7606,10 +7606,14 @@ components:
         config:
           $ref: '#/components/schemas/AgentConfigID'
     UpdateAgentProfileRequest:
+      description: >-
+        Updates exactly one of the profile name or the current config. A config
+        update must supply both config and expected_current_config_id.
       type: object
       additionalProperties: false
-      required: [config, expected_current_config_id]
       properties:
+        name:
+          type: string
         config:
           $ref: '#/components/schemas/AgentConfigID'
         expected_current_config_id:
@@ -7719,13 +7723,43 @@ components:
         provider_uri:
           type: string
           format: uri
+    AgentMCPConnection:
+      type: object
+      additionalProperties: false
+      required: [server_key, endpoint_url, state, initialize_error, created_at, updated_at]
+      properties:
+        server_key:
+          type: string
+        endpoint_url:
+          type: string
+        state:
+          type: string
+          enum: [initializing, ready, failed, expired]
+        protocol_version:
+          type: string
+        initialize_error:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
     GetAgentResponse:
       type: object
       additionalProperties: false
-      required: [agent]
+      required: [agent, machine_bindings, mcp_connections]
       properties:
         agent:
           $ref: '#/components/schemas/Agent'
+        machine_bindings:
+          description: The agent's machine bindings in creation order.
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentMachineBinding'
+        mcp_connections:
+          description: The agent's MCP server connections, ordered by server key.
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentMCPConnection'
     ListAgentsResponse:
       type: object
       additionalProperties: false
@@ -8047,6 +8081,29 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    MachineFailureReport:
+      description: >-
+        The machine's most recent daemon-reported failure. A single slot,
+        overwritten by newer reports and cleared when the daemon recovers.
+      type: object
+      additionalProperties: false
+      required: [stage, output_tail, output_truncated, reported_at]
+      properties:
+        stage:
+          type: string
+          enum: [startup_script, daemon_install, daemon_update, daemon_uninstall, daemon_uninstalled]
+        exit_status:
+          type: integer
+        output_tail:
+          type: string
+        output_truncated:
+          type: boolean
+        daemon_version:
+          type: string
+        target_version:
+          type: string
+        reported_at:
           $ref: '#/components/schemas/Timestamp'
     LaunchAgentResponse:
       type: object
@@ -9982,6 +10039,8 @@ components:
           type: string
         lifecycle_reason_message:
           type: string
+        failure_report:
+          $ref: '#/components/schemas/MachineFailureReport'
         next_reconcile_after:
           anyOf:
             - $ref: '#/components/schemas/Timestamp'

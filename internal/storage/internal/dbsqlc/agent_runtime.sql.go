@@ -162,12 +162,23 @@ func (q *Queries) GetAgentByIdempotencyKey(ctx context.Context, arg GetAgentById
 }
 
 const getAgentInProject = `-- name: GetAgentInProject :one
-SELECT id, org_id, project_id, state, name,
-       agent_profile_id, current_config_id, integration_target_id,
-       coalesce(idempotency_key, '') AS idempotency_key,
-       next_event_sequence, created_at, updated_at, archived_at
-FROM agents
-WHERE project_id = $1 AND id = $2
+SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
+       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       coalesce(agent.idempotency_key, '') AS idempotency_key,
+       agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
+       coalesce(configured_model.name, '') AS model_name,
+       coalesce(model_provider_config.name, '') AS model_provider_config_name
+FROM agents agent
+LEFT JOIN agent_configs agent_config
+  ON agent_config.project_id = agent.project_id
+ AND agent_config.id = agent.current_config_id
+LEFT JOIN configured_models configured_model
+  ON configured_model.org_id = agent.org_id
+ AND configured_model.id = agent_config.configured_model_id
+LEFT JOIN model_provider_configs model_provider_config
+  ON model_provider_config.org_id = configured_model.org_id
+ AND model_provider_config.id = configured_model.model_provider_config_id
+WHERE agent.project_id = $1 AND agent.id = $2
 `
 
 type GetAgentInProjectParams struct {
@@ -176,21 +187,25 @@ type GetAgentInProjectParams struct {
 }
 
 type GetAgentInProjectRow struct {
-	ID                  uuid.UUID
-	OrgID               uuid.UUID
-	ProjectID           uuid.UUID
-	State               string
-	Name                string
-	AgentProfileID      *uuid.UUID
-	CurrentConfigID     uuid.UUID
-	IntegrationTargetID *uuid.UUID
-	IdempotencyKey      string
-	NextEventSequence   int64
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	ArchivedAt          *time.Time
+	ID                      uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
+	State                   string
+	Name                    string
+	AgentProfileID          *uuid.UUID
+	CurrentConfigID         uuid.UUID
+	IntegrationTargetID     *uuid.UUID
+	IdempotencyKey          string
+	NextEventSequence       int64
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	ArchivedAt              *time.Time
+	ModelName               string
+	ModelProviderConfigName string
 }
 
+// @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
+// The agent's current config keeps pointing at its model even after a soft delete.
 func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectParams) (GetAgentInProjectRow, error) {
 	row := q.db.QueryRow(ctx, getAgentInProject, arg.ProjectID, arg.ID)
 	var i GetAgentInProjectRow
@@ -208,6 +223,8 @@ func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.ModelName,
+		&i.ModelProviderConfigName,
 	)
 	return i, err
 }

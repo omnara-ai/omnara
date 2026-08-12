@@ -16,7 +16,7 @@ import {
 } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigToolsField, type BasicTool } from '@/components/agents/AgentConfigToolsField'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 
 interface BasicConfigDraft {
@@ -52,6 +52,7 @@ export function AgentConfigBasicForm({
 }) {
   const [draft, setDraft] = useState<BasicConfigDraft>(initialConfig ?? emptyDraft)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
+  const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const toolCatalog = useToolCatalog()
   const { instruction, machineSources, mcpServers, modelName, providerConfig, skillIds, tools } =
     draft
@@ -66,7 +67,11 @@ export function AgentConfigBasicForm({
       mcpServers,
       skillIds,
     }
-    if (unavailableSkillIds.length > 0 || !isBasicConfigComplete(config)) {
+    if (
+      unavailableSkillIds.length > 0 ||
+      unavailableSourceIds.length > 0 ||
+      !isBasicConfigComplete(config)
+    ) {
       onYamlChange('')
       return
     }
@@ -82,6 +87,7 @@ export function AgentConfigBasicForm({
     skillIds,
     tools,
     unavailableSkillIds.length,
+    unavailableSourceIds.length,
   ])
 
   const onModelChange = useCallback((selection: ModelSelection) => {
@@ -95,8 +101,7 @@ export function AgentConfigBasicForm({
   return (
     <FieldGroup className="gap-8">
       <Field>
-        <FieldLabel htmlFor="agent-config-basic-instruction">Instruction</FieldLabel>
-        <FieldDescription>The system prompt that defines how this agent works.</FieldDescription>
+        <FieldLabel htmlFor="agent-config-basic-instruction">Agent Instructions</FieldLabel>
         <Textarea
           id="agent-config-basic-instruction"
           value={instruction}
@@ -120,6 +125,7 @@ export function AgentConfigBasicForm({
         onSourcesChange={(sources) => {
           setDraft((prev) => ({ ...prev, machineSources: sources }))
         }}
+        onUnavailableIdsChange={setUnavailableSourceIds}
       />
       <AgentConfigToolsField
         catalog={toolCatalog.data}

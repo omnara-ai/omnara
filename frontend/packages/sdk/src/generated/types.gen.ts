@@ -884,9 +884,13 @@ export type CreateAgentProfileRequest = {
     config: AgentConfigId;
 };
 
+/**
+ * Updates exactly one of the profile name or the current config. A config update must supply both config and expected_current_config_id.
+ */
 export type UpdateAgentProfileRequest = {
-    config: AgentConfigId;
-    expected_current_config_id: AgentConfigId;
+    name?: string;
+    config?: AgentConfigId;
+    expected_current_config_id?: AgentConfigId;
 };
 
 export type AgentProfile = {
@@ -947,8 +951,26 @@ export type IntegrationTarget = {
     provider_uri?: string;
 };
 
+export type AgentMcpConnection = {
+    server_key: string;
+    endpoint_url: string;
+    state: 'initializing' | 'ready' | 'failed' | 'expired';
+    protocol_version?: string;
+    initialize_error: string;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
 export type GetAgentResponse = {
     agent: Agent;
+    /**
+     * The agent's machine bindings in creation order.
+     */
+    machine_bindings: Array<AgentMachineBinding>;
+    /**
+     * The agent's MCP server connections, ordered by server key.
+     */
+    mcp_connections: Array<AgentMcpConnection>;
 };
 
 export type ListAgentsResponse = {
@@ -1126,6 +1148,19 @@ export type AgentMachineBinding = {
     };
     created_at: Timestamp;
     updated_at: Timestamp;
+};
+
+/**
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ */
+export type MachineFailureReport = {
+    stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
+    exit_status?: number;
+    output_tail: string;
+    output_truncated: boolean;
+    daemon_version?: string;
+    target_version?: string;
+    reported_at: Timestamp;
 };
 
 export type LaunchAgentResponse = {
@@ -2159,6 +2194,7 @@ export type Machine = {
     };
     lifecycle_reason_code: string;
     lifecycle_reason_message: string;
+    failure_report?: MachineFailureReport;
     next_reconcile_after: Timestamp | null;
     provision_attempts: number;
     delete_attempts: number;

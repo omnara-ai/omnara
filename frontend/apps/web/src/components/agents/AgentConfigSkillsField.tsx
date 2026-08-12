@@ -39,6 +39,7 @@ export function AgentConfigSkillsField({
   selectedIds: string[]
   onSelectedIdsChange: (ids: string[]) => void
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false)
   const search = useTypeaheadSearch()
   const skillsQuery = useProjectAvailableSkills(orgId, projectId, {
     filters: search.filters,
@@ -70,22 +71,34 @@ export function AgentConfigSkillsField({
             Reusable instructions and files this agent can load on demand.
           </FieldDescription>
         </div>
-        <div className="w-72">
-          <SkillCombobox
-            items={available}
-            value={null}
-            onValueChange={(skill) => {
-              if (!skill) return
-              setPickedSkills((prev) => new Map(prev).set(skill.id, skill))
-              onSelectedIdsChange([...selectedIds, skill.id])
-              search.setSearch('')
-            }}
-            search={search}
-            query={skillsQuery}
-            placeholder={skillsQuery.isPending ? 'Loading skills…' : 'Search skills…'}
-          />
-        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setPickerOpen((open) => !open)
+            search.setSearch('')
+          }}
+        >
+          Add skill
+        </Button>
       </div>
+      {pickerOpen && (
+        <SkillCombobox
+          items={available}
+          value={null}
+          onValueChange={(skill) => {
+            if (!skill) return
+            setPickedSkills((prev) => new Map(prev).set(skill.id, skill))
+            onSelectedIdsChange([...selectedIds, skill.id])
+            search.setSearch('')
+            setPickerOpen(false)
+          }}
+          search={search}
+          query={skillsQuery}
+          placeholder={skillsQuery.isPending ? 'Loading skills…' : 'Search skills…'}
+        />
+      )}
       <div className="space-y-2">
         {selectedIds.length === 0 ? (
           <div className="border-border bg-background/60 text-muted-foreground flex min-h-20 items-center justify-center gap-2 rounded-md border border-dashed px-4 text-sm">

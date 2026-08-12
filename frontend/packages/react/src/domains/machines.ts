@@ -1,12 +1,11 @@
 import { type ListVisibleMachinesData, type ListVisibleProjectMachinesData, sdk } from '@omnara/sdk'
 import {
-  listProjectMachineGrantsQueryKey,
+  getMachineOptions,
   listVisibleMachinesInfiniteOptions,
   listVisibleMachinesQueryKey,
   listVisibleProjectMachinesInfiniteOptions,
-  listVisibleProjectMachinesQueryKey,
 } from '@omnara/sdk/tanstack'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -38,6 +37,11 @@ export function useMachines(orgID: string, options?: MachineListOptions) {
   })
 }
 
+export function useMachine(orgID: string, machineID: string) {
+  const client = useOmnaraClient()
+  return useQuery(getMachineOptions({ path: { orgID, machineID }, client }))
+}
+
 export function useProjectMachines(
   orgID: string,
   projectID: string,
@@ -61,32 +65,47 @@ export interface ConnectMachineInput {
   projectIDs?: string[]
 }
 
+/**
+ * Connect a BYO machine: create it, optionally grant it to projects, and mint
+ * a machine token for the connection instructions. Grant failures are returned
+ * separately so the machine token, which is shown once, is never lost.
+ */
 export function useConnectMachine(orgID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ displayName, projectIDs = [] }: ConnectMachineInput) => {
-      const { data } = await sdk.connectByoMachine({
+      const { data: machine } = await sdk.createMachine({
         client,
         path: { orgID },
-        body: { display_name: displayName, project_ids: projectIDs },
+        body: { display_name: displayName },
       })
-      return data
+      const { data: token } = await sdk.createByoMachineDaemonToken({
+        client,
+        path: { orgID, machineID: machine.id },
+        body: { name: 'web-console' },
+      })
+      const grantResults = await Promise.allSettled(
+        projectIDs.map((projectID) =>
+          sdk.createProjectMachineGrant({
+            client,
+            path: { orgID, projectID },
+            body: { machine_id: machine.id },
+          }),
+        ),
+      )
+      const failedProjectGrants = grantResults.flatMap((result, index) => {
+        const projectID = projectIDs[index]
+        if (result.status !== 'rejected' || projectID === undefined) return []
+        const reason: unknown = result.reason
+        return [{ projectID, message: reason instanceof Error ? reason.message : '' }]
+      })
+      return { machine, token, failedProjectGrants }
     },
-    onSuccess: async (_data, { projectIDs = [] }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: listVisibleMachinesQueryKey({ path: { orgID }, client }),
-        }),
-        ...projectIDs.flatMap((projectID) => [
-          queryClient.invalidateQueries({
-            queryKey: listVisibleProjectMachinesQueryKey({ path: { orgID, projectID }, client }),
-          }),
-          queryClient.invalidateQueries({
-            queryKey: listProjectMachineGrantsQueryKey({ path: { orgID, projectID }, client }),
-          }),
-        ]),
-      ])
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: listVisibleMachinesQueryKey({ path: { orgID }, client }),
+      })
     },
   })
 }
@@ -119,15 +138,13 @@ export function useGrantMachineToProject(orgID: string) {
       })
       return data
     },
-    onSuccess: async (_data, { projectID }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: listVisibleProjectMachinesQueryKey({ path: { orgID, projectID }, client }),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: listProjectMachineGrantsQueryKey({ path: { orgID, projectID }, client }),
-        }),
-      ])
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        predicate: (query) => {
+          const entry = query.queryKey[0] as { _id?: string; path?: { orgID?: string } } | undefined
+          return entry?._id === 'listProjectMachineGrants' && entry.path?.orgID === orgID
+        },
+      })
     },
   })
 }

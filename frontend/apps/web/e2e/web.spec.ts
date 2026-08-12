@@ -185,7 +185,7 @@ test('creates an agent from YAML', async ({ page }) => {
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
-  await expect(page.getByText('YAML E2E Agent', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText('YAML E2E Agent')
   expect(failures).toEqual([])
 })
 
@@ -202,7 +202,7 @@ test('creates an agent with the Builder', async ({ page }) => {
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
-  await expect(page.getByText('Builder Agent', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText('Builder Agent')
   expect(failures).toEqual([])
 })
 
@@ -356,6 +356,19 @@ test('keeps the save pending across tab switches while the revision uploads', as
   expect(failures).toEqual([])
 })
 
+test('renames a profile from its detail page', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await createProfile(page, 'Rename Profile E2E', 'Rename this profile from its detail page.')
+
+  await page.getByRole('button', { name: 'Rename profile' }).click()
+  await page.getByRole('textbox', { name: 'Profile name' }).fill('Renamed Profile E2E')
+  await page.getByRole('button', { name: 'Save name' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Renamed Profile E2E' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Rename profile' })).toBeVisible()
+  expect(failures).toEqual([])
+})
+
 test('deletes a profile from its detail page', async ({ page }) => {
   const failures = installFailureTracking(page, [
     /agent-profiles\/aprf_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
@@ -364,8 +377,7 @@ test('deletes a profile from its detail page', async ({ page }) => {
   await createProfile(page, 'Deleted Profile E2E', 'Delete this profile from its detail page.')
 
   page.once('dialog', (dialog) => void dialog.accept())
-  await page.getByRole('button', { name: 'Row actions' }).click()
-  await page.getByRole('menuitem', { name: 'Delete' }).click()
+  await page.getByRole('button', { name: 'Delete profile' }).click()
 
   await expect(page).toHaveURL(`/projects/${projectID}/agents`)
   await expect(page.getByRole('heading', { name: 'Agent profiles' })).toBeVisible()

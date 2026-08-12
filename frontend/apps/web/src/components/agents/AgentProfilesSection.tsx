@@ -1,18 +1,11 @@
-import {
-  type AgentProfileListSort,
-  useAgentProfiles,
-  useCreateAgent,
-  useDeleteAgentProfile,
-} from '@omnara/react'
+import { type AgentProfileListSort, useAgentProfiles, useCreateAgent } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
-import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { usePagedQuery } from '@/hooks/use-paged-query'
@@ -36,11 +29,9 @@ export function AgentProfilesSection({
   })
   const paged = usePagedQuery(query, list.queryKey)
   const showToolbar = list.isFiltering || paged.pagination.page > 0 || paged.pagination.canNext
-  const deleteProfile = useDeleteAgentProfile(orgId, projectId)
   const createAgent = useCreateAgent(orgId, projectId)
   const navigate = useNavigate()
   const [launchingId, setLaunchingId] = useState<string | null>(null)
-  const [deployProfile, setDeployProfile] = useState<AgentProfile | null>(null)
 
   async function launch(profile: AgentProfile) {
     setLaunchingId(profile.id)
@@ -55,22 +46,26 @@ export function AgentProfilesSection({
       })
     } catch (error) {
       window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
+    } finally {
+      setLaunchingId(null)
     }
-    setLaunchingId(null)
   }
+
+  const newAgentButton = () =>
+    canManage ? (
+      <Button asChild size="sm">
+        <Link to="/projects/$projectId/agents/new" params={{ projectId }}>
+          New agent
+        </Link>
+      </Button>
+    ) : undefined
 
   return (
     <>
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-2xl font-bold tracking-tight">Agent profiles</h2>
-          {canManage && (
-            <Button asChild size="sm">
-              <Link to="/projects/$projectId/agents/new" params={{ projectId }}>
-                New agent
-              </Link>
-            </Button>
-          )}
+          {newAgentButton()}
         </div>
         {showToolbar && (
           <ResourceListToolbar
@@ -84,72 +79,35 @@ export function AgentProfilesSection({
         )}
         <DataTable
           columns={[
-            {
-              id: 'name',
-              header: 'Name',
-              cell: (profile) => <span className="font-medium">{profile.name}</span>,
-            },
-            {
-              id: 'provider',
-              header: 'Provider',
-              cell: (profile) => profile.current_config.model.provider_config,
-            },
-            {
-              id: 'model',
-              header: 'Model',
-              cell: (profile) => (
-                <span className="text-muted-foreground">{profile.current_config.model.name}</span>
-              ),
-            },
-            {
-              id: 'actions',
-              header: '',
-              className: 'w-36',
-              isActions: true,
-              cell: (profile) => (
-                <div className="flex items-center gap-1">
-                  {canOperate && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      disabled={launchingId !== null}
-                      onClick={() => {
-                        void launch(profile)
-                      }}
-                    >
-                      {launchingId === profile.id && <Spinner />}
-                      Launch
-                    </Button>
-                  )}
-                  {canManage && (
-                    <ResourceRowActions
-                      onGrant={() => {
-                        setDeployProfile(profile)
-                      }}
-                      grantLabel="Deploy to app"
-                      onDelete={() => {
-                        if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
-                        deleteProfile.mutate(profile.id, {
-                          onError: (error) => {
-                            window.alert(
-                              error instanceof ApiError
-                                ? error.message
-                                : 'Could not delete agent profile',
-                            )
-                          },
-                        })
-                      }}
-                    />
-                  )}
-                </div>
-              ),
-            },
+            { header: 'Name' },
+            { header: 'Provider' },
+            { header: 'Model' },
+            { header: '', className: 'w-36', isActions: true },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(profile) => profile.id}
+          rowCells={(profile) => [
+            <span className="font-medium">{profile.name}</span>,
+            profile.current_config.model.provider_config,
+            <span className="text-muted-foreground">{profile.current_config.model.name}</span>,
+            <div className="flex items-center gap-1">
+              {canOperate && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={launchingId !== null}
+                  onClick={() => {
+                    void launch(profile)
+                  }}
+                >
+                  {launchingId === profile.id && <Spinner />}
+                  Launch
+                </Button>
+              )}
+            </div>,
+          ]}
           onRowClick={(profile) => {
             void navigate({
               to: '/projects/$projectId/agent-profiles/$profileId',
@@ -164,17 +122,6 @@ export function AgentProfilesSection({
           emptyMessage="No agent profiles yet. A profile is a saved, reusable agent config for launching agents in one click."
         />
       </div>
-      {canManage && deployProfile && (
-        <DeployAgentProfileDialog
-          open
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setDeployProfile(null)
-          }}
-          orgId={orgId}
-          projectId={projectId}
-          profile={deployProfile}
-        />
-      )}
       <SlackOAuthOutcomeDialog />
     </>
   )

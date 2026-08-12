@@ -6,6 +6,7 @@ import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicDese
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import { serializeBasicConfig } from '@/components/agents/agentConfigBasicSerialization'
 import {
+  type AgentConfigMode,
   agentConfigModeReducer,
   initialAgentConfigModeState,
 } from '@/components/agents/agentConfigModeMachine'
@@ -21,15 +22,23 @@ export function AgentProfileConfigEditor({
   projectId,
   profile,
   canManage,
+  preferredMode,
+  onModeChange,
   onDirtyChange,
   onDiscard,
+  onDelete,
 }: {
   orgId: string
   projectId: string
   profile: AgentProfile
   canManage: boolean
+  /** Mode to open in when the config supports the builder; the editor reports
+   *  the user's switches back so it survives the remount after a save. */
+  preferredMode: AgentConfigMode
+  onModeChange: (mode: AgentConfigMode) => void
   onDirtyChange: (dirty: boolean) => void
   onDiscard: () => void
+  onDelete: () => void
 }) {
   const createConfig = useCreateAgentConfig(orgId, projectId)
   const updateProfile = useUpdateAgentProfile(orgId, projectId)
@@ -40,7 +49,7 @@ export function AgentProfileConfigEditor({
   const baselineYaml = initialBuilderConfig ? serializeBasicConfig(initialBuilderConfig) : source
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
-    initialAgentConfigModeState(initialBuilderConfig ? 'builder' : 'yaml', baselineYaml),
+    initialAgentConfigModeState(initialBuilderConfig ? preferredMode : 'yaml', baselineYaml),
   )
   const [builderIncomplete, setBuilderIncomplete] = useState(false)
   const [error, setError] = useState('')
@@ -62,6 +71,10 @@ export function AgentProfileConfigEditor({
   useEffect(() => {
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
+
+  useEffect(() => {
+    onModeChange(mode.mode)
+  }, [mode.mode, onModeChange])
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -132,16 +145,24 @@ export function AgentProfileConfigEditor({
         )}
         {error && <p className="text-destructive whitespace-pre-wrap text-sm">{error}</p>}
         {canManage && (
-          <div className="flex items-center gap-2">
-            <Button type="submit" disabled={pending || !dirty || yaml.trim() === ''}>
-              {pending && <Spinner />}
-              Save revision
-            </Button>
+          <div className="flex items-center justify-end gap-2">
             {dirty && !pending && (
               <Button type="button" variant="ghost" onClick={onDiscard}>
                 Discard changes
               </Button>
             )}
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={onDelete}
+            >
+              Delete profile
+            </Button>
+            <Button type="submit" disabled={pending || !dirty || yaml.trim() === ''}>
+              {pending && <Spinner />}
+              Save revision
+            </Button>
           </div>
         )}
       </FieldGroup>

@@ -61,7 +61,7 @@ func agentRecordFromGetSQLC(row dbsqlc.GetAgentRow) AgentRecord {
 }
 
 func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
-	return agentRecordFromSQLC(
+	record := agentRecordFromSQLC(
 		row.ID,
 		row.OrgID,
 		row.ProjectID,
@@ -76,6 +76,11 @@ func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
 		row.UpdatedAt,
 		row.ArchivedAt,
 	)
+	record.Model = AgentModelDisplay{
+		ProviderConfig: row.ModelProviderConfigName,
+		Name:           row.ModelName,
+	}
+	return record
 }
 
 func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) AgentRecord {

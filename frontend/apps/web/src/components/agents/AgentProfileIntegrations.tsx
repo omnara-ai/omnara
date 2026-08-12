@@ -54,10 +54,10 @@ export function AgentProfileIntegrations({
           </Button>
         </div>
       ) : installs.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
+        <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
           No integrations yet.
           {canManage && ' Use “Add integration” to make this profile available in an external app.'}
-        </p>
+        </div>
       ) : (
         <ul className="bg-background flex flex-col divide-y rounded-md border">
           {installs.map((install) => (

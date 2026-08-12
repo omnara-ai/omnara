@@ -221,12 +221,39 @@ machine_sources:
     ).toBeNull()
   })
 
-  it('rejects machine provider options overlays', () => {
+  it('round-trips a pool provider options overlay and infers its provider', () => {
     const source = `${minimalYaml}machine_sources:
+  - machine_pool_name: "default-pool"
+    machine_provider_options_overlay: {"snapshot":"base-image","target":"us","startup_script":"echo hi"}
+`
+    const config = mustDeserialize(source)
+    expect(config.machineSources).toMatchObject([
+      {
+        kind: 'pool',
+        name: 'default-pool',
+        provider: 'daytona',
+        providerOptions: { resource: 'base-image', location: 'us', startupScript: 'echo hi' },
+      },
+    ])
+    expect(serializeBasicConfig(config)).toBe(source)
+  })
+
+  it('rejects provider options overlays no provider accounts for', () => {
+    const unknownKey = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {"instance_type":"m5.large"}
 `
-    expect(deserializeBasicConfig(source)).toBeNull()
+    expect(deserializeBasicConfig(unknownKey)).toBeNull()
+    const mixedProviders = `${minimalYaml}machine_sources:
+  - machine_pool_name: "default-pool"
+    machine_provider_options_overlay: {"metro":"sfo","target":"us"}
+`
+    expect(deserializeBasicConfig(mixedProviders)).toBeNull()
+    const empty = `${minimalYaml}machine_sources:
+  - machine_pool_name: "default-pool"
+    machine_provider_options_overlay: {}
+`
+    expect(deserializeBasicConfig(empty)).toBeNull()
   })
 
   it('rejects non-built-in tools', () => {

@@ -3,15 +3,16 @@ import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
+import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
 import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfigEditor'
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
+import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
 import { AgentsTable } from '@/components/agents/AgentsSection'
 import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DetailList } from '@/components/data-table/DetailList'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
-import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { formatDateTime } from '@/lib/format'
@@ -96,11 +97,12 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="text-2xl font-bold tracking-tight">{profile.name}</h1>
-            <p className="text-muted-foreground text-sm">
-              <span className="font-mono text-xs">{profile.id}</span>
-              {' · '}Updated {formatDateTime(profile.updated_at)}
-            </p>
+            <AgentProfileNameHeading
+              orgId={activeOrg.id}
+              projectId={projectId}
+              profile={profile}
+              canManage={canManage}
+            />
           </div>
           <div className="flex items-center gap-2">
             {canOperate && (
@@ -109,7 +111,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
                 Launch
               </Button>
             )}
-            {canManage && <ResourceRowActions onDelete={remove} />}
           </div>
         </div>
         <PillTabs
@@ -132,6 +133,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           profile={profile}
           canManage={canManage}
           onDirtyChange={setConfigDirty}
+          onDelete={remove}
         />
       </div>
       {tab === 'integrations' && (
@@ -187,19 +189,23 @@ function ConfigurationTab({
   profile,
   canManage,
   onDirtyChange,
+  onDelete,
 }: {
   orgId: string
   projectId: string
   profile: AgentProfile
   canManage: boolean
   onDirtyChange: (dirty: boolean) => void
+  onDelete: () => void
 }) {
   const [resetNonce, setResetNonce] = useState(0)
+  const [preferredMode, setPreferredMode] = useState<AgentConfigMode>('builder')
 
   return (
     <div className="flex flex-col gap-6">
       <DetailList
         items={[
+          { label: 'ID', value: profile.id, mono: true },
           { label: 'Generation', value: profile.current_generation },
           {
             label: 'Model',
@@ -216,10 +222,13 @@ function ConfigurationTab({
         projectId={projectId}
         profile={profile}
         canManage={canManage}
+        preferredMode={preferredMode}
+        onModeChange={setPreferredMode}
         onDirtyChange={onDirtyChange}
         onDiscard={() => {
           setResetNonce((nonce) => nonce + 1)
         }}
+        onDelete={onDelete}
       />
     </div>
   )

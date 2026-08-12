@@ -11,6 +11,7 @@ import {
   type QueryKey,
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query'
@@ -52,6 +53,18 @@ export function useAgentProfile(orgID: string, projectID: string, agentProfileID
   return useSuspenseQuery(
     getAgentProfileOptions({ path: { orgID, projectID, agentProfileID }, client }),
   )
+}
+
+/** Non-suspending lookup for optional references; disabled while the id is absent. */
+export function useAgentProfileQuery(orgID: string, projectID: string, agentProfileID?: string) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getAgentProfileOptions({
+      path: { orgID, projectID, agentProfileID: agentProfileID ?? '' },
+      client,
+    }),
+    enabled: agentProfileID !== undefined,
+  })
 }
 
 export function useCreateAgentProfile(orgID: string, projectID: string) {

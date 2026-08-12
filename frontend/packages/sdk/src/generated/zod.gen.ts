@@ -664,9 +664,13 @@ export const zCreateAgentProfileRequest = z.object({
     config: zAgentConfigId
 });
 
+/**
+ * Updates exactly one of the profile name or the current config. A config update must supply both config and expected_current_config_id.
+ */
 export const zUpdateAgentProfileRequest = z.object({
-    config: zAgentConfigId,
-    expected_current_config_id: zAgentConfigId
+    name: z.string().optional(),
+    config: zAgentConfigId.optional(),
+    expected_current_config_id: zAgentConfigId.optional()
 });
 
 export const zAgentProfile = z.object({
@@ -721,8 +725,19 @@ export const zAgent = z.object({
     archived_at: zTimestamp.optional()
 });
 
-export const zGetAgentResponse = z.object({
-    agent: zAgent
+export const zAgentMcpConnection = z.object({
+    server_key: z.string(),
+    endpoint_url: z.string(),
+    state: z.enum([
+        'initializing',
+        'ready',
+        'failed',
+        'expired'
+    ]),
+    protocol_version: z.string().optional(),
+    initialize_error: z.string(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp
 });
 
 export const zListAgentsResponse = z.object({
@@ -803,6 +818,31 @@ export const zAgentMachineBinding = z.object({
     secret_env_overlay: z.record(z.string(), zSecretId.nullable()),
     created_at: zTimestamp,
     updated_at: zTimestamp
+});
+
+export const zGetAgentResponse = z.object({
+    agent: zAgent,
+    machine_bindings: z.array(zAgentMachineBinding),
+    mcp_connections: z.array(zAgentMcpConnection)
+});
+
+/**
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ */
+export const zMachineFailureReport = z.object({
+    stage: z.enum([
+        'startup_script',
+        'daemon_install',
+        'daemon_update',
+        'daemon_uninstall',
+        'daemon_uninstalled'
+    ]),
+    exit_status: z.int().optional(),
+    output_tail: z.string(),
+    output_truncated: z.boolean(),
+    daemon_version: z.string().optional(),
+    target_version: z.string().optional(),
+    reported_at: zTimestamp
 });
 
 /**
@@ -1795,6 +1835,7 @@ export const zMachine = z.object({
     secret_env: z.record(z.string(), zSecretId),
     lifecycle_reason_code: z.string(),
     lifecycle_reason_message: z.string(),
+    failure_report: zMachineFailureReport.optional(),
     next_reconcile_after: zTimestamp.nullable(),
     provision_attempts: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     delete_attempts: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),

@@ -10,9 +10,9 @@ import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
 
 const ModelCombobox = createResourceCombobox<ConfiguredModelSummary>({
   itemKey: (model) => model.id,
-  itemLabel: (model) => model.name,
+  itemLabel: (model) => `${model.name} · ${model.provider_config}`,
   renderItem: (model) => (
-    <span className="flex min-w-0 flex-col">
+    <span className="flex min-w-0 items-baseline gap-1.5">
       <span className="truncate">{model.name}</span>
       <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
     </span>
@@ -86,7 +86,6 @@ export function AgentConfigModelField({
         }
         disabled={grantsQuery.isError || selectedQuery.isError}
       />
-      {selected && <p className="text-muted-foreground text-xs">{selected.provider_config}</p>}
       {grantsQuery.isError && (
         <p className="text-destructive text-sm">
           Could not load granted models.{' '}
