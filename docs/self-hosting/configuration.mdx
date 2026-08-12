@@ -36,30 +36,15 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_DATABASE_URL` | Postgres connection string used by `migrate` and the three long-running control-plane services | *dev:* local Compose Postgres | Yes |
 | `OMNARA_REDIS_URL` | Redis or Valkey URL | *dev:* `redis://127.0.0.1:6379/0` | Yes |
 | `OMNARA_MIGRATIONS_DIR` | Directory containing schema migrations; used only by `cmd/migrate` | `migrations` | No |
-| `OMNARA_MIGRATION_TIMEOUT` | Connect-and-migrate deadline for the one-shot process (Go duration); unlock cleanup has a separate 5s ceiling | `30m` | No |
+| `OMNARA_MIGRATION_TIMEOUT` | Overall deadline for the one-shot migration process (Go duration) | `30m` | No |
 
-PostgreSQL 18 or newer is required. Omnara uses PostgreSQL 18's built-in UUIDv7
-generation, and `migrate` checks the server version before changing the schema.
+PostgreSQL 18 or newer is required. The API, worker, and maintenance services
+default to a pool of 1–10 connections, a 30-minute connection lifetime, and
+five minutes of lifetime jitter. Override these with `pool_*` settings in
+`OMNARA_DATABASE_URL`, and budget connections across all service replicas.
 
-The long-running API, worker, and maintenance processes use these pool defaults
-when the corresponding setting is absent from `OMNARA_DATABASE_URL`:
-`pool_max_conns=10`, `pool_min_conns=1`, and
-`pool_max_conn_lifetime=30m`, with
-`pool_max_conn_lifetime_jitter=5m` to stagger connection recycling. Add any of
-those pgxpool settings to a URL or keyword DSN to override it; an explicit
-`application_name` also wins. Otherwise the services identify themselves as `omnara-api`,
-`omnara-worker`, or `omnara-maintenance` (the defaults reconciliation command
-uses `omnara-api-reconcile-defaults`). Size the database connection budget by
-summing the maximum pool sizes across every service replica, with headroom for
-the migrator, administration, and failover.
-
-The one-shot migrator is not a long-lived application pool, so `pool_*` values
-are accepted and stripped rather than used as migration concurrency settings.
-Its connections default to `application_name=omnara-migrate`,
-`lock_timeout=30s`, and `statement_timeout=15min`; explicit DSN values override
-those defaults. `OMNARA_MIGRATION_TIMEOUT` bounds connection and migration
-work. Advisory-lock cleanup has its own five-second ceiling, so a dead
-connection cannot make the one-shot process hang indefinitely during unlock.
+The migrator defaults to a 30-second lock timeout and a 15-minute statement
+timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 
 ## Web serving and proxy
 

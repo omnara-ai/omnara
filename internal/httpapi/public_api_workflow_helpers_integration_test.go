@@ -464,8 +464,8 @@ func createdModelProviderConfig(t *testing.T, response map[string]any) map[strin
 	if !ok {
 		t.Fatalf("create model provider response has no config: %+v", response)
 	}
-	if _, ok := response["model_discovery"].(map[string]any); !ok {
-		t.Fatalf("create model provider response has no model_discovery: %+v", response)
+	if _, ok := response["model_catalog"].(map[string]any); !ok {
+		t.Fatalf("create model provider response has no model_catalog: %+v", response)
 	}
 	return config
 }

@@ -187,13 +187,13 @@ export type ModelProviderConfig = {
 
 export type CreateModelProviderConfigResponse = {
     config: ModelProviderConfig;
-    model_discovery: ModelDiscoveryResult;
+    model_catalog: ModelCatalog;
 };
 
 /**
- * Result of validating the configured credential and probing the provider's /models endpoint. A failed check does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
+ * The provider's model catalog, obtained by validating the configured credential and probing the provider's /models endpoint. A failed probe does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
  */
-export type ModelDiscoveryResult = {
+export type ModelCatalog = {
     status: 'ok' | 'failed';
     /**
      * Models advertised by the provider, newest first, filtered to text-output tool-calling models where the provider exposes enough metadata to tell. Present when status is ok.
@@ -10076,6 +10076,74 @@ export type UpdateModelProviderConfigResponses = {
 };
 
 export type UpdateModelProviderConfigResponse = UpdateModelProviderConfigResponses[keyof UpdateModelProviderConfigResponses];
+
+export type GetModelCatalogData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        modelProviderConfigID: ModelProviderConfigId;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog';
+};
+
+export type GetModelCatalogErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetModelCatalogError = GetModelCatalogErrors[keyof GetModelCatalogErrors];
+
+export type GetModelCatalogResponses = {
+    /**
+     * Route response.
+     */
+    200: ModelCatalog;
+};
+
+export type GetModelCatalogResponse = GetModelCatalogResponses[keyof GetModelCatalogResponses];
 
 export type ListConfiguredModelsData = {
     body?: never;

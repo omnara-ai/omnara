@@ -13,10 +13,8 @@ Two kinds of API keys exist, and both are sent the same way:
 
 (Connected machines authenticate with their own daemon tokens, minted in the [connect flow](/machines/connect#install-the-daemon) and valid only on daemon routes.)
 
-These shapes describe credentials Omnara issues today. Treat every bearer token
-as an opaque string: store and send the complete value, but do not parse it,
-validate its checksum, or branch on its prefix or version. The server owns
-format validation and may introduce additional formats later.
+Treat bearer tokens as opaque: store and send the complete value without
+parsing its prefix, version, or checksum.
 
 ## Using an API key
 
@@ -45,7 +43,7 @@ Tokens are minted where a human can approve them — creating one is deliberatel
 - **Console** — go to **API Tokens** in the sidebar and click **New token**. The full token is shown once.
 - **Device login** — for CLIs and dev tools, below.
 
-Omnara currently issues personal tokens in the versioned `omnara_pat_v1_<secret>_<checksum>` format. The secret has at least 256 bits of cryptographic entropy; the final six characters are a typo-detecting checksum, not a cryptographic integrity check. Only a SHA-256 hash of the complete token is stored server-side, so treat the one-time display as the only copy that will ever exist. This format is server-owned; consumers must still treat the complete token as opaque.
+Only a hash is stored server-side, so save the token when it is shown.
 
 ## Org API keys for services
 
@@ -105,7 +103,3 @@ A denied or expired flow returns `400` with `"access_denied"` or `"expired_token
 ## Managing tokens
 
 The **API Tokens** page — or [List personal access tokens](/api-reference/endpoints/users-and-api-keys/list-the-authenticated-users-personal-access-tokens) — shows your tokens with creation and last-used times, metadata only: the secret is never shown again. `last_used_at` tells you which tokens are actually alive; prune the rest, and [revoke](/api-reference/endpoints/users-and-api-keys/revoke-a-personal-access-token) immediately if a token leaks — revocation is permanent.
-
-Personal and organization token records also expose a `token_id`. This is a
-stable, non-secret management/display identifier; it is deliberately separate
-from the bearer value and is not embedded in it.

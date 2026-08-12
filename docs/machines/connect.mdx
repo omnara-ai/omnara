@@ -52,12 +52,8 @@ A machine starts as a record in the control plane — the daemon attaches to it 
 
 ## Install the daemon
 
-The daemon uses a **machine token** to connect. Omnara currently issues it with
-the versioned `omnara_daemon_v1_<secret>_<checksum>` shape and shows it only
-once when created. The final six characters detect copy/paste mistakes; they
-are not a replacement for keeping the whole token secret. Daemons and other
-consumers must treat the complete token as opaque and leave format and checksum
-validation to the server.
+The daemon uses a **machine token** to connect. It is shown only once, so save
+the complete value and treat it as opaque.
 
 <Tabs>
 <Tab title="Console">
