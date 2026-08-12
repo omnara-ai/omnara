@@ -14,7 +14,6 @@ export interface AgentTemplate {
   firstMessagePlaceholder: string
 }
 
-/** Every template gets the same tool set: all built-in tools except the integration tools. */
 const templateToolNames = [
   'run_command',
   'write_process',
@@ -72,11 +71,6 @@ export const agentTemplates = [generalAgent, deepResearcher, structuredExtractor
 
 export const generalAgentTemplateId = generalAgent.id
 
-/**
- * The builder-draft fields a template prefills: instruction, the shared
- * tool set with catalog-default permissions, and the default machine pool.
- * A missing catalog or pool degrades to prefilling less, never to blocking.
- */
 export function agentTemplateConfig(
   template: AgentTemplate,
   catalog?: ToolCatalog,
@@ -98,7 +92,6 @@ export function agentTemplateConfig(
   }
 }
 
-/** A user-typed name is preserved; an empty or template-suggested name is replaced. */
 export function agentTemplateName(currentName: string, template: AgentTemplate) {
   const trimmed = currentName.trim()
   const isTemplateName = agentTemplates.some((candidate) => candidate.name === trimmed)

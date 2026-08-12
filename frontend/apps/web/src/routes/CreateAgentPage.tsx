@@ -11,8 +11,6 @@ export function CreateAgentPage() {
   const search = useSearch({ strict: false })
 
   const toolCatalog = useToolCatalog()
-  // Listing pool grants requires manage permission, so wait for the project
-  // and only query for users who may create agents here.
   const canManage = project?.access.can_manage === true
   const poolGrantsQuery = useProjectMachinePoolGrants(activeOrg.id, projectId, {
     sort: 'name',
@@ -21,8 +19,6 @@ export function CreateAgentPage() {
   })
   const catalog = toolCatalog.data
   const defaultPool = poolGrantsQuery.data?.pages[0]?.data[0]?.machine_pool
-  // Settled is enough: if either fetch failed, templates still apply with
-  // whatever prefill data is available instead of blocking forever.
   const templatesReady = !toolCatalog.isPending && !poolGrantsQuery.isPending
   const linkedTemplate = agentTemplates.find((template) => template.id === search.template)
 
@@ -43,8 +39,6 @@ export function CreateAgentPage() {
     )
   }
 
-  // A template deep link waits for the data the prefill needs, so the form
-  // can mount with the template already applied as its initial state.
   if (linkedTemplate && !templatesReady) return <FullPageSpinner />
 
   return (

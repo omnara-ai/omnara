@@ -26,8 +26,6 @@ export function Overview() {
   const projectsQuery = useProjects(activeOrg.id)
   const projects = useInfiniteQueryItems(projectsQuery)
 
-  // A fresh org has a single manageable project with no profiles or agents;
-  // it gets the first-agent card instead of recent pages.
   const firstProject = projects.length === 1 ? projects[0] : undefined
   const onboardingProject = firstProject?.access.can_manage ? firstProject : undefined
   const profilesQuery = useAgentProfiles(activeOrg.id, onboardingProject?.id ?? '', {
