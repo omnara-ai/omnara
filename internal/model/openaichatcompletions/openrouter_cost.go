@@ -11,15 +11,16 @@ import (
 func openRouterReportedCost(
 	usage chatUsage,
 ) (modelenvelope.ProviderReportedCostUSD, bool) {
-	openRouterCost, valid := optionalProviderCost(usage.Cost)
-	if !valid || !usage.IsBYOK {
+	openRouterCost, valid := optionalProviderCost(usage.OpenRouterCost)
+	if !valid || openRouterCost.raw == "" {
 		return openRouterCost.normalized, valid
 	}
-	if openRouterCost.raw == "" {
-		return "", true
+	isBYOK, valid := optionalProviderBool(usage.OpenRouterIsBYOK)
+	if !valid || isBYOK == nil || !*isBYOK {
+		return openRouterCost.normalized, true
 	}
 
-	upstreamCost, valid := optionalProviderCost(usage.CostDetails.UpstreamInferenceCost)
+	upstreamCost, valid := openRouterUpstreamCost(usage.OpenRouterCostDetails)
 	if !valid {
 		return "", false
 	}
@@ -27,6 +28,34 @@ func openRouterReportedCost(
 		return "", true
 	}
 	return modelenvelope.SumProviderReportedCostUSD(openRouterCost.raw, upstreamCost.raw)
+}
+
+type openRouterCostDetails struct {
+	UpstreamInferenceCost json.RawMessage `json:"upstream_inference_cost"`
+}
+
+func openRouterUpstreamCost(raw json.RawMessage) (providerCost, bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return providerCost{}, true
+	}
+	var details openRouterCostDetails
+	if err := json.Unmarshal(raw, &details); err != nil {
+		return providerCost{}, false
+	}
+	return optionalProviderCost(details.UpstreamInferenceCost)
+}
+
+func optionalProviderBool(raw json.RawMessage) (*bool, bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil, true
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, false
+	}
+	return &value, true
 }
 
 type providerCost struct {

@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
@@ -265,6 +266,48 @@ func TestParseResponseReportsInvalidOpenRouterCost(t *testing.T) {
 			}
 			if strings.Contains(logs.String(), test.cost) {
 				t.Fatalf("model-call event included raw provider cost: %s", logs.String())
+			}
+		})
+	}
+}
+
+func TestParseResponseIsolatesOpenRouterAccountingExtensions(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		extensions string
+		wantCost   modelenvelope.ProviderReportedCostUSD
+	}{
+		{
+			name:       "unknown BYOK identity preserves known account cost",
+			extensions: `,"is_byok":"unknown","cost_details":[]`,
+			wantCost:   "0.0000125",
+		},
+		{
+			name:       "invalid BYOK details make all-in cost unavailable",
+			extensions: `,"is_byok":true,"cost_details":[]`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := json.RawMessage(`{"id":"chatcmpl_cost","model":"openai/gpt-5","choices":[{"index":0,` +
+				`"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
+				`"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0.0000125` +
+				test.extensions + `}}`)
+			response, err := (protocol{client: Client{
+				APIVariant: modelprotocol.APIVariantOpenRouter,
+			}}).ParseResponse(context.Background(), route.Response{
+				StatusCode: http.StatusOK,
+				Body:       body,
+			})
+			if err != nil {
+				t.Fatalf("parse response: %v", err)
+			}
+			if response.Text() != "done" || response.ProviderReportedCostUSD != test.wantCost {
+				t.Fatalf(
+					"response text=%q cost=%q, want done and %q",
+					response.Text(),
+					response.ProviderReportedCostUSD,
+					test.wantCost,
+				)
 			}
 		})
 	}

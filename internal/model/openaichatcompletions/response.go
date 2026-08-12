@@ -281,15 +281,11 @@ func reasoningTextFromDetails(details []json.RawMessage) string {
 type chatUsage struct {
 	PromptTokens            int              `json:"prompt_tokens"`
 	CompletionTokens        int              `json:"completion_tokens"`
-	Cost                    json.RawMessage  `json:"cost,omitempty"`
-	CostDetails             chatCostDetails  `json:"cost_details"`
-	IsBYOK                  bool             `json:"is_byok"`
+	OpenRouterCost          json.RawMessage  `json:"cost,omitempty"`
+	OpenRouterCostDetails   json.RawMessage  `json:"cost_details,omitempty"`
+	OpenRouterIsBYOK        json.RawMessage  `json:"is_byok,omitempty"`
 	PromptTokensDetails     chatTokenDetails `json:"prompt_tokens_details"`
 	CompletionTokensDetails chatTokenDetails `json:"completion_tokens_details"`
-}
-
-type chatCostDetails struct {
-	UpstreamInferenceCost json.RawMessage `json:"upstream_inference_cost"`
 }
 
 type chatTokenDetails struct {
