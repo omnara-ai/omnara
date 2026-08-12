@@ -445,6 +445,12 @@ func (s *Store) RecordMachineFailureReport(
 				return storeerr.InvalidRequest(fmt.Errorf("invalid target version: %w", err))
 			}
 		}
+	case MachineFailureStageDaemonUninstall, MachineFailureStageDaemonUninstalled:
+		if input.ExitStatus != nil || input.DaemonVersion != "" || input.TargetVersion != "" ||
+			(input.Stage == MachineFailureStageDaemonUninstalled &&
+				(len(input.OutputTail) != 0 || input.OutputTruncated)) {
+			return storeerr.InvalidRequest(errors.New("invalid daemon uninstall report"))
+		}
 	default:
 		return storeerr.InvalidRequest(errors.New("invalid failure report stage"))
 	}
@@ -464,25 +470,54 @@ func (s *Store) RecordMachineFailureReport(
 		value := int32(*input.ExitStatus)
 		exitStatus = &value
 	}
-	_, err := s.q.RecordMachineFailureReport(
-		ctx,
-		dbsqlc.RecordMachineFailureReportParams{
-			Stage:           input.Stage,
-			ExitStatus:      exitStatus,
-			OutputTail:      outputTail,
-			OutputTruncated: input.OutputTruncated,
-			DaemonVersion:   input.DaemonVersion,
-			TargetVersion:   input.TargetVersion,
-			OrgID:           input.OrgID,
-			MachineID:       input.MachineID,
-			DaemonTokenID:   input.DaemonTokenID,
-		},
-	)
+	params := dbsqlc.RecordMachineFailureReportParams{
+		Stage:           input.Stage,
+		ExitStatus:      exitStatus,
+		OutputTail:      outputTail,
+		OutputTruncated: input.OutputTruncated,
+		DaemonVersion:   input.DaemonVersion,
+		TargetVersion:   input.TargetVersion,
+		OrgID:           input.OrgID,
+		MachineID:       input.MachineID,
+		DaemonTokenID:   input.DaemonTokenID,
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin machine failure report: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	txNotifications := s.newTxNotifications()
+	if input.Stage == MachineFailureStageDaemonUninstalled {
+		if _, err := qtx.LockMachineForLifecycle(
+			ctx,
+			dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return storeerr.ErrUnauthorized
+			}
+			return fmt.Errorf("lock machine for daemon uninstall report: %w", err)
+		}
+	}
+	_, err = qtx.RecordMachineFailureReport(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrUnauthorized
 	}
 	if err != nil {
 		return fmt.Errorf("record machine failure report: %w", err)
 	}
-	return nil
+	if input.Stage == MachineFailureStageDaemonUninstalled {
+		if err := completeMachineLifecycleTerminalWorkTx(
+			ctx,
+			txNotifications,
+			tx,
+			qtx,
+			input.OrgID,
+			input.MachineID,
+			MachineFailureStageDaemonUninstalled,
+		); err != nil {
+			return err
+		}
+	}
+	return s.commitTxWithNotifications(ctx, tx, txNotifications, "record machine failure report")
 }

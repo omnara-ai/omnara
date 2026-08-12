@@ -24,6 +24,7 @@ export function GrantMachinePoolButton({
     <>
       <Button
         type="button"
+        variant="outline"
         size="sm"
         onClick={() => {
           setOpen(true)

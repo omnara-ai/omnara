@@ -325,6 +325,70 @@ func TestMachineFailureRoute(t *testing.T) {
 	if clearedFailure != nil {
 		t.Fatalf("updated-version registration kept failure report: %s", clearedFailure)
 	}
+	requestRawFailure("stage=daemon_uninstalled", "", byoToken, http.StatusForbidden)
+	requestRawFailure("stage=daemon_uninstalled", "detail", byoToken, http.StatusBadRequest)
+	readFailure := func() []byte {
+		t.Helper()
+		var report []byte
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT failure_report FROM machines WHERE org_id = $1 AND id = $2`,
+			project.OrgUUID,
+			byoMachine.ID,
+		).Scan(&report); err != nil {
+			t.Fatal(err)
+		}
+		return report
+	}
+	for _, report := range []struct {
+		stage  string
+		detail string
+	}{
+		{stage: "daemon_uninstall", detail: "remove service: permission denied"},
+		{stage: "daemon_uninstalled"},
+	} {
+		requestRawFailure("stage="+report.stage, report.detail, byoToken, http.StatusNoContent)
+		var stored struct {
+			Stage      string `json:"stage"`
+			OutputTail string `json:"output_tail"`
+		}
+		if err := json.Unmarshal(readFailure(), &stored); err != nil {
+			t.Fatal(err)
+		}
+		if stored.Stage != report.stage || stored.OutputTail != report.detail {
+			t.Fatalf("stored daemon uninstall report = %+v", stored)
+		}
+		updated, err = store.Execution().RegisterDaemonRuntimeWithReconciliation(
+			ctx,
+			executionstore.RegisterDaemonRuntimeInput{
+				OrgID:            project.OrgUUID,
+				MachineID:        byoMachine.ID,
+				DaemonTokenID:    byoTokenRecord.ID,
+				DaemonInstanceID: httpTestID("machine-" + report.stage + "-cleared"),
+				DaemonVersion:    "1.3.0",
+				LeaseTimeout:     time.Hour,
+			},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if failure := readFailure(); failure != nil {
+			t.Fatalf("runtime registration kept daemon uninstall report: %s", failure)
+		}
+		if report.stage == "daemon_uninstall" {
+			if _, err := store.Execution().EndDaemonRuntime(
+				ctx,
+				executionstore.DaemonRuntimeAuthority{
+					OrgID:           project.OrgUUID,
+					MachineID:       byoMachine.ID,
+					DaemonRuntimeID: updated.Runtime.ID,
+					DaemonTokenID:   byoTokenRecord.ID,
+				},
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 
 	machineRead, err := store.Execution().GetMachine(ctx, project.OrgUUID, byoMachine.ID)
 	if err != nil {

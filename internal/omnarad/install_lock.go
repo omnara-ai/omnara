@@ -45,7 +45,9 @@ func tryAcquireInstallLock(home string) (*localstore.Lock, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	lock, err := localstore.TryAcquireLock(filepath.Join(store.HomeDir(), installLockFileName))
+	lock, err := localstore.TryAcquireLockInExistingDir(
+		filepath.Join(store.HomeDir(), installLockFileName),
+	)
 	if errors.Is(err, localstore.ErrLockHeld) {
 		return nil, false, nil
 	}

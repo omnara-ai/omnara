@@ -10,7 +10,7 @@ import (
 )
 
 func TestInstallLockSerializesAndReleases(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "home")
+	home := t.TempDir()
 	lock, err := acquireInstallLock(context.Background(), home)
 	if err != nil {
 		t.Fatalf("acquire install lock: %v", err)
@@ -39,5 +39,15 @@ func TestInstallLockSerializesAndReleases(t *testing.T) {
 	}
 	if err := lock.Release(); err != nil {
 		t.Fatalf("release reacquired install lock: %v", err)
+	}
+}
+
+func TestInstallLockDoesNotCreateMissingHome(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "missing-home")
+	if lock, acquired, err := tryAcquireInstallLock(home); lock != nil || acquired || err == nil {
+		t.Fatalf("try acquire = lock %v acquired %t error %v", lock, acquired, err)
+	}
+	if _, err := os.Lstat(home); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing home was recreated: %v", err)
 	}
 }

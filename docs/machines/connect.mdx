@@ -81,7 +81,7 @@ validation to the server.
 curl -fsSL https://app.omnara.com/install/omnarad.sh | sh
 ```
 
-The installer supports macOS and Linux on amd64 and arm64. It prompts for the token, installs `omnarad` under `~/.omnarad`, and registers it as a user service using systemd on Linux or launchd on macOS. The daemon connects outbound and updates itself. Manage it with `omnarad start|stop|restart|status`.
+The installer supports macOS and Linux on amd64 and arm64. It prompts for the token, installs `omnarad` under `~/.omnarad`, and registers it as a user service using systemd on Linux or launchd on macOS. The daemon connects outbound and updates itself. Manage it with `omnarad start|stop|restart|status`, or remove it with `omnarad uninstall`.
 
 Once the daemon connects, the machine appears online.
 

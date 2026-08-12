@@ -139,6 +139,19 @@ func TestLogEntitiesAttachCanonicalFields(t *testing.T) {
 			},
 		},
 		{
+			name: "MachineFailureReport logs successful uninstall at info",
+			attach: func(ctx context.Context) {
+				MachineFailureReport(ctx, executionstore.MachineFailureReportInput{
+					OrgID: orgID, MachineID: machineID,
+					Stage: executionstore.MachineFailureStageDaemonUninstalled,
+				})
+			},
+			want: map[string]any{
+				"level":                        "info",
+				"machine.failure_report.stage": "daemon_uninstalled",
+			},
+		},
+		{
 			name: "DaemonRuntime includes version and skips state blobs",
 			attach: func(ctx context.Context) {
 				DaemonRuntime(ctx, executionstore.DaemonRuntimeRecord{

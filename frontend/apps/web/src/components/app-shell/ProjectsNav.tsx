@@ -49,16 +49,9 @@ export function ProjectsNav() {
               const expanded = !collapsedProjects.has(project.id)
               const resources = [
                 {
-                  to: '/projects/$projectId/agent-profiles' as const,
-                  path: `${projectRoot}/agent-profiles`,
-                  label: 'Agent Profiles',
-                  prefix: true,
-                },
-                {
                   to: '/projects/$projectId/agents' as const,
-                  path: `${projectRoot}/agents`,
+                  paths: [`${projectRoot}/agents`, `${projectRoot}/agent-profiles`],
                   label: 'Agents',
-                  prefix: true,
                 },
                 {
                   to: '/projects/$projectId/grants' as const,
@@ -108,8 +101,8 @@ export function ProjectsNav() {
                             <SidebarMenuSubButton
                               asChild
                               isActive={
-                                resource.prefix
-                                  ? pathname.startsWith(resource.path)
+                                resource.paths
+                                  ? resource.paths.some((path) => pathname.startsWith(path))
                                   : pathname === resource.path
                               }
                             >

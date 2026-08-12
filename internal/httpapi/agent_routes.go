@@ -601,6 +601,13 @@ func (s strictOpenAPIServer) listAgents(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	filters := executionstore.AgentListFilters{}
+	if params.AgentProfileId != nil && *params.AgentProfileId != "" {
+		agentProfileID, err := publicid.Decode(publicid.KindAgentProfile, *params.AgentProfileId)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent profile filter")
+		}
+		filters.AgentProfileID = &agentProfileID
+	}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agents",
