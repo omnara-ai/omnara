@@ -3362,10 +3362,11 @@ paths:
             `model_output`, `tool_result`, or `context_checkpoint` as the
             SSE event name and set the SSE `id` field to the event's
             `sequence`, which reconnects can replay via `Last-Event-ID`.
-            Best-effort model previews use `model_output_delta` and terminal
-            stream errors use `error`; neither carries an SSE `id`, so
-            reconnects resume from the last durable event. Heartbeats are
-            SSE comments and carry no JSON payload.
+            Best-effort tool lifecycle updates use `tool_call_update`, model
+            previews use `model_output_delta`, and terminal stream errors use
+            `error`; none carries an SSE `id`, so reconnects resume from the
+            last durable event. Heartbeats are SSE comments and carry no JSON
+            payload.
           content:
             text/event-stream:
               schema:
@@ -8165,6 +8166,16 @@ components:
           $ref: '#/components/schemas/Timestamp'
         created_at:
           $ref: '#/components/schemas/Timestamp'
+    ToolCallUpdate:
+      description: An ephemeral notification that a tool call entered a lifecycle state.
+      type: object
+      additionalProperties: false
+      required: [tool_call_id, state]
+      properties:
+        tool_call_id:
+          $ref: '#/components/schemas/ToolCallID'
+        state:
+          $ref: '#/components/schemas/ToolCallState'
     ListToolCallsResponse:
       type: object
       additionalProperties: false
@@ -8592,9 +8603,11 @@ components:
     AgentEventStreamData:
       description: >-
         One JSON payload from the event stream: an authoritative durable event,
-        a best-effort model-output preview, or a terminal stream error.
+        a best-effort tool-call update, a best-effort model-output preview, or
+        a terminal stream error.
       oneOf:
         - $ref: '#/components/schemas/AgentEvent'
+        - $ref: '#/components/schemas/ToolCallUpdate'
         - $ref: '#/components/schemas/ModelOutputDelta'
         - $ref: '#/components/schemas/Error'
     ListAgentEventsResponse:

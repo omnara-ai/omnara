@@ -306,7 +306,9 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 			}
 			return events.Event{}, nil, fmt.Errorf("insert tool call proposal: %w", err)
 		}
-		records = append(records, toolCallRecordFromInsertSQLC(row))
+		record := toolCallRecordFromInsertSQLC(row)
+		records = append(records, record)
+		txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State))
 	}
 	toolCallContentBlockArgsByProviderCallID := make(
 		map[string]toolCallContentBlockArgs,

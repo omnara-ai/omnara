@@ -26,6 +26,14 @@ func (noopAgentNotificationSubscriber) SubscribeAgentStreamDeltas(
 	return noopSubscription{}, nil
 }
 
+func (noopAgentNotificationSubscriber) SubscribeAgentToolCallUpdates(
+	context.Context,
+	uuid.UUID,
+	func(context.Context, notifications.ToolCallUpdatedCommitted),
+) (notifications.Subscription, error) {
+	return noopSubscription{}, nil
+}
+
 type noopSubscription struct{}
 
 func (noopSubscription) Unsubscribe() error { return nil }
