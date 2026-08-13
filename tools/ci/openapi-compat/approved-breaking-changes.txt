@@ -1,0 +1,1 @@
+OMN2-237 intentional SSE protocol addition: GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream added `#/components/schemas/ToolCallUpdate` to the response body `oneOf` list for the response status `200`

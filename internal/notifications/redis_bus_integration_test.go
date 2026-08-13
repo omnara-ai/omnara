@@ -86,6 +86,50 @@ func TestAgentEventWakeupBusPublishSubscribeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAgentToolCallUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client := integrationredis.OpenClient(t)
+	bus, err := NewRedisBus(client, nil)
+	if err != nil {
+		t.Fatalf("create redis bus: %v", err)
+	}
+
+	agentID := uuid.New()
+	toolCallID := uuid.New()
+	received := make(chan ToolCallUpdatedCommitted, 1)
+	sub, err := bus.SubscribeAgentToolCallUpdates(
+		ctx,
+		agentID,
+		func(_ context.Context, update ToolCallUpdatedCommitted) {
+			received <- update
+		},
+	)
+	if err != nil {
+		t.Fatalf("subscribe tool call updates: %v", err)
+	}
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+
+	want := ToolCallUpdatedCommitted{
+		AgentID:    agentID,
+		ToolCallID: toolCallID,
+		State:      "ready",
+	}
+	if err := bus.PublishAgentToolCallUpdate(ctx, want); err != nil {
+		t.Fatalf("publish tool call update: %v", err)
+	}
+
+	select {
+	case got := <-received:
+		if got != want {
+			t.Fatalf("tool call update = %+v, want %+v", got, want)
+		}
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for tool call update: %v", ctx.Err())
+	}
+}
+
 func TestAgentEventWakeupBusMultiplexesSameAgentSubscriptions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

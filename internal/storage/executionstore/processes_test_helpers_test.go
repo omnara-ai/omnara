@@ -253,6 +253,17 @@ func (p *recordingPostCommitPublisher) runtimeEndedCount(runtimeID ID) int {
 	return count
 }
 
+func (p *recordingPostCommitPublisher) toolCallStates(toolCallID ID) []string {
+	states := []string{}
+	for _, intent := range p.intents {
+		update, ok := intent.(notifications.ToolCallUpdatedCommitted)
+		if ok && update.ToolCallID == toolCallID {
+			states = append(states, update.State)
+		}
+	}
+	return states
+}
+
 func (p *recordingPostCommitPublisher) hasProcessTermination(machineID, processID ID) bool {
 	for _, intent := range p.intents {
 		termination, ok := intent.(notifications.DaemonProcessTerminationCommitted)

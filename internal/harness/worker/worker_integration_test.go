@@ -86,6 +86,7 @@ func workerControlBus(t *testing.T) (*notifications.RedisBus, *notifications.Rou
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
+			ToolCallUpdates:   bus,
 			WorkerControls:    bus,
 		},
 		presence,

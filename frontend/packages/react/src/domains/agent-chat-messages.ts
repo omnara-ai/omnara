@@ -37,11 +37,13 @@ export type OmnaraUIMessage = UIMessage<OmnaraMessageMetadata, OmnaraUIData>
 
 export type AgentStreamFrame =
   | { kind: 'event'; event: AgentEvent }
+  | { kind: 'tool_call_update' }
   | { kind: 'delta'; delta: ModelOutputDelta }
   | { kind: 'error'; error: APIError }
 
 export function parseStreamData(data: AgentEventStreamData): AgentStreamFrame {
   if ('event_kind' in data) return { kind: 'event', event: data }
+  if ('tool_call_id' in data && 'state' in data) return { kind: 'tool_call_update' }
   if ('model_call_context_id' in data) return { kind: 'delta', delta: data }
   return { kind: 'error', error: data }
 }

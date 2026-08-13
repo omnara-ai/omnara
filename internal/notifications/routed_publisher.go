@@ -22,6 +22,7 @@ var errInvalidNotificationIntent = errors.New("invalid notification intent")
 type RoutedPublisher struct {
 	daemonWakeupPublisher     DaemonWakeupPublisher
 	agentEventWakeupPublisher AgentEventWakeupPublisher
+	toolCallUpdatePublisher   AgentToolCallUpdatePublisher
 	workerControlPublisher    WorkerControlPublisher
 	presence                  DaemonPresenceStore
 	log                       *slog.Logger
@@ -40,6 +41,7 @@ type RoutedPublisher struct {
 type RoutedPublisherPorts struct {
 	DaemonWakeups     DaemonWakeupPublisher
 	AgentEventWakeups AgentEventWakeupPublisher
+	ToolCallUpdates   AgentToolCallUpdatePublisher
 	WorkerControls    WorkerControlPublisher
 }
 
@@ -55,6 +57,9 @@ func NewRoutedPublisher(
 	if ports.AgentEventWakeups == nil {
 		return nil, errors.New("agent event wakeup publisher is required")
 	}
+	if ports.ToolCallUpdates == nil {
+		return nil, errors.New("tool call update publisher is required")
+	}
 	if ports.WorkerControls == nil {
 		return nil, errors.New("worker control publisher is required")
 	}
@@ -65,6 +70,7 @@ func NewRoutedPublisher(
 	p := &RoutedPublisher{
 		daemonWakeupPublisher:     ports.DaemonWakeups,
 		agentEventWakeupPublisher: ports.AgentEventWakeups,
+		toolCallUpdatePublisher:   ports.ToolCallUpdates,
 		workerControlPublisher:    ports.WorkerControls,
 		presence:                  presence,
 		log:                       log,
@@ -92,7 +98,11 @@ func (p *RoutedPublisher) PublishPostCommit(ctx context.Context, intent PostComm
 		return
 	}
 	switch intent.(type) {
-	case DaemonWorkCommitted, DaemonRuntimeEndedCommitted, DaemonProcessTerminationCommitted, AgentEventCommitted:
+	case DaemonWorkCommitted,
+		DaemonRuntimeEndedCommitted,
+		DaemonProcessTerminationCommitted,
+		AgentEventCommitted,
+		ToolCallUpdatedCommitted:
 	default:
 		return
 	}
@@ -277,6 +287,8 @@ func (p *RoutedPublisher) publish(ctx context.Context, intent PostCommitIntent) 
 		p.publishDaemon(ctx, intent)
 	case AgentEventCommitted:
 		p.publishAgentEvent(ctx, v)
+	case ToolCallUpdatedCommitted:
+		p.publishToolCallUpdate(ctx, v)
 	}
 }
 
@@ -330,6 +342,29 @@ func (p *RoutedPublisher) publishAgentEvent(ctx context.Context, event AgentEven
 		return
 	}
 	p.record(event, "published", "none")
+}
+
+func (p *RoutedPublisher) publishToolCallUpdate(ctx context.Context, update ToolCallUpdatedCommitted) {
+	if update.AgentID == uuid.Nil || update.ToolCallID == uuid.Nil || update.State == "" {
+		p.record(update, "skipped", "invalid_intent")
+		return
+	}
+	if err := p.toolCallUpdatePublisher.PublishAgentToolCallUpdate(ctx, update); err != nil {
+		p.record(update, "error", "publish_failed")
+		if p.log != nil {
+			p.log.Warn(
+				"publish tool-call update notification intent failed",
+				"agent_id",
+				update.AgentID,
+				"tool_call_id",
+				update.ToolCallID,
+				"error",
+				err,
+			)
+		}
+		return
+	}
+	p.record(update, "published", "none")
 }
 
 func (p *RoutedPublisher) publishWorkerControlWithTimeout(
@@ -443,6 +478,8 @@ func notificationIntentLabel(intent PostCommitIntent) string {
 		return "daemon_process_terminate"
 	case AgentEventCommitted:
 		return "agent_event"
+	case ToolCallUpdatedCommitted:
+		return "tool_call_update"
 	case WorkerControlCommitted:
 		return "worker_control"
 	default:

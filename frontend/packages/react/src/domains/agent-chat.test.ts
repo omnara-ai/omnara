@@ -377,6 +377,24 @@ describe('AgentChatSession', () => {
     session.disconnect()
   })
 
+  it('keeps consuming the stream after a tool call update', async () => {
+    const session = startSession()
+    const stream = await connection(0)
+
+    stream.push({
+      event: 'tool_call_update',
+      data: { tool_call_id: 'tcl_123', state: 'ready' },
+    })
+    stream.push({ event: 'agent_input', data: userInputEvent() })
+
+    const snapshot = await waitForSnapshot(
+      session,
+      (state) => state.messages.at(-1)?.id === 'input-event',
+    )
+    expect(snapshot.error).toBeUndefined()
+    session.disconnect()
+  })
+
   it('reports an in-flight turn as streaming after hydration', async () => {
     const session = startSession([
       userInputEvent(),

@@ -174,6 +174,7 @@ func (s *Store) MarkToolCallReady(
 			"project, agent, tool call id, and runtime lock are required",
 		)
 	}
+	txNotifications := s.newTxNotifications()
 	tx, qtx, err := s.beginAgentRuntimeOwnedMutation(
 		ctx,
 		input.ProjectID,
@@ -208,7 +209,12 @@ func (s *Store) MarkToolCallReady(
 			return ToolCallRecord{}, err
 		}
 		if existing.State == ToolCallStateReady && existing.CompletedAt == nil {
-			if err := tx.Commit(ctx); err != nil {
+			if err := s.commitTxWithNotifications(
+				ctx,
+				tx,
+				txNotifications,
+				"mark tool call ready",
+			); err != nil {
 				return ToolCallRecord{}, err
 			}
 			return existing, nil
@@ -219,7 +225,13 @@ func (s *Store) MarkToolCallReady(
 		return ToolCallRecord{}, fmt.Errorf("mark tool call ready: %w", err)
 	}
 	record := toolCallRecordFromReadySQLC(row)
-	if err := tx.Commit(ctx); err != nil {
+	txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State))
+	if err := s.commitTxWithNotifications(
+		ctx,
+		tx,
+		txNotifications,
+		"mark tool call ready",
+	); err != nil {
 		return ToolCallRecord{}, err
 	}
 	return record, nil
@@ -233,6 +245,7 @@ func (s *Store) ReleaseToolCallRuntimeOwnership(
 		isNilID(input.RuntimeLockID) {
 		return errors.New("project, agent, tool call, and runtime lock are required")
 	}
+	txNotifications := s.newTxNotifications()
 	tx, qtx, err := s.beginAgentRuntimeOwnedMutation(
 		ctx,
 		input.ProjectID,
@@ -277,9 +290,20 @@ func (s *Store) ReleaseToolCallRuntimeOwnership(
 			}
 			return storeerr.ErrIdempotencyConflict
 		}
+	} else {
+		txNotifications.AddToolCallUpdate(
+			input.AgentID,
+			input.ToolCallID,
+			string(ToolCallStateWaiting),
+		)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit tool call runtime ownership release: %w", err)
+	if err := s.commitTxWithNotifications(
+		ctx,
+		tx,
+		txNotifications,
+		"release tool call runtime ownership",
+	); err != nil {
+		return err
 	}
 	return nil
 }
@@ -292,6 +316,7 @@ func (s *Store) RequeueRuntimeToolCall(
 		isNilID(input.RuntimeLockID) {
 		return errors.New("project, agent, tool call, and runtime lock are required")
 	}
+	txNotifications := s.newTxNotifications()
 	tx, qtx, err := s.beginAgentRuntimeOwnedMutation(
 		ctx,
 		input.ProjectID,
@@ -330,6 +355,12 @@ func (s *Store) RequeueRuntimeToolCall(
 			existing.RuntimeLockID != nil {
 			return storeerr.ErrStateTransitionConflict
 		}
+	} else {
+		txNotifications.AddToolCallUpdate(
+			input.AgentID,
+			input.ToolCallID,
+			string(ToolCallStateReady),
+		)
 	}
 	metadata, err := marshalJSON(map[string]any{
 		"reason":       "async_preflight_retry",
@@ -348,8 +379,13 @@ func (s *Store) RequeueRuntimeToolCall(
 	); err != nil {
 		return fmt.Errorf("mark requeued runtime tool wakeup: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit requeued runtime tool call: %w", err)
+	if err := s.commitTxWithNotifications(
+		ctx,
+		tx,
+		txNotifications,
+		"requeue runtime tool call",
+	); err != nil {
+		return err
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ type RedisBus struct {
 	mu                 sync.Mutex
 	agentEventFanouts  map[uuid.UUID]*agentFanout[struct{}]
 	streamDeltaFanouts map[uuid.UUID]*agentFanout[json.RawMessage]
+	toolCallFanouts    map[uuid.UUID]*agentFanout[ToolCallUpdatedCommitted]
 }
 
 func NewRedisBus(client *redistore.Client, log *slog.Logger) (*RedisBus, error) {
@@ -167,6 +168,26 @@ func (b *RedisBus) PublishAgentEventWakeup(ctx context.Context, agentID uuid.UUI
 	}
 	channel := agentEventWakeupChannel(agentID)
 	return b.client.Publish(ctx, channel, []byte{1})
+}
+
+func (b *RedisBus) PublishAgentToolCallUpdate(
+	ctx context.Context,
+	update ToolCallUpdatedCommitted,
+) error {
+	if b == nil || b.client == nil {
+		return errors.New("redis bus is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if update.AgentID == uuid.Nil || update.ToolCallID == uuid.Nil || update.State == "" {
+		return errors.New("agent, tool call, and state are required")
+	}
+	payload, err := json.Marshal(update)
+	if err != nil {
+		return err
+	}
+	return b.client.Publish(ctx, agentToolCallUpdateChannel(update.AgentID), payload)
 }
 
 func (b *RedisBus) PublishAgentStreamDelta(
@@ -345,6 +366,60 @@ func (b *RedisBus) SubscribeAgentStreamDeltas(
 	)
 }
 
+func (b *RedisBus) SubscribeAgentToolCallUpdates(
+	ctx context.Context,
+	agentID uuid.UUID,
+	handler func(context.Context, ToolCallUpdatedCommitted),
+) (Subscription, error) {
+	if b == nil || b.client == nil {
+		return nil, errors.New("redis bus is closed")
+	}
+	if agentID == uuid.Nil {
+		return nil, errors.New("agent id is required")
+	}
+	if handler == nil {
+		return nil, errors.New("tool call update handler is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	return subscribeAgentFanout(
+		ctx,
+		b,
+		agentToolCallUpdateChannel(agentID),
+		handler,
+		func() (*agentFanout[ToolCallUpdatedCommitted], bool) {
+			if b.toolCallFanouts == nil {
+				b.toolCallFanouts = map[uuid.UUID]*agentFanout[ToolCallUpdatedCommitted]{}
+			}
+			fanout, existed := b.toolCallFanouts[agentID]
+			if existed {
+				return fanout, false
+			}
+			fanout = newAgentFanout(
+				b,
+				func(_ context.Context, payload []byte) (ToolCallUpdatedCommitted, bool) {
+					var update ToolCallUpdatedCommitted
+					if err := json.Unmarshal(payload, &update); err != nil ||
+						update.ToolCallID == uuid.Nil || update.State == "" {
+						return ToolCallUpdatedCommitted{}, false
+					}
+					update.AgentID = agentID
+					return update, true
+				},
+				func(f *agentFanout[ToolCallUpdatedCommitted]) {
+					if b.toolCallFanouts[agentID] == f {
+						delete(b.toolCallFanouts, agentID)
+					}
+				},
+			)
+			b.toolCallFanouts[agentID] = fanout
+			return fanout, true
+		},
+	)
+}
+
 func subscribeAgentFanout[T any](
 	ctx context.Context,
 	b *RedisBus,
@@ -419,6 +494,10 @@ func agentEventWakeupChannel(agentID uuid.UUID) string {
 
 func agentStreamDeltaChannel(agentID uuid.UUID) string {
 	return "omnara:agent_stream_deltas:" + agentID.String()
+}
+
+func agentToolCallUpdateChannel(agentID uuid.UUID) string {
+	return "omnara:agent_tool_call_updates:" + agentID.String()
 }
 
 func workerControlChannel(workerProcessID uuid.UUID) string {
