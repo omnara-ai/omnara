@@ -1,5 +1,9 @@
 import { useCreateModelProvider, useDeleteModelProvider } from '@omnara/react'
-import type { ModelCatalog, ModelProviderConfig } from '@omnara/sdk'
+import type {
+  CreateModelProviderConfigRequest,
+  ModelCatalog,
+  ModelProviderConfig,
+} from '@omnara/sdk'
 import { type SyntheticEvent, useRef, useState } from 'react'
 
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
@@ -29,11 +33,11 @@ import { AddDiscoveredModelsStep } from './AddDiscoveredModelsStep'
 import {
   awsRegionPattern,
   type BedrockAPI,
+  bedrockAPIOption,
   bedrockAPIOptions,
   createModelProviderFormDefaults,
   createModelProviderFormValid,
   type CreateModelProviderFormValues,
-  createModelProviderRequest,
   type ModelProviderOption,
   modelProviderOption,
   modelProviderOptions,
@@ -73,7 +77,23 @@ export function CreateModelProviderDialog({
     const submissionGeneration = ++providerSubmissionGeneration.current
     setStatus(idle)
     try {
-      const result = await createModelProvider.mutateAsync(createModelProviderRequest(values))
+      const common = {
+        name: values.name.trim(),
+        credential_secret_id: values.secretId,
+      }
+      let request: CreateModelProviderConfigRequest
+      if (values.provider === 'bedrock') {
+        const api = bedrockAPIOption(values.bedrockAPI)
+        request = {
+          ...common,
+          api_format: api.apiFormat,
+          api_variant: 'bedrock',
+          base_url: `https://bedrock-mantle.${values.region.trim()}.api.aws${api.basePath}`,
+        }
+      } else {
+        request = { ...common, preset: values.provider }
+      }
+      const result = await createModelProvider.mutateAsync(request)
       if (submissionGeneration !== providerSubmissionGeneration.current) return
       if (result.config.api_variant === 'bedrock' && result.model_catalog.status === 'ok') {
         close()

@@ -1,8 +1,4 @@
-import type {
-  CreateConfiguredModelRequest,
-  CreateModelProviderConfigRequest,
-  DiscoveredProviderModel,
-} from '@omnara/sdk'
+import type { CreateConfiguredModelRequest, DiscoveredProviderModel } from '@omnara/sdk'
 
 export const modelProviderOptions = [
   { value: 'openai', label: 'OpenAI', keyPlaceholder: 'sk-…' },
@@ -72,25 +68,6 @@ export function createModelProviderFormValid(values: CreateModelProviderFormValu
 
 export function providerSecretName(provider: ModelProviderOption) {
   return `${provider}-api-key`
-}
-
-export function createModelProviderRequest(
-  values: CreateModelProviderFormValues,
-): CreateModelProviderConfigRequest {
-  const common = {
-    name: values.name.trim(),
-    credential_secret_id: values.secretId,
-  }
-  if (values.provider === 'bedrock') {
-    const api = bedrockAPIOption(values.bedrockAPI)
-    return {
-      ...common,
-      api_format: api.apiFormat,
-      api_variant: 'bedrock',
-      base_url: `https://bedrock-mantle.${values.region.trim()}.api.aws${api.basePath}`,
-    }
-  }
-  return { ...common, preset: values.provider }
 }
 
 export function configuredModelRequestForDiscoveredModel(
