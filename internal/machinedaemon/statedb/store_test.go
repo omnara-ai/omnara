@@ -66,6 +66,56 @@ func TestEmptyCollectionsAreNil(t *testing.T) {
 	}
 }
 
+func TestDeleteRejectedPreparationRequiresExactUngrantedIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _ := openTestStore(t)
+	if err := store.DeleteRejectedPreparationAfterArtifacts(
+		ctx,
+		"prc_missing_rejected_cleanup",
+		"supervisor-instance-missing-rejected-cleanup",
+	); err != nil {
+		t.Fatalf("idempotent missing cleanup: %v", err)
+	}
+	process := Process{
+		ProcessID:            "prc_rejected_cleanup_identity",
+		SupervisorInstanceID: "supervisor-instance-rejected-cleanup",
+		SupervisorToken:      "supervisor-token-rejected-cleanup",
+	}
+	if err := store.ReserveProcess(ctx, process); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkPrepared(
+		ctx,
+		process.ProcessID,
+		process.SupervisorInstanceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteRejectedPreparationAfterArtifacts(
+		ctx,
+		process.ProcessID,
+		"supervisor-instance-replacement",
+	); !errors.Is(err, ErrSupervisorIdentityMismatch) {
+		t.Fatalf("replacement cleanup error = %v, want identity mismatch", err)
+	}
+	if err := store.MarkAccepted(
+		ctx,
+		process.ProcessID,
+		process.SupervisorInstanceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteRejectedPreparationAfterArtifacts(
+		ctx,
+		process.ProcessID,
+		process.SupervisorInstanceID,
+	); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("accepted cleanup error = %v, want state conflict", err)
+	}
+}
+
 func TestProcessCrossesExecutionBoundaryOnce(t *testing.T) {
 	ctx := context.Background()
 	store, path := openTestStore(t)

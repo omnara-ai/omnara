@@ -138,7 +138,7 @@ func runCommandSupervisor(
 	defer func() {
 		_ = listener.Close()
 		resultErr = errors.Join(resultErr, localipc.Cleanup(endpoint))
-		if state.safeToReleaseLock() {
+		if state.safeToRemoveLock() {
 			resultErr = errors.Join(
 				resultErr,
 				lifetimeLock.ReleaseAndRemove(),
@@ -1457,10 +1457,10 @@ func (s *runnerServerState) autonomousLocalClosure(ctx context.Context) {
 	}
 }
 
-func (s *runnerServerState) safeToReleaseLock() bool {
+func (s *runnerServerState) safeToRemoveLock() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.localClosed || s.ungrantedClosed
+	return s.localClosed
 }
 
 func (s *runnerServerState) stopForSupervisorExit(

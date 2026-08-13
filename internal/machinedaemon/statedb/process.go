@@ -106,29 +106,29 @@ func (s *Store) DeleteRejectedPreparationAfterArtifacts(
 	defer func() { _ = tx.Rollback() }()
 	qtx := s.q.WithTx(tx)
 
-	status, err := qtx.GetUngrantedProcessStatus(
-		ctx,
-		dbsqlc.GetUngrantedProcessStatusParams{
-			ProcessID:            processID,
-			SupervisorInstanceID: supervisorInstanceID,
-		},
-	)
-	if errors.Is(err, sql.ErrNoRows) {
+	process, found, err := processTx(ctx, qtx, processID)
+	if err != nil {
+		return err
+	}
+	if !found {
 		return commitWrite(tx)
 	}
-	if err != nil {
-		return dbError("read ungranted process state", err)
+	if process.SupervisorInstanceID != supervisorInstanceID {
+		return fmt.Errorf(
+			"%w: %s",
+			ErrSupervisorIdentityMismatch,
+			processID,
+		)
 	}
-	phase := ProcessPhase(status.Phase)
-	if phase != ProcessPreparing && phase != ProcessPrepared {
+	if process.Phase != ProcessPreparing && process.Phase != ProcessPrepared {
 		return fmt.Errorf(
 			"%w: process %s is %s, not an ungranted preparation",
 			ErrStateConflict,
 			processID,
-			phase,
+			process.Phase,
 		)
 	}
-	if status.ExecCommitted != 0 {
+	if process.ExecCommitted {
 		return fmt.Errorf(
 			"%w: ungranted process %s crossed the execution boundary",
 			ErrStateConflict,

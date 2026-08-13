@@ -197,6 +197,7 @@ type processRuntime struct {
 	supervisorInstanceID string
 	supervisorPID        int
 	runner               processRunner
+	cleanupOnly          bool
 }
 
 type localProcessRunner struct {

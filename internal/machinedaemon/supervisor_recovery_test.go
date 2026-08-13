@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb/statedbtest"
 )
 
 func TestAuthorityLossDeletesStateAndReportsUnresolvedContainment(
@@ -342,6 +343,304 @@ func TestVerifyProcessSupervisorsUsesLifetimeLock(t *testing.T) {
 	}
 	if _, found := client.localProcess(runtime.processID); found {
 		t.Fatal("released process state retained stale action routing")
+	}
+}
+
+func TestRejectedPreparationCleanupRetriesWithoutBlockingSleep(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const (
+		processID            = "prc_rejected_cleanup_retry"
+		supervisorInstanceID = "supervisor-instance-rejected-cleanup-retry"
+	)
+	home := t.TempDir()
+	client := New(Config{OmnaraHome: home}, nil, nil)
+	client.bootstrap = daemonBootstrap{
+		InstallationID: "ins_rejected_cleanup_retry",
+		MachineID:      "mch_rejected_cleanup_retry",
+	}
+	defer client.closeState()
+	store, err := client.stateStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveProcess(ctx, statedb.Process{
+		ProcessID:            processID,
+		SupervisorInstanceID: supervisorInstanceID,
+		SupervisorToken:      "supervisor-token-rejected-cleanup-retry",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
+		t.Fatal(err)
+	}
+	machine, err := client.machineStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localstore.EnsurePrivateDir(machine.RunDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := localstore.EnsurePrivateDir(machine.ProcessesDir()); err != nil {
+		t.Fatal(err)
+	}
+	processDir, err := machine.ProcessDir(processID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(processDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(processDir, "partial"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := machine.LifetimeLockPath(processID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := localstore.TryAcquireLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startup := localStartupState{
+		Claims: []ProcessReconciliationClaim{{
+			ProcessID:            processID,
+			SupervisorInstanceID: supervisorInstanceID,
+		}},
+		Runners:       make(map[string]*processRuntime),
+		ForcedReports: make(map[string]struct{}),
+		stoppedLocks: map[string]*localstore.Lock{
+			processID: lock,
+		},
+		fencedRunners: make(map[string]*ipcProcessRunner),
+	}
+	if err := statedbtest.SetProcessDeleteFailure(
+		ctx,
+		machine.StateDBPath(),
+		true,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.applyRegistrationReconciliation(
+		ctx,
+		&startup,
+		DaemonRuntimeReconciliation{
+			Processes: []ProcessReconciliationDirective{{
+				ProcessID:            processID,
+				SupervisorInstanceID: supervisorInstanceID,
+				Disposition:          daemonprotocol.ProcessDispositionClosePreparation,
+			}},
+		},
+	); err != nil {
+		t.Fatalf("registration cleanup failure = %v", err)
+	}
+	runtime, found := client.localProcess(processID)
+	if !found || !runtime.cleanupOnly {
+		t.Fatalf("pending cleanup runtime = %+v, found=%t", runtime, found)
+	}
+	if _, err := os.Stat(processDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("process artifacts remained before database deletion: %v", err)
+	}
+	if _, found, err := store.Process(ctx, processID); err != nil || !found {
+		t.Fatalf("retained process row: found=%t err=%v", found, err)
+	}
+	retainedLock, err := localstore.TryAcquireExistingLock(lockPath)
+	if err != nil {
+		t.Fatalf("retained cleanup lock = %v", err)
+	}
+	if err := retainedLock.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.verifyProcessSupervisors(ctx); err != nil {
+		t.Fatalf("pending cleanup poisoned heartbeat: %v", err)
+	}
+	if !client.daemonIdle(ctx) {
+		t.Fatal("pending cleanup prevented daemon idleness")
+	}
+	if err := statedbtest.SetProcessDeleteFailure(
+		ctx,
+		machine.StateDBPath(),
+		false,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.closeState(); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := New(Config{OmnaraHome: home}, nil, nil)
+	restarted.bootstrap = client.bootstrap
+	defer restarted.closeState()
+	restartedStartup, err := restarted.scanLocalProcessesForRegistrationOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restartedStartup.Claims) != 1 ||
+		restartedStartup.Claims[0].ProcessID != processID ||
+		restartedStartup.stoppedLocks[processID] == nil {
+		t.Fatalf("restarted cleanup claim = %+v", restartedStartup.Claims)
+	}
+	if err := restarted.applyRegistrationReconciliation(
+		ctx,
+		&restartedStartup,
+		DaemonRuntimeReconciliation{
+			Processes: []ProcessReconciliationDirective{{
+				ProcessID:            processID,
+				SupervisorInstanceID: supervisorInstanceID,
+				Disposition:          daemonprotocol.ProcessDispositionClosePreparation,
+			}},
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := restarted.stateStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := reopened.Process(ctx, processID); err != nil || found {
+		t.Fatalf("finalized process row: found=%t err=%v", found, err)
+	}
+	if _, err := os.Stat(processDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("finalized process artifacts: %v", err)
+	}
+	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("finalized lifetime lock: %v", err)
+	}
+	if _, found := restarted.localProcess(processID); found {
+		t.Fatal("finalized cleanup remained in memory")
+	}
+}
+
+func TestRejectedPreparationCleanupFailureDoesNotBlockFinalization(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const (
+		rejectedProcessID             = "prc_rejected_cleanup_failure"
+		rejectedSupervisorInstanceID  = "supervisor-instance-rejected-cleanup"
+		cleanupSupervisorInstanceID   = "supervisor-instance-stale-cleanup"
+		finalizedProcessID            = "prc_unrelated_finalization"
+		finalizedSupervisorInstanceID = "supervisor-instance-unrelated-finalization"
+	)
+	var logs bytes.Buffer
+	client := New(
+		Config{OmnaraHome: t.TempDir()},
+		nil,
+		slog.New(slog.NewTextHandler(&logs, nil)),
+	)
+	client.bootstrap = daemonBootstrap{
+		InstallationID: "ins_cleanup_failure_isolation",
+		MachineID:      "mch_cleanup_failure_isolation",
+	}
+	defer client.closeState()
+	store, err := client.stateStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine, err := client.machineStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localstore.EnsurePrivateDir(machine.RunDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveProcess(ctx, statedb.Process{
+		ProcessID:            rejectedProcessID,
+		SupervisorInstanceID: rejectedSupervisorInstanceID,
+		SupervisorToken:      "supervisor-token-rejected-cleanup",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client.addProcess(&processRuntime{
+		processID:            rejectedProcessID,
+		supervisorInstanceID: cleanupSupervisorInstanceID,
+		cleanupOnly:          true,
+	})
+
+	if err := store.ReserveProcess(ctx, statedb.Process{
+		ProcessID:            finalizedProcessID,
+		SupervisorInstanceID: finalizedSupervisorInstanceID,
+		SupervisorToken:      "supervisor-token-unrelated-finalization",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkPrepared(
+		ctx,
+		finalizedProcessID,
+		finalizedSupervisorInstanceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkAccepted(
+		ctx,
+		finalizedProcessID,
+		finalizedSupervisorInstanceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	supervisor, err := statedb.OpenSupervisor(
+		ctx,
+		machine.StateDBPath(),
+		client.bootstrap.InstallationID,
+		client.bootstrap.MachineID,
+		finalizedProcessID,
+		finalizedSupervisorInstanceID,
+		"supervisor-token-unrelated-finalization",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminalBody, err := json.Marshal(daemonReportedEvent{
+		Type:      daemonprotocol.EventProcessFinished,
+		ProcessID: finalizedProcessID,
+		State:     "exited",
+		EndedAt:   time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := supervisor.FreezeTerminalReport(ctx, statedb.Report{
+		ProcessID: finalizedProcessID,
+		Kind:      statedb.ReportProcessTerminal,
+		Body:      terminalBody,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := supervisor.MarkContainmentEmpty(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := supervisor.MarkLocalClosed(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := supervisor.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AcknowledgeReport(ctx, terminal.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client.finalizeReleasedProcesses(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := store.Process(ctx, finalizedProcessID); err != nil || found {
+		t.Fatalf("unrelated process finalization: found=%t err=%v", found, err)
+	}
+	if _, found, err := store.Process(ctx, rejectedProcessID); err != nil || !found {
+		t.Fatalf("failed cleanup process state: found=%t err=%v", found, err)
+	}
+	runtime, found := client.localProcess(rejectedProcessID)
+	if !found || !runtime.cleanupOnly ||
+		runtime.supervisorInstanceID != cleanupSupervisorInstanceID {
+		t.Fatalf("retained cleanup runtime = %+v, found=%t", runtime, found)
+	}
+	if !client.daemonIdle(ctx) {
+		t.Fatal("failed cleanup prevented daemon idleness")
+	}
+	if got := logs.String(); !strings.Contains(got, "rejected process preparation cleanup failed") ||
+		!strings.Contains(got, rejectedProcessID) {
+		t.Fatalf("cleanup failure log = %q", got)
 	}
 }
 
@@ -691,6 +990,29 @@ func TestProcessCacheRemovalCannotDeleteReplacementSupervisorInstanceID(t *testi
 	current, found := client.localProcess(replacement.processID)
 	if !found || current != replacement {
 		t.Fatal("old supervisor instance cleanup removed the replacement runtime")
+	}
+}
+
+func TestCleanupOnlyCannotReplaceLiveSupervisorInstance(t *testing.T) {
+	t.Parallel()
+
+	client := New(Config{}, nil, nil)
+	cleanup := &processRuntime{
+		processID:            "prc_cleanup_before_replacement",
+		supervisorInstanceID: "supervisor-instance-old",
+		cleanupOnly:          true,
+	}
+	replacement := &processRuntime{
+		processID:            cleanup.processID,
+		supervisorInstanceID: "supervisor-instance-new",
+	}
+	client.addProcess(cleanup)
+	client.addProcess(replacement)
+	client.addProcess(cleanup)
+
+	current, found := client.localProcess(cleanup.processID)
+	if !found || current != replacement {
+		t.Fatal("stale cleanup replaced the live supervisor runtime")
 	}
 }
 

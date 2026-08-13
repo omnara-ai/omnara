@@ -207,6 +207,35 @@ func (c *Client) finalizeReleasedProcessesLoop(ctx context.Context) {
 }
 
 func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
+	for _, runtime := range c.cleanupProcesses() {
+		cleanupPending, err := c.closeRejectedPreparation(
+			ctx,
+			runtime.processID,
+			runtime.supervisorInstanceID,
+			nil,
+			nil,
+		)
+		if cleanupPending {
+			continue
+		}
+		if err != nil {
+			c.log.Warn(
+				"rejected process preparation cleanup failed",
+				"process_id",
+				runtime.processID,
+				"supervisor_instance_id",
+				runtime.supervisorInstanceID,
+				"error",
+				err,
+			)
+			continue
+		}
+		c.removeProcessInstance(
+			runtime.processID,
+			runtime.supervisorInstanceID,
+		)
+	}
+
 	stateStore, err := c.stateStore(ctx)
 	if err != nil {
 		return err
@@ -221,6 +250,9 @@ func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
 		}
 		if !process.LocalClosed {
 			if runtime, ok := c.localProcess(process.ProcessID); ok {
+				if runtime.cleanupOnly || runtime.runner == nil {
+					continue
+				}
 				probeCtx, cancel := context.WithTimeout(
 					ctx,
 					250*time.Millisecond,
@@ -252,6 +284,7 @@ func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
 					ctx,
 					process.ProcessID,
 					process.SupervisorInstanceID,
+					lock,
 				)
 				releaseErr := lock.Release()
 				if recoverErr != nil {

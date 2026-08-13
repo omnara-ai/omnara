@@ -196,6 +196,7 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
+		nil,
 	); err != nil {
 		t.Fatalf("finish recovered process closure: %v", err)
 	}
