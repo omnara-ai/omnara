@@ -1,5 +1,5 @@
 import { useMachine } from '@omnara/react'
-import type { Agent, AgentMachineBinding, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
+import type { Agent, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { InfoIcon } from 'lucide-react'
 
@@ -43,14 +43,14 @@ export function AgentSidebar({
   orgId,
   projectId,
   agent,
-  machineBindings,
+  machineIds,
   mcpConnections,
   profile,
 }: {
   orgId: string
   projectId: string
   agent: Agent
-  machineBindings: AgentMachineBinding[]
+  machineIds: string[]
   mcpConnections: AgentMcpConnection[]
   profile?: AgentProfile
 }) {
@@ -85,32 +85,24 @@ export function AgentSidebar({
             />
           </SidebarGroupContent>
         </SidebarGroup>
-        <AgentMachinesGroup orgId={orgId} machineBindings={machineBindings} />
+        <AgentMachinesGroup orgId={orgId} machineIds={machineIds} />
         <AgentMcpGroup connections={mcpConnections} />
       </SidebarContent>
     </Sidebar>
   )
 }
 
-function AgentMachinesGroup({
-  orgId,
-  machineBindings,
-}: {
-  orgId: string
-  machineBindings: AgentMachineBinding[]
-}) {
-  const attached = machineBindings.filter((binding) => binding.state === 'attached')
-
+function AgentMachinesGroup({ orgId, machineIds }: { orgId: string; machineIds: string[] }) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="px-0 text-sm">Machines</SidebarGroupLabel>
       <SidebarGroupContent>
-        {attached.length === 0 ? (
+        {machineIds.length === 0 ? (
           <p className="text-muted-foreground truncate py-1.5 text-sm">No machines attached.</p>
         ) : (
           <SidebarMenu>
-            {attached.map((binding) => (
-              <AgentMachineRow key={binding.id} orgId={orgId} binding={binding} />
+            {machineIds.map((machineId) => (
+              <AgentMachineRow key={machineId} orgId={orgId} machineId={machineId} />
             ))}
           </SidebarMenu>
         )}
@@ -119,11 +111,11 @@ function AgentMachinesGroup({
   )
 }
 
-function AgentMachineRow({ orgId, binding }: { orgId: string; binding: AgentMachineBinding }) {
-  const { data: machine } = useMachine(orgId, binding.machine_id)
+function AgentMachineRow({ orgId, machineId }: { orgId: string; machineId: string }) {
+  const { data: machine } = useMachine(orgId, machineId)
   return (
     <SidebarMenuItem className="flex items-center justify-between gap-2 py-1.5 text-sm">
-      <span className="truncate">{machine?.display_name ?? binding.machine_ref}</span>
+      <span className="truncate">{machine?.display_name ?? machineId}</span>
       {machine && (
         <Badge variant="outline" className="capitalize">
           {machine.connection_state}

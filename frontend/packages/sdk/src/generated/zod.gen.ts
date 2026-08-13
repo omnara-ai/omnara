@@ -740,6 +740,12 @@ export const zAgentMcpConnection = z.object({
     updated_at: zTimestamp
 });
 
+export const zGetAgentResponse = z.object({
+    agent: zAgent,
+    machine_ids: z.array(zMachineId),
+    mcp_connections: z.array(zAgentMcpConnection)
+});
+
 export const zListAgentsResponse = z.object({
     data: z.array(zAgent),
     next_cursor: z.string().nullable()
@@ -818,12 +824,6 @@ export const zAgentMachineBinding = z.object({
     secret_env_overlay: z.record(z.string(), zSecretId.nullable()),
     created_at: zTimestamp,
     updated_at: zTimestamp
-});
-
-export const zGetAgentResponse = z.object({
-    agent: zAgent,
-    machine_bindings: z.array(zAgentMachineBinding),
-    mcp_connections: z.array(zAgentMcpConnection)
 });
 
 /**

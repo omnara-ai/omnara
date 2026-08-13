@@ -954,13 +954,18 @@ func (s *Server) currentAgentResponse(
 	if err != nil {
 		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
 	}
-	bindings := make([]openapi.AgentMachineBinding, 0, len(records))
-	for _, record := range records {
-		binding, err := publicAgentMachineBindingResponse(record)
+	machineIDs := make([]openapi.MachineID, 0, len(records))
+	seen := make(map[storage.ID]bool, len(records))
+	for _, binding := range records {
+		if binding.State != executionstore.AgentMachineBindingStateAttached || seen[binding.MachineID] {
+			continue
+		}
+		seen[binding.MachineID] = true
+		machineID, err := publicID(publicid.KindMachine, binding.MachineID)
 		if err != nil {
 			return openapi.GetAgentResponse{}, err
 		}
-		bindings = append(bindings, binding)
+		machineIDs = append(machineIDs, machineID)
 	}
 	connections, err := s.store.Execution().ListAgentMCPConnections(ctx, record.ProjectID, record.ID)
 	if err != nil {
@@ -979,9 +984,9 @@ func (s *Server) currentAgentResponse(
 		})
 	}
 	return openapi.GetAgentResponse{
-		Agent:           agent,
-		MachineBindings: bindings,
-		McpConnections:  mcpConnections,
+		Agent:          agent,
+		MachineIds:     machineIDs,
+		McpConnections: mcpConnections,
 	}, nil
 }
 

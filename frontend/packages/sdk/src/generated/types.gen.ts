@@ -964,9 +964,9 @@ export type AgentMcpConnection = {
 export type GetAgentResponse = {
     agent: Agent;
     /**
-     * The agent's machine bindings in creation order.
+     * Machines currently attached to the agent, in binding creation order.
      */
-    machine_bindings: Array<AgentMachineBinding>;
+    machine_ids: Array<MachineId>;
     /**
      * The agent's MCP server connections, ordered by server key.
      */

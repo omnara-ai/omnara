@@ -163,7 +163,7 @@ export function AgentView() {
         orgId={activeOrg.id}
         projectId={projectId}
         agent={agent}
-        machineBindings={data.machine_bindings}
+        machineIds={data.machine_ids}
         mcpConnections={data.mcp_connections}
         profile={profile}
       />

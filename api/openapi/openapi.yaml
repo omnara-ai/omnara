@@ -7745,15 +7745,15 @@ components:
     GetAgentResponse:
       type: object
       additionalProperties: false
-      required: [agent, machine_bindings, mcp_connections]
+      required: [agent, machine_ids, mcp_connections]
       properties:
         agent:
           $ref: '#/components/schemas/Agent'
-        machine_bindings:
-          description: The agent's machine bindings in creation order.
+        machine_ids:
+          description: Machines currently attached to the agent, in binding creation order.
           type: array
           items:
-            $ref: '#/components/schemas/AgentMachineBinding'
+            $ref: '#/components/schemas/MachineID'
         mcp_connections:
           description: The agent's MCP server connections, ordered by server key.
           type: array
