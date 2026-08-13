@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/crontrigger"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
@@ -28,6 +29,7 @@ const (
 	runtimeLockReapBatchSize         int32 = 100
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
+	cronTriggerFireInterval                = 30 * time.Second
 )
 
 func main() {
@@ -155,6 +157,13 @@ func main() {
 		)
 	}()
 
+	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, logger)
+	cronTriggerDone := make(chan struct{})
+	go func() {
+		defer close(cronTriggerDone)
+		runCronTriggerFireLoop(ctx, logger, cronTriggerService, cronTriggerFireInterval)
+	}()
+
 	exitCode := runCoreMaintenanceLoop(
 		ctx,
 		cancel,
@@ -167,9 +176,60 @@ func main() {
 	<-machineLoopDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
+	<-cronTriggerDone
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func runCronTriggerFireLoop(
+	ctx context.Context,
+	log *slog.Logger,
+	service *crontrigger.Service,
+	interval time.Duration,
+) {
+	for {
+		stats, err := runCronTriggerFireTick(ctx, log, service)
+		if err != nil && ctx.Err() == nil {
+			log.Error("fire due cron triggers", "error", err)
+		} else if stats.Claimed > 0 || stats.Disabled > 0 {
+			log.Info(
+				"fired due cron triggers",
+				"claimed", stats.Claimed,
+				"launched", stats.Launched,
+				"inputs", stats.Inputs,
+				"disabled", stats.Disabled,
+				"failures", stats.Failures,
+			)
+		}
+		timer := time.NewTimer(jitteredMaintenanceDelay(interval))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func runCronTriggerFireTick(
+	ctx context.Context,
+	log *slog.Logger,
+	service *crontrigger.Service,
+) (stats crontrigger.FireStats, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("cron trigger fire tick panicked: %v", recovered)
+			log.Error(
+				"cron trigger fire tick panicked",
+				"error", recovered,
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
+	return service.FireDueTriggers(ctx)
 }
 
 func runProviderRuntimeMaintenanceLoop(

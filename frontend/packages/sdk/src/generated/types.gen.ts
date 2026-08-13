@@ -58,6 +58,8 @@ export type AgentConfigId = string;
 
 export type AgentProfileId = string;
 
+export type CronTriggerId = string;
+
 export type IntegrationInstallId = string;
 
 export type AgentEventId = string;
@@ -916,6 +918,84 @@ export type AgentProfile = {
 
 export type ListAgentProfilesResponse = {
     data: Array<AgentProfile>;
+    /**
+     * Opaque cursor for the next page, or null when this is the last page.
+     */
+    next_cursor: string | null;
+};
+
+export type AgentCronTriggerTarget = {
+    type: 'agent';
+    agent_id: AgentId;
+};
+
+export type AgentProfileCronTriggerTarget = {
+    type: 'profile';
+    agent_profile_id: AgentProfileId;
+};
+
+export type CronTriggerTarget = ({
+    type: 'agent';
+} & AgentCronTriggerTarget) | ({
+    type: 'profile';
+} & AgentProfileCronTriggerTarget);
+
+/**
+ * Standard five-field cron expression (minute, hour, day of month, month, day of week).
+ */
+export type CronExpression = string;
+
+/**
+ * IANA time zone the schedule is evaluated in.
+ */
+export type CronTimezone = string;
+
+/**
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields.
+ */
+export type CronMessageTemplate = string;
+
+export type CreateCronTriggerRequest = {
+    name: string;
+    target: CronTriggerTarget;
+    cron: CronExpression;
+    timezone?: CronTimezone;
+    message_template: CronMessageTemplate;
+    enabled?: boolean;
+};
+
+export type UpdateCronTriggerRequest = {
+    name?: string;
+    cron?: CronExpression;
+    timezone?: CronTimezone;
+    message_template?: CronMessageTemplate;
+    enabled?: boolean;
+};
+
+export type CronTrigger = {
+    id: CronTriggerId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    name: string;
+    target: CronTriggerTarget;
+    cron: CronExpression;
+    timezone: CronTimezone;
+    message_template: CronMessageTemplate;
+    enabled: boolean;
+    /**
+     * When the trigger last fired, or null if it has never fired.
+     */
+    last_fired_at: Timestamp | null;
+    /**
+     * Next scheduled firing, or null while the trigger is disabled.
+     */
+    next_fire_at: Timestamp | null;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
+export type ListCronTriggersResponse = {
+    data: Array<CronTrigger>;
     /**
      * Opaque cursor for the next page, or null when this is the last page.
      */
@@ -7277,6 +7357,369 @@ export type CreateSlackSetupResponses = {
 };
 
 export type CreateSlackSetupResponse = CreateSlackSetupResponses[keyof CreateSlackSetupResponses];
+
+export type ListCronTriggersData = {
+    body?: never;
+    path: {
+        orgID: string;
+        projectID: string;
+    };
+    query?: {
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Only return triggers targeting this agent.
+         */
+        agent_id?: AgentId;
+        /**
+         * Only return triggers targeting this agent profile.
+         */
+        agent_profile_id?: AgentProfileId;
+        sort?: ResourceListSort;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers';
+};
+
+export type ListCronTriggersErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListCronTriggersError = ListCronTriggersErrors[keyof ListCronTriggersErrors];
+
+export type ListCronTriggersResponses = {
+    /**
+     * Cron triggers in the project, newest first.
+     */
+    200: ListCronTriggersResponse;
+};
+
+export type ListCronTriggersResponse2 = ListCronTriggersResponses[keyof ListCronTriggersResponses];
+
+export type CreateCronTriggerData = {
+    body: CreateCronTriggerRequest;
+    headers?: {
+        /**
+         * Idempotency key for replay-safe mutating requests.
+         */
+        'Idempotency-Key'?: string;
+    };
+    path: {
+        orgID: string;
+        projectID: string;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers';
+};
+
+export type CreateCronTriggerErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateCronTriggerError = CreateCronTriggerErrors[keyof CreateCronTriggerErrors];
+
+export type CreateCronTriggerResponses = {
+    /**
+     * Existing cron trigger returned.
+     */
+    200: CronTrigger;
+    /**
+     * Cron trigger created.
+     */
+    201: CronTrigger;
+};
+
+export type CreateCronTriggerResponse = CreateCronTriggerResponses[keyof CreateCronTriggerResponses];
+
+export type DeleteCronTriggerData = {
+    body?: never;
+    path: {
+        orgID: string;
+        projectID: string;
+        cronTriggerID: CronTriggerId;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}';
+};
+
+export type DeleteCronTriggerErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteCronTriggerError = DeleteCronTriggerErrors[keyof DeleteCronTriggerErrors];
+
+export type DeleteCronTriggerResponses = {
+    /**
+     * Resource deleted.
+     */
+    204: void;
+};
+
+export type DeleteCronTriggerResponse = DeleteCronTriggerResponses[keyof DeleteCronTriggerResponses];
+
+export type GetCronTriggerData = {
+    body?: never;
+    path: {
+        orgID: string;
+        projectID: string;
+        cronTriggerID: CronTriggerId;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}';
+};
+
+export type GetCronTriggerErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetCronTriggerError = GetCronTriggerErrors[keyof GetCronTriggerErrors];
+
+export type GetCronTriggerResponses = {
+    /**
+     * Cron trigger.
+     */
+    200: CronTrigger;
+};
+
+export type GetCronTriggerResponse = GetCronTriggerResponses[keyof GetCronTriggerResponses];
+
+export type UpdateCronTriggerData = {
+    body: UpdateCronTriggerRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+        cronTriggerID: CronTriggerId;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}';
+};
+
+export type UpdateCronTriggerErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateCronTriggerError = UpdateCronTriggerErrors[keyof UpdateCronTriggerErrors];
+
+export type UpdateCronTriggerResponses = {
+    /**
+     * Cron trigger updated.
+     */
+    200: CronTrigger;
+};
+
+export type UpdateCronTriggerResponse = UpdateCronTriggerResponses[keyof UpdateCronTriggerResponses];
 
 export type ListAgentsData = {
     body?: never;

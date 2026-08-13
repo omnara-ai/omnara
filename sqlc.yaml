@@ -32,6 +32,10 @@ rules:
     message: "agent_profile_versions query must filter deleted_at (or annotate @sqlc-vet-disable agent-profile-versions-deleted-at)"
     rule: >-
       query.sql.matches(r'(?i)\b(from|join|update)\s+agent_profile_versions\b') && !query.sql.contains('deleted_at')
+  - name: cron-triggers-deleted-at
+    message: "cron_triggers query must filter deleted_at (or annotate @sqlc-vet-disable cron-triggers-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+cron_triggers\b') && !query.sql.contains('deleted_at')
   - name: integration-installs-deleted-at
     message: "integration_installs query must filter deleted_at (or annotate @sqlc-vet-disable integration-installs-deleted-at)"
     rule: >-

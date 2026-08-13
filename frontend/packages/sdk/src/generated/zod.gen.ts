@@ -108,6 +108,8 @@ export const zAgentConfigId = z.string().regex(/^acfg_[a-z2-7]{26}$/);
 
 export const zAgentProfileId = z.string().regex(/^aprf_[a-z2-7]{26}$/);
 
+export const zCronTriggerId = z.string().regex(/^cron_[a-z2-7]{26}$/);
+
 export const zIntegrationInstallId = z.string().regex(/^iin_[a-z2-7]{26}$/);
 
 export const zAgentEventId = z.string().regex(/^evt_[a-z2-7]{26}$/);
@@ -696,6 +698,74 @@ export const zAgentProfile = z.object({
 
 export const zListAgentProfilesResponse = z.object({
     data: z.array(zAgentProfile),
+    next_cursor: z.string().nullable()
+});
+
+export const zAgentCronTriggerTarget = z.object({
+    type: z.enum(['agent']),
+    agent_id: zAgentId
+});
+
+export const zAgentProfileCronTriggerTarget = z.object({
+    type: z.enum(['profile']),
+    agent_profile_id: zAgentProfileId
+});
+
+export const zCronTriggerTarget = z.discriminatedUnion('type', [
+    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
+    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
+]);
+
+/**
+ * Standard five-field cron expression (minute, hour, day of month, month, day of week).
+ */
+export const zCronExpression = z.string().min(9).max(256);
+
+/**
+ * IANA time zone the schedule is evaluated in.
+ */
+export const zCronTimezone = z.string().max(64).default('UTC');
+
+/**
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields.
+ */
+export const zCronMessageTemplate = z.string().max(65536);
+
+export const zCreateCronTriggerRequest = z.object({
+    name: z.string(),
+    target: zCronTriggerTarget,
+    cron: zCronExpression,
+    timezone: zCronTimezone.optional(),
+    message_template: zCronMessageTemplate,
+    enabled: z.boolean().optional().default(true)
+});
+
+export const zUpdateCronTriggerRequest = z.object({
+    name: z.string().optional(),
+    cron: zCronExpression.optional(),
+    timezone: zCronTimezone.optional(),
+    message_template: zCronMessageTemplate.optional(),
+    enabled: z.boolean().optional()
+});
+
+export const zCronTrigger = z.object({
+    id: zCronTriggerId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: z.string(),
+    target: zCronTriggerTarget,
+    cron: zCronExpression,
+    timezone: zCronTimezone,
+    message_template: zCronMessageTemplate,
+    enabled: z.boolean(),
+    last_fired_at: zTimestamp.nullable(),
+    next_fire_at: zTimestamp.nullable(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
+export const zListCronTriggersResponse = z.object({
+    data: z.array(zCronTrigger),
     next_cursor: z.string().nullable()
 });
 
@@ -2687,6 +2757,31 @@ export const zCreateIntegrationOAuthSetupResponse = zIntegrationOAuthSetup;
  * Slack app created and OAuth setup started.
  */
 export const zCreateSlackSetupResponse = zSlackSetup;
+
+/**
+ * Cron triggers in the project, newest first.
+ */
+export const zListCronTriggersResponse2 = zListCronTriggersResponse;
+
+/**
+ * Existing cron trigger returned.
+ */
+export const zCreateCronTriggerResponse = zCronTrigger;
+
+/**
+ * Resource deleted.
+ */
+export const zDeleteCronTriggerResponse = z.void();
+
+/**
+ * Cron trigger.
+ */
+export const zGetCronTriggerResponse = zCronTrigger;
+
+/**
+ * Cron trigger updated.
+ */
+export const zUpdateCronTriggerResponse = zCronTrigger;
 
 /**
  * Active agents in the project, newest first.
