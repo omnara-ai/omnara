@@ -13,7 +13,7 @@ import { SettingsIcon } from 'lucide-react'
 import { type CSSProperties, useState } from 'react'
 
 import { AgentComposer } from '@/components/agents/AgentComposer'
-import { AgentConfigPanel } from '@/components/agents/AgentConfigPanel'
+import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
 import { AgentConversation } from '@/components/agents/AgentConversation'
 import { AgentInteractions } from '@/components/agents/AgentInteractions'
 import {
@@ -46,6 +46,12 @@ export function AgentView() {
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
   const [configOpen, setConfigOpen] = useState(false)
+  const [configDirty, setConfigDirty] = useState(false)
+
+  function closeConfig() {
+    setConfigDirty(false)
+    setConfigOpen(false)
+  }
 
   async function resolve(
     interactionID: string,
@@ -91,7 +97,12 @@ export function AgentView() {
                   aria-label="Agent configuration"
                   className={cn('text-muted-foreground', configOpen && sidebarToggleActiveClass)}
                   onClick={() => {
-                    setConfigOpen((open) => !open)
+                    if (!configOpen) {
+                      setConfigOpen(true)
+                      return
+                    }
+                    if (configDirty && !window.confirm(discardConfigEditsPrompt)) return
+                    closeConfig()
                   }}
                 >
                   <SettingsIcon />
@@ -109,9 +120,8 @@ export function AgentView() {
               projectId={projectId}
               agent={agent}
               canManage={project?.access.can_manage ?? false}
-              onClose={() => {
-                setConfigOpen(false)
-              }}
+              onDirtyChange={setConfigDirty}
+              onClose={closeConfig}
             />
           </main>
         ) : (

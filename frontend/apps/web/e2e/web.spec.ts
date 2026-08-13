@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { type Cookie, expect, type Page, test } from '@playwright/test'
 
 function requiredEnvironmentVariable(name: string): string {
   const value = process.env[name]
@@ -43,7 +43,11 @@ function installFailureTracking(page: Page, ignore: RegExp[] = []) {
   return failures
 }
 
-async function signIn(page: Page, email: string, returnTo: string) {
+// The login endpoint rate-limits each email, so tests in a worker share one
+// signed-in session instead of going through the login form every time.
+const sessionCookies = new Map<string, Cookie[]>()
+
+async function signInThroughLoginForm(page: Page, email: string, returnTo: string) {
   await page.goto(returnTo)
 
   await expect(page).toHaveURL((url) => {
@@ -56,6 +60,18 @@ async function signIn(page: Page, email: string, returnTo: string) {
   await page.getByRole('button', { name: 'Sign in' }).click()
 
   await expect(page).toHaveURL(returnTo)
+  sessionCookies.set(email, await page.context().cookies())
+}
+
+async function signIn(page: Page, email: string, returnTo: string) {
+  const cookies = sessionCookies.get(email)
+  if (cookies) {
+    await page.context().addCookies(cookies)
+    await page.goto(returnTo)
+    await expect(page).toHaveURL(returnTo)
+    return
+  }
+  await signInThroughLoginForm(page, email, returnTo)
 }
 
 async function selectConfiguredModel(page: Page) {
@@ -93,7 +109,7 @@ async function visitAgentsTabAndReturn(page: Page) {
 
 test('returns to a protected deep link after login', async ({ page }) => {
   const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, `${createAgentPath}?source=e2e#yaml`)
+  await signInThroughLoginForm(page, adminEmail, `${createAgentPath}?source=e2e#yaml`)
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
   expect(failures).toEqual([])
 })

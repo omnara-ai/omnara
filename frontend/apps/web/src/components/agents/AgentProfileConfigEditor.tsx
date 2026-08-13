@@ -64,8 +64,9 @@ export function AgentProfileConfigEditor({
   }, [])
 
   const showBuilder = mode.mode === 'builder'
-  const yaml = showBuilder ? (builderIncomplete ? '' : mode.builderYaml) : mode.editorYaml
+  const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
   const dirty = yaml !== source && yaml !== baselineYaml
+  const saveBlocked = yaml.trim() === '' || (showBuilder && builderIncomplete)
 
   // Lets the page warn before launching an agent with unsaved edits.
   useEffect(() => {
@@ -159,7 +160,7 @@ export function AgentProfileConfigEditor({
             >
               Delete profile
             </Button>
-            <Button type="submit" disabled={pending || !dirty || yaml.trim() === ''}>
+            <Button type="submit" disabled={pending || !dirty || saveBlocked}>
               {pending && <Spinner />}
               Save revision
             </Button>

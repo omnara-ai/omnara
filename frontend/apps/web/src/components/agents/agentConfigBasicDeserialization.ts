@@ -194,8 +194,9 @@ function extractMachineSource(entry: unknown): BasicMachineSource | null {
 /**
  * The overlay doesn't record which provider wrote it, so infer one whose
  * option keys account for every entry. Providers sharing a key serialize that
- * entry identically, so a wrong pick still round-trips; the combobox replaces
- * the guess with the granted pool's real provider once it resolves.
+ * entry identically, so a wrong pick still round-trips; once the granted pool
+ * resolves, the sources field replaces the guess with the pool's real provider
+ * when that doesn't change how the overlay serializes.
  */
 function extractProviderOverlay(
   value: unknown,

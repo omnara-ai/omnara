@@ -17,18 +17,23 @@ import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
 import { Spinner } from '@/components/ui/spinner'
 
+export const discardConfigEditsPrompt = 'You have unsaved configuration changes. Discard them?'
+
 /** Builder/YAML editor for a live agent's config, mirroring the profile editor. */
 export function AgentConfigPanel({
   orgId,
   projectId,
   agent,
   canManage,
+  onDirtyChange,
   onClose,
 }: {
   orgId: string
   projectId: string
   agent: Agent
   canManage: boolean
+  /** Lets the page confirm before unmounting the panel with unsaved edits. */
+  onDirtyChange: (dirty: boolean) => void
   onClose: () => void
 }) {
   const configQuery = useAgentConfig(orgId, projectId, agent.current_config_id)
@@ -73,6 +78,7 @@ export function AgentConfigPanel({
           canManage={canManage}
           preferredMode={preferredMode}
           onModeChange={setPreferredMode}
+          onDirtyChange={onDirtyChange}
           onDiscard={() => {
             setResetNonce((nonce) => nonce + 1)
           }}
@@ -91,6 +97,7 @@ function AgentConfigPanelEditor({
   canManage,
   preferredMode,
   onModeChange,
+  onDirtyChange,
   onDiscard,
   onClose,
 }: {
@@ -101,6 +108,7 @@ function AgentConfigPanelEditor({
   canManage: boolean
   preferredMode: AgentConfigMode
   onModeChange: (mode: AgentConfigMode) => void
+  onDirtyChange: (dirty: boolean) => void
   onDiscard: () => void
   onClose: () => void
 }) {
@@ -123,12 +131,17 @@ function AgentConfigPanelEditor({
   }, [])
 
   const showBuilder = mode.mode === 'builder'
-  const yaml = showBuilder ? (builderIncomplete ? '' : mode.builderYaml) : mode.editorYaml
+  const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
   const dirty = yaml !== source && yaml !== baselineYaml
+  const saveBlocked = yaml.trim() === '' || (showBuilder && builderIncomplete)
 
   useEffect(() => {
     onModeChange(mode.mode)
   }, [mode.mode, onModeChange])
+
+  useEffect(() => {
+    onDirtyChange(dirty)
+  }, [dirty, onDirtyChange])
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -194,7 +207,14 @@ function AgentConfigPanelEditor({
         )}
       </FieldGroup>
       <div className="bg-background sticky bottom-0 z-10 mt-auto flex items-center justify-between gap-4 border-t py-3">
-        <Button type="button" variant="ghost" onClick={onClose}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => {
+            if (dirty && !window.confirm(discardConfigEditsPrompt)) return
+            onClose()
+          }}
+        >
           Cancel editing
         </Button>
         <div className="flex items-center gap-3">
@@ -205,7 +225,7 @@ function AgentConfigPanelEditor({
             </Button>
           )}
           {canManage && (
-            <Button type="submit" disabled={updateConfig.isPending || !dirty || yaml.trim() === ''}>
+            <Button type="submit" disabled={updateConfig.isPending || !dirty || saveBlocked}>
               {updateConfig.isPending && <Spinner />}
               Save config
             </Button>

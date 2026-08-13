@@ -125,11 +125,11 @@ func (s strictOpenAPIServer) archiveAgent(
 		return nil, apierror.ProjectScoped(err)
 	}
 	s.server.startPoolMachineDeletion(ctx, machines)
-	response, err := publicAgentResponseFromRecord(archived)
+	response, err := s.server.currentAgentResponse(ctx, archived)
 	if err != nil {
 		return nil, err
 	}
-	return openapi.ArchiveAgent200JSONResponse(openapi.GetAgentResponse{Agent: response}), nil
+	return openapi.ArchiveAgent200JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) ListQueuedBacklogInputs(

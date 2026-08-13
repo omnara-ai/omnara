@@ -11,7 +11,11 @@ import {
   PoolSourceCombobox,
 } from '@/components/agents/AgentConfigMachineSourceComboboxes'
 import { SourceOverridesSection } from '@/components/agents/AgentConfigMachineSourceOverrides'
-import { emptyProviderOptions } from '@/components/machines/machineOverrides'
+import {
+  emptyProviderOptions,
+  providerOptionsOverlay,
+} from '@/components/machines/machineOverrides'
+import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -21,6 +25,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+
+function serializedOverlay(source: BasicMachineSource, provider: string, managementKind: string) {
+  if (!isMachinePoolProvider(provider)) return undefined
+  return providerOptionsOverlay(provider, source.providerOptions, managementKind === 'cluster')
+}
+
 
 export function AgentConfigMachineSourcesField({
   orgId,
@@ -134,6 +144,21 @@ export function AgentConfigMachineSourcesField({
                         ) {
                           return
                         }
+                        // Backfilling changes how the overlay serializes; skip
+                        // it when that would silently rewrite the loaded config
+                        // (e.g. drop resource keys once a pool turns out to be
+                        // cluster-managed).
+                        const current = serializedOverlay(
+                          source,
+                          source.provider,
+                          source.managementKind,
+                        )
+                        const resolved = serializedOverlay(
+                          source,
+                          pool.provider,
+                          pool.management_kind,
+                        )
+                        if (JSON.stringify(current) !== JSON.stringify(resolved)) return
                         updateSource(source.id, {
                           provider: pool.provider,
                           managementKind: pool.management_kind,

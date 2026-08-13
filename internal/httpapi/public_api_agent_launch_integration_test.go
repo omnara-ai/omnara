@@ -186,7 +186,8 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	replayedFirstAgent := replayedFirst["agent"].(map[string]any)
-	if len(replayedFirst) != 1 ||
+	if replayedFirst["agent_config"] != nil ||
+		replayedFirst["agent_input"] != nil ||
 		replayedFirstAgent["id"] != firstAgent["id"] ||
 		replayedFirstAgent["current_config_id"] != configID {
 		t.Fatalf(
@@ -283,7 +284,8 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	archivedReplayAgent := archivedReplay["agent"].(map[string]any)
-	if len(archivedReplay) != 1 ||
+	if archivedReplay["agent_config"] != nil ||
+		archivedReplay["agent_input"] != nil ||
 		archivedReplayAgent["id"] != retargetedAgentID ||
 		archivedReplayAgent["state"] != "archived" {
 		t.Fatalf("archived agent launch replay = %+v, want current archived agent", archivedReplay)
