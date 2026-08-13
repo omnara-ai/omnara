@@ -108,6 +108,7 @@ func main() {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     redisBus,
 			AgentEventWakeups: redisBus,
+			ToolCallUpdates:   redisBus,
 			WorkerControls:    redisBus,
 		},
 		presenceStore,
@@ -371,6 +372,7 @@ func apiOptions(
 		httpapi.WithDaemonNotifications(redisBus, presence, replicaID),
 		httpapi.WithDaemonReplyPublisher(redisBus),
 		httpapi.WithAgentEventWakeupSubscriber(redisBus),
+		httpapi.WithAgentToolCallUpdateSubscriber(redisBus),
 		httpapi.WithAgentStreamDeltaSubscriber(redisBus),
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),

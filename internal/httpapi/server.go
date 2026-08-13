@@ -44,6 +44,7 @@ type Server struct {
 	billingURL                          string
 	daemonReleaseURL                    string
 	agentEventWakeupSubscriber          notifications.AgentEventWakeupSubscriber
+	agentToolCallUpdateSubscriber       notifications.AgentToolCallUpdateSubscriber
 	agentStreamDeltaSubscriber          notifications.AgentStreamDeltaSubscriber
 	daemonHub                           *daemonSocketHub
 	recorder                            *metrics.HTTPRecorder
@@ -237,6 +238,12 @@ func WithAgentEventWakeupSubscriber(subscriber notifications.AgentEventWakeupSub
 	}
 }
 
+func WithAgentToolCallUpdateSubscriber(subscriber notifications.AgentToolCallUpdateSubscriber) Option {
+	return func(s *Server) {
+		s.agentToolCallUpdateSubscriber = subscriber
+	}
+}
+
 func WithAgentStreamDeltaSubscriber(subscriber notifications.AgentStreamDeltaSubscriber) Option {
 	return func(s *Server) {
 		s.agentStreamDeltaSubscriber = subscriber
@@ -370,6 +377,9 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	})
 	if server.agentEventWakeupSubscriber == nil {
 		return nil, fmt.Errorf("agent event wakeup subscriber is required; wire via WithAgentEventWakeupSubscriber")
+	}
+	if server.agentToolCallUpdateSubscriber == nil {
+		return nil, fmt.Errorf("agent tool call update subscriber is required; wire via WithAgentToolCallUpdateSubscriber")
 	}
 	if server.agentStreamDeltaSubscriber == nil {
 		return nil, fmt.Errorf("agent stream delta subscriber is required; wire via WithAgentStreamDeltaSubscriber")

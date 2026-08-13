@@ -1218,6 +1218,14 @@ export type ToolCall = {
     created_at: Timestamp;
 };
 
+/**
+ * An ephemeral notification that a tool call entered a lifecycle state.
+ */
+export type ToolCallUpdate = {
+    tool_call_id: ToolCallId;
+    state: ToolCallState;
+};
+
 export type ListToolCallsResponse = {
     data: Array<ToolCall>;
     next_cursor: string | null;
@@ -1459,9 +1467,9 @@ export type ModelOutputDelta = {
 };
 
 /**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort model-output preview, or a terminal stream error.
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a terminal stream error.
  */
-export type AgentEventStreamData = AgentEvent | ModelOutputDelta | Error;
+export type AgentEventStreamData = AgentEvent | ToolCallUpdate | ModelOutputDelta | Error;
 
 export type ListAgentEventsResponse = {
     data: Array<AgentEvent>;
@@ -7941,7 +7949,7 @@ export type StreamEventsError = StreamEventsErrors[keyof StreamEventsErrors];
 
 export type StreamEventsResponses = {
     /**
-     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort model previews use `model_output_delta` and terminal stream errors use `error`; neither carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
+     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and terminal stream errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
      */
     200: AgentEventStreamData;
 };

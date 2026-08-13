@@ -564,6 +564,11 @@ func TestPermissionApprovalReturnsToolCallToPending(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "permission_approval_pending")
+	publisher := &recordingPostCommitPublisher{}
+	fixture.Store = newIntegrationStore(
+		fixture.Store.pool,
+		WithPostCommitPublisher(publisher),
+	)
 	toolCallID := createToolCallForProcessTestWithPermission(
 		t,
 		ctx,
@@ -606,6 +611,13 @@ func TestPermissionApprovalReturnsToolCallToPending(t *testing.T) {
 	}
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
 		t.Fatalf("permission approval wakeups = %d, want 1", wakeups)
+	}
+	states := publisher.toolCallStates(toolCallID)
+	if len(states) != 3 ||
+		states[0] != string(executionstore.ToolCallStateAwaitingAuthorization) ||
+		states[1] != string(executionstore.ToolCallStateAwaitingPermission) ||
+		states[2] != string(executionstore.ToolCallStateReady) {
+		t.Fatalf("permission tool call update states = %v, want authorization, permission, then ready", states)
 	}
 }
 

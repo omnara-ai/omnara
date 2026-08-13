@@ -620,7 +620,7 @@ func (s strictOpenAPIServer) StreamEvents(
 	return s.streamEvents(ctx, request, scope.project, scope.agent)
 }
 
-const streamDeltaChannelSize = 4096
+const streamFrameChannelSize = 4096
 
 func (s strictOpenAPIServer) streamEvents(
 	ctx context.Context,
@@ -700,9 +700,10 @@ func (s *Server) streamAgentEvents(
 		return
 	}
 	notify := make(chan struct{}, 1)
+	toolCallUpdates := make(chan notifications.ToolCallUpdatedCommitted, streamFrameChannelSize)
 	var streamDeltas chan json.RawMessage
 	if streamDeltasEnabled {
-		streamDeltas = make(chan json.RawMessage, streamDeltaChannelSize)
+		streamDeltas = make(chan json.RawMessage, streamFrameChannelSize)
 	}
 	eventSubscription, subErr := s.agentEventWakeupSubscriber.SubscribeAgentEventWakeups(
 		r.Context(),
@@ -720,6 +721,33 @@ func (s *Server) streamAgentEvents(
 		return
 	}
 	defer func() { _ = eventSubscription.Unsubscribe() }()
+	toolCallSubscription, subErr := s.agentToolCallUpdateSubscriber.SubscribeAgentToolCallUpdates(
+		r.Context(),
+		agent.ID,
+		func(_ context.Context, update notifications.ToolCallUpdatedCommitted) {
+			select {
+			case toolCallUpdates <- update:
+				select {
+				case notify <- struct{}{}:
+				default:
+				}
+			default:
+				if s.log != nil {
+					s.log.Debug(
+						"drop tool call update because subscriber buffer is full",
+						"agent_id",
+						agent.ID,
+					)
+				}
+			}
+		},
+	)
+	if subErr != nil {
+		s.log.Warn("tool call update subscribe failed", "agent_id", agent.ID, "error", subErr)
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "event stream temporarily unavailable")
+		return
+	}
+	defer func() { _ = toolCallSubscription.Unsubscribe() }()
 	var streamSubscription notifications.Subscription
 	if streamDeltas != nil {
 		streamSubscription, subErr = s.agentStreamDeltaSubscriber.SubscribeAgentStreamDeltas(
@@ -823,6 +851,19 @@ func (s *Server) streamAgentEvents(
 			after = record.Sequence
 			flusher.Flush()
 		}
+		drained := false
+		for !drained {
+			select {
+			case update := <-toolCallUpdates:
+				if !writeToolCallUpdateFrame(w, update) {
+					flusher.Flush()
+					return
+				}
+				flusher.Flush()
+			default:
+				drained = true
+			}
+		}
 		if len(records) == 100 {
 			continue
 		}
@@ -842,6 +883,22 @@ func (s *Server) streamAgentEvents(
 			flusher.Flush()
 		}
 	}
+}
+
+func writeToolCallUpdateFrame(w http.ResponseWriter, update notifications.ToolCallUpdatedCommitted) bool {
+	toolCallID, err := publicID(publicid.KindToolCall, update.ToolCallID)
+	state := openapi.ToolCallState(update.State)
+	if err != nil {
+		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
+		return false
+	}
+	if !state.Valid() {
+		return true
+	}
+	return writeSSEJSONFrame(w, "tool_call_update", "", openapi.ToolCallUpdate{
+		ToolCallId: toolCallID,
+		State:      state,
+	})
 }
 
 func writeModelOutputDeltaFrame(

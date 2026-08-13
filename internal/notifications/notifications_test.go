@@ -70,9 +70,11 @@ type fakeBus struct {
 	daemonPublished  []WakeupMessage
 	agentPublished   []uuid.UUID
 	workerPublished  []WorkerControlCommitted
+	toolCallUpdates  []ToolCallUpdatedCommitted
 	daemonPublishErr error
 	agentPublishErr  error
 	workerPublishErr error
+	toolCallError    error
 }
 
 type closeAwareAgentWakeupPublisher struct {
@@ -184,6 +186,16 @@ func (b *fakeBus) PublishAgentEventWakeup(_ context.Context, agentID uuid.UUID) 
 	return nil
 }
 
+func (b *fakeBus) PublishAgentToolCallUpdate(_ context.Context, update ToolCallUpdatedCommitted) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.toolCallError != nil {
+		return b.toolCallError
+	}
+	b.toolCallUpdates = append(b.toolCallUpdates, update)
+	return nil
+}
+
 func (b *fakeBus) PublishWorkerControl(_ context.Context, workerID uuid.UUID, msg WorkerControl) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -224,6 +236,12 @@ func (b *fakeBus) workerSnapshot() []WorkerControlCommitted {
 	return out
 }
 
+func (b *fakeBus) toolCallSnapshot() []ToolCallUpdatedCommitted {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]ToolCallUpdatedCommitted(nil), b.toolCallUpdates...)
+}
+
 func newTestRoutedPublisher(
 	t *testing.T,
 	ports RoutedPublisherPorts,
@@ -237,6 +255,9 @@ func newTestRoutedPublisher(
 	}
 	if ports.AgentEventWakeups == nil {
 		ports.AgentEventWakeups = fallback
+	}
+	if ports.ToolCallUpdates == nil {
+		ports.ToolCallUpdates = fallback
 	}
 	if ports.WorkerControls == nil {
 		ports.WorkerControls = fallback
@@ -257,6 +278,7 @@ func TestNewRoutedPublisherRejectsMissingDependencies(t *testing.T) {
 	validPorts := RoutedPublisherPorts{
 		DaemonWakeups:     bus,
 		AgentEventWakeups: bus,
+		ToolCallUpdates:   bus,
 		WorkerControls:    bus,
 	}
 	for _, tc := range []struct {
@@ -266,17 +288,22 @@ func TestNewRoutedPublisherRejectsMissingDependencies(t *testing.T) {
 	}{
 		{
 			name:     "daemon wakeups",
-			ports:    RoutedPublisherPorts{AgentEventWakeups: bus, WorkerControls: bus},
+			ports:    RoutedPublisherPorts{AgentEventWakeups: bus, ToolCallUpdates: bus, WorkerControls: bus},
 			presence: fakePresenceStore{},
 		},
 		{
 			name:     "agent event wakeups",
-			ports:    RoutedPublisherPorts{DaemonWakeups: bus, WorkerControls: bus},
+			ports:    RoutedPublisherPorts{DaemonWakeups: bus, ToolCallUpdates: bus, WorkerControls: bus},
 			presence: fakePresenceStore{},
 		},
 		{
 			name:     "worker controls",
-			ports:    RoutedPublisherPorts{DaemonWakeups: bus, AgentEventWakeups: bus},
+			ports:    RoutedPublisherPorts{DaemonWakeups: bus, AgentEventWakeups: bus, ToolCallUpdates: bus},
+			presence: fakePresenceStore{},
+		},
+		{
+			name:     "tool call updates",
+			ports:    RoutedPublisherPorts{DaemonWakeups: bus, AgentEventWakeups: bus, WorkerControls: bus},
 			presence: fakePresenceStore{},
 		},
 		{name: "presence", ports: validPorts},
@@ -312,6 +339,11 @@ func TestNotificationChannelsUseCanonicalUUIDs(t *testing.T) {
 			name: "agent stream delta",
 			got:  agentStreamDeltaChannel(id),
 			want: "omnara:agent_stream_deltas:00112233-4455-6677-8899-aabbccddeeff",
+		},
+		{
+			name: "agent tool call update",
+			got:  agentToolCallUpdateChannel(id),
+			want: "omnara:agent_tool_call_updates:00112233-4455-6677-8899-aabbccddeeff",
 		},
 		{
 			name: "worker control",
@@ -526,6 +558,33 @@ func TestRoutedPublisherPublishesWorkerControlDirectly(t *testing.T) {
 	}
 	if len(publisher.queue) != 0 {
 		t.Fatalf("worker-control intent should bypass queue, queue length = %d", len(publisher.queue))
+	}
+}
+
+func TestRoutedPublisherPreservesToolCallUpdates(t *testing.T) {
+	agentID := uuid.New()
+	toolCallID := uuid.New()
+	bus := &fakeBus{}
+	publisher := newTestRoutedPublisher(t, RoutedPublisherPorts{ToolCallUpdates: bus}, nil, nil)
+
+	publisher.PublishPostCommit(context.Background(), ToolCallUpdatedCommitted{
+		AgentID:    agentID,
+		ToolCallID: toolCallID,
+		State:      "awaiting_authorization",
+	})
+	publisher.PublishPostCommit(context.Background(), ToolCallUpdatedCommitted{
+		AgentID:    agentID,
+		ToolCallID: toolCallID,
+		State:      "ready",
+	})
+	publisher.Close()
+
+	want := []ToolCallUpdatedCommitted{
+		{AgentID: agentID, ToolCallID: toolCallID, State: "awaiting_authorization"},
+		{AgentID: agentID, ToolCallID: toolCallID, State: "ready"},
+	}
+	if got := bus.toolCallSnapshot(); !slices.Equal(got, want) {
+		t.Fatalf("tool call updates = %+v, want %+v", got, want)
 	}
 }
 
@@ -1020,6 +1079,7 @@ func TestNotificationIntentLabels(t *testing.T) {
 		{DaemonRuntimeEndedCommitted{}, "daemon_runtime_ended"},
 		{DaemonProcessTerminationCommitted{}, "daemon_process_terminate"},
 		{AgentEventCommitted{}, "agent_event"},
+		{ToolCallUpdatedCommitted{}, "tool_call_update"},
 		{WorkerControlCommitted{}, "worker_control"},
 	}
 	for _, tc := range cases {
@@ -1162,6 +1222,7 @@ func TestTxNotificationsFlushIncludesAgentEvents(t *testing.T) {
 	workerID := uuid.New()
 	workerAgentID := uuid.New()
 	workerRuntimeID := uuid.New()
+	toolCallID := uuid.New()
 	tx.AddDaemonWork(machineID)
 	tx.AddDaemonRuntimeEnded(
 		runtimeID,
@@ -1173,6 +1234,8 @@ func TestTxNotificationsFlushIncludesAgentEvents(t *testing.T) {
 	tx.AddAgentEvent(agentA)
 	tx.AddAgentEvent(agentA)
 	tx.AddAgentEvent(agentB)
+	tx.AddToolCallUpdate(agentA, toolCallID, "awaiting_authorization")
+	tx.AddToolCallUpdate(agentA, toolCallID, "ready")
 	tx.AddWorkerControlCancel(workerID, workerAgentID, workerRuntimeID)
 
 	publisher := &capturingPublisher{}
@@ -1181,6 +1244,7 @@ func TestTxNotificationsFlushIncludesAgentEvents(t *testing.T) {
 	var sawDaemonWork, sawRuntimeEnded, sawProcessTermination bool
 	var sawWorkerControl bool
 	agentSeen := map[uuid.UUID]int{}
+	toolCallStates := []string{}
 	for _, intent := range publisher.intents {
 		switch v := intent.(type) {
 		case DaemonWorkCommitted:
@@ -1194,6 +1258,11 @@ func TestTxNotificationsFlushIncludesAgentEvents(t *testing.T) {
 			}
 		case AgentEventCommitted:
 			agentSeen[v.AgentID]++
+		case ToolCallUpdatedCommitted:
+			if v.AgentID != agentA || v.ToolCallID != toolCallID {
+				t.Fatalf("tool call update = %+v, want agent/tool call", v)
+			}
+			toolCallStates = append(toolCallStates, v.State)
 		case WorkerControlCommitted:
 			sawWorkerControl = true
 			if v.WorkerProcessID != workerID ||
@@ -1216,6 +1285,9 @@ func TestTxNotificationsFlushIncludesAgentEvents(t *testing.T) {
 	}
 	if agentSeen[agentA] != 1 || agentSeen[agentB] != 1 {
 		t.Fatalf("agent dedup failed: %+v", agentSeen)
+	}
+	if !slices.Equal(toolCallStates, []string{"awaiting_authorization", "ready"}) {
+		t.Fatalf("tool call states = %v, want both transitions in order", toolCallStates)
 	}
 }
 

@@ -82,6 +82,7 @@ func main() {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     redisBus,
 			AgentEventWakeups: redisBus,
+			ToolCallUpdates:   redisBus,
 			WorkerControls:    redisBus,
 		},
 		presenceStore,

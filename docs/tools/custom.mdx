@@ -74,7 +74,7 @@ curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/tool-calls?state=ready&
 `ready` means the permission check has passed and the call is waiting for your result. A custom call using `always_ask` remains in `awaiting_permission` until someone responds to its [interaction](/events/interactions). After you submit a result, it moves to `completed`.
 
 <Tip>
-To avoid polling, watch the agent's [event stream](/events/streaming) for new tool calls and query for calls in `ready` state. That way your streaming worker can react the moment a call appears.
+To avoid continuous polling, connect to the agent's [event stream](/events/streaming), then query `GET /tool-calls?state=ready&type=custom` for already-ready calls and watch for future `tool_call_update` frames whose `state` is `ready`. Repeat the query after reconnecting because lifecycle updates are not replayed.
 </Tip>
 
 ## Submit the result
