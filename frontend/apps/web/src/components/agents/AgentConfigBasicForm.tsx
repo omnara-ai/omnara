@@ -6,8 +6,8 @@ import {
   type BasicMachineSource,
   type BasicMcpServer,
   isBasicConfigComplete,
-  serializeBasicConfig,
-} from '@/components/agents/agentConfigBasicSerialization'
+} from '@/components/agents/agentConfigBasic'
+import { applyBasicConfig } from '@/components/agents/agentConfigBasicYaml'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import {
@@ -43,16 +43,23 @@ export function AgentConfigBasicForm({
   orgId,
   projectId,
   initialConfig,
+  baselineSource = '',
   onYamlChange,
 }: {
   orgId: string
   projectId: string
   initialConfig?: BasicConfig
-  onYamlChange: (yaml: string) => void
+  /** YAML source the initial config came from; edits are applied onto it so
+   *  comments and formatting outside the changed fields survive. */
+  baselineSource?: string
+  /** Reports the draft's YAML on every change. `blocked` means the draft must
+   *  not be saved yet: it is incomplete or references unavailable resources. */
+  onYamlChange: (yaml: string, blocked: boolean) => void
 }) {
   const [draft, setDraft] = useState<BasicConfigDraft>(initialConfig ?? emptyDraft)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
+  const [modelUnavailable, setModelUnavailable] = useState(false)
   const toolCatalog = useToolCatalog()
   const { instruction, machineSources, mcpServers, modelName, providerConfig, skillIds, tools } =
     draft
@@ -67,21 +74,19 @@ export function AgentConfigBasicForm({
       mcpServers,
       skillIds,
     }
-    if (
+    const blocked =
       unavailableSkillIds.length > 0 ||
       unavailableSourceIds.length > 0 ||
+      modelUnavailable ||
       !isBasicConfigComplete(config)
-    ) {
-      onYamlChange('')
-      return
-    }
-
-    onYamlChange(serializeBasicConfig(config))
+    onYamlChange(applyBasicConfig(baselineSource, config), blocked)
   }, [
+    baselineSource,
     instruction,
     machineSources,
     mcpServers,
     modelName,
+    modelUnavailable,
     onYamlChange,
     providerConfig,
     skillIds,
@@ -117,6 +122,7 @@ export function AgentConfigBasicForm({
         projectId={projectId}
         value={{ providerConfig, modelName }}
         onChange={onModelChange}
+        onUnavailableChange={setModelUnavailable}
       />
       <AgentConfigMachineSourcesField
         orgId={orgId}

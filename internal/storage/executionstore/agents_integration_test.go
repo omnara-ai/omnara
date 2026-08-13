@@ -1013,6 +1013,111 @@ model:
 	}
 }
 
+func TestChangeAgentConfigExpectedCurrentConfigGuard(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 4, 29, 17, 0, 0, 0, time.UTC)
+	user := mustCreateProjectDeveloperUser(
+		t,
+		ctx,
+		store,
+		"agent-config-expected@example.com",
+		"Agent Config Expected")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-expected", "Expected Profile", `
+instruction: Original instruction.
+model:
+  provider_config: openai-prod
+  name: config-expected
+`, now)
+	launch, err := store.Execution().LaunchAgent(
+		ctx,
+		executionstore.LaunchAgentInput{
+			ProjectID:      testProjectID,
+			ProfileID:      profile.ID,
+			AgentConfigID:  profile.CurrentConfigID,
+			LaunchedBy:     userPrincipal(user.ID),
+			IdempotencyKey: "idem-config-expected-launch",
+		},
+	)
+	if err != nil {
+		t.Fatalf("launch with config: %v", err)
+	}
+	updatedYAML := `
+instruction: Updated instruction.
+model:
+  provider_config: openai-prod
+  name: config-expected
+`
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML, now.Add(2*time.Second))
+	updatedInput := executionstore.CreateAgentConfigInput{
+		ProjectID:               testProjectID,
+		Definition:              json.RawMessage(compiled.CanonicalJSON),
+		Source:                  updatedYAML,
+		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
+		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
+		CompilerVersion:         agentconfig.CompilerVersion,
+		EffectiveDefinitionHash: compiled.Hash,
+	}
+	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput:  updatedInput,
+		AgentID:                 launch.Agent.ID,
+		ExpectedCurrentConfigID: launch.Agent.CurrentConfigID,
+		ActorType:               identitystore.PrincipalTypeUser,
+		ActorID:                 user.ID,
+		Reason:                  "user_update",
+		IdempotencyKey:          "idem-config-expected-change",
+	})
+	if err != nil {
+		t.Fatalf("change config with matching expected id: %v", err)
+	}
+	staleYAML := `
+instruction: Stale editor instruction.
+model:
+  provider_config: openai-prod
+  name: config-expected
+`
+	staleCompiled := mustCompileAgentYAMLResolved(t, ctx, store, staleYAML, now.Add(4*time.Second))
+	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
+			ProjectID:               testProjectID,
+			Definition:              json.RawMessage(staleCompiled.CanonicalJSON),
+			Source:                  staleYAML,
+			ConfiguredModelID:       parseConfiguredModelID(t, staleCompiled),
+			CompiledDefinition:      json.RawMessage(staleCompiled.CanonicalJSON),
+			CompilerVersion:         agentconfig.CompilerVersion,
+			EffectiveDefinitionHash: staleCompiled.Hash,
+		},
+		AgentID:                 launch.Agent.ID,
+		ExpectedCurrentConfigID: launch.Agent.CurrentConfigID,
+		ActorType:               identitystore.PrincipalTypeUser,
+		ActorID:                 user.ID,
+		Reason:                  "user_update",
+		IdempotencyKey:          "idem-config-expected-stale",
+	}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("stale expected id should conflict, got %v", err)
+	}
+	replayed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput:  updatedInput,
+		AgentID:                 launch.Agent.ID,
+		ExpectedCurrentConfigID: launch.Agent.CurrentConfigID,
+		ActorType:               identitystore.PrincipalTypeUser,
+		ActorID:                 user.ID,
+		Reason:                  "user_update",
+		IdempotencyKey:          "idem-config-expected-change",
+	})
+	if err != nil {
+		t.Fatalf("replay with stale expected id should pass, since its config is already active: %v", err)
+	}
+	if replayed.AgentConfig.ID != change.AgentConfig.ID ||
+		replayed.ConfigChange.Event.ID != change.ConfigChange.Event.ID {
+		t.Fatalf("unexpected replayed change: original=%+v replay=%+v", change, replayed)
+	}
+}
+
 func TestCaptureAgentConfigForModelContextSeesEventsCommittedBeforeLock(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

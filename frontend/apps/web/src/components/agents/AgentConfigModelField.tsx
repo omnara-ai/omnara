@@ -31,11 +31,16 @@ export function AgentConfigModelField({
   projectId,
   value,
   onChange,
+  onUnavailableChange,
 }: {
   orgId: string
   projectId: string
   value: ModelSelection
   onChange: (selection: ModelSelection) => void
+  /** Reports whether the selected model no longer resolves to a granted model,
+   *  once the point lookup completes. The value is kept so an existing config
+   *  stays editable; callers surface the problem. */
+  onUnavailableChange?: (unavailable: boolean) => void
 }) {
   const search = useTypeaheadSearch()
   const grantsQuery = useProjectModelGrants(orgId, projectId, {
@@ -58,6 +63,10 @@ export function AgentConfigModelField({
     listedSelected ?? completeSelection.items.map((item) => item.model).find(matchesValue) ?? null
   const displayedModels =
     selected && !models.some((model) => model.id === selected.id) ? [selected, ...models] : models
+  const unavailable = lookupEnabled && completeSelection.isComplete && selected === null
+  useEffect(() => {
+    onUnavailableChange?.(unavailable)
+  }, [onUnavailableChange, unavailable])
 
   return (
     <Field>
@@ -86,6 +95,12 @@ export function AgentConfigModelField({
         }
         disabled={grantsQuery.isError || selectedQuery.isError}
       />
+      {unavailable && (
+        <p className="text-destructive text-sm">
+          The configured model “{value.modelName}” ({value.providerConfig}) is no longer available
+          to the project. Pick another model or grant it again.
+        </p>
+      )}
       {grantsQuery.isError && (
         <p className="text-destructive text-sm">
           Could not load granted models.{' '}

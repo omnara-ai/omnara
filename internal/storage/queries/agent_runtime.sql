@@ -1,18 +1,37 @@
 -- name: InsertAgent :one
-INSERT INTO agents(
-    org_id, project_id, state, name, agent_profile_id, current_config_id,
-    idempotency_key, created_at, updated_at
+-- @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
+-- The agent's current config keeps pointing at its model even after a soft delete.
+WITH inserted AS (
+    INSERT INTO agents(
+        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        idempotency_key, created_at, updated_at
+    )
+    VALUES (
+        sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
+        sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
+        transaction_timestamp(), transaction_timestamp()
+    )
+    ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+    RETURNING id, org_id, project_id, state, name,
+              agent_profile_id, current_config_id, integration_target_id,
+              idempotency_key, next_event_sequence, created_at, updated_at, archived_at
 )
-VALUES (
-    sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
-    sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
-    transaction_timestamp(), transaction_timestamp()
-)
-ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
-RETURNING id, org_id, project_id, state, name,
-          agent_profile_id, current_config_id, integration_target_id,
-          coalesce(idempotency_key, '') AS idempotency_key,
-          next_event_sequence, created_at, updated_at, archived_at;
+SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
+       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       coalesce(agent.idempotency_key, '') AS idempotency_key,
+       agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
+       coalesce(configured_model.name, '') AS model_name,
+       coalesce(model_provider_config.name, '') AS model_provider_config_name
+FROM inserted agent
+LEFT JOIN agent_configs agent_config
+  ON agent_config.project_id = agent.project_id
+ AND agent_config.id = agent.current_config_id
+LEFT JOIN configured_models configured_model
+  ON configured_model.org_id = agent.org_id
+ AND configured_model.id = agent_config.configured_model_id
+LEFT JOIN model_provider_configs model_provider_config
+  ON model_provider_config.org_id = configured_model.org_id
+ AND model_provider_config.id = configured_model.model_provider_config_id;
 
 -- name: LockProjectAgentLifecycleShared :exec
 -- Agent creation takes the shared side: creates never conflict with each
@@ -31,13 +50,26 @@ SELECT pg_advisory_xact_lock(
 );
 
 -- name: GetAgentByIdempotencyKey :one
-SELECT id, org_id, project_id, state, name,
-       agent_profile_id, current_config_id, integration_target_id,
-       coalesce(idempotency_key, '') AS idempotency_key,
-       next_event_sequence, created_at, updated_at, archived_at
-FROM agents
-WHERE project_id = sqlc.arg(project_id)
-  AND idempotency_key = sqlc.arg(idempotency_key)::text;
+-- @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
+-- The agent's current config keeps pointing at its model even after a soft delete.
+SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
+       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       coalesce(agent.idempotency_key, '') AS idempotency_key,
+       agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
+       coalesce(configured_model.name, '') AS model_name,
+       coalesce(model_provider_config.name, '') AS model_provider_config_name
+FROM agents agent
+LEFT JOIN agent_configs agent_config
+  ON agent_config.project_id = agent.project_id
+ AND agent_config.id = agent.current_config_id
+LEFT JOIN configured_models configured_model
+  ON configured_model.org_id = agent.org_id
+ AND configured_model.id = agent_config.configured_model_id
+LEFT JOIN model_provider_configs model_provider_config
+  ON model_provider_config.org_id = configured_model.org_id
+ AND model_provider_config.id = configured_model.model_provider_config_id
+WHERE agent.project_id = sqlc.arg(project_id)
+  AND agent.idempotency_key = sqlc.arg(idempotency_key)::text;
 
 -- name: GetAgent :one
 SELECT id, org_id, project_id, state, name,

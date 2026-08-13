@@ -1,14 +1,14 @@
 import { useAgentConfig, useUpdateAgentConfig } from '@omnara/react'
-import { type Agent, ApiError } from '@omnara/sdk'
+import { type Agent, type AgentConfig, ApiError } from '@omnara/sdk'
 import { type SyntheticEvent, useCallback, useEffect, useReducer, useState } from 'react'
 
-import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicDeserialization'
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
-import { serializeBasicConfig } from '@/components/agents/agentConfigBasicSerialization'
+import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicYaml'
 import {
   type AgentConfigMode,
   agentConfigModeReducer,
   initialAgentConfigModeState,
+  yamlDiverged,
 } from '@/components/agents/agentConfigModeMachine'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
@@ -39,15 +39,40 @@ export function AgentConfigPanel({
   const configQuery = useAgentConfig(orgId, projectId, agent.current_config_id)
   const [resetNonce, setResetNonce] = useState(0)
   const [preferredMode, setPreferredMode] = useState<AgentConfigMode>('builder')
+  // Snapshot the config being edited so a background refetch (or another
+  // session's save changing current_config_id) can't remount the editor and
+  // wipe the draft; the save is guarded by expected_current_config_id instead.
+  const [snapshot, setSnapshot] = useState<AgentConfig | null>(null)
+  if (snapshot === null && configQuery.data !== undefined) {
+    setSnapshot(configQuery.data)
+  }
 
   return (
     <div className="flex min-h-full flex-col gap-4">
-      {configQuery.isPending ? (
+      {snapshot !== null ? (
+        <AgentConfigPanelEditor
+          key={String(resetNonce)}
+          orgId={orgId}
+          projectId={projectId}
+          agentId={agent.id}
+          configId={snapshot.id}
+          source={snapshot.source ?? ''}
+          canManage={canManage}
+          preferredMode={preferredMode}
+          onModeChange={setPreferredMode}
+          onDirtyChange={onDirtyChange}
+          onDiscard={() => {
+            setSnapshot(configQuery.data ?? snapshot)
+            setResetNonce((nonce) => nonce + 1)
+          }}
+          onClose={onClose}
+        />
+      ) : configQuery.isPending ? (
         <>
           <h2 className="text-lg font-semibold tracking-tight">Agent configuration</h2>
           <Spinner className="mx-auto my-8" />
         </>
-      ) : configQuery.isError ? (
+      ) : (
         <>
           <h2 className="text-lg font-semibold tracking-tight">Agent configuration</h2>
           <div className="flex items-center gap-3">
@@ -68,22 +93,6 @@ export function AgentConfigPanel({
             </Button>
           </div>
         </>
-      ) : (
-        <AgentConfigPanelEditor
-          key={`${configQuery.data.id}:${String(resetNonce)}`}
-          orgId={orgId}
-          projectId={projectId}
-          agentId={agent.id}
-          source={configQuery.data.source ?? ''}
-          canManage={canManage}
-          preferredMode={preferredMode}
-          onModeChange={setPreferredMode}
-          onDirtyChange={onDirtyChange}
-          onDiscard={() => {
-            setResetNonce((nonce) => nonce + 1)
-          }}
-          onClose={onClose}
-        />
       )}
     </div>
   )
@@ -93,6 +102,7 @@ function AgentConfigPanelEditor({
   orgId,
   projectId,
   agentId,
+  configId,
   source,
   canManage,
   preferredMode,
@@ -104,6 +114,9 @@ function AgentConfigPanelEditor({
   orgId: string
   projectId: string
   agentId: string
+  /** Config the edited source came from; the save is conditional on the agent
+   *  still running it. */
+  configId: string
   source: string
   canManage: boolean
   preferredMode: AgentConfigMode
@@ -114,26 +127,28 @@ function AgentConfigPanelEditor({
 }) {
   const updateConfig = useUpdateAgentConfig(orgId, projectId, agentId)
   const [initialBuilderConfig] = useState(() => (canManage ? deserializeBasicConfig(source) : null))
-  const baselineYaml = initialBuilderConfig ? serializeBasicConfig(initialBuilderConfig) : source
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
-    initialAgentConfigModeState(initialBuilderConfig ? preferredMode : 'yaml', baselineYaml),
+    initialAgentConfigModeState(initialBuilderConfig ? preferredMode : 'yaml', source),
   )
-  const [builderIncomplete, setBuilderIncomplete] = useState(false)
+  const [builderBlocked, setBuilderBlocked] = useState(false)
   const [error, setError] = useState('')
 
   // Stable identity: the builder's serialize effect depends on this callback.
-  // An empty string means the builder's draft is incomplete; keep the last
-  // complete YAML in the buffers so the YAML tab isn't blanked.
-  const handleBuilderYamlChange = useCallback((value: string) => {
-    setBuilderIncomplete(value === '')
-    if (value !== '') dispatchMode({ type: 'builder-yaml-changed', yaml: value })
+  // Blocked drafts (incomplete or referencing unavailable resources) still
+  // update the buffers, so they count as dirty and the YAML tab mirrors them.
+  const handleBuilderYamlChange = useCallback((value: string, blocked: boolean) => {
+    setBuilderBlocked(blocked)
+    dispatchMode({ type: 'builder-yaml-changed', yaml: value })
   }, [])
 
   const showBuilder = mode.mode === 'builder'
   const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
-  const dirty = yaml !== source && yaml !== baselineYaml
-  const saveBlocked = yaml.trim() === '' || (showBuilder && builderIncomplete)
+  const dirty = yaml !== source
+  // A blocked builder draft also blocks the YAML tab while it still mirrors
+  // the builder; hand-edited YAML (diverged) saves on its own merits.
+  const saveBlocked =
+    yaml.trim() === '' || (builderBlocked && (showBuilder || !yamlDiverged(mode)))
 
   useEffect(() => {
     onModeChange(mode.mode)
@@ -147,9 +162,19 @@ function AgentConfigPanelEditor({
     event.preventDefault()
     setError('')
     try {
-      await updateConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
+      await updateConfig.mutateAsync({
+        source: yaml,
+        source_format: 'yaml',
+        expected_current_config_id: configId,
+      })
       onClose()
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setError(
+          'The agent’s configuration changed while you were editing. Discard your changes to load the latest version, then reapply them.',
+        )
+        return
+      }
       setError(err instanceof ApiError ? err.message : 'Could not update the agent config')
     }
   }
@@ -184,6 +209,7 @@ function AgentConfigPanelEditor({
                 orgId={orgId}
                 projectId={projectId}
                 initialConfig={initialBuilderConfig}
+                baselineSource={source}
                 onYamlChange={handleBuilderYamlChange}
               />
             </div>

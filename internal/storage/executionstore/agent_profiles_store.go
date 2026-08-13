@@ -220,7 +220,14 @@ func (s *Store) RenameAgentProfile(
 	if input.Name == "" {
 		return AgentProfileRecord{}, errors.New("name is required")
 	}
-	rows, err := s.q.RenameAgentProfile(
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return AgentProfileRecord{}, fmt.Errorf("begin rename agent profile: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	qtx := s.q.WithTx(tx)
+	rows, err := qtx.RenameAgentProfile(
 		ctx,
 		dbsqlc.RenameAgentProfileParams{
 			ProjectID: input.ProjectID,
@@ -243,7 +250,19 @@ func (s *Store) RenameAgentProfile(
 			storeerr.ErrNotFound,
 		)
 	}
-	return s.GetAgentProfile(ctx, input.ProjectID, input.ProfileID)
+	record, err := loadAgentProfileTx(ctx, qtx, input.ProjectID, input.ProfileID)
+	if err != nil {
+		return AgentProfileRecord{}, err
+	}
+	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, record.CurrentConfigID)
+	if err != nil {
+		return AgentProfileRecord{}, err
+	}
+	record.CurrentConfig = config
+	if err := tx.Commit(ctx); err != nil {
+		return AgentProfileRecord{}, fmt.Errorf("commit rename agent profile: %w", err)
+	}
+	return record, nil
 }
 
 func (s *Store) GetAgentProfile(ctx context.Context, projectID, id ID) (AgentProfileRecord, error) {

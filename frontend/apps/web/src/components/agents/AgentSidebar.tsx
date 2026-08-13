@@ -143,7 +143,11 @@ function AgentMcpGroup({ connections }: { connections: AgentMcpConnection[] }) {
               >
                 <span className="truncate">{connection.server_key}</span>
                 <Badge variant="outline">
-                  {connection.state === 'ready' ? 'Connected' : 'Disconnected'}
+                  {connection.state === 'ready'
+                    ? 'Connected'
+                    : connection.state === 'initializing'
+                      ? 'Connecting'
+                      : 'Disconnected'}
                 </Badge>
               </SidebarMenuItem>
             ))}

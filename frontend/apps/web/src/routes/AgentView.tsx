@@ -113,6 +113,8 @@ export function AgentView() {
           </div>
         </header>
 
+        {/* Interactions and the composer stay mounted while the config panel
+            is open so blocking prompts remain visible and answerable. */}
         {configOpen ? (
           <main className="min-h-0 flex-1 overflow-y-auto">
             <AgentConfigPanel
@@ -125,39 +127,35 @@ export function AgentView() {
             />
           </main>
         ) : (
-          <>
-            <main className="min-h-0 flex-1">
-              <AgentConversation
-                chat={chat}
-                currentActorId={currentActorId}
-                orgID={activeOrg.id}
-                projectID={projectId}
-              />
-            </main>
-
-            <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3">
-              <AgentInteractions
-                interactions={interactions.data?.data ?? []}
-                pending={resolveInteraction.isPending}
-                error={resolveInteraction.error}
-                loadError={
-                  interactions.error != null
-                    ? errorMessage(interactions.error, 'Unknown error')
-                    : null
-                }
-                onResolve={resolve}
-                canOperate={canOperate}
-              />
-              <AgentComposer
-                chat={chat}
-                cancelPending={cancelAgent.isPending}
-                cancelError={cancelAgent.error}
-                onCancel={() => cancelAgent.mutateAsync()}
-                canOperate={canOperate}
-              />
-            </div>
-          </>
+          <main className="min-h-0 flex-1">
+            <AgentConversation
+              chat={chat}
+              currentActorId={currentActorId}
+              orgID={activeOrg.id}
+              projectID={projectId}
+            />
+          </main>
         )}
+
+        <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3">
+          <AgentInteractions
+            interactions={interactions.data?.data ?? []}
+            pending={resolveInteraction.isPending}
+            error={resolveInteraction.error}
+            loadError={
+              interactions.error != null ? errorMessage(interactions.error, 'Unknown error') : null
+            }
+            onResolve={resolve}
+            canOperate={canOperate}
+          />
+          <AgentComposer
+            chat={chat}
+            cancelPending={cancelAgent.isPending}
+            cancelError={cancelAgent.error}
+            onCancel={() => cancelAgent.mutateAsync()}
+            canOperate={canOperate}
+          />
+        </div>
       </div>
       <AgentSidebar
         orgId={activeOrg.id}

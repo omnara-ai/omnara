@@ -2907,7 +2907,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateAgentConfigRequest'
+              $ref: '#/components/schemas/UpdateAgentConfigRequest'
       responses:
         '200':
           description: Agent config updated.
@@ -7456,6 +7456,24 @@ components:
         source_format:
           type: string
           enum: [yaml, json]
+    UpdateAgentConfigRequest:
+      description: >-
+        Replaces a live agent's config. expected_current_config_id makes the
+        change conditional on the agent still running that config, so
+        concurrent editors get a conflict instead of silently overwriting each
+        other.
+      type: object
+      additionalProperties: false
+      required: [source, source_format]
+      properties:
+        source:
+          type: string
+          minLength: 1
+        source_format:
+          type: string
+          enum: [yaml, json]
+        expected_current_config_id:
+          $ref: '#/components/schemas/AgentConfigID'
     ToolPermissionSelection:
       type: object
       additionalProperties: false
@@ -7607,7 +7625,8 @@ components:
     UpdateAgentProfileRequest:
       description: >-
         Updates exactly one of the profile name or the current config. A config
-        update must supply both config and expected_current_config_id.
+        update must supply both config and expected_current_config_id. Renames
+        do not accept an Idempotency-Key: they have no replay ledger.
       type: object
       additionalProperties: false
       properties:

@@ -1,108 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicDeserialization'
+import { applyBasicConfig, deserializeBasicConfig } from '@/components/agents/agentConfigBasicYaml'
 import {
-  type BasicConfig,
-  serializeBasicConfig,
-} from '@/components/agents/agentConfigBasicSerialization'
-import { emptyProviderOptions } from '@/components/machines/machineOverrides'
-
-const fullConfig: BasicConfig = {
-  instruction: 'You are a research assistant.\n\nCite sources.',
-  providerConfig: 'anthropic',
-  modelName: 'claude-sonnet-5',
-  machineSources: [
-    {
-      id: 'source-1',
-      kind: 'pool',
-      name: 'default-pool',
-      provider: '',
-      managementKind: '',
-      defaultCwd: '/workspace',
-      initialNumMachines: '2',
-      maxMachines: '5',
-      machineCpu: '4',
-      machineMemoryMb: '8192',
-      providerOptions: emptyProviderOptions,
-      envRows: [{ id: 'env-1', key: 'MODE', value: 'ci' }],
-      secretEnvRows: [{ id: 'secret-1', key: 'TOKEN', secretId: 'sec_123' }],
-    },
-    {
-      id: 'source-2',
-      kind: 'machine',
-      name: 'build-box',
-      provider: '',
-      managementKind: '',
-      defaultCwd: '',
-      initialNumMachines: '',
-      maxMachines: '',
-      machineCpu: '',
-      machineMemoryMb: '',
-      providerOptions: emptyProviderOptions,
-      envRows: [],
-      secretEnvRows: [],
-    },
-  ],
-  tools: [
-    { name: 'shell', permission: { mode: 'always_ask', parameters: {} } },
-    { name: 'browser', permission: { mode: 'allowlist', parameters: { hosts: ['example.com'] } } },
-  ],
-  mcpServers: [
-    {
-      id: 'mcp-1',
-      name: 'search',
-      url: 'https://mcp.example.com',
-      permission: { mode: 'always_allow', parameters: {} },
-      defaultEnabled: true,
-      authType: 'none',
-      secretId: '',
-      service: '',
-      region: '',
-    },
-    {
-      id: 'mcp-2',
-      name: 'aws-docs',
-      url: 'https://mcp.aws.example.com',
-      permission: { mode: 'always_ask', parameters: {} },
-      defaultEnabled: false,
-      authType: 'sigv4',
-      secretId: 'sec_456',
-      service: 'execute-api',
-      region: 'us-east-1',
-    },
-    {
-      id: 'mcp-3',
-      name: 'issues',
-      url: 'https://mcp.issues.example.com',
-      permission: { mode: 'always_ask', parameters: {} },
-      defaultEnabled: true,
-      authType: 'bearer',
-      secretId: 'sec_789',
-      service: '',
-      region: '',
-    },
-  ],
-  skillIds: ['skl_1', 'skl_2'],
-}
-
-const minimalYaml = `instruction: |
-  Do the thing.
-model:
-  provider_config: "anthropic"
-  name: "claude-sonnet-5"
-`
-
-function mustDeserialize(source: string): BasicConfig {
-  const config = deserializeBasicConfig(source)
-  if (config == null) throw new Error('expected the config to deserialize')
-  return config
-}
+  fullConfig,
+  minimalYaml,
+  mustDeserialize,
+} from '@/components/agents/agentConfigBasicYaml.fixtures'
 
 describe('deserializeBasicConfig', () => {
   it('round-trips a full builder-authored config', () => {
-    const source = serializeBasicConfig(fullConfig)
+    const source = applyBasicConfig('', fullConfig)
     const config = mustDeserialize(source)
-    expect(serializeBasicConfig(config)).toBe(source)
+    expect(applyBasicConfig(source, config)).toBe(source)
     expect(config).toMatchObject({
       instruction: fullConfig.instruction,
       providerConfig: 'anthropic',
@@ -137,20 +46,29 @@ describe('deserializeBasicConfig', () => {
     })
   })
 
-  it('round-trips a minimal config', () => {
-    expect(serializeBasicConfig(mustDeserialize(minimalYaml))).toBe(minimalYaml)
-  })
-
   it('accepts equivalent YAML with different formatting and comments', () => {
     const reformatted = `# hand-written
 instruction: Do the thing.
 model: { provider_config: 'anthropic', name: 'claude-sonnet-5' }
 `
-    expect(serializeBasicConfig(mustDeserialize(reformatted))).toBe(minimalYaml)
+    const config = mustDeserialize(reformatted)
+    expect(config).toMatchObject({
+      instruction: 'Do the thing.',
+      providerConfig: 'anthropic',
+      modelName: 'claude-sonnet-5',
+    })
   })
 
-  it('accepts and drops a v1 version marker', () => {
-    expect(serializeBasicConfig(mustDeserialize(`${minimalYaml}version: v1\n`))).toBe(minimalYaml)
+  it('accepts a v1 version marker', () => {
+    expect(mustDeserialize(`${minimalYaml}version: v1\n`).instruction).toBe('Do the thing.')
+    expect(deserializeBasicConfig(`${minimalYaml}version: v2\n`)).toBeNull()
+  })
+
+  it('accepts unknown fields outside builder-owned entries', () => {
+    expect(deserializeBasicConfig(`${minimalYaml}unknown_field: 1\n`)).not.toBeNull()
+    expect(
+      deserializeBasicConfig(minimalYaml.replace('model:', 'model:\n  extra: true')),
+    ).not.toBeNull()
   })
 
   it('accepts explicitly empty permission parameters', () => {
@@ -214,10 +132,49 @@ machine_sources:
     expect(deserializeBasicConfig(source)).toBeNull()
   })
 
-  it('rejects unknown fields', () => {
-    expect(deserializeBasicConfig(`${minimalYaml}unknown_field: 1\n`)).toBeNull()
+  it('rejects unknown fields inside builder-owned entries', () => {
     expect(
-      deserializeBasicConfig(minimalYaml.replace('model:', 'model:\n  extra: true')),
+      deserializeBasicConfig(`${minimalYaml}tools:
+  shell:
+    custom_field: 1
+    permission:
+      mode: always_ask
+`),
+    ).toBeNull()
+    expect(
+      deserializeBasicConfig(`${minimalYaml}tools:
+  shell:
+    permission:
+      mode: always_ask
+      extra: true
+`),
+    ).toBeNull()
+    expect(
+      deserializeBasicConfig(`${minimalYaml}mcp:
+  search:
+    url: https://mcp.example.com
+    retries: 3
+    permission:
+      mode: always_ask
+`),
+    ).toBeNull()
+    expect(
+      deserializeBasicConfig(`${minimalYaml}machine_sources:
+  - machine_name: build-box
+    zone: us-east-1
+`),
+    ).toBeNull()
+    expect(
+      deserializeBasicConfig(`${minimalYaml}machine_sources:
+  - machine_name: build-box
+    machine_pool_name: default-pool
+`),
+    ).toBeNull()
+    expect(
+      deserializeBasicConfig(`${minimalYaml}machine_sources:
+  - machine_name: build-box
+    initial_num_machines: 2
+`),
     ).toBeNull()
   })
 
@@ -235,7 +192,7 @@ machine_sources:
         providerOptions: { resource: 'base-image', location: 'us', startupScript: 'echo hi' },
       },
     ])
-    expect(serializeBasicConfig(config)).toBe(source)
+    expect(applyBasicConfig(source, config)).toBe(source)
   })
 
   it('rejects provider options overlays no provider accounts for', () => {

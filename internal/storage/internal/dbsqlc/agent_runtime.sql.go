@@ -110,13 +110,24 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (GetAgentRow
 }
 
 const getAgentByIdempotencyKey = `-- name: GetAgentByIdempotencyKey :one
-SELECT id, org_id, project_id, state, name,
-       agent_profile_id, current_config_id, integration_target_id,
-       coalesce(idempotency_key, '') AS idempotency_key,
-       next_event_sequence, created_at, updated_at, archived_at
-FROM agents
-WHERE project_id = $1
-  AND idempotency_key = $2::text
+SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
+       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       coalesce(agent.idempotency_key, '') AS idempotency_key,
+       agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
+       coalesce(configured_model.name, '') AS model_name,
+       coalesce(model_provider_config.name, '') AS model_provider_config_name
+FROM agents agent
+LEFT JOIN agent_configs agent_config
+  ON agent_config.project_id = agent.project_id
+ AND agent_config.id = agent.current_config_id
+LEFT JOIN configured_models configured_model
+  ON configured_model.org_id = agent.org_id
+ AND configured_model.id = agent_config.configured_model_id
+LEFT JOIN model_provider_configs model_provider_config
+  ON model_provider_config.org_id = configured_model.org_id
+ AND model_provider_config.id = configured_model.model_provider_config_id
+WHERE agent.project_id = $1
+  AND agent.idempotency_key = $2::text
 `
 
 type GetAgentByIdempotencyKeyParams struct {
@@ -125,21 +136,25 @@ type GetAgentByIdempotencyKeyParams struct {
 }
 
 type GetAgentByIdempotencyKeyRow struct {
-	ID                  uuid.UUID
-	OrgID               uuid.UUID
-	ProjectID           uuid.UUID
-	State               string
-	Name                string
-	AgentProfileID      *uuid.UUID
-	CurrentConfigID     uuid.UUID
-	IntegrationTargetID *uuid.UUID
-	IdempotencyKey      string
-	NextEventSequence   int64
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	ArchivedAt          *time.Time
+	ID                      uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
+	State                   string
+	Name                    string
+	AgentProfileID          *uuid.UUID
+	CurrentConfigID         uuid.UUID
+	IntegrationTargetID     *uuid.UUID
+	IdempotencyKey          string
+	NextEventSequence       int64
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	ArchivedAt              *time.Time
+	ModelName               string
+	ModelProviderConfigName string
 }
 
+// @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
+// The agent's current config keeps pointing at its model even after a soft delete.
 func (q *Queries) GetAgentByIdempotencyKey(ctx context.Context, arg GetAgentByIdempotencyKeyParams) (GetAgentByIdempotencyKeyRow, error) {
 	row := q.db.QueryRow(ctx, getAgentByIdempotencyKey, arg.ProjectID, arg.IdempotencyKey)
 	var i GetAgentByIdempotencyKeyRow
@@ -157,6 +172,8 @@ func (q *Queries) GetAgentByIdempotencyKey(ctx context.Context, arg GetAgentById
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.ModelName,
+		&i.ModelProviderConfigName,
 	)
 	return i, err
 }
@@ -230,20 +247,37 @@ func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectPa
 }
 
 const insertAgent = `-- name: InsertAgent :one
-INSERT INTO agents(
-    org_id, project_id, state, name, agent_profile_id, current_config_id,
-    idempotency_key, created_at, updated_at
+WITH inserted AS (
+    INSERT INTO agents(
+        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        idempotency_key, created_at, updated_at
+    )
+    VALUES (
+        $1, $2, 'active', $3,
+        $4, $5, $6,
+        transaction_timestamp(), transaction_timestamp()
+    )
+    ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+    RETURNING id, org_id, project_id, state, name,
+              agent_profile_id, current_config_id, integration_target_id,
+              idempotency_key, next_event_sequence, created_at, updated_at, archived_at
 )
-VALUES (
-    $1, $2, 'active', $3,
-    $4, $5, $6,
-    transaction_timestamp(), transaction_timestamp()
-)
-ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
-RETURNING id, org_id, project_id, state, name,
-          agent_profile_id, current_config_id, integration_target_id,
-          coalesce(idempotency_key, '') AS idempotency_key,
-          next_event_sequence, created_at, updated_at, archived_at
+SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
+       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       coalesce(agent.idempotency_key, '') AS idempotency_key,
+       agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
+       coalesce(configured_model.name, '') AS model_name,
+       coalesce(model_provider_config.name, '') AS model_provider_config_name
+FROM inserted agent
+LEFT JOIN agent_configs agent_config
+  ON agent_config.project_id = agent.project_id
+ AND agent_config.id = agent.current_config_id
+LEFT JOIN configured_models configured_model
+  ON configured_model.org_id = agent.org_id
+ AND configured_model.id = agent_config.configured_model_id
+LEFT JOIN model_provider_configs model_provider_config
+  ON model_provider_config.org_id = configured_model.org_id
+ AND model_provider_config.id = configured_model.model_provider_config_id
 `
 
 type InsertAgentParams struct {
@@ -256,21 +290,25 @@ type InsertAgentParams struct {
 }
 
 type InsertAgentRow struct {
-	ID                  uuid.UUID
-	OrgID               uuid.UUID
-	ProjectID           uuid.UUID
-	State               string
-	Name                string
-	AgentProfileID      *uuid.UUID
-	CurrentConfigID     uuid.UUID
-	IntegrationTargetID *uuid.UUID
-	IdempotencyKey      string
-	NextEventSequence   int64
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	ArchivedAt          *time.Time
+	ID                      uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
+	State                   string
+	Name                    string
+	AgentProfileID          *uuid.UUID
+	CurrentConfigID         uuid.UUID
+	IntegrationTargetID     *uuid.UUID
+	IdempotencyKey          string
+	NextEventSequence       int64
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	ArchivedAt              *time.Time
+	ModelName               string
+	ModelProviderConfigName string
 }
 
+// @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
+// The agent's current config keeps pointing at its model even after a soft delete.
 func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (InsertAgentRow, error) {
 	row := q.db.QueryRow(ctx, insertAgent,
 		arg.OrgID,
@@ -295,6 +333,8 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Inser
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.ModelName,
+		&i.ModelProviderConfigName,
 	)
 	return i, err
 }

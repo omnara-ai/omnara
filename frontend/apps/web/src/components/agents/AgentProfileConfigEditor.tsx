@@ -2,13 +2,13 @@ import { useCreateAgentConfig, useUpdateAgentProfile } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { type SyntheticEvent, useCallback, useEffect, useReducer, useState } from 'react'
 
-import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicDeserialization'
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
-import { serializeBasicConfig } from '@/components/agents/agentConfigBasicSerialization'
+import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicYaml'
 import {
   type AgentConfigMode,
   agentConfigModeReducer,
   initialAgentConfigModeState,
+  yamlDiverged,
 } from '@/components/agents/agentConfigModeMachine'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
@@ -44,29 +44,29 @@ export function AgentProfileConfigEditor({
   const updateProfile = useUpdateAgentProfile(orgId, projectId)
   const source = profile.current_config.source ?? ''
   const [initialBuilderConfig] = useState(() => (canManage ? deserializeBasicConfig(source) : null))
-  // The builder emits normalized YAML, which may differ from an equivalent
-  // hand-formatted source; treat that normal form as clean too.
-  const baselineYaml = initialBuilderConfig ? serializeBasicConfig(initialBuilderConfig) : source
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
-    initialAgentConfigModeState(initialBuilderConfig ? preferredMode : 'yaml', baselineYaml),
+    initialAgentConfigModeState(initialBuilderConfig ? preferredMode : 'yaml', source),
   )
-  const [builderIncomplete, setBuilderIncomplete] = useState(false)
+  const [builderBlocked, setBuilderBlocked] = useState(false)
   const [error, setError] = useState('')
   const pending = createConfig.isPending || updateProfile.isPending
 
   // Stable identity: the builder's serialize effect depends on this callback.
-  // An empty string means the builder's draft is incomplete; keep the last
-  // complete YAML in the buffers so the YAML tab isn't blanked.
-  const handleBuilderYamlChange = useCallback((value: string) => {
-    setBuilderIncomplete(value === '')
-    if (value !== '') dispatchMode({ type: 'builder-yaml-changed', yaml: value })
+  // Blocked drafts (incomplete or referencing unavailable resources) still
+  // update the buffers, so they count as dirty and the YAML tab mirrors them.
+  const handleBuilderYamlChange = useCallback((value: string, blocked: boolean) => {
+    setBuilderBlocked(blocked)
+    dispatchMode({ type: 'builder-yaml-changed', yaml: value })
   }, [])
 
   const showBuilder = mode.mode === 'builder'
   const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
-  const dirty = yaml !== source && yaml !== baselineYaml
-  const saveBlocked = yaml.trim() === '' || (showBuilder && builderIncomplete)
+  const dirty = yaml !== source
+  // A blocked builder draft also blocks the YAML tab while it still mirrors
+  // the builder; hand-edited YAML (diverged) saves on its own merits.
+  const saveBlocked =
+    yaml.trim() === '' || (builderBlocked && (showBuilder || !yamlDiverged(mode)))
 
   // Lets the page warn before launching an agent with unsaved edits.
   useEffect(() => {
@@ -118,6 +118,7 @@ export function AgentProfileConfigEditor({
                 orgId={orgId}
                 projectId={projectId}
                 initialConfig={initialBuilderConfig}
+                baselineSource={source}
                 onYamlChange={handleBuilderYamlChange}
               />
             </div>

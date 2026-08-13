@@ -7,7 +7,7 @@ import (
 )
 
 func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
-	return agentRecordFromSQLC(
+	record := agentRecordFromSQLC(
 		row.ID,
 		row.OrgID,
 		row.ProjectID,
@@ -22,10 +22,15 @@ func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
 		row.UpdatedAt,
 		row.ArchivedAt,
 	)
+	record.Model = AgentModelDisplay{
+		ProviderConfig: row.ModelProviderConfigName,
+		Name:           row.ModelName,
+	}
+	return record
 }
 
 func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) AgentRecord {
-	return agentRecordFromSQLC(
+	record := agentRecordFromSQLC(
 		row.ID,
 		row.OrgID,
 		row.ProjectID,
@@ -40,6 +45,11 @@ func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) Agen
 		row.UpdatedAt,
 		row.ArchivedAt,
 	)
+	record.Model = AgentModelDisplay{
+		ProviderConfig: row.ModelProviderConfigName,
+		Name:           row.ModelName,
+	}
+	return record
 }
 
 func agentRecordFromGetSQLC(row dbsqlc.GetAgentRow) AgentRecord {

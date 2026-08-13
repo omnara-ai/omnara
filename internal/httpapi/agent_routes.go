@@ -205,6 +205,12 @@ func (s strictOpenAPIServer) updateAgentProfile(
 			"provide either name or config with expected_current_config_id")
 	}
 	if hasName {
+		// Renames have no idempotency ledger, so accepting a key would promise
+		// replay semantics the operation cannot provide.
+		if request.Params.IdempotencyKey != nil && strings.TrimSpace(*request.Params.IdempotencyKey) != "" {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest,
+				"idempotency keys are not supported for profile renames")
+		}
 		name := strings.TrimSpace(*request.Body.Name)
 		if name == "" {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
@@ -852,6 +858,16 @@ func (s strictOpenAPIServer) updateAgentConfig(
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
+	expectedCurrentConfigID := storage.NilID
+	if request.Body.ExpectedCurrentConfigId != nil {
+		expectedCurrentConfigID, ok = parseOpenAPIPublicID(
+			publicid.KindAgentConfig,
+			*request.Body.ExpectedCurrentConfigId,
+		)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid expected_current_config_id")
+		}
+	}
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -867,11 +883,12 @@ func (s strictOpenAPIServer) updateAgentConfig(
 			CompilerVersion:         compiled.CompilerVersion,
 			EffectiveDefinitionHash: compiled.DefinitionHash,
 		},
-		AgentID:        agent.ID,
-		ActorType:      principal.Type,
-		ActorID:        principal.ID,
-		Reason:         "api",
-		IdempotencyKey: idempotencyKey,
+		AgentID:                 agent.ID,
+		ExpectedCurrentConfigID: expectedCurrentConfigID,
+		ActorType:               principal.Type,
+		ActorID:                 principal.ID,
+		Reason:                  "api",
+		IdempotencyKey:          idempotencyKey,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)

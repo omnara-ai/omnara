@@ -1,21 +1,16 @@
 import { Trash2Icon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
-import {
-  type BasicMachineSource,
-  type MachineSourceKind,
-  newMachineSource,
-} from '@/components/agents/agentConfigBasicSerialization'
+import type {
+  BasicMachineSource,
+  MachineSourceKind,
+} from '@/components/agents/agentConfigBasic'
 import {
   MachineSourceCombobox,
   PoolSourceCombobox,
 } from '@/components/agents/AgentConfigMachineSourceComboboxes'
 import { SourceOverridesSection } from '@/components/agents/AgentConfigMachineSourceOverrides'
-import {
-  emptyProviderOptions,
-  providerOptionsOverlay,
-} from '@/components/machines/machineOverrides'
-import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
+import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -26,11 +21,23 @@ import {
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
-function serializedOverlay(source: BasicMachineSource, provider: string, managementKind: string) {
-  if (!isMachinePoolProvider(provider)) return undefined
-  return providerOptionsOverlay(provider, source.providerOptions, managementKind === 'cluster')
+function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
+  return {
+    id: crypto.randomUUID(),
+    kind,
+    name: '',
+    provider: '',
+    managementKind: '',
+    defaultCwd: '',
+    initialNumMachines: '',
+    maxMachines: '',
+    machineCpu: '',
+    machineMemoryMb: '',
+    providerOptions: emptyProviderOptions,
+    envRows: [],
+    secretEnvRows: [],
+  }
 }
-
 
 export function AgentConfigMachineSourcesField({
   orgId,
@@ -128,7 +135,7 @@ export function AgentConfigMachineSourcesField({
                           provider: pool?.provider ?? '',
                           managementKind: pool?.management_kind ?? '',
                           machineCpu: '',
-                          machineMemoryGb: '',
+                          machineMemoryMb: '',
                           providerOptions: emptyProviderOptions,
                           envRows: [],
                           secretEnvRows: [],
@@ -144,21 +151,6 @@ export function AgentConfigMachineSourcesField({
                         ) {
                           return
                         }
-                        // Backfilling changes how the overlay serializes; skip
-                        // it when that would silently rewrite the loaded config
-                        // (e.g. drop resource keys once a pool turns out to be
-                        // cluster-managed).
-                        const current = serializedOverlay(
-                          source,
-                          source.provider,
-                          source.managementKind,
-                        )
-                        const resolved = serializedOverlay(
-                          source,
-                          pool.provider,
-                          pool.management_kind,
-                        )
-                        if (JSON.stringify(current) !== JSON.stringify(resolved)) return
                         updateSource(source.id, {
                           provider: pool.provider,
                           managementKind: pool.management_kind,
@@ -175,6 +167,16 @@ export function AgentConfigMachineSourcesField({
                       }}
                       onUnavailableChange={(unavailable) => {
                         reportAvailability(source.id, unavailable)
+                      }}
+                      onMachinesGranted={(names) => {
+                        const [first, ...rest] = names
+                        if (first === undefined) return
+                        onSourcesChange([
+                          ...sources.map((candidate) =>
+                            candidate.id === source.id ? { ...candidate, name: first } : candidate,
+                          ),
+                          ...rest.map((name) => ({ ...newMachineSource('machine'), name })),
+                        ])
                       }}
                     />
                   )}

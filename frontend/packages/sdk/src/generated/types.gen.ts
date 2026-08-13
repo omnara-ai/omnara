@@ -797,6 +797,15 @@ export type CreateAgentConfigRequest = {
     source_format: 'yaml' | 'json';
 };
 
+/**
+ * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
+ */
+export type UpdateAgentConfigRequest = {
+    source: string;
+    source_format: 'yaml' | 'json';
+    expected_current_config_id?: AgentConfigId;
+};
+
 export type ToolPermissionSelection = {
     mode: string;
     parameters: {
@@ -885,7 +894,7 @@ export type CreateAgentProfileRequest = {
 };
 
 /**
- * Updates exactly one of the profile name or the current config. A config update must supply both config and expected_current_config_id.
+ * Updates exactly one of the profile name or the current config. A config update must supply both config and expected_current_config_id. Renames do not accept an Idempotency-Key: they have no replay ledger.
  */
 export type UpdateAgentProfileRequest = {
     name?: string;
@@ -7491,7 +7500,7 @@ export type ArchiveAgentResponses = {
 export type ArchiveAgentResponse = ArchiveAgentResponses[keyof ArchiveAgentResponses];
 
 export type UpdateAgentConfigData = {
-    body: CreateAgentConfigRequest;
+    body: UpdateAgentConfigRequest;
     headers?: {
         /**
          * Idempotency key for replay-safe mutating requests.

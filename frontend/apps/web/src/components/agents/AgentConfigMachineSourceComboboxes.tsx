@@ -162,12 +162,16 @@ export function MachineSourceCombobox({
   value,
   onChange,
   onUnavailableChange,
+  onMachinesGranted,
 }: {
   orgId: string
   projectId: string
   value: string
   onChange: (name: string) => void
   onUnavailableChange?: (unavailable: boolean) => void
+  /** Receives every machine granted through the dialog, not just the first,
+   *  so the caller can add a source row per granted machine. */
+  onMachinesGranted?: (names: string[]) => void
 }) {
   const { project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
@@ -222,8 +226,13 @@ export function MachineSourceCombobox({
           orgId={orgId}
           projectId={projectId}
           onGranted={(granted) => {
-            const [first] = granted
-            if (first) onChange(first.display_name)
+            const names = granted.map((machine) => machine.display_name)
+            if (onMachinesGranted) {
+              onMachinesGranted(names)
+              return
+            }
+            const [first] = names
+            if (first !== undefined) onChange(first)
           }}
         />
       )}

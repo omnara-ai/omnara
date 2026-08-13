@@ -596,6 +596,15 @@ export const zCreateAgentConfigRequest = z.object({
     source_format: z.enum(['yaml', 'json'])
 });
 
+/**
+ * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
+ */
+export const zUpdateAgentConfigRequest = z.object({
+    source: z.string().min(1),
+    source_format: z.enum(['yaml', 'json']),
+    expected_current_config_id: zAgentConfigId.optional()
+});
+
 export const zToolPermissionSelection = z.object({
     mode: z.string(),
     parameters: z.record(z.string(), z.unknown())
@@ -665,7 +674,7 @@ export const zCreateAgentProfileRequest = z.object({
 });
 
 /**
- * Updates exactly one of the profile name or the current config. A config update must supply both config and expected_current_config_id.
+ * Updates exactly one of the profile name or the current config. A config update must supply both config and expected_current_config_id. Renames do not accept an Idempotency-Key: they have no replay ledger.
  */
 export const zUpdateAgentProfileRequest = z.object({
     name: z.string().optional(),

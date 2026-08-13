@@ -94,6 +94,13 @@ async function createProfile(page: Page, name: string, instruction: string) {
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
 }
 
+/** Active profile names are unique per project, so a retry must not reuse the
+ *  names a failed earlier attempt already claimed. */
+function uniqueName(base: string) {
+  const retry = test.info().retry
+  return retry === 0 ? base : `${base} (retry ${retry})`
+}
+
 async function typeInConfigEditor(page: Page, text: string) {
   const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
   await expect(editor).toBeVisible()
@@ -191,7 +198,8 @@ test('creates an agent from YAML', async ({ page }) => {
 
   await page.getByRole('button', { name: 'YAML' }).click()
 
-  await page.getByLabel('Name', { exact: true }).fill('YAML E2E Agent')
+  const agentName = uniqueName('YAML E2E Agent')
+  await page.getByLabel('Name', { exact: true }).fill(agentName)
   const yamlLines = [
     'instruction: Test agent creation from YAML.',
     `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
@@ -201,7 +209,7 @@ test('creates an agent from YAML', async ({ page }) => {
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
-  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText('YAML E2E Agent')
+  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText(agentName)
   expect(failures).toEqual([])
 })
 
@@ -210,7 +218,8 @@ test('creates an agent with the Builder', async ({ page }) => {
   await signIn(page, adminEmail, createAgentPath)
 
   await expect(page.getByRole('button', { name: 'Builder' })).toBeVisible()
-  await page.getByLabel('Name', { exact: true }).fill('Builder Agent')
+  const agentName = uniqueName('Builder Agent')
+  await page.getByLabel('Name', { exact: true }).fill(agentName)
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
   await selectConfiguredModel(page)
 
@@ -218,18 +227,15 @@ test('creates an agent with the Builder', async ({ page }) => {
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
-  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText('Builder Agent')
+  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText(agentName)
   expect(failures).toEqual([])
 })
 
 test('creates a profile without launching an agent', async ({ page }) => {
   const failures = installFailureTracking(page)
-  await createProfile(
-    page,
-    'Profile Only Agent',
-    'Save this config as a profile without launching.',
-  )
-  await expect(page.getByText('Profile Only Agent').first()).toBeVisible()
+  const profileName = uniqueName('Profile Only Agent')
+  await createProfile(page, profileName, 'Save this config as a profile without launching.')
+  await expect(page.getByText(profileName).first()).toBeVisible()
   expect(failures).toEqual([])
 })
 
@@ -303,7 +309,11 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
   page,
 }) => {
   const failures = installFailureTracking(page, [/^page: Canceled$/])
-  await createProfile(page, 'Draft Keeper Profile', 'Keep unsaved edits across tab switches.')
+  await createProfile(
+    page,
+    uniqueName('Draft Keeper Profile'),
+    'Keep unsaved edits across tab switches.',
+  )
 
   await page.getByRole('button', { name: 'YAML' }).click()
   await typeInConfigEditor(page, '# draft edit\n')
@@ -334,7 +344,11 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
 
 test('keeps the save pending across tab switches while the revision uploads', async ({ page }) => {
   const failures = installFailureTracking(page, [/^page: Canceled$/])
-  await createProfile(page, 'Pending Save Profile', 'Hold the save request while tabs switch.')
+  await createProfile(
+    page,
+    uniqueName('Pending Save Profile'),
+    'Hold the save request while tabs switch.',
+  )
 
   let releaseSave!: () => void
   const holdSave = new Promise<void>((resolve) => {
@@ -374,13 +388,18 @@ test('keeps the save pending across tab switches while the revision uploads', as
 
 test('renames a profile from its detail page', async ({ page }) => {
   const failures = installFailureTracking(page)
-  await createProfile(page, 'Rename Profile E2E', 'Rename this profile from its detail page.')
+  const renamedName = uniqueName('Renamed Profile E2E')
+  await createProfile(
+    page,
+    uniqueName('Rename Profile E2E'),
+    'Rename this profile from its detail page.',
+  )
 
   await page.getByRole('button', { name: 'Rename profile' }).click()
-  await page.getByRole('textbox', { name: 'Profile name' }).fill('Renamed Profile E2E')
+  await page.getByRole('textbox', { name: 'Profile name' }).fill(renamedName)
   await page.getByRole('button', { name: 'Save name' }).click()
 
-  await expect(page.getByRole('heading', { name: 'Renamed Profile E2E' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: renamedName })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Rename profile' })).toBeVisible()
   expect(failures).toEqual([])
 })
@@ -390,25 +409,26 @@ test('deletes a profile from its detail page', async ({ page }) => {
     /agent-profiles\/aprf_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
     /^response: 404 .*\/agent-profiles\/aprf_[a-z2-7]+$/,
   ])
-  await createProfile(page, 'Deleted Profile E2E', 'Delete this profile from its detail page.')
+  const profileName = uniqueName('Deleted Profile E2E')
+  await createProfile(page, profileName, 'Delete this profile from its detail page.')
 
   page.once('dialog', (dialog) => void dialog.accept())
   await page.getByRole('button', { name: 'Delete profile' }).click()
 
   await expect(page).toHaveURL(`/projects/${projectID}/agents`)
   await expect(page.getByRole('heading', { name: 'Agent profiles' })).toBeVisible()
-  await expect(page.getByText('Deleted Profile E2E')).toHaveCount(0)
+  await expect(page.getByText(profileName)).toHaveCount(0)
 
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Something went wrong' })).toBeVisible()
   await expect(page.getByText(/^404: /)).toBeVisible()
-  await expect(page.getByText('Deleted Profile E2E')).toHaveCount(0)
+  await expect(page.getByText(profileName)).toHaveCount(0)
   expect(failures).toEqual([])
 })
 
 test('edits a profile with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
-  await createProfile(page, 'Builder Edit Agent', 'Original instruction.')
+  await createProfile(page, uniqueName('Builder Edit Agent'), 'Original instruction.')
 
   const instruction = page.getByLabel('Instruction')
   await expect(instruction).toHaveValue('Original instruction.')
