@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/openaichatcompletions"
 	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/model/route"
@@ -126,6 +127,106 @@ func TestResolverUsesClusterManagedDefaultProvider(t *testing.T) {
 	bearer, ok := client.Auth.(route.BearerToken)
 	if !ok || bearer.Token != "sk-cluster-resolver" {
 		t.Fatalf("resolved cluster auth = %#v, want cluster credential", client.Auth)
+	}
+}
+
+func TestResolverMaterializesBedrockAnthropicClient(t *testing.T) {
+	ctx := context.Background()
+	pool := integrationdb.OpenMigratedPool(t, ctx, "../../migrations")
+
+	keyWrapper, err := secrets.NewLocalKeyWrapper(
+		"bedrock-resolver-test-key",
+		map[string][]byte{"bedrock-resolver-test-key": []byte("0123456789abcdef0123456789abcdef")},
+	)
+	if err != nil {
+		t.Fatalf("create key wrapper: %v", err)
+	}
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(keyWrapper))
+	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
+		DisplayName: "Bedrock Resolver Tester",
+		Email:       "bedrock-resolver@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID:         user.ID,
+		Name:           "Bedrock Resolver Org",
+		IdempotencyKey: "bedrock-resolver-org",
+	})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	credential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     created.Org.ID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "bedrock-key",
+		Material:  secrets.GenericMaterial{Value: "bedrock-resolver-key"},
+		Actor:     modelProviderUserPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create credential secret: %v", err)
+	}
+	providerConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+		OrgID:              created.Org.ID,
+		Name:               "bedrock-anthropic",
+		APIFormat:          modelprotocol.APIFormatAnthropicMessages,
+		APIVariant:         modelprotocol.APIVariantBedrock,
+		BaseURL:            "https://bedrock-mantle.us-west-2.api.aws/anthropic/v1",
+		CredentialSecretID: credential.ID,
+	})
+	if err != nil {
+		t.Fatalf("create provider config: %v", err)
+	}
+	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+		OrgID:                 created.Org.ID,
+		ModelProviderConfigID: providerConfig.ID,
+		Name:                  "claude-haiku",
+		ProviderModelSlug:     "anthropic.claude-haiku-4-5",
+		ContextWindowTokens:   200000,
+		MaxOutputTokens:       8192,
+	})
+	if err != nil {
+		t.Fatalf("create configured model: %v", err)
+	}
+	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+		OrgID:             created.Org.ID,
+		ProjectID:         created.Project.ID,
+		ConfiguredModelID: configuredModel.ID,
+	}); err != nil {
+		t.Fatalf("grant configured model: %v", err)
+	}
+
+	resolved, err := integrationResolver(store).Resolve(ctx, model.Selection{
+		OrgID:                     created.Org.ID.String(),
+		ProjectID:                 created.Project.ID.String(),
+		ConfiguredModelRevisionID: configuredModel.CurrentRevisionID.String(),
+	})
+	if err != nil {
+		t.Fatalf("resolve Bedrock Anthropic model: %v", err)
+	}
+	client, ok := resolved.Client.(anthropicmessages.Client)
+	if !ok {
+		t.Fatalf("resolved client type = %T, want anthropicmessages.Client", resolved.Client)
+	}
+	if client.BaseURL != "https://bedrock-mantle.us-west-2.api.aws/anthropic/v1" ||
+		client.EndpointPath != "/messages" ||
+		client.RequestedProviderModelSlug() != "anthropic.claude-haiku-4-5" ||
+		client.ModelAPIVariant() != modelprotocol.APIVariantBedrock {
+		t.Fatalf("resolved Bedrock Anthropic client mismatch: %+v", client)
+	}
+	headerAuth, ok := client.Auth.(route.HeaderAuth)
+	if !ok || !strings.EqualFold(headerAuth.Header, "x-api-key") || headerAuth.Value != "bedrock-resolver-key" {
+		t.Fatalf("resolved Bedrock Anthropic auth = %#v, want x-api-key credential", client.Auth)
+	}
+	wantReplayIdentity := modelenvelope.ProviderReplayIdentity{
+		ModelProviderConfigID:      providerConfig.ID.String(),
+		RequestedProviderModelSlug: "anthropic.claude-haiku-4-5",
+		APIFormat:                  modelprotocol.APIFormatAnthropicMessages,
+		APIVariant:                 modelprotocol.APIVariantBedrock,
+	}
+	if got := model.ProviderReplayIdentityForClient(providerConfig.ID.String(), client); got != wantReplayIdentity {
+		t.Fatalf("resolved replay identity = %+v, want %+v", got, wantReplayIdentity)
 	}
 }
 

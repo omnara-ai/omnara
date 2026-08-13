@@ -171,6 +171,13 @@ export function AgentChatMessage({
           if (part.type === 'data-agent-config') {
             return <AgentConfigDivider key={part.id} action={part.data.action} />
           }
+          if (part.type === 'data-model-error') {
+            return (
+              <Bubble key={part.id} align="start" variant="destructive">
+                <BubbleContent className="whitespace-pre-wrap">{part.data.text}</BubbleContent>
+              </Bubble>
+            )
+          }
           if (part.type === 'data-media') {
             return <AgentAttachment key={part.id} artifactId={part.data.artifactId} />
           }

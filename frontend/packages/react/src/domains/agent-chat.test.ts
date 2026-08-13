@@ -1318,6 +1318,28 @@ describe('agentEventsToMessages', () => {
     ])
   })
 
+  it('represents durable model errors as error message parts', () => {
+    const messages = agentEventsToMessages([
+      event({
+        stop_reason: 'error',
+        content_blocks: [{ type: 'error', text: 'The model provider request failed.' }],
+      }),
+    ])
+
+    expect(messages).toMatchObject([
+      {
+        role: 'assistant',
+        parts: [
+          {
+            type: 'data-model-error',
+            id: 'mcc:block:0',
+            data: { text: 'The model provider request failed.' },
+          },
+        ],
+      },
+    ])
+  })
+
   it('hides content blocks explicitly marked omnara_hidden', () => {
     const messages = agentEventsToMessages([
       userInputEvent({

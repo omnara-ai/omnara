@@ -1045,7 +1045,7 @@ func modelProviderConfigResponse(record modelstore.ModelProviderConfigRecord) (o
 		ManagementKind:     openapigen.ManagementKind(record.ManagementKind),
 		Name:               record.Name,
 		ApiFormat:          openapigen.ModelAPIFormat(record.APIFormat),
-		ApiVariant:         openapigen.ModelProviderAPIVariant(record.APIVariant),
+		ApiVariant:         string(record.APIVariant),
 		BaseUrl:            record.BaseURL,
 		EndpointPath:       record.EndpointPath,
 		RequestTimeoutMs:   record.RequestTimeoutMS,

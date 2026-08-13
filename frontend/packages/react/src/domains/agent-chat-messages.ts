@@ -28,6 +28,7 @@ export interface OmnaraMessageMetadata {
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type OmnaraUIData = {
   'agent-config': { action: 'initialized' | 'changed' }
+  'model-error': { text: string }
   thinking: { active: boolean }
   media: { artifactId?: string }
 }
@@ -123,6 +124,9 @@ function modelOutputParts(event: ModelOutputEvent): OmnaraUIMessage['parts'] {
         state: 'input-available',
         input: block.input,
       })
+    }
+    if (block.type === 'error') {
+      parts.push({ type: 'data-model-error', id, data: { text: block.text } })
     }
   }
   return parts

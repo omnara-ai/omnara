@@ -6368,7 +6368,10 @@ components:
       enum: [bearer_token, api_key_header]
     ModelProviderAPIVariant:
       type: string
-      enum: [default, openrouter]
+      enum: [default, openrouter, bedrock]
+    ModelProviderAPIVariantResponse:
+      type: string
+      x-extensible-enum: [default, openrouter, bedrock]
     ModelAPIVariantOptions:
       type: object
       x-go-type: json.RawMessage
@@ -6485,7 +6488,7 @@ components:
         api_format:
           $ref: '#/components/schemas/ModelAPIFormat'
         api_variant:
-          $ref: '#/components/schemas/ModelProviderAPIVariant'
+          $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         base_url:
           type: string
           description: Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
@@ -7501,7 +7504,7 @@ components:
         api_format:
           $ref: '#/components/schemas/ModelAPIFormat'
         api_variant:
-          $ref: '#/components/schemas/ModelProviderAPIVariant'
+          $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         context_window_tokens:
           type: integer
           description: Effective token window after configured-model, project-grant, and agent-config settings are applied.

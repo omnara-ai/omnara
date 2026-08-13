@@ -141,7 +141,7 @@ export function ModelProvidersSection() {
           onRetry={() => {
             void query.refetch()
           }}
-          emptyMessage="No model providers yet. Connect OpenAI, OpenRouter, or Anthropic."
+          emptyMessage="No model providers yet. Connect OpenAI, OpenRouter, Anthropic, or Amazon Bedrock."
         />
       </div>
       {canManage && (
