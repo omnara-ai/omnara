@@ -1,5 +1,9 @@
 import { useCreateModelProvider, useDeleteModelProvider } from '@omnara/react'
-import type { ModelCatalog, ModelProviderConfig } from '@omnara/sdk'
+import type {
+  CreateModelProviderConfigRequest,
+  ModelCatalog,
+  ModelProviderConfig,
+} from '@omnara/sdk'
 import { type SyntheticEvent, useRef, useState } from 'react'
 
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
@@ -12,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -27,13 +31,17 @@ import { idle, statusError, submitError } from '@/lib/submit-status'
 
 import { AddDiscoveredModelsStep } from './AddDiscoveredModelsStep'
 import {
+  awsRegionPattern,
+  type BedrockAPI,
+  bedrockAPIOption,
+  bedrockAPIOptions,
   createModelProviderFormDefaults,
   createModelProviderFormValid,
   type CreateModelProviderFormValues,
-  type ModelProviderPreset,
-  modelProviderPresetOption,
-  modelProviderPresets,
-  presetSecretName,
+  type ModelProviderOption,
+  modelProviderOption,
+  modelProviderOptions,
+  providerSecretName,
 } from './CreateModelProviderDialogState'
 import { ModelDiscoveryFailureStep } from './ModelDiscoveryFailureStep'
 
@@ -69,12 +77,28 @@ export function CreateModelProviderDialog({
     const submissionGeneration = ++providerSubmissionGeneration.current
     setStatus(idle)
     try {
-      const result = await createModelProvider.mutateAsync({
+      const common = {
         name: values.name.trim(),
-        preset: values.preset,
         credential_secret_id: values.secretId,
-      })
+      }
+      let request: CreateModelProviderConfigRequest
+      if (values.provider === 'bedrock') {
+        const api = bedrockAPIOption(values.bedrockAPI)
+        request = {
+          ...common,
+          api_format: api.apiFormat,
+          api_variant: 'bedrock',
+          base_url: `https://bedrock-mantle.${values.region.trim()}.api.aws${api.basePath}`,
+        }
+      } else {
+        request = { ...common, preset: values.provider }
+      }
+      const result = await createModelProvider.mutateAsync(request)
       if (submissionGeneration !== providerSubmissionGeneration.current) return
+      if (result.config.api_variant === 'bedrock' && result.model_catalog.status === 'ok') {
+        close()
+        return
+      }
       setPhase({
         step: 'models',
         provider: result.config,
@@ -109,16 +133,20 @@ export function CreateModelProviderDialog({
     setPhase({ step: 'provider' })
   }
 
-  const preset = modelProviderPresetOption(values.preset)
+  const provider = modelProviderOption(values.provider)
+  const regionValid = awsRegionPattern.test(values.region.trim())
+  const providerPending = createModelProvider.isPending || deleteModelProvider.isPending
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
         {phase.step === 'provider' ? (
           <>
             <DialogHeader>
               <DialogTitle>Add model provider</DialogTitle>
-              <DialogDescription>Connect OpenAI, OpenRouter, or Anthropic.</DialogDescription>
+              <DialogDescription>
+                Connect OpenAI, OpenRouter, Anthropic, or Amazon Bedrock.
+              </DialogDescription>
             </DialogHeader>
             <form
               onSubmit={(event) => {
@@ -130,11 +158,12 @@ export function CreateModelProviderDialog({
                   <Field>
                     <FieldLabel htmlFor="mp-provider">Provider</FieldLabel>
                     <Select
-                      value={values.preset}
-                      onValueChange={(preset) => {
+                      value={values.provider}
+                      onValueChange={(provider) => {
                         setValues((prev) => ({
                           ...prev,
-                          preset: preset as ModelProviderPreset,
+                          provider: provider as ModelProviderOption,
+                          secretId: '',
                         }))
                       }}
                     >
@@ -142,7 +171,7 @@ export function CreateModelProviderDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {modelProviderPresets.map((option) => (
+                        {modelProviderOptions.map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
@@ -156,25 +185,80 @@ export function CreateModelProviderDialog({
                       id="mp-name"
                       required
                       value={values.name}
-                      placeholder={`Production ${preset.label}`}
+                      placeholder={`Production ${provider.label}`}
                       onChange={(event) => {
                         setValues((prev) => ({ ...prev, name: event.target.value }))
                       }}
                     />
                   </Field>
                 </div>
+                {values.provider === 'bedrock' && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field>
+                      <FieldLabel htmlFor="mp-bedrock-api">API and endpoint</FieldLabel>
+                      <Select
+                        value={values.bedrockAPI}
+                        onValueChange={(bedrockAPI) => {
+                          setValues((prev) => ({
+                            ...prev,
+                            bedrockAPI: bedrockAPI as BedrockAPI,
+                          }))
+                        }}
+                      >
+                        <SelectTrigger id="mp-bedrock-api" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {bedrockAPIOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldDescription>
+                        Use the endpoint listed for the model by AWS.
+                      </FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="mp-region">AWS region</FieldLabel>
+                      <Input
+                        id="mp-region"
+                        required
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        pattern={awsRegionPattern.source}
+                        value={values.region}
+                        placeholder="us-west-2"
+                        aria-invalid={!regionValid}
+                        onChange={(event) => {
+                          setValues((prev) => ({ ...prev, region: event.target.value }))
+                        }}
+                      />
+                      <FieldDescription>
+                        {regionValid
+                          ? 'The region where your Bedrock API key was generated.'
+                          : 'Enter an AWS region such as us-west-2.'}
+                      </FieldDescription>
+                    </Field>
+                  </div>
+                )}
                 <CredentialSecretField
+                  key={values.provider}
                   orgId={orgId}
                   enabled={open}
                   value={values.secretId}
                   onChange={(secretId) => {
-                    setValues((prev) => ({ ...prev, secretId }))
+                    setValues((prev) =>
+                      prev.provider === provider.value ? { ...prev, secretId } : prev,
+                    )
                   }}
-                  label={`${preset.label} API key`}
-                  placeholder={`Search secrets for your ${preset.label} API key…`}
-                  emptyDescription={`No secrets yet — use New secret to store your ${preset.label} API key.`}
-                  defaultSecretName={presetSecretName(values.preset)}
-                  secretValuePlaceholder={preset.keyPlaceholder}
+                  label={`${provider.label} API key`}
+                  placeholder={`Search secrets for your ${provider.label} API key…`}
+                  emptyDescription={`No secrets yet — use New secret to store your ${provider.label} API key.`}
+                  defaultSecretName={providerSecretName(values.provider)}
+                  secretValuePlaceholder={provider.keyPlaceholder}
                 />
                 {statusError(status) && (
                   <p className="text-destructive text-sm">{statusError(status)}</p>
@@ -182,11 +266,9 @@ export function CreateModelProviderDialog({
                 <DialogFooter>
                   <Button
                     type="submit"
-                    disabled={
-                      createModelProvider.isPending || !createModelProviderFormValid(values)
-                    }
+                    disabled={providerPending || !createModelProviderFormValid(values)}
                   >
-                    {createModelProvider.isPending && <Spinner />}
+                    {providerPending && <Spinner />}
                     Add provider
                   </Button>
                 </DialogFooter>

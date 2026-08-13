@@ -144,7 +144,13 @@ export const zModelApiFormat = z.enum([
 
 export const zModelProviderAuthKind = z.enum(['bearer_token', 'api_key_header']);
 
-export const zModelProviderApiVariant = z.enum(['default', 'openrouter']);
+export const zModelProviderApiVariant = z.enum([
+    'default',
+    'openrouter',
+    'bedrock'
+]);
+
+export const zModelProviderApiVariantResponse = z.string();
 
 /**
  * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, and selected reasoning policy. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters.
@@ -318,7 +324,7 @@ export const zModelProviderConfig = z.object({
     management_kind: zManagementKind,
     name: z.string(),
     api_format: zModelApiFormat,
-    api_variant: zModelProviderApiVariant,
+    api_variant: zModelProviderApiVariantResponse,
     base_url: z.string(),
     endpoint_path: z.string(),
     request_timeout_ms: z.int(),
@@ -627,7 +633,7 @@ export const zAgentConfigModel = z.object({
     configured_model_id: zConfiguredModelId,
     current_revision_id: zConfiguredModelRevisionId,
     api_format: zModelApiFormat,
-    api_variant: zModelProviderApiVariant,
+    api_variant: zModelProviderApiVariantResponse,
     context_window_tokens: z.int(),
     max_output_tokens: z.int(),
     default_max_output_tokens: z.int().nullish(),

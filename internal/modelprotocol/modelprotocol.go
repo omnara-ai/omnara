@@ -15,6 +15,7 @@ const (
 
 	APIVariantDefault    APIVariant = "default"
 	APIVariantOpenRouter APIVariant = "openrouter"
+	APIVariantBedrock    APIVariant = "bedrock"
 
 	RoleUser      MessageRole = "user"
 	RoleAssistant MessageRole = "assistant"

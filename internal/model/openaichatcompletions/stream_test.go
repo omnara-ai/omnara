@@ -449,21 +449,80 @@ func TestChatCompletionsConsumeStreamRejectsMultipleChoicesBeforeEmission(t *tes
 }
 
 func TestChatCompletionsConsumeStreamMissingDoneAfterFinishIsError(t *testing.T) {
+	for _, apiVariant := range []modelprotocol.APIVariant{
+		modelprotocol.APIVariantDefault,
+		modelprotocol.APIVariantOpenRouter,
+	} {
+		t.Run(string(apiVariant), func(t *testing.T) {
+			stream := chatCompletionsSSE(
+				`{"id":"chatcmpl_partial","model":"gpt-test","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":"stop"}]}`,
+			)
+			sink := &chatRecordingSink{}
+			_, err := consumeChatCompletionsStream(t, stream, sink, apiVariant)
+			var providerErr model.ProviderError
+			if !errors.As(err, &providerErr) || providerErr.Kind != model.ErrorKindTransient {
+				t.Fatalf("expected transient provider error, got %v", err)
+			}
+			if !model.IsAmbiguousProviderOutcome(err) {
+				t.Fatalf("stream missing DONE = %T %v, want ambiguous outcome", err, err)
+			}
+			last := sink.events[len(sink.events)-1]
+			if last.Kind != model.StreamEventError {
+				t.Fatalf("expected terminal error event, got %+v", last)
+			}
+		})
+	}
+}
+
+func TestChatCompletionsConsumeBedrockStreamAllowsCleanEOFAfterFinishAndUsage(t *testing.T) {
 	stream := chatCompletionsSSE(
-		`{"id":"chatcmpl_partial","model":"gpt-test","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":"stop"}]}`,
+		`{"id":"chatcmpl_bedrock","model":"openai.gpt-oss-20b","choices":[{"index":0,"delta":{"content":"partial"}}]}`,
+		`{"id":"chatcmpl_bedrock","model":"openai.gpt-oss-20b","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`,
+		`{"id":"chatcmpl_bedrock","model":"openai.gpt-oss-20b","choices":[],"usage":{"prompt_tokens":29,"completion_tokens":64}}`,
 	)
 	sink := &chatRecordingSink{}
-	_, err := consumeChatCompletionsStream(t, stream, sink, modelprotocol.APIVariantDefault)
-	var providerErr model.ProviderError
-	if !errors.As(err, &providerErr) || providerErr.Kind != model.ErrorKindTransient {
-		t.Fatalf("expected transient provider error, got %v", err)
+	resp, err := consumeChatCompletionsStream(t, stream, sink, modelprotocol.APIVariantBedrock)
+	if err != nil {
+		t.Fatalf("Bedrock stream: %v", err)
 	}
+	if resp.Text() != "partial" || resp.StopReason != model.StopReasonMaxTokens ||
+		resp.Usage.InputTokens != 29 || resp.Usage.OutputTokens != 64 {
+		t.Fatalf("Bedrock stream response = %+v", resp)
+	}
+	if len(sink.events) == 0 || sink.events[len(sink.events)-1].Kind != model.StreamEventMessageStop {
+		t.Fatalf("Bedrock terminal stream events = %+v", sink.events)
+	}
+}
+
+func TestChatCompletionsConsumeBedrockStreamWithoutUsageIsAmbiguous(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_bedrock","model":"openai.gpt-oss-20b","choices":[{"index":0,"delta":{"content":"partial"}}]}`,
+		`{"id":"chatcmpl_bedrock","model":"openai.gpt-oss-20b","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+	)
+	_, err := consumeChatCompletionsStream(
+		t,
+		stream,
+		&chatRecordingSink{},
+		modelprotocol.APIVariantBedrock,
+	)
 	if !model.IsAmbiguousProviderOutcome(err) {
-		t.Fatalf("stream missing DONE = %T %v, want ambiguous outcome", err, err)
+		t.Fatalf("Bedrock stream without usage = %T %v, want ambiguous outcome", err, err)
 	}
-	last := sink.events[len(sink.events)-1]
-	if last.Kind != model.StreamEventError {
-		t.Fatalf("expected terminal error event, got %+v", last)
+}
+
+func TestChatCompletionsConsumeBedrockStreamWithoutFinishIsAmbiguous(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_bedrock","model":"openai.gpt-oss-20b","choices":[{"index":0,"delta":{"content":"partial"}}]}`,
+		`{"id":"chatcmpl_bedrock","model":"openai.gpt-oss-20b","choices":[],"usage":{"prompt_tokens":29,"completion_tokens":12}}`,
+	)
+	_, err := consumeChatCompletionsStream(
+		t,
+		stream,
+		&chatRecordingSink{},
+		modelprotocol.APIVariantBedrock,
+	)
+	if !model.IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("Bedrock stream without finish = %T %v, want ambiguous outcome", err, err)
 	}
 }
 
