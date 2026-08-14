@@ -22,7 +22,6 @@ func TestGetOrgOverview(t *testing.T) {
 	project := bootstrapPublicHTTPProject(t, handler, "org-overview")
 	overviewPath := "/api/v1/orgs/" + project.OrgID + "/overview"
 
-	// Fresh org: the bootstrap project is visible and there are no recents.
 	overview := requestJSONWithHeaders(
 		t,
 		handler,
@@ -51,7 +50,6 @@ func TestGetOrgOverview(t *testing.T) {
 		t.Fatalf("fresh org recent_agent_profiles = %+v, want empty", profiles)
 	}
 
-	// Seed a profile in the bootstrap project.
 	configSource := "instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	config := createPublicHTTPAgentConfig(
 		t,
@@ -76,7 +74,6 @@ func TestGetOrgOverview(t *testing.T) {
 	)
 	firstProfileID := firstProfile["id"].(string)
 
-	// Second project in the same org with its own profile and a launched agent.
 	secondCreated := requestJSONWithHeaders(
 		t,
 		handler,
@@ -167,7 +164,6 @@ func TestGetOrgOverview(t *testing.T) {
 		t.Fatalf("recent profile current_config id = %v, want %s", got, secondConfigID)
 	}
 
-	// Recents are capped at 5, dropping the oldest profile.
 	extraProfileIDs := make([]string, 0, 4)
 	for _, seed := range []string{"extra-a", "extra-b", "extra-c", "extra-d"} {
 		extra := createPublicHTTPAgentProfile(
@@ -207,7 +203,6 @@ func TestGetOrgOverview(t *testing.T) {
 		t.Fatalf("recent profile order[0] = %v, want most recent %s", got, extraProfileIDs[3])
 	}
 
-	// A member with access to only the second project sees just that slice.
 	viewer, err := storagetest.CreateVerifiedUser(
 		ctx,
 		pool,
@@ -275,7 +270,6 @@ func TestGetOrgOverview(t *testing.T) {
 		t.Fatalf("viewer recent_agent_profiles = %+v, want the second project's profile", viewerProfiles)
 	}
 
-	// Another org's admin cannot see this org's overview.
 	otherOrg := bootstrapPublicHTTPProject(t, handler, "org-overview-other")
 	requestJSONWithHeaders(
 		t,

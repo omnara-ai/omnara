@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	// orgOverviewRecentLimit is the number of recent agents and profiles returned.
 	orgOverviewRecentLimit = 5
 	// orgOverviewMaxProjects caps how many visible projects the overview
 	// considers (and returns); recents beyond this cap are best-effort omitted.
