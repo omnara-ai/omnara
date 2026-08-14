@@ -45,7 +45,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       </Sidebar>
 
       <SidebarInset>
-        <div className="min-h-0 flex-1 overflow-auto p-6">{children}</div>
+        {/* `relative` keeps absolutely positioned descendants (e.g. Radix Select's
+            hidden native <select>) contained by this scroller instead of escaping to
+            the inset and stretching the document's scroll area. */}
+        <div className="relative min-h-0 flex-1 overflow-auto p-6">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   )
