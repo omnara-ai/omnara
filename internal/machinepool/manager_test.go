@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -197,5 +200,118 @@ func TestRunBoundedReconcileLimitsConcurrency(t *testing.T) {
 	}
 	if got := maxSeen.Load(); got != 3 {
 		t.Fatalf("max concurrency = %d, want 3", got)
+	}
+}
+
+func TestProvisionMachineWithRetrySucceedsAndPreservesObservation(t *testing.T) {
+	providerErr := errors.New("temporary provider failure")
+	calls := 0
+	var delays []time.Duration
+	result, err := provisionMachineWithRetry(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			switch calls {
+			case 1:
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, providerErr
+			case 2:
+				return providers.ProvisionMachineResult{}, providerErr
+			default:
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-1", SandboxURL: "https://sandbox.test/"}, nil
+			}
+		},
+		func(_ context.Context, delay time.Duration) error {
+			delays = append(delays, delay)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("provision with retry: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("provision calls = %d, want 3", calls)
+	}
+	if result.ProviderResourceID != "resource-1" || result.SandboxURL != "https://sandbox.test/" {
+		t.Fatalf("provision result = %+v", result)
+	}
+	wantDelays := []time.Duration{time.Second, 5 * time.Second}
+	if !slices.Equal(delays, wantDelays) {
+		t.Fatalf("retry delays = %v, want %v", delays, wantDelays)
+	}
+}
+
+func TestProvisionMachineWithRetryExhaustsAttempts(t *testing.T) {
+	providerErr := errors.New("provider unavailable")
+	calls := 0
+	waits := 0
+	result, err := provisionMachineWithRetry(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, providerErr
+		},
+		func(context.Context, time.Duration) error {
+			waits++
+			return nil
+		},
+	)
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("provision error = %v, want %v", err, providerErr)
+	}
+	if calls != providerProvisionRetryAttempts || waits != providerProvisionRetryAttempts-1 {
+		t.Fatalf("provision calls/waits = %d/%d, want %d/%d", calls, waits, providerProvisionRetryAttempts, providerProvisionRetryAttempts-1)
+	}
+	if result.ProviderResourceID != "resource-1" {
+		t.Fatalf("provision result = %+v, want observed resource", result)
+	}
+}
+
+func TestProvisionMachineWithRetryHonorsProviderDelay(t *testing.T) {
+	providerErr := providers.WithRetryAfter(
+		errors.New("rate limited"),
+		http.Header{"Retry-After": []string{"12"}},
+	)
+	calls := 0
+	var delay time.Duration
+	_, err := provisionMachineWithRetry(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			if calls == 1 {
+				return providers.ProvisionMachineResult{}, providerErr
+			}
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, nil
+		},
+		func(_ context.Context, got time.Duration) error {
+			delay = got
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("provision with retry-after: %v", err)
+	}
+	if delay != 12*time.Second {
+		t.Fatalf("retry delay = %s, want 12s", delay)
+	}
+}
+
+func TestProvisionMachineWithRetryRejectsConflictingResources(t *testing.T) {
+	calls := 0
+	result, err := provisionMachineWithRetry(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			if calls == 1 {
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, errors.New("ambiguous failure")
+			}
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-2"}, nil
+		},
+		func(context.Context, time.Duration) error { return nil },
+	)
+	if err == nil || !strings.Contains(err.Error(), "conflicting resource ids") {
+		t.Fatalf("provision error = %v, want conflicting resource ids", err)
+	}
+	if result.ProviderResourceID != "resource-1" {
+		t.Fatalf("provision result = %+v, want first observed resource", result)
 	}
 }

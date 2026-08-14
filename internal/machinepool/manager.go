@@ -23,8 +23,15 @@ const (
 	providerInspectionTimeout           = 5 * time.Second
 	providerDeletionTimeout             = 5 * time.Second
 	providerFailureRetryDelay           = time.Minute
+	providerProvisionRetryAttempts      = 4
 	poolMachineReconcileConcurrency     = 8
 )
+
+var providerProvisionRetryDelays = [...]time.Duration{
+	time.Second,
+	5 * time.Second,
+	15 * time.Second,
+}
 
 type Manager struct {
 	Execution                  *executionstore.Store
@@ -153,14 +160,16 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID storage.
 	machine.ProviderProvisionAttemptedAt = &providerProvisioning.ProviderProvisionAttemptedAt
 	machine.UpdatedAt = providerProvisioning.UpdatedAt
 	providerCtx, cancel = context.WithTimeout(ctx, provider.ProvisioningTimeout())
-	provisionResult, provisionErr := provider.ProvisionMachine(
-		providerCtx,
-		installationID,
-		machine.ID,
-		machineProvisioning,
-		providerProvisioning.DaemonToken.Token,
-		machineEnv,
-	)
+	provisionResult, provisionErr := provisionMachineWithRetry(providerCtx, func() (providers.ProvisionMachineResult, error) {
+		return provider.ProvisionMachine(
+			providerCtx,
+			installationID,
+			machine.ID,
+			machineProvisioning,
+			providerProvisioning.DaemonToken.Token,
+			machineEnv,
+		)
+	}, waitForProviderProvisionRetry)
 	cancel()
 	if provisionResult.ProviderResourceID != "" {
 		observation, err := m.Execution.RecordPoolMachineProvisioningResource(
@@ -208,6 +217,55 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID storage.
 		machine.ProvisionAttempts,
 	)
 	return err
+}
+
+func provisionMachineWithRetry(
+	ctx context.Context,
+	provision func() (providers.ProvisionMachineResult, error),
+	wait func(context.Context, time.Duration) error,
+) (providers.ProvisionMachineResult, error) {
+	var observed providers.ProvisionMachineResult
+	for attempt := range providerProvisionRetryAttempts {
+		result, err := provision()
+		if result.ProviderResourceID != "" {
+			if observed.ProviderResourceID != "" && observed.ProviderResourceID != result.ProviderResourceID {
+				return observed, fmt.Errorf(
+					"provider returned conflicting resource ids %q and %q",
+					observed.ProviderResourceID,
+					result.ProviderResourceID,
+				)
+			}
+			observed.ProviderResourceID = result.ProviderResourceID
+		}
+		if result.SandboxURL != "" {
+			observed.SandboxURL = result.SandboxURL
+		}
+		if err == nil {
+			return observed, nil
+		}
+		if attempt == providerProvisionRetryAttempts-1 || ctx.Err() != nil {
+			return observed, err
+		}
+		delay := providerProvisionRetryDelays[attempt]
+		if retryAfter, ok := providers.RetryAfter(err); ok {
+			delay = max(delay, retryAfter)
+		}
+		if err := wait(ctx, delay); err != nil {
+			return observed, err
+		}
+	}
+	panic("unreachable")
+}
+
+func waitForProviderProvisionRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (m Manager) WakeMachine(ctx context.Context, orgID, machineID storage.ID) (bool, error) {

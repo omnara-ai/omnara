@@ -59,7 +59,8 @@ type Provider interface {
 		context.Context,
 		executionstore.MachineProvisioningConfig,
 	) (executionstore.MachineResourceFacts, error)
-	// ProvisionMachine must be idempotent by installation and machine identity.
+	// ProvisionMachine must be idempotent by installation and machine identity;
+	// the caller may retry it immediately after any error.
 	// Calling it is the external side-effect boundary and must be recorded durably first.
 	// Retries for the same machine must converge on one canonical live provider
 	// resource, usually by using a deterministic allocation name. A provider must
