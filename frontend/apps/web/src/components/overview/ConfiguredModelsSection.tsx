@@ -84,7 +84,7 @@ export function ConfiguredModelsSection() {
     created_at: (option) => option.model.created_at,
     updated_at: (option) => option.model.updated_at,
   })
-  const paged = useArrayPagination(filteredModels)
+  const paged = useArrayPagination(filteredModels, (option) => option.model.id)
 
   return (
     <>

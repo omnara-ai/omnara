@@ -48,14 +48,13 @@ function CheckboxField({
   const describedBy = [ariaDescribedBy, descriptionId].filter(Boolean).join(' ') || undefined
 
   return (
-    <label
-      htmlFor={inputId}
+    <div
       data-slot="field"
       data-orientation="horizontal"
       data-disabled={disabled ? 'true' : undefined}
       className={cn(
         fieldVariants({ orientation: 'horizontal' }),
-        'cursor-pointer data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-50',
+        'data-[disabled=true]:opacity-50',
         className,
       )}
     >
@@ -65,12 +64,16 @@ function CheckboxField({
         type="checkbox"
         disabled={disabled}
         aria-describedby={describedBy}
-        className={cn('size-4 shrink-0', inputClassName)}
+        className={cn('size-4 shrink-0 cursor-pointer disabled:cursor-not-allowed', inputClassName)}
       />
       <span data-slot="field-content" className="flex flex-1 flex-col gap-1.5">
-        <span data-slot="field-label" className="select-none text-sm font-medium leading-none">
+        <Label
+          htmlFor={inputId}
+          data-slot="field-label"
+          className="cursor-pointer group-data-[disabled=true]/field:cursor-not-allowed"
+        >
           {label}
-        </span>
+        </Label>
         {description && (
           <span
             id={descriptionId}
@@ -81,7 +84,7 @@ function CheckboxField({
           </span>
         )}
       </span>
-    </label>
+    </div>
   )
 }
 

@@ -4,22 +4,26 @@ import type { PaginationControls } from '@/hooks/use-paged-query'
 
 const PAGE_SIZE = 15
 
-/**
- * Page through an in-memory array with the same controls shape as
- * usePagedQuery, for lists derived client-side from a drained query.
- */
-export function useArrayPagination<TItem>(items: TItem[]) {
-  const [pageIndex, setPageIndex] = useState(0)
-  const [previousItems, setPreviousItems] = useState(items)
-  const itemsChanged =
-    previousItems.length !== items.length ||
-    previousItems.some((item, index) => item !== items[index])
+type ItemKey = string | number
+
+interface PaginationState {
+  itemKeys: ItemKey[]
+  pageIndex: number
+}
+
+function sameOrderedKeys(left: ItemKey[], right: ItemKey[]) {
+  return left.length === right.length && left.every((key, index) => key === right[index])
+}
+
+export function useArrayPagination<TItem>(items: TItem[], getItemKey: (item: TItem) => ItemKey) {
+  const itemKeys = items.map(getItemKey)
+  const [state, setState] = useState<PaginationState>(() => ({ itemKeys, pageIndex: 0 }))
+  const itemsChanged = !sameOrderedKeys(state.itemKeys, itemKeys)
   if (itemsChanged) {
-    setPreviousItems(items)
-    setPageIndex(0)
+    setState({ itemKeys, pageIndex: 0 })
   }
   const pageCount = Math.max(Math.ceil(items.length / PAGE_SIZE), 1)
-  const page = Math.min(pageIndex, pageCount - 1)
+  const page = itemsChanged ? 0 : Math.min(state.pageIndex, pageCount - 1)
   const rows = items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   const pagination: PaginationControls = {
@@ -27,10 +31,10 @@ export function useArrayPagination<TItem>(items: TItem[]) {
     canPrev: page > 0,
     canNext: page < pageCount - 1,
     onPrev: () => {
-      setPageIndex(Math.max(page - 1, 0))
+      setState((current) => ({ ...current, pageIndex: Math.max(page - 1, 0) }))
     },
     onNext: () => {
-      setPageIndex(Math.min(page + 1, pageCount - 1))
+      setState((current) => ({ ...current, pageIndex: Math.min(page + 1, pageCount - 1) }))
     },
   }
 

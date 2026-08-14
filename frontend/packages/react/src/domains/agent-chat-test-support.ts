@@ -1,3 +1,4 @@
+import type * as OmnaraSDK from '@omnara/sdk'
 import {
   type AgentEvent,
   AgentEventStreamError,
@@ -9,44 +10,22 @@ import {
 } from '@omnara/sdk'
 import { expect, vi } from 'vitest'
 
-const sdkMocks = vi.hoisted(() => {
-  class MockAgentEventStreamError extends Error {
-    readonly kind: 'aborted' | 'contract' | 'http' | 'transport'
-    readonly retryable: boolean
-    readonly status: number | undefined
+const sdkMocks = vi.hoisted(() => ({
+  createAgentInput: vi.fn(),
+  openAgentEventStream: vi.fn(),
+}))
 
-    constructor({
-      kind,
-      message,
-      retryable,
-      status,
-    }: {
-      kind: 'aborted' | 'contract' | 'http' | 'transport'
-      message: string
-      retryable: boolean
-      status?: number
-    }) {
-      super(message)
-      this.kind = kind
-      this.retryable = retryable
-      this.status = status
-    }
-  }
-
+vi.mock('@omnara/sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof OmnaraSDK>()
   return {
-    AgentEventStreamError: MockAgentEventStreamError,
-    createAgentInput: vi.fn(),
-    openAgentEventStream: vi.fn(),
+    ...actual,
+    openAgentEventStream: sdkMocks.openAgentEventStream,
+    sdk: {
+      ...actual.sdk,
+      createAgentInput: sdkMocks.createAgentInput,
+    },
   }
 })
-
-vi.mock('@omnara/sdk', () => ({
-  AgentEventStreamError: sdkMocks.AgentEventStreamError,
-  openAgentEventStream: sdkMocks.openAgentEventStream,
-  sdk: {
-    createAgentInput: sdkMocks.createAgentInput,
-  },
-}))
 
 export function chatSdkMocks() {
   return sdkMocks
