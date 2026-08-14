@@ -218,6 +218,54 @@ machine_sources:
     ])
   })
 
+  it('accepts omitted permissions and round-trips them', () => {
+    const source = `${minimalYaml}tools:
+  ask_question: {}
+mcp:
+  search:
+    url: https://mcp.example.com
+`
+    const config = mustDeserialize(source)
+    expect(config.tools).toEqual([{ name: 'ask_question', permission: null }])
+    expect(config.mcpServers).toMatchObject([{ name: 'search', permission: null }])
+    expect(applyToSource(source, config)).toBe(source)
+  })
+
+  it('accepts zero machine counts and round-trips them', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_pool_name: default-pool
+    initial_num_machines: 0
+    max_machines: 0
+`
+    const config = mustDeserialize(source)
+    expect(config.machineSources).toMatchObject([{ initialNumMachines: '0', maxMachines: '0' }])
+    expect(applyToSource(source, config)).toBe(source)
+  })
+
+  it('rejects negative machine counts', () => {
+    expect(
+      deserialize(`${minimalYaml}machine_sources:
+  - machine_pool_name: default-pool
+    max_machines: -1
+`),
+    ).toBeNull()
+  })
+
+  it('accepts null overlay values and round-trips them', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_pool_name: default-pool
+    env_overlay:
+      MODE: null
+    secret_env_overlay:
+      TOKEN: null
+`
+    const config = mustDeserialize(source)
+    const [pool] = config.machineSources
+    expect(pool?.envRows.map((row) => [row.key, row.value])).toEqual([['MODE', null]])
+    expect(pool?.secretEnvRows.map((row) => [row.key, row.secretId])).toEqual([['TOKEN', null]])
+    expect(applyToSource(source, config)).toBe(source)
+  })
+
   it('rejects disabled tools', () => {
     const source = `${minimalYaml}tools:
   shell:
@@ -392,6 +440,32 @@ describe('createBasicConfigSession apply', () => {
     expect(updated).toContain('# top comment')
     expect(updated).toContain('# our search proxy')
     expect(mustDeserialize(updated).instruction).toBe('New plan.')
+  })
+
+  it('preserves hidden provider overlay values when an unrelated field changes on a cluster pool', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_pool_name: "default-pool"
+    machine_provider_options_overlay: {"image":"my-image","region":"us-pdx-1"}
+`
+    const config = mustDeserialize(source)
+    const updated = applyToSource(source, {
+      ...config,
+      machineSources: config.machineSources.map((row) => ({
+        ...row,
+        provider: 'blaxel',
+        managementKind: 'cluster',
+        defaultCwd: '/workspace',
+      })),
+    })
+    expect(parse(updated)).toMatchObject({
+      machine_sources: [
+        {
+          machine_pool_name: 'default-pool',
+          cwd: '/workspace',
+          machine_provider_options_overlay: { image: 'my-image', region: 'us-pdx-1' },
+        },
+      ],
+    })
   })
 
   it('does not rewrite a row when only its resolved provider changed', () => {

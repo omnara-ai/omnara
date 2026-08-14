@@ -1,4 +1,4 @@
-import { useUpdateAgentProfile } from '@omnara/react'
+import { useRenameAgentProfile } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { CheckIcon, PencilIcon, XIcon } from 'lucide-react'
 import { type SyntheticEvent, useState } from 'react'
@@ -18,7 +18,7 @@ export function AgentProfileNameHeading({
   profile: AgentProfile
   canManage: boolean
 }) {
-  const updateProfile = useUpdateAgentProfile(orgId, projectId)
+  const renameProfile = useRenameAgentProfile(orgId, projectId)
   const [nameDraft, setNameDraft] = useState<string | null>(null)
   const [renameError, setRenameError] = useState('')
 
@@ -35,7 +35,7 @@ export function AgentProfileNameHeading({
       return
     }
     try {
-      await updateProfile.mutateAsync({ agentProfileID: profile.id, name })
+      await renameProfile.mutateAsync({ agentProfileID: profile.id, name })
       stopEditing()
     } catch (err) {
       setRenameError(err instanceof ApiError ? err.message : 'Could not rename agent profile')
@@ -69,9 +69,9 @@ export function AgentProfileNameHeading({
             type="submit"
             variant="ghost"
             aria-label="Save name"
-            disabled={updateProfile.isPending}
+            disabled={renameProfile.isPending}
           >
-            {updateProfile.isPending ? <Spinner /> : <CheckIcon />}
+            {renameProfile.isPending ? <Spinner /> : <CheckIcon />}
           </Button>
           <Button
             size="icon"

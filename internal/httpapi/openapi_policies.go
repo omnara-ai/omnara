@@ -167,6 +167,7 @@ const (
 	operationRegisterMachineDaemonRuntime  operationID = "RegisterMachineDaemonRuntime"
 	operationRecordMachineFailure          operationID = "RecordMachineFailure"
 	operationRemoveMemberProjectAccess     operationID = "RemoveMemberProjectAccess"
+	operationRenameAgentProfile            operationID = "RenameAgentProfile"
 	operationRemoveOrgMember               operationID = "RemoveOrgMember"
 	operationResolveAgentInteraction       operationID = "ResolveAgentInteraction"
 	operationRevokeMachineDaemonToken      operationID = "RevokeMachineDaemonToken"
@@ -302,6 +303,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteIntegrationInstall:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationUpdateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationRenameAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateIntegrationOAuthSetup:   userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateSlackSetup:              userPolicy(projectScope(identitystore.ProjectActionManage)),

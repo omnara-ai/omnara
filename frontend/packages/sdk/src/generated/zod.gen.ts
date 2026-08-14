@@ -673,13 +673,13 @@ export const zCreateAgentProfileRequest = z.object({
     config: zAgentConfigId
 });
 
-/**
- * Updates exactly one of the profile name or the current config. A config update must supply both config and expected_current_config_id. Renames do not accept an Idempotency-Key: they have no replay ledger.
- */
 export const zUpdateAgentProfileRequest = z.object({
-    name: z.string().optional(),
-    config: zAgentConfigId.optional(),
-    expected_current_config_id: zAgentConfigId.optional()
+    config: zAgentConfigId,
+    expected_current_config_id: zAgentConfigId
+});
+
+export const zRenameAgentProfileRequest = z.object({
+    name: z.string()
 });
 
 export const zAgentProfile = z.object({
@@ -747,6 +747,10 @@ export const zAgentMcpConnection = z.object({
     initialize_error: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
+});
+
+export const zCurrentAgentResponse = z.object({
+    agent: zAgent
 });
 
 export const zGetAgentResponse = z.object({
@@ -2665,6 +2669,11 @@ export const zDeleteAgentProfileResponse = z.void();
 export const zGetAgentProfileResponse = zAgentProfile;
 
 /**
+ * Agent profile renamed.
+ */
+export const zRenameAgentProfileResponse = zAgentProfile;
+
+/**
  * Agent profile updated.
  */
 export const zUpdateAgentProfileResponse = zAgentProfile;
@@ -2685,7 +2694,7 @@ export const zCreateSlackSetupResponse = zSlackSetup;
 export const zListAgentsResponse2 = zListAgentsResponse;
 
 export const zCreateAgentResponse = z.union([
-    zGetAgentResponse,
+    zCurrentAgentResponse,
     zLaunchAgentResponse
 ]);
 
@@ -2697,7 +2706,7 @@ export const zGetAgentResponse2 = zGetAgentResponse;
 /**
  * The archived agent.
  */
-export const zArchiveAgentResponse = zGetAgentResponse;
+export const zArchiveAgentResponse = zCurrentAgentResponse;
 
 /**
  * Agent config updated.

@@ -6,13 +6,13 @@ import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agen
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import {
-  envFromRows,
+  envOverlayFromRows,
   type EnvOverlayRow,
   envOverlayRowsValid,
   optionalPositiveInt32Valid,
   type ProviderOptionsDraft,
   providerOptionsOverlay,
-  secretEnvFromRows,
+  secretEnvOverlayFromRows,
   type SecretEnvOverlayRow,
   secretEnvOverlayRowsValid,
 } from '@/components/machines/machineOverrides'
@@ -24,7 +24,7 @@ export interface BasicMcpServer {
   id: string
   name: string
   url: string
-  permission: ToolPermissionSelection
+  permission: ToolPermissionSelection | null
   defaultEnabled: boolean
   authType: McpAuthType
   secretId: string
@@ -151,10 +151,10 @@ function draftValid(draft: BasicConfig) {
   )
 }
 
-const positiveIntegerPattern = /^[1-9][0-9]*$/
+const nonNegativeIntegerPattern = /^(0|[1-9][0-9]*)$/
 
 function machineCountValid(value: string) {
-  return value === '' || positiveIntegerPattern.test(value)
+  return value === '' || nonNegativeIntegerPattern.test(value)
 }
 
 function machineSourceValid(source: BasicMachineSource) {
@@ -316,8 +316,8 @@ function machineSourceComparable(source: BasicMachineSource) {
     machineCpu: source.machineCpu,
     machineMemoryMb: source.machineMemoryMb,
     providerOptions: source.providerOptions,
-    env: envFromRows(source.envRows) ?? null,
-    secretEnv: secretEnvFromRows(source.secretEnvRows) ?? null,
+    env: envOverlayFromRows(source.envRows) ?? null,
+    secretEnv: secretEnvOverlayFromRows(source.secretEnvRows) ?? null,
   }
 }
 
@@ -349,34 +349,30 @@ function machineSourceWire(source: BasicMachineSource): Record<string, unknown> 
     if (source.machineCpu !== '') wire.machine_cpu = Number(source.machineCpu)
     if (source.machineMemoryMb !== '') wire.machine_memory_mb = Number(source.machineMemoryMb)
     const optionsOverlay = isMachinePoolProvider(source.provider)
-      ? providerOptionsOverlay(
-          source.provider,
-          source.providerOptions,
-          source.managementKind === 'cluster',
-        )
+      ? providerOptionsOverlay(source.provider, source.providerOptions)
       : undefined
     if (optionsOverlay) wire.machine_provider_options_overlay = optionsOverlay
   } else {
     wire.machine_name = source.name.trim()
   }
   if (source.defaultCwd.trim() !== '') wire.cwd = source.defaultCwd.trim()
-  const envOverlay = envFromRows(source.envRows)
+  const envOverlay = envOverlayFromRows(source.envRows)
   if (envOverlay) wire.env_overlay = envOverlay
-  const secretEnvOverlay = secretEnvFromRows(source.secretEnvRows)
+  const secretEnvOverlay = secretEnvOverlayFromRows(source.secretEnvRows)
   if (secretEnvOverlay) wire.secret_env_overlay = secretEnvOverlay
   return wire
 }
 
 function toolWire(tool: BasicTool): Record<string, unknown> {
-  return { type: 'built_in', permission: permissionWire(tool.permission) }
+  const wire: Record<string, unknown> = { type: 'built_in' }
+  if (tool.permission != null) wire.permission = permissionWire(tool.permission)
+  return wire
 }
 
 function mcpWire(server: BasicMcpServer): Record<string, unknown> {
-  const wire: Record<string, unknown> = {
-    url: server.url.trim(),
-    permission: permissionWire(server.permission),
-    default_enabled: server.defaultEnabled,
-  }
+  const wire: Record<string, unknown> = { url: server.url.trim() }
+  if (server.permission != null) wire.permission = permissionWire(server.permission)
+  wire.default_enabled = server.defaultEnabled
   if (server.authType !== 'none') {
     const auth: Record<string, string> = {
       type: server.authType,

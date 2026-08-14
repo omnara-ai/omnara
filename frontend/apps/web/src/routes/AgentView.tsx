@@ -29,17 +29,25 @@ import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
+const agentDetailPollInterval = 5_000
+
 export function AgentView() {
   const { activeOrg } = useActiveOrg()
   const { project } = useProjectPage()
   const params = useParams({ strict: false })
   const projectId = params.projectId ?? ''
   const agentId = params.agentId ?? ''
-  const { data } = useAgent(activeOrg.id, projectId, agentId)
+  const chat = useAgentChat({ orgID: activeOrg.id, projectID: projectId, agentID: agentId })
+  const { data } = useAgent(activeOrg.id, projectId, agentId, {
+    refetchInterval: (detail) =>
+      chat.isWorking ||
+      detail?.mcp_connections.some((connection) => connection.state === 'initializing')
+        ? agentDetailPollInterval
+        : false,
+  })
   const agent = data.agent
   const { data: profile } = useAgentProfileQuery(activeOrg.id, projectId, agent.agent_profile_id)
   const { data: me } = useMe()
-  const chat = useAgentChat({ orgID: activeOrg.id, projectID: projectId, agentID: agentId })
   const interactions = useAgentInteractions(activeOrg.id, projectId, agentId, chat.isWorking)
   const resolveInteraction = useResolveAgentInteraction(activeOrg.id, projectId, agentId)
   const cancelAgent = useCancelAgent(activeOrg.id, projectId, agentId)
@@ -77,15 +85,6 @@ export function AgentView() {
                   to: '/projects/$projectId/agents' as const,
                   params: { projectId },
                 },
-                ...(profile
-                  ? [
-                      {
-                        label: profile.name,
-                        to: '/projects/$projectId/agent-profiles/$profileId' as const,
-                        params: { projectId, profileId: profile.id },
-                      },
-                    ]
-                  : []),
                 { label: agent.name || 'Agent' },
               ]}
             />

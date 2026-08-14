@@ -198,50 +198,17 @@ func (s strictOpenAPIServer) updateAgentProfile(
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			"authenticated user principal is required to update an agent profile")
 	}
-	hasName := request.Body.Name != nil
-	hasConfig := request.Body.Config != nil || request.Body.ExpectedCurrentConfigId != nil
-	if hasName == hasConfig {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest,
-			"provide either name or config with expected_current_config_id")
-	}
-	if hasName {
-		if request.Params.IdempotencyKey != nil && strings.TrimSpace(*request.Params.IdempotencyKey) != "" {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest,
-				"idempotency keys are not supported for profile renames")
-		}
-		name := strings.TrimSpace(*request.Body.Name)
-		if name == "" {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
-		}
-		profile, err := s.server.store.Execution().RenameAgentProfile(
-			ctx,
-			executionstore.RenameAgentProfileInput{
-				ProjectID: project.ID,
-				ProfileID: profileID,
-				Name:      name,
-			},
-		)
-		if err != nil {
-			return nil, apierror.ProjectScoped(err)
-		}
-		response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
-		if err != nil {
-			return nil, err
-		}
-		return openapi.UpdateAgentProfile200JSONResponse(response), nil
-	}
-	if request.Body.ExpectedCurrentConfigId == nil ||
-		strings.TrimSpace(*request.Body.ExpectedCurrentConfigId) == "" {
+	if strings.TrimSpace(request.Body.ExpectedCurrentConfigId) == "" {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "expected_current_config_id is required")
 	}
-	expectedCurrentConfigID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, *request.Body.ExpectedCurrentConfigId)
+	expectedCurrentConfigID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.Body.ExpectedCurrentConfigId)
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid expected_current_config_id")
 	}
-	if request.Body.Config == nil || strings.TrimSpace(*request.Body.Config) == "" {
+	if strings.TrimSpace(request.Body.Config) == "" {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "config is required")
 	}
-	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, *request.Body.Config)
+	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.Body.Config)
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
 	}
@@ -264,6 +231,45 @@ func (s strictOpenAPIServer) updateAgentProfile(
 		return nil, err
 	}
 	return openapi.UpdateAgentProfile200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) RenameAgentProfile(
+	ctx context.Context,
+	request openapi.RenameAgentProfileRequestObject,
+) (openapi.RenameAgentProfileResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, request.AgentProfileID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	name := strings.TrimSpace(request.Body.Name)
+	if name == "" {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
+	}
+	principal, _ := principalFromContext(ctx)
+	if principal.ID == storage.NilID {
+		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
+			"authenticated user principal is required to rename an agent profile")
+	}
+	profile, err := s.server.store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
+		ProjectID: scope.project.ID,
+		ProfileID: profileID,
+		Name:      name,
+	})
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.RenameAgentProfile200JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) GetAgentProfile(
@@ -815,7 +821,7 @@ func (s strictOpenAPIServer) createAgent(
 		}
 		return openapi.CreateAgent201JSONResponse(response), nil
 	}
-	response, err := s.server.currentAgentResponse(ctx, result.Agent)
+	response, err := currentAgentEnvelope(result.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -955,6 +961,14 @@ func (s *Server) startPoolMachineDeletion(parent context.Context, machines []exe
 			logger.Warn("pool machine deletion failed", "error", err)
 		}
 	}()
+}
+
+func currentAgentEnvelope(record executionstore.AgentRecord) (openapi.CurrentAgentResponse, error) {
+	agent, err := publicAgentResponseFromRecord(record)
+	if err != nil {
+		return openapi.CurrentAgentResponse{}, err
+	}
+	return openapi.CurrentAgentResponse{Agent: agent}, nil
 }
 
 func (s *Server) currentAgentResponse(

@@ -225,7 +225,7 @@ export function AgentConfigMachineSourcesField({
                       <Input
                         id={`${source.id}-initial`}
                         type="number"
-                        min={1}
+                        min={0}
                         value={source.initialNumMachines}
                         placeholder="1"
                         onChange={(event) => {
@@ -238,7 +238,7 @@ export function AgentConfigMachineSourcesField({
                       <Input
                         id={`${source.id}-max`}
                         type="number"
-                        min={1}
+                        min={0}
                         value={source.maxMachines}
                         placeholder="1"
                         onChange={(event) => {

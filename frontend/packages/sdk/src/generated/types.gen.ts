@@ -893,13 +893,13 @@ export type CreateAgentProfileRequest = {
     config: AgentConfigId;
 };
 
-/**
- * Updates exactly one of the profile name or the current config. A config update must supply both config and expected_current_config_id. Renames do not accept an Idempotency-Key: they have no replay ledger.
- */
 export type UpdateAgentProfileRequest = {
-    name?: string;
-    config?: AgentConfigId;
-    expected_current_config_id?: AgentConfigId;
+    config: AgentConfigId;
+    expected_current_config_id: AgentConfigId;
+};
+
+export type RenameAgentProfileRequest = {
+    name: string;
 };
 
 export type AgentProfile = {
@@ -968,6 +968,10 @@ export type AgentMcpConnection = {
     initialize_error: string;
     created_at: Timestamp;
     updated_at: Timestamp;
+};
+
+export type CurrentAgentResponse = {
+    agent: Agent;
 };
 
 export type GetAgentResponse = {
@@ -6992,6 +6996,75 @@ export type GetAgentProfileResponses = {
 
 export type GetAgentProfileResponse = GetAgentProfileResponses[keyof GetAgentProfileResponses];
 
+export type RenameAgentProfileData = {
+    body: RenameAgentProfileRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+        agentProfileID: string;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}';
+};
+
+export type RenameAgentProfileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type RenameAgentProfileError = RenameAgentProfileErrors[keyof RenameAgentProfileErrors];
+
+export type RenameAgentProfileResponses = {
+    /**
+     * Agent profile renamed.
+     */
+    200: AgentProfile;
+};
+
+export type RenameAgentProfileResponse = RenameAgentProfileResponses[keyof RenameAgentProfileResponses];
+
 export type UpdateAgentProfileData = {
     body: UpdateAgentProfileRequest;
     headers?: {
@@ -7356,7 +7429,7 @@ export type CreateAgentResponses = {
     /**
      * Current state of the previously created agent.
      */
-    200: GetAgentResponse;
+    200: CurrentAgentResponse;
     /**
      * Agent launched.
      */
@@ -7494,7 +7567,7 @@ export type ArchiveAgentResponses = {
     /**
      * The archived agent.
      */
-    200: GetAgentResponse;
+    200: CurrentAgentResponse;
 };
 
 export type ArchiveAgentResponse = ArchiveAgentResponses[keyof ArchiveAgentResponses];

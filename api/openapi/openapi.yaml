@@ -2461,6 +2461,43 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: renameAgentProfile
+      tags: [Configs and Profiles]
+      summary: Rename agent profile
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameAgentProfileRequest'
+      responses:
+        '200':
+          description: Agent profile renamed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteAgentProfile
       tags: [Configs and Profiles]
@@ -2703,7 +2740,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GetAgentResponse'
+                $ref: '#/components/schemas/CurrentAgentResponse'
         '201':
           description: Agent launched.
           content:
@@ -2857,7 +2894,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GetAgentResponse'
+                $ref: '#/components/schemas/CurrentAgentResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7623,19 +7660,21 @@ components:
         config:
           $ref: '#/components/schemas/AgentConfigID'
     UpdateAgentProfileRequest:
-      description: >-
-        Updates exactly one of the profile name or the current config. A config
-        update must supply both config and expected_current_config_id. Renames
-        do not accept an Idempotency-Key: they have no replay ledger.
       type: object
       additionalProperties: false
+      required: [config, expected_current_config_id]
       properties:
-        name:
-          type: string
         config:
           $ref: '#/components/schemas/AgentConfigID'
         expected_current_config_id:
           $ref: '#/components/schemas/AgentConfigID'
+    RenameAgentProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
     AgentProfile:
       type: object
       additionalProperties: false
@@ -7761,6 +7800,13 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    CurrentAgentResponse:
+      type: object
+      additionalProperties: false
+      required: [agent]
+      properties:
+        agent:
+          $ref: '#/components/schemas/Agent'
     GetAgentResponse:
       type: object
       additionalProperties: false

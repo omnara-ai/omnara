@@ -1,4 +1,4 @@
-import { ApiError, type ListAgentsData, sdk } from '@omnara/sdk'
+import { ApiError, type GetAgentResponse, type ListAgentsData, sdk } from '@omnara/sdk'
 import {
   getAgentConfigOptions,
   getAgentOptions,
@@ -43,9 +43,19 @@ export function useAgents(orgID: string, projectID: string, options?: AgentListO
   })
 }
 
-export function useAgent(orgID: string, projectID: string, agentID: string) {
+export function useAgent(
+  orgID: string,
+  projectID: string,
+  agentID: string,
+  options?: { refetchInterval?: (data: GetAgentResponse | undefined) => number | false },
+) {
   const client = useOmnaraClient()
-  return useSuspenseQuery(getAgentOptions({ path: { orgID, projectID, agentID }, client }))
+  const refetchInterval = options?.refetchInterval
+  return useSuspenseQuery({
+    ...getAgentOptions({ path: { orgID, projectID, agentID }, client }),
+    refetchInterval:
+      refetchInterval == null ? undefined : (query) => refetchInterval(query.state.data),
+  })
 }
 
 export function useCreateAgentConfig(orgID: string, projectID: string) {

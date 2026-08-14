@@ -109,8 +109,14 @@ function AgentMachinesGroup({ orgId, machineIds }: { orgId: string; machineIds: 
   )
 }
 
+const provisioningPollInterval = 5_000
+const connectionStatePollInterval = 15_000
+
 function AgentMachineRow({ orgId, machineId }: { orgId: string; machineId: string }) {
-  const { data: machine } = useMachine(orgId, machineId)
+  const { data: machine } = useMachine(orgId, machineId, {
+    refetchInterval: (machine) =>
+      machine == null ? provisioningPollInterval : connectionStatePollInterval,
+  })
   return (
     <SidebarMenuItem className="flex items-center justify-between gap-2 py-1.5 text-sm">
       <span className="truncate">{machine?.display_name ?? machineId}</span>

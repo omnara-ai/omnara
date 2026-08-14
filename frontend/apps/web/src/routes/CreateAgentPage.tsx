@@ -76,15 +76,12 @@ export function CreateAgentPage() {
   const savedProfile = useRef<SavedProfile | null>(null)
   const [session, setSession] = useState(() => createBasicConfigSession(''))
   const form = useAgentBuilderForm(session)
-  const [builderYaml, setBuilderYaml] = useState('')
-  if (!form.blocked && builderYaml !== form.yaml) setBuilderYaml(form.yaml)
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {
       const adopted = createBasicConfigSession(mode.editorYaml)
       if (adopted.initialDraft != null) {
         setSession(adopted)
         form.reset(adopted.initialDraft)
-        setBuilderYaml(mode.editorYaml)
         dispatchMode({ type: 'adopt-yaml-edits' })
         return
       }
@@ -116,8 +113,7 @@ export function CreateAgentPage() {
   const showBuilder = mode.mode === 'builder'
   const isSubmitting = draft.status.phase === 'submitting'
   const errorMessage = statusError(draft.status)
-  const editorYaml = mode.editorYaml ?? builderYaml
-  const yaml = showBuilder ? builderYaml : editorYaml
+  const yaml = mode.editorYaml ?? form.yaml
   const canSubmit =
     !isSubmitting &&
     draft.name.trim() !== '' &&
@@ -224,10 +220,10 @@ export function CreateAgentPage() {
         {!showBuilder && (
           <AgentConfigYamlField
             id="agent-yaml"
-            value={editorYaml}
+            value={yaml}
             className="h-[28rem]"
             onChange={(value) => {
-              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml })
+              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml: form.yaml })
             }}
           />
         )}

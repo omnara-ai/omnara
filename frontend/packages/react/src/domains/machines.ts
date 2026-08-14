@@ -1,4 +1,9 @@
-import { type ListVisibleMachinesData, type ListVisibleProjectMachinesData, sdk } from '@omnara/sdk'
+import {
+  type ListVisibleMachinesData,
+  type ListVisibleProjectMachinesData,
+  type Machine,
+  sdk,
+} from '@omnara/sdk'
 import {
   getMachineOptions,
   listProjectMachineGrantsQueryKey,
@@ -39,9 +44,18 @@ export function useMachines(orgID: string, options?: MachineListOptions) {
   })
 }
 
-export function useMachine(orgID: string, machineID: string) {
+export function useMachine(
+  orgID: string,
+  machineID: string,
+  options?: { refetchInterval?: (machine: Machine | undefined) => number | false },
+) {
   const client = useOmnaraClient()
-  return useQuery(getMachineOptions({ path: { orgID, machineID }, client }))
+  const refetchInterval = options?.refetchInterval
+  return useQuery({
+    ...getMachineOptions({ path: { orgID, machineID }, client }),
+    refetchInterval:
+      refetchInterval == null ? undefined : (query) => refetchInterval(query.state.data),
+  })
 }
 
 export function useProjectMachines(

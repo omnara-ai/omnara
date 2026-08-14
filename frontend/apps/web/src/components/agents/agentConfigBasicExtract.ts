@@ -19,8 +19,10 @@ const permission = z.strictObject({
   parameters: z.record(z.string(), z.unknown()).optional(),
 })
 
-const count = z.number().int().positive().optional()
-const overlay = z.record(z.string(), z.string()).optional()
+const positiveCount = z.number().int().positive().optional()
+const nonNegativeCount = z.number().int().nonnegative().optional()
+const overlay = z.record(z.string(), z.string().nullable()).optional()
+const providerOptionsOverlay = z.record(z.string(), z.string()).optional()
 
 const machineEntry = z.strictObject({
   machine_name: z.string(),
@@ -31,11 +33,11 @@ const machineEntry = z.strictObject({
 
 const poolEntry = z.strictObject({
   machine_pool_name: z.string(),
-  initial_num_machines: count,
-  max_machines: count,
-  machine_cpu: count,
-  machine_memory_mb: count,
-  machine_provider_options_overlay: overlay,
+  initial_num_machines: nonNegativeCount,
+  max_machines: nonNegativeCount,
+  machine_cpu: positiveCount,
+  machine_memory_mb: positiveCount,
+  machine_provider_options_overlay: providerOptionsOverlay,
   cwd: z.string().optional(),
   env_overlay: overlay,
   secret_env_overlay: overlay,
@@ -54,7 +56,7 @@ const mcpAuth = z.discriminatedUnion('type', [
 
 const mcpEntry = z.strictObject({
   url: z.string(),
-  permission,
+  permission: permission.optional(),
   default_enabled: z.boolean().nullable().optional(),
   auth: mcpAuth.optional(),
 })
@@ -62,7 +64,7 @@ const mcpEntry = z.strictObject({
 const toolEntry = z.strictObject({
   type: z.literal('built_in').optional(),
   enabled: z.literal(true).nullable().optional(),
-  permission,
+  permission: permission.optional(),
 })
 
 const basicDocument = z.looseObject({
@@ -105,7 +107,10 @@ export function normalizeMultiline(value: string) {
   return value.replace(/\r\n?/g, '\n').trimEnd()
 }
 
-function permissionDraft(value: z.infer<typeof permission>): ToolPermissionSelection {
+function permissionDraft(
+  value: z.infer<typeof permission> | undefined,
+): ToolPermissionSelection | null {
+  if (value == null) return null
   return { mode: value.mode, parameters: value.parameters ?? {} }
 }
 

@@ -154,7 +154,7 @@ type GetAgentByIdempotencyKeyRow struct {
 }
 
 // @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
-// The agent's current config keeps pointing at its model even after a soft delete.
+// Display-only model names must still resolve after the model or provider config is soft deleted.
 func (q *Queries) GetAgentByIdempotencyKey(ctx context.Context, arg GetAgentByIdempotencyKeyParams) (GetAgentByIdempotencyKeyRow, error) {
 	row := q.db.QueryRow(ctx, getAgentByIdempotencyKey, arg.ProjectID, arg.IdempotencyKey)
 	var i GetAgentByIdempotencyKeyRow
@@ -222,7 +222,7 @@ type GetAgentInProjectRow struct {
 }
 
 // @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
-// The agent's current config keeps pointing at its model even after a soft delete.
+// Display-only model names must still resolve after the model or provider config is soft deleted.
 func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectParams) (GetAgentInProjectRow, error) {
 	row := q.db.QueryRow(ctx, getAgentInProject, arg.ProjectID, arg.ID)
 	var i GetAgentInProjectRow
@@ -308,7 +308,7 @@ type InsertAgentRow struct {
 }
 
 // @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
-// The agent's current config keeps pointing at its model even after a soft delete.
+// Display-only model names must still resolve after the model or provider config is soft deleted.
 func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (InsertAgentRow, error) {
 	row := q.db.QueryRow(ctx, insertAgent,
 		arg.OrgID,

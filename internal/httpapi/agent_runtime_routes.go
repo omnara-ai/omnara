@@ -125,7 +125,7 @@ func (s strictOpenAPIServer) archiveAgent(
 		return nil, apierror.ProjectScoped(err)
 	}
 	s.server.startPoolMachineDeletion(ctx, machines)
-	response, err := s.server.currentAgentResponse(ctx, archived)
+	response, err := currentAgentEnvelope(archived)
 	if err != nil {
 		return nil, err
 	}

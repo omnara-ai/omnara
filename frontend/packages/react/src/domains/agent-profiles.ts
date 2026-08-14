@@ -106,7 +106,43 @@ export function useUpdateAgentProfile(orgID: string, projectID: string) {
       })
       return data
     },
-    onSuccess: async (_data, { agentProfileID }) => {
+    onSuccess: async (data, { agentProfileID }) => {
+      queryClient.setQueryData(
+        getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
+        data,
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getAgentProfileQueryKey({
+            path: { orgID, projectID, agentProfileID },
+            client,
+          }),
+        }),
+      ])
+    },
+  })
+}
+
+export function useRenameAgentProfile(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ agentProfileID, name }: { agentProfileID: string; name: string }) => {
+      const { data } = await sdk.renameAgentProfile({
+        path: { orgID, projectID, agentProfileID },
+        body: { name },
+        client,
+      })
+      return data
+    },
+    onSuccess: async (data, { agentProfileID }) => {
+      queryClient.setQueryData(
+        getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
+        data,
+      )
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
