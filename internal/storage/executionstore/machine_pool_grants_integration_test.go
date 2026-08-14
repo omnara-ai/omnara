@@ -830,6 +830,14 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create valid pool grant: %v", err)
 	}
+	if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
+		OrgID:          testOrgID,
+		ProjectID:      testProjectID,
+		MachinePoolID:  machinePool.ID,
+		IdempotencyKey: "idem-duplicate-pool-grant",
+	}); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("duplicate pool grant error = %v, want ErrConflict", err)
+	}
 	compiled := mustCompileAgentYAMLWithMachineSourceResolvers(t, ctx, store, `
 instruction: Use the pool.
 model:
