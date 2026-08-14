@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -218,6 +219,100 @@ func TestBlaxelRESTClientDoesNotRetryProcessStart(t *testing.T) {
 	}
 }
 
+func TestBlaxelRESTClientRetriesTransientCreateErrors(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := calls.Add(1)
+		if r.Method != http.MethodPost || r.URL.Path != "/sandboxes" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			return
+		}
+		switch call {
+		case 1:
+			w.WriteHeader(http.StatusInternalServerError)
+		case 2:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			_, _ = w.Write([]byte(`{"metadata":{"name":"omnara-mch-test"},"status":"DEPLOYED"}`))
+		}
+	}))
+	defer server.Close()
+
+	result, err := newTestRESTClient(server.URL).CreateSandbox(
+		context.Background(),
+		createSandboxRequest{Metadata: resourceMetadata{Name: "omnara-mch-test"}},
+	)
+	if err != nil || result.Metadata.Name != "omnara-mch-test" || calls.Load() != 3 {
+		t.Fatalf("create result=%+v calls=%d err=%v", result, calls.Load(), err)
+	}
+}
+
+func TestBlaxelRESTClientCreateConvergesAfterAmbiguousErrors(t *testing.T) {
+	var createCalls atomic.Int32
+	var getCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/sandboxes":
+			createCalls.Add(1)
+			w.Header().Set("X-Blaxel-Request-Id", "req-create")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"errorCode":"CREATE_TIMEOUT"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/sandboxes/omnara-mch-test":
+			getCalls.Add(1)
+			_, _ = w.Write([]byte(`{"metadata":{"name":"omnara-mch-test"},"status":"DEPLOYED"}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	result, err := newTestRESTClient(server.URL).CreateSandbox(
+		context.Background(),
+		createSandboxRequest{Metadata: resourceMetadata{Name: "omnara-mch-test"}},
+	)
+	if err != nil || result.Metadata.Name != "omnara-mch-test" ||
+		createCalls.Load() != createRetries+1 || getCalls.Load() != 1 {
+		t.Fatalf(
+			"create result=%+v create calls=%d get calls=%d err=%v",
+			result, createCalls.Load(), getCalls.Load(), err,
+		)
+	}
+}
+
+func TestBlaxelRESTClientCreateHonorsRetryAfterAndCancellation(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "5")
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(25*time.Millisecond, cancel)
+	_, err := newTestRESTClient(server.URL).CreateSandbox(
+		ctx,
+		createSandboxRequest{Metadata: resourceMetadata{Name: "omnara-mch-test"}},
+	)
+	if !errors.Is(err, context.Canceled) || calls.Load() != 1 {
+		t.Fatalf("create calls=%d err=%v, want cancellation before retry", calls.Load(), err)
+	}
+}
+
+func TestBlaxelCreateTransientStatuses(t *testing.T) {
+	for _, statusCode := range []int{500, 502, 503, 504} {
+		if !isTransientServerError(apiError{StatusCode: statusCode}) {
+			t.Errorf("HTTP %d should be transient", statusCode)
+		}
+	}
+	for _, statusCode := range []int{400, 409, 429, 501} {
+		if isTransientServerError(apiError{StatusCode: statusCode}) {
+			t.Errorf("HTTP %d should not be transient", statusCode)
+		}
+	}
+}
+
 func TestBlaxelRESTClientDataPlaneCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	client := newTestRESTClient("https://api.invalid.test")
@@ -244,6 +339,7 @@ func TestBlaxelRESTClientDataPlaneCancellation(t *testing.T) {
 
 func TestBlaxelRESTClientDoesNotExposeErrorResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Blaxel-Request-Id", "req-123")
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(
 			`{"errorCode":"UPSTREAM_FAILURE","error":"OMNARA_MACHINE_TOKEN=secret-token"}`,
@@ -253,8 +349,9 @@ func TestBlaxelRESTClientDoesNotExposeErrorResponse(t *testing.T) {
 
 	client := newTestRESTClient(server.URL)
 	_, _, err := client.GetSandbox(context.Background(), "omnara-mch-test")
-	if err == nil || err.Error() != "blaxel API returned HTTP 500" {
-		t.Fatalf("provider error = %v, want status without response body", err)
+	want := `blaxel API returned HTTP 500 (code "UPSTREAM_FAILURE") (request "req-123")`
+	if err == nil || err.Error() != want || strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("provider error = %v, want safe bounded diagnostics", err)
 	}
 }
 

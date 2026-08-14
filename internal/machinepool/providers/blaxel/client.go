@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,11 +18,15 @@ import (
 )
 
 const (
-	apiBaseURL          = "https://api.blaxel.ai/v0"
-	apiVersion          = "2026-04-28"
-	maxSandboxListLimit = 200
-	dataPlaneRetries    = 2
-	dataPlaneRetryDelay = 500 * time.Millisecond
+	apiBaseURL           = "https://api.blaxel.ai/v0"
+	apiVersion           = "2026-04-28"
+	maxSandboxListLimit  = 200
+	dataPlaneRetries     = 2
+	dataPlaneRetryDelay  = 500 * time.Millisecond
+	createRetries        = 2
+	createRetryDelay     = 250 * time.Millisecond
+	maxCreateRetryDelay  = 5 * time.Second
+	maxAPIDiagnosticSize = 128
 )
 
 type apiClient interface {
@@ -176,18 +181,51 @@ func (c *restClient) CreateSandbox(
 	ctx context.Context,
 	request createSandboxRequest,
 ) (sandbox, error) {
-	var result sandbox
-	_, err := c.doRequest(
-		ctx,
-		http.MethodPost,
-		c.apiBaseURL+"/sandboxes?createIfNotExist=true",
-		request,
-		&result,
-	)
-	if err != nil {
-		return sandbox{}, err
+	var lastErr error
+	for attempt := 0; attempt <= createRetries; attempt++ {
+		var result sandbox
+		_, lastErr = c.doRequest(
+			ctx,
+			http.MethodPost,
+			c.apiBaseURL+"/sandboxes?createIfNotExist=true",
+			request,
+			&result,
+		)
+		if lastErr == nil || !isTransientServerError(lastErr) {
+			return result, lastErr
+		}
+		if attempt < createRetries {
+			if err := waitForRetry(ctx, createRetryDelayFor(lastErr, attempt)); err != nil {
+				return sandbox{}, err
+			}
+		}
 	}
-	return result, nil
+	if request.Metadata.Name != "" {
+		if existing, found, err := c.GetSandbox(ctx, request.Metadata.Name); err == nil && found {
+			return existing, nil
+		}
+	}
+	return sandbox{}, lastErr
+}
+
+func createRetryDelayFor(err error, attempt int) time.Duration {
+	delay := createRetryDelay << attempt
+	delay = delay/2 + time.Duration(rand.Int64N(int64(delay)))
+	if retryAfter, ok := providers.RetryAfter(err); ok && retryAfter > delay {
+		delay = retryAfter
+	}
+	return min(delay, maxCreateRetryDelay)
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (c *restClient) GetSandbox(
@@ -373,7 +411,11 @@ func (c *restClient) doRequestWithHeaders(
 	statusCode, raw := response.StatusCode, response.Body
 	if statusCode < 200 || statusCode >= 300 {
 		return statusCode, providers.WithRetryAfter(
-			apiError{StatusCode: statusCode},
+			apiError{
+				StatusCode: statusCode,
+				ErrorCode:  responseErrorCode(raw),
+				RequestID:  responseRequestID(response.Header),
+			},
 			response.Header,
 		)
 	}
@@ -388,10 +430,56 @@ func (c *restClient) doRequestWithHeaders(
 
 type apiError struct {
 	StatusCode int
+	ErrorCode  string
+	RequestID  string
 }
 
 func (e apiError) Error() string {
-	return fmt.Sprintf("blaxel API returned HTTP %d", e.StatusCode)
+	message := fmt.Sprintf("blaxel API returned HTTP %d", e.StatusCode)
+	if e.ErrorCode != "" {
+		message += fmt.Sprintf(" (code %q)", e.ErrorCode)
+	}
+	if e.RequestID != "" {
+		message += fmt.Sprintf(" (request %q)", e.RequestID)
+	}
+	return message
+}
+
+func responseErrorCode(raw []byte) string {
+	var response struct {
+		ErrorCode string `json:"errorCode"`
+		Code      string `json:"code"`
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return ""
+	}
+	code := strings.TrimSpace(response.ErrorCode)
+	if code == "" {
+		code = strings.TrimSpace(response.Code)
+	}
+	return boundedAPIDiagnostic(code)
+}
+
+func responseRequestID(header http.Header) string {
+	for _, name := range []string{"X-Blaxel-Request-Id", "X-Request-Id", "Request-Id"} {
+		if requestID := boundedAPIDiagnostic(header.Get(name)); requestID != "" {
+			return requestID
+		}
+	}
+	return ""
+}
+
+func boundedAPIDiagnostic(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > maxAPIDiagnosticSize {
+		value = value[:maxAPIDiagnosticSize]
+	}
+	return strings.Map(func(character rune) rune {
+		if character < 0x20 || character == 0x7f {
+			return -1
+		}
+		return character
+	}, value)
 }
 
 func isStatus(err error, statusCode int) bool {
@@ -411,4 +499,8 @@ func isGatewayError(err error) bool {
 	return isStatus(err, http.StatusBadGateway) ||
 		isStatus(err, http.StatusServiceUnavailable) ||
 		isStatus(err, http.StatusGatewayTimeout)
+}
+
+func isTransientServerError(err error) bool {
+	return isStatus(err, http.StatusInternalServerError) || isGatewayError(err)
 }
