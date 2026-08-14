@@ -58,7 +58,9 @@ func TestSendGridSenderSendInviteBuildsRequest(t *testing.T) {
 	if err := json.NewDecoder(seenRequest.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	assertSendGridInviteBody(t, body, "user@example.com", "noreply@example.com", "Acme", "https://app.example.com/invitations")
+	assertSendGridInviteBody(
+		t, body, "user@example.com", "noreply@example.com", "Acme", "https://app.example.com/invitations",
+	)
 	personalization := firstMapInSlice(t, body["personalizations"])
 	toEntry := firstMapInSlice(t, personalization["to"])
 	if got := toEntry["name"]; got != "User" {

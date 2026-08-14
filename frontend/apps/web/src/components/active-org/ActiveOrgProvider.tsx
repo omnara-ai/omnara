@@ -32,6 +32,7 @@ export function ActiveOrgProvider({ children }: { children: ReactNode }) {
     orgs,
     activeOrg,
     setActiveOrgId: (id) => {
+      writeLocal(STORAGE_KEY, id)
       setActiveId(id)
     },
   }
