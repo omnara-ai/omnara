@@ -71,7 +71,7 @@ export function CreateMachinePoolDialog({
         form.reset({
           ...machinePoolFormDefaults,
           cpu: value.cpu,
-          memoryMb: value.memoryMb,
+          memoryGb: value.memoryGb,
           maxMachines: value.maxMachines,
         })
         setPhase({ kind: 'form', error: '' })
@@ -116,13 +116,13 @@ export function CreateMachinePoolDialog({
                       form.setFieldValue('image', nextValues.image)
                       form.setFieldValue('location', nextValues.location)
                       form.setFieldValue('cpu', nextValues.cpu)
-                      form.setFieldValue('memoryMb', nextValues.memoryMb)
+                      form.setFieldValue('memoryGb', nextValues.memoryGb)
                       form.setFieldValue('maxTotalCpu', nextValues.maxTotalCpu)
-                      form.setFieldValue('maxTotalMemoryMb', nextValues.maxTotalMemoryMb)
+                      form.setFieldValue('maxTotalMemoryGb', nextValues.maxTotalMemoryGb)
                       form.setFieldValue('minMachineCpu', nextValues.minMachineCpu)
-                      form.setFieldValue('minMachineMemoryMb', nextValues.minMachineMemoryMb)
+                      form.setFieldValue('minMachineMemoryGb', nextValues.minMachineMemoryGb)
                       form.setFieldValue('maxMachineCpu', nextValues.maxMachineCpu)
-                      form.setFieldValue('maxMachineMemoryMb', nextValues.maxMachineMemoryMb)
+                      form.setFieldValue('maxMachineMemoryGb', nextValues.maxMachineMemoryGb)
                       form.setFieldValue('secretId', nextValues.secretId)
                     }}
                   />
@@ -186,17 +186,17 @@ export function CreateMachinePoolDialog({
                   state.values.provider,
                   state.values.location,
                   state.values.cpu,
-                  state.values.memoryMb,
+                  state.values.memoryGb,
                   state.values.maxMachines,
                 ] as const
               }
             >
-              {([provider, location, cpu, memoryMb, maxMachines]) => (
+              {([provider, location, cpu, memoryGb, maxMachines]) => (
                 <MachinePoolResourceFields
                   provider={provider}
                   location={location}
                   cpu={cpu}
-                  memoryMb={memoryMb}
+                  memoryGb={memoryGb}
                   maxMachines={maxMachines}
                   onLocationChange={(value) => {
                     form.setFieldValue('location', value)
@@ -204,8 +204,8 @@ export function CreateMachinePoolDialog({
                   onCpuChange={(value) => {
                     form.setFieldValue('cpu', value)
                   }}
-                  onMemoryMbChange={(value) => {
-                    form.setFieldValue('memoryMb', value)
+                  onMemoryGbChange={(value) => {
+                    form.setFieldValue('memoryGb', value)
                   }}
                   onMaxMachinesChange={(value) => {
                     form.setFieldValue('maxMachines', value)

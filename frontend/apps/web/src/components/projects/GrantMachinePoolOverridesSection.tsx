@@ -12,6 +12,7 @@ import {
 } from '@/components/org/machinePoolProviders'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { memoryGbDraft } from '@/lib/machine-memory'
 
 import { type PoolGrantOverrideDraft } from './GrantMachinePoolDialogState'
 
@@ -59,12 +60,14 @@ function NumberField({
   label,
   value,
   placeholder,
+  step = '1',
   onValueChange,
 }: {
   id: string
   label: string
   value: string
   placeholder?: string
+  step?: string
   onValueChange: (value: string) => void
 }) {
   return (
@@ -74,6 +77,7 @@ function NumberField({
         id={id}
         type="number"
         min={0}
+        step={step}
         value={value}
         placeholder={placeholder}
         onChange={(event) => {
@@ -133,11 +137,12 @@ export function PoolGrantOverrideFields({
         {resources?.memoryMb === 'configured' && (
           <NumberField
             id={`${idPrefix}-memory`}
-            label="Machine memory (MB)"
-            value={values.memoryMb}
-            placeholder={numberPlaceholder(pool.default_machine_memory_mb)}
-            onValueChange={(memoryMb) => {
-              onChange({ ...values, memoryMb })
+            label="Machine memory (GB)"
+            value={values.memoryGb}
+            placeholder={memoryGbDraft(pool.default_machine_memory_mb)}
+            step="any"
+            onValueChange={(memoryGb) => {
+              onChange({ ...values, memoryGb })
             }}
           />
         )}
@@ -219,29 +224,32 @@ export function PoolGrantOverrideFields({
             <>
               <NumberField
                 id={`${idPrefix}-max-total-memory`}
-                label="Max total memory (MB)"
-                value={values.maxTotalMemoryMb}
-                placeholder={numberPlaceholder(pool.max_total_memory_mb)}
-                onValueChange={(maxTotalMemoryMb) => {
-                  onChange({ ...values, maxTotalMemoryMb })
+                label="Max total memory (GB)"
+                value={values.maxTotalMemoryGb}
+                placeholder={memoryGbDraft(pool.max_total_memory_mb)}
+                step="any"
+                onValueChange={(maxTotalMemoryGb) => {
+                  onChange({ ...values, maxTotalMemoryGb })
                 }}
               />
               <NumberField
                 id={`${idPrefix}-min-machine-memory`}
-                label="Min machine memory (MB)"
-                value={values.minMachineMemoryMb}
-                placeholder={numberPlaceholder(pool.min_machine_memory_mb)}
-                onValueChange={(minMachineMemoryMb) => {
-                  onChange({ ...values, minMachineMemoryMb })
+                label="Min machine memory (GB)"
+                value={values.minMachineMemoryGb}
+                placeholder={memoryGbDraft(pool.min_machine_memory_mb)}
+                step="any"
+                onValueChange={(minMachineMemoryGb) => {
+                  onChange({ ...values, minMachineMemoryGb })
                 }}
               />
               <NumberField
                 id={`${idPrefix}-max-machine-memory`}
-                label="Max machine memory (MB)"
-                value={values.maxMachineMemoryMb}
-                placeholder={numberPlaceholder(pool.max_machine_memory_mb)}
-                onValueChange={(maxMachineMemoryMb) => {
-                  onChange({ ...values, maxMachineMemoryMb })
+                label="Max machine memory (GB)"
+                value={values.maxMachineMemoryGb}
+                placeholder={memoryGbDraft(pool.max_machine_memory_mb)}
+                step="any"
+                onValueChange={(maxMachineMemoryGb) => {
+                  onChange({ ...values, maxMachineMemoryGb })
                 }}
               />
             </>

@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
+import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -78,15 +79,15 @@ export function MachinePoolsSection() {
             { id: 'provider', header: 'Provider', cell: (pool) => pool.provider },
             {
               id: 'max-total-machines',
-              header: 'Max total machines',
+              header: 'Machine quota',
               className: 'w-44',
               cell: (pool) => pool.max_total_machines,
             },
             {
               id: 'max-total-memory',
-              header: 'Max total memory',
+              header: 'Memory quota',
               className: 'w-44',
-              cell: (pool) => formatMemory(pool.max_total_memory_mb) ?? '—',
+              cell: (pool) => formatMemoryGb(pool.max_total_memory_mb) ?? '—',
             },
             {
               id: 'actions',
@@ -144,14 +145,14 @@ export function MachinePoolsSection() {
                   value: pool.runtime_protection_enabled ? 'Enabled' : 'Disabled',
                 },
                 { label: 'Working directory', value: pool.default_cwd, mono: true },
-                { label: 'Max total machines', value: pool.max_total_machines },
+                { label: 'Machine quota', value: pool.max_total_machines },
                 {
-                  label: 'Max total CPU',
+                  label: 'CPU quota',
                   value: formatCPU(pool.max_total_cpu),
                 },
                 {
-                  label: 'Max total memory',
-                  value: formatMemory(pool.max_total_memory_mb),
+                  label: 'Memory quota',
+                  value: formatMemoryGb(pool.max_total_memory_mb),
                 },
                 {
                   label: 'Default CPU per machine',
@@ -167,15 +168,15 @@ export function MachinePoolsSection() {
                 },
                 {
                   label: 'Default memory per machine',
-                  value: formatMemory(pool.default_machine_memory_mb),
+                  value: formatMemoryGb(pool.default_machine_memory_mb),
                 },
                 {
                   label: 'Min memory per machine',
-                  value: formatMemory(pool.min_machine_memory_mb),
+                  value: formatMemoryGb(pool.min_machine_memory_mb),
                 },
                 {
                   label: 'Max memory per machine',
-                  value: formatMemory(pool.max_machine_memory_mb),
+                  value: formatMemoryGb(pool.max_machine_memory_mb),
                 },
                 { label: 'Created', value: formatDateTime(pool.created_at) },
                 { label: 'Updated', value: formatDateTime(pool.updated_at) },
@@ -226,8 +227,4 @@ export function MachinePoolsSection() {
 
 function formatCPU(value: number | null) {
   return value === null ? undefined : `${value} vCPU`
-}
-
-function formatMemory(value: number | null) {
-  return value === null ? undefined : `${value} MB`
 }
