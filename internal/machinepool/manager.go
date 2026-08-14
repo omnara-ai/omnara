@@ -29,8 +29,8 @@ const (
 
 var providerProvisionRetryDelays = [...]time.Duration{
 	time.Second,
-	5 * time.Second,
-	15 * time.Second,
+	2 * time.Second,
+	4 * time.Second,
 }
 
 type Manager struct {

@@ -234,7 +234,7 @@ func TestProvisionMachineWithRetrySucceedsAndPreservesObservation(t *testing.T) 
 	if result.ProviderResourceID != "resource-1" || result.SandboxURL != "https://sandbox.test/" {
 		t.Fatalf("provision result = %+v", result)
 	}
-	wantDelays := []time.Duration{time.Second, 5 * time.Second}
+	wantDelays := []time.Duration{time.Second, 2 * time.Second}
 	if !slices.Equal(delays, wantDelays) {
 		t.Fatalf("retry delays = %v, want %v", delays, wantDelays)
 	}
