@@ -1,7 +1,7 @@
 import { usePendingInvitationsQuery } from '@omnara/react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Check, ChevronsUpDown, Mail, Plus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { BrandMark } from '@/components/brand/OmnaraMark'
 import { CreateOrgDialog } from '@/components/org/CreateOrgDialog'
@@ -27,37 +27,15 @@ export function OrgSwitcher() {
   const { orgs, activeOrg, setActiveOrgId } = useActiveOrg()
   const { data: pendingInvitations } = usePendingInvitationsQuery()
   const [newOrgOpen, setNewOrgOpen] = useState(false)
-  const [copiedOrgID, setCopiedOrgID] = useState<string | null>(null)
   const pendingCount = pendingInvitations?.data.length ?? 0
   const pendingCountLabel = pendingInvitations?.next_cursor
     ? `${pendingCount}+`
     : String(pendingCount)
 
-  useEffect(() => {
-    if (copiedOrgID === null) return
-
-    const timeout = window.setTimeout(() => {
-      setCopiedOrgID(null)
-    }, 1500)
-
-    return () => {
-      window.clearTimeout(timeout)
-    }
-  }, [copiedOrgID])
-
   async function switchOrganization(id: string) {
     if (id === activeOrg.id) return
     setActiveOrgId(id)
     await navigate({ to: '/', replace: true })
-  }
-
-  async function copyActiveOrganizationID() {
-    try {
-      await navigator.clipboard.writeText(activeOrg.id)
-      setCopiedOrgID(activeOrg.id)
-    } catch {
-      setCopiedOrgID(null)
-    }
   }
 
   return (
@@ -89,44 +67,18 @@ export function OrgSwitcher() {
               <DropdownMenuLabel className="text-muted-foreground text-xs">
                 Organizations
               </DropdownMenuLabel>
-              {orgs.map((org) => {
-                const selected = org.id === activeOrg.id
-
-                return (
-                  <DropdownMenuItem
-                    key={org.id}
-                    className={selected ? 'flex-col items-stretch gap-0.5 py-2' : 'gap-2'}
-                    aria-label={
-                      selected
-                        ? copiedOrgID === org.id
-                          ? `Copied organization ID ${org.id}`
-                          : `${org.name}, selected. Copy organization ID ${org.id}`
-                        : `Switch to ${org.name}`
-                    }
-                    onSelect={(event) => {
-                      if (selected) {
-                        event.preventDefault()
-                        void copyActiveOrganizationID()
-                        return
-                      }
-                      void switchOrganization(org.id)
-                    }}
-                  >
-                    <span className="flex w-full min-w-0 items-center gap-2">
-                      <span className="flex-1 truncate">{org.name}</span>
-                      {selected && <Check className="size-4 shrink-0" />}
-                    </span>
-                    {selected && (
-                      <span className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
-                        <code className="min-w-0 truncate font-mono text-[11px] font-normal">
-                          {org.id}
-                        </code>
-                        {copiedOrgID === org.id && <Check className="text-primary size-3" />}
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                )
-              })}
+              {orgs.map((org) => (
+                <DropdownMenuItem
+                  key={org.id}
+                  className="gap-2"
+                  onClick={() => {
+                    void switchOrganization(org.id)
+                  }}
+                >
+                  <span className="flex-1 truncate">{org.name}</span>
+                  {org.id === activeOrg.id && <Check className="size-4 shrink-0" />}
+                </DropdownMenuItem>
+              ))}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
