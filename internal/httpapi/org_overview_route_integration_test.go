@@ -217,9 +217,8 @@ func TestGetOrgOverview(t *testing.T) {
 	viewerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  viewer.ID,
-			Name:    "viewer",
-			TokenID: "org-overview-viewer",
+			UserID: viewer.ID,
+			Name:   "viewer",
 		},
 	)
 	if err != nil {
