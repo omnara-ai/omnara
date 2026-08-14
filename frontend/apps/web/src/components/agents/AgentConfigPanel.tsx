@@ -3,7 +3,7 @@ import { type Agent, type AgentConfig, ApiError } from '@omnara/sdk'
 import { type SyntheticEvent, useEffect, useReducer, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
-import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicYaml'
+import { createBasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import {
   type AgentConfigMode,
   agentConfigModeReducer,
@@ -132,10 +132,11 @@ function AgentConfigPanelEditor({
   onClose: () => void
 }) {
   const updateConfig = useUpdateAgentConfig(orgId, projectId, agentId)
-  const [initialBuilderConfig] = useState(() => (canManage ? deserializeBasicConfig(source) : null))
+  const [session] = useState(() => (canManage ? createBasicConfigSession(source) : null))
+  const builderSession = session?.initialDraft != null ? session : null
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
-    initialAgentConfigModeState(initialBuilderConfig ? preferredMode : 'yaml', source),
+    initialAgentConfigModeState(builderSession ? preferredMode : 'yaml', source),
   )
   const [builderBlocked, setBuilderBlocked] = useState(false)
   const [error, setError] = useState('')
@@ -193,7 +194,7 @@ function AgentConfigPanelEditor({
       <FieldGroup>
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Agent configuration</h2>
-          {initialBuilderConfig != null && (
+          {builderSession != null && (
             <PillTabs
               value={mode.mode}
               onValueChange={(nextMode) => {
@@ -206,14 +207,13 @@ function AgentConfigPanelEditor({
             />
           )}
         </div>
-        {initialBuilderConfig != null && (
+        {builderSession != null && (
           <>
             <div className={showBuilder ? 'flex flex-col gap-8' : 'hidden'}>
               <AgentConfigBasicForm
                 orgId={orgId}
                 projectId={projectId}
-                initialConfig={initialBuilderConfig}
-                baselineSource={source}
+                session={builderSession}
                 onYamlChange={handleBuilderYamlChange}
               />
             </div>
@@ -230,7 +230,7 @@ function AgentConfigPanelEditor({
             className="h-[24rem]"
           />
         )}
-        {canManage && initialBuilderConfig == null && source !== '' && (
+        {canManage && builderSession == null && source !== '' && (
           <p className="text-muted-foreground text-sm">
             This configuration can’t be shown in the builder, so it’s editable as YAML only.
           </p>

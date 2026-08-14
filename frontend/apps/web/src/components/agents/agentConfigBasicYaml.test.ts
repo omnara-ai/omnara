@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyBasicConfig, deserializeBasicConfig } from '@/components/agents/agentConfigBasicYaml'
 import {
+  applyToSource,
+  deserialize,
   fullConfig,
   minimalYaml,
   mustDeserialize,
 } from '@/components/agents/agentConfigBasicYaml.fixtures'
 
-describe('deserializeBasicConfig', () => {
+describe('createBasicConfigSession initialDraft', () => {
   it('round-trips a full builder-authored config', () => {
-    const source = applyBasicConfig('', fullConfig)
+    const source = applyToSource('', fullConfig)
     const config = mustDeserialize(source)
-    expect(applyBasicConfig(source, config)).toBe(source)
+    expect(applyToSource(source, config)).toBe(source)
     expect(config).toMatchObject({
       instruction: fullConfig.instruction,
       providerConfig: 'anthropic',
@@ -61,14 +62,12 @@ model: { provider_config: 'anthropic', name: 'claude-sonnet-5' }
 
   it('accepts a v1 version marker', () => {
     expect(mustDeserialize(`${minimalYaml}version: v1\n`).instruction).toBe('Do the thing.')
-    expect(deserializeBasicConfig(`${minimalYaml}version: v2\n`)).toBeNull()
+    expect(deserialize(`${minimalYaml}version: v2\n`)).toBeNull()
   })
 
   it('accepts unknown fields outside builder-owned entries', () => {
-    expect(deserializeBasicConfig(`${minimalYaml}unknown_field: 1\n`)).not.toBeNull()
-    expect(
-      deserializeBasicConfig(minimalYaml.replace('model:', 'model:\n  extra: true')),
-    ).not.toBeNull()
+    expect(deserialize(`${minimalYaml}unknown_field: 1\n`)).not.toBeNull()
+    expect(deserialize(minimalYaml.replace('model:', 'model:\n  extra: true'))).not.toBeNull()
   })
 
   it('accepts explicitly empty permission parameters', () => {
@@ -129,12 +128,12 @@ machine_sources:
     permission:
       mode: always_ask
 `
-    expect(deserializeBasicConfig(source)).toBeNull()
+    expect(deserialize(source)).toBeNull()
   })
 
   it('rejects unknown fields inside builder-owned entries', () => {
     expect(
-      deserializeBasicConfig(`${minimalYaml}tools:
+      deserialize(`${minimalYaml}tools:
   shell:
     custom_field: 1
     permission:
@@ -142,7 +141,7 @@ machine_sources:
 `),
     ).toBeNull()
     expect(
-      deserializeBasicConfig(`${minimalYaml}tools:
+      deserialize(`${minimalYaml}tools:
   shell:
     permission:
       mode: always_ask
@@ -150,7 +149,7 @@ machine_sources:
 `),
     ).toBeNull()
     expect(
-      deserializeBasicConfig(`${minimalYaml}mcp:
+      deserialize(`${minimalYaml}mcp:
   search:
     url: https://mcp.example.com
     retries: 3
@@ -159,19 +158,19 @@ machine_sources:
 `),
     ).toBeNull()
     expect(
-      deserializeBasicConfig(`${minimalYaml}machine_sources:
+      deserialize(`${minimalYaml}machine_sources:
   - machine_name: build-box
     zone: us-east-1
 `),
     ).toBeNull()
     expect(
-      deserializeBasicConfig(`${minimalYaml}machine_sources:
+      deserialize(`${minimalYaml}machine_sources:
   - machine_name: build-box
     machine_pool_name: default-pool
 `),
     ).toBeNull()
     expect(
-      deserializeBasicConfig(`${minimalYaml}machine_sources:
+      deserialize(`${minimalYaml}machine_sources:
   - machine_name: build-box
     initial_num_machines: 2
 `),
@@ -192,7 +191,7 @@ machine_sources:
         providerOptions: { resource: 'base-image', location: 'us', startupScript: 'echo hi' },
       },
     ])
-    expect(applyBasicConfig(source, config)).toBe(source)
+    expect(applyToSource(source, config)).toBe(source)
   })
 
   it('rejects provider options overlays no provider accounts for', () => {
@@ -200,17 +199,17 @@ machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {"instance_type":"m5.large"}
 `
-    expect(deserializeBasicConfig(unknownKey)).toBeNull()
+    expect(deserialize(unknownKey)).toBeNull()
     const mixedProviders = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {"metro":"sfo","target":"us"}
 `
-    expect(deserializeBasicConfig(mixedProviders)).toBeNull()
+    expect(deserialize(mixedProviders)).toBeNull()
     const empty = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {}
 `
-    expect(deserializeBasicConfig(empty)).toBeNull()
+    expect(deserialize(empty)).toBeNull()
   })
 
   it('rejects non-built-in tools', () => {
@@ -220,12 +219,12 @@ machine_sources:
     permission:
       mode: always_ask
 `
-    expect(deserializeBasicConfig(source)).toBeNull()
+    expect(deserialize(source)).toBeNull()
   })
 
   it('rejects invalid and empty YAML', () => {
-    expect(deserializeBasicConfig('')).toBeNull()
-    expect(deserializeBasicConfig('instruction: [')).toBeNull()
-    expect(deserializeBasicConfig('- just\n- a\n- list\n')).toBeNull()
+    expect(deserialize('')).toBeNull()
+    expect(deserialize('instruction: [')).toBeNull()
+    expect(deserialize('- just\n- a\n- list\n')).toBeNull()
   })
 })

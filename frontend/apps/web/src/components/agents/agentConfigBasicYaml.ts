@@ -1,5 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import { type Document, isMap, isNode, parse, parseDocument, stringify } from 'yaml'
+import { type Document, isMap, isNode, parseDocument, stringify } from 'yaml'
 
 import type {
   BasicConfig,
@@ -20,46 +20,56 @@ import {
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 
-/**
- * Best-effort mapping of a config source into a builder draft. Returns null
- * when the source contains anything the builder cannot faithfully edit:
- * unknown fields inside the entries it rewrites, non-built-in or disabled
- * tools, or an unknown version. Fields outside those entries (unknown
- * top-level keys, extra model keys) are fine — applyBasicConfig never touches
- * them, so the builder can't drop or change them.
- */
-export function deserializeBasicConfig(source: string): BasicConfig | null {
-  let doc: unknown
+export interface BasicConfigSession {
+  /**
+   * Best-effort mapping of the session's source into a builder draft. Null
+   * when the source contains anything the builder cannot faithfully edit:
+   * unknown fields inside the entries apply() rewrites, non-built-in or
+   * disabled tools, or an unknown version. Fields outside those entries
+   * (unknown top-level keys, extra model keys) are fine — apply() never
+   * touches them, so the builder can't drop or change them.
+   */
+  readonly initialDraft: BasicConfig | null
+  /**
+   * Serializes a draft onto the session's source, rewriting only the entries
+   * whose content actually changed so comments, key order, and formatting
+   * everywhere else survive. Returns the source verbatim when the draft still
+   * matches it.
+   */
+  apply(config: BasicConfig): string
+}
+
+export function createBasicConfigSession(source: string): BasicConfigSession {
+  const doc = parseSourceDocument(source)
+  const js: unknown = doc?.toJS()
+  const initialDraft = isRecord(js) ? extractBasicConfig(js) : null
+  return {
+    initialDraft,
+    apply(config) {
+      if (doc == null) return stringify(wireConfig(config))
+      // Cloning the pristine document per call means reverting a field to its
+      // baseline value restores the entry's original formatting.
+      return applyToDocument(doc.clone(), source, initialDraft, config)
+    },
+  }
+}
+
+function parseSourceDocument(source: string): Document | null {
   try {
-    doc = parse(source)
+    const doc = parseDocument(source)
+    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
+    return doc
   } catch {
     return null
   }
-  if (!isRecord(doc)) return null
-  return extractBasicConfig(doc)
 }
 
-/**
- * Applies a builder draft onto the YAML source it was deserialized from,
- * rewriting only the entries whose content actually changed so comments, key
- * order, and formatting everywhere else survive. Returns the source verbatim
- * when the draft still matches it.
- */
-export function applyBasicConfig(baselineSource: string, config: BasicConfig): string {
-  try {
-    const doc = parseDocument(baselineSource)
-    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) {
-      return stringify(wireConfig(config))
-    }
-    return applyToDocument(doc, baselineSource, config)
-  } catch {
-    return stringify(wireConfig(config))
-  }
-}
-
-function applyToDocument(doc: Document, baselineSource: string, config: BasicConfig): string {
-  const js: unknown = doc.toJS()
-  const baseline = isRecord(js) ? extractBasicConfig(js) : null
+function applyToDocument(
+  doc: Document,
+  baselineSource: string,
+  baseline: BasicConfig | null,
+  config: BasicConfig,
+): string {
   const edits = { count: 0 }
   const set = (path: string[], value: unknown) => {
     const node = doc.createNode(value)

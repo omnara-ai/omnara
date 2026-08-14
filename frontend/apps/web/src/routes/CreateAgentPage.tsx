@@ -13,6 +13,7 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { createBasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import {
   agentConfigModeReducer,
   initialAgentConfigModeState,
@@ -69,6 +70,7 @@ export function CreateAgentPage() {
   })
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
   const savedProfile = useRef<SavedProfile | null>(null)
+  const [session] = useState(() => createBasicConfigSession(''))
   const [builderBlocked, setBuilderBlocked] = useState(false)
   // Blocked drafts are not mirrored into the buffers, so the YAML tab starts
   // empty for hand authoring; the blocked flag still gates submission.
@@ -212,6 +214,7 @@ export function CreateAgentPage() {
           <AgentConfigBasicForm
             orgId={activeOrg.id}
             projectId={projectId}
+            session={session}
             onYamlChange={handleBuilderYamlChange}
           />
         </div>

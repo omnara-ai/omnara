@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
-import { applyBasicConfig } from '@/components/agents/agentConfigBasicYaml'
 import {
+  applyToSource,
   commentedYaml,
   fullConfig,
   minimalYaml,
   mustDeserialize,
 } from '@/components/agents/agentConfigBasicYaml.fixtures'
 
-describe('applyBasicConfig', () => {
+describe('createBasicConfigSession apply', () => {
   it('returns the source verbatim when the draft matches it', () => {
     const config = mustDeserialize(commentedYaml)
-    expect(applyBasicConfig(commentedYaml, config)).toBe(commentedYaml)
+    expect(applyToSource(commentedYaml, config)).toBe(commentedYaml)
   })
 
   it('rewrites only the entries that changed, preserving everything else', () => {
     const config = mustDeserialize(commentedYaml)
-    const updated = applyBasicConfig(commentedYaml, {
+    const updated = applyToSource(commentedYaml, {
       ...config,
       tools: config.tools.map((tool) =>
         tool.name === 'browser'
@@ -45,7 +45,7 @@ describe('applyBasicConfig', () => {
 
   it('preserves untouched machine source entries when another one changes', () => {
     const config = mustDeserialize(commentedYaml)
-    const updated = applyBasicConfig(commentedYaml, {
+    const updated = applyToSource(commentedYaml, {
       ...config,
       machineSources: config.machineSources.map((source) =>
         source.kind === 'machine' ? { ...source, defaultCwd: '/builds' } : source,
@@ -63,14 +63,14 @@ describe('applyBasicConfig', () => {
 
   it('removes sections whose entries were all removed', () => {
     const config = mustDeserialize(commentedYaml)
-    const updated = applyBasicConfig(commentedYaml, { ...config, mcpServers: [] })
+    const updated = applyToSource(commentedYaml, { ...config, mcpServers: [] })
     expect(parse(updated)).not.toHaveProperty('mcp')
     expect(updated).toContain('# keep shell locked down')
   })
 
   it('updates the instruction without disturbing the rest of the document', () => {
     const config = mustDeserialize(commentedYaml)
-    const updated = applyBasicConfig(commentedYaml, { ...config, instruction: 'New plan.' })
+    const updated = applyToSource(commentedYaml, { ...config, instruction: 'New plan.' })
     expect(updated).toContain('instruction: New plan.')
     expect(updated).toContain('# top comment')
     expect(updated).toContain('# our search proxy')
@@ -79,7 +79,7 @@ describe('applyBasicConfig', () => {
 
   it('emits valid YAML for instructions with irregular indentation', () => {
     const instruction = '  indented first line\nsecond line'
-    const source = applyBasicConfig('', { ...fullConfig, instruction })
+    const source = applyToSource('', { ...fullConfig, instruction })
     expect(mustDeserialize(source).instruction).toBe(instruction)
   })
 
@@ -94,12 +94,12 @@ describe('applyBasicConfig', () => {
       provider: 'blaxel',
       managementKind: 'cluster',
     }))
-    expect(applyBasicConfig(source, { ...config, machineSources: backfilled })).toBe(source)
+    expect(applyToSource(source, { ...config, machineSources: backfilled })).toBe(source)
   })
 
   it('serializes incomplete drafts so the YAML tab can mirror them', () => {
     const config = mustDeserialize(minimalYaml)
-    const updated = applyBasicConfig(minimalYaml, {
+    const updated = applyToSource(minimalYaml, {
       ...config,
       mcpServers: [
         {
@@ -119,7 +119,7 @@ describe('applyBasicConfig', () => {
   })
 
   it('builds a fresh document when there is no baseline source', () => {
-    const source = applyBasicConfig('', fullConfig)
+    const source = applyToSource('', fullConfig)
     expect(parse(source)).toMatchObject({
       instruction: fullConfig.instruction,
       model: { provider_config: 'anthropic', name: 'claude-sonnet-5' },

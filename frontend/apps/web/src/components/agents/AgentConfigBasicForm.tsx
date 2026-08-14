@@ -2,12 +2,11 @@ import { useToolCatalog } from '@omnara/react'
 import { useEffect, useState } from 'react'
 
 import {
-  type BasicConfig,
   type BasicMachineSource,
   type BasicMcpServer,
   isBasicConfigComplete,
 } from '@/components/agents/agentConfigBasic'
-import { applyBasicConfig } from '@/components/agents/agentConfigBasicYaml'
+import type { BasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import {
@@ -42,21 +41,17 @@ const emptyDraft: BasicConfigDraft = {
 export function AgentConfigBasicForm({
   orgId,
   projectId,
-  initialConfig,
-  baselineSource = '',
+  session,
   onYamlChange,
 }: {
   orgId: string
   projectId: string
-  initialConfig?: BasicConfig
-  /** YAML source the initial config came from; edits are applied onto it so
-   *  comments and formatting outside the changed fields survive. */
-  baselineSource?: string
+  session: BasicConfigSession
   /** Reports the draft's YAML on every change. `blocked` means the draft must
    *  not be saved yet: it is incomplete or references unavailable resources. */
   onYamlChange: (yaml: string, blocked: boolean) => void
 }) {
-  const [draft, setDraft] = useState<BasicConfigDraft>(initialConfig ?? emptyDraft)
+  const [draft, setDraft] = useState<BasicConfigDraft>(session.initialDraft ?? emptyDraft)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)
@@ -79,9 +74,9 @@ export function AgentConfigBasicForm({
       unavailableSourceIds.length > 0 ||
       modelUnavailable ||
       !isBasicConfigComplete(config)
-    onYamlChange(applyBasicConfig(baselineSource, config), blocked)
+    onYamlChange(session.apply(config), blocked)
   }, [
-    baselineSource,
+    session,
     instruction,
     machineSources,
     mcpServers,

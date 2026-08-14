@@ -3,7 +3,7 @@ import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { type SyntheticEvent, useEffect, useReducer, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
-import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicYaml'
+import { createBasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import {
   type AgentConfigMode,
   agentConfigModeReducer,
@@ -43,10 +43,11 @@ export function AgentProfileConfigEditor({
   const createConfig = useCreateAgentConfig(orgId, projectId)
   const updateProfile = useUpdateAgentProfile(orgId, projectId)
   const source = profile.current_config.source ?? ''
-  const [initialBuilderConfig] = useState(() => (canManage ? deserializeBasicConfig(source) : null))
+  const [session] = useState(() => (canManage ? createBasicConfigSession(source) : null))
+  const builderSession = session?.initialDraft != null ? session : null
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
-    initialAgentConfigModeState(initialBuilderConfig ? preferredMode : 'yaml', source),
+    initialAgentConfigModeState(builderSession ? preferredMode : 'yaml', source),
   )
   const [builderBlocked, setBuilderBlocked] = useState(false)
   const [error, setError] = useState('')
@@ -97,7 +98,7 @@ export function AgentProfileConfigEditor({
       }}
     >
       <FieldGroup>
-        {initialBuilderConfig != null && (
+        {builderSession != null && (
           <>
             <div className="flex justify-end">
               <PillTabs
@@ -115,8 +116,7 @@ export function AgentProfileConfigEditor({
               <AgentConfigBasicForm
                 orgId={orgId}
                 projectId={projectId}
-                initialConfig={initialBuilderConfig}
-                baselineSource={source}
+                session={builderSession}
                 onYamlChange={handleBuilderYamlChange}
               />
             </div>
@@ -133,7 +133,7 @@ export function AgentProfileConfigEditor({
             className="h-[28rem]"
           />
         )}
-        {canManage && initialBuilderConfig == null && source !== '' && (
+        {canManage && builderSession == null && source !== '' && (
           <p className="text-muted-foreground text-sm">
             This configuration can’t be shown in the builder, so it’s editable as YAML only.
           </p>

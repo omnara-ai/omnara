@@ -1,5 +1,5 @@
 import type { BasicConfig } from '@/components/agents/agentConfigBasic'
-import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicYaml'
+import { createBasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 export const fullConfig: BasicConfig = {
@@ -115,8 +115,16 @@ machine_sources:
   - machine_name: build-box
 `
 
+export function deserialize(source: string): BasicConfig | null {
+  return createBasicConfigSession(source).initialDraft
+}
+
 export function mustDeserialize(source: string): BasicConfig {
-  const config = deserializeBasicConfig(source)
+  const config = createBasicConfigSession(source).initialDraft
   if (config == null) throw new Error('expected the config to deserialize')
   return config
+}
+
+export function applyToSource(source: string, config: BasicConfig): string {
+  return createBasicConfigSession(source).apply(config)
 }
