@@ -1,7 +1,7 @@
 import { useAcceptInvitation, useDeclineInvitation } from '@omnara/react'
 import type { OrgInvitation } from '@omnara/sdk'
 import { Building2, Check, Copy, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -28,6 +28,18 @@ export function PendingInvitationList({
 
   const actingId = action.kind === 'acting' ? action.invitationId : null
   const error = action.kind === 'error' ? action.message : null
+
+  useEffect(() => {
+    if (copiedInvitationID === null) return
+
+    const timeout = window.setTimeout(() => {
+      setCopiedInvitationID(null)
+    }, 1500)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [copiedInvitationID])
 
   async function accept(invitationID: string) {
     setAction({ kind: 'acting', invitationId: invitationID, response: 'accept' })
@@ -94,15 +106,12 @@ export function PendingInvitationList({
               <span className="bg-secondary text-secondary-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
                 <Building2 className="size-5" />
               </span>
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className="truncate font-medium">{invitation.org_name}</span>
-                <div className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
-                  <span className="shrink-0">Org ID:</span>
-                  <code className="truncate text-[11px]">{invitation.org_id}</code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-5 rounded-sm"
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate font-medium leading-5">{invitation.org_name}</span>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -ml-1 flex w-fit min-w-0 max-w-full items-center gap-1 rounded px-1 text-left text-xs leading-4 transition-colors focus-visible:outline-none focus-visible:ring-2"
                     aria-label={
                       copiedInvitationID === invitation.id
                         ? `Copied organization ID ${invitation.org_id}`
@@ -111,14 +120,18 @@ export function PendingInvitationList({
                     title={copiedInvitationID === invitation.id ? 'Copied' : 'Copy organization ID'}
                     onClick={() => void copyOrganizationID(invitation)}
                   >
+                    <span className="shrink-0">Org ID:</span>
+                    <code className="truncate font-mono text-[11px] font-normal">
+                      {invitation.org_id}
+                    </code>
                     {copiedInvitationID === invitation.id ? (
-                      <Check className="size-3" />
+                      <Check className="size-3 shrink-0" />
                     ) : (
-                      <Copy className="size-3" />
+                      <Copy className="size-3 shrink-0" />
                     )}
-                  </Button>
+                  </button>
                 </div>
-                <span className="text-muted-foreground text-sm">
+                <span className="text-muted-foreground mt-1.5 text-sm">
                   Join as {articleFor(invitation.org_role)}{' '}
                   <span className="capitalize">{invitation.org_role}</span>
                   {formatDateTime(invitation.created_at) && (
