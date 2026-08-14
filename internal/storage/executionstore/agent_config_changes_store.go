@@ -33,7 +33,7 @@ type AgentConfigChangeRecord struct {
 
 type ChangeAgentConfigInput struct {
 	CreateAgentConfigInput
-	AgentID ID
+	AgentID                 ID
 	ExpectedCurrentConfigID ID
 	ActorType               string
 	ActorID                 ID
