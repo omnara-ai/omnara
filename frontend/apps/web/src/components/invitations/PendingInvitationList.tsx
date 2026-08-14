@@ -97,7 +97,7 @@ export function PendingInvitationList({
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="truncate font-medium">{invitation.org_name}</span>
                 <div className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
-                  <span className="shrink-0">Org ID</span>
+                  <span className="shrink-0">Org ID:</span>
                   <code className="truncate text-[11px]">{invitation.org_id}</code>
                   <Button
                     variant="ghost"
