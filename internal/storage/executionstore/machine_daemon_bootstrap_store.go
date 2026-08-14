@@ -98,6 +98,10 @@ func createBYOMachineDaemonTokenTx(
 	); err != nil {
 		return MachineDaemonTokenRecord{}, err
 	}
+	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return MachineDaemonTokenRecord{}, err
+	}
 	tokenCount, err := qtx.CountActiveMachineDaemonTokensForMachine(
 		ctx,
 		dbsqlc.CountActiveMachineDaemonTokensForMachineParams{
@@ -108,10 +112,10 @@ func createBYOMachineDaemonTokenTx(
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("count active BYO daemon tokens: %w", err)
 	}
-	if tokenCount > MaxActiveBYODaemonTokensPerMachine {
+	if tokenCount > limits.MaxActiveByoDaemonTokensPerMachine {
 		return MachineDaemonTokenRecord{}, resourceLimitExceeded(
 			"active machine daemon tokens",
-			MaxActiveBYODaemonTokensPerMachine,
+			limits.MaxActiveByoDaemonTokensPerMachine,
 		)
 	}
 	return machineDaemonTokenFromCreate(row), nil

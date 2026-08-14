@@ -134,10 +134,7 @@ func startCommand(
 				return failProcessTransaction(
 					err,
 					processToolErrorAgentLimitReached,
-					fmt.Sprintf(
-						"this agent already has %d unfinished processes; use list_processes and stop_process before starting another",
-						executionstore.MaxNonTerminalProcessesPerAgent,
-					),
+					"this agent has reached its unfinished process limit; use list_processes and stop_process before starting another",
 					false,
 					"",
 					"",

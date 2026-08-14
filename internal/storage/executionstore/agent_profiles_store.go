@@ -60,6 +60,10 @@ func (s *Store) CreateAgentProfile(
 	if err := lockResourceCreation(ctx, qtx, resourceAgentProfiles, input.ProjectID.String()); err != nil {
 		return AgentProfileRecord{}, err
 	}
+	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return AgentProfileRecord{}, err
+	}
 	profileCount, err := qtx.CountActiveAgentProfilesForProject(
 		ctx,
 		dbsqlc.CountActiveAgentProfilesForProjectParams{ProjectID: input.ProjectID},
@@ -67,10 +71,10 @@ func (s *Store) CreateAgentProfile(
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("count active agent profiles: %w", err)
 	}
-	if profileCount > MaxActiveAgentProfilesPerProject {
+	if profileCount > limits.MaxActiveAgentProfilesPerProject {
 		return AgentProfileRecord{}, resourceLimitExceeded(
 			"active agent profiles",
-			MaxActiveAgentProfilesPerProject,
+			limits.MaxActiveAgentProfilesPerProject,
 		)
 	}
 
