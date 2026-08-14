@@ -259,7 +259,13 @@ func TestProvisionMachineWithRetryExhaustsAttempts(t *testing.T) {
 		t.Fatalf("provision error = %v, want %v", err, providerErr)
 	}
 	if calls != providerProvisionRetryAttempts || waits != providerProvisionRetryAttempts-1 {
-		t.Fatalf("provision calls/waits = %d/%d, want %d/%d", calls, waits, providerProvisionRetryAttempts, providerProvisionRetryAttempts-1)
+		t.Fatalf(
+			"provision calls/waits = %d/%d, want %d/%d",
+			calls,
+			waits,
+			providerProvisionRetryAttempts,
+			providerProvisionRetryAttempts-1,
+		)
 	}
 	if result.ProviderResourceID != "resource-1" {
 		t.Fatalf("provision result = %+v, want observed resource", result)

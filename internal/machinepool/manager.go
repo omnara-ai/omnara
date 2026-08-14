@@ -160,16 +160,20 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID storage.
 	machine.ProviderProvisionAttemptedAt = &providerProvisioning.ProviderProvisionAttemptedAt
 	machine.UpdatedAt = providerProvisioning.UpdatedAt
 	providerCtx, cancel = context.WithTimeout(ctx, provider.ProvisioningTimeout())
-	provisionResult, provisionErr := provisionMachineWithRetry(providerCtx, func() (providers.ProvisionMachineResult, error) {
-		return provider.ProvisionMachine(
-			providerCtx,
-			installationID,
-			machine.ID,
-			machineProvisioning,
-			providerProvisioning.DaemonToken.Token,
-			machineEnv,
-		)
-	}, waitForProviderProvisionRetry)
+	provisionResult, provisionErr := provisionMachineWithRetry(
+		providerCtx,
+		func() (providers.ProvisionMachineResult, error) {
+			return provider.ProvisionMachine(
+				providerCtx,
+				installationID,
+				machine.ID,
+				machineProvisioning,
+				providerProvisioning.DaemonToken.Token,
+				machineEnv,
+			)
+		},
+		waitForProviderProvisionRetry,
+	)
 	cancel()
 	if provisionResult.ProviderResourceID != "" {
 		observation, err := m.Execution.RecordPoolMachineProvisioningResource(
@@ -225,8 +229,10 @@ func provisionMachineWithRetry(
 	wait func(context.Context, time.Duration) error,
 ) (providers.ProvisionMachineResult, error) {
 	var observed providers.ProvisionMachineResult
+	var provisionErr error
 	for attempt := range providerProvisionRetryAttempts {
 		result, err := provision()
+		provisionErr = err
 		if result.ProviderResourceID != "" {
 			if observed.ProviderResourceID != "" && observed.ProviderResourceID != result.ProviderResourceID {
 				return observed, fmt.Errorf(
@@ -243,8 +249,11 @@ func provisionMachineWithRetry(
 		if err == nil {
 			return observed, nil
 		}
-		if attempt == providerProvisionRetryAttempts-1 || ctx.Err() != nil {
+		if ctx.Err() != nil {
 			return observed, err
+		}
+		if attempt == providerProvisionRetryAttempts-1 {
+			break
 		}
 		delay := providerProvisionRetryDelays[attempt]
 		if retryAfter, ok := providers.RetryAfter(err); ok {
@@ -254,7 +263,7 @@ func provisionMachineWithRetry(
 			return observed, err
 		}
 	}
-	panic("unreachable")
+	return observed, provisionErr
 }
 
 func waitForProviderProvisionRetry(ctx context.Context, delay time.Duration) error {
