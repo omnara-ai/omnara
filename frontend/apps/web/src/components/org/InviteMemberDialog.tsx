@@ -110,7 +110,7 @@ export function InviteMemberDialog({
                   }))
                 }}
               >
-                <SelectTrigger id="invite-role" className="w-full">
+                <SelectTrigger id="invite-role" className="w-full capitalize">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
