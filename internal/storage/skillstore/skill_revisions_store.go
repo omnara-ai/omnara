@@ -118,6 +118,10 @@ func (s *Store) insertSkillRevision(
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return skillRevisionInsertResult{}, fmt.Errorf("look up skill by name: %w", err)
 		} else {
+			limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+			if err != nil {
+				return skillRevisionInsertResult{}, err
+			}
 			skillCount, err := qtx.CountActiveSkillsForOwner(
 				ctx,
 				dbsqlc.CountActiveSkillsForOwnerParams{
@@ -130,10 +134,10 @@ func (s *Store) insertSkillRevision(
 			if err != nil {
 				return skillRevisionInsertResult{}, fmt.Errorf("count active skills: %w", err)
 			}
-			if skillCount >= MaxActiveSkillsPerOwner {
+			if skillCount >= limits.MaxActiveSkillsPerOwner {
 				return skillRevisionInsertResult{}, fmt.Errorf(
 					"active skills limit of %d reached: %w",
-					MaxActiveSkillsPerOwner,
+					limits.MaxActiveSkillsPerOwner,
 					storeerr.ErrConflict,
 				)
 			}

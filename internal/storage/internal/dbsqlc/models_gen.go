@@ -209,6 +209,24 @@ type ConfiguredModelRevision struct {
 	CreatedAt                 time.Time
 }
 
+type EffectiveResourceLimit struct {
+	OrgID                                     uuid.UUID
+	MaxActiveProjectsPerOrg                   int64
+	MaxPendingOrgInvitationsPerOrg            int64
+	MaxActiveOrgApiKeysPerOrg                 int64
+	MaxActiveTenantModelProviderConfigsPerOrg int64
+	MaxActiveConfiguredModelsPerProvider      int64
+	MaxAgentConfigsPerProject                 int64
+	MaxActiveAgentProfilesPerProject          int64
+	MaxActiveAgentsPerProject                 int64
+	MaxActiveTenantSecretsPerOwner            int64
+	MaxActiveSkillsPerOwner                   int64
+	MaxActiveTenantMachinePoolsPerOrg         int64
+	MaxLiveMachinesPerOrg                     int64
+	MaxActiveByoDaemonTokensPerMachine        int64
+	MaxNonTerminalProcessesPerAgent           int64
+}
+
 type IntegrationInstall struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID

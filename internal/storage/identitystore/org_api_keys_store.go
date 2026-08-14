@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -64,6 +65,10 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 		}
 		return CreatedOrgAPIKey{}, fmt.Errorf("create org api key: %w", err)
 	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return CreatedOrgAPIKey{}, err
+	}
 	keyCount, err := qtx.CountActiveOrgAPIKeysForOrg(
 		ctx,
 		dbsqlc.CountActiveOrgAPIKeysForOrgParams{OrgID: input.OrgID},
@@ -71,10 +76,10 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	if err != nil {
 		return CreatedOrgAPIKey{}, fmt.Errorf("count active org api keys: %w", err)
 	}
-	if keyCount > maxActiveOrgAPIKeysPerOrg {
+	if keyCount > limits.MaxActiveOrgApiKeysPerOrg {
 		return CreatedOrgAPIKey{}, resourceLimitExceeded(
 			"active org api keys",
-			maxActiveOrgAPIKeysPerOrg,
+			limits.MaxActiveOrgApiKeysPerOrg,
 		)
 	}
 	membership, err := qtx.AddOrgAPIKeyOrgMembership(

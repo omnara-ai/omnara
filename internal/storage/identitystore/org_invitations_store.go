@@ -91,6 +91,10 @@ func (s *Store) CreateOrgInvitation(
 	if err := resourceguard.Lock(ctx, qtx, resourceOrgInvitations, input.OrgID.String()); err != nil {
 		return OrgInvitationRecord{}, err
 	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return OrgInvitationRecord{}, err
+	}
 	invitationCount, err := qtx.CountPendingOrgInvitationsForOrg(
 		ctx,
 		dbsqlc.CountPendingOrgInvitationsForOrgParams{OrgID: input.OrgID},
@@ -98,10 +102,10 @@ func (s *Store) CreateOrgInvitation(
 	if err != nil {
 		return OrgInvitationRecord{}, fmt.Errorf("count pending organization invitations: %w", err)
 	}
-	if invitationCount > MaxPendingOrgInvitationsPerOrg {
+	if invitationCount > limits.MaxPendingOrgInvitationsPerOrg {
 		return OrgInvitationRecord{}, resourceLimitExceeded(
 			"pending organization invitations",
-			MaxPendingOrgInvitationsPerOrg,
+			limits.MaxPendingOrgInvitationsPerOrg,
 		)
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -97,6 +97,10 @@ func insertAgentWithProjectLifecycleLockTx(
 		if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
 			return AgentRecord{}, false, err
 		}
+		limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+		if err != nil {
+			return AgentRecord{}, false, err
+		}
 		agentCount, err := qtx.CountActiveAgentsForProject(
 			ctx,
 			dbsqlc.CountActiveAgentsForProjectParams{ProjectID: input.ProjectID},
@@ -104,10 +108,10 @@ func insertAgentWithProjectLifecycleLockTx(
 		if err != nil {
 			return AgentRecord{}, false, fmt.Errorf("count active agents: %w", err)
 		}
-		if agentCount > MaxActiveAgentsPerProject {
+		if agentCount > limits.MaxActiveAgentsPerProject {
 			return AgentRecord{}, false, resourceLimitExceeded(
 				"active agents",
-				MaxActiveAgentsPerProject,
+				limits.MaxActiveAgentsPerProject,
 			)
 		}
 		return record, true, nil
