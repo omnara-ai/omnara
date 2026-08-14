@@ -22,6 +22,8 @@ interface GrantToProjectState {
   status: SubmitStatus
 }
 
+const noExcludedProjectIds: string[] = []
+
 export function GrantToProjectDialog({
   open,
   onOpenChange,
@@ -29,7 +31,7 @@ export function GrantToProjectDialog({
   resourceName,
   onGrant,
   isProjectEligible,
-  excludedProjectIds = [],
+  excludedProjectIds = noExcludedProjectIds,
   options,
   submitDisabled = false,
 }: {

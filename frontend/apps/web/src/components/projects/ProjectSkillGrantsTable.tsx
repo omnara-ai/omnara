@@ -44,27 +44,44 @@ export function ProjectSkillGrantsTable({
       />
       <DataTable
         columns={[
-          { header: 'Skill' },
-          { header: 'Description' },
-          { header: 'Owner', className: 'w-32' },
-          { header: '', className: 'w-14', isActions: true },
+          {
+            id: 'skill',
+            header: 'Skill',
+            cell: (access) => <span className="font-medium">{access.skill.name}</span>,
+          },
+          {
+            id: 'description',
+            header: 'Description',
+            cell: (access) => (
+              <span className="text-muted-foreground line-clamp-1">{access.skill.description}</span>
+            ),
+          },
+          {
+            id: 'owner',
+            header: 'Owner',
+            className: 'w-32',
+            cell: (access) => <Badge variant="outline">{projectSkillOwnerLabel(access)}</Badge>,
+          },
+          {
+            id: 'actions',
+            header: '',
+            className: 'w-14',
+            isActions: true,
+            cell: (access) => (
+              <SkillRowActions
+                orgId={orgId}
+                skill={access.skill}
+                availability={access.availability}
+                projectName={projectName}
+                canDelete
+              />
+            ),
+          },
         ]}
         data={paged.rows}
         isFiltered={list.isFiltering}
         pagination={paged.pagination}
         getRowId={(access) => access.skill.id}
-        rowCells={(access) => [
-          <span className="font-medium">{access.skill.name}</span>,
-          <span className="text-muted-foreground line-clamp-1">{access.skill.description}</span>,
-          <Badge variant="outline">{projectSkillOwnerLabel(access)}</Badge>,
-          <SkillRowActions
-            orgId={orgId}
-            skill={access.skill}
-            availability={access.availability}
-            projectName={projectName}
-            canDelete
-          />,
-        ]}
         rowExpanded={({ skill }) => (
           <DetailList
             items={[

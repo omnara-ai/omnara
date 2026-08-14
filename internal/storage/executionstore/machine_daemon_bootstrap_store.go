@@ -2,6 +2,7 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,16 +23,7 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	ctx context.Context,
 	input CreateBYOMachineDaemonTokenInput,
 ) (CreatedMachineDaemonToken, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" {
-		return CreatedMachineDaemonToken{}, errors.New(
-			"org, machine, and name are required",
-		)
-	}
-	metadata, err := metadataColumn(input.Metadata, "daemon token metadata")
-	if err != nil {
-		return CreatedMachineDaemonToken{}, err
-	}
-	token, err := bearertoken.Generate(bearertoken.KindDaemon)
+	prepared, err := prepareBYOMachineDaemonTokenCreate(input)
 	if err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
@@ -40,19 +32,63 @@ func (s *Store) CreateBYOMachineDaemonToken(
 		return CreatedMachineDaemonToken{}, fmt.Errorf("begin create machine daemon token: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
+	record, err := createBYOMachineDaemonTokenTx(ctx, dbsqlc.New(tx), prepared)
+	if err != nil {
+		return CreatedMachineDaemonToken{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CreatedMachineDaemonToken{}, fmt.Errorf("commit create machine daemon token: %w", err)
+	}
+	return CreatedMachineDaemonToken{Record: record, Token: prepared.token}, nil
+}
+
+type preparedBYOMachineDaemonTokenCreate struct {
+	input    CreateBYOMachineDaemonTokenInput
+	token    string
+	metadata json.RawMessage
+}
+
+func prepareBYOMachineDaemonTokenCreate(
+	input CreateBYOMachineDaemonTokenInput,
+) (preparedBYOMachineDaemonTokenCreate, error) {
+	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" {
+		return preparedBYOMachineDaemonTokenCreate{}, errors.New(
+			"org, machine, and name are required",
+		)
+	}
+	metadata, err := metadataColumn(input.Metadata, "daemon token metadata")
+	if err != nil {
+		return preparedBYOMachineDaemonTokenCreate{}, err
+	}
+	token, err := bearertoken.Generate(bearertoken.KindDaemon)
+	if err != nil {
+		return preparedBYOMachineDaemonTokenCreate{}, err
+	}
+	return preparedBYOMachineDaemonTokenCreate{
+		input:    input,
+		token:    token,
+		metadata: metadata,
+	}, nil
+}
+
+func createBYOMachineDaemonTokenTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	prepared preparedBYOMachineDaemonTokenCreate,
+) (MachineDaemonTokenRecord, error) {
+	input := prepared.input
 	row, err := qtx.CreateBYOMachineDaemonToken(
 		ctx,
 		dbsqlc.CreateBYOMachineDaemonTokenParams{
 			OrgID:     input.OrgID,
 			MachineID: input.MachineID,
 			Name:      input.Name,
-			TokenHash: tokenutil.Hash(token),
-			Metadata:  metadata,
+			TokenHash: tokenutil.Hash(prepared.token),
+			Metadata:  prepared.metadata,
 		},
 	)
 	if err != nil {
-		return CreatedMachineDaemonToken{}, fmt.Errorf("create BYO machine daemon token: %w", err)
+		return MachineDaemonTokenRecord{}, fmt.Errorf("create BYO machine daemon token: %w", err)
 	}
 	if err := lockResourceCreation(
 		ctx,
@@ -60,7 +96,7 @@ func (s *Store) CreateBYOMachineDaemonToken(
 		resourceMachineDaemonTokens,
 		input.OrgID.String()+":"+input.MachineID.String(),
 	); err != nil {
-		return CreatedMachineDaemonToken{}, err
+		return MachineDaemonTokenRecord{}, err
 	}
 	tokenCount, err := qtx.CountActiveMachineDaemonTokensForMachine(
 		ctx,
@@ -70,19 +106,15 @@ func (s *Store) CreateBYOMachineDaemonToken(
 		},
 	)
 	if err != nil {
-		return CreatedMachineDaemonToken{}, fmt.Errorf("count active BYO daemon tokens: %w", err)
+		return MachineDaemonTokenRecord{}, fmt.Errorf("count active BYO daemon tokens: %w", err)
 	}
 	if tokenCount > MaxActiveBYODaemonTokensPerMachine {
-		return CreatedMachineDaemonToken{}, resourceLimitExceeded(
+		return MachineDaemonTokenRecord{}, resourceLimitExceeded(
 			"active machine daemon tokens",
 			MaxActiveBYODaemonTokensPerMachine,
 		)
 	}
-	record := machineDaemonTokenFromCreate(row)
-	if err := tx.Commit(ctx); err != nil {
-		return CreatedMachineDaemonToken{}, fmt.Errorf("commit create machine daemon token: %w", err)
-	}
-	return CreatedMachineDaemonToken{Record: record, Token: token}, nil
+	return machineDaemonTokenFromCreate(row), nil
 }
 
 type BeginPoolMachineProviderProvisioningInput struct {

@@ -87,6 +87,8 @@ export function ProjectAccessEditor({
   const grants = accessQuery.data?.data ?? []
   const grantedProjectIds = new Set(grants.map((grant) => grant.project_id))
   const availableProjects = projects.filter((project) => !grantedProjectIds.has(project.id))
+  const selectedProject =
+    availableProjects.find((project) => project.id === selectedProjectId) ?? null
   const setAccessError = setAccess.isError
     ? errorMessage(setAccess.error, 'Could not update project access.')
     : ''
@@ -99,9 +101,9 @@ export function ProjectAccessEditor({
   }
 
   function addAccess() {
-    if (!selectedProjectId) return
+    if (!selectedProject) return
     setAccess.mutate(
-      { projectID: selectedProjectId, role: selectedRole },
+      { projectID: selectedProject.id, role: selectedRole },
       {
         onSuccess: () => {
           setSelectedProjectId('')
@@ -159,7 +161,7 @@ export function ProjectAccessEditor({
           <TableCell className="p-0 pr-3">
             <ProjectCombobox
               items={availableProjects}
-              value={selectedProjectId || null}
+              value={selectedProject}
               onValueChange={(project) => {
                 setSelectedProjectId(project?.id ?? '')
               }}
@@ -170,7 +172,7 @@ export function ProjectAccessEditor({
           <TableCell className="p-0 pr-2">
             <Select
               value={selectedRole}
-              disabled={!selectedProjectId || setAccess.isPending}
+              disabled={!selectedProject || setAccess.isPending}
               onValueChange={(value) => {
                 setSelectedRole(value as (typeof PROJECT_ROLES)[number])
               }}
@@ -193,7 +195,7 @@ export function ProjectAccessEditor({
               size="sm"
               variant="default"
               className="disabled:bg-muted disabled:text-muted-foreground disabled:opacity-60 disabled:shadow-none"
-              disabled={!selectedProjectId || setAccess.isPending}
+              disabled={!selectedProject || setAccess.isPending}
               onClick={addAccess}
             >
               {setAccess.isPending && <Spinner />}

@@ -4,8 +4,8 @@ import {
   SecretEnvOverlayEditor,
 } from '@/components/machines/MachineOverrideFields'
 import {
+  CheckboxField,
   Field,
-  FieldContent,
   FieldDescription,
   FieldGroup,
   FieldLabel,
@@ -33,24 +33,14 @@ export function CreateMachinePoolAdvancedSection({
   return (
     <OverridesCollapsible title="Advanced">
       <FieldGroup>
-        <Field orientation="horizontal">
-          <input
-            id="mpool-runtime-protection"
-            type="checkbox"
-            className="size-4"
-            checked={values.runtimeProtectionEnabled}
-            onChange={(event) => {
-              setValue('runtimeProtectionEnabled', event.target.checked)
-            }}
-          />
-          <FieldContent>
-            <FieldLabel htmlFor="mpool-runtime-protection">Runtime protection</FieldLabel>
-            <FieldDescription>
-              Delete a sandbox if its provider remains running after its Omnara daemon becomes
-              inactive.
-            </FieldDescription>
-          </FieldContent>
-        </Field>
+        <CheckboxField
+          label="Runtime protection"
+          description="Delete a sandbox if its provider remains running after its Omnara daemon becomes inactive."
+          checked={values.runtimeProtectionEnabled}
+          onChange={(event) => {
+            setValue('runtimeProtectionEnabled', event.target.checked)
+          }}
+        />
         <MachinePoolInputField
           id="mpool-cwd"
           label="Working directory"

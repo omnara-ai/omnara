@@ -5,9 +5,14 @@ import {
   useUpdateAgentProfile,
 } from '@omnara/react'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { type SyntheticEvent, useCallback, useReducer, useState } from 'react'
+import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import {
+  type BasicConfigDraft,
+  createEmptyBasicConfigDraft,
+  serializeBasicConfigDraft,
+} from '@/components/agents/agentConfigBasicSerialization'
 import {
   agentConfigModeReducer,
   initialAgentConfigModeState,
@@ -30,6 +35,7 @@ type SubmitAction = 'profile' | 'launch'
 interface CreateAgentDraft {
   name: string
   message: string
+  basicConfig: BasicConfigDraft
   status: SubmitStatus
 }
 
@@ -57,14 +63,11 @@ export function CreateAgentPage() {
   const [draft, setDraft] = useState<CreateAgentDraft>({
     name: '',
     message: '',
+    basicConfig: createEmptyBasicConfigDraft(),
     status: idle,
   })
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
-  const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null)
-  // Stable identity: the builder's serialize effect depends on this callback.
-  const handleBuilderYamlChange = useCallback((value: string) => {
-    dispatchMode({ type: 'builder-yaml-changed', yaml: value })
-  }, [])
+  const savedProfile = useRef<SavedProfile | null>(null)
 
   if (projectIsPending) return <FullPageSpinner />
 
@@ -84,20 +87,20 @@ export function CreateAgentPage() {
   }
 
   const showBuilder = mode.mode === 'builder'
+  const builderYaml = serializeBasicConfigDraft(draft.basicConfig)
+  const editorYaml = mode.editorYaml ?? builderYaml
+  const yaml = showBuilder ? builderYaml : editorYaml
   const isSubmitting = draft.status.phase === 'submitting'
   const errorMessage = statusError(draft.status)
-  const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
   const canSubmit = !isSubmitting && draft.name.trim() !== '' && yaml.trim() !== ''
 
-  // Every agent belongs to a profile, so both actions save the config as a
-  // profile first; "launch" additionally starts an agent from it.
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
     const name = draft.name.trim()
     try {
-      let profile = savedProfile
+      let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
         const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
         if (profile?.name === name) {
@@ -111,7 +114,7 @@ export function CreateAgentPage() {
           const created = await createAgentProfile.mutateAsync({ name, config: config.id })
           profile = { name, yaml, profileId: created.id, configId: config.id }
         }
-        setSavedProfile(profile)
+        savedProfile.current = profile
       }
       if (action === 'launch') {
         const launch = await createAgent.mutateAsync({
@@ -191,16 +194,19 @@ export function CreateAgentPage() {
           <AgentConfigBasicForm
             orgId={activeOrg.id}
             projectId={projectId}
-            onYamlChange={handleBuilderYamlChange}
+            value={draft.basicConfig}
+            onChange={(basicConfig) => {
+              setDraft((current) => ({ ...current, basicConfig }))
+            }}
           />
         </div>
         {!showBuilder && (
           <AgentConfigYamlField
             id="agent-yaml"
-            value={mode.editorYaml}
+            value={editorYaml}
             className="h-[28rem]"
             onChange={(value) => {
-              dispatchMode({ type: 'editor-yaml-changed', yaml: value })
+              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml })
             }}
           />
         )}

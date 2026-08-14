@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- event projection, delta previews, and frame parsing form one protocol boundary. */
 import type {
   AgentEvent,
   AgentEventStreamData,
@@ -9,7 +8,7 @@ import type {
   ModelOutputDelta,
   ModelOutputEvent,
 } from '@omnara/sdk'
-import type { DynamicToolUIPart, UIMessage } from 'ai'
+import type { UIMessage } from 'ai'
 
 export type { ModelOutputDelta } from '@omnara/sdk'
 
@@ -33,7 +32,11 @@ export type OmnaraUIData = {
   media: { artifactId?: string }
 }
 
-export type OmnaraUIMessage = UIMessage<OmnaraMessageMetadata, OmnaraUIData>
+type BaseOmnaraUIMessage = UIMessage<OmnaraMessageMetadata, OmnaraUIData>
+type OmnaraUIMessagePart = BaseOmnaraUIMessage['parts'][number] & { id: string }
+export type OmnaraUIMessage = Omit<BaseOmnaraUIMessage, 'parts'> & {
+  parts: OmnaraUIMessagePart[]
+}
 
 export type AgentStreamFrame =
   | { kind: 'event'; event: AgentEvent }
@@ -66,9 +69,10 @@ export function eventMetadata(event: AgentEvent): OmnaraMessageMetadata {
 }
 
 /** An attachment marker for a media_ref block; the artifact holds the bytes. */
-function mediaPart(block: MediaRefContentBlock): OmnaraUIMessage['parts'][number] {
+function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart {
   return {
     type: 'data-media',
+    id,
     data: { artifactId: block.artifact_id },
   }
 }
@@ -79,18 +83,20 @@ function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): bo
 
 function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
   const parts: OmnaraUIMessage['parts'] = []
-  for (const block of event.content_blocks) {
+  for (const [blockIndex, block] of event.content_blocks.entries()) {
+    const id = `${event.id}:block:${String(blockIndex)}`
     if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
       const displayText = block.metadata?.omnara_display_text
       parts.push({
         type: 'text',
+        id,
         text: typeof displayText === 'string' ? displayText : block.text,
         state: 'done',
       })
     }
     if (block.type === 'media_ref') {
-      parts.push(mediaPart(block))
+      parts.push(mediaPart(block, id))
     }
   }
   return parts
@@ -98,20 +104,22 @@ function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
 
 function modelOutputParts(event: ModelOutputEvent): OmnaraUIMessage['parts'] {
   const parts: OmnaraUIMessage['parts'] = []
-  for (const block of event.content_blocks) {
+  for (const [blockIndex, block] of event.content_blocks.entries()) {
+    const id = `${event.model_call_context_id}:block:${String(blockIndex)}`
     if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
-      parts.push({ type: 'text', text: block.text, state: 'done' })
+      parts.push({ type: 'text', id, text: block.text, state: 'done' })
     }
     if (block.type === 'reasoning') {
-      parts.push({ type: 'reasoning', text: block.text, state: 'done' })
+      parts.push({ type: 'reasoning', id, text: block.text, state: 'done' })
     }
     if (block.type === 'media_ref') {
-      parts.push(mediaPart(block))
+      parts.push(mediaPart(block, id))
     }
     if (block.type === 'tool_call') {
       parts.push({
         type: 'dynamic-tool',
+        id,
         toolCallId: block.tool_call_id,
         toolName: block.name,
         state: 'input-available',
@@ -119,7 +127,7 @@ function modelOutputParts(event: ModelOutputEvent): OmnaraUIMessage['parts'] {
       })
     }
     if (block.type === 'error') {
-      parts.push({ type: 'data-model-error', data: { text: block.text } })
+      parts.push({ type: 'data-model-error', id, data: { text: block.text } })
     }
   }
   return parts
@@ -152,7 +160,7 @@ export function agentEventsToMessages(
         id: event.id,
         role: 'assistant',
         metadata: eventMetadata(event),
-        parts: [{ type: 'data-agent-config', data: { action } }],
+        parts: [{ type: 'data-agent-config', id: `${event.id}:config`, data: { action } }],
       })
       continue
     }
@@ -182,7 +190,9 @@ export function agentEventsToMessages(
         assistantByTurn.set(event.turn_id, message)
         messages.push(message)
       } else {
-        if (message.parts.length > 0) message.parts.push({ type: 'step-start' })
+        if (message.parts.length > 0) {
+          message.parts.push({ type: 'step-start', id: `${event.id}:step-start` })
+        }
         message.parts.push(...parts)
         message.metadata = eventMetadata(event)
       }
@@ -197,9 +207,11 @@ export function agentEventsToMessages(
       (part) => part.type === 'dynamic-tool' && part.toolCallId === event.tool_call_id,
     )
     if (index < 0) continue
-    const part = message.parts[index] as DynamicToolUIPart
+    const part = message.parts[index]
+    if (part?.type !== 'dynamic-tool') continue
     message.parts[index] = {
       type: 'dynamic-tool',
+      id: part.id,
       toolCallId: part.toolCallId,
       toolName: part.toolName,
       state: 'output-available',
@@ -297,7 +309,13 @@ export function projectAgentChat(data: AgentChatData): {
     messages.push({
       id: `local:${data.pendingInput.id}`,
       role: 'user',
-      parts: [{ type: 'text', text: data.pendingInput.text }],
+      parts: [
+        {
+          type: 'text',
+          id: `local:${data.pendingInput.id}:text`,
+          text: data.pendingInput.text,
+        },
+      ],
     })
   }
 
@@ -383,13 +401,18 @@ function modelCallPreviewParts(
     const block = { kind, partIndex: parts.length }
     blocks.set(blockIndex, block)
     if (kind === 'text') {
-      parts.push({ type: 'text', text: '', state: 'streaming' })
+      parts.push({
+        type: 'text',
+        id: `${contextID}:block:${String(blockIndex)}`,
+        text: '',
+        state: 'streaming',
+      })
     } else {
       // An empty thinking block renders as an ephemeral placeholder until
       // visible reasoning text replaces it.
       parts.push({
         type: 'data-thinking',
-        id: `${contextID}:${blockIndex}`,
+        id: `${contextID}:block:${String(blockIndex)}`,
         data: { active: true },
       })
     }
@@ -400,14 +423,16 @@ function modelCallPreviewParts(
     const { event } = delta
     const blockIndex = 'block_index' in event ? event.block_index : 0
     if (event.kind === 'block_start') {
-      if (event.block.kind === 'text') openTextBlock(blockIndex, 'text')
-      if (event.block.kind === 'thinking') openTextBlock(blockIndex, 'reasoning')
-      if (event.block.kind === 'tool_use' && !tools.has(blockIndex)) {
+      const { block } = event
+      if (block.kind === 'text') openTextBlock(blockIndex, 'text')
+      if (block.kind === 'thinking') openTextBlock(blockIndex, 'reasoning')
+      if (block.kind === 'tool_use' && !tools.has(blockIndex)) {
         tools.set(blockIndex, { partIndex: parts.length, inputText: '' })
         parts.push({
           type: 'dynamic-tool',
-          toolCallId: event.block.tool_call_id,
-          toolName: event.block.tool_name,
+          id: `${contextID}:block:${String(blockIndex)}`,
+          toolCallId: block.tool_call_id,
+          toolName: block.tool_name,
           state: 'input-streaming',
         })
       }
@@ -425,7 +450,12 @@ function modelCallPreviewParts(
       const block = openTextBlock(blockIndex, 'reasoning')
       const part = parts[block.partIndex]
       if (part?.type === 'data-thinking') {
-        parts[block.partIndex] = { type: 'reasoning', text: event.delta, state: 'streaming' }
+        parts[block.partIndex] = {
+          type: 'reasoning',
+          id: part.id,
+          text: event.delta,
+          state: 'streaming',
+        }
       } else if (part?.type === 'reasoning') {
         parts[block.partIndex] = { ...part, text: part.text + event.delta }
       }

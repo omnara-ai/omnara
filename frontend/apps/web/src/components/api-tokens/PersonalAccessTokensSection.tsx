@@ -29,30 +29,59 @@ export function PersonalAccessTokensSection() {
       </div>
       <DataTable
         columns={[
-          { header: 'Name' },
-          { header: 'Token ID', className: 'w-44' },
-          { header: 'Created', className: 'w-44' },
-          { header: 'Last used', className: 'w-44' },
-          { header: 'Status', className: 'w-24' },
-          { header: '', className: 'w-14', isActions: true },
+          {
+            id: 'name',
+            header: 'Name',
+            cell: (token) => <span className="font-medium">{token.name}</span>,
+          },
+          {
+            id: 'token-id',
+            header: 'Token ID',
+            className: 'w-44',
+            cell: (token) => (
+              <span className="text-muted-foreground font-mono text-xs">{token.token_id}</span>
+            ),
+          },
+          {
+            id: 'created',
+            header: 'Created',
+            className: 'w-44',
+            cell: (token) => (
+              <span className="text-muted-foreground">{formatDateTime(token.created_at)}</span>
+            ),
+          },
+          {
+            id: 'last-used',
+            header: 'Last used',
+            className: 'w-44',
+            cell: (token) => (
+              <span className="text-muted-foreground">
+                {formatDateTime(token.last_used_at) ?? 'Never'}
+              </span>
+            ),
+          },
+          {
+            id: 'status',
+            header: 'Status',
+            className: 'w-24',
+            cell: (token) =>
+              token.revoked_at ? (
+                <Badge variant="outline">Revoked</Badge>
+              ) : (
+                <Badge variant="secondary">Active</Badge>
+              ),
+          },
+          {
+            id: 'actions',
+            header: '',
+            className: 'w-14',
+            isActions: true,
+            cell: (token) => <PersonalAccessTokenRowActions token={token} />,
+          },
         ]}
         data={paged.rows}
         pagination={paged.pagination}
         getRowId={(token) => token.id}
-        rowCells={(token) => [
-          <span className="font-medium">{token.name}</span>,
-          <span className="text-muted-foreground font-mono text-xs">{token.token_id}</span>,
-          <span className="text-muted-foreground">{formatDateTime(token.created_at)}</span>,
-          <span className="text-muted-foreground">
-            {formatDateTime(token.last_used_at) ?? 'Never'}
-          </span>,
-          token.revoked_at ? (
-            <Badge variant="outline">Revoked</Badge>
-          ) : (
-            <Badge variant="secondary">Active</Badge>
-          ),
-          <PersonalAccessTokenRowActions token={token} />,
-        ]}
         isPending={query.isPending}
         isError={query.isError}
         onRetry={() => void query.refetch()}

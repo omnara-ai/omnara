@@ -1,5 +1,5 @@
 import { CREATED_RESOURCE_LIST_SORTS, RESOURCE_LIST_SORTS } from '@omnara/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export interface SortOption<TSort extends string = string> {
   label: string
@@ -33,7 +33,7 @@ export function useResourceList<TSort extends string>(defaultSort: TSort) {
   const { search, setSearch, name } = useTypeaheadSearch()
   const [sort, setSort] = useState<TSort>(defaultSort)
 
-  const apiFilters = useMemo<Record<string, unknown>>(() => (name ? { name } : {}), [name])
+  const apiFilters: Record<string, unknown> = name ? { name } : {}
 
   return {
     search,
@@ -81,7 +81,7 @@ export function useTypeaheadSearch() {
     setSearch,
     name,
     /** Ready-to-spread list filters: `{ name }` while searching, `{}` otherwise. */
-    filters: useMemo(() => (name === undefined ? {} : { name }), [name]),
+    filters: name === undefined ? {} : { name },
   }
 }
 

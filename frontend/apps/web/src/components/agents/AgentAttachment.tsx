@@ -6,6 +6,18 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useActiveOrg } from '@/lib/use-active-org'
 
+function saveBlob(content: Blob, filename: string | undefined) {
+  const url = URL.createObjectURL(content)
+  try {
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename == null || filename === '' ? 'attachment' : filename
+    anchor.click()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 /**
  * A chat attachment indicator. The message only carries the artifact
  * reference, so the chip downloads the bytes on demand instead of rendering
@@ -22,16 +34,7 @@ export function AgentAttachment({ artifactId }: { artifactId?: string }) {
 
   async function save(artifactID: string) {
     const { artifact, content } = await download.mutateAsync(artifactID)
-    const filename = artifact.filename?.trim()
-    const url = URL.createObjectURL(content)
-    try {
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = filename == null || filename === '' ? 'attachment' : filename
-      anchor.click()
-    } finally {
-      URL.revokeObjectURL(url)
-    }
+    saveBlob(content, artifact.filename?.trim())
   }
 
   if (artifactId == null) {

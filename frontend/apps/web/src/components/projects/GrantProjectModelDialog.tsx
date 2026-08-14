@@ -17,10 +17,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import {
-  createResourceCombobox,
-  createResourceMultiCombobox,
-} from '@/components/ui/resource-combobox'
+import { createResourceCombobox } from '@/components/ui/resource-combobox'
+import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
 import { Spinner } from '@/components/ui/spinner'
 import { useBatchGrantSubmit } from '@/hooks/use-batch-grant-submit'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
@@ -104,7 +102,7 @@ export function GrantProjectModelDialog({
               <FieldLabel htmlFor="grant-project-model-provider">Provider</FieldLabel>
               <ModelProviderCombobox
                 items={providers}
-                value={provider?.id ?? null}
+                value={provider}
                 onValueChange={setProvider}
                 search={providerSearch}
                 query={providersQuery}
@@ -115,7 +113,7 @@ export function GrantProjectModelDialog({
               <FieldLabel htmlFor="grant-project-model">Models</FieldLabel>
               <ConfiguredModelMultiCombobox
                 items={models}
-                value={batch.items.map((model) => model.id)}
+                value={batch.items}
                 onValueChange={batch.setItems}
                 query={modelsQuery}
                 pending={(provider !== null && modelsQuery.isPending) || completeGrants.isPending}

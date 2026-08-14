@@ -65,6 +65,7 @@ const (
 	operationBootstrapDaemon               operationID = "BootstrapDaemon"
 	operationCancelAgent                   operationID = "CancelAgent"
 	operationCancelQueuedBacklogInput      operationID = "CancelQueuedBacklogInput"
+	operationConnectBYOMachine             operationID = "ConnectBYOMachine"
 	operationCreateAgent                   operationID = "CreateAgent"
 	operationCreateAgentConfig             operationID = "CreateAgentConfig"
 	operationCreateAgentInput              operationID = "CreateAgentInput"
@@ -257,6 +258,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationRemoveOrgMember:            accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMemberProjectAccess:    accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachine:              accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationConnectBYOMachine:          browserSessionPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMachinePools:           accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationGetMachinePool:             accountPolicy(orgScope(identitystore.OrgActionManage)),

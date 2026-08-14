@@ -79,26 +79,45 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Name' },
-            { header: 'Description' },
-            { header: 'Revision', className: 'w-24' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (skill) => <span className="font-medium">{skill.name}</span>,
+            },
+            {
+              id: 'description',
+              header: 'Description',
+              cell: (skill) => (
+                <span className="text-muted-foreground line-clamp-1">{skill.description}</span>
+              ),
+            },
+            {
+              id: 'revision',
+              header: 'Revision',
+              className: 'w-24',
+              cell: (skill) => (
+                <span className="text-muted-foreground tabular-nums">v{skill.revision}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (skill) => (
+                <SkillRowActions
+                  orgId={activeOrg.id}
+                  skill={skill}
+                  canDelete={canManage}
+                  canGrant={canManage && owner.kind !== 'project'}
+                />
+              ),
+            },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(skill) => skill.id}
-          rowCells={(skill) => [
-            <span className="font-medium">{skill.name}</span>,
-            <span className="text-muted-foreground line-clamp-1">{skill.description}</span>,
-            <span className="text-muted-foreground tabular-nums">v{skill.revision}</span>,
-            <SkillRowActions
-              orgId={activeOrg.id}
-              skill={skill}
-              canDelete={canManage}
-              canGrant={canManage && owner.kind !== 'project'}
-            />,
-          ]}
           rowExpanded={(skill) => (
             <DetailList
               items={[

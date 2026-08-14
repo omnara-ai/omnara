@@ -2180,6 +2180,21 @@ export type CreateMachineRequest = {
     metadata?: MachineMetadata;
 };
 
+export type ConnectByoMachineRequest = {
+    display_name: string;
+    project_ids: Array<ProjectId>;
+};
+
+export type ConnectByoMachineResponse = {
+    machine: Machine;
+    /**
+     * Opaque bearer credential.
+     */
+    token: string;
+    token_record: MachineDaemonToken;
+    project_grants: Array<ProjectMachineGrant>;
+};
+
 export type UpdateMachineRequest = {
     cwd?: string;
     env?: {
@@ -2642,6 +2657,11 @@ export type MachineSourceKindFilter = MachineSourceKind;
 export type SecretMetadataFilter = {
     [key: string]: string;
 };
+
+/**
+ * Filter secrets by material kind.
+ */
+export type SecretKindFilter = SecretKind;
 
 /**
  * Filter by the immutable skill owner kind.
@@ -5471,6 +5491,10 @@ export type ListSecretsData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Filter secrets by material kind.
+         */
+        kind?: SecretKind;
         /**
          * Filter by the immutable owner kind.
          */
@@ -8999,6 +9023,10 @@ export type ListProjectAvailableSecretsData = {
          */
         name?: string;
         /**
+         * Filter secrets by material kind.
+         */
+        kind?: SecretKind;
+        /**
          * Filter by the immutable owner kind.
          */
         owner_kind?: 'org' | 'project' | 'user';
@@ -9530,6 +9558,77 @@ export type CreateMachineResponses = {
 };
 
 export type CreateMachineResponse = CreateMachineResponses[keyof CreateMachineResponses];
+
+export type ConnectByoMachineData = {
+    body: ConnectByoMachineRequest;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/machines/connect';
+};
+
+export type ConnectByoMachineErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ConnectByoMachineError = ConnectByoMachineErrors[keyof ConnectByoMachineErrors];
+
+export type ConnectByoMachineResponses = {
+    /**
+     * Machine, daemon token, and selected project grants created.
+     */
+    201: ConnectByoMachineResponse;
+};
+
+export type ConnectByoMachineResponse2 = ConnectByoMachineResponses[keyof ConnectByoMachineResponses];
 
 export type DeleteMachineData = {
     body?: never;

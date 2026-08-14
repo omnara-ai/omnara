@@ -27,7 +27,6 @@ type ConnectMachineState =
   | {
       step: 'result'
       machineToken: string
-      grantWarning: string
       copied: 'command' | 'token' | null
     }
 
@@ -36,7 +35,7 @@ type ConnectMachineAction =
   | { type: 'setProjectGrantIds'; projectGrantIds: string[] }
   | { type: 'submitStart' }
   | { type: 'submitFail'; message: string }
-  | { type: 'connected'; machineToken: string; grantWarning: string }
+  | { type: 'connected'; machineToken: string }
   | { type: 'copied'; target: 'command' | 'token' }
   | { type: 'reset' }
 
@@ -62,7 +61,6 @@ function reducer(state: ConnectMachineState, action: ConnectMachineAction): Conn
       return {
         step: 'result',
         machineToken: action.machineToken,
-        grantWarning: action.grantWarning,
         copied: null,
       }
     case 'copied':
@@ -99,18 +97,13 @@ export function ConnectMachineDialog({
     }
     dispatch({ type: 'submitStart' })
     try {
-      const { token, failedProjectGrants } = await connectMachine.mutateAsync({
+      const { token } = await connectMachine.mutateAsync({
         displayName: state.name.trim(),
         projectIDs: state.projectGrantIds,
       })
-      const detail = failedProjectGrants[0]?.message
       dispatch({
         type: 'connected',
-        machineToken: token.token,
-        grantWarning:
-          failedProjectGrants.length > 0
-            ? `${String(failedProjectGrants.length)} project grant${failedProjectGrants.length === 1 ? '' : 's'} could not be added${detail ? `: ${detail}` : ''}. Retry from the machine's actions menu.`
-            : '',
+        machineToken: token,
       })
     } catch (err) {
       dispatch({ type: 'submitFail', message: errorMessage(err, 'Could not connect machine') })
@@ -211,7 +204,6 @@ export function ConnectMachineDialog({
                 {state.copied === 'token' ? 'Copied' : 'Copy token'}
               </Button>
             </Field>
-            {state.grantWarning && <p className="text-warning text-sm">{state.grantWarning}</p>}
             <DialogFooter>
               <Button
                 type="button"

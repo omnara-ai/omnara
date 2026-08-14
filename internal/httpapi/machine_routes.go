@@ -72,6 +72,70 @@ func (s strictOpenAPIServer) createMachine(
 	return openapi.CreateMachine200JSONResponse(response), nil
 }
 
+func (s strictOpenAPIServer) ConnectBYOMachine(
+	ctx context.Context,
+	request openapi.ConnectBYOMachineRequestObject,
+) (openapi.ConnectBYOMachineResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	principal, ok := principalFromContext(ctx)
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
+		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	}
+	projectIDs := make([]storage.ID, 0, len(request.Body.ProjectIds))
+	for _, projectID := range request.Body.ProjectIds {
+		parsed, ok := parseOpenAPIPublicID(publicid.KindProject, projectID)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid project_id")
+		}
+		if scopeErr := s.server.authorizeProject(
+			ctx,
+			org.ID,
+			parsed,
+			identitystore.ProjectActionAccessManage,
+		); scopeErr != nil {
+			return nil, *scopeErr
+		}
+		projectIDs = append(projectIDs, parsed)
+	}
+	result, err := s.server.store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
+		OrgID:       org.ID,
+		DisplayName: request.Body.DisplayName,
+		ProjectIDs:  projectIDs,
+		TokenName:   "web-console",
+	})
+	if err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
+	machine, err := machineResponse(result.Machine)
+	if err != nil {
+		return nil, err
+	}
+	tokenRecord, err := machineDaemonTokenResponse(result.DaemonToken.Record)
+	if err != nil {
+		return nil, err
+	}
+	grants := make([]openapi.ProjectMachineGrant, 0, len(result.ProjectGrants))
+	for _, record := range result.ProjectGrants {
+		grant, err := projectMachineGrantResponse(record)
+		if err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return openapi.ConnectBYOMachine201JSONResponse(openapi.ConnectBYOMachineResponse{
+		Machine:       machine,
+		Token:         result.DaemonToken.Token,
+		TokenRecord:   tokenRecord,
+		ProjectGrants: grants,
+	}), nil
+}
+
 func (s strictOpenAPIServer) UpdateMachine(
 	ctx context.Context,
 	request openapi.UpdateMachineRequestObject,

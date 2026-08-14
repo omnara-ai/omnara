@@ -72,6 +72,21 @@ export function CreateModelProviderDialog({
   const [status, setStatus] = useState<SubmitStatus>(idle)
   const providerSubmissionGeneration = useRef(0)
 
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      // Invalidate an in-flight submission so its late result cannot restore a stale phase.
+      providerSubmissionGeneration.current += 1
+      setPhase({ step: 'provider' })
+      setValues(createModelProviderFormDefaults)
+      setStatus(idle)
+    }
+    onOpenChange(nextOpen)
+  }
+
+  function close() {
+    handleOpenChange(false)
+  }
+
   async function submitProvider(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     const submissionGeneration = ++providerSubmissionGeneration.current
@@ -109,21 +124,6 @@ export function CreateModelProviderDialog({
       if (submissionGeneration !== providerSubmissionGeneration.current) return
       setStatus(submitError(err, 'Could not add provider'))
     }
-  }
-
-  function handleOpenChange(nextOpen: boolean) {
-    if (!nextOpen) {
-      // Invalidate an in-flight submission so its late result cannot restore a stale phase.
-      providerSubmissionGeneration.current += 1
-      setPhase({ step: 'provider' })
-      setValues(createModelProviderFormDefaults)
-      setStatus(idle)
-    }
-    onOpenChange(nextOpen)
-  }
-
-  function close() {
-    handleOpenChange(false)
   }
 
   async function backFromDiscovery(providerID: string, providerCreated: boolean) {

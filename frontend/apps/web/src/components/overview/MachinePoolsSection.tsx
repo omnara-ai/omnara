@@ -65,53 +65,65 @@ export function MachinePoolsSection() {
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Name' },
-            { header: 'Provider' },
-            { header: 'Resources', className: 'w-44' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (pool) => (
+                <span className="inline-flex max-w-full items-center gap-2">
+                  <span className="truncate font-medium">{pool.name}</span>
+                  {pool.management_kind === 'cluster' && <Badge variant="secondary">cluster</Badge>}
+                </span>
+              ),
+            },
+            { id: 'provider', header: 'Provider', cell: (pool) => pool.provider },
+            {
+              id: 'resources',
+              header: 'Resources',
+              className: 'w-44',
+              cell: machinePoolResources,
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (pool) =>
+                canManage ? (
+                  <ResourceRowActions
+                    onEdit={
+                      pool.management_kind === 'tenant'
+                        ? () => {
+                            setActiveDialog({ kind: 'edit', pool })
+                          }
+                        : undefined
+                    }
+                    onGrant={() => {
+                      setActiveDialog({ kind: 'grant', pool })
+                    }}
+                    onDelete={
+                      pool.management_kind === 'tenant'
+                        ? () => {
+                            if (!window.confirm(`Delete machine pool ${pool.name}?`)) return
+                            deletePool.mutate(pool.id, {
+                              onError: (error) => {
+                                window.alert(
+                                  error instanceof ApiError
+                                    ? error.message
+                                    : 'Could not delete machine pool',
+                                )
+                              },
+                            })
+                          }
+                        : undefined
+                    }
+                  />
+                ) : null,
+            },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(pool) => pool.id}
-          rowCells={(pool) => [
-            <span className="inline-flex max-w-full items-center gap-2">
-              <span className="truncate font-medium">{pool.name}</span>
-              {pool.management_kind === 'cluster' && <Badge variant="secondary">cluster</Badge>}
-            </span>,
-            pool.provider,
-            machinePoolResources(pool),
-            canManage ? (
-              <ResourceRowActions
-                onEdit={
-                  pool.management_kind === 'tenant'
-                    ? () => {
-                        setActiveDialog({ kind: 'edit', pool })
-                      }
-                    : undefined
-                }
-                onGrant={() => {
-                  setActiveDialog({ kind: 'grant', pool })
-                }}
-                onDelete={
-                  pool.management_kind === 'tenant'
-                    ? () => {
-                        if (!window.confirm(`Delete machine pool ${pool.name}?`)) return
-                        deletePool.mutate(pool.id, {
-                          onError: (error) => {
-                            window.alert(
-                              error instanceof ApiError
-                                ? error.message
-                                : 'Could not delete machine pool',
-                            )
-                          },
-                        })
-                      }
-                    : undefined
-                }
-              />
-            ) : null,
-          ]}
           rowExpanded={(pool) => (
             <DetailList
               items={[

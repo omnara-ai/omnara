@@ -2,26 +2,24 @@ export type AgentConfigMode<Extra extends string = never> = 'builder' | 'yaml' |
 
 export interface AgentConfigModeState<Extra extends string = never> {
   mode: AgentConfigMode<Extra>
-  builderYaml: string
-  editorYaml: string
+  editorYaml: string | null
   confirmDiscard: boolean
 }
 
 export type AgentConfigModeAction<Extra extends string = never> =
   | { type: 'switch-mode'; mode: AgentConfigMode<Extra> }
-  | { type: 'builder-yaml-changed'; yaml: string }
-  | { type: 'editor-yaml-changed'; yaml: string }
+  | { type: 'editor-yaml-changed'; yaml: string; builderYaml: string }
   | { type: 'discard-yaml-edits' }
   | { type: 'set-confirm-discard'; open: boolean }
 
 export function initialAgentConfigModeState<Extra extends string = never>(
   mode: AgentConfigMode<Extra>,
 ): AgentConfigModeState<Extra> {
-  return { mode, builderYaml: '', editorYaml: '', confirmDiscard: false }
+  return { mode, editorYaml: null, confirmDiscard: false }
 }
 
 export function yamlDiverged(state: AgentConfigModeState<string>) {
-  return state.editorYaml !== state.builderYaml
+  return state.editorYaml !== null
 }
 
 export function agentConfigModeReducer<Extra extends string = never>(
@@ -34,26 +32,16 @@ export function agentConfigModeReducer<Extra extends string = never>(
       if (action.mode === 'builder' && yamlDiverged(state)) {
         return { ...state, confirmDiscard: true }
       }
-      if (action.mode === 'yaml' && !yamlDiverged(state)) {
-        return { ...state, mode: action.mode, editorYaml: state.builderYaml }
-      }
       return { ...state, mode: action.mode }
     }
-    case 'builder-yaml-changed':
-      if (action.yaml === state.builderYaml) return state
-      return {
-        ...state,
-        builderYaml: action.yaml,
-        editorYaml: yamlDiverged(state) ? state.editorYaml : action.yaml,
-      }
     case 'editor-yaml-changed':
-      if (action.yaml === state.editorYaml) return state
-      return { ...state, editorYaml: action.yaml }
+      if (action.yaml === (state.editorYaml ?? action.builderYaml)) return state
+      return { ...state, editorYaml: action.yaml === action.builderYaml ? null : action.yaml }
     case 'discard-yaml-edits':
       return {
         ...state,
         mode: 'builder',
-        editorYaml: state.builderYaml,
+        editorYaml: null,
         confirmDiscard: false,
       }
     case 'set-confirm-discard':

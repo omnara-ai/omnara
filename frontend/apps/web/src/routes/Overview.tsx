@@ -1,7 +1,6 @@
 import { useMe, useProjects } from '@omnara/react'
 import type { VisibleProject } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
-import { useMemo } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
@@ -17,6 +16,13 @@ interface RecentPageRow {
   context: string
 }
 
+const visitedAtFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
 export function Overview() {
   const { activeOrg } = useActiveOrg()
   const { data: me } = useMe()
@@ -24,10 +30,7 @@ export function Overview() {
   const projectsQuery = useProjects(activeOrg.id)
   const projects = useInfiniteQueryItems(projectsQuery)
 
-  const projectById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project])),
-    [projects],
-  )
+  const projectById = new Map(projects.map((project) => [project.id, project]))
   const recentPages: RecentPageRow[] = readRecentPages(activeOrg.id, me.user.id)
     .flatMap((page) => {
       const description = describePage(page.path, projectById)
@@ -51,17 +54,23 @@ export function Overview() {
         <SearchHeader title="Recent pages" />
         <DataTable
           columns={[
-            { header: 'Page' },
-            { header: 'Location' },
-            { header: 'Visited', className: 'w-44' },
+            {
+              id: 'page',
+              header: 'Page',
+              cell: (page) => <span className="font-medium">{page.title}</span>,
+            },
+            { id: 'location', header: 'Location', cell: (page) => page.context },
+            {
+              id: 'visited',
+              header: 'Visited',
+              className: 'w-44',
+              cell: (page) => (
+                <span className="text-muted-foreground">{formatVisitedAt(page.visitedAt)}</span>
+              ),
+            },
           ]}
           data={recentPages}
           getRowId={(page) => page.path}
-          rowCells={(page) => [
-            <span className="font-medium">{page.title}</span>,
-            page.context,
-            <span className="text-muted-foreground">{formatVisitedAt(page.visitedAt)}</span>,
-          ]}
           onRowClick={(page) => {
             void navigate({ href: page.path })
           }}
@@ -105,10 +114,5 @@ function describePage(path: string, projects: Map<string, VisibleProject>) {
 function formatVisitedAt(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Recently visited'
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(date)
+  return visitedAtFormatter.format(date)
 }

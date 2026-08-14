@@ -1699,6 +1699,7 @@ paths:
       description: Items are ordered by created_at descending, then id descending. Without an owner filter, returns the deduplicated union of organization secrets the caller may list, project secrets the caller may list, and the caller's own user secrets.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/SecretKindFilter'
         - $ref: '#/components/parameters/SecretOwnerKindFilter'
         - $ref: '#/components/parameters/SecretOwnerProjectIDFilter'
         - $ref: '#/components/parameters/SecretMetadataFilter'
@@ -4174,6 +4175,7 @@ paths:
       description: Includes directly owned and granted secrets, ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/SecretKindFilter'
         - $ref: '#/components/parameters/SecretOwnerKindFilter'
         - $ref: '#/components/parameters/SecretAvailabilitySourceFilter'
         - $ref: '#/components/parameters/SecretMetadataFilter'
@@ -4452,6 +4454,51 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /api/v1/orgs/{orgID}/machines/connect:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    post:
+      operationId: connectBYOMachine
+      tags: [Machines]
+      summary: Connect a BYO machine
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectBYOMachineRequest'
+      responses:
+        '201':
+          description: Machine, daemon token, and selected project grants created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectBYOMachineResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -6012,6 +6059,13 @@ components:
         type: object
         additionalProperties:
           type: string
+    SecretKindFilter:
+      name: kind
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/SecretKind'
+      description: Filter secrets by material kind.
     SkillOwnerKindFilter:
       name: owner_kind
       in: query
@@ -9931,6 +9985,37 @@ components:
             $ref: '#/components/schemas/SecretID'
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
+    ConnectBYOMachineRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name, project_ids]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+        project_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ProjectID'
+    ConnectBYOMachineResponse:
+      type: object
+      additionalProperties: false
+      required: [machine, token, token_record, project_grants]
+      properties:
+        machine:
+          $ref: '#/components/schemas/Machine'
+        token:
+          type: string
+          minLength: 1
+          description: Opaque bearer credential.
+        token_record:
+          $ref: '#/components/schemas/MachineDaemonToken'
+        project_grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectMachineGrant'
     UpdateMachineRequest:
       type: object
       additionalProperties: false

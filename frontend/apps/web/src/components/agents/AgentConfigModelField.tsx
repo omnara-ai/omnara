@@ -1,6 +1,5 @@
 import { useProjectModelGrants } from '@omnara/react'
 import type { ConfiguredModelSummary } from '@omnara/sdk'
-import { useEffect } from 'react'
 
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -60,22 +59,18 @@ export function AgentConfigModelField({
   const displayedModels =
     selected && !models.some((model) => model.id === selected.id) ? [selected, ...models] : models
 
-  const defaultModel = value.modelName === '' && search.search === '' ? models[0] : undefined
-  useEffect(() => {
-    if (defaultModel) {
-      onChange({ providerConfig: defaultModel.provider_config, modelName: defaultModel.name })
-    }
-  }, [defaultModel, onChange])
-
   return (
     <Field>
       <div className="flex items-center justify-between gap-3">
         <FieldLabel>Model</FieldLabel>
         <GrantModelButton />
       </div>
+      <p className="text-muted-foreground text-sm">
+        Choose the exact granted model this agent will use.
+      </p>
       <ModelCombobox
         items={displayedModels}
-        value={selected?.id ?? null}
+        value={selected}
         onValueChange={(model) => {
           if (!model) return
           onChange({ providerConfig: model.provider_config, modelName: model.name })

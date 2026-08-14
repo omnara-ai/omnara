@@ -1812,6 +1812,11 @@ export const zCreateMachineRequest = z.object({
     metadata: zMachineMetadata.optional()
 });
 
+export const zConnectByoMachineRequest = z.object({
+    display_name: z.string().min(1),
+    project_ids: z.array(zProjectId).max(100)
+});
+
 export const zUpdateMachineRequest = z.object({
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
@@ -1993,6 +1998,13 @@ export const zMachineDaemonToken = z.object({
     last_used_at: zTimestamp.nullable(),
     revoked_at: zTimestamp.nullable(),
     revoke_reason: z.string()
+});
+
+export const zConnectByoMachineResponse = z.object({
+    machine: zMachine,
+    token: z.string().min(1),
+    token_record: zMachineDaemonToken,
+    project_grants: z.array(zProjectMachineGrant)
 });
 
 export const zCreateMachineDaemonTokenResponse = z.object({
@@ -2246,6 +2258,11 @@ export const zMachineSourceKindFilter = zMachineSourceKind;
  * Metadata key/value filters, encoded as metadata[key]=value.
  */
 export const zSecretMetadataFilter = z.record(z.string(), z.string());
+
+/**
+ * Filter secrets by material kind.
+ */
+export const zSecretKindFilter = zSecretKind;
 
 /**
  * Filter by the immutable skill owner kind.
@@ -2764,6 +2781,11 @@ export const zListVisibleMachinesResponse2 = zListVisibleMachinesResponse;
  * Existing machine returned.
  */
 export const zCreateMachineResponse = zMachine;
+
+/**
+ * Machine, daemon token, and selected project grants created.
+ */
+export const zConnectByoMachineResponse2 = zConnectByoMachineResponse;
 
 /**
  * Resource deleted.

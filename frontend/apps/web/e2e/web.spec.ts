@@ -15,6 +15,7 @@ const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
 const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
 const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONFIG')
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
+const ungrantedModelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_UNGRANTED_MODEL')
 const createAgentPath = `/projects/${projectID}/agents/new`
 
 function installFailureTracking(page: Page, ignore: RegExp[] = []) {
@@ -56,10 +57,22 @@ async function signIn(page: Page, email: string, returnTo: string) {
   await expect(page).toHaveURL(returnTo)
 }
 
+async function selectConfiguredModel(page: Page) {
+  const modelPicker = page.getByRole('combobox', { name: 'Search granted models…' })
+  await modelPicker.fill(modelName)
+  await page
+    .getByRole('option')
+    .filter({ hasText: modelName })
+    .filter({ hasText: providerConfig })
+    .click()
+}
+
 async function createProfile(page: Page, name: string, instruction: string) {
   await signIn(page, adminEmail, createAgentPath)
   await page.getByLabel('Name', { exact: true }).fill(name)
   await page.getByLabel('Instruction').fill(instruction)
+  await selectConfiguredModel(page)
+  await expect(page.getByRole('button', { name: 'Create profile' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create profile' }).click()
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
 }
@@ -142,6 +155,7 @@ test('creates an agent with the Builder', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Builder' })).toBeVisible()
   await page.getByLabel('Name', { exact: true }).fill('Builder Agent')
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
+  await selectConfiguredModel(page)
 
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
@@ -159,6 +173,72 @@ test('creates a profile without launching an agent', async ({ page }) => {
     'Save this config as a profile without launching.',
   )
   await expect(page.getByText('Profile Only Agent').first()).toBeVisible()
+  expect(failures).toEqual([])
+})
+
+test('granting a model from the Builder does not create a profile or agent', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await page.route(/\/model-grants(?:\?.*)?$/, async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    const body = route.request().postDataJSON() as { configured_model_id: string }
+    const timestamp = new Date().toISOString()
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        grant: {
+          id: `pmog_${'a'.repeat(26)}`,
+          org_id: `org_${'a'.repeat(26)}`,
+          project_id: projectID,
+          configured_model_id: body.configured_model_id,
+          supported_reasoning_efforts: [],
+          input_modalities: [],
+          output_modalities: [],
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      }),
+    })
+  })
+  await signIn(page, adminEmail, createAgentPath)
+
+  await page.getByLabel('Name', { exact: true }).fill('Unintended Agent')
+  await page.getByLabel('Instruction').fill('This form must not submit from a grant dialog.')
+  await selectConfiguredModel(page)
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
+
+  let agentSubmissionRequests = 0
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname
+    if (
+      request.method() === 'POST' &&
+      (path.endsWith('/agent-configs') ||
+        path.endsWith('/agent-profiles') ||
+        path.endsWith('/agents'))
+    ) {
+      agentSubmissionRequests += 1
+    }
+  })
+
+  await page.getByRole('button', { name: 'Grant models' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Grant models' })
+  const providerPicker = dialog.getByRole('combobox', { name: 'Search model providers…' })
+  await providerPicker.fill(providerConfig)
+  await page.getByRole('option', { name: providerConfig }).click()
+  const configuredModelPicker = dialog.getByRole('combobox', {
+    name: 'Search configured models…',
+  })
+  await configuredModelPicker.fill(ungrantedModelName)
+  await page.getByRole('option', { name: ungrantedModelName }).click()
+  await dialog.getByRole('button', { name: 'Grant models' }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect(page).toHaveURL(createAgentPath)
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
+  expect(agentSubmissionRequests).toBe(0)
   expect(failures).toEqual([])
 })
 
