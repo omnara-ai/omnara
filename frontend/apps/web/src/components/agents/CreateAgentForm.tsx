@@ -20,8 +20,6 @@ export function CreateAgentForm() {
     pageSize: 50,
   })
   const catalog = toolCatalog.data
-  // Prefer the platform-installed default pool (cluster-managed pools are
-  // auto-granted when the org is bootstrapped); fall back to the oldest grant.
   const poolGrants = poolGrantsQuery.data?.pages[0]?.data ?? []
   const defaultPool = (
     poolGrants.find((grant) => grant.machine_pool.management_kind === 'cluster') ?? poolGrants[0]
