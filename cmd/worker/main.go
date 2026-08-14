@@ -50,6 +50,7 @@ func main() {
 	db, err := storage.Open(
 		context.Background(),
 		cfg.DatabaseURL,
+		storage.WithDefaultApplicationName("omnara-worker"),
 		storage.WithQueryTracer(metrics.NewDBRecorder(metricSet, metrics.SubsystemDB)),
 	)
 	if err != nil {
@@ -83,6 +84,7 @@ func main() {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     redisBus,
 			AgentEventWakeups: redisBus,
+			ToolCallUpdates:   redisBus,
 			WorkerControls:    redisBus,
 		},
 		presenceStore,
@@ -118,7 +120,7 @@ func main() {
 		log,
 		cfg.WorkerMetricsAddr,
 		metricSet,
-		metrics.ReadyAll(store.Ping, redisClient.Ping),
+		metrics.ReadyAll(db.Ping, redisClient.Ping),
 	)
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
 	integrationHTTPClient := metrics.NewObservedHTTPClient(

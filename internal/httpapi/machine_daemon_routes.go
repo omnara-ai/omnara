@@ -110,8 +110,7 @@ func daemonBootstrapResponse(bootstrap executionstore.MachineBootstrapRecord) (o
 func machineDaemonScopeFromContext(ctx context.Context) (machineDaemonScope, *apierror.ResponseError) {
 	principal, ok := principalFromContext(ctx)
 	if !ok || principal.Type != identitystore.PrincipalTypeMachineDaemon || principal.OrgID == storage.NilID ||
-		principal.ID == storage.NilID || principal.MachineDaemonTokenID == storage.NilID ||
-		principal.ProjectID != storage.NilID {
+		principal.ID == storage.NilID || principal.MachineDaemonTokenID == storage.NilID {
 		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 		return machineDaemonScope{}, &err
 	}

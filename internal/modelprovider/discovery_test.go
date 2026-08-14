@@ -71,7 +71,7 @@ func TestDiscoverModelsOpenAIBearer(t *testing.T) {
 			{"id":"gpt-3.5-turbo-instruct","created":900}
 		]}`))
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 
 	config := discoveryProviderConfig(
 		server.URL+"/v1",
@@ -90,6 +90,63 @@ func TestDiscoverModelsOpenAIBearer(t *testing.T) {
 	_, err = DiscoverModels(context.Background(), config, "sk-bad", true)
 	if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "invalid api key") {
 		t.Fatalf("expected 401 error with provider message, got %v", err)
+	}
+}
+
+func TestBedrockDiscoveryValidatesSharedCatalogWithoutReturningModels(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Errorf("Bedrock discovery path = %q, want /v1/models", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer bedrock-key" {
+			t.Errorf("Bedrock discovery authorization = %q", r.Header.Get("Authorization"))
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"provider.model"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	for _, tc := range []struct {
+		apiFormat modelprotocol.APIFormat
+		basePath  string
+	}{
+		{
+			apiFormat: modelprotocol.APIFormatOpenAIChatCompletions,
+			basePath:  "/v1",
+		},
+		{
+			apiFormat: modelprotocol.APIFormatOpenAIResponses,
+			basePath:  "/openai/v1",
+		},
+		{
+			apiFormat: modelprotocol.APIFormatAnthropicMessages,
+			basePath:  "/anthropic/v1",
+		},
+	} {
+		t.Run(string(tc.apiFormat), func(t *testing.T) {
+			t.Parallel()
+			config := discoveryProviderConfig(
+				server.URL+tc.basePath,
+				tc.apiFormat,
+				modelstore.DefaultModelProviderAuthKind(tc.apiFormat),
+				string(modelstore.DefaultModelProviderAuthOptions(
+					tc.apiFormat,
+					modelstore.DefaultModelProviderAuthKind(tc.apiFormat),
+				)),
+			)
+			config.APIVariant = modelprotocol.APIVariantBedrock
+			models, err := DiscoverModels(context.Background(), config, "bedrock-key", true)
+			if err != nil {
+				t.Fatalf("DiscoverModels: %v", err)
+			}
+			if len(models) != 0 {
+				t.Fatalf("models = %+v, want none", models)
+			}
+		})
 	}
 }
 

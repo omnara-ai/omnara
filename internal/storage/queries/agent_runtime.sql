@@ -1,11 +1,11 @@
 -- name: InsertAgent :one
 INSERT INTO agents(
-    org_id, project_id, state, name, current_config_id,
+    org_id, project_id, state, name, agent_profile_id, current_config_id,
     idempotency_key, created_at, updated_at
 )
 SELECT
     sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
-    sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
+    sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
     transaction_timestamp(), transaction_timestamp()
 FROM projects project
 JOIN orgs org ON org.id = project.org_id
@@ -15,7 +15,7 @@ WHERE project.org_id = sqlc.arg(org_id)
   AND org.deleted_at IS NULL
 ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
 RETURNING id, org_id, project_id, state, name,
-          current_config_id, integration_target_id,
+          agent_profile_id, current_config_id, integration_target_id,
           coalesce(idempotency_key, '') AS idempotency_key,
           next_event_sequence, created_at, updated_at, archived_at;
 
@@ -29,7 +29,7 @@ SELECT pg_advisory_xact_lock(
 
 -- name: GetAgentByIdempotencyKey :one
 SELECT id, org_id, project_id, state, name,
-       current_config_id, integration_target_id,
+       agent_profile_id, current_config_id, integration_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
        next_event_sequence, created_at, updated_at, archived_at
 FROM agents
@@ -38,7 +38,7 @@ WHERE project_id = sqlc.arg(project_id)
 
 -- name: GetAgent :one
 SELECT id, org_id, project_id, state, name,
-       current_config_id, integration_target_id,
+       agent_profile_id, current_config_id, integration_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
        next_event_sequence, created_at, updated_at, archived_at
 FROM agents
@@ -46,7 +46,7 @@ WHERE id = $1;
 
 -- name: GetAgentInProject :one
 SELECT id, org_id, project_id, state, name,
-       current_config_id, integration_target_id,
+       agent_profile_id, current_config_id, integration_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
        next_event_sequence, created_at, updated_at, archived_at
 FROM agents
@@ -59,6 +59,7 @@ SELECT agent.id,
        agent.project_id,
        agent.state,
        agent.name,
+       agent.agent_profile_id,
        agent.current_config_id,
        agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
@@ -111,8 +112,9 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
   AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
+  AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
 )
-SELECT id, org_id, project_id, state, name, current_config_id,
+SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
        archived_at, integration_target_provider,
@@ -140,6 +142,7 @@ SELECT agent.id,
        agent.project_id,
        agent.state,
        agent.name,
+       agent.agent_profile_id,
        agent.current_config_id,
        agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
@@ -179,6 +182,7 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
   AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
+  AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (
     sqlc.arg(cursor_set)::boolean = false
     OR (agent.created_at, agent.id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)

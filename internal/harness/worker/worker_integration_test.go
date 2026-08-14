@@ -86,6 +86,7 @@ func workerControlBus(t *testing.T) (*notifications.RedisBus, *notifications.Rou
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
+			ToolCallUpdates:   bus,
 			WorkerControls:    bus,
 		},
 		presence,
@@ -1761,7 +1762,7 @@ func createWorkerAgentWithToolPermissionsAndMachine(
 	machineName string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	sourceYAML := "name: Worker Kernel Test\ninstruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: worker-kernel-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /work\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: worker-kernel-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /work\n"
 	if len(permissionModes) > 0 {
 		sourceYAML += "tools:\n"
 		names := make([]string, 0, len(permissionModes))
@@ -1796,8 +1797,7 @@ func createWorkerAgentWithCatalogDefaultToolsForProject(
 	tools ...string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	sourceYAML := "name: Worker Kernel Test\n" +
-		"instruction: Help the user make progress.\n" +
+	sourceYAML := "instruction: Help the user make progress.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: worker-kernel-test\n"
@@ -1821,8 +1821,7 @@ func createWorkerAgentWithToolPermissionsForProject(
 	permissionModes map[string]string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	sourceYAML := "name: Worker Kernel Test\n" +
-		"instruction: Help the user make progress.\n" +
+	sourceYAML := "instruction: Help the user make progress.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: worker-kernel-test\n"
@@ -2156,7 +2155,6 @@ func createWorkerExecutableMachine(
 			OrgID:     workerTestOrgID,
 			MachineID: machine.ID,
 			Name:      "worker test daemon",
-			Token:     "worker-test-daemon-token-" + now.Format(time.RFC3339Nano),
 		},
 	)
 	if err != nil {
@@ -2167,7 +2165,7 @@ func createWorkerExecutableMachine(
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            workerTestOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: workerTestID("daemon-worker-runtime"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,

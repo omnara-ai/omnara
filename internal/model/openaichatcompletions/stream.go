@@ -96,7 +96,8 @@ func (p protocol) ConsumeStream(
 		emit.Error(ctx, acc.streamErr.Error())
 		return acc.partialResponse(ctx), acc.streamErr
 	}
-	if !acc.completed || !acc.hasCompleteTerminalOutcome() {
+	if !acc.hasCompleteTerminalOutcome() ||
+		(!acc.completed && (p.ModelAPIVariant() != modelprotocol.APIVariantBedrock || !acc.usageReceived)) {
 		err := model.AmbiguousProviderOutcome(model.ProviderError{
 			Kind:       model.ErrorKindTransient,
 			Source:     p.errorSource(),
@@ -167,6 +168,7 @@ type chatStreamAccumulator struct {
 	id             string
 	servedModel    string
 	usage          chatUsage
+	usageReceived  bool
 	completed      bool
 	streamErr      error
 }
@@ -277,6 +279,7 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 	}
 	if chunk.Usage != nil {
 		a.usage = *chunk.Usage
+		a.usageReceived = true
 	}
 	if chunk.Error.present() {
 		a.streamErr = classifyProviderError(

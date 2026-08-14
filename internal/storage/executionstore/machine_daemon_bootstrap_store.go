@@ -2,12 +2,14 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -21,40 +23,80 @@ import (
 func (s *Store) CreateBYOMachineDaemonToken(
 	ctx context.Context,
 	input CreateBYOMachineDaemonTokenInput,
-) (MachineDaemonTokenRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" || input.Token == "" {
-		return MachineDaemonTokenRecord{}, errors.New(
-			"org, machine, name, and token are required",
-		)
-	}
-	metadata, err := metadataColumn(input.Metadata, "daemon token metadata")
+) (CreatedMachineDaemonToken, error) {
+	prepared, err := prepareBYOMachineDaemonTokenCreate(input)
 	if err != nil {
-		return MachineDaemonTokenRecord{}, err
+		return CreatedMachineDaemonToken{}, err
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return MachineDaemonTokenRecord{}, fmt.Errorf("begin create machine daemon token: %w", err)
+		return CreatedMachineDaemonToken{}, fmt.Errorf("begin create machine daemon token: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
-		return MachineDaemonTokenRecord{}, err
+		return CreatedMachineDaemonToken{}, err
 	}
 	if err := lifecyclelock.Machines(
 		ctx,
 		tx,
 		[]lifecyclelock.MachineRef{{OrgID: input.OrgID, MachineID: input.MachineID}},
 	); err != nil {
-		return MachineDaemonTokenRecord{}, err
+		return CreatedMachineDaemonToken{}, err
 	}
+	record, err := createBYOMachineDaemonTokenTx(ctx, qtx, prepared)
+	if err != nil {
+		return CreatedMachineDaemonToken{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CreatedMachineDaemonToken{}, fmt.Errorf("commit create machine daemon token: %w", err)
+	}
+	return CreatedMachineDaemonToken{Record: record, Token: prepared.token}, nil
+}
+
+type preparedBYOMachineDaemonTokenCreate struct {
+	input    CreateBYOMachineDaemonTokenInput
+	token    string
+	metadata json.RawMessage
+}
+
+func prepareBYOMachineDaemonTokenCreate(
+	input CreateBYOMachineDaemonTokenInput,
+) (preparedBYOMachineDaemonTokenCreate, error) {
+	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" {
+		return preparedBYOMachineDaemonTokenCreate{}, errors.New(
+			"org, machine, and name are required",
+		)
+	}
+	metadata, err := metadataColumn(input.Metadata, "daemon token metadata")
+	if err != nil {
+		return preparedBYOMachineDaemonTokenCreate{}, err
+	}
+	token, err := bearertoken.Generate(bearertoken.KindDaemon)
+	if err != nil {
+		return preparedBYOMachineDaemonTokenCreate{}, err
+	}
+	return preparedBYOMachineDaemonTokenCreate{
+		input:    input,
+		token:    token,
+		metadata: metadata,
+	}, nil
+}
+
+func createBYOMachineDaemonTokenTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	prepared preparedBYOMachineDaemonTokenCreate,
+) (MachineDaemonTokenRecord, error) {
+	input := prepared.input
 	row, err := qtx.CreateBYOMachineDaemonToken(
 		ctx,
 		dbsqlc.CreateBYOMachineDaemonTokenParams{
 			OrgID:     input.OrgID,
 			MachineID: input.MachineID,
 			Name:      input.Name,
-			TokenHash: tokenutil.Hash(input.Token),
-			Metadata:  metadata,
+			TokenHash: tokenutil.Hash(prepared.token),
+			Metadata:  prepared.metadata,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -87,11 +129,7 @@ func (s *Store) CreateBYOMachineDaemonToken(
 			MaxActiveBYODaemonTokensPerMachine,
 		)
 	}
-	record := machineDaemonTokenFromCreate(row)
-	if err := tx.Commit(ctx); err != nil {
-		return MachineDaemonTokenRecord{}, fmt.Errorf("commit create machine daemon token: %w", err)
-	}
-	return record, nil
+	return machineDaemonTokenFromCreate(row), nil
 }
 
 type BeginPoolMachineProviderProvisioningInput struct {
@@ -119,14 +157,10 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 	if input.ProvisionAttempt <= 0 {
 		return PoolMachineProviderProvisioningStart{}, errors.New("provision attempt is required")
 	}
-	secret, err := tokenutil.RandomHex(32)
+	token, err := bearertoken.Generate(bearertoken.KindDaemon)
 	if err != nil {
-		return PoolMachineProviderProvisioningStart{}, fmt.Errorf(
-			"generate machine daemon token: %w",
-			err,
-		)
+		return PoolMachineProviderProvisioningStart{}, err
 	}
-	token := MachineDaemonTokenPlaintextPrefix + secret
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineProviderProvisioningStart{}, fmt.Errorf(
@@ -376,7 +410,7 @@ func (s *Store) AuthenticateMachineDaemonToken(
 	ctx context.Context,
 	token string,
 ) (identitystore.PrincipalRecord, error) {
-	if token == "" {
+	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
 		return identitystore.PrincipalRecord{}, storeerr.ErrUnauthorized
 	}
 	row, err := s.q.AuthenticateMachineDaemonToken(
@@ -392,12 +426,7 @@ func (s *Store) AuthenticateMachineDaemonToken(
 	if err != nil {
 		return identitystore.PrincipalRecord{}, fmt.Errorf("authenticate machine daemon token: %w", err)
 	}
-	return identitystore.PrincipalRecord{
-		Type:                 identitystore.PrincipalTypeMachineDaemon,
-		ID:                   row.MachineID,
-		OrgID:                row.OrgID,
-		MachineDaemonTokenID: row.ID,
-	}, nil
+	return identitystore.NewMachineDaemonPrincipal(row.OrgID, row.MachineID, row.ID), nil
 }
 
 func (s *Store) BootstrapMachineDaemon(
@@ -463,6 +492,12 @@ func (s *Store) RecordMachineFailureReport(
 				return storeerr.InvalidRequest(fmt.Errorf("invalid target version: %w", err))
 			}
 		}
+	case MachineFailureStageDaemonUninstall, MachineFailureStageDaemonUninstalled:
+		if input.ExitStatus != nil || input.DaemonVersion != "" || input.TargetVersion != "" ||
+			(input.Stage == MachineFailureStageDaemonUninstalled &&
+				(len(input.OutputTail) != 0 || input.OutputTruncated)) {
+			return storeerr.InvalidRequest(errors.New("invalid daemon uninstall report"))
+		}
 	default:
 		return storeerr.InvalidRequest(errors.New("invalid failure report stage"))
 	}
@@ -482,25 +517,54 @@ func (s *Store) RecordMachineFailureReport(
 		value := int32(*input.ExitStatus)
 		exitStatus = &value
 	}
-	_, err := s.q.RecordMachineFailureReport(
-		ctx,
-		dbsqlc.RecordMachineFailureReportParams{
-			Stage:           input.Stage,
-			ExitStatus:      exitStatus,
-			OutputTail:      outputTail,
-			OutputTruncated: input.OutputTruncated,
-			DaemonVersion:   input.DaemonVersion,
-			TargetVersion:   input.TargetVersion,
-			OrgID:           input.OrgID,
-			MachineID:       input.MachineID,
-			DaemonTokenID:   input.DaemonTokenID,
-		},
-	)
+	params := dbsqlc.RecordMachineFailureReportParams{
+		Stage:           input.Stage,
+		ExitStatus:      exitStatus,
+		OutputTail:      outputTail,
+		OutputTruncated: input.OutputTruncated,
+		DaemonVersion:   input.DaemonVersion,
+		TargetVersion:   input.TargetVersion,
+		OrgID:           input.OrgID,
+		MachineID:       input.MachineID,
+		DaemonTokenID:   input.DaemonTokenID,
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin machine failure report: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	txNotifications := s.newTxNotifications()
+	if input.Stage == MachineFailureStageDaemonUninstalled {
+		if _, err := qtx.LockMachineForLifecycle(
+			ctx,
+			dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return storeerr.ErrUnauthorized
+			}
+			return fmt.Errorf("lock machine for daemon uninstall report: %w", err)
+		}
+	}
+	_, err = qtx.RecordMachineFailureReport(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrUnauthorized
 	}
 	if err != nil {
 		return fmt.Errorf("record machine failure report: %w", err)
 	}
-	return nil
+	if input.Stage == MachineFailureStageDaemonUninstalled {
+		if err := completeMachineLifecycleTerminalWorkTx(
+			ctx,
+			txNotifications,
+			tx,
+			qtx,
+			input.OrgID,
+			input.MachineID,
+			MachineFailureStageDaemonUninstalled,
+		); err != nil {
+			return err
+		}
+	}
+	return s.commitTxWithNotifications(ctx, tx, txNotifications, "record machine failure report")
 }

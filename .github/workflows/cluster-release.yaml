@@ -150,3 +150,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.manifest.outputs.version }}
         run: if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then gh release upload "$GITHUB_REF_NAME" cluster-release.json --clobber && gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false --prerelease=false --notes-file release-notes.md --title "cluster $VERSION" --verify-tag; else gh release create "$GITHUB_REF_NAME" cluster-release.json --latest=false --notes-file release-notes.md --title "cluster $VERSION" --verify-tag; fi
+
+      - name: Publish documentation
+        env:
+          DOCS_BRANCH: docs-production
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source_commit=$(jq -er '.source_commit' cluster-release.json)
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$DOCS_BRANCH" -f sha="$source_commit" -F force=false

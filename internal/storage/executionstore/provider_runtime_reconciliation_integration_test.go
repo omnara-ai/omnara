@@ -1908,7 +1908,6 @@ func (f providerRuntimeStorageFixture) insertInactiveBYOMachine(
 			OrgID:     testOrgID,
 			MachineID: machine.ID,
 			Name:      "provider-runtime-byo",
-			Token:     "provider-runtime-byo-token-" + uuid.NewString(),
 		},
 	)
 	if err != nil {
@@ -1919,7 +1918,7 @@ func (f providerRuntimeStorageFixture) insertInactiveBYOMachine(
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            testOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: uuid.New(),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Minute,

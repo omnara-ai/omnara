@@ -53,29 +53,48 @@ export function ProjectSecretGrantsTable({
       ></SearchHeader>
       <DataTable
         columns={[
-          { header: 'Secret' },
-          { header: 'Type' },
-          { header: 'Owner', className: 'w-32' },
-          { header: '', className: 'w-14', isActions: true },
+          {
+            id: 'secret',
+            header: 'Secret',
+            cell: (access) => <span className="font-medium">{access.secret.name}</span>,
+          },
+          {
+            id: 'type',
+            header: 'Type',
+            cell: (access) => (
+              <span className="text-muted-foreground">{secretSubtitle(access.secret)}</span>
+            ),
+          },
+          {
+            id: 'owner',
+            header: 'Owner',
+            className: 'w-32',
+            cell: (access) => (
+              <Badge variant="outline" className="capitalize">
+                {ownerLabel(access)}
+              </Badge>
+            ),
+          },
+          {
+            id: 'actions',
+            header: '',
+            className: 'w-14',
+            isActions: true,
+            cell: (access) => (
+              <SecretRowActions
+                orgId={orgId}
+                secret={access.secret}
+                availability={access.availability}
+                projectName={projectName}
+                canDelete
+              />
+            ),
+          },
         ]}
         data={paged.rows}
         isFiltered={list.isFiltering}
         pagination={paged.pagination}
         getRowId={(access) => access.secret.id}
-        rowCells={(access) => [
-          <span className="font-medium">{access.secret.name}</span>,
-          <span className="text-muted-foreground">{secretSubtitle(access.secret)}</span>,
-          <Badge variant="outline" className="capitalize">
-            {ownerLabel(access)}
-          </Badge>,
-          <SecretRowActions
-            orgId={orgId}
-            secret={access.secret}
-            availability={access.availability}
-            projectName={projectName}
-            canDelete
-          />,
-        ]}
         rowExpanded={({ secret }) => (
           <DetailList
             items={[

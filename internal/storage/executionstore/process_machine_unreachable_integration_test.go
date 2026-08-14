@@ -52,7 +52,6 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 			OrgID:     testOrgID,
 			MachineID: createdMachine.ID,
 			Name:      "daemon",
-			Token:     "token-archive-machine",
 		},
 	)
 	if err != nil {
@@ -63,7 +62,7 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            createdMachine.OrgID,
 			MachineID:        createdMachine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: testID("daemon-delete-machine"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,
@@ -82,6 +81,81 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 		t.Fatalf("delete machine: %v", err)
 	}
 	assertMachineState(t, ctx, store, machine.ID, executionstore.MachineLifecycleStateDeleted, executionstore.MachineConnectionStateOffline)
+}
+
+func TestDaemonUninstalledReportCompletesProcessWork(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "daemon_uninstalled_process_work")
+	runningToolCallID := createToolCallForProcessTest(t, ctx, fixture, "daemon_uninstalled_running", "run_command")
+	running, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    runningToolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessInput{
+		AgentMachineBindingID: fixture.BindingID,
+		Command:               "sleep 3600",
+		ShellSelector:         "sh",
+		Cwd:                   "/work",
+	})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	if _, found, err := acceptDaemonProcessForTest(
+		ctx,
+		fixture.Store,
+		fixture.OrgID,
+		fixture.MachineID,
+		fixture.RuntimeID,
+		running.ID,
+	); err != nil || !found {
+		t.Fatalf("accept process found=%v err=%v", found, err)
+	}
+	markProcessStartedForTest(t, ctx, fixture, running, fixture.Now)
+	report := executionstore.MachineFailureReportInput{
+		OrgID:         fixture.OrgID,
+		MachineID:     fixture.MachineID,
+		DaemonTokenID: fixture.TokenID,
+		Stage:         executionstore.MachineFailureStageDaemonUninstalled,
+	}
+	if err := fixture.Store.Execution().RecordMachineFailureReport(ctx, report); !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("active-runtime uninstall report error = %v, want unauthorized", err)
+	}
+	current, err := fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, running.ID)
+	if err != nil {
+		t.Fatalf("get process after rejected report: %v", err)
+	}
+	if current.State != executionstore.ProcessStateRunning {
+		t.Fatalf("process after rejected report = %+v, want running", current)
+	}
+	if _, err := fixture.Store.Execution().EndDaemonRuntime(ctx, fixture.authority()); err != nil {
+		t.Fatalf("end daemon runtime: %v", err)
+	}
+	failureReport := report
+	failureReport.Stage = executionstore.MachineFailureStageDaemonUninstall
+	failureReport.OutputTail = []byte("remove service: permission denied")
+	if err := fixture.Store.Execution().RecordMachineFailureReport(ctx, failureReport); err != nil {
+		t.Fatalf("record failed daemon uninstall: %v", err)
+	}
+	current, err = fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, running.ID)
+	if err != nil {
+		t.Fatalf("get process after failed uninstall: %v", err)
+	}
+	if current.State != executionstore.ProcessStateRunning {
+		t.Fatalf("process after failed uninstall = %+v, want running", current)
+	}
+	if err := fixture.Store.Execution().RecordMachineFailureReport(ctx, report); err != nil {
+		t.Fatalf("record daemon uninstall: %v", err)
+	}
+	current, err = fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, running.ID)
+	if err != nil {
+		t.Fatalf("get running process: %v", err)
+	}
+	if current.State != executionstore.ProcessStateUnknown ||
+		current.StateReasonCode != executionstore.MachineFailureStageDaemonUninstalled {
+		t.Fatalf("running process after uninstall = %+v, want unknown/daemon_uninstalled", current)
+	}
 }
 
 func TestDeleteMachineFailsQueuedProcessBeforeExecutionGrant(t *testing.T) {

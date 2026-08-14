@@ -24,7 +24,6 @@ func TestAgentExecutorReloadsAgentModelOptionsFromModelContext(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	sourceYAML := `
-name: Kernel Context Model Options
 instruction: Reload model options from the context agent config.
 model:
   provider_config: openai-prod
@@ -109,7 +108,6 @@ func TestAgentExecutorRecordsErrorWhenModelGrantUnavailableBeforeContextCreation
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	sourceYAML := `
-name: Kernel Unavailable Grant
 instruction: Keep model grants enforced.
 model:
   provider_config: openai-prod
@@ -455,7 +453,6 @@ func TestAgentExecutorRecordsErrorWhenCurrentModelLacksRequiredToolSupport(t *te
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	sourceYAML := `
-name: Kernel Tool Support
 instruction: Use the configured tool.
 model:
   provider_config: openai-prod

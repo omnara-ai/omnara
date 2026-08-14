@@ -1,4 +1,3 @@
-/* eslint-disable max-lines */
 import {
   type AgentEvent,
   AgentEventStreamError,
@@ -331,7 +330,7 @@ export class AgentChatSession {
           }
           consecutiveFailures = 0
           if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
-          else this.handleEvent(parsed.event)
+          else if (parsed.kind === 'event') this.handleEvent(parsed.event)
         }
         if (streamError != null) {
           this.handleStreamError(streamError.error)

@@ -1,6 +1,18 @@
 import { type ListAgentProfilesData, sdk, type UpdateAgentProfileRequest } from '@omnara/sdk'
-import { listAgentProfilesInfiniteOptions, listAgentProfilesQueryKey } from '@omnara/sdk/tanstack'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  getAgentProfileOptions,
+  getAgentProfileQueryKey,
+  listAgentProfilesInfiniteOptions,
+  listAgentProfilesQueryKey,
+} from '@omnara/sdk/tanstack'
+import {
+  type QueryClient,
+  type QueryKey,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -32,6 +44,13 @@ export function useAgentProfiles(
     ...cursorPagination,
     enabled: list.enabled,
   })
+}
+
+export function useAgentProfile(orgID: string, projectID: string, agentProfileID: string) {
+  const client = useOmnaraClient()
+  return useSuspenseQuery(
+    getAgentProfileOptions({ path: { orgID, projectID, agentProfileID }, client }),
+  )
 }
 
 export function useCreateAgentProfile(orgID: string, projectID: string) {
@@ -69,10 +88,18 @@ export function useUpdateAgentProfile(orgID: string, projectID: string) {
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
-      })
+    onSuccess: async (_data, { agentProfileID }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getAgentProfileQueryKey({
+            path: { orgID, projectID, agentProfileID },
+            client,
+          }),
+        }),
+      ])
     },
   })
 }
@@ -88,10 +115,35 @@ export function useDeleteAgentProfile(orgID: string, projectID: string) {
       })
       return data
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, agentProfileID) => {
+      removeQueryWhenInactive(
+        queryClient,
+        getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
+      )
       await queryClient.invalidateQueries({
         queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
       })
     },
+  })
+}
+
+function removeQueryWhenInactive(queryClient: QueryClient, queryKey: QueryKey) {
+  const cache = queryClient.getQueryCache()
+  const query = cache.find({ queryKey, exact: true })
+  if (!query) return
+  if (query.getObserversCount() === 0) {
+    cache.remove(query)
+    return
+  }
+  const unsubscribe = cache.subscribe((event) => {
+    if (event.query !== query) return
+    if (event.type === 'removed') {
+      unsubscribe()
+      return
+    }
+    if (event.type === 'observerRemoved' && query.getObserversCount() === 0) {
+      unsubscribe()
+      cache.remove(query)
+    }
   })
 }

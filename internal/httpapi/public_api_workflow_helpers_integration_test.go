@@ -274,6 +274,7 @@ func newIntegrationServerWithStoreOptions(
 		[]Option{
 			WithSecretKeyWrapper(keyWrapper),
 			WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
+			WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
 			WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 			WithModelDiscoverer(func(
 				context.Context,
@@ -334,6 +335,7 @@ func mustNewServer(t testing.TB, store *storage.Store, opts ...Option) *Server {
 	serverOpts := append(
 		[]Option{
 			WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
+			WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
 			WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		},
 		opts...,
@@ -401,9 +403,8 @@ func bootstrapPublicHTTPProject(
 	adminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		context.Background(),
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  admin.ID,
-			Name:    "test owner",
-			TokenID: seed + "-admin",
+			UserID: admin.ID,
+			Name:   "test owner",
 		},
 	)
 	if err != nil {
@@ -465,8 +466,8 @@ func createdModelProviderConfig(t *testing.T, response map[string]any) map[strin
 	if !ok {
 		t.Fatalf("create model provider response has no config: %+v", response)
 	}
-	if _, ok := response["model_discovery"].(map[string]any); !ok {
-		t.Fatalf("create model provider response has no model_discovery: %+v", response)
+	if _, ok := response["model_catalog"].(map[string]any); !ok {
+		t.Fatalf("create model provider response has no model_catalog: %+v", response)
 	}
 	return config
 }
@@ -565,7 +566,7 @@ func createPublicHTTPAgent(
 	token string,
 ) map[string]any {
 	t.Helper()
-	sourceYAML := "name: " + seed + " Agent\ninstruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
+	sourceYAML := "instruction: Help the user make progress (" + seed + ").\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	config := createPublicHTTPAgentConfig(t, handler, project, seed, "yaml", sourceYAML, token, http.StatusCreated)
 	return createPublicHTTPAgentProfile(
 		t,

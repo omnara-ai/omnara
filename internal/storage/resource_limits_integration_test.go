@@ -152,8 +152,8 @@ FROM generate_series(1, $3::integer) AS n
 
 	if _, err := pool.Exec(ctx, `
 INSERT INTO personal_access_tokens(user_id, name, token_id, token_hash, created_at)
-SELECT $1, 'Limit seed token ' || n, 'limit-seed-token-' || n,
-       'limit-seed-token-hash-' || n, $2
+SELECT $1, 'Pre-canonical limit token ' || n, 'legacy-token-id-' || n,
+       'legacy-token-hash-' || n, $2
 FROM generate_series(1, $3::integer) AS n
 `, testDefaultProviderAdminUserID, now, identitystore.MaxActivePersonalAccessTokensPerUser-1); err != nil {
 		t.Fatalf("seed personal access tokens to below limit: %v", err)
@@ -236,8 +236,8 @@ FROM generate_series(1, $3::integer) AS n
 	const orgAPIKeyLimit = 1_000
 	if _, err := pool.Exec(ctx, `
 INSERT INTO org_api_keys(org_id, name, token_id, token_hash, created_by_user_id, created_at, updated_at)
-SELECT $1, 'Limit seed key ' || n, 'limit-seed-key-' || n,
-       'limit-seed-key-hash-' || n, $2, $3, $3
+SELECT $1, 'Pre-canonical limit key ' || n, 'legacy-key-id-' || n,
+       'legacy-key-hash-' || n, $2, $3, $3
 FROM generate_series(1, $4::integer) AS n
 `, testOrgID, testDefaultProviderAdminUserID, now, orgAPIKeyLimit-1); err != nil {
 		t.Fatalf("seed org api keys to below limit: %v", err)
@@ -392,7 +392,6 @@ WHERE id = $1
 		t.Fatalf("seed agent configs to limit: %v", err)
 	}
 	sourceYAML := `
-name: Limited Agent
 instruction: distinct config
 model:
   provider_config: openai-prod
@@ -530,7 +529,6 @@ func TestResourceLimitLocksDoNotBlockUnrelatedCreates(t *testing.T) {
 		OrgID:     testOrgID,
 		MachineID: machine.ID,
 		Name:      "Resource limit lock token",
-		Token:     "resource-limit-lock-token",
 	}); err != nil {
 		_ = blocker.Rollback(ctx)
 		<-skillResult
@@ -593,7 +591,6 @@ FROM generate_series(1, $3::integer) AS n
 
 	firstToken, err := store.Execution().CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
 		OrgID: testOrgID, MachineID: machine.ID, Name: "First daemon token",
-		Token: "first-limited-daemon-token",
 	})
 	if err != nil {
 		t.Fatalf("create first daemon token: %v", err)
@@ -603,7 +600,7 @@ INSERT INTO machine_daemon_tokens(
   org_id, machine_id, name, token_hash, created_at
 )
 SELECT $1, $2, 'Limit seed daemon token ' || n,
-       'limit-seed-daemon-token-hash-' || n, $3
+       'legacy-daemon-token-hash-' || n, $3
 FROM generate_series(1, $4::integer) AS n
 `, testOrgID, machine.ID, now,
 		executionstore.MaxActiveBYODaemonTokensPerMachine-1); err != nil {
@@ -611,7 +608,6 @@ FROM generate_series(1, $4::integer) AS n
 	}
 	secondTokenInput := executionstore.CreateBYOMachineDaemonTokenInput{
 		OrgID: testOrgID, MachineID: machine.ID, Name: "Second daemon token",
-		Token: "second-limited-daemon-token",
 	}
 	if _, err := store.Execution().CreateBYOMachineDaemonToken(ctx, secondTokenInput); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("daemon token over limit error = %v, want ErrConflict", err)
@@ -620,7 +616,7 @@ FROM generate_series(1, $4::integer) AS n
 		ctx,
 		testOrgID,
 		machine.ID,
-		firstToken.ID,
+		firstToken.Record.ID,
 		"test",
 	); err != nil {
 		t.Fatalf("revoke first daemon token: %v", err)

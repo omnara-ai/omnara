@@ -12,6 +12,9 @@ const proxy = Object.fromEntries(
 
 export default defineConfig({
   plugins: [react({ babel: { plugins: [['babel-plugin-react-compiler', {}]] } }), tailwindcss()],
+  optimizeDeps: {
+    include: ['monaco-yaml/yaml.worker.js'],
+  },
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },

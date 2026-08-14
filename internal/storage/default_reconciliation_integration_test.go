@@ -202,14 +202,6 @@ func TestReconcileDefaults(t *testing.T) {
 	if tag.RowsAffected() != 1 {
 		t.Fatalf("seed runtime mismatch marker rows = %d, want 1", tag.RowsAffected())
 	}
-	invalidPool := initialPool
-	invalidPool.DefaultMachineMemoryMB = intPtrForMachinePoolTest(4096)
-	if _, err := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
-		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{invalidPool},
-	}); err == nil || !strings.Contains(err.Error(), "org "+created.Org.ID.String()+":") {
-		t.Fatalf("plan with incompatible pool limits error = %v, want org ID", err)
-	}
-
 	desiredPool := initialPool
 	desiredPool.Description = "new pool"
 	desiredPool.DefaultMachineEnv = json.RawMessage(`{"NEW":"value"}`)
@@ -253,13 +245,13 @@ func TestReconcileDefaults(t *testing.T) {
 	}
 	if poolRecord.Description != desiredPool.Description ||
 		!poolRecord.RuntimeProtectionEnabled ||
-		poolRecord.MaxTotalMachines != 8 ||
-		poolRecord.MaxTotalCpu == nil || *poolRecord.MaxTotalCpu != 16 ||
-		poolRecord.MaxTotalMemoryMb == nil || *poolRecord.MaxTotalMemoryMb != 8192 ||
+		poolRecord.MaxTotalMachines != 0 ||
+		poolRecord.MaxTotalCpu == nil || *poolRecord.MaxTotalCpu != 1 ||
+		poolRecord.MaxTotalMemoryMb == nil || *poolRecord.MaxTotalMemoryMb != 0 ||
 		poolRecord.MinMachineCpu == nil || *poolRecord.MinMachineCpu != 1 ||
 		poolRecord.MinMachineMemoryMb == nil || *poolRecord.MinMachineMemoryMb != 512 ||
-		poolRecord.MaxMachineCpu == nil || *poolRecord.MaxMachineCpu != 4 ||
-		poolRecord.MaxMachineMemoryMb == nil || *poolRecord.MaxMachineMemoryMb != 2048 {
+		poolRecord.MaxMachineCpu == nil || *poolRecord.MaxMachineCpu != 1 ||
+		poolRecord.MaxMachineMemoryMb == nil || *poolRecord.MaxMachineMemoryMb != 512 {
 		t.Fatalf("unexpected reconciled pool: %+v", poolRecord)
 	}
 	assertJSONRawEqual(t, poolRecord.DefaultMachineEnv, string(desiredPool.DefaultMachineEnv))
@@ -427,11 +419,13 @@ func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
 		failingOrg, successfulOrg = successfulOrg, failingOrg
 	}
 	if _, err := pool.Exec(ctx, `
+		ALTER TABLE machine_pools DISABLE TRIGGER machine_pools_authority_immutable;
 		UPDATE machine_pools
-		SET max_machine_memory_mb = 512
-		WHERE org_id = $1 AND name = $2
-	`, failingOrg.Org.ID, initialPools[1].Name); err != nil {
-		t.Fatalf("restrict failing org pool: %v", err)
+		SET provider_auth_env_var = 'OTHER_POOL_TOKEN'
+		WHERE org_id = $1 AND name = $2;
+		ALTER TABLE machine_pools ENABLE TRIGGER machine_pools_authority_immutable
+	`, pgx.QueryExecModeSimpleProtocol, failingOrg.Org.ID, initialPools[1].Name); err != nil {
+		t.Fatalf("change failing org pool auth env var: %v", err)
 	}
 
 	desiredPools := append([]executionstore.DefaultMachinePoolTemplate(nil), initialPools...)
@@ -472,11 +466,13 @@ func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
 	}
 
 	if _, err := pool.Exec(ctx, `
+		ALTER TABLE machine_pools DISABLE TRIGGER machine_pools_authority_immutable;
 		UPDATE machine_pools
-		SET max_machine_memory_mb = 2048
-		WHERE org_id = $1 AND name = $2
-	`, failingOrg.Org.ID, initialPools[1].Name); err != nil {
-		t.Fatalf("restore failing org pool limit: %v", err)
+		SET provider_auth_env_var = 'RECONCILE_POOL_TOKEN'
+		WHERE org_id = $1 AND name = $2;
+		ALTER TABLE machine_pools ENABLE TRIGGER machine_pools_authority_immutable
+	`, pgx.QueryExecModeSimpleProtocol, failingOrg.Org.ID, initialPools[1].Name); err != nil {
+		t.Fatalf("restore failing org pool auth env var: %v", err)
 	}
 	result, err = store.Organizations().ReconcileDefaults(ctx, input)
 	if err != nil {
@@ -878,7 +874,6 @@ func TestReconcileDefaultsSerializesModelBeforePoolWithAgentConfigChange(t *test
 		return compiled
 	}
 	initialSource := `
-name: Reconcile Config Order Agent
 instruction: Exercise model and pool lock ordering.
 model:
   provider_config: reconcile-openrouter
@@ -901,12 +896,12 @@ model:
 		ProjectID:     created.Project.ID,
 		AgentConfigID: config.ID,
 		LaunchedBy:    userPrincipal(user.ID),
+		Name:          "Reconcile Config Order Agent",
 	})
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
 	nextSource := `
-name: Reconcile Config Order Agent
 instruction: Exercise model and pool lock ordering.
 model:
   provider_config: reconcile-openrouter

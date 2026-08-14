@@ -27,7 +27,7 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 	}
 	bootstrap, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: "bootstrap", TokenID: "bootstrap"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: "bootstrap"},
 	)
 	if err != nil {
 		t.Fatalf("create bootstrap pat: %v", err)
@@ -135,9 +135,8 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 	const extraTokens = 4
 	for i := 0; i < extraTokens; i++ {
 		if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-			UserID:  user.ID,
-			Name:    "page-" + string(rune('a'+i)),
-			TokenID: "page-" + string(rune('a'+i)),
+			UserID: user.ID,
+			Name:   "page-" + string(rune('a'+i)),
 		}); err != nil {
 			t.Fatalf("seed paging token %d: %v", i, err)
 		}
@@ -224,7 +223,7 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 	}
 	otherPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: other.ID, Name: "other", TokenID: "other"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: other.ID, Name: "other"},
 	)
 	if err != nil {
 		t.Fatalf("create other pat: %v", err)

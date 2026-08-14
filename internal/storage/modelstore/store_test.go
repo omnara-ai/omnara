@@ -228,6 +228,18 @@ func TestModelProviderOpenAIChatCompletionsAndOpenRouterOptions(t *testing.T) {
 	}
 }
 
+func TestBedrockProviderVariantSupportsAllAPIFormats(t *testing.T) {
+	for _, apiFormat := range []modelprotocol.APIFormat{
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIFormatOpenAIResponses,
+		modelprotocol.APIFormatAnthropicMessages,
+	} {
+		if err := validateModelProviderAPIVariant(apiFormat, modelprotocol.APIVariantBedrock); err != nil {
+			t.Fatalf("Bedrock variant rejected for %q: %v", apiFormat, err)
+		}
+	}
+}
+
 func TestAPIVariantOptionsPassThroughConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name string

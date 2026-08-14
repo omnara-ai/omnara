@@ -26,7 +26,6 @@ const (
 
 type AgentConfigSource struct {
 	Version        string                           `json:"version,omitempty"`
-	Name           string                           `json:"name,omitempty"`
 	Instruction    string                           `json:"instruction"`
 	Model          AgentConfigModelSource           `json:"model"`
 	MachineSources []AgentConfigMachineSource       `json:"machine_sources,omitempty"`
@@ -108,6 +107,21 @@ func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 			"agent config source does not match JSON schema: %s",
 			validationErrors(result),
 		)
+	}
+	var parsed AgentConfigSource
+	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
+		return AgentConfigSource{}, fmt.Errorf("decode agent config source: %w", err)
+	}
+	return parsed, nil
+}
+
+func ParseStoredSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return AgentConfigSource{}, errors.New("agent config source is required")
+	}
+	jsonSource, err := sourceJSON(format, raw)
+	if err != nil {
+		return AgentConfigSource{}, err
 	}
 	var parsed AgentConfigSource
 	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
@@ -211,7 +225,6 @@ func agentConfigSourceJSONSchemaJSON() ([]byte, error) {
 func agentConfigSourceSchema() *kjsonschema.Schema {
 	schema := kjsonschema.Object(
 		kjsonschema.Prop("version", kjsonschema.Enum("v1")),
-		kjsonschema.Prop("name", kjsonschema.String()),
 		kjsonschema.Prop("instruction", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
 		kjsonschema.Prop("model", kjsonschema.Ref("#/$defs/AgentConfigModelSource")),
 		kjsonschema.Prop("machine_sources", kjsonschema.AnyOf(

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -76,7 +77,7 @@ func TestOrgAPIKeyLifecycleAndAuthorization(t *testing.T) {
 	if createdMembershipRole != authz.OrgRoleMember {
 		t.Fatalf("key org membership role = %s, want %s", createdMembershipRole, authz.OrgRoleMember)
 	}
-	if _, err := identitystore.OrgAPIKeyIDFromPlaintext(created.Token); err != nil {
+	if err := bearertoken.Validate(created.Token, bearertoken.KindOrganization); err != nil {
 		t.Fatalf("created token plaintext invalid: %v", err)
 	}
 
@@ -99,7 +100,11 @@ func TestOrgAPIKeyLifecycleAndAuthorization(t *testing.T) {
 		principal.OrgAPIKeyID != created.Record.ID {
 		t.Fatalf("unexpected principal: %+v", principal)
 	}
-	if _, err := store.Identity().AuthenticateOrgAPIKey(ctx, "omnara_org_missing_secret"); !errors.Is(err, storeerr.ErrUnauthorized) {
+	unknownToken, err := bearertoken.Generate(bearertoken.KindOrganization)
+	if err != nil {
+		t.Fatalf("generate unknown organization token: %v", err)
+	}
+	if _, err := store.Identity().AuthenticateOrgAPIKey(ctx, unknownToken); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("expected unauthorized for unknown token, got %v", err)
 	}
 
@@ -369,7 +374,6 @@ func TestOrgAPIKeyLaunchesAgentsAndChangesConfigs(t *testing.T) {
 		"org-key-launch",
 		"Org Key Launch Agent",
 		`
-name: Org Key Launch Agent
 instruction: Launched by an org API key.
 model:
   provider_config: openai-prod
@@ -411,7 +415,6 @@ model:
 	}
 
 	updated := mustCreateAgentConfigFromYAML(t, ctx, store, "org-key-launch-v2", `
-name: Org Key Launch Agent
 instruction: Updated by an org API key.
 model:
   provider_config: openai-prod

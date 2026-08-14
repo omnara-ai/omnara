@@ -10,6 +10,8 @@ import {
   type UpdateModelProviderConfigRequest,
 } from '@omnara/sdk'
 import {
+  getModelCatalogOptions,
+  getModelCatalogQueryKey,
   listConfiguredModelsInfiniteOptions,
   listModelProviderConfigsInfiniteOptions,
   listModelProviderConfigsQueryKey,
@@ -47,6 +49,22 @@ export function useModelProviders(orgID: string, options?: ModelProviderListOpti
     }),
     ...cursorPagination,
     enabled: list.enabled,
+  })
+}
+
+/**
+ * The provider's live model catalog. Every fetch probes the provider's /models
+ * endpoint, so keep it disabled until the catalog is actually needed.
+ */
+export function useModelCatalog(
+  orgID: string,
+  modelProviderConfigID: string,
+  options?: { enabled?: boolean },
+) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getModelCatalogOptions({ path: { orgID, modelProviderConfigID }, client }),
+    enabled: (options?.enabled ?? true) && modelProviderConfigID !== '',
   })
 }
 
@@ -200,10 +218,18 @@ export function useUpdateModelProvider(orgID: string) {
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
-      })
+    onSuccess: async (_data, { modelProviderConfigID }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getModelCatalogQueryKey({
+            path: { orgID, modelProviderConfigID },
+            client,
+          }),
+        }),
+      ])
     },
   })
 }

@@ -40,10 +40,7 @@ func (s *Service) createDefaultModelProviderForOrgTx(
 		OwnerKind:      secretstore.SecretOwnerOrg,
 		Name:           template.CredentialSecretName,
 		Material:       secrets.GenericMaterial{Value: credentialValue},
-		Actor: identitystore.PrincipalRecord{
-			Type: identitystore.PrincipalTypeUser,
-			ID:   createdByUserID,
-		},
+		Actor:          identitystore.NewUserPrincipal(createdByUserID),
 	})
 	if err != nil {
 		return fmt.Errorf("create default model provider credential: %w", err)

@@ -10,6 +10,6 @@
 // tag. Run it with:
 //
 //	OMNARA_BLACKBOX_API_URL=https://api.example.com \
-//	OMNARA_BLACKBOX_TOKEN=omnara_pat_... \
+//	OMNARA_BLACKBOX_TOKEN=omnara_pat_v1_... \
 //	make test-blackbox
 package blackbox

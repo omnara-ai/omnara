@@ -214,9 +214,8 @@ const (
 	defaultLiveModelSlug    = "nvidia/nemotron-3-ultra-550b-a55b:free"
 )
 
-func agentConfigYAML(name string) string {
+func agentConfigYAML() string {
 	return strings.Join([]string{
-		"name: " + name,
 		"instruction: You are a disposable test agent created by the API black-box suite. Reply concisely.",
 		"model:",
 		"  provider_config: " + providerConfigName,
@@ -226,7 +225,6 @@ func agentConfigYAML(name string) string {
 
 func liveAgentConfigYAML() string {
 	return strings.Join([]string{
-		"name: Blackbox Live Agent",
 		"instruction: You are a disposable test agent created by the API black-box suite. Follow the user's instructions exactly and reply concisely.",
 		"model:",
 		"  provider_config: " + liveProviderConfigName,
@@ -239,7 +237,7 @@ func TestMain(m *testing.M) {
 	token := os.Getenv("OMNARA_BLACKBOX_TOKEN")
 	if baseURL == "" || token == "" {
 		fmt.Fprintln(os.Stderr, "blackbox suite: OMNARA_BLACKBOX_API_URL and OMNARA_BLACKBOX_TOKEN must be set")
-		fmt.Fprintln(os.Stderr, "example: OMNARA_BLACKBOX_API_URL=https://api.example.com OMNARA_BLACKBOX_TOKEN=omnara_pat_... make test-blackbox")
+		fmt.Fprintln(os.Stderr, "example: OMNARA_BLACKBOX_API_URL=https://api.example.com OMNARA_BLACKBOX_TOKEN=omnara_pat_v1_... make test-blackbox")
 		os.Exit(2)
 	}
 
@@ -341,7 +339,7 @@ func bootstrapFixture(baseURL, token string, log *runLog) (*fixture, error) {
 
 	config, err := f.jsonStep(ctx, "create shared agent config",
 		http.MethodPost, f.projectPath+"/agent-configs",
-		map[string]any{"source_format": "yaml", "source": agentConfigYAML("Blackbox Agent")},
+		map[string]any{"source_format": "yaml", "source": agentConfigYAML()},
 		"", http.StatusCreated)
 	if err != nil {
 		return f, fmt.Errorf("create agent config: %w", err)

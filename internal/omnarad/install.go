@@ -52,17 +52,30 @@ func runInstallCommand(
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	result, err := installDaemon(ctx, home, executable, releaseManifestURL)
+	if err := validateInstallInputs(executable, releaseManifestURL); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := localstore.EnsurePrivateDir(home); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+	lock, err := acquireInstallLock(ctx, home)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+	result, installErr := installDaemonLocked(ctx, home, executable, releaseManifestURL)
+	if installErr == nil {
+		installErr = writeDaemonConfig(ctx, stdin, stderr, log)
+	}
+	err = errors.Join(installErr, lock.Release())
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 	if result.replaced {
 		_, _ = fmt.Fprintln(stdout, "omnarad installed at "+result.path)
-	}
-	if err := writeDaemonConfig(ctx, stdin, stderr, log); err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return 1
 	}
 	if noStart {
 		return 0
@@ -74,28 +87,12 @@ func runInstallCommand(
 	return 0
 }
 
-func installDaemon(
+func installDaemonLocked(
 	ctx context.Context,
 	home string,
 	executable string,
 	releaseManifestURL string,
-) (result daemonInstallResult, resultErr error) {
-	if releaseManifestURL != "" {
-		if err := validateReleaseManifestURL(releaseManifestURL); err != nil {
-			return daemonInstallResult{}, fmt.Errorf("release manifest URL: %w", err)
-		}
-	}
-	if err := validateInstallSource(executable); err != nil {
-		return daemonInstallResult{}, err
-	}
-	lock, err := acquireInstallLock(ctx, home)
-	if err != nil {
-		return daemonInstallResult{}, err
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, lock.Release())
-	}()
-
+) (daemonInstallResult, error) {
 	canonical := canonicalDaemonPath(home)
 	receipt, err := loadInstallReceipt(home)
 	if errors.Is(err, os.ErrNotExist) {
@@ -149,6 +146,15 @@ func installDaemon(
 		return daemonInstallResult{}, err
 	}
 	return daemonInstallResult{path: canonical, replaced: true}, nil
+}
+
+func validateInstallInputs(executable, releaseManifestURL string) error {
+	if releaseManifestURL != "" {
+		if err := validateReleaseManifestURL(releaseManifestURL); err != nil {
+			return fmt.Errorf("release manifest URL: %w", err)
+		}
+	}
+	return validateInstallSource(executable)
 }
 
 func repairCanonicalDaemon(ctx context.Context, home, canonical string, receipt installReceipt) error {

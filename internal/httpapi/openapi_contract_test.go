@@ -284,6 +284,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 
 	browserOnlyMutations := map[string]bool{
 		"post /api/v1/personal-access-tokens":                               true,
+		"post /api/v1/orgs/{orgID}/machines/connect":                        true,
 		"post /api/v1/orgs/{orgID}/api-keys":                                true,
 		"patch /api/v1/orgs/{orgID}/api-keys/{keyID}":                       true,
 		"post /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke":                 true,
@@ -348,6 +349,7 @@ func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {
 				AdditionalProperties any            `yaml:"additionalProperties"`
 				Properties           map[string]any `yaml:"properties"`
 				Enum                 []any          `yaml:"enum"`
+				ExtensibleEnum       []any          `yaml:"x-extensible-enum"`
 			} `yaml:"schemas"`
 		} `yaml:"components"`
 	}
@@ -356,18 +358,28 @@ func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {
 	}
 	if got := openAPIStringSlice(doc.Components.Schemas["ModelProviderAPIVariant"].Enum); !slices.Equal(
 		got,
-		[]string{"default", "openrouter"},
+		[]string{"default", "openrouter", "bedrock"},
 	) {
-		t.Fatalf("ModelProviderAPIVariant enum = %v, want default/openrouter", got)
+		t.Fatalf("ModelProviderAPIVariant enum = %v, want default/openrouter/bedrock", got)
 	}
-	for _, schemaName := range []string{
-		"AgentConfigModel",
-		"CreateModelProviderConfigRequest",
-		"ModelProviderConfig",
-	} {
-		apiVariant := openAPIPropertySchema(t, doc.Components.Schemas[schemaName].Properties, "api_variant")
-		if apiVariant["$ref"] != "#/components/schemas/ModelProviderAPIVariant" {
-			t.Fatalf("%s.api_variant must reference ModelProviderAPIVariant, got %+v", schemaName, apiVariant)
+	if got := openAPIStringSlice(doc.Components.Schemas["ModelProviderAPIVariantResponse"].ExtensibleEnum); !slices.Equal(
+		got,
+		[]string{"default", "openrouter", "bedrock"},
+	) {
+		t.Fatalf("ModelProviderAPIVariantResponse extensible enum = %v, want default/openrouter/bedrock", got)
+	}
+	apiVariant := openAPIPropertySchema(
+		t,
+		doc.Components.Schemas["CreateModelProviderConfigRequest"].Properties,
+		"api_variant",
+	)
+	if apiVariant["$ref"] != "#/components/schemas/ModelProviderAPIVariant" {
+		t.Fatalf("CreateModelProviderConfigRequest.api_variant must reference ModelProviderAPIVariant, got %+v", apiVariant)
+	}
+	for _, schemaName := range []string{"AgentConfigModel", "ModelProviderConfig"} {
+		apiVariant = openAPIPropertySchema(t, doc.Components.Schemas[schemaName].Properties, "api_variant")
+		if apiVariant["$ref"] != "#/components/schemas/ModelProviderAPIVariantResponse" {
+			t.Fatalf("%s.api_variant must reference ModelProviderAPIVariantResponse, got %+v", schemaName, apiVariant)
 		}
 	}
 	for _, schemaName := range []string{

@@ -1966,8 +1966,7 @@ WHERE org_id = $1 AND name = $2 AND deleted_at IS NULL
 			t.Fatalf("create machine dispatch pool grant: %v", err)
 		}
 	}
-	sourceYAML := `name: Machine Dispatch Agent
-instruction: Test machine dispatch.
+	sourceYAML := `instruction: Test machine dispatch.
 model:
   provider_config: openai-prod
   name: tools-test
@@ -2269,8 +2268,7 @@ func createToolsRuntimeAgentWithMachineSourcesAndSkills(
 	now time.Time,
 ) executionstore.LaunchAgentResult {
 	t.Helper()
-	sourceYAML := `name: ` + name + `
-instruction: Test tool execution.
+	sourceYAML := `instruction: Test tool execution.
 model:
   provider_config: openai-prod
   name: tools-test
@@ -2397,7 +2395,6 @@ func createExecutableBinding(
 			OrgID:     toolsTestOrgID,
 			MachineID: machine.ID,
 			Name:      name + " daemon",
-			Token:     "tools-target-token-" + name,
 		},
 	)
 	if err != nil {
@@ -2408,7 +2405,7 @@ func createExecutableBinding(
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            toolsTestOrgID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: toolsTestID("daemon-tools-" + name),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,
@@ -2422,7 +2419,7 @@ func createExecutableBinding(
 		GrantID:       grant.ID,
 		MachineID:     machine.ID,
 		RuntimeID:     runtime.ID,
-		DaemonTokenID: token.ID,
+		DaemonTokenID: token.Record.ID,
 		DisplayName:   machine.DisplayName,
 	}
 }

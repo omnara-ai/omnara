@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -30,7 +30,8 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	ctx context.Context,
 	input CreateOrgAPIKeyInput,
 ) (CreatedOrgAPIKey, error) {
-	if err := prepareOrgAPIKeyInput(&input); err != nil {
+	tokenID, token, err := prepareOrgAPIKeyInput(input)
+	if err != nil {
 		return CreatedOrgAPIKey{}, err
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -56,8 +57,8 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 		dbsqlc.CreateOrgAPIKeyParams{
 			OrgID:           input.OrgID,
 			Name:            input.Name,
-			TokenID:         input.TokenID,
-			TokenHash:       HashBearerToken(input.Token),
+			TokenID:         tokenID,
+			TokenHash:       HashBearerToken(token),
 			CreatedByUserID: input.CreatedByUserID,
 		},
 	)
@@ -96,65 +97,41 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	}
 	record := orgAPIKeyRecordFromSQLC(row)
 	record.OrgRole = membership.Role
-	return CreatedOrgAPIKey{Record: record, Token: input.Token}, nil
+	return CreatedOrgAPIKey{Record: record, Token: token}, nil
 }
 
-func prepareOrgAPIKeyInput(input *CreateOrgAPIKeyInput) error {
+func prepareOrgAPIKeyInput(input CreateOrgAPIKeyInput) (string, string, error) {
 	if isNilID(input.OrgID) {
-		return errors.New("org api key org id is required")
+		return "", "", errors.New("org api key org id is required")
 	}
 	if input.Name == "" {
-		return errors.New("org api key name is required")
+		return "", "", errors.New("org api key name is required")
 	}
 	if !orgAPIKeyRoleAllowed(input.OrgRole) {
-		return fmt.Errorf("org api key role must be %q or %q", authz.OrgRoleAdmin, authz.OrgRoleMember)
+		return "", "", fmt.Errorf("org api key role must be %q or %q", authz.OrgRoleAdmin, authz.OrgRoleMember)
 	}
 	if isNilID(input.CreatedByUserID) {
-		return errors.New("org api key creator user id is required")
+		return "", "", errors.New("org api key creator user id is required")
 	}
 	if input.ActorPrincipal.Type != "" && input.ActorPrincipal.ID != input.CreatedByUserID {
-		return storeerr.ErrUnauthorized
+		return "", "", storeerr.ErrUnauthorized
 	}
-	return fillOrgAPIKeyPlaintext(input)
-}
-
-func fillOrgAPIKeyPlaintext(input *CreateOrgAPIKeyInput) error {
-	if input.Token != "" {
-		tokenID, err := OrgAPIKeyIDFromPlaintext(input.Token)
-		if err != nil {
-			return err
-		}
-		if input.TokenID == "" {
-			input.TokenID = tokenID
-		} else if input.TokenID != tokenID {
-			return errors.New("org api key token id does not match token plaintext")
-		}
+	tokenID, err := randomTokenPart(10)
+	if err != nil {
+		return "", "", fmt.Errorf("generate org api key token id: %w", err)
 	}
-	if input.TokenID == "" {
-		tokenID, err := randomTokenPart(10)
-		if err != nil {
-			return fmt.Errorf("generate org api key token id: %w", err)
-		}
-		input.TokenID = tokenID
+	token, err := bearertoken.Generate(bearertoken.KindOrganization)
+	if err != nil {
+		return "", "", err
 	}
-	if input.Token == "" {
-		secret, err := randomTokenPart(32)
-		if err != nil {
-			return fmt.Errorf("generate org api key secret: %w", err)
-		}
-		input.Token = FormatOrgAPIKey(input.TokenID, secret)
-	}
-	return ValidateOrgAPIKeyPlaintext(input.Token)
+	return tokenID, token, nil
 }
 
 func (s *Store) AuthenticateOrgAPIKey(
 	ctx context.Context,
 	token string,
 ) (PrincipalRecord, error) {
-	if token == "" {
-		return PrincipalRecord{}, storeerr.ErrUnauthorized
-	}
-	if err := ValidateOrgAPIKeyPlaintext(token); err != nil {
+	if err := bearertoken.Validate(token, bearertoken.KindOrganization); err != nil {
 		return PrincipalRecord{}, storeerr.ErrUnauthorized
 	}
 	row, err := s.q.AuthenticateOrgAPIKey(
@@ -170,12 +147,7 @@ func (s *Store) AuthenticateOrgAPIKey(
 	if err != nil {
 		return PrincipalRecord{}, fmt.Errorf("authenticate org api key: %w", err)
 	}
-	return PrincipalRecord{
-		Type:        row.PrincipalType,
-		ID:          row.OrgApiKeyID,
-		OrgID:       row.OrgID,
-		OrgAPIKeyID: row.OrgApiKeyID,
-	}, nil
+	return NewOrgAPIKeyPrincipal(row.OrgID, row.OrgApiKeyID), nil
 }
 
 func (s *Store) GetOrgAPIKey(ctx context.Context, orgID, keyID ID) (OrgAPIKeyRecord, error) {
@@ -571,28 +543,4 @@ func orgAPIKeyRecordFromGetRow(row dbsqlc.GetOrgAPIKeyRow) OrgAPIKeyRecord {
 		LastUsedAt:      row.LastUsedAt,
 		RevokedAt:       row.RevokedAt,
 	}
-}
-
-func FormatOrgAPIKey(tokenID, secret string) string {
-	return OrgAPIKeyPlaintextPrefix + tokenID + "_" + secret
-}
-
-func ValidateOrgAPIKeyPlaintext(token string) error {
-	_, err := OrgAPIKeyIDFromPlaintext(token)
-	return err
-}
-
-func OrgAPIKeyIDFromPlaintext(token string) (string, error) {
-	if !strings.HasPrefix(token, OrgAPIKeyPlaintextPrefix) {
-		return "", errors.New("org api key must use omnara_org prefix")
-	}
-	rest := strings.TrimPrefix(token, OrgAPIKeyPlaintextPrefix)
-	parts := strings.SplitN(rest, "_", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", errors.New("org api key must include token id and secret")
-	}
-	if strings.Contains(parts[0], "_") || strings.Contains(parts[1], "_") {
-		return "", errors.New("org api key id and secret must not contain underscores")
-	}
-	return parts[0], nil
 }

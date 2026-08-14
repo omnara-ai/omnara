@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,73 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
+
+func TestToolCallLifecyclePublishesCommittedUpdatesOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "tool_call_updates")
+	publisher := &recordingPostCommitPublisher{}
+	fixture.Store = newIntegrationStore(
+		fixture.Store.pool,
+		WithPostCommitPublisher(publisher),
+	)
+
+	_, toolCalls := recordToolCallBatchForContextTest(
+		t,
+		ctx,
+		fixture,
+		claim.Context.ID,
+		"tool_call_updates",
+		[]toolCallForContextTest{{
+			ProviderCallID: "call_tool_call_updates",
+			Name:           "read_file",
+			Input:          json.RawMessage(`{"path":"README.md"}`),
+			Type:           toolcatalog.ToolTypeBuiltIn,
+		}},
+		fixture.Now,
+	)
+	if len(toolCalls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(toolCalls))
+	}
+	toolCall := toolCalls[0]
+
+	readyInput := executionstore.MarkToolCallReadyInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ID:            toolCall.ID,
+		RuntimeLockID: fixture.Lock.ID,
+	}
+	if _, err := fixture.Store.Execution().MarkToolCallReady(ctx, readyInput); err != nil {
+		t.Fatalf("mark tool call ready: %v", err)
+	}
+	if _, err := fixture.Store.Execution().MarkToolCallReady(ctx, readyInput); err != nil {
+		t.Fatalf("replay mark tool call ready: %v", err)
+	}
+
+	completion := executionstore.CompleteToolCallInput{
+		ProjectID:          testProjectID,
+		AgentID:            fixture.AgentID,
+		ID:                 toolCall.ID,
+		Outcome:            executionstore.ToolResultOutcomeSucceeded,
+		RuntimeLockID:      fixture.Lock.ID,
+		ResultContentParts: json.RawMessage(`[{"type":"text","text":"done"}]`),
+	}
+	if _, err := fixture.Store.Execution().CompleteToolCall(ctx, completion); err != nil {
+		t.Fatalf("complete tool call: %v", err)
+	}
+	if _, err := fixture.Store.Execution().CompleteToolCall(ctx, completion); err != nil {
+		t.Fatalf("replay complete tool call: %v", err)
+	}
+
+	want := []string{
+		string(executionstore.ToolCallStateAwaitingAuthorization),
+		string(executionstore.ToolCallStateReady),
+		string(executionstore.ToolCallStateCompleted),
+	}
+	if got := publisher.toolCallStates(toolCall.ID); !slices.Equal(got, want) {
+		t.Fatalf("tool call update states = %v, want %v", got, want)
+	}
+}
 
 func TestToolCallBindingBatchRejectsEnvelopeMismatchWithoutPartialState(t *testing.T) {
 	t.Parallel()

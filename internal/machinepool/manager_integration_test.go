@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -325,6 +326,9 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		provisioning := provider.provisioning
 		if provisioning == nil {
 			t.Fatal("expected provider to be called with provision config")
+		}
+		if err := bearertoken.Validate(provider.machineToken, bearertoken.KindDaemon); err != nil {
+			t.Fatalf("managed provider machine token is not canonical: %v", err)
 		}
 		if provisioning.CPU == nil || *provisioning.CPU != 1 ||
 			provisioning.MemoryMB == nil || *provisioning.MemoryMB != 1024 {
@@ -2276,6 +2280,7 @@ type captureProvider struct {
 	provisionResourceID   string
 	provisioning          *executionstore.MachineProvisioningConfig
 	machineEnv            map[string]string
+	machineToken          string
 	provisionErr          error
 	prepare               func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error)
 	installationID        storage.ID
@@ -2314,13 +2319,14 @@ func (p *captureProvider) ProvisionMachine(
 	installationID storage.ID,
 	machineID storage.ID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
-	_ string,
+	machineToken string,
 	machineEnv map[string]string,
 ) (providers.ProvisionMachineResult, error) {
 	p.installationID = installationID
 	p.machineID = machineID
 	p.provisioning = &machineProvisioning
 	p.machineEnv = machineEnv
+	p.machineToken = machineToken
 	return providers.ProvisionMachineResult{
 		ProviderResourceID: p.provisionResourceID,
 	}, p.provisionErr

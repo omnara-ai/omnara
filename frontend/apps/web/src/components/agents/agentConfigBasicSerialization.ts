@@ -49,7 +49,6 @@ export interface BasicMachineSource {
 }
 
 export interface BasicConfig {
-  name: string
   instruction: string
   providerConfig: string
   modelName: string
@@ -59,6 +58,24 @@ export interface BasicConfig {
   skillIds: string[]
 }
 
+export type BasicConfigDraft = BasicConfig
+
+export function createEmptyBasicConfigDraft(): BasicConfigDraft {
+  return {
+    instruction: '',
+    providerConfig: '',
+    modelName: '',
+    machineSources: [],
+    tools: [],
+    mcpServers: [],
+    skillIds: [],
+  }
+}
+
+export function serializeBasicConfigDraft(draft: BasicConfigDraft) {
+  return isBasicConfigComplete(draft) ? serializeBasicConfig(draft) : ''
+}
+
 const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
 const positiveIntegerPattern = /^[1-9][0-9]*$/
 
@@ -66,7 +83,7 @@ function isMachineCountValid(value: string) {
   return value === '' || positiveIntegerPattern.test(value)
 }
 
-export function isBasicConfigComplete(config: BasicConfig) {
+function isBasicConfigComplete(config: BasicConfig) {
   const mcpServerNames = config.mcpServers.map((server) => server.name.trim())
   return (
     config.instruction.trim() !== '' &&
@@ -112,13 +129,8 @@ function yamlBlock(value: string) {
     .join('\n')}`
 }
 
-export function serializeBasicConfig(config: BasicConfig) {
+function serializeBasicConfig(config: BasicConfig) {
   const lines: string[] = []
-  const name = config.name.trim()
-
-  if (name !== '') {
-    lines.push(`name: ${yamlString(name)}`)
-  }
   lines.push(`instruction: ${yamlBlock(config.instruction.trimEnd())}`)
   lines.push('model:')
   lines.push(`  provider_config: ${yamlString(config.providerConfig.trim())}`)

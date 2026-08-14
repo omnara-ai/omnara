@@ -147,7 +147,7 @@ func TestServiceE2EDeterministicOpenRouterRunsChatCompletionsModelTurn(t *testin
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(
 			[]byte(
-				`{"id":"chatcmpl_service_e2e_openrouter","model":"` + configuredModelName + `","choices":[{"index":0,"message":{"role":"assistant","content":"` + modelText + `"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":5,"cost":0.0000125}}`,
+				`{"id":"chatcmpl_service_e2e_openrouter","model":"` + configuredModelName + `","choices":[{"index":0,"message":{"role":"assistant","content":"` + modelText + `"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":5,"cost":0.95,"is_byok":true,"cost_details":{"upstream_inference_cost":19}}}`,
 			),
 		)
 	}))
@@ -202,7 +202,7 @@ FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.provider_response_id = 'chatcmpl_service_e2e_openrouter'
-  AND context.provider_reported_cost_usd = 0.0000125
+  AND context.provider_reported_cost_usd = 19.95
 `, projectUUID, agentUUID).Scan(&costRows); err != nil {
 		t.Fatalf("query OpenRouter provider-reported cost: %v", err)
 	}
@@ -275,7 +275,6 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 
 	env.startAPI(t, ctx)
 	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "deterministic-config-change-runtime", strings.Join([]string{
-		"name: Config Change Runtime",
 		"instruction: Initial runtime instruction.",
 		"model:",
 		"  provider_config: openai-prod",
@@ -303,7 +302,6 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 	firstWorker.stop()
 
 	updatedYAML := strings.Join([]string{
-		"name: Config Change Runtime",
 		"instruction: Updated runtime instruction.",
 		"model:",
 		"  provider_config: openai-prod",
@@ -509,7 +507,6 @@ func TestServiceE2EDeterministicConfigChangeWaitsForOpenToolInteraction(t *testi
 	handlerInteractionIdentity.Store([3]string{projectUUID, agentUUID, interactionUUID})
 
 	project.updateConfig(t, ctx, agentID, strings.Join([]string{
-		"name: Config Changed With Open Tool",
 		"instruction: Continue only after the open question is answered.",
 		"model:",
 		"  provider_config: anthropic-prod",
@@ -853,7 +850,6 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithToolsAndModelOptions(
 ) deterministicProject {
 	t.Helper()
 	sourceYAML := strings.Join([]string{
-		"name: Deterministic Service E2E",
 		"instruction: Help the user make progress.",
 		"model:",
 		"  provider_config: " + providerConfig,
@@ -909,7 +905,7 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 	}
 	adminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: adminUser.ID, Name: "e2e owner", TokenID: seed + "-admin"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: adminUser.ID, Name: "e2e owner"},
 	)
 	if err != nil {
 		t.Fatalf("create e2e owner pat: %v", err)
@@ -1102,7 +1098,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		serviceE2EProviderConfigID(t, openRouterConfig),
 		modelOptions,
 		"service-e2e-openrouter",
-		liveOpenRouterConfiguredModelName(),
+		liveOpenRouterConfiguredModel,
 	)
 	anthropicSecret := e.requestJSON(
 		t,
@@ -1166,12 +1162,7 @@ func liveOpenAIChatConfiguredModelName() string {
 	return "gpt-4.1-mini"
 }
 
-func liveOpenRouterConfiguredModelName() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENROUTER_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "z-ai/glm-5.2"
-}
+const liveOpenRouterConfiguredModel = "z-ai/glm-5.2"
 
 func (e *serviceE2EEnvironment) createServiceE2EConfiguredModels(
 	t *testing.T,

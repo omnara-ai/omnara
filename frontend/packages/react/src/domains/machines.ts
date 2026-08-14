@@ -1,8 +1,10 @@
 import { type ListVisibleMachinesData, type ListVisibleProjectMachinesData, sdk } from '@omnara/sdk'
 import {
+  listProjectMachineGrantsQueryKey,
   listVisibleMachinesInfiniteOptions,
   listVisibleMachinesQueryKey,
   listVisibleProjectMachinesInfiniteOptions,
+  listVisibleProjectMachinesQueryKey,
 } from '@omnara/sdk/tanstack'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
@@ -59,47 +61,32 @@ export interface ConnectMachineInput {
   projectIDs?: string[]
 }
 
-/**
- * Connect a BYO machine: create it, optionally grant it to projects, and mint
- * a machine token for the connection instructions. Grant failures are returned
- * separately so the machine token, which is shown once, is never lost.
- */
 export function useConnectMachine(orgID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ displayName, projectIDs = [] }: ConnectMachineInput) => {
-      const { data: machine } = await sdk.createMachine({
+      const { data } = await sdk.connectByoMachine({
         client,
         path: { orgID },
-        body: { display_name: displayName },
+        body: { display_name: displayName, project_ids: projectIDs },
       })
-      const { data: token } = await sdk.createByoMachineDaemonToken({
-        client,
-        path: { orgID, machineID: machine.id },
-        body: { name: 'web-console' },
-      })
-      const grantResults = await Promise.allSettled(
-        projectIDs.map((projectID) =>
-          sdk.createProjectMachineGrant({
-            client,
-            path: { orgID, projectID },
-            body: { machine_id: machine.id },
-          }),
-        ),
-      )
-      const failedProjectGrants = grantResults.flatMap((result, index) => {
-        const projectID = projectIDs[index]
-        if (result.status !== 'rejected' || projectID === undefined) return []
-        const reason: unknown = result.reason
-        return [{ projectID, message: reason instanceof Error ? reason.message : '' }]
-      })
-      return { machine, token, failedProjectGrants }
+      return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: listVisibleMachinesQueryKey({ path: { orgID }, client }),
-      })
+    onSuccess: async (_data, { projectIDs = [] }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listVisibleMachinesQueryKey({ path: { orgID }, client }),
+        }),
+        ...projectIDs.flatMap((projectID) => [
+          queryClient.invalidateQueries({
+            queryKey: listVisibleProjectMachinesQueryKey({ path: { orgID, projectID }, client }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: listProjectMachineGrantsQueryKey({ path: { orgID, projectID }, client }),
+          }),
+        ]),
+      ])
     },
   })
 }
@@ -132,13 +119,15 @@ export function useGrantMachineToProject(orgID: string) {
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        predicate: (query) => {
-          const entry = query.queryKey[0] as { _id?: string; path?: { orgID?: string } } | undefined
-          return entry?._id === 'listProjectMachineGrants' && entry.path?.orgID === orgID
-        },
-      })
+    onSuccess: async (_data, { projectID }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listVisibleProjectMachinesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listProjectMachineGrantsQueryKey({ path: { orgID, projectID }, client }),
+        }),
+      ])
     },
   })
 }

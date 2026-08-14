@@ -74,9 +74,15 @@ export function AgentConfigMachineSourcesField({
   }
 
   function addGrantedMachines(machines: VisibleMachine[]) {
-    const added = machines
-      .filter((machine) => !hasSource('machine', machine.display_name))
-      .map((machine) => ({ ...newMachineSource('machine'), name: machine.display_name }))
+    const existingNames = new Set(
+      sources.flatMap((source) => (source.kind === 'machine' ? [source.name] : [])),
+    )
+    const added: BasicMachineSource[] = []
+    for (const machine of machines) {
+      if (existingNames.has(machine.display_name)) continue
+      existingNames.add(machine.display_name)
+      added.push({ ...newMachineSource('machine'), name: machine.display_name })
+    }
     if (added.length > 0) onSourcesChange([...sources, ...added])
   }
 
@@ -133,13 +139,22 @@ export function AgentConfigMachineSourcesField({
                     <PoolSourceCombobox
                       orgId={orgId}
                       projectId={projectId}
-                      value={source.name}
-                      onChange={(name, item) => {
+                      value={
+                        source.name === ''
+                          ? null
+                          : {
+                              name: source.name,
+                              provider: source.provider,
+                              managementKind: source.managementKind,
+                            }
+                      }
+                      onChange={(selection) => {
+                        const name = selection?.name ?? ''
                         if (name === source.name) return
                         updateSource(source.id, {
                           name,
-                          provider: item?.machine_pool.provider ?? '',
-                          managementKind: item?.machine_pool.management_kind ?? '',
+                          provider: selection?.provider ?? '',
+                          managementKind: selection?.managementKind ?? '',
                           machineCpu: '',
                           machineMemoryMb: '',
                           providerOptions: emptyProviderOptions,
@@ -152,9 +167,9 @@ export function AgentConfigMachineSourcesField({
                     <MachineSourceCombobox
                       orgId={orgId}
                       projectId={projectId}
-                      value={source.name}
-                      onChange={(name) => {
-                        updateSource(source.id, { name })
+                      value={source.name === '' ? null : { name: source.name }}
+                      onChange={(selection) => {
+                        updateSource(source.id, { name: selection?.name ?? '' })
                       }}
                     />
                   )}

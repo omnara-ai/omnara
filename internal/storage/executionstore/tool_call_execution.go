@@ -226,11 +226,14 @@ func (t *toolCallTransaction) startToolCall(
 		}
 		return storeerr.ErrIdempotencyConflict
 	}
+	state := ToolCallStateWaiting
 	if retainRuntimeOwnership {
 		t.disposition = ToolCallDispositionRunning
+		state = ToolCallStateRunning
 	} else {
 		t.disposition = ToolCallDispositionWaiting
 	}
+	t.notifications.AddToolCallUpdate(t.input.AgentID, t.input.ToolCallID, string(state))
 	t.applied = true
 	return nil
 }

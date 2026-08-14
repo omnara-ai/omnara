@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"slices"
 	"sort"
 	"strings"
@@ -50,7 +51,9 @@ func DiscoverModels(
 	if err != nil {
 		return nil, err
 	}
-	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages {
+	if providerConfig.APIVariant == modelprotocol.APIVariantBedrock {
+		auth = route.BearerToken{Token: apiKey}
+	} else if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages {
 		auth = route.Chain{auth, route.Headers{"Anthropic-Version": anthropicmessages.APIVersion}}
 	}
 	ctx, cancel := context.WithTimeout(ctx, discoveryRequestTimeout)
@@ -73,16 +76,27 @@ func DiscoverModels(
 			return nil, errors.New("OpenRouter key endpoint returned an unrecognized response")
 		}
 	}
+	modelsBaseURL := providerConfig.BaseURL
 	modelsPath := "/models"
-	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages {
+	if providerConfig.APIVariant == modelprotocol.APIVariantBedrock {
+		parsed, err := url.Parse(modelsBaseURL)
+		if err != nil {
+			return nil, err
+		}
+		parsed.Path = "/v1"
+		modelsBaseURL = parsed.String()
+	} else if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages {
 		modelsPath += "?limit=" + discoveryPageLimit
 	}
 	entries, err := fetchModelEntries(
-		ctx, client, providerConfig.BaseURL, modelsPath, "models endpoint",
+		ctx, client, modelsBaseURL, modelsPath, "models endpoint",
 		auth, discoveryMaxResponseSize,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if providerConfig.APIVariant == modelprotocol.APIVariantBedrock {
+		return nil, nil
 	}
 	type rankedModel struct {
 		model     DiscoveredModel

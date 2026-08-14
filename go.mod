@@ -1,6 +1,6 @@
 module github.com/omnara-ai/omnara
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2

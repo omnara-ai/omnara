@@ -310,7 +310,6 @@ func TestDeleteSkillBlockedWhileActiveAgentReferencesIt(t *testing.T) {
 		t.Fatalf("encode skill id: %v", err)
 	}
 	sourceYAML := `
-name: Skill Delete Agent
 instruction: test
 model:
   provider_config: openai-prod

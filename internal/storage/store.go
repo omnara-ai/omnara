@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -145,8 +144,4 @@ func (s *Store) Organizations() *orglifecycle.Service {
 
 func (s *Store) AccountSecurity() *accountsecurity.Service {
 	return s.accountSecurity
-}
-
-func (s *Store) Ping(ctx context.Context) error {
-	return s.pool.Ping(ctx)
 }

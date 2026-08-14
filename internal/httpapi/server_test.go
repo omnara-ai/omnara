@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -63,6 +64,7 @@ func mustNewUnitServer(t *testing.T, opts ...Option) *Server {
 	serverOpts := append(
 		[]Option{
 			WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
+			WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
 			WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		},
 		opts...,
@@ -110,6 +112,7 @@ func TestNewRejectsIncompleteDaemonNotificationConfiguration(t *testing.T) {
 				slog.New(slog.NewTextHandler(io.Discard, nil)),
 				tc.store,
 				WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
+				WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
 				WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 				tc.option,
 			)
@@ -279,6 +282,7 @@ func TestWithTrustedProxyCIDRsLogsInvalidCIDR(t *testing.T) {
 		log,
 		nil,
 		WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
+		WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
 		WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		WithTrustedProxyCIDRs([]string{"10.0.0.0/24", "not-a-cidr"}),
 	)
@@ -1795,6 +1799,19 @@ func TestWriteModelOutputDeltaFrameDropsInvalidJSON(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("invalid stream delta was written as SSE: %q", rec.Body.String())
+	}
+}
+
+func TestWriteToolCallUpdateFrameSkipsUnknownState(t *testing.T) {
+	rec := httptest.NewRecorder()
+	if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
+		ToolCallID: httpTestToolCallID,
+		State:      "unknown",
+	}) {
+		t.Fatal("writeToolCallUpdateFrame returned false for unknown state")
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("unknown tool call state was written as SSE: %q", rec.Body.String())
 	}
 }
 

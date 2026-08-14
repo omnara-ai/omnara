@@ -429,17 +429,33 @@ WHERE machine.org_id = sqlc.arg(org_id)
   AND token.machine_id = machine.id
   AND token.id = sqlc.arg(daemon_token_id)
   AND token.revoked_at IS NULL
+  AND (
+    sqlc.arg(stage)::text <> 'daemon_uninstalled'
+    OR NOT EXISTS (
+      SELECT 1
+      FROM daemon_runtimes runtime
+      WHERE runtime.org_id = machine.org_id
+        AND runtime.machine_id = machine.id
+        AND runtime.id = machine.current_daemon_runtime_id
+        AND runtime.state = 'active'
+    )
+  )
 RETURNING machine.failure_report;
 
--- name: ClearMachineUpdateFailureReport :execrows
+-- name: ClearResolvedMachineFailureReport :execrows
 UPDATE machines
 SET failure_report = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(machine_id)
   AND deleted_at IS NULL
-  AND failure_report->>'stage' = 'daemon_update'
-  AND failure_report->>'daemon_version' IS DISTINCT FROM sqlc.arg(daemon_version)::text;
+  AND (
+    failure_report->>'stage' IN ('daemon_uninstall', 'daemon_uninstalled')
+    OR (
+      failure_report->>'stage' = 'daemon_update'
+      AND failure_report->>'daemon_version' IS DISTINCT FROM sqlc.arg(daemon_version)::text
+    )
+  );
 
 -- name: RevokeBYOMachineDaemonToken :one
 UPDATE machine_daemon_tokens

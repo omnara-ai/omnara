@@ -257,7 +257,7 @@ func createOrgRouteUser(
 		t.Fatalf("create user: %v", err)
 	}
 	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(context.Background(), identitystore.CreatePersonalAccessTokenInput{
-		UserID: user.ID, Name: "org creation", TokenID: seed,
+		UserID: user.ID, Name: "org creation",
 	})
 	if err != nil {
 		t.Fatalf("create personal access token: %v", err)

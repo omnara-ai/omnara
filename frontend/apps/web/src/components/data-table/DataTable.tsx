@@ -23,25 +23,26 @@ import {
 import type { PaginationControls } from '@/hooks/use-paged-query'
 import { cn } from '@/lib/utils'
 
-export interface ColumnSpec {
+export interface DataTableColumn<TData> {
+  id: string
   header: string
+  cell: (item: TData) => ReactNode
   /** Classes applied to both the header and body cells of this column. */
   className?: string
   /** Right-aligns the cell and keeps clicks inside it from triggering the row. */
   isActions?: boolean
 }
 
-/**
- * `columns` is the single source of column order and width; `rowCells` must
- * return one cell per column — the tuple type makes a mismatch a compile
- * error. Pass the `columns` array inline (as a literal) so it is inferred as
- * a tuple.
- */
-export function DataTable<TData, const Cols extends readonly ColumnSpec[]>({
+function measureColumns(target: HTMLElement) {
+  const row = target.closest('tr')
+  if (!row) return null
+  return Array.from(row.children, (cell) => cell.getBoundingClientRect().width)
+}
+
+export function DataTable<TData>({
   columns,
   data,
   getRowId,
-  rowCells,
   rowExpanded,
   onRowClick,
   pagination,
@@ -51,11 +52,10 @@ export function DataTable<TData, const Cols extends readonly ColumnSpec[]>({
   onRetry,
   emptyMessage,
 }: {
-  columns: Cols
+  columns: readonly DataTableColumn<TData>[]
   /** The rows of the current page. Paging and filtering happen in the caller. */
   data: TData[]
   getRowId: (item: TData) => string
-  rowCells: (item: TData) => { [K in keyof Cols]: ReactNode }
   /** Detail panel toggled open by clicking the row. Mutually exclusive with onRowClick. */
   rowExpanded?: (item: TData) => ReactNode
   /** Row click handler for rows that navigate instead of expanding. */
@@ -74,12 +74,6 @@ export function DataTable<TData, const Cols extends readonly ColumnSpec[]>({
   const [resizingColumn, setResizingColumn] = useState<number | null>(null)
   const columnResize = useRef<ColumnResizeState | null>(null)
   const columnCount = columns.length
-
-  function measureColumns(target: HTMLElement) {
-    const row = target.closest('tr')
-    if (!row) return null
-    return Array.from(row.children, (cell) => cell.getBoundingClientRect().width)
-  }
 
   function beginColumnResize(index: number, event: PointerEvent<HTMLSpanElement>) {
     event.preventDefault()
@@ -135,7 +129,7 @@ export function DataTable<TData, const Cols extends readonly ColumnSpec[]>({
           <colgroup>
             {columns.map((column, index) => (
               <col
-                key={`${String(index)}-${column.header}`}
+                key={column.id}
                 style={columnWidths ? { width: columnWidths[index] } : undefined}
               />
             ))}
@@ -143,10 +137,7 @@ export function DataTable<TData, const Cols extends readonly ColumnSpec[]>({
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               {columns.map((column, index) => (
-                <TableHead
-                  key={`${String(index)}-${column.header}`}
-                  className={cn('relative px-4', column.className)}
-                >
+                <TableHead key={column.id} className={cn('relative px-4', column.className)}>
                   {column.header}
                   {index < columnCount - 1 && (
                     <button
@@ -210,7 +201,6 @@ export function DataTable<TData, const Cols extends readonly ColumnSpec[]>({
               data.map((item) => {
                 const id = getRowId(item)
                 const isExpanded = rowExpanded ? expanded.has(id) : false
-                const cells = rowCells(item)
                 return (
                   <Fragment key={id}>
                     <TableRow
@@ -231,9 +221,9 @@ export function DataTable<TData, const Cols extends readonly ColumnSpec[]>({
                             : undefined
                       }
                     >
-                      {columns.map((column, index) => (
+                      {columns.map((column) => (
                         <TableCell
-                          key={`${String(index)}-${column.header}`}
+                          key={column.id}
                           className={cn('truncate px-4 py-0', column.className)}
                           onClick={
                             column.isActions
@@ -244,9 +234,9 @@ export function DataTable<TData, const Cols extends readonly ColumnSpec[]>({
                           }
                         >
                           {column.isActions ? (
-                            <div className="flex justify-end">{cells[index]}</div>
+                            <div className="flex justify-end">{column.cell(item)}</div>
                           ) : (
-                            cells[index]
+                            column.cell(item)
                           )}
                         </TableCell>
                       ))}

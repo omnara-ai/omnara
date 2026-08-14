@@ -29,7 +29,7 @@ func TestListIntegrationInstalls(t *testing.T) {
 		project,
 		"list-installs",
 		"yaml",
-		"name: Install Agent\ninstruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		"instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
 		project.AdminToken,
 		http.StatusCreated,
 	)

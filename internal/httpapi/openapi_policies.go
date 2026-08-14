@@ -65,6 +65,7 @@ const (
 	operationBootstrapDaemon               operationID = "BootstrapDaemon"
 	operationCancelAgent                   operationID = "CancelAgent"
 	operationCancelQueuedBacklogInput      operationID = "CancelQueuedBacklogInput"
+	operationConnectBYOMachine             operationID = "ConnectBYOMachine"
 	operationCreateAgent                   operationID = "CreateAgent"
 	operationCreateAgentConfig             operationID = "CreateAgentConfig"
 	operationCreateAgentInput              operationID = "CreateAgentInput"
@@ -125,6 +126,7 @@ const (
 	operationGetMachine                    operationID = "GetMachine"
 	operationGetOrgAPIKey                  operationID = "GetOrgAPIKey"
 	operationGetMachinePool                operationID = "GetMachinePool"
+	operationGetModelCatalog               operationID = "GetModelCatalog"
 	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
 	operationGetSkill                      operationID = "GetSkill"
 	operationGetToolCatalog                operationID = "GetToolCatalog"
@@ -256,6 +258,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationRemoveOrgMember:            accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMemberProjectAccess:    accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachine:              accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationConnectBYOMachine:          browserSessionPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMachinePools:           accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationGetMachinePool:             accountPolicy(orgScope(identitystore.OrgActionManage)),
@@ -264,6 +267,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationCreateModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListModelProviderConfigs:   accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationGetModelProviderConfig:     accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetModelCatalog:            accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationUpdateModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),

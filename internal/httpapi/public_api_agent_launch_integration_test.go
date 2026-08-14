@@ -32,8 +32,7 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	machineName := machine["display_name"].(string)
-	ungrantedSource := "name: Ungranted Machine Agent\n" +
-		"instruction: Use the machine when helpful.\n" +
+	ungrantedSource := "instruction: Use the machine when helpful.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
@@ -61,8 +60,7 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	sourceYAML := "name: Agent Launch\n" +
-		"instruction: Use the machine when helpful.\n" +
+	sourceYAML := "instruction: Use the machine when helpful.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
@@ -93,7 +91,7 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 	)
 	profileID := profile["id"].(string)
 	configID := profile["current_config"].(map[string]any)["id"].(string)
-	retargetYAML := "name: Agent Launch\ninstruction: Updated default.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /workspace\ntools:\n  run_command: {}\n"
+	retargetYAML := "instruction: Updated default.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /workspace\ntools:\n  run_command: {}\n"
 	retargetConfig := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -392,7 +390,7 @@ func TestPublicAgentConfigChangeAcceptsLiveMCPDiff(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "agent-config-live-policy")
-	sourceYAML := "name: Config Policy\ninstruction: Original instruction.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
+	sourceYAML := "instruction: Original instruction.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -426,8 +424,7 @@ func TestPublicAgentConfigChangeAcceptsLiveMCPDiff(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	agentID := launched["agent"].(map[string]any)["id"].(string)
-	changedYAML := `name: Config Policy
-instruction: Add MCP.
+	changedYAML := `instruction: Add MCP.
 model:
   provider_config: openai-prod
   name: gpt-test
@@ -457,7 +454,7 @@ func TestPublicAgentProfilesRejectSourceAuthoring(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "agent-profile-bookmark-only")
-	sourceYAML := "name: Bookmark Only\ninstruction: Profiles point to configs.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
+	sourceYAML := "instruction: Profiles point to configs.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -582,8 +579,7 @@ func TestPublicAgentConfigValidatesMCPAuthSecretReferences(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 
-	bearerSource := "name: Bearer MCP\n" +
-		"instruction: Use authenticated MCP.\n" +
+	bearerSource := "instruction: Use authenticated MCP.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
@@ -604,8 +600,7 @@ func TestPublicAgentConfigValidatesMCPAuthSecretReferences(t *testing.T) {
 		http.StatusCreated,
 	)
 
-	oauthSource := "name: OAuth MCP\n" +
-		"instruction: Use authenticated MCP.\n" +
+	oauthSource := "instruction: Use authenticated MCP.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
@@ -626,8 +621,7 @@ func TestPublicAgentConfigValidatesMCPAuthSecretReferences(t *testing.T) {
 		http.StatusCreated,
 	)
 
-	wrongKindSource := "name: Wrong MCP\n" +
-		"instruction: Use authenticated MCP.\n" +
+	wrongKindSource := "instruction: Use authenticated MCP.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
@@ -648,8 +642,7 @@ func TestPublicAgentConfigValidatesMCPAuthSecretReferences(t *testing.T) {
 		http.StatusBadRequest,
 	)
 
-	ungrantedSource := "name: Ungranted MCP\n" +
-		"instruction: Use authenticated MCP.\n" +
+	ungrantedSource := "instruction: Use authenticated MCP.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
@@ -678,7 +671,7 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "agent-config-json-source")
-	sourceJSON := `{"name":"JSON Agent","instruction":"Configured from JSON.","model":{"provider_config":"openai-prod","name":"gpt-test"}}`
+	sourceJSON := `{"instruction":"Configured from JSON.","model":{"provider_config":"openai-prod","name":"gpt-test"}}`
 
 	config := createPublicHTTPAgentConfig(
 		t,

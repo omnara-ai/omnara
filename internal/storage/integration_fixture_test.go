@@ -603,7 +603,6 @@ func mustCreateAgentConfig(
 
 func testAgentConfigYAML() string {
 	return `
-name: Test Agent
 instruction: test
 model:
   provider_config: openai-prod

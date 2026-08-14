@@ -347,7 +347,6 @@ func TestAgentExecutorAppliesAgentModelOptionsToRequestPolicy(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	sourceYAML := `
-name: Kernel Model Options
 instruction: Apply saved model request options.
 model:
   provider_config: openai-prod

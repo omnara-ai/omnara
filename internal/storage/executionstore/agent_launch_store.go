@@ -20,6 +20,7 @@ type LaunchAgentInput struct {
 	ProfileID      ID
 	AgentConfigID  ID
 	LaunchedBy     identitystore.PrincipalRecord
+	Name           string
 	Message        string
 	IdempotencyKey string
 }
@@ -106,7 +107,8 @@ func (s *Store) launchAgentOnce(
 	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
-		Name:            launchAgentName(profile, config),
+		AgentProfileID:  input.ProfileID,
+		Name:            launchAgentName(input.Name, profile),
 		CurrentConfigID: config.ID,
 		IdempotencyKey:  input.IdempotencyKey,
 	})
@@ -331,15 +333,12 @@ func launchConfigTx(
 	return config, contract, nil
 }
 
-func launchAgentName(profile *AgentProfileRecord, config AgentConfigRecord) string {
+func launchAgentName(name string, profile *AgentProfileRecord) string {
+	if name != "" {
+		return name
+	}
 	if profile != nil {
 		return profile.Name
-	}
-	var definition struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(config.Definition, &definition); err == nil {
-		return definition.Name
 	}
 	return ""
 }

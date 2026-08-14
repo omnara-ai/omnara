@@ -48,6 +48,12 @@ jobs:
 
       - run: make verify-static
 
+      - name: Protect released migrations and check API compatibility
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          COMPAT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: make compatibility-check
+
       - run: make govulncheck
 
   go-tests:
@@ -333,11 +339,6 @@ jobs:
         if: steps.secrets.outputs.openrouter == 'true'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OMNARA_E2E_OPENROUTER_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_PROVIDER_MODEL_SLUG }}
-          OMNARA_E2E_OPENROUTER_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_OPENAI_PROVIDER_MODEL_SLUG }}
-          OMNARA_E2E_OPENROUTER_ANTHROPIC_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_ANTHROPIC_PROVIDER_MODEL_SLUG }}
-          OMNARA_E2E_OPENROUTER_SETTINGS_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_SETTINGS_PROVIDER_MODEL_SLUG }}
-          OMNARA_E2E_OPENROUTER_TOOL_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENROUTER_TOOL_PROVIDER_MODEL_SLUG }}
 
       - run: make test-live-anthropic
         if: steps.secrets.outputs.anthropic == 'true'

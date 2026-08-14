@@ -463,7 +463,7 @@ func listMachinePoolSources(
 	if err != nil {
 		return nil, err
 	}
-	configSource, err := agentconfig.ParseSource(
+	configSource, err := agentconfig.ParseStoredSource(
 		agentconfig.SourceFormat(config.SourceFormat),
 		[]byte(config.Source),
 	)

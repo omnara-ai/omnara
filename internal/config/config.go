@@ -38,6 +38,7 @@ const (
 
 const defaultDaemonSocketFallbackDrainInterval = 30 * time.Second
 const defaultDaemonSocketFallbackDrainJitter = 10 * time.Second
+const defaultMigrationTimeout = 30 * time.Minute
 
 const (
 	DaemonReleaseURLEnv     = "OMNARA_DAEMON_RELEASE_URL"
@@ -60,6 +61,7 @@ type Config struct {
 	DatabaseURL                       string
 	RedisURL                          string
 	MigrationsDir                     string
+	MigrationTimeout                  time.Duration
 	AllowInsecureDev                  bool
 	WorkerCapacity                    int
 	WorkerAsyncToolCapacity           int
@@ -356,16 +358,27 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-func LoadMigrate() Config {
+func LoadMigrate() (Config, error) {
 	cfg := Config{
 		DatabaseURL:      getenv("OMNARA_DATABASE_URL", ""),
 		MigrationsDir:    getenv("OMNARA_MIGRATIONS_DIR", "migrations"),
+		MigrationTimeout: defaultMigrationTimeout,
 		AllowInsecureDev: os.Getenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS") == "1",
+	}
+	if raw := os.Getenv("OMNARA_MIGRATION_TIMEOUT"); raw != "" {
+		timeout, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse OMNARA_MIGRATION_TIMEOUT: %w", err)
+		}
+		if timeout <= 0 {
+			return Config{}, fmt.Errorf("OMNARA_MIGRATION_TIMEOUT must be positive")
+		}
+		cfg.MigrationTimeout = timeout
 	}
 	if cfg.AllowInsecureDev && cfg.DatabaseURL == "" {
 		cfg.DatabaseURL = defaultDevDatabaseURL
 	}
-	return cfg
+	return cfg, nil
 }
 
 func normalizePublicURL(raw string) string {
@@ -591,6 +604,9 @@ func (cfg Config) ValidateMigrate() error {
 	}
 	if strings.TrimSpace(cfg.MigrationsDir) == "" {
 		return fmt.Errorf("OMNARA_MIGRATIONS_DIR is required")
+	}
+	if cfg.MigrationTimeout <= 0 {
+		return fmt.Errorf("OMNARA_MIGRATION_TIMEOUT must be positive")
 	}
 	return nil
 }

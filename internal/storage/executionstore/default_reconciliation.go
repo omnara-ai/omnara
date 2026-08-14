@@ -72,11 +72,6 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 		current := targets[i].current
 		name := targets[i].template.createInput(NilID).Name
 		desired := targets[i].template.createInput(current.OrgID)
-		desired.MaxTotalMachines = current.MaxTotalMachines
-		desired.MaxTotalCPU = current.MaxTotalCPU
-		desired.MaxTotalMemoryMB = current.MaxTotalMemoryMB
-		desired.MaxMachineCPU = current.MaxMachineCPU
-		desired.MaxMachineMemoryMB = current.MaxMachineMemoryMB
 		if current.Provider != desired.Provider || current.ProviderAuthEnvVar != desired.ProviderAuthEnvVar {
 			return nil, fmt.Errorf(
 				"default machine pool %q cannot change provider or provider_auth_env_var",

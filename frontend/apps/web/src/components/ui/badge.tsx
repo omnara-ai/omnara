@@ -29,4 +29,4 @@ function Badge({ className, variant, asChild = false, ...props }: BadgeProps) {
   return <Comp data-slot="badge" className={cn(badgeVariants({ variant }), className)} {...props} />
 }
 
-export { Badge, badgeVariants }
+export { Badge }

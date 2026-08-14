@@ -174,7 +174,6 @@ func TestMultiPoolLaunchLocksEveryPoolBeforeAnyGrant(t *testing.T) {
 				"multi-pool-profile-"+slug,
 				"Multi Pool "+name,
 				fmt.Sprintf(`
-name: Multi Pool Lock Classes
 instruction: Validate pool lock classes.
 model:
   provider_config: openai-prod
@@ -457,7 +456,6 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 							OrgID:     testOrgID,
 							MachineID: machine.ID,
 							Name:      "contention token",
-							Token:     "omd_contention_token",
 						},
 					)
 					tokenDone <- tokenErr
@@ -673,7 +671,6 @@ func TestAgentLaunchEntersProjectLifecycleBeforeLockingProfile(t *testing.T) {
 		"project-profile-order",
 		"Project Profile Order",
 		`
-name: Project Profile Order
 instruction: Verify project lifecycle admission precedes profile locking.
 model:
   provider_config: openai-prod
@@ -764,7 +761,6 @@ func TestLaunchAndConfigReconciliationSerializePoolBeforeMachineEnvironment(t *t
 		t.Fatalf("grant shared environment machine: %v", err)
 	}
 	sourceYAML := fmt.Sprintf(`
-name: Shared Environment Sources
 instruction: Exercise machine source lock ordering.
 model:
   provider_config: openai-prod
@@ -1238,7 +1234,6 @@ func createExplicitGrantLifecycleFixture(
 		machine: machine,
 		grant:   grant,
 		configYAML: fmt.Sprintf(`
-name: Explicit Lifecycle
 instruction: Exercise explicit machine lifecycle admission.
 model:
   provider_config: openai-prod
@@ -1801,7 +1796,6 @@ func newMachineLifecycleLockOrderFixture(
 		store,
 		"machine-lifecycle-config-"+label,
 		fmt.Sprintf(`
-name: Machine Lifecycle Lock Order
 instruction: Exercise pool-machine lifecycle locking.
 model:
   provider_config: openai-prod

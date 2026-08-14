@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 export interface PaginationControls {
   page: number
@@ -22,9 +22,11 @@ interface CursorQuery<TItem> {
  */
 export function usePagedQuery<TItem>(query: CursorQuery<TItem>, resetKey?: unknown) {
   const [pageIndex, setPageIndex] = useState(0)
-  useEffect(() => {
+  const [previousResetKey, setPreviousResetKey] = useState(resetKey)
+  if (!Object.is(previousResetKey, resetKey)) {
+    setPreviousResetKey(resetKey)
     setPageIndex(0)
-  }, [resetKey])
+  }
   const pages = query.data?.pages ?? []
   const page = Math.min(pageIndex, Math.max(pages.length - 1, 0))
   const rows = pages[page]?.data ?? []

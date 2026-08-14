@@ -5,6 +5,7 @@ package dbmigrate_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -68,7 +69,7 @@ func TestMachinePoolDeletionCredentialMigrationUpgradesExistingPools(t *testing.
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := dbmigrate.ApplyPostgres(ctx, db, productionMigrationsThrough(t, 16)); err != nil {
+	if err := dbmigrate.ApplyPostgres(ctx, db, productionMigrationsThrough(t, 18)); err != nil {
 		t.Fatalf("apply migrations through current main: %v", err)
 	}
 
@@ -85,7 +86,7 @@ SELECT EXISTS (
 		t.Fatal(err)
 	}
 	if columnExists {
-		t.Fatal("machine pool deletion credential column exists before migration 17")
+		t.Fatal("machine pool deletion credential column exists before migration 19")
 	}
 
 	orgID := uuid.New()
@@ -610,6 +611,275 @@ func TestOpenPostgresAcceptsPoolParameters(t *testing.T) {
 	}
 }
 
+func TestOpenPostgresAppliesSessionDefaultsToEveryConnection(t *testing.T) {
+	t.Parallel()
+	databaseURL := testDatabaseURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	db, err := dbmigrate.OpenPostgres(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("open migration database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	connections := make([]*sql.Conn, 0, 3)
+	defer func() {
+		for _, conn := range connections {
+			_ = conn.Close()
+		}
+	}()
+	for range 3 {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatalf("acquire migration connection: %v", err)
+		}
+		connections = append(connections, conn)
+		var applicationName, lockTimeout, statementTimeout string
+		if err := conn.QueryRowContext(ctx, `
+SELECT current_setting('application_name'),
+       current_setting('lock_timeout'),
+       current_setting('statement_timeout')
+`).Scan(&applicationName, &lockTimeout, &statementTimeout); err != nil {
+			t.Fatalf("read migration session settings: %v", err)
+		}
+		if applicationName != "omnara-migrate" || lockTimeout != "30s" || statementTimeout != "15min" {
+			t.Fatalf(
+				"migration session settings = (%q, %q, %q)",
+				applicationName,
+				lockTimeout,
+				statementTimeout,
+			)
+		}
+	}
+}
+
+func TestOpenPostgresPreservesExplicitSessionSettings(t *testing.T) {
+	t.Parallel()
+	parsed, err := url.Parse(testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("application_name", "operator-migrator")
+	query.Set("lock_timeout", "4s")
+	query.Set("statement_timeout", "9s")
+	parsed.RawQuery = query.Encode()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	db, err := dbmigrate.OpenPostgres(ctx, parsed.String())
+	if err != nil {
+		t.Fatalf("open migration database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var applicationName, lockTimeout, statementTimeout string
+	if err := db.QueryRowContext(ctx, `
+SELECT current_setting('application_name'),
+       current_setting('lock_timeout'),
+       current_setting('statement_timeout')
+`).Scan(&applicationName, &lockTimeout, &statementTimeout); err != nil {
+		t.Fatal(err)
+	}
+	if applicationName != "operator-migrator" || lockTimeout != "4s" || statementTimeout != "9s" {
+		t.Fatalf(
+			"migration session settings = (%q, %q, %q)",
+			applicationName,
+			lockTimeout,
+			statementTimeout,
+		)
+	}
+}
+
+func TestRunPostgresHonorsWholeRunTimeout(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	databaseURL := generatedDatabaseURL(t, pool)
+
+	slow := fstest.MapFS{
+		"000001_slow.sql": {Data: []byte(`-- +goose Up
+CREATE TABLE slow_probe(id bigint PRIMARY KEY);
+SELECT pg_sleep(10);
+`)},
+	}
+	started := time.Now()
+	err := dbmigrate.RunPostgres(ctx, databaseURL, slow, 200*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("bounded migration error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("bounded migration returned after %s", elapsed)
+	}
+
+	var tableExists bool
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT to_regclass('slow_probe') IS NOT NULL`,
+	).Scan(&tableExists); err != nil {
+		t.Fatal(err)
+	}
+	if tableExists {
+		t.Fatal("timed-out migration left schema changes behind")
+	}
+}
+
+func TestPostgresPopulatedVersion14UpgradesToLatest(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+	latestVersion := latestPostgresMigrationVersion(t)
+
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 14)); err != nil {
+		t.Fatalf("apply migrations through version 14: %v", err)
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 14 {
+		t.Fatalf("pre-upgrade schema version = %d, want 14", got)
+	}
+	var orgID, projectID, poolID, grantID, machineID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO orgs(name, created_at, updated_at)
+VALUES ('v14 populated org', statement_timestamp(), statement_timestamp())
+RETURNING id::text
+`).Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO projects(org_id, name, created_at, updated_at)
+VALUES ($1, 'v14 populated project', statement_timestamp(), statement_timestamp())
+RETURNING id::text
+`, orgID).Scan(&projectID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO machine_pools(
+    org_id, name, management_kind, provider,
+    default_machine_cpu, default_machine_memory_mb,
+    provider_auth_env_var, max_total_machines,
+    max_machine_cpu, max_machine_memory_mb, metadata,
+    created_at, updated_at
+)
+VALUES (
+    $1, 'v14 populated pool', 'cluster', 'test',
+    4, 8192, 'V14_PROVIDER_TOKEN', 10, 8, 16384,
+    '{"fixture":"v14"}'::jsonb,
+    statement_timestamp(), statement_timestamp()
+)
+RETURNING id::text
+`, orgID).Scan(&poolID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO project_machine_pool_grants(
+    org_id, project_id, machine_pool_id,
+    default_machine_cpu, default_machine_memory_mb,
+    max_machine_cpu, max_machine_memory_mb, metadata,
+    created_at, updated_at
+)
+VALUES (
+    $1, $2, $3, 2, 4096, 6, 8192,
+    '{"fixture":"v14"}'::jsonb,
+    statement_timestamp(), statement_timestamp()
+)
+RETURNING id::text
+`, orgID, projectID, poolID).Scan(&grantID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO machines(
+    org_id, source_kind, display_name, provider,
+    lifecycle_state, lifecycle_changed_at, metadata,
+    created_at, updated_at
+)
+VALUES (
+    $1, 'byo', 'v14 populated machine', 'byo',
+    'active', statement_timestamp(),
+    '{"fixture":"v14","observed_platform":{"os":"linux","arch":"amd64"}}'::jsonb,
+    statement_timestamp(), statement_timestamp()
+)
+RETURNING id::text
+`, orgID).Scan(&machineID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+		t.Fatalf("upgrade populated version 14 database: %v", err)
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != latestVersion {
+		t.Fatalf("upgraded schema version = %d, want %d", got, latestVersion)
+	}
+	var joinedRows int
+	if err := db.QueryRowContext(ctx, `
+SELECT count(*)
+FROM project_machine_pool_grants grant_record
+JOIN projects project_record
+  ON project_record.org_id = grant_record.org_id
+ AND project_record.id = grant_record.project_id
+JOIN machine_pools pool_record
+  ON pool_record.org_id = grant_record.org_id
+ AND pool_record.id = grant_record.machine_pool_id
+WHERE grant_record.id = $1
+  AND project_record.id = $2
+  AND pool_record.id = $3
+  AND pool_record.metadata = '{"fixture":"v14"}'::jsonb
+  AND grant_record.metadata = '{"fixture":"v14"}'::jsonb
+  AND pool_record.min_machine_cpu IS NULL
+  AND pool_record.min_machine_memory_mb IS NULL
+  AND grant_record.min_machine_cpu IS NULL
+  AND grant_record.min_machine_memory_mb IS NULL
+`, grantID, projectID, poolID).Scan(&joinedRows); err != nil {
+		t.Fatal(err)
+	}
+	if joinedRows != 1 {
+		t.Fatalf("preserved v14 relationship rows = %d, want 1", joinedRows)
+	}
+	var observedPlatform string
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT metadata->>'observed_platform' FROM machines WHERE id = $1`,
+		machineID,
+	).Scan(&observedPlatform); err != nil {
+		t.Fatal(err)
+	}
+	if observedPlatform != "linux/amd64" {
+		t.Fatalf("normalized observed platform = %q, want linux/amd64", observedPlatform)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+UPDATE machine_pools
+SET min_machine_cpu = 2, min_machine_memory_mb = 4096
+WHERE id = $1
+`, poolID); err != nil {
+		t.Fatalf("set valid pool minimums: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+UPDATE project_machine_pool_grants
+SET min_machine_cpu = 1, min_machine_memory_mb = 2048
+WHERE id = $1
+`, grantID); err != nil {
+		t.Fatalf("set valid grant minimums: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE machine_pools SET min_machine_cpu = 9 WHERE id = $1`, poolID); err == nil {
+		t.Fatal("pool minimum above maximum unexpectedly succeeded")
+	}
+	if _, err := db.ExecContext(
+		ctx,
+		`UPDATE project_machine_pool_grants SET min_machine_memory_mb = 9000 WHERE id = $1`,
+		grantID,
+	); err == nil {
+		t.Fatal("grant minimum above maximum unexpectedly succeeded")
+	}
+
+	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+		t.Fatalf("replay upgraded populated database: %v", err)
+	}
+}
+
 func TestPostgresMigrationsUseConfiguredPgTrgmSchema(t *testing.T) {
 	t.Parallel()
 
@@ -943,4 +1213,85 @@ func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.
 		t.Fatal(err)
 	}
 	return version
+}
+
+func latestPostgresMigrationVersion(t *testing.T) int64 {
+	t.Helper()
+	entries, err := os.ReadDir("../../migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var latest int64
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		prefix, _, ok := strings.Cut(entry.Name(), "_")
+		if !ok {
+			t.Fatalf("migration file lacks version prefix: %s", entry.Name())
+		}
+		version, err := strconv.ParseInt(prefix, 10, 64)
+		if err != nil {
+			t.Fatalf("parse migration version %s: %v", entry.Name(), err)
+		}
+		latest = max(latest, version)
+	}
+	if latest == 0 {
+		t.Fatal("no PostgreSQL migrations found")
+	}
+	return latest
+}
+
+func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
+	t.Helper()
+	entries, err := os.ReadDir("../../migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrations := make(fstest.MapFS)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		prefix, _, ok := strings.Cut(entry.Name(), "_")
+		if !ok {
+			t.Fatalf("migration file lacks version prefix: %s", entry.Name())
+		}
+		version, err := strconv.Atoi(prefix)
+		if err != nil {
+			t.Fatalf("parse migration version %s: %v", entry.Name(), err)
+		}
+		if version > maximum {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join("../../migrations", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		migrations[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	return migrations
+}
+
+func testDatabaseURL(t *testing.T) string {
+	t.Helper()
+	databaseURL := os.Getenv("OMNARA_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("OMNARA_TEST_DATABASE_URL is not set")
+	}
+	integrationdb.AssertTestDatabaseURL(t, databaseURL)
+	return databaseURL
+}
+
+func generatedDatabaseURL(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	parsed, err := url.Parse(testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Scheme != "postgres" && parsed.Scheme != "postgresql" {
+		t.Skip("whole-run URL test requires a PostgreSQL URL connection string")
+	}
+	parsed.Path = "/" + pool.Config().ConnConfig.Database
+	return parsed.String()
 }
