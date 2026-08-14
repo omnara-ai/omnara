@@ -40,11 +40,8 @@ export function useAgentConfigEditor({
       if (adopted.initialDraft != null) {
         setSession(adopted)
         form.reset(adopted.initialDraft)
-        dispatchMode({
-          type: 'editor-yaml-changed',
-          yaml: mode.editorYaml,
-          builderYaml: mode.editorYaml,
-        })
+        dispatchMode({ type: 'adopt-yaml-edits' })
+        return
       }
     }
     dispatchMode({ type: 'switch-mode', mode: nextMode })

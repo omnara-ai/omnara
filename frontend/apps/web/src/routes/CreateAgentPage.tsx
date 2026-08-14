@@ -85,11 +85,8 @@ export function CreateAgentPage() {
         setSession(adopted)
         form.reset(adopted.initialDraft)
         setBuilderYaml(mode.editorYaml)
-        dispatchMode({
-          type: 'editor-yaml-changed',
-          yaml: mode.editorYaml,
-          builderYaml: mode.editorYaml,
-        })
+        dispatchMode({ type: 'adopt-yaml-edits' })
+        return
       }
     }
     dispatchMode({ type: 'switch-mode', mode: nextMode })

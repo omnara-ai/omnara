@@ -9,6 +9,7 @@ export interface AgentConfigModeState<Extra extends string = never> {
 export type AgentConfigModeAction<Extra extends string = never> =
   | { type: 'switch-mode'; mode: AgentConfigMode<Extra> }
   | { type: 'editor-yaml-changed'; yaml: string; builderYaml: string }
+  | { type: 'adopt-yaml-edits' }
   | { type: 'discard-yaml-edits' }
   | { type: 'set-confirm-discard'; open: boolean }
 
@@ -37,6 +38,7 @@ export function agentConfigModeReducer<Extra extends string = never>(
     case 'editor-yaml-changed':
       if (action.yaml === (state.editorYaml ?? action.builderYaml)) return state
       return { ...state, editorYaml: action.yaml === action.builderYaml ? null : action.yaml }
+    case 'adopt-yaml-edits':
     case 'discard-yaml-edits':
       return { ...state, mode: 'builder', editorYaml: null, confirmDiscard: false }
     case 'set-confirm-discard':
