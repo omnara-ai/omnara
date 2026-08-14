@@ -1,5 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Document, isMap, isNode, parseDocument } from 'yaml'
 
 import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agentConfigBasicExtract'
@@ -86,10 +86,9 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
   }
 }
 
-export function useAgentBuilderForm(
-  session: BasicConfigSession,
-  onYamlChange: (yaml: string, blocked: boolean) => void,
-) {
+export type AgentBuilderForm = ReturnType<typeof useAgentBuilderForm>
+
+export function useAgentBuilderForm(session: BasicConfigSession) {
   const [draft, setDraft] = useState<BasicConfig>(session.initialDraft ?? emptyBasicConfig)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
@@ -101,15 +100,16 @@ export function useAgentBuilderForm(
     modelUnavailable ||
     !draftValid(draft)
 
-  useEffect(() => {
-    onYamlChange(session.apply(draft), blocked)
-  }, [blocked, draft, onYamlChange, session])
-
   const patch = (fields: Partial<BasicConfig>) => {
     setDraft((prev) => ({ ...prev, ...fields }))
   }
 
   return {
+    yaml: session.apply(draft),
+    blocked,
+    reset: (config: BasicConfig | null) => {
+      setDraft(config ?? emptyBasicConfig)
+    },
     instruction: draft.instruction,
     model: { providerConfig: draft.providerConfig, modelName: draft.modelName },
     machineSources: draft.machineSources,

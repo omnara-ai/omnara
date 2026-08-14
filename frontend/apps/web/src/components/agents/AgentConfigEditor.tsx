@@ -45,13 +45,7 @@ export function AgentConfigEditorFields({
       )}
       {builderSession != null && (
         <div className={showBuilder ? 'flex flex-col gap-8' : 'hidden'}>
-          <AgentConfigBasicForm
-            key={editor.formGeneration}
-            orgId={orgId}
-            projectId={projectId}
-            session={builderSession}
-            onYamlChange={editor.handleBuilderYamlChange}
-          />
+          <AgentConfigBasicForm orgId={orgId} projectId={projectId} form={editor.form} />
         </div>
       )}
       {!showBuilder && (

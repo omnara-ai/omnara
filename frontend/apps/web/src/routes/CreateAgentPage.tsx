@@ -22,7 +22,10 @@ import {
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
-import { createBasicConfigSession } from '@/components/agents/useAgentBuilderForm'
+import {
+  createBasicConfigSession,
+  useAgentBuilderForm,
+} from '@/components/agents/useAgentBuilderForm'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -72,19 +75,15 @@ export function CreateAgentPage() {
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
   const savedProfile = useRef<SavedProfile | null>(null)
   const [session, setSession] = useState(() => createBasicConfigSession(''))
-  const [formGeneration, setFormGeneration] = useState(0)
-  const [builderBlocked, setBuilderBlocked] = useState(false)
+  const form = useAgentBuilderForm(session)
   const [builderYaml, setBuilderYaml] = useState('')
-  const handleBuilderYamlChange = (value: string, blocked: boolean) => {
-    setBuilderBlocked(blocked)
-    if (!blocked) setBuilderYaml(value)
-  }
+  if (!form.blocked && builderYaml !== form.yaml) setBuilderYaml(form.yaml)
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {
       const adopted = createBasicConfigSession(mode.editorYaml)
       if (adopted.initialDraft != null) {
         setSession(adopted)
-        setFormGeneration((generation) => generation + 1)
+        form.reset(adopted.initialDraft)
         setBuilderYaml(mode.editorYaml)
         dispatchMode({
           type: 'editor-yaml-changed',
@@ -126,7 +125,7 @@ export function CreateAgentPage() {
     !isSubmitting &&
     draft.name.trim() !== '' &&
     yaml.trim() !== '' &&
-    !(builderBlocked && (showBuilder || !yamlDiverged(mode)))
+    !(form.blocked && (showBuilder || !yamlDiverged(mode)))
 
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
@@ -223,13 +222,7 @@ export function CreateAgentPage() {
           />
         </Field>
         <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
-          <AgentConfigBasicForm
-            key={formGeneration}
-            orgId={activeOrg.id}
-            projectId={projectId}
-            session={session}
-            onYamlChange={handleBuilderYamlChange}
-          />
+          <AgentConfigBasicForm orgId={activeOrg.id} projectId={projectId} form={form} />
         </div>
         {!showBuilder && (
           <AgentConfigYamlField

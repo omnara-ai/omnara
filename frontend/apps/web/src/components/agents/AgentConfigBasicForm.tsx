@@ -5,23 +5,19 @@ import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpSe
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
-import type { BasicConfigSession } from '@/components/agents/useAgentBuilderForm'
-import { useAgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
+import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 
 export function AgentConfigBasicForm({
   orgId,
   projectId,
-  session,
-  onYamlChange,
+  form,
 }: {
   orgId: string
   projectId: string
-  session: BasicConfigSession
-  onYamlChange: (yaml: string, blocked: boolean) => void
+  form: AgentBuilderForm
 }) {
-  const form = useAgentBuilderForm(session, onYamlChange)
   const toolCatalog = useToolCatalog()
 
   return (

@@ -6,7 +6,10 @@ import {
   initialAgentConfigModeState,
   yamlDiverged,
 } from '@/components/agents/agentConfigModeMachine'
-import { createBasicConfigSession } from '@/components/agents/useAgentBuilderForm'
+import {
+  createBasicConfigSession,
+  useAgentBuilderForm,
+} from '@/components/agents/useAgentBuilderForm'
 
 export type AgentConfigEditorState = ReturnType<typeof useAgentConfigEditor>
 
@@ -23,29 +26,20 @@ export function useAgentConfigEditor({
   onModeChange: (mode: AgentConfigMode) => void
   onDirtyChange: (dirty: boolean) => void
 }) {
-  const [session, setSession] = useState(() =>
-    canManage ? createBasicConfigSession(source) : null,
-  )
-  const builderSession = session?.initialDraft != null ? session : null
-  const [formGeneration, setFormGeneration] = useState(0)
+  const [session, setSession] = useState(() => createBasicConfigSession(source))
+  const builderSession = canManage && session.initialDraft != null ? session : null
+  const form = useAgentBuilderForm(session)
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
     initialAgentConfigModeState(builderSession ? preferredMode : 'yaml'),
   )
-  const [builderYaml, setBuilderYaml] = useState(source)
-  const [builderBlocked, setBuilderBlocked] = useState(false)
-  const handleBuilderYamlChange = (value: string, blocked: boolean) => {
-    setBuilderBlocked(blocked)
-    setBuilderYaml(value)
-  }
 
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {
       const adopted = createBasicConfigSession(mode.editorYaml)
       if (adopted.initialDraft != null) {
         setSession(adopted)
-        setFormGeneration((generation) => generation + 1)
-        setBuilderYaml(mode.editorYaml)
+        form.reset(adopted.initialDraft)
         dispatchMode({
           type: 'editor-yaml-changed',
           yaml: mode.editorYaml,
@@ -57,10 +51,13 @@ export function useAgentConfigEditor({
   }
 
   const showBuilder = mode.mode === 'builder'
+  const builderYaml = builderSession ? form.yaml : source
   const editorYaml = mode.editorYaml ?? builderYaml
   const yaml = showBuilder ? builderYaml : editorYaml
   const dirty = yaml !== source
-  const saveBlocked = yaml.trim() === '' || (builderBlocked && (showBuilder || !yamlDiverged(mode)))
+  const saveBlocked =
+    yaml.trim() === '' ||
+    (builderSession != null && form.blocked && (showBuilder || !yamlDiverged(mode)))
 
   useEffect(() => {
     onModeChange(mode.mode)
@@ -74,7 +71,7 @@ export function useAgentConfigEditor({
     source,
     canManage,
     builderSession,
-    formGeneration,
+    form,
     mode,
     dispatchMode,
     switchMode,
@@ -84,6 +81,5 @@ export function useAgentConfigEditor({
     dirty,
     saveBlocked,
     showBuilder,
-    handleBuilderYamlChange,
   }
 }
