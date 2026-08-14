@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- event projection, delta previews, and frame parsing form one protocol boundary. */
 import type {
   AgentEvent,
   AgentEventStreamData,
