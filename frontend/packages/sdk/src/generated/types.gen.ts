@@ -3502,7 +3502,7 @@ export type DeclineInvitationResponse = DeclineInvitationResponses[keyof Decline
 export type GetOrgOverviewData = {
     body?: never;
     path: {
-        orgID: string;
+        orgID: OrganizationId;
     };
     query?: never;
     url: '/api/v1/orgs/{orgID}/overview';

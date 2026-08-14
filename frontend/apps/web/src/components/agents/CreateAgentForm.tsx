@@ -62,6 +62,7 @@ export function CreateAgentForm() {
 
   return (
     <CreateAgentFormView
+      key={linkedTemplate?.id ?? ''}
       catalog={catalog}
       defaultPool={defaultPool}
       templatesReady={templatesReady}
