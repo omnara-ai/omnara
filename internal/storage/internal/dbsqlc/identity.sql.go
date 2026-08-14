@@ -624,38 +624,6 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (CreateOrg
 	return i, err
 }
 
-const createOrgInvitation = `-- name: CreateOrgInvitation :one
-INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_at)
-VALUES ($1, $2, $3, $4, statement_timestamp())
-RETURNING id, org_id, email, normalized_email, org_role, created_at
-`
-
-type CreateOrgInvitationParams struct {
-	OrgID           uuid.UUID
-	Email           string
-	NormalizedEmail string
-	OrgRole         string
-}
-
-func (q *Queries) CreateOrgInvitation(ctx context.Context, arg CreateOrgInvitationParams) (OrgInvitation, error) {
-	row := q.db.QueryRow(ctx, createOrgInvitation,
-		arg.OrgID,
-		arg.Email,
-		arg.NormalizedEmail,
-		arg.OrgRole,
-	)
-	var i OrgInvitation
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.Email,
-		&i.NormalizedEmail,
-		&i.OrgRole,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const createPersonalAccessToken = `-- name: CreatePersonalAccessToken :one
 INSERT INTO personal_access_tokens(user_id, name, token_id, token_hash, created_at)
 VALUES ($1, $2, $3, $4, statement_timestamp())
@@ -2519,32 +2487,6 @@ func (q *Queries) GetPasswordLoginByVerifiedEmail(ctx context.Context, arg GetPa
 	return i, err
 }
 
-const getPendingOrgInvitationByEmail = `-- name: GetPendingOrgInvitationByEmail :one
-SELECT id, org_id, email, normalized_email, org_role, created_at
-FROM org_invitations
-WHERE org_id = $1
-  AND normalized_email = $2
-`
-
-type GetPendingOrgInvitationByEmailParams struct {
-	OrgID           uuid.UUID
-	NormalizedEmail string
-}
-
-func (q *Queries) GetPendingOrgInvitationByEmail(ctx context.Context, arg GetPendingOrgInvitationByEmailParams) (OrgInvitation, error) {
-	row := q.db.QueryRow(ctx, getPendingOrgInvitationByEmail, arg.OrgID, arg.NormalizedEmail)
-	var i OrgInvitation
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.Email,
-		&i.NormalizedEmail,
-		&i.OrgRole,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getProject = `-- name: GetProject :one
 SELECT id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at
 FROM projects
@@ -4249,6 +4191,42 @@ func (q *Queries) UpdateUserDisplayName(ctx context.Context, arg UpdateUserDispl
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertOrgInvitation = `-- name: UpsertOrgInvitation :one
+INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_at)
+VALUES ($1, $2, $3, $4, statement_timestamp())
+ON CONFLICT (org_id, normalized_email) DO UPDATE
+SET email = EXCLUDED.email,
+    org_role = EXCLUDED.org_role,
+    created_at = statement_timestamp()
+RETURNING id, org_id, email, normalized_email, org_role, created_at
+`
+
+type UpsertOrgInvitationParams struct {
+	OrgID           uuid.UUID
+	Email           string
+	NormalizedEmail string
+	OrgRole         string
+}
+
+func (q *Queries) UpsertOrgInvitation(ctx context.Context, arg UpsertOrgInvitationParams) (OrgInvitation, error) {
+	row := q.db.QueryRow(ctx, upsertOrgInvitation,
+		arg.OrgID,
+		arg.Email,
+		arg.NormalizedEmail,
+		arg.OrgRole,
+	)
+	var i OrgInvitation
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Email,
+		&i.NormalizedEmail,
+		&i.OrgRole,
+		&i.CreatedAt,
 	)
 	return i, err
 }

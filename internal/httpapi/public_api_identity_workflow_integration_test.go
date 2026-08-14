@@ -297,7 +297,7 @@ func TestPublicInvitationFlow(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/invitations",
-		`{"email":"Invitee@Example.com","role":"admin"}`,
+		`{"email":"Invitee@Example.com","role":"member"}`,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
@@ -306,16 +306,19 @@ func TestPublicInvitationFlow(t *testing.T) {
 	if invite["org_name"] != "invite-flow Org" {
 		t.Fatalf("invitation organization name = %v, want invite-flow Org", invite["org_name"])
 	}
-	requestJSONWithHeaders(
+	updatedInvite := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/invitations",
-		`{"email":"invitee@example.com","role":"member"}`,
+		`{"email":"invitee@example.com","role":"admin"}`,
 		"",
-		http.StatusConflict,
+		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
+	if updatedInvite["id"] != inviteID || updatedInvite["org_role"] != "admin" {
+		t.Fatalf("updated pending invitation = %+v, want same invitation with admin role", updatedInvite)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -343,6 +346,30 @@ func TestPublicInvitationFlow(t *testing.T) {
 		data[0].(map[string]any)["org_name"] != "invite-flow Org" {
 		t.Fatalf("unexpected pending invitations: %+v", pending)
 	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/invitations/"+inviteID+"/decline",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(inviteeToken),
+	)
+	reinvited := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/invitations",
+		`{"email":"invitee@example.com","role":"admin"}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	if reinvited["id"] == inviteID {
+		t.Fatalf("invitation after decline reused consumed id: %+v", reinvited)
+	}
+	inviteID = reinvited["id"].(string)
 	accepted := requestJSONWithHeaders(
 		t,
 		handler,

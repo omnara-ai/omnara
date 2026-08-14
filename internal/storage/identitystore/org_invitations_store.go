@@ -9,7 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -49,7 +48,10 @@ func (s *Store) CreateOrgInvitation(
 			ctx,
 			dbsqlc.GetOrgAuthorizationRoleParams{OrgID: input.OrgID, UserID: emailUser.UserID},
 		); err == nil {
-			return OrgInvitationRecord{}, storeerr.ErrIdempotencyConflict
+			return OrgInvitationRecord{}, storeerr.Tag(
+				storeerr.ErrConflict,
+				errors.New("email already belongs to an organization member"),
+			)
 		} else if !errors.Is(
 			err,
 			pgx.ErrNoRows,
@@ -57,25 +59,9 @@ func (s *Store) CreateOrgInvitation(
 			return OrgInvitationRecord{}, fmt.Errorf("check existing org member: %w", err)
 		}
 	}
-	existing, err := qtx.GetPendingOrgInvitationByEmail(
+	row, err := qtx.UpsertOrgInvitation(
 		ctx,
-		dbsqlc.GetPendingOrgInvitationByEmailParams{
-			OrgID:           input.OrgID,
-			NormalizedEmail: normalizedEmail,
-		},
-	)
-	if err == nil {
-		if existing.OrgRole != input.Role {
-			return OrgInvitationRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		return orgInvitationRecordFromSQLC(existing), nil
-	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return OrgInvitationRecord{}, fmt.Errorf("load pending org invitation: %w", err)
-	}
-	row, err := qtx.CreateOrgInvitation(
-		ctx,
-		dbsqlc.CreateOrgInvitationParams{
+		dbsqlc.UpsertOrgInvitationParams{
 			OrgID:           input.OrgID,
 			Email:           input.Email,
 			NormalizedEmail: normalizedEmail,
@@ -83,10 +69,7 @@ func (s *Store) CreateOrgInvitation(
 		},
 	)
 	if err != nil {
-		if storeutil.IsUniqueViolation(err) {
-			return OrgInvitationRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		return OrgInvitationRecord{}, fmt.Errorf("create org invitation: %w", err)
+		return OrgInvitationRecord{}, fmt.Errorf("upsert org invitation: %w", err)
 	}
 	if err := resourceguard.Lock(ctx, qtx, resourceOrgInvitations, input.OrgID.String()); err != nil {
 		return OrgInvitationRecord{}, err
