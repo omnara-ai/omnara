@@ -1,6 +1,6 @@
 import { useAcceptInvitation, useDeclineInvitation } from '@omnara/react'
 import type { OrgInvitation } from '@omnara/sdk'
-import { Building2, Check, X } from 'lucide-react'
+import { Building2, Check, Copy, X } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ export function PendingInvitationList({
   const acceptInvitation = useAcceptInvitation()
   const declineInvitation = useDeclineInvitation()
   const [action, setAction] = useState<InvitationAction>({ kind: 'idle' })
+  const [copiedInvitationID, setCopiedInvitationID] = useState<string | null>(null)
 
   const actingId = action.kind === 'acting' ? action.invitationId : null
   const error = action.kind === 'error' ? action.message : null
@@ -60,6 +61,15 @@ export function PendingInvitationList({
     }
   }
 
+  async function copyOrganizationID(invitation: OrgInvitation) {
+    try {
+      await navigator.clipboard.writeText(invitation.org_id)
+      setCopiedInvitationID(invitation.id)
+    } catch {
+      setAction({ kind: 'error', message: 'Could not copy organization ID' })
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
       {error && (
@@ -84,8 +94,30 @@ export function PendingInvitationList({
               <span className="bg-secondary text-secondary-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
                 <Building2 className="size-5" />
               </span>
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="truncate font-medium">{invitation.org_name}</span>
+                <div className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
+                  <span className="shrink-0">Org ID</span>
+                  <code className="truncate text-[11px]">{invitation.org_id}</code>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-5 rounded-sm"
+                    aria-label={
+                      copiedInvitationID === invitation.id
+                        ? `Copied organization ID ${invitation.org_id}`
+                        : `Copy organization ID ${invitation.org_id}`
+                    }
+                    title={copiedInvitationID === invitation.id ? 'Copied' : 'Copy organization ID'}
+                    onClick={() => void copyOrganizationID(invitation)}
+                  >
+                    {copiedInvitationID === invitation.id ? (
+                      <Check className="size-3" />
+                    ) : (
+                      <Copy className="size-3" />
+                    )}
+                  </Button>
+                </div>
                 <span className="text-muted-foreground text-sm">
                   Join as {articleFor(invitation.org_role)}{' '}
                   <span className="capitalize">{invitation.org_role}</span>

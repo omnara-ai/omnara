@@ -38,8 +38,8 @@ export function OrgSwitcher() {
 
   async function switchOrganization(id: string) {
     if (id === activeOrg.id) return
-    await navigate({ to: '/', replace: true })
     setActiveOrgId(id)
+    await navigate({ to: '/', replace: true })
   }
 
   return (
