@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
@@ -27,7 +31,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
-const integrationHTTPClientTimeout = 5 * time.Minute
+const (
+	integrationHTTPClientTimeout = 5 * time.Minute
+	cronTriggerFireInterval      = 30 * time.Second
+)
 
 func main() {
 	log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
@@ -213,6 +220,12 @@ func main() {
 	go func() {
 		workerErr <- kernelWorker.Run(ctx)
 	}()
+	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, log)
+	cronTriggerDone := make(chan struct{})
+	go func() {
+		defer close(cronTriggerDone)
+		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
+	}()
 
 	exitCode := 0
 	select {
@@ -238,8 +251,67 @@ func main() {
 		<-healthErr
 		<-workerErr
 	}
+	<-cronTriggerDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func runCronTriggerFireLoop(
+	ctx context.Context,
+	log *slog.Logger,
+	service *crontrigger.Service,
+	interval time.Duration,
+) {
+	for {
+		stats, err := runCronTriggerFireTick(ctx, log, service)
+		if err != nil && ctx.Err() == nil {
+			log.Error("fire due cron triggers", "error", err)
+		} else if stats.Claimed > 0 || stats.Disabled > 0 {
+			log.Info(
+				"fired due cron triggers",
+				"claimed", stats.Claimed,
+				"launched", stats.Launched,
+				"inputs", stats.Inputs,
+				"disabled", stats.Disabled,
+				"failures", stats.Failures,
+			)
+		}
+		timer := time.NewTimer(jitteredFireDelay(interval))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func runCronTriggerFireTick(
+	ctx context.Context,
+	log *slog.Logger,
+	service *crontrigger.Service,
+) (stats crontrigger.FireStats, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("cron trigger fire tick panicked: %v", recovered)
+			log.Error(
+				"cron trigger fire tick panicked",
+				"error", recovered,
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
+	return service.FireDueTriggers(ctx)
+}
+
+func jitteredFireDelay(interval time.Duration) time.Duration {
+	spread := interval / 10
+	if spread <= 0 {
+		return interval
+	}
+	return interval - spread + time.Duration(rand.Int64N(int64(2*spread)+1))
 }
