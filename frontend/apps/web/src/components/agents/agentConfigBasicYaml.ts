@@ -1,5 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import { type Document, isMap, isNode, parseDocument, stringify } from 'yaml'
+import { Document, isMap, isNode, parseDocument } from 'yaml'
 
 import type {
   BasicConfig,
@@ -40,10 +40,9 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
   return {
     initialDraft,
     apply(config) {
-      if (doc == null) return stringify(wireConfig(config))
       // Cloning the pristine document per call means reverting a field to its
       // baseline value restores the entry's original formatting.
-      return applyToDocument(doc.clone(), source, initialDraft, config)
+      return applyToDocument(doc?.clone() ?? new Document({}), source, initialDraft, config)
     },
   }
 }
@@ -207,29 +206,6 @@ function deepEqual(a: unknown, b: unknown, depth = 0): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function wireConfig(config: BasicConfig): Record<string, unknown> {
-  const wire: Record<string, unknown> = {
-    instruction: normalizeMultiline(config.instruction),
-    model: {
-      provider_config: config.providerConfig.trim(),
-      name: config.modelName.trim(),
-    },
-  }
-  if (config.machineSources.length > 0) {
-    wire.machine_sources = config.machineSources.map(machineSourceWire)
-  }
-  if (config.tools.length > 0) {
-    wire.tools = Object.fromEntries(config.tools.map((tool) => [tool.name.trim(), toolWire(tool)]))
-  }
-  if (config.skillIds.length > 0) wire.skills = [...config.skillIds]
-  if (config.mcpServers.length > 0) {
-    wire.mcp = Object.fromEntries(
-      config.mcpServers.map((server) => [server.name.trim(), mcpWire(server)]),
-    )
-  }
-  return wire
 }
 
 function machineSourceWire(source: BasicMachineSource): Record<string, unknown> {

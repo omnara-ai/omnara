@@ -1,18 +1,10 @@
 import { useAgentConfig, useUpdateAgentConfig } from '@omnara/react'
 import { type Agent, type AgentConfig, ApiError } from '@omnara/sdk'
-import { type SyntheticEvent, useEffect, useReducer, useState } from 'react'
+import { type SyntheticEvent, useState } from 'react'
 
-import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
-import { createBasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
-import {
-  type AgentConfigMode,
-  agentConfigModeReducer,
-  initialAgentConfigModeState,
-  yamlDiverged,
-} from '@/components/agents/agentConfigModeMachine'
-import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
-import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
-import { PillTabs } from '@/components/agents/PillTabs'
+import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
+import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
 import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
 import { Spinner } from '@/components/ui/spinner'
@@ -132,43 +124,21 @@ function AgentConfigPanelEditor({
   onClose: () => void
 }) {
   const updateConfig = useUpdateAgentConfig(orgId, projectId, agentId)
-  const [session] = useState(() => (canManage ? createBasicConfigSession(source) : null))
-  const builderSession = session?.initialDraft != null ? session : null
-  const [mode, dispatchMode] = useReducer(
-    agentConfigModeReducer,
-    initialAgentConfigModeState(builderSession ? preferredMode : 'yaml', source),
-  )
-  const [builderBlocked, setBuilderBlocked] = useState(false)
+  const editor = useAgentConfigEditor({
+    source,
+    canManage,
+    preferredMode,
+    onModeChange,
+    onDirtyChange,
+  })
   const [error, setError] = useState('')
-
-  // Blocked drafts (incomplete or referencing unavailable resources) still
-  // update the buffers, so they count as dirty and the YAML tab mirrors them.
-  const handleBuilderYamlChange = (value: string, blocked: boolean) => {
-    setBuilderBlocked(blocked)
-    dispatchMode({ type: 'builder-yaml-changed', yaml: value })
-  }
-
-  const showBuilder = mode.mode === 'builder'
-  const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
-  const dirty = yaml !== source
-  // A blocked builder draft also blocks the YAML tab while it still mirrors
-  // the builder; hand-edited YAML (diverged) saves on its own merits.
-  const saveBlocked = yaml.trim() === '' || (builderBlocked && (showBuilder || !yamlDiverged(mode)))
-
-  useEffect(() => {
-    onModeChange(mode.mode)
-  }, [mode.mode, onModeChange])
-
-  useEffect(() => {
-    onDirtyChange(dirty)
-  }, [dirty, onDirtyChange])
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
     try {
       await updateConfig.mutateAsync({
-        source: yaml,
+        source: editor.yaml,
         source_format: 'yaml',
         expected_current_config_id: configId,
       })
@@ -192,56 +162,21 @@ function AgentConfigPanelEditor({
       }}
     >
       <FieldGroup>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Agent configuration</h2>
-          {builderSession != null && (
-            <PillTabs
-              value={mode.mode}
-              onValueChange={(nextMode) => {
-                dispatchMode({ type: 'switch-mode', mode: nextMode })
-              }}
-              tabs={[
-                { value: 'builder', label: 'Builder' },
-                { value: 'yaml', label: 'YAML' },
-              ]}
-            />
-          )}
-        </div>
-        {builderSession != null && (
-          <>
-            <div className={showBuilder ? 'flex flex-col gap-8' : 'hidden'}>
-              <AgentConfigBasicForm
-                orgId={orgId}
-                projectId={projectId}
-                session={builderSession}
-                onYamlChange={handleBuilderYamlChange}
-              />
-            </div>
-          </>
-        )}
-        {!showBuilder && (
-          <AgentConfigYamlField
-            id="agent-config-panel-yaml"
-            value={mode.editorYaml}
-            onChange={(value) => {
-              dispatchMode({ type: 'editor-yaml-changed', yaml: value })
-            }}
-            readOnly={!canManage}
-            className="h-[24rem]"
-          />
-        )}
-        {canManage && builderSession == null && source !== '' && (
-          <p className="text-muted-foreground text-sm">
-            This configuration can’t be shown in the builder, so it’s editable as YAML only.
-          </p>
-        )}
+        <AgentConfigEditorFields
+          editor={editor}
+          orgId={orgId}
+          projectId={projectId}
+          header={<h2 className="text-lg font-semibold tracking-tight">Agent configuration</h2>}
+          yamlFieldId="agent-config-panel-yaml"
+          yamlFieldClassName="h-[24rem]"
+        />
       </FieldGroup>
       <div className="bg-background sticky bottom-0 z-10 mt-auto flex items-center justify-between gap-4 border-t py-3">
         <Button
           type="button"
           variant="ghost"
           onClick={() => {
-            if (dirty && !window.confirm(discardConfigEditsPrompt)) return
+            if (editor.dirty && !window.confirm(discardConfigEditsPrompt)) return
             onClose()
           }}
         >
@@ -249,28 +184,22 @@ function AgentConfigPanelEditor({
         </Button>
         <div className="flex items-center gap-3">
           {error && <p className="text-destructive whitespace-pre-wrap text-sm">{error}</p>}
-          {canManage && dirty && !updateConfig.isPending && (
+          {canManage && editor.dirty && !updateConfig.isPending && (
             <Button type="button" variant="ghost" onClick={onDiscard}>
               Discard changes
             </Button>
           )}
           {canManage && (
-            <Button type="submit" disabled={updateConfig.isPending || !dirty || saveBlocked}>
+            <Button
+              type="submit"
+              disabled={updateConfig.isPending || !editor.dirty || editor.saveBlocked}
+            >
               {updateConfig.isPending && <Spinner />}
               Save config
             </Button>
           )}
         </div>
       </div>
-      <ConfirmDiscardYamlDialog
-        open={mode.confirmDiscard}
-        onOpenChange={(nextOpen) => {
-          dispatchMode({ type: 'set-confirm-discard', open: nextOpen })
-        }}
-        onConfirm={() => {
-          dispatchMode({ type: 'discard-yaml-edits' })
-        }}
-      />
     </form>
   )
 }

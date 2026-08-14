@@ -1,11 +1,7 @@
 import { useToolCatalog } from '@omnara/react'
 import { useEffect, useState } from 'react'
 
-import {
-  type BasicMachineSource,
-  type BasicMcpServer,
-  isBasicConfigComplete,
-} from '@/components/agents/agentConfigBasic'
+import { type BasicConfig, isBasicConfigComplete } from '@/components/agents/agentConfigBasic'
 import type { BasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
@@ -14,21 +10,11 @@ import {
   type ModelSelection,
 } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
-import { AgentConfigToolsField, type BasicTool } from '@/components/agents/AgentConfigToolsField'
+import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 
-interface BasicConfigDraft {
-  instruction: string
-  providerConfig: string
-  modelName: string
-  machineSources: BasicMachineSource[]
-  tools: BasicTool[]
-  mcpServers: BasicMcpServer[]
-  skillIds: string[]
-}
-
-const emptyDraft: BasicConfigDraft = {
+const emptyDraft: BasicConfig = {
   instruction: '',
   providerConfig: '',
   modelName: '',
@@ -51,7 +37,7 @@ export function AgentConfigBasicForm({
    *  not be saved yet: it is incomplete or references unavailable resources. */
   onYamlChange: (yaml: string, blocked: boolean) => void
 }) {
-  const [draft, setDraft] = useState<BasicConfigDraft>(session.initialDraft ?? emptyDraft)
+  const [draft, setDraft] = useState<BasicConfig>(session.initialDraft ?? emptyDraft)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)

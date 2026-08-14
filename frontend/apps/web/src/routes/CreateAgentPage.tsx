@@ -72,11 +72,12 @@ export function CreateAgentPage() {
   const savedProfile = useRef<SavedProfile | null>(null)
   const [session] = useState(() => createBasicConfigSession(''))
   const [builderBlocked, setBuilderBlocked] = useState(false)
-  // Blocked drafts are not mirrored into the buffers, so the YAML tab starts
+  // Blocked drafts are not mirrored into the buffer, so the YAML tab starts
   // empty for hand authoring; the blocked flag still gates submission.
+  const [builderYaml, setBuilderYaml] = useState('')
   const handleBuilderYamlChange = (value: string, blocked: boolean) => {
     setBuilderBlocked(blocked)
-    if (!blocked) dispatchMode({ type: 'builder-yaml-changed', yaml: value })
+    if (!blocked) setBuilderYaml(value)
   }
 
   if (projectIsPending) return <FullPageSpinner />
@@ -103,7 +104,8 @@ export function CreateAgentPage() {
   const showBuilder = mode.mode === 'builder'
   const isSubmitting = draft.status.phase === 'submitting'
   const errorMessage = statusError(draft.status)
-  const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
+  const editorYaml = mode.editorYaml ?? builderYaml
+  const yaml = showBuilder ? builderYaml : editorYaml
   // A blocked builder draft also blocks the YAML tab while it still mirrors
   // the builder, so a stale last-complete draft can't be submitted.
   const canSubmit =
@@ -221,10 +223,10 @@ export function CreateAgentPage() {
         {!showBuilder && (
           <AgentConfigYamlField
             id="agent-yaml"
-            value={mode.editorYaml}
+            value={editorYaml}
             className="h-[28rem]"
             onChange={(value) => {
-              dispatchMode({ type: 'editor-yaml-changed', yaml: value })
+              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml })
             }}
           />
         )}
