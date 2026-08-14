@@ -1,4 +1,4 @@
-import { useProjectAvailableSecrets } from '@omnara/react'
+import { useProjectAvailableSecret, useProjectAvailableSecrets } from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
 
 import type { BasicMcpServer } from '@/components/agents/agentConfigBasicSerialization'
@@ -33,19 +33,27 @@ export function AgentConfigMcpSecretCombobox({
   const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
     filters: {
       ...search.filters,
+      kind: secretKind,
       ...(oauth ? { metadata: { mcp_url: server.url.trim() } } : {}),
     },
     sort: 'name',
     pageSize: 25,
   })
-  const secrets = useInfiniteQueryItems(secretsQuery)
-    .map((access) => access.secret)
-    .filter((secret) => secret.kind === secretKind)
+  const secrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
+  const selectedSecretQuery = useProjectAvailableSecret(orgId, projectId, server.secretId)
+  const resolvedSecret = selectedSecretQuery.data?.secret
+  const selectedSecret =
+    secrets.find((secret) => secret.id === server.secretId) ??
+    (resolvedSecret?.id === server.secretId &&
+    resolvedSecret.kind === secretKind &&
+    (!oauth || resolvedSecret.metadata.mcp_url === server.url.trim())
+      ? resolvedSecret
+      : null)
 
   return (
     <SecretCombobox
       items={secrets}
-      value={server.secretId || null}
+      value={selectedSecret}
       onValueChange={(secret) => {
         onChange(secret?.id ?? '')
       }}

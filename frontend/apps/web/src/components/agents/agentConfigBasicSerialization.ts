@@ -14,6 +14,7 @@ import {
   secretEnvOverlayRowsValid,
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
+import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
 
 export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 
@@ -43,7 +44,7 @@ export interface BasicMachineSource {
   initialNumMachines: string
   maxMachines: string
   machineCpu: string
-  machineMemoryMb: string
+  machineMemoryGb: string
   providerOptions: ProviderOptionsDraft
   envRows: EnvOverlayRow[]
   secretEnvRows: SecretEnvOverlayRow[]
@@ -59,14 +60,22 @@ export interface BasicConfig {
   skillIds: string[]
 }
 
-export const emptyBasicConfig: BasicConfig = {
-  instruction: '',
-  providerConfig: '',
-  modelName: '',
-  machineSources: [],
-  tools: [],
-  mcpServers: [],
-  skillIds: [],
+export type BasicConfigDraft = BasicConfig
+
+export function createEmptyBasicConfigDraft(): BasicConfigDraft {
+  return {
+    instruction: '',
+    providerConfig: '',
+    modelName: '',
+    machineSources: [],
+    tools: [],
+    mcpServers: [],
+    skillIds: [],
+  }
+}
+
+export function serializeBasicConfigDraft(draft: BasicConfigDraft) {
+  return isBasicConfigComplete(draft) ? serializeBasicConfig(draft) : ''
 }
 
 export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
@@ -80,7 +89,7 @@ export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
     initialNumMachines: '',
     maxMachines: '',
     machineCpu: '',
-    machineMemoryMb: '',
+    machineMemoryGb: '',
     providerOptions: emptyProviderOptions,
     envRows: [],
     secretEnvRows: [],
@@ -94,7 +103,7 @@ function isMachineCountValid(value: string) {
   return value === '' || positiveIntegerPattern.test(value)
 }
 
-export function isBasicConfigComplete(config: BasicConfig) {
+function isBasicConfigComplete(config: BasicConfig) {
   const mcpServerNames = config.mcpServers.map((server) => server.name.trim())
   return (
     config.instruction.trim() !== '' &&
@@ -109,7 +118,7 @@ export function isBasicConfigComplete(config: BasicConfig) {
           (isMachineCountValid(source.initialNumMachines) &&
             isMachineCountValid(source.maxMachines) &&
             optionalPositiveInt32Valid(source.machineCpu) &&
-            optionalPositiveInt32Valid(source.machineMemoryMb))),
+            memoryGbDraftValid(source.machineMemoryGb, { optional: true }))),
     ) &&
     new Set(mcpServerNames).size === mcpServerNames.length &&
     config.mcpServers.every((server) => {
@@ -140,7 +149,7 @@ function yamlBlock(value: string) {
     .join('\n')}`
 }
 
-export function serializeBasicConfig(config: BasicConfig) {
+function serializeBasicConfig(config: BasicConfig) {
   const lines: string[] = []
   lines.push(`instruction: ${yamlBlock(config.instruction.trimEnd())}`)
   lines.push('model:')
@@ -161,8 +170,8 @@ export function serializeBasicConfig(config: BasicConfig) {
         if (source.machineCpu !== '') {
           lines.push(`    machine_cpu: ${source.machineCpu}`)
         }
-        if (source.machineMemoryMb !== '') {
-          lines.push(`    machine_memory_mb: ${source.machineMemoryMb}`)
+        if (source.machineMemoryGb !== '') {
+          lines.push(`    machine_memory_mb: ${memoryGbToMb(source.machineMemoryGb)}`)
         }
         const optionsOverlay = isMachinePoolProvider(source.provider)
           ? providerOptionsOverlay(

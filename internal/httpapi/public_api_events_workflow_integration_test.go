@@ -67,9 +67,8 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	authorPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  author.ID,
-			Name:    "Author",
-			TokenID: "input-author",
+			UserID: author.ID,
+			Name:   "Author",
 		},
 	)
 	if err != nil {
@@ -78,9 +77,8 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	otherPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  other.ID,
-			Name:    "Other",
-			TokenID: "input-other",
+			UserID: other.ID,
+			Name:   "Other",
 		},
 	)
 	if err != nil {
@@ -89,9 +87,8 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	viewerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  viewer.ID,
-			Name:    "Viewer",
-			TokenID: "input-viewer",
+			UserID: viewer.ID,
+			Name:   "Viewer",
 		},
 	)
 	if err != nil {
@@ -1301,7 +1298,7 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 	t.Fatal("sse catch-up did not replay max_tokens model output")
 }
 
-func TestPublicEventStreamDeliversLiveWakeupViaRedis(t *testing.T) {
+func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1320,6 +1317,7 @@ func TestPublicEventStreamDeliversLiveWakeupViaRedis(t *testing.T) {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
+			ToolCallUpdates:   bus,
 			WorkerControls:    bus,
 		},
 		presence,
@@ -1338,6 +1336,7 @@ func TestPublicEventStreamDeliversLiveWakeupViaRedis(t *testing.T) {
 		store,
 		WithSecretKeyWrapper(keyWrapper),
 		WithAgentEventWakeupSubscriber(bus),
+		WithAgentToolCallUpdateSubscriber(bus),
 		WithAgentStreamDeltaSubscriber(bus),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
@@ -1418,6 +1417,51 @@ func TestPublicEventStreamDeliversLiveWakeupViaRedis(t *testing.T) {
 	if elapsed > 3*time.Second {
 		t.Logf("warning: live wakeup arrived in %s (publish path may be slow)", elapsed)
 	}
+
+	toolCallID := uuid.New()
+	publicToolCallID, err := publicid.Encode(publicid.KindToolCall, toolCallID)
+	if err != nil {
+		t.Fatalf("encode tool call id: %v", err)
+	}
+	agentID, err := publicid.Decode(publicid.KindAgent, agentPublicID)
+	if err != nil {
+		t.Fatalf("decode agent id: %v", err)
+	}
+	if err := bus.PublishAgentToolCallUpdate(ctx, notifications.ToolCallUpdatedCommitted{
+		AgentID:    agentID,
+		ToolCallID: toolCallID,
+		State:      string(executionstore.ToolCallStateReady),
+	}); err != nil {
+		t.Fatalf("publish tool call update: %v", err)
+	}
+
+	deadline = time.After(5 * time.Second)
+	sawToolCallEvent := false
+	for {
+		select {
+		case line := <-frames:
+			if line == "event: tool_call_update" {
+				sawToolCallEvent = true
+				continue
+			}
+			if !sawToolCallEvent || !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var update struct {
+				ToolCallID string `json:"tool_call_id"`
+				State      string `json:"state"`
+			}
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &update); err != nil {
+				t.Fatalf("decode tool call update: %v", err)
+			}
+			if update.ToolCallID != publicToolCallID || update.State != string(executionstore.ToolCallStateReady) {
+				t.Fatalf("tool call update = %+v, want id=%s state=ready", update, publicToolCallID)
+			}
+			return
+		case <-deadline:
+			t.Fatal("sse did not receive default tool call update within 5s")
+		}
+	}
 }
 
 func TestPublicEventStreamDeliversStreamDeltasViaRedis(t *testing.T) {
@@ -1439,6 +1483,7 @@ func TestPublicEventStreamDeliversStreamDeltasViaRedis(t *testing.T) {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
+			ToolCallUpdates:   bus,
 			WorkerControls:    bus,
 		},
 		presence,
@@ -1457,6 +1502,7 @@ func TestPublicEventStreamDeliversStreamDeltasViaRedis(t *testing.T) {
 		store,
 		WithSecretKeyWrapper(keyWrapper),
 		WithAgentEventWakeupSubscriber(bus),
+		WithAgentToolCallUpdateSubscriber(bus),
 		WithAgentStreamDeltaSubscriber(bus),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)

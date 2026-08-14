@@ -65,43 +65,61 @@ export function MachinesSection() {
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Name' },
-            { header: 'Provider' },
-            { header: 'State', className: 'w-36' },
-            { header: 'Connection', className: 'w-36' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (machine) => <span className="font-medium">{machine.display_name}</span>,
+            },
+            { id: 'provider', header: 'Provider', cell: (machine) => machine.provider },
+            {
+              id: 'state',
+              header: 'State',
+              className: 'w-36',
+              cell: (machine) => (
+                <Badge variant="outline" className="capitalize">
+                  {machine.lifecycle_state}
+                </Badge>
+              ),
+            },
+            {
+              id: 'connection',
+              header: 'Connection',
+              className: 'w-36',
+              cell: (machine) => (
+                <Badge variant="outline" className="capitalize">
+                  {machine.connection_state}
+                </Badge>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (machine) =>
+                machine.source_kind === 'byo' && machine.access.can_manage ? (
+                  <ResourceRowActions
+                    onGrant={() => {
+                      setGrantMachine(machine)
+                    }}
+                    onDelete={() => {
+                      if (!window.confirm(`Delete machine ${machine.display_name}?`)) return
+                      deleteMachine.mutate(machine.id, {
+                        onError: (error) => {
+                          window.alert(
+                            error instanceof ApiError ? error.message : 'Could not delete machine',
+                          )
+                        },
+                      })
+                    }}
+                  />
+                ) : null,
+            },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(machine) => machine.id}
-          rowCells={(machine) => [
-            <span className="font-medium">{machine.display_name}</span>,
-            machine.provider,
-            <Badge variant="outline" className="capitalize">
-              {machine.lifecycle_state}
-            </Badge>,
-            <Badge variant="outline" className="capitalize">
-              {machine.connection_state}
-            </Badge>,
-            machine.source_kind === 'byo' && machine.access.can_manage ? (
-              <ResourceRowActions
-                onGrant={() => {
-                  setGrantMachine(machine)
-                }}
-                onDelete={() => {
-                  if (!window.confirm(`Delete machine ${machine.display_name}?`)) return
-                  deleteMachine.mutate(machine.id, {
-                    onError: (error) => {
-                      window.alert(
-                        error instanceof ApiError ? error.message : 'Could not delete machine',
-                      )
-                    },
-                  })
-                }}
-              />
-            ) : null,
-          ]}
           rowExpanded={(machine) => (
             <DetailList
               items={[

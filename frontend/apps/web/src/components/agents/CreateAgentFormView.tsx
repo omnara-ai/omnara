@@ -6,12 +6,13 @@ import {
 } from '@omnara/react'
 import type { MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
-import { type SyntheticEvent, useCallback, useReducer, useState } from 'react'
+import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import {
-  type BasicConfig,
-  emptyBasicConfig,
+  type BasicConfigDraft,
+  createEmptyBasicConfigDraft,
+  serializeBasicConfigDraft,
 } from '@/components/agents/agentConfigBasicSerialization'
 import {
   agentConfigModeReducer,
@@ -77,32 +78,37 @@ export function CreateAgentFormView({
     message: '',
     status: idle,
   }))
-  const [configDraft, setConfigDraft] = useState<BasicConfig>(() =>
+  const [configDraft, setConfigDraft] = useState<BasicConfigDraft>(() =>
     initialTemplate
-      ? { ...emptyBasicConfig, ...agentTemplateConfig(initialTemplate, catalog, defaultPool) }
-      : emptyBasicConfig,
+      ? {
+          ...createEmptyBasicConfigDraft(),
+          ...agentTemplateConfig(initialTemplate, catalog, defaultPool),
+        }
+      : createEmptyBasicConfigDraft(),
   )
   const [appliedTemplate, setAppliedTemplate] = useState<AgentTemplate | null>(
     initialTemplate ?? null,
   )
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
-  const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null)
-  const handleBuilderYamlChange = useCallback((value: string) => {
-    dispatchMode({ type: 'builder-yaml-changed', yaml: value })
-  }, [])
+  const savedProfile = useRef<SavedProfile | null>(null)
 
   if (project == null) return null
 
   function applyTemplate(template: AgentTemplate) {
-    setConfigDraft({ ...emptyBasicConfig, ...agentTemplateConfig(template, catalog, defaultPool) })
+    setConfigDraft({
+      ...createEmptyBasicConfigDraft(),
+      ...agentTemplateConfig(template, catalog, defaultPool),
+    })
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
     setAppliedTemplate(template)
   }
 
   const showBuilder = mode.mode === 'builder'
+  const builderYaml = serializeBasicConfigDraft(configDraft)
+  const editorYaml = mode.editorYaml ?? builderYaml
+  const yaml = showBuilder ? builderYaml : editorYaml
   const isSubmitting = draft.status.phase === 'submitting'
   const errorMessage = statusError(draft.status)
-  const yaml = showBuilder ? mode.builderYaml : mode.editorYaml
   const canSubmit = !isSubmitting && draft.name.trim() !== '' && yaml.trim() !== ''
 
   async function submit(action: SubmitAction) {
@@ -111,7 +117,7 @@ export function CreateAgentFormView({
     setPendingAction(action)
     const name = draft.name.trim()
     try {
-      let profile = savedProfile
+      let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
         const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
         if (profile?.name === name) {
@@ -125,7 +131,7 @@ export function CreateAgentFormView({
           const created = await createAgentProfile.mutateAsync({ name, config: config.id })
           profile = { name, yaml, profileId: created.id, configId: config.id }
         }
-        setSavedProfile(profile)
+        savedProfile.current = profile
       }
       if (action === 'launch') {
         const launch = await createAgent.mutateAsync({
@@ -208,18 +214,17 @@ export function CreateAgentFormView({
           <AgentConfigBasicForm
             orgId={activeOrg.id}
             projectId={projectId}
-            draft={configDraft}
-            onDraftChange={setConfigDraft}
-            onYamlChange={handleBuilderYamlChange}
+            value={configDraft}
+            onChange={setConfigDraft}
           />
         </div>
         {!showBuilder && (
           <AgentConfigYamlField
             id="agent-yaml"
-            value={mode.editorYaml}
+            value={editorYaml}
             className="h-[28rem]"
             onChange={(value) => {
-              dispatchMode({ type: 'editor-yaml-changed', yaml: value })
+              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml })
             }}
           />
         )}

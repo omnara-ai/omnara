@@ -4,14 +4,15 @@ import {
   SecretEnvOverlayEditor,
 } from '@/components/machines/MachineOverrideFields'
 import {
+  CheckboxField,
   Field,
-  FieldContent,
   FieldDescription,
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field'
 
 import {
+  derivedMemoryTotalCapPlaceholder,
   derivedTotalCapPlaceholder,
   type MachinePoolFormValues,
 } from './CreateMachinePoolDialogState'
@@ -33,24 +34,14 @@ export function CreateMachinePoolAdvancedSection({
   return (
     <OverridesCollapsible title="Advanced">
       <FieldGroup>
-        <Field orientation="horizontal">
-          <input
-            id="mpool-runtime-protection"
-            type="checkbox"
-            className="size-4"
-            checked={values.runtimeProtectionEnabled}
-            onChange={(event) => {
-              setValue('runtimeProtectionEnabled', event.target.checked)
-            }}
-          />
-          <FieldContent>
-            <FieldLabel htmlFor="mpool-runtime-protection">Runtime protection</FieldLabel>
-            <FieldDescription>
-              Delete a sandbox if its provider remains running after its Omnara daemon becomes
-              inactive.
-            </FieldDescription>
-          </FieldContent>
-        </Field>
+        <CheckboxField
+          label="Runtime protection"
+          description="Delete a sandbox if its provider remains running after its Omnara daemon becomes inactive."
+          checked={values.runtimeProtectionEnabled}
+          onChange={(event) => {
+            setValue('runtimeProtectionEnabled', event.target.checked)
+          }}
+        />
         <MachinePoolInputField
           id="mpool-cwd"
           label="Working directory"
@@ -129,38 +120,41 @@ export function CreateMachinePoolAdvancedSection({
               <>
                 <MachinePoolInputField
                   id="mpool-max-total-memory"
-                  label="Max total memory (MB)"
+                  label="Max total memory (GB)"
                   type="number"
                   min="0"
-                  step="1"
-                  value={values.maxTotalMemoryMb}
-                  placeholder={derivedTotalCapPlaceholder(values.memoryMb, values.maxMachines)}
+                  step="any"
+                  value={values.maxTotalMemoryGb}
+                  placeholder={derivedMemoryTotalCapPlaceholder(
+                    values.memoryGb,
+                    values.maxMachines,
+                  )}
                   onValueChange={(value) => {
-                    setValue('maxTotalMemoryMb', value)
+                    setValue('maxTotalMemoryGb', value)
                   }}
                 />
                 <MachinePoolInputField
                   id="mpool-min-machine-memory"
-                  label="Min machine memory (MB)"
+                  label="Min machine memory (GB)"
                   type="number"
                   min="0"
-                  step="1"
-                  value={values.minMachineMemoryMb}
+                  step="any"
+                  value={values.minMachineMemoryGb}
                   placeholder="0"
                   onValueChange={(value) => {
-                    setValue('minMachineMemoryMb', value)
+                    setValue('minMachineMemoryGb', value)
                   }}
                 />
                 <MachinePoolInputField
                   id="mpool-max-machine-memory"
-                  label="Max machine memory (MB)"
+                  label="Max machine memory (GB)"
                   type="number"
-                  min="1"
-                  step="1"
-                  value={values.maxMachineMemoryMb}
-                  placeholder={values.memoryMb || undefined}
+                  min="0"
+                  step="any"
+                  value={values.maxMachineMemoryGb}
+                  placeholder={values.memoryGb || undefined}
                   onValueChange={(value) => {
-                    setValue('maxMachineMemoryMb', value)
+                    setValue('maxMachineMemoryGb', value)
                   }}
                 />
               </>

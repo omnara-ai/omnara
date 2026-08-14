@@ -10,13 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field'
+import { CheckboxField, Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
@@ -88,27 +82,17 @@ export function EditMachinePoolDialog({
                 }}
               />
             </Field>
-            <Field orientation="horizontal">
-              <input
-                id="edit-mpool-runtime-protection"
-                type="checkbox"
-                className="size-4"
-                checked={state.runtimeProtectionEnabled}
-                onChange={(event) => {
-                  setState((prev) => ({
-                    ...prev,
-                    runtimeProtectionEnabled: event.target.checked,
-                  }))
-                }}
-              />
-              <FieldContent>
-                <FieldLabel htmlFor="edit-mpool-runtime-protection">Runtime protection</FieldLabel>
-                <FieldDescription>
-                  Delete a sandbox if its provider remains running after its Omnara daemon becomes
-                  inactive.
-                </FieldDescription>
-              </FieldContent>
-            </Field>
+            <CheckboxField
+              label="Runtime protection"
+              description="Delete a sandbox if its provider remains running after its Omnara daemon becomes inactive."
+              checked={state.runtimeProtectionEnabled}
+              onChange={(event) => {
+                setState((prev) => ({
+                  ...prev,
+                  runtimeProtectionEnabled: event.target.checked,
+                }))
+              }}
+            />
             <Field>
               <FieldLabel>Description</FieldLabel>
               <Input

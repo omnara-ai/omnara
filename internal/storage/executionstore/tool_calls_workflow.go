@@ -91,6 +91,11 @@ func appendToolResultRecordTx(
 		); err != nil {
 			return admittedToolCallResult{}, err
 		}
+		txNotifications.AddToolCallUpdate(
+			record.AgentID,
+			record.ID,
+			string(ToolCallStateCompleted),
+		)
 	}
 	return admitted, nil
 }

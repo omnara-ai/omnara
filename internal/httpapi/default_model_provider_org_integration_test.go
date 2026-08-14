@@ -152,7 +152,7 @@ func TestConcurrentOrganizationCreationCommitsOnlyOneFinalOwnedSlot(t *testing.T
 	)
 	store := integrationStoreForHandler(t, handler)
 	user, token := createOrgRouteUser(t, pool, store, "default-provider-final-slot")
-	for index := 0; index < 99; index++ {
+	for index := 0; index < identitystore.MaxOwnedOrgsPerUser-1; index++ {
 		if _, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 			UserID:         user.ID,
 			Name:           fmt.Sprintf("Existing Org %03d", index),
@@ -212,8 +212,12 @@ func TestConcurrentOrganizationCreationCommitsOnlyOneFinalOwnedSlot(t *testing.T
 	`, user.ID).Scan(&ownedCount); err != nil {
 		t.Fatalf("read final owned capacity: %v", err)
 	}
-	if ownedCount != 100 {
-		t.Fatalf("owned organizations=%d, want 100", ownedCount)
+	if ownedCount != identitystore.MaxOwnedOrgsPerUser {
+		t.Fatalf(
+			"owned organizations=%d, want %d",
+			ownedCount,
+			identitystore.MaxOwnedOrgsPerUser,
+		)
 	}
 }
 
@@ -257,7 +261,7 @@ func createOrgRouteUser(
 		t.Fatalf("create user: %v", err)
 	}
 	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(context.Background(), identitystore.CreatePersonalAccessTokenInput{
-		UserID: user.ID, Name: "org creation", TokenID: seed,
+		UserID: user.ID, Name: "org creation",
 	})
 	if err != nil {
 		t.Fatalf("create personal access token: %v", err)

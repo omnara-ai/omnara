@@ -84,7 +84,10 @@ export function AgentConfigYamlEditor({
   const onChangeRef = useRef(onChange)
   const initialValueRef = useRef(value)
   const initialReadOnlyRef = useRef(readOnly)
-  onChangeRef.current = onChange
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
 
   useEffect(() => {
     if (!editorElementRef.current) return

@@ -34,12 +34,14 @@ export default tseslint.config(
       'simple-import-sort/exports': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
-      'max-lines': ['warn', { max: 300, skipBlankLines: true, skipComments: true }],
+      'max-lines': ['error', { max: 500, skipBlankLines: true, skipComments: true }],
     },
   },
   {
-    files: ['apps/web/src/components/ui/**/*.{ts,tsx}'],
-    rules: { 'max-lines': 'off' },
+    files: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}'],
+    rules: {
+      'max-lines': ['error', { max: 800, skipBlankLines: true, skipComments: true }],
+    },
   },
   {
     files: ['apps/web/**/*.{ts,tsx}'],

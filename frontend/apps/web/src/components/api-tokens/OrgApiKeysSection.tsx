@@ -29,36 +29,65 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
       </div>
       <DataTable
         columns={[
-          { header: 'Name' },
-          { header: 'Token ID', className: 'w-44' },
-          { header: 'Role', className: 'w-24' },
-          { header: 'Created', className: 'w-44' },
-          { header: 'Last used', className: 'w-44' },
-          { header: 'Status', className: 'w-24' },
+          {
+            id: 'name',
+            header: 'Name',
+            cell: (apiKey) => <span className="font-medium">{apiKey.name}</span>,
+          },
+          {
+            id: 'token-id',
+            header: 'Token ID',
+            className: 'w-44',
+            cell: (apiKey) => (
+              <span className="text-muted-foreground font-mono text-xs">{apiKey.token_id}</span>
+            ),
+          },
+          {
+            id: 'role',
+            header: 'Role',
+            className: 'w-24',
+            cell: (apiKey) =>
+              apiKey.org_role ? (
+                <Badge variant="outline" className="capitalize">
+                  {apiKey.org_role}
+                </Badge>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              ),
+          },
+          {
+            id: 'created',
+            header: 'Created',
+            className: 'w-44',
+            cell: (apiKey) => (
+              <span className="text-muted-foreground">{formatDateTime(apiKey.created_at)}</span>
+            ),
+          },
+          {
+            id: 'last-used',
+            header: 'Last used',
+            className: 'w-44',
+            cell: (apiKey) => (
+              <span className="text-muted-foreground">
+                {formatDateTime(apiKey.last_used_at) ?? 'Never'}
+              </span>
+            ),
+          },
+          {
+            id: 'status',
+            header: 'Status',
+            className: 'w-24',
+            cell: (apiKey) =>
+              apiKey.revoked_at ? (
+                <Badge variant="outline">Revoked</Badge>
+              ) : (
+                <Badge variant="secondary">Active</Badge>
+              ),
+          },
         ]}
         data={paged.rows}
         pagination={paged.pagination}
         getRowId={(apiKey) => apiKey.id}
-        rowCells={(apiKey) => [
-          <span className="font-medium">{apiKey.name}</span>,
-          <span className="text-muted-foreground font-mono text-xs">{apiKey.token_id}</span>,
-          apiKey.org_role ? (
-            <Badge variant="outline" className="capitalize">
-              {apiKey.org_role}
-            </Badge>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          ),
-          <span className="text-muted-foreground">{formatDateTime(apiKey.created_at)}</span>,
-          <span className="text-muted-foreground">
-            {formatDateTime(apiKey.last_used_at) ?? 'Never'}
-          </span>,
-          apiKey.revoked_at ? (
-            <Badge variant="outline">Revoked</Badge>
-          ) : (
-            <Badge variant="secondary">Active</Badge>
-          ),
-        ]}
         rowExpanded={(apiKey) => <OrgApiKeyDetailPanel orgId={orgId} apiKey={apiKey} />}
         isPending={query.isPending}
         isError={query.isError}

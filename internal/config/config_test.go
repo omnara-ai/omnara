@@ -157,8 +157,9 @@ func TestLoadRequiresDatabaseURLWithoutInsecureDevOptIn(t *testing.T) {
 
 func TestValidateMigrateRequiresOnlyDatabaseAndMigrationsDir(t *testing.T) {
 	cfg := Config{
-		DatabaseURL:   "postgres://example/db",
-		MigrationsDir: "migrations",
+		DatabaseURL:      "postgres://example/db",
+		MigrationsDir:    "migrations",
+		MigrationTimeout: time.Minute,
 	}
 	if err := cfg.ValidateMigrate(); err != nil {
 		t.Fatalf("validate migrate: %v", err)
@@ -166,7 +167,7 @@ func TestValidateMigrateRequiresOnlyDatabaseAndMigrationsDir(t *testing.T) {
 }
 
 func TestValidateMigrateRequiresDatabaseURLOutsideDev(t *testing.T) {
-	cfg := Config{MigrationsDir: "migrations"}
+	cfg := Config{MigrationsDir: "migrations", MigrationTimeout: time.Minute}
 	if err := cfg.ValidateMigrate(); err == nil || !strings.Contains(err.Error(), "OMNARA_DATABASE_URL") {
 		t.Fatalf("expected database url error, got %v", err)
 	}
@@ -174,8 +175,9 @@ func TestValidateMigrateRequiresDatabaseURLOutsideDev(t *testing.T) {
 
 func TestValidateMigrateRequiresMigrationsDir(t *testing.T) {
 	cfg := Config{
-		DatabaseURL:   "postgres://example/db",
-		MigrationsDir: " ",
+		DatabaseURL:      "postgres://example/db",
+		MigrationsDir:    " ",
+		MigrationTimeout: time.Minute,
 	}
 	if err := cfg.ValidateMigrate(); err == nil || !strings.Contains(err.Error(), "OMNARA_MIGRATIONS_DIR") {
 		t.Fatalf("expected migrations dir error, got %v", err)
@@ -188,7 +190,10 @@ func TestLoadMigrateIgnoresUnrelatedConfiguration(t *testing.T) {
 	t.Setenv("OMNARA_WORKER_CAPACITY", "not-an-int")
 	t.Setenv("OMNARA_AUTH_CONNECTORS_JSON", "not-json")
 
-	cfg := LoadMigrate()
+	cfg, err := LoadMigrate()
+	if err != nil {
+		t.Fatalf("load migrate config: %v", err)
+	}
 	if err := cfg.ValidateMigrate(); err != nil {
 		t.Fatalf("validate migrate: %v", err)
 	}
@@ -198,6 +203,9 @@ func TestLoadMigrateIgnoresUnrelatedConfiguration(t *testing.T) {
 	if cfg.MigrationsDir != "/tmp/migrations" {
 		t.Fatalf("unexpected migrations dir: %q", cfg.MigrationsDir)
 	}
+	if cfg.MigrationTimeout != defaultMigrationTimeout {
+		t.Fatalf("migration timeout = %s, want %s", cfg.MigrationTimeout, defaultMigrationTimeout)
+	}
 }
 
 func TestLoadMigrateUsesInsecureDevDefaults(t *testing.T) {
@@ -205,12 +213,39 @@ func TestLoadMigrateUsesInsecureDevDefaults(t *testing.T) {
 	t.Setenv("OMNARA_MIGRATIONS_DIR", "")
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 
-	cfg := LoadMigrate()
+	cfg, err := LoadMigrate()
+	if err != nil {
+		t.Fatalf("load migrate config: %v", err)
+	}
 	if cfg.DatabaseURL != defaultDevDatabaseURL {
 		t.Fatalf("unexpected database url: %q", cfg.DatabaseURL)
 	}
 	if cfg.MigrationsDir != "migrations" {
 		t.Fatalf("unexpected migrations dir: %q", cfg.MigrationsDir)
+	}
+}
+
+func TestLoadMigrateParsesTimeout(t *testing.T) {
+	t.Setenv("OMNARA_DATABASE_URL", "postgres://example.invalid/omnara")
+	t.Setenv("OMNARA_MIGRATION_TIMEOUT", "12m30s")
+
+	cfg, err := LoadMigrate()
+	if err != nil {
+		t.Fatalf("load migrate config: %v", err)
+	}
+	if cfg.MigrationTimeout != 12*time.Minute+30*time.Second {
+		t.Fatalf("migration timeout = %s", cfg.MigrationTimeout)
+	}
+}
+
+func TestLoadMigrateRejectsInvalidTimeout(t *testing.T) {
+	for _, value := range []string{"invalid", "0s", "-1s"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_MIGRATION_TIMEOUT", value)
+			if _, err := LoadMigrate(); err == nil {
+				t.Fatal("expected migration timeout error")
+			}
+		})
 	}
 }
 

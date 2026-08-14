@@ -2,6 +2,7 @@ package modelenvelope
 
 import (
 	"errors"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -15,6 +16,32 @@ const (
 // by the model provider and normalized to the database's fractional precision.
 // The empty value means that the provider did not report a usable cost.
 type ProviderReportedCostUSD string
+
+// SumProviderReportedCostUSD adds raw provider decimal amounts exactly and
+// normalizes only the total to the database's fixed precision.
+func SumProviderReportedCostUSD(
+	rawCosts ...string,
+) (ProviderReportedCostUSD, bool) {
+	if len(rawCosts) == 0 {
+		return "", false
+	}
+	total := new(big.Rat)
+	for _, rawCost := range rawCosts {
+		// big.Rat accepts non-JSON forms such as fractions and signed values;
+		// the provider-cost parser is the grammar and range authority.
+		if _, ok := ParseProviderReportedCostUSD(rawCost); !ok {
+			return "", false
+		}
+		value, ok := new(big.Rat).SetString(rawCost)
+		if !ok {
+			return "", false
+		}
+		total.Add(total, value)
+	}
+	return ParseProviderReportedCostUSD(
+		total.FloatString(providerReportedCostUSDMaxFractionalDigits),
+	)
+}
 
 func ParseProviderReportedCostUSD(raw string) (ProviderReportedCostUSD, bool) {
 	if raw == "" || strings.TrimSpace(raw) != raw {

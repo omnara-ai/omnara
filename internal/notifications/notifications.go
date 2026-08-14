@@ -43,6 +43,14 @@ type AgentStreamDeltaSubscriber interface {
 	) (Subscription, error)
 }
 
+type AgentToolCallUpdateSubscriber interface {
+	SubscribeAgentToolCallUpdates(
+		ctx context.Context,
+		agentID uuid.UUID,
+		handler func(context.Context, ToolCallUpdatedCommitted),
+	) (Subscription, error)
+}
+
 type WorkerControlSubscriber interface {
 	SubscribeWorkerControl(
 		ctx context.Context,
@@ -57,6 +65,10 @@ type DaemonWakeupPublisher interface {
 
 type AgentEventWakeupPublisher interface {
 	PublishAgentEventWakeup(ctx context.Context, agentID uuid.UUID) error
+}
+
+type AgentToolCallUpdatePublisher interface {
+	PublishAgentToolCallUpdate(ctx context.Context, update ToolCallUpdatedCommitted) error
 }
 
 type WorkerControlPublisher interface {
@@ -105,6 +117,14 @@ type AgentEventCommitted struct {
 }
 
 func (AgentEventCommitted) postCommitIntent() {}
+
+type ToolCallUpdatedCommitted struct {
+	AgentID    uuid.UUID `json:"-"`
+	ToolCallID uuid.UUID `json:"tool_call_id"`
+	State      string    `json:"state"`
+}
+
+func (ToolCallUpdatedCommitted) postCommitIntent() {}
 
 type WorkerControlCommitted struct {
 	WorkerProcessID uuid.UUID
@@ -227,6 +247,7 @@ type TxNotifications struct {
 	processTerminationByMachine map[uuid.UUID]map[uuid.UUID]struct{}
 	runtimeEndedByID            map[uuid.UUID]DaemonRuntimeEndedCommitted
 	agentEventByID              map[uuid.UUID]struct{}
+	toolCallUpdates             []ToolCallUpdatedCommitted
 	workerControls              []WorkerControlCommitted
 }
 
@@ -281,6 +302,17 @@ func (n *TxNotifications) AddAgentEvent(agentID uuid.UUID) {
 	n.agentEventByID[agentID] = struct{}{}
 }
 
+func (n *TxNotifications) AddToolCallUpdate(agentID, toolCallID uuid.UUID, state string) {
+	if n == nil || agentID == uuid.Nil || toolCallID == uuid.Nil || state == "" {
+		return
+	}
+	n.toolCallUpdates = append(n.toolCallUpdates, ToolCallUpdatedCommitted{
+		AgentID:    agentID,
+		ToolCallID: toolCallID,
+		State:      state,
+	})
+}
+
 func (n *TxNotifications) AddWorkerControl(workerProcessID uuid.UUID, control WorkerControl) {
 	if n == nil || workerProcessID == uuid.Nil || control.Validate() != nil {
 		return
@@ -317,6 +349,9 @@ func (n *TxNotifications) Flush(ctx context.Context, publisher PostCommitPublish
 	}
 	for agentID := range n.agentEventByID {
 		publisher.PublishPostCommit(ctx, AgentEventCommitted{AgentID: agentID})
+	}
+	for _, intent := range n.toolCallUpdates {
+		publisher.PublishPostCommit(ctx, intent)
 	}
 	for _, intent := range n.workerControls {
 		publisher.PublishPostCommit(ctx, intent)

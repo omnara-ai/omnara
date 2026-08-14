@@ -7,6 +7,8 @@ import {
   type UpdateSecretRequest,
 } from '@omnara/sdk'
 import {
+  getProjectAvailableSecretOptions,
+  getSecretOptions,
   listProjectAvailableSecretsInfiniteOptions,
   listSecretGrantsInfiniteOptions,
   listSecretsInfiniteOptions,
@@ -15,6 +17,7 @@ import {
   type QueryClient,
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
 
@@ -99,6 +102,27 @@ export function useProjectAvailableSecrets(
   })
 }
 
+export function useSecret(orgID: string, secretID: string, options?: { enabled?: boolean }) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getSecretOptions({ path: { orgID, secretID }, client }),
+    enabled: (options?.enabled ?? true) && secretID !== '',
+  })
+}
+
+export function useProjectAvailableSecret(
+  orgID: string,
+  projectID: string,
+  secretID: string,
+  options?: { enabled?: boolean },
+) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getProjectAvailableSecretOptions({ path: { orgID, projectID, secretID }, client }),
+    enabled: (options?.enabled ?? true) && projectID !== '' && secretID !== '',
+  })
+}
+
 export function useSecretGrants(orgID: string, secretID: string, options?: SecretGrantListOptions) {
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListSecretGrantsData>(options)
@@ -113,24 +137,21 @@ export function useSecretGrants(orgID: string, secretID: string, options?: Secre
   })
 }
 
-const SECRET_LIST_OPERATIONS = new Set([
+const SECRET_QUERY_OPERATIONS = new Set([
+  'getSecret',
+  'getProjectAvailableSecret',
   'listSecrets',
   'listProjectAvailableSecrets',
   'listSecretGrants',
 ])
 
-/**
- * Invalidate every secret list in the org: ownership lists across all owner
- * filters plus every project's availability view. A secret created, deleted,
- * or (un)granted can surface in any of them.
- */
-function invalidateSecretLists(queryClient: QueryClient, orgID: string) {
+function invalidateSecretQueries(queryClient: QueryClient, orgID: string) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
       const entry = query.queryKey[0] as { _id?: string; path?: { orgID?: string } } | undefined
       return (
         entry?._id !== undefined &&
-        SECRET_LIST_OPERATIONS.has(entry._id) &&
+        SECRET_QUERY_OPERATIONS.has(entry._id) &&
         entry.path?.orgID === orgID
       )
     },
@@ -144,7 +165,7 @@ export function useCreateSecret(orgID: string) {
     { orgID },
     {
       onSuccess: async () => {
-        await invalidateSecretLists(queryClient, orgID)
+        await invalidateSecretQueries(queryClient, orgID)
       },
     },
   )
@@ -159,7 +180,7 @@ export function useDeleteSecret(orgID: string) {
       return data
     },
     onSuccess: async () => {
-      await invalidateSecretLists(queryClient, orgID)
+      await invalidateSecretQueries(queryClient, orgID)
     },
   })
 }
@@ -176,7 +197,7 @@ export function useDeleteSecretGrant(orgID: string) {
       return data
     },
     onSuccess: async () => {
-      await invalidateSecretLists(queryClient, orgID)
+      await invalidateSecretQueries(queryClient, orgID)
     },
   })
 }
@@ -190,7 +211,7 @@ export function useUpdateSecret(orgID: string) {
       return data
     },
     onSuccess: async () => {
-      await invalidateSecretLists(queryClient, orgID)
+      await invalidateSecretQueries(queryClient, orgID)
     },
   })
 }
@@ -208,7 +229,7 @@ export function useGrantSecretToProject(orgID: string) {
       return data
     },
     onSuccess: async () => {
-      await invalidateSecretLists(queryClient, orgID)
+      await invalidateSecretQueries(queryClient, orgID)
     },
   })
 }

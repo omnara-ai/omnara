@@ -20,8 +20,6 @@ const (
 
 	SkillAvailabilityDirect = "direct"
 	SkillAvailabilityGrant  = "grant"
-
-	MaxActiveSkillsPerOwner int64 = 1_000
 )
 
 type Access interface {

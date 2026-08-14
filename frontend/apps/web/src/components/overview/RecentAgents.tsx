@@ -45,21 +45,40 @@ export function RecentAgentsSection({
       {showProfiles ? (
         <DataTable
           columns={[
-            { header: 'Profile' },
-            { header: 'Project' },
-            { header: 'Model' },
-            { header: 'Updated', className: 'w-36' },
+            {
+              id: 'profile',
+              header: 'Profile',
+              cell: (profile) => <span className="font-medium">{profile.name}</span>,
+            },
+            {
+              id: 'project',
+              header: 'Project',
+              cell: (profile) => (
+                <span className="text-muted-foreground">
+                  {projectNames.get(profile.project_id) ?? '—'}
+                </span>
+              ),
+            },
+            {
+              id: 'model',
+              header: 'Model',
+              cell: (profile) => (
+                <span className="truncate">{profile.current_config.model.name}</span>
+              ),
+            },
+            {
+              id: 'updated',
+              header: 'Updated',
+              className: 'w-36',
+              cell: (profile) => (
+                <span className="text-muted-foreground">
+                  {formatLastActive(profile.updated_at)}
+                </span>
+              ),
+            },
           ]}
           data={profiles}
           getRowId={(profile) => profile.id}
-          rowCells={(profile) => [
-            <span className="font-medium">{profile.name}</span>,
-            <span className="text-muted-foreground">
-              {projectNames.get(profile.project_id) ?? '—'}
-            </span>,
-            <span className="truncate">{profile.current_config.model.name}</span>,
-            <span className="text-muted-foreground">{formatLastActive(profile.updated_at)}</span>,
-          ]}
           onRowClick={(profile) => {
             void navigate({
               to: '/projects/$projectId/agent-profiles/$profileId',
@@ -71,25 +90,43 @@ export function RecentAgentsSection({
       ) : (
         <DataTable
           columns={[
-            { header: 'Agent' },
-            { header: 'Project' },
-            { header: 'Model' },
-            { header: 'Last active', className: 'w-36' },
+            {
+              id: 'agent',
+              header: 'Agent',
+              cell: (agent) => (
+                <span className="font-medium">{agent.name === '' ? 'Agent' : agent.name}</span>
+              ),
+            },
+            {
+              id: 'project',
+              header: 'Project',
+              cell: (agent) => (
+                <span className="text-muted-foreground">
+                  {projectNames.get(agent.project_id) ?? '—'}
+                </span>
+              ),
+            },
+            {
+              id: 'model',
+              header: 'Model',
+              cell: (agent) =>
+                agent.model ? (
+                  <span className="truncate">{agent.model.name}</span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                ),
+            },
+            {
+              id: 'last-active',
+              header: 'Last active',
+              className: 'w-36',
+              cell: (agent) => (
+                <span className="text-muted-foreground">{formatLastActive(agent.updated_at)}</span>
+              ),
+            },
           ]}
           data={agents}
           getRowId={(agent) => agent.id}
-          rowCells={(agent) => [
-            <span className="font-medium">{agent.name || 'Agent'}</span>,
-            <span className="text-muted-foreground">
-              {projectNames.get(agent.project_id) ?? '—'}
-            </span>,
-            agent.model ? (
-              <span className="truncate">{agent.model.name}</span>
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            ),
-            <span className="text-muted-foreground">{formatLastActive(agent.updated_at)}</span>,
-          ]}
           onRowClick={(agent) => {
             void navigate({
               to: '/projects/$projectId/agents/$agentId',

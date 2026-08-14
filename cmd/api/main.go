@@ -78,6 +78,7 @@ func main() {
 	db, err := storage.Open(
 		context.Background(),
 		cfg.DatabaseURL,
+		storage.WithDefaultApplicationName("omnara-api"),
 		storage.WithQueryTracer(metrics.NewDBRecorder(metricSet, metrics.SubsystemDB)),
 	)
 	if err != nil {
@@ -107,6 +108,7 @@ func main() {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     redisBus,
 			AgentEventWakeups: redisBus,
+			ToolCallUpdates:   redisBus,
 			WorkerControls:    redisBus,
 		},
 		presenceStore,
@@ -178,7 +180,7 @@ func main() {
 	defer stop()
 	ctx, cancel := context.WithCancel(signalCtx)
 	defer cancel()
-	metricsErr := metrics.Serve(ctx, log, cfg.APIMetricsAddr, metricSet, metrics.ReadyAll(store.Ping, redisClient.Ping))
+	metricsErr := metrics.Serve(ctx, log, cfg.APIMetricsAddr, metricSet, metrics.ReadyAll(db.Ping, redisClient.Ping))
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -250,7 +252,11 @@ func runDefaultReconciliation(
 	if len(cfg.DefaultMachinePools) == 0 && cfg.DefaultModelProvider == nil {
 		return errors.New("no default templates are configured")
 	}
-	db, err := storage.Open(ctx, cfg.DatabaseURL)
+	db, err := storage.Open(
+		ctx,
+		cfg.DatabaseURL,
+		storage.WithDefaultApplicationName("omnara-api-reconcile-defaults"),
+	)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -366,6 +372,7 @@ func apiOptions(
 		httpapi.WithDaemonNotifications(redisBus, presence, replicaID),
 		httpapi.WithDaemonReplyPublisher(redisBus),
 		httpapi.WithAgentEventWakeupSubscriber(redisBus),
+		httpapi.WithAgentToolCallUpdateSubscriber(redisBus),
 		httpapi.WithAgentStreamDeltaSubscriber(redisBus),
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),

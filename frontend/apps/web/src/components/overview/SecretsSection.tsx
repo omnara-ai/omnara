@@ -87,28 +87,45 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Name' },
-            { header: 'Type' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (secret) => (
+                <span className="inline-flex max-w-full items-center gap-2">
+                  <span className="truncate font-medium">{secret.name}</span>
+                  {secret.management_kind === 'cluster' && (
+                    <Badge variant="secondary">cluster</Badge>
+                  )}
+                </span>
+              ),
+            },
+            {
+              id: 'type',
+              header: 'Type',
+              cell: (secret) => (
+                <span className="text-muted-foreground">{secretSubtitle(secret)}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (secret) => (
+                <SecretRowActions
+                  orgId={activeOrg.id}
+                  secret={secret}
+                  canDelete={canManage}
+                  canEdit={canManage}
+                  canGrant={canManage}
+                />
+              ),
+            },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(secret) => secret.id}
-          rowCells={(secret) => [
-            <span className="inline-flex max-w-full items-center gap-2">
-              <span className="truncate font-medium">{secret.name}</span>
-              {secret.management_kind === 'cluster' && <Badge variant="secondary">cluster</Badge>}
-            </span>,
-            <span className="text-muted-foreground">{secretSubtitle(secret)}</span>,
-            <SecretRowActions
-              orgId={activeOrg.id}
-              secret={secret}
-              canDelete={canManage}
-              canEdit={canManage}
-              canGrant={canManage}
-            />,
-          ]}
           rowExpanded={(secret) => (
             <DetailList
               items={[

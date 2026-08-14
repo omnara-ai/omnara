@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -17,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/skills"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -196,14 +196,18 @@ func (s *Server) authenticateBearerToken(
 	ctx context.Context,
 	token string,
 ) (identitystore.PrincipalRecord, logent.TokenKind, error) {
-	switch {
-	case strings.HasPrefix(token, identitystore.PersonalAccessTokenPlaintextPrefix):
+	kind, err := bearertoken.Parse(token)
+	if err != nil {
+		return identitystore.PrincipalRecord{}, logent.TokenKindUnknown, storeerr.ErrUnauthorized
+	}
+	switch kind {
+	case bearertoken.KindPersonalAccess:
 		principal, err := s.store.Identity().AuthenticatePersonalAccessToken(ctx, token)
 		return principal, logent.TokenKindPersonalAccess, err
-	case strings.HasPrefix(token, identitystore.OrgAPIKeyPlaintextPrefix):
+	case bearertoken.KindOrganization:
 		principal, err := s.store.Identity().AuthenticateOrgAPIKey(ctx, token)
 		return principal, logent.TokenKindOrgAPIKey, err
-	case strings.HasPrefix(token, executionstore.MachineDaemonTokenPlaintextPrefix):
+	case bearertoken.KindDaemon:
 		principal, err := s.store.Execution().AuthenticateMachineDaemonToken(ctx, token)
 		return principal, logent.TokenKindMachineDaemon, err
 	default:

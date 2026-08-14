@@ -5,21 +5,21 @@ export function MachinePoolResourceFields({
   provider,
   location,
   cpu,
-  memoryMb,
+  memoryGb,
   maxMachines,
   onLocationChange,
   onCpuChange,
-  onMemoryMbChange,
+  onMemoryGbChange,
   onMaxMachinesChange,
 }: {
   provider: MachinePoolProvider
   location: string
   cpu: string
-  memoryMb: string
+  memoryGb: string
   maxMachines: string
   onLocationChange: (value: string) => void
   onCpuChange: (value: string) => void
-  onMemoryMbChange: (value: string) => void
+  onMemoryGbChange: (value: string) => void
   onMaxMachinesChange: (value: string) => void
 }) {
   const definition = machinePoolProviderDefinitions[provider]
@@ -56,15 +56,15 @@ export function MachinePoolResourceFields({
             id="mpool-memory"
             label={
               definition.resources.memoryMb === 'provider-resolved'
-                ? 'Max memory MB / machine'
-                : 'Memory MB / machine'
+                ? 'Max memory (GB) per machine'
+                : 'Memory (GB) per machine'
             }
             type="number"
-            min="1"
-            step="1"
+            min="0"
+            step="any"
             required
-            value={memoryMb}
-            onValueChange={onMemoryMbChange}
+            value={memoryGb}
+            onValueChange={onMemoryGbChange}
           />
         )}
       </div>

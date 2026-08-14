@@ -253,6 +253,17 @@ func (p *recordingPostCommitPublisher) runtimeEndedCount(runtimeID ID) int {
 	return count
 }
 
+func (p *recordingPostCommitPublisher) toolCallStates(toolCallID ID) []string {
+	states := []string{}
+	for _, intent := range p.intents {
+		update, ok := intent.(notifications.ToolCallUpdatedCommitted)
+		if ok && update.ToolCallID == toolCallID {
+			states = append(states, update.State)
+		}
+	}
+	return states
+}
+
 func (p *recordingPostCommitPublisher) hasProcessTermination(machineID, processID ID) bool {
 	for _, intent := range p.intents {
 		termination, ok := intent.(notifications.DaemonProcessTerminationCommitted)
@@ -425,7 +436,6 @@ func newProcessDaemonFixtureInStore(
 			OrgID:     testOrgID,
 			MachineID: createdMachine.ID,
 			Name:      "daemon",
-			Token:     "token-" + testName,
 		},
 	)
 	if err != nil {
@@ -437,7 +447,7 @@ func newProcessDaemonFixtureInStore(
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            createdMachine.OrgID,
 			MachineID:        createdMachine.ID,
-			DaemonTokenID:    token.ID,
+			DaemonTokenID:    token.Record.ID,
 			DaemonInstanceID: daemonID,
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
@@ -478,7 +488,7 @@ func newProcessDaemonFixtureInStore(
 		AgentID:   agentID,
 		MachineID: machine.ID,
 		BindingID: binding.ID,
-		TokenID:   token.ID,
+		TokenID:   token.Record.ID,
 		RuntimeID: runtime.ID,
 		DaemonID:  daemonID,
 		UserID:    userID,

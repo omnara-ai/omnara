@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -72,6 +70,70 @@ func (s strictOpenAPIServer) createMachine(
 		return openapi.CreateMachine201JSONResponse(response), nil
 	}
 	return openapi.CreateMachine200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) ConnectBYOMachine(
+	ctx context.Context,
+	request openapi.ConnectBYOMachineRequestObject,
+) (openapi.ConnectBYOMachineResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	principal, ok := principalFromContext(ctx)
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
+		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	}
+	projectIDs := make([]storage.ID, 0, len(request.Body.ProjectIds))
+	for _, projectID := range request.Body.ProjectIds {
+		parsed, ok := parseOpenAPIPublicID(publicid.KindProject, projectID)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid project_id")
+		}
+		if scopeErr := s.server.authorizeProject(
+			ctx,
+			org.ID,
+			parsed,
+			identitystore.ProjectActionAccessManage,
+		); scopeErr != nil {
+			return nil, *scopeErr
+		}
+		projectIDs = append(projectIDs, parsed)
+	}
+	result, err := s.server.store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
+		OrgID:       org.ID,
+		DisplayName: request.Body.DisplayName,
+		ProjectIDs:  projectIDs,
+		TokenName:   "web-console",
+	})
+	if err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
+	machine, err := machineResponse(result.Machine)
+	if err != nil {
+		return nil, err
+	}
+	tokenRecord, err := machineDaemonTokenResponse(result.DaemonToken.Record)
+	if err != nil {
+		return nil, err
+	}
+	grants := make([]openapi.ProjectMachineGrant, 0, len(result.ProjectGrants))
+	for _, record := range result.ProjectGrants {
+		grant, err := projectMachineGrantResponse(record)
+		if err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return openapi.ConnectBYOMachine201JSONResponse(openapi.ConnectBYOMachineResponse{
+		Machine:       machine,
+		Token:         result.DaemonToken.Token,
+		TokenRecord:   tokenRecord,
+		ProjectGrants: grants,
+	}), nil
 }
 
 func (s strictOpenAPIServer) UpdateMachine(
@@ -435,14 +497,6 @@ func machineDaemonTokenResponse(record executionstore.MachineDaemonTokenRecord) 
 	}, nil
 }
 
-func newDaemonToken() (string, error) {
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return executionstore.MachineDaemonTokenPlaintextPrefix + hex.EncodeToString(b[:]), nil
-}
-
 func (s strictOpenAPIServer) ListBYOMachineDaemonTokens(
 	ctx context.Context,
 	request openapi.ListBYOMachineDaemonTokensRequestObject,
@@ -526,30 +580,25 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 		name = *body.Name
 	}
 	metadata := body.Metadata
-	token, err := newDaemonToken()
-	if err != nil {
-		return nil, err
-	}
-	record, err := s.server.store.Execution().CreateBYOMachineDaemonToken(
+	created, err := s.server.store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     machine.OrgID,
 			MachineID: machine.ID,
 			Name:      name,
-			Token:     token,
 			Metadata:  metadata,
 		},
 	)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	tokenRecord, err := machineDaemonTokenResponse(record)
+	tokenRecord, err := machineDaemonTokenResponse(created.Record)
 	if err != nil {
 		return nil, err
 	}
 	return openapi.CreateBYOMachineDaemonToken201JSONResponse(
 		openapi.CreateMachineDaemonTokenResponse{
-			Token:       token,
+			Token:       created.Token,
 			TokenRecord: tokenRecord,
 		},
 	), nil

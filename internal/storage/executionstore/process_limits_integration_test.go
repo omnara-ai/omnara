@@ -20,8 +20,20 @@ func TestAgentProcessLimitSerializesConcurrentStartsAndPreservesReplay(
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "agent_process_limit")
+	const processLimit = 2
+	if _, err := fixture.Store.pool.Exec(
+		ctx,
+		`INSERT INTO org_resource_limit_overrides (
+    org_id,
+    max_non_terminal_processes_per_agent
+) VALUES ($1, $2)`,
+		fixture.OrgID,
+		processLimit,
+	); err != nil {
+		t.Fatalf("set process limit override: %v", err)
+	}
 
-	toolCallItems := make([]processToolCallBatchItem, executionstore.MaxNonTerminalProcessesPerAgent+1)
+	toolCallItems := make([]processToolCallBatchItem, processLimit+1)
 	for index := range toolCallItems {
 		toolCallItems[index] = builtInProcessToolCallBatchItem(
 			fmt.Sprintf("agent_process_limit_%d", index),
@@ -55,7 +67,7 @@ func TestAgentProcessLimitSerializesConcurrentStartsAndPreservesReplay(
 			},
 		)
 	}
-	processes := make([]executionstore.ProcessRecord, executionstore.MaxNonTerminalProcessesPerAgent-1)
+	processes := make([]executionstore.ProcessRecord, processLimit-1)
 	for index := range processes {
 		processes[index], err = startProcess(index)
 		if err != nil {
@@ -72,7 +84,7 @@ func TestAgentProcessLimitSerializesConcurrentStartsAndPreservesReplay(
 	start := make(chan struct{})
 	var ready sync.WaitGroup
 	ready.Add(2)
-	for index := executionstore.MaxNonTerminalProcessesPerAgent - 1; index <= executionstore.MaxNonTerminalProcessesPerAgent; index++ {
+	for index := processLimit - 1; index <= processLimit; index++ {
 		go func() {
 			ready.Done()
 			<-start

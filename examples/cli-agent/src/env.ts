@@ -31,9 +31,6 @@ export function loadEnv(): CliEnv {
   if (apiKey === '') {
     throw new Error('OMNARA_API_KEY is required; copy .env.example to .env and set a personal access token')
   }
-  if (!apiKey.startsWith('omnara_pat_')) {
-    throw new Error('OMNARA_API_KEY must be a personal access token ("omnara_pat_...")')
-  }
   const orgId = process.env.OMNARA_ORG_ID?.trim() || undefined
   const apiUrl = (process.env.OMNARA_API_URL?.trim() || 'http://localhost:8080').replace(/\/+$/, '')
   const omnaradBinary = process.env.OMNARAD_BINARY?.trim() || undefined

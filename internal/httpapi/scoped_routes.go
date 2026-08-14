@@ -101,48 +101,9 @@ func (s *Server) projectScope(
 		err := apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 		return identitystore.OrgRecord{}, identitystore.ProjectRecord{}, &err
 	}
-	principal, ok := principalFromContext(ctx)
-	if !ok || !identitystore.IsAccountPrincipal(principal) {
-		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-		return identitystore.OrgRecord{}, identitystore.ProjectRecord{}, &err
+	if scopeErr := s.authorizeProject(ctx, orgID, projectID, action); scopeErr != nil {
+		return identitystore.OrgRecord{}, identitystore.ProjectRecord{}, scopeErr
 	}
-	authInput := identitystore.AuthorizeProjectInput{
-		Principal: principal,
-		OrgID:     orgID,
-		ProjectID: projectID,
-		Action:    action,
-	}
-	allowed, err := s.store.Identity().AuthorizeProject(ctx, authInput)
-	if err != nil {
-		logent.AuthorizationCheckFailed(ctx, err)
-		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-		return identitystore.OrgRecord{}, identitystore.ProjectRecord{}, &err
-	}
-	if !allowed {
-		visible := false
-		if action != identitystore.ProjectActionRead {
-			visible, err = s.store.Identity().AuthorizeProject(ctx, identitystore.AuthorizeProjectInput{
-				Principal: principal,
-				OrgID:     orgID,
-				ProjectID: projectID,
-				Action:    identitystore.ProjectActionRead,
-			})
-			if err != nil {
-				logent.AuthorizationCheckFailed(ctx, err)
-				err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-				return identitystore.OrgRecord{}, identitystore.ProjectRecord{}, &err
-			}
-		}
-		if visible {
-			logent.ProjectAuthorization(ctx, authInput, logent.ProjectAuthForbidden)
-			err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-			return identitystore.OrgRecord{}, identitystore.ProjectRecord{}, &err
-		}
-		logent.ProjectAuthorization(ctx, authInput, logent.ProjectAuthNotVisible)
-		err := apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-		return identitystore.OrgRecord{}, identitystore.ProjectRecord{}, &err
-	}
-	logent.ProjectAuthorization(ctx, authInput, logent.ProjectAuthAllowed)
 	org, err := s.store.Identity().GetOrg(ctx, orgID)
 	if err != nil {
 		apiErr := apierror.OrgScoped(err)
@@ -156,6 +117,61 @@ func (s *Server) projectScope(
 	logent.Org(ctx, org)
 	logent.Project(ctx, project)
 	return org, project, nil
+}
+
+func (s *Server) authorizeProject(
+	ctx context.Context,
+	orgID storage.ID,
+	projectID storage.ID,
+	action string,
+) *apierror.ResponseError {
+	if s.store == nil {
+		err := apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
+		return &err
+	}
+	principal, ok := principalFromContext(ctx)
+	if !ok || !identitystore.IsAccountPrincipal(principal) {
+		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+		return &err
+	}
+	authInput := identitystore.AuthorizeProjectInput{
+		Principal: principal,
+		OrgID:     orgID,
+		ProjectID: projectID,
+		Action:    action,
+	}
+	allowed, err := s.store.Identity().AuthorizeProject(ctx, authInput)
+	if err != nil {
+		logent.AuthorizationCheckFailed(ctx, err)
+		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+		return &err
+	}
+	if !allowed {
+		visible := false
+		if action != identitystore.ProjectActionRead {
+			visible, err = s.store.Identity().AuthorizeProject(ctx, identitystore.AuthorizeProjectInput{
+				Principal: principal,
+				OrgID:     orgID,
+				ProjectID: projectID,
+				Action:    identitystore.ProjectActionRead,
+			})
+			if err != nil {
+				logent.AuthorizationCheckFailed(ctx, err)
+				err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+				return &err
+			}
+		}
+		if visible {
+			logent.ProjectAuthorization(ctx, authInput, logent.ProjectAuthForbidden)
+			err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+			return &err
+		}
+		logent.ProjectAuthorization(ctx, authInput, logent.ProjectAuthNotVisible)
+		err := apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		return &err
+	}
+	logent.ProjectAuthorization(ctx, authInput, logent.ProjectAuthAllowed)
+	return nil
 }
 
 func (s *Server) orgManageAllowed(ctx context.Context, orgID storage.ID) bool {

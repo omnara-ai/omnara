@@ -84,11 +84,7 @@ func (s *Store) AuthenticateBrowserSession(
 	if err != nil {
 		return PrincipalRecord{}, "", fmt.Errorf("authenticate browser session: %w", err)
 	}
-	return PrincipalRecord{
-		Type:             row.PrincipalType,
-		ID:               row.UserID,
-		BrowserSessionID: row.BrowserSessionID,
-	}, row.CsrfTokenHash, nil
+	return NewBrowserSessionPrincipal(row.UserID, row.BrowserSessionID), row.CsrfTokenHash, nil
 }
 
 func (s *Store) RevokeBrowserSession(ctx context.Context, token string) error {

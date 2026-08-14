@@ -1,4 +1,4 @@
-import type { ModelProviderConfig } from '@omnara/sdk'
+import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
 
 export interface ConfiguredModelFormValues {
   /** Provider id; '' falls back to the first available provider. */
@@ -19,6 +19,63 @@ export const configuredModelFormDefaults: ConfiguredModelFormValues = {
   maxOutputTokens: '',
   defaultMaxOutputTokens: '',
   projectGrantIds: [],
+}
+
+type DiscoveredModelPrefillField =
+  | 'name'
+  | 'providerModelSlug'
+  | 'contextWindowTokens'
+  | 'maxOutputTokens'
+  | 'defaultMaxOutputTokens'
+
+function isGeneratedName(providerName: string, values: ConfiguredModelFormValues) {
+  return values.name === `${providerName} - ${values.providerModelSlug}`
+}
+
+export function discoveredModelPrefill(
+  providerName: string | undefined,
+  values: ConfiguredModelFormValues,
+  model: DiscoveredProviderModel,
+): [DiscoveredModelPrefillField, string][] {
+  const updates: [DiscoveredModelPrefillField, string][] = [['providerModelSlug', model.slug]]
+  if (
+    providerName !== undefined &&
+    (values.name.trim() === '' || isGeneratedName(providerName, values))
+  ) {
+    updates.push(['name', `${providerName} - ${model.slug}`])
+  }
+  updates.push([
+    'contextWindowTokens',
+    model.context_window_tokens === undefined ? '' : String(model.context_window_tokens),
+  ])
+  updates.push([
+    'maxOutputTokens',
+    model.max_output_tokens === undefined ? '' : String(model.max_output_tokens),
+  ])
+  if (
+    model.max_output_tokens !== undefined &&
+    values.defaultMaxOutputTokens !== '' &&
+    Number(values.defaultMaxOutputTokens) > model.max_output_tokens
+  ) {
+    updates.push(['defaultMaxOutputTokens', ''])
+  }
+  return updates
+}
+
+export function providerChangeReset(
+  previousProviderName: string | undefined,
+  values: ConfiguredModelFormValues,
+): [DiscoveredModelPrefillField, string][] {
+  const updates: [DiscoveredModelPrefillField, string][] = [
+    ['providerModelSlug', ''],
+    ['contextWindowTokens', ''],
+    ['maxOutputTokens', ''],
+    ['defaultMaxOutputTokens', ''],
+  ]
+  if (previousProviderName !== undefined && isGeneratedName(previousProviderName, values)) {
+    updates.push(['name', ''])
+  }
+  return updates
 }
 
 export function configuredModelFormValid(

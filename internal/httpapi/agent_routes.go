@@ -1111,7 +1111,7 @@ func (s *Server) agentConfigResponseFromRecord(
 		CurrentRevisionId:      configuredModelRevisionID,
 		ProviderModelSlug:      revision.ProviderModelSlug,
 		ApiFormat:              openapi.ModelAPIFormat(revision.APIFormat),
-		ApiVariant:             openapi.ModelProviderAPIVariant(revision.APIVariant),
+		ApiVariant:             string(revision.APIVariant),
 		ContextWindowTokens:    effectiveModel.ContextWindowTokens,
 		MaxOutputTokens:        effectiveModel.MaxOutputTokens,
 		DefaultMaxOutputTokens: nullableFromPtr(effectiveModel.DefaultMaxOutputTokens),

@@ -57,28 +57,41 @@ export function ProjectModelGrantsTable({
       </SearchHeader>
       <DataTable
         columns={[
-          { header: 'Model' },
-          { header: 'Provider' },
-          { header: '', className: 'w-14', isActions: true },
+          {
+            id: 'model',
+            header: 'Model',
+            cell: (item) => <span className="font-medium">{item.model.name}</span>,
+          },
+          {
+            id: 'provider',
+            header: 'Provider',
+            cell: (item) => (
+              <span className="text-muted-foreground">{item.model.provider_config || '—'}</span>
+            ),
+          },
+          {
+            id: 'actions',
+            header: '',
+            className: 'w-14',
+            isActions: true,
+            cell: (item) => (
+              <ResourceRowActions
+                deleteLabel="Delete grant"
+                onEdit={() => {
+                  setEditing(item)
+                }}
+                onDelete={() => {
+                  if (!window.confirm('Delete this model grant?')) return
+                  deleteGrant.mutate(item.grant.id)
+                }}
+              />
+            ),
+          },
         ]}
         data={grantsPaged.rows}
         isFiltered={list.isFiltering}
         pagination={grantsPaged.pagination}
         getRowId={(item) => item.grant.id}
-        rowCells={(item) => [
-          <span className="font-medium">{item.model.name}</span>,
-          <span className="text-muted-foreground">{item.model.provider_config || '—'}</span>,
-          <ResourceRowActions
-            deleteLabel="Delete grant"
-            onEdit={() => {
-              setEditing(item)
-            }}
-            onDelete={() => {
-              if (!window.confirm('Delete this model grant?')) return
-              deleteGrant.mutate(item.grant.id)
-            }}
-          />,
-        ]}
         rowExpanded={(item) => (
           <DetailList
             items={[

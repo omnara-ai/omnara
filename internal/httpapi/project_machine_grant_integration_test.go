@@ -46,7 +46,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	}
 	viewerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: viewer.ID, Name: "viewer", TokenID: "machine-grant-viewer"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: viewer.ID, Name: "viewer"},
 	)
 	if err != nil {
 		t.Fatalf("create viewer token: %v", err)
@@ -66,7 +66,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	}
 	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: member.ID, Name: "member", TokenID: "machine-grant-member"},
+		identitystore.CreatePersonalAccessTokenInput{UserID: member.ID, Name: "member"},
 	)
 	if err != nil {
 		t.Fatalf("create member token: %v", err)
@@ -81,9 +81,8 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	outsiderPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  outsider.ID,
-			Name:    "outsider",
-			TokenID: "machine-grant-outsider",
+			UserID: outsider.ID,
+			Name:   "outsider",
 		},
 	)
 	if err != nil {

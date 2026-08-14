@@ -1,0 +1,20 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "ignore": {
+    "overrides": [
+      {
+        "files": ["src/domains/scoped-mutation.ts"],
+        "rules": ["react-doctor/query-mutation-missing-invalidation"]
+      },
+      {
+        "files": ["src/components/agents/AgentConfigYamlEditor.tsx"],
+        "rules": ["react-doctor/prefer-dynamic-import"]
+      },
+      {
+        "files": ["src/components/active-org/ActiveOrgProvider.tsx"],
+        "rules": ["react-doctor/no-event-handler"]
+      }
+    ]
+  },
+  "projects": ["packages/react", "apps/web"]
+}

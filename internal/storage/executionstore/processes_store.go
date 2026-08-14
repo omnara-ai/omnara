@@ -11,8 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const MaxNonTerminalProcessesPerAgent = 32
-
 type DaemonProcessOffer struct {
 	Process          ProcessRecord     `json:"process"`
 	Env              map[string]string `json:"env"`
@@ -123,6 +121,10 @@ func (t *toolCallTransaction) startProcess(
 	if err := t.lockForMutation(ctx); err != nil {
 		return ProcessRecord{}, err
 	}
+	limits, err := resolveResourceLimits(ctx, t.q, executionConfig.OrgID)
+	if err != nil {
+		return ProcessRecord{}, err
+	}
 	nonTerminalProcesses, err := t.q.CountNonTerminalProcessesForAgent(
 		ctx,
 		dbsqlc.CountNonTerminalProcessesForAgentParams{
@@ -133,8 +135,12 @@ func (t *toolCallTransaction) startProcess(
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("count non-terminal agent processes: %w", err)
 	}
-	if nonTerminalProcesses >= MaxNonTerminalProcessesPerAgent {
-		return ProcessRecord{}, storeerr.ErrAgentProcessLimitReached
+	if nonTerminalProcesses >= limits.MaxNonTerminalProcessesPerAgent {
+		return ProcessRecord{}, fmt.Errorf(
+			"non-terminal processes limit of %d reached: %w",
+			limits.MaxNonTerminalProcessesPerAgent,
+			storeerr.ErrAgentProcessLimitReached,
+		)
 	}
 	row, err := t.q.InsertProcess(ctx, dbsqlc.InsertProcessParams{
 		ToolCallID:            toolCallID,

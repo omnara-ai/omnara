@@ -12,7 +12,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -46,7 +49,7 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	machineID := machine["id"].(string)
-	requestJSONWithHeaders(
+	patMint := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
@@ -56,6 +59,9 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
+	if err := bearertoken.Validate(patMint["token"].(string), bearertoken.KindDaemon); err != nil {
+		t.Fatalf("PAT-minted daemon token is not canonical: %v", err)
+	}
 	adminKey := requestJSONWithHeaders(
 		t,
 		handler,
@@ -77,8 +83,8 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(adminKeyToken),
 	)
-	if orgKeyMint["token"].(string) == "" {
-		t.Fatal("org key minted daemon token missing plaintext token")
+	if err := bearertoken.Validate(orgKeyMint["token"].(string), bearertoken.KindDaemon); err != nil {
+		t.Fatalf("org-key-minted daemon token is not canonical: %v", err)
 	}
 	tokenResponse := requestJSONWithHeaders(
 		t,
@@ -91,6 +97,9 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		project.adminBrowserAuthHeaders(),
 	)
 	token := tokenResponse["token"].(string)
+	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
+		t.Fatalf("browser-minted daemon token is not canonical: %v", err)
+	}
 	tokenID := tokenResponse["token_record"].(map[string]any)["id"].(string)
 
 	requestJSONWithHeaders(
@@ -103,6 +112,175 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusForbidden,
 		authHeaders(token),
 	)
+}
+
+func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "connect-byo-machine")
+	path := "/api/v1/orgs/" + project.OrgID + "/machines/connect"
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		`{"display_name":"PAT Connection","project_ids":[]}`,
+		"",
+		http.StatusForbidden,
+		authHeaders(project.AdminToken),
+	)
+	response := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		`{"display_name":"Connected Through API","project_ids":["`+project.ProjectID+`"]}`,
+		"",
+		http.StatusCreated,
+		project.adminBrowserAuthHeaders(),
+	)
+	machine := response["machine"].(map[string]any)
+	machineID := machine["id"].(string)
+	if machine["display_name"] != "Connected Through API" || machine["source_kind"] != "byo" {
+		t.Fatalf("unexpected connected machine: %+v", machine)
+	}
+	token := response["token"].(string)
+	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
+		t.Fatalf("connected machine token is not canonical: %v", err)
+	}
+	tokenRecord := response["token_record"].(map[string]any)
+	if tokenRecord["machine_id"] != machineID || tokenRecord["name"] != "web-console" {
+		t.Fatalf("unexpected token record: %+v", tokenRecord)
+	}
+	grants := response["project_grants"].([]any)
+	if len(grants) != 1 {
+		t.Fatalf("project grants = %d, want 1", len(grants))
+	}
+	grant := grants[0].(map[string]any)
+	if grant["project_id"] != project.ProjectID || grant["machine_id"] != machineID {
+		t.Fatalf("unexpected project grant: %+v", grant)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		`{"display_name":"Connected Through API","project_ids":[]}`,
+		"",
+		http.StatusConflict,
+		project.adminBrowserAuthHeaders(),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		`{"display_name":"   ","project_ids":[]}`,
+		"",
+		http.StatusBadRequest,
+		project.adminBrowserAuthHeaders(),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		`{"display_name":"Duplicate Project Connection","project_ids":["`+project.ProjectID+`","`+project.ProjectID+`"]}`,
+		"",
+		http.StatusBadRequest,
+		project.adminBrowserAuthHeaders(),
+	)
+	missingProjectID, err := publicid.Encode(publicid.KindProject, httpTestID("missing-connect-project"))
+	if err != nil {
+		t.Fatalf("encode missing project ID: %v", err)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		`{"display_name":"Missing Project Connection","project_ids":["`+missingProjectID+`"]}`,
+		"",
+		http.StatusNotFound,
+		project.adminBrowserAuthHeaders(),
+	)
+	var missingMachineCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM machines WHERE org_id = $1 AND display_name = 'Missing Project Connection'
+`, project.OrgUUID).Scan(&missingMachineCount); err != nil {
+		t.Fatalf("count missing-project machines: %v", err)
+	}
+	if missingMachineCount != 0 {
+		t.Fatalf("missing-project machine count = %d, want 0", missingMachineCount)
+	}
+}
+
+func TestConnectBYOMachineAuthorizesEveryProjectGrant(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "connect-byo-project-authorization")
+	projectDeveloper, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
+		Email:       "connect-byo-project-developer@example.com",
+		DisplayName: "Project Developer",
+	})
+	if err != nil {
+		t.Fatalf("create project developer: %v", err)
+	}
+	if _, err := project.Store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+		OrgID:  project.OrgUUID,
+		UserID: projectDeveloper.ID,
+		Role:   authz.OrgRoleMember,
+	}); err != nil {
+		t.Fatalf("add project developer org membership: %v", err)
+	}
+	if _, err := project.Store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
+		OrgID:     project.OrgUUID,
+		ProjectID: project.ProjectUUID,
+		UserID:    projectDeveloper.ID,
+		Role:      authz.ProjectRoleDeveloper,
+	}); err != nil {
+		t.Fatalf("add project developer membership: %v", err)
+	}
+	org, err := project.Store.Identity().GetOrg(ctx, project.OrgUUID)
+	if err != nil {
+		t.Fatalf("get organization: %v", err)
+	}
+	requestCtx := context.WithValue(ctx, principalContextKey{}, identitystore.PrincipalRecord{
+		Type:             identitystore.PrincipalTypeUser,
+		ID:               projectDeveloper.ID,
+		BrowserSessionID: httpTestID("connect-byo-project-developer-session"),
+	})
+	requestCtx = withOrgScope(requestCtx, org)
+	response, err := (strictOpenAPIServer{server: mustNewServer(t, project.Store)}).ConnectBYOMachine(
+		requestCtx,
+		openapi.ConnectBYOMachineRequestObject{
+			OrgID: project.OrgID,
+			Body: &openapi.ConnectBYOMachineRequest{
+				DisplayName: "Unauthorized Project Connection",
+				ProjectIds:  []openapi.ProjectID{openapi.ProjectID(project.ProjectID)},
+			},
+		},
+	)
+	if response != nil {
+		t.Fatalf("response = %#v, want nil", response)
+	}
+	var responseErr apierror.ResponseError
+	if !errors.As(err, &responseErr) || responseErr.Status != http.StatusForbidden {
+		t.Fatalf("error = %T %v, want forbidden", err, err)
+	}
+	var machineCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM machines WHERE org_id = $1 AND display_name = 'Unauthorized Project Connection'
+`, project.OrgUUID).Scan(&machineCount); err != nil {
+		t.Fatalf("count unauthorized machines: %v", err)
+	}
+	if machineCount != 0 {
+		t.Fatalf("unauthorized machine count = %d, want 0", machineCount)
+	}
 }
 
 func TestCreateMachineRejectsNonObjectMetadata(t *testing.T) {
@@ -269,9 +447,8 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		t.Fatalf("add second org admin: %v", err)
 	}
 	orgAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID:  orgAdmin.ID,
-		Name:    "machine-defaults-admin",
-		TokenID: "machine-defaults-admin",
+		UserID: orgAdmin.ID,
+		Name:   "machine-defaults-admin",
 	})
 	if err != nil {
 		t.Fatalf("create second org admin token: %v", err)
@@ -319,9 +496,8 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		t.Fatalf("add org member: %v", err)
 	}
 	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID:  member.ID,
-		Name:    "machine-defaults-member",
-		TokenID: "machine-defaults-member",
+		UserID: member.ID,
+		Name:   "machine-defaults-member",
 	})
 	if err != nil {
 		t.Fatalf("create org member token: %v", err)
@@ -362,9 +538,8 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 	viewerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,
 		identitystore.CreatePersonalAccessTokenInput{
-			UserID:  viewer.ID,
-			Name:    "viewer",
-			TokenID: "machine-inventory-viewer",
+			UserID: viewer.ID,
+			Name:   "viewer",
 		},
 	)
 	if err != nil {
@@ -2487,25 +2662,24 @@ func createDaemonProcessFixtureWithToolCalls(
 	if err != nil {
 		t.Fatalf("create grant: %v", err)
 	}
-	token := executionstore.MachineDaemonTokenPlaintextPrefix + name
 	tokenRecord, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
 			OrgID:     project.OrgUUID,
 			MachineID: machine.ID,
 			Name:      "daemon",
-			Token:     token,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
+	token := tokenRecord.Token
 	registration, err := store.Execution().RegisterDaemonRuntimeWithReconciliation(
 		ctx,
 		executionstore.RegisterDaemonRuntimeInput{
 			OrgID:            project.OrgUUID,
 			MachineID:        machine.ID,
-			DaemonTokenID:    tokenRecord.ID,
+			DaemonTokenID:    tokenRecord.Record.ID,
 			DaemonInstanceID: httpTestID("daemon-http-machine-routes"),
 			DaemonVersion:    "1.0.0",
 			LeaseTimeout:     time.Hour,
@@ -2554,7 +2728,7 @@ func createDaemonProcessFixtureWithToolCalls(
 		MachineUUID:  machine.ID,
 		BindingUUID:  binding.ID,
 		RuntimeUUID:  runtime.ID,
-		TokenUUID:    tokenRecord.ID,
+		TokenUUID:    tokenRecord.Record.ID,
 		RuntimeLock:  lock,
 		ToolCallUUID: toolCall.ID,
 		ToolCall:     toolCall,

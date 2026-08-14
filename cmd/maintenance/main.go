@@ -47,6 +47,7 @@ func main() {
 	db, err := storage.Open(
 		context.Background(),
 		cfg.DatabaseURL,
+		storage.WithDefaultApplicationName("omnara-maintenance"),
 		storage.WithQueryTracer(metrics.NewDBRecorder(metricSet, metrics.SubsystemDB)),
 	)
 	if err != nil {
@@ -81,6 +82,7 @@ func main() {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     redisBus,
 			AgentEventWakeups: redisBus,
+			ToolCallUpdates:   redisBus,
 			WorkerControls:    redisBus,
 		},
 		presenceStore,
@@ -108,7 +110,7 @@ func main() {
 		logger,
 		cfg.MaintenanceMetricsAddr,
 		metricSet,
-		metrics.ReadyAll(store.Ping, redisClient.Ping),
+		metrics.ReadyAll(db.Ping, redisClient.Ping),
 	)
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicURL)
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)

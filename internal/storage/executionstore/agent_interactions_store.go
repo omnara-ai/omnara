@@ -91,6 +91,7 @@ func (s *Store) CreatePermissionInteraction(
 	if err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("marshal permission request: %w", err)
 	}
+	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("begin create agent interaction: %w", err)
@@ -130,6 +131,7 @@ func (s *Store) CreatePermissionInteraction(
 	record := agentInteractionRecordFromSQLC(row)
 	if err := markToolCallAwaitingPermissionTx(
 		ctx,
+		txNotifications,
 		tx,
 		qtx,
 		input.ProjectID,
@@ -139,8 +141,13 @@ func (s *Store) CreatePermissionInteraction(
 	); err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("link tool call to agent interaction: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return AgentInteractionRecord{}, fmt.Errorf("commit create agent interaction: %w", err)
+	if err := s.commitTxWithNotifications(
+		ctx,
+		tx,
+		txNotifications,
+		"create agent interaction",
+	); err != nil {
+		return AgentInteractionRecord{}, err
 	}
 	return record, nil
 }
@@ -207,6 +214,7 @@ func (t *toolCallTransaction) createQuestionInteraction(
 
 func markToolCallAwaitingPermissionTx(
 	ctx context.Context,
+	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	projectID, agentID, toolCallID, runtimeLockID ID,
@@ -224,6 +232,11 @@ func markToolCallAwaitingPermissionTx(
 		return err
 	}
 	if err == nil {
+		txNotifications.AddToolCallUpdate(
+			agentID,
+			toolCallID,
+			string(ToolCallStateAwaitingPermission),
+		)
 		return nil
 	}
 	if runtimeErr := ensureRuntimeLockActiveTx(
@@ -432,14 +445,15 @@ func applyPermissionInteractionResolutionTx(
 		return err
 	}
 	if resolution.Decision == toolpermission.DecisionAllow {
-		if _, err := qtx.MarkToolCallReadyFromInteraction(
+		row, err := qtx.MarkToolCallReadyFromInteraction(
 			ctx,
 			dbsqlc.MarkToolCallReadyFromInteractionParams{
 				ProjectID:     record.ProjectID,
 				AgentID:       record.AgentID,
 				InteractionID: record.ID,
 			},
-		); err != nil {
+		)
+		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				existing, loadErr := qtx.GetToolCall(
 					ctx,
@@ -464,6 +478,7 @@ func applyPermissionInteractionResolutionTx(
 			}
 			return fmt.Errorf("mark permitted tool call ready: %w", err)
 		}
+		txNotifications.AddToolCallUpdate(row.AgentID, row.ID, row.State)
 		return nil
 	}
 	return completePermissionDeniedToolCallTx(

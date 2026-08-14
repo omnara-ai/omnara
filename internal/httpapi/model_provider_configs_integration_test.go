@@ -47,7 +47,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	providerConfig := createdModelProviderConfig(t, createResponse)
-	if createResponse["model_discovery"].(map[string]any)["status"] != "failed" {
+	if createResponse["model_catalog"].(map[string]any)["status"] != "failed" {
 		t.Fatalf("create with stubbed discoverer should report failed discovery: %+v", createResponse)
 	}
 	providerConfigID := providerConfig["id"].(string)
@@ -859,7 +859,7 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	discovery := created["model_discovery"].(map[string]any)
+	discovery := created["model_catalog"].(map[string]any)
 	if discovery["status"] != "ok" {
 		t.Fatalf("discovery should succeed against local models endpoint: %+v", created)
 	}
@@ -895,7 +895,7 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	failedDiscovery := failedCreate["model_discovery"].(map[string]any)
+	failedDiscovery := failedCreate["model_catalog"].(map[string]any)
 	if failedDiscovery["status"] != "failed" {
 		t.Fatalf("discovery with a bad key should fail: %+v", failedCreate)
 	}
@@ -913,6 +913,107 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
+}
+
+func TestGetModelCatalog(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "model-catalog")
+
+	modelsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-good" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"invalid api key"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048},
+			{"id":"gpt-b"}
+		]}`))
+	}))
+	defer modelsServer.Close()
+
+	devHandler := mustNewServer(
+		t,
+		project.Store,
+		WithSecretKeyWrapper(integrationKeyWrapper()),
+		WithAllowInsecureModelProviderEndpoints(),
+	).Handler()
+
+	createProvider := func(name, keyName, keyValue string) string {
+		secret := requestJSONWithHeaders(
+			t,
+			devHandler,
+			http.MethodPost,
+			"/api/v1/orgs/"+project.OrgID+"/secrets",
+			`{"owner":{"kind":"org"},"name":"`+keyName+`","material":{"kind":"generic","value":"`+keyValue+`"}}`,
+			"",
+			http.StatusCreated,
+			authHeaders(project.AdminToken),
+		)
+		created := requestJSONWithHeaders(
+			t,
+			devHandler,
+			http.MethodPost,
+			"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+			`{"name":"`+name+`","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+secret["id"].(string)+`"}`,
+			"",
+			http.StatusCreated,
+			authHeaders(project.AdminToken),
+		)
+		return createdModelProviderConfig(t, created)["id"].(string)
+	}
+
+	goodConfigID := createProvider("catalog-ok", "catalog-good-key", "sk-good")
+	catalog := requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+goodConfigID+"/model-catalog",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if catalog["status"] != "ok" {
+		t.Fatalf("model catalog should succeed against local models endpoint: %+v", catalog)
+	}
+	models := catalog["models"].([]any)
+	if len(models) != 2 ||
+		models[0].(map[string]any)["slug"] != "gpt-a" ||
+		models[1].(map[string]any)["slug"] != "gpt-b" {
+		t.Fatalf("model catalog models mismatch: %+v", catalog)
+	}
+	firstModel := models[0].(map[string]any)
+	if firstModel["context_window_tokens"] != float64(65536) ||
+		firstModel["max_output_tokens"] != float64(2048) {
+		t.Fatalf("model catalog token limits mismatch: %+v", firstModel)
+	}
+
+	badConfigID := createProvider("catalog-failed", "catalog-bad-key", "sk-bad")
+	failedCatalog := requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+badConfigID+"/model-catalog",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if failedCatalog["status"] != "failed" {
+		t.Fatalf("model catalog with a bad key should fail: %+v", failedCatalog)
+	}
+	if message, _ := failedCatalog["error"].(string); !strings.Contains(message, "invalid api key") {
+		t.Fatalf("model catalog error should carry the provider message: %+v", failedCatalog)
+	}
 }
 
 func agentConfigSourceBody(source string) string {

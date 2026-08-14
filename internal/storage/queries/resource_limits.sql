@@ -6,6 +6,26 @@ SELECT pg_advisory_xact_lock(
     )
 );
 
+-- name: GetEffectiveResourceLimits :one
+SELECT
+    org_id,
+    max_active_projects_per_org,
+    max_pending_org_invitations_per_org,
+    max_active_org_api_keys_per_org,
+    max_active_tenant_model_provider_configs_per_org,
+    max_active_configured_models_per_provider,
+    max_agent_configs_per_project,
+    max_active_agent_profiles_per_project,
+    max_active_agents_per_project,
+    max_active_tenant_secrets_per_owner,
+    max_active_skills_per_owner,
+    max_active_tenant_machine_pools_per_org,
+    max_live_machines_per_org,
+    max_active_byo_daemon_tokens_per_machine,
+    max_non_terminal_processes_per_agent
+FROM effective_resource_limits
+WHERE org_id = sqlc.arg(org_id);
+
 -- name: CountActiveProjectsForOrg :one
 SELECT count(*)::bigint
 FROM projects

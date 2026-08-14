@@ -37,9 +37,10 @@ export function newOAuthTokenSetEntries(): OAuthEntry[] {
 export function oauthTokenSetMaterial(
   entries: OAuthEntry[],
 ): OAuthTokenSetSecretMaterial | undefined {
-  const values = Object.fromEntries(
-    entries.filter((entry) => entry.value !== '').map((entry) => [entry.key, entry.value]),
-  ) as Partial<Record<OAuthKey, string>>
+  const values: Partial<Record<OAuthKey, string>> = {}
+  for (const entry of entries) {
+    if (entry.value !== '') values[entry.key] = entry.value
+  }
   if (!values.access_token) return undefined
 
   let accessTokenExpiresInSeconds: number | undefined

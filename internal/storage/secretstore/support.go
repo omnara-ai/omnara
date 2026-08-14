@@ -46,13 +46,12 @@ type ProjectRecord struct {
 }
 
 const (
-	resourceSecrets                = "secrets"
-	MaxActiveTenantSecretsPerOwner = int64(1_000)
-	orgActionSecretsList           = authz.OrgSecretsList
-	orgActionSecretsManage         = authz.OrgSecretsManage
-	projectActionSecretsList       = authz.ProjectSecretsList
-	projectActionSecretsManage     = authz.ProjectSecretsManage
-	principalTypeUser              = authz.PrincipalUser
+	resourceSecrets            = "secrets"
+	orgActionSecretsList       = authz.OrgSecretsList
+	orgActionSecretsManage     = authz.OrgSecretsManage
+	projectActionSecretsList   = authz.ProjectSecretsList
+	projectActionSecretsManage = authz.ProjectSecretsManage
+	principalTypeUser          = authz.PrincipalUser
 )
 
 func isNilID(id ID) bool {

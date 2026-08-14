@@ -1,7 +1,11 @@
-import { useProjectAvailableSecrets, useSecrets } from '@omnara/react'
+import {
+  useProjectAvailableSecret,
+  useProjectAvailableSecrets,
+  useSecret,
+  useSecrets,
+} from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
 import { PlusIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
 
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
@@ -29,7 +33,7 @@ export function SecretSelect({
   placeholder = 'Search secrets…',
   onCreateSecret,
   knownSecret,
-  onEmptyChange,
+  emptyDescription,
 }: {
   orgId: string
   /** When set, offers project-available secrets instead of org-owned ones. */
@@ -40,7 +44,7 @@ export function SecretSelect({
   placeholder?: string
   onCreateSecret?: () => void
   knownSecret?: Secret
-  onEmptyChange?: (empty: boolean) => void
+  emptyDescription?: string
 }) {
   const search = useTypeaheadSearch()
   const orgQuery = useSecrets(
@@ -69,34 +73,44 @@ export function SecretSelect({
     knownSecret && !listedSecrets.some((secret) => secret.id === knownSecret.id)
       ? [knownSecret, ...listedSecrets]
       : listedSecrets
+  const selectedOrgSecret = useSecret(orgId, value, {
+    enabled: enabled && projectId === undefined,
+  })
+  const selectedProjectSecret = useProjectAvailableSecret(orgId, projectId ?? '', value, {
+    enabled: enabled && projectId !== undefined,
+  })
+  const resolvedSecret = selectedProjectSecret.data?.secret ?? selectedOrgSecret.data
+  const selectedSecret =
+    secrets.find((secret) => secret.id === value) ??
+    (resolvedSecret?.id === value && referencableSecret(resolvedSecret) ? resolvedSecret : null)
   const empty = !query.isPending && !query.isError && secrets.length === 0
-  useEffect(() => {
-    onEmptyChange?.(empty)
-  }, [empty, onEmptyChange])
 
   return (
-    <SecretCombobox
-      items={secrets}
-      value={value || null}
-      onValueChange={(secret) => {
-        onChange(secret?.id ?? '')
-      }}
-      search={search}
-      query={query}
-      placeholder={placeholder}
-      action={
-        onCreateSecret && (
-          <button
-            type="button"
-            className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none"
-            onClick={onCreateSecret}
-          >
-            <PlusIcon className="size-4" />
-            New secret
-          </button>
-        )
-      }
-    />
+    <>
+      <SecretCombobox
+        items={secrets}
+        value={selectedSecret}
+        onValueChange={(secret) => {
+          onChange(secret?.id ?? '')
+        }}
+        search={search}
+        query={query}
+        placeholder={placeholder}
+        action={
+          onCreateSecret && (
+            <button
+              type="button"
+              className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none"
+              onClick={onCreateSecret}
+            >
+              <PlusIcon className="size-4" />
+              New secret
+            </button>
+          )
+        }
+      />
+      {empty && emptyDescription && <FieldDescription>{emptyDescription}</FieldDescription>}
+    </>
   )
 }
 
@@ -121,8 +135,6 @@ export function SecretTypeaheadField({
   onCreateSecret?: () => void
   knownSecret?: Secret
 }) {
-  const [empty, setEmpty] = useState(false)
-
   return (
     <Field>
       <FieldLabel>{label}</FieldLabel>
@@ -134,9 +146,8 @@ export function SecretTypeaheadField({
         placeholder={placeholder}
         onCreateSecret={onCreateSecret}
         knownSecret={knownSecret}
-        onEmptyChange={setEmpty}
+        emptyDescription={emptyDescription}
       />
-      {empty && <FieldDescription>{emptyDescription}</FieldDescription>}
     </Field>
   )
 }

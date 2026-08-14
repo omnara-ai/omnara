@@ -67,6 +67,7 @@ The response is a standard `text/event-stream`. The SSE `event` name tells you w
 | `model_output` | A completed model response | Yes |
 | `tool_result` | A completed tool call's result | Yes |
 | `context_checkpoint` | A summary of earlier context | Yes |
+| `tool_call_update` | A tool call ID and a reported lifecycle state | No |
 | `model_output_delta` | A live preview while the model responds | No |
 | `error` | A stream error; reconnect after receiving one | No |
 
@@ -82,6 +83,8 @@ data: {"id":"evt_5n6a2bfgik7mv4qtrwz3jehcyd","sequence":3,"event_kind":"model_ou
 
 : heartbeat
 ```
+
+`tool_call_update` frames are included for every tool type and contain only `tool_call_id` and `state`. They may arrive out of order and are not replayed. After the stream connects, including after a reconnect, query `GET /tool-calls` for current state.
 
 ### Deltas are a preview, not the record
 

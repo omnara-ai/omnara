@@ -26,6 +26,7 @@ import {
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
+import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -100,32 +101,45 @@ export function ProjectMachineGrantsTables({
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Pool' },
-            { header: 'Description' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'pool',
+              header: 'Pool',
+              cell: (item) => <span className="font-medium">{item.machine_pool.name}</span>,
+            },
+            {
+              id: 'description',
+              header: 'Description',
+              cell: (item) => (
+                <span className="text-muted-foreground">{item.grant.description || '—'}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (item) => (
+                <ResourceRowActions
+                  deleteLabel="Delete grant"
+                  onEdit={() => {
+                    setEditing(item)
+                  }}
+                  onDelete={
+                    canDeleteGrants
+                      ? () => {
+                          if (!window.confirm('Delete this machine pool grant?')) return
+                          deleteGrant.mutate(item.grant.id)
+                        }
+                      : undefined
+                  }
+                />
+              ),
+            },
           ]}
           data={grantsPaged.rows}
           isFiltered={poolList.isFiltering}
           pagination={grantsPaged.pagination}
           getRowId={(item) => item.grant.id}
-          rowCells={(item) => [
-            <span className="font-medium">{item.machine_pool.name}</span>,
-            <span className="text-muted-foreground">{item.grant.description || '—'}</span>,
-            <ResourceRowActions
-              deleteLabel="Delete grant"
-              onEdit={() => {
-                setEditing(item)
-              }}
-              onDelete={
-                canDeleteGrants
-                  ? () => {
-                      if (!window.confirm('Delete this machine pool grant?')) return
-                      deleteGrant.mutate(item.grant.id)
-                    }
-                  : undefined
-              }
-            />,
-          ]}
           rowExpanded={(item) => (
             <DetailList
               items={[
@@ -133,7 +147,10 @@ export function ProjectMachineGrantsTables({
                 { label: 'Machine pool', value: item.grant.machine_pool_id, mono: true },
                 { label: 'Working directory', value: item.grant.default_cwd, mono: true },
                 { label: 'Machine CPU', value: item.grant.default_machine_cpu },
-                { label: 'Machine memory (MB)', value: item.grant.default_machine_memory_mb },
+                {
+                  label: 'Machine memory',
+                  value: formatMemoryGb(item.grant.default_machine_memory_mb),
+                },
                 {
                   label: 'Provider options',
                   value: overlaySummary(item.grant.default_machine_provider_options_overlay),
@@ -151,14 +168,20 @@ export function ProjectMachineGrantsTables({
                 },
                 { label: 'Max machines', value: item.grant.max_total_machines },
                 { label: 'Max total CPU', value: item.grant.max_total_cpu },
-                { label: 'Max total memory (MB)', value: item.grant.max_total_memory_mb },
+                {
+                  label: 'Max total memory',
+                  value: formatMemoryGb(item.grant.max_total_memory_mb),
+                },
                 { label: 'Min machine CPU', value: item.grant.min_machine_cpu },
                 {
-                  label: 'Min machine memory (MB)',
-                  value: item.grant.min_machine_memory_mb,
+                  label: 'Min machine memory',
+                  value: formatMemoryGb(item.grant.min_machine_memory_mb),
                 },
                 { label: 'Max machine CPU', value: item.grant.max_machine_cpu },
-                { label: 'Max machine memory (MB)', value: item.grant.max_machine_memory_mb },
+                {
+                  label: 'Max machine memory',
+                  value: formatMemoryGb(item.grant.max_machine_memory_mb),
+                },
                 { label: 'Created', value: formatDateTime(item.grant.created_at) },
               ]}
             />
@@ -201,29 +224,42 @@ export function ProjectMachineGrantsTables({
         </SearchHeader>
         <DataTable
           columns={[
-            { header: 'Machine' },
-            { header: 'Description' },
-            { header: '', className: 'w-14', isActions: true },
+            {
+              id: 'machine',
+              header: 'Machine',
+              cell: (item) => <span className="font-medium">{item.machine.display_name}</span>,
+            },
+            {
+              id: 'description',
+              header: 'Description',
+              cell: (item) => (
+                <span className="text-muted-foreground">{item.grant.description || '—'}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-14',
+              isActions: true,
+              cell: (item) => (
+                <ResourceRowActions
+                  deleteLabel="Delete grant"
+                  onDelete={
+                    canDeleteGrants
+                      ? () => {
+                          if (!window.confirm('Delete this machine grant?')) return
+                          deleteMachineGrant.mutate(item.grant.id)
+                        }
+                      : undefined
+                  }
+                />
+              ),
+            },
           ]}
           data={machineGrantsPaged.rows}
           isFiltered={machineList.isFiltering}
           pagination={machineGrantsPaged.pagination}
           getRowId={(item) => item.grant.id}
-          rowCells={(item) => [
-            <span className="font-medium">{item.machine.display_name}</span>,
-            <span className="text-muted-foreground">{item.grant.description || '—'}</span>,
-            <ResourceRowActions
-              deleteLabel="Delete grant"
-              onDelete={
-                canDeleteGrants
-                  ? () => {
-                      if (!window.confirm('Delete this machine grant?')) return
-                      deleteMachineGrant.mutate(item.grant.id)
-                    }
-                  : undefined
-              }
-            />,
-          ]}
           rowExpanded={(item) => (
             <DetailList
               items={[

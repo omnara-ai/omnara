@@ -5,7 +5,7 @@ import {
   pendingDeviceAuth,
 } from '@omnara/sdk/browser'
 import { Check, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -20,9 +20,7 @@ type DeviceAuthState =
   | { kind: 'error'; message: string }
 
 export function DeviceAuth() {
-  const userCode = useMemo(() => {
-    return new URLSearchParams(window.location.search).get('user_code')?.trim() ?? ''
-  }, [])
+  const userCode = new URLSearchParams(window.location.search).get('user_code')?.trim() ?? ''
   const [state, setState] = useState<DeviceAuthState>(
     userCode ? { kind: 'loading' } : { kind: 'error', message: 'Missing device code' },
   )

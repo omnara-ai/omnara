@@ -1737,6 +1737,7 @@ paths:
       description: Items are ordered by created_at descending, then id descending. Without an owner filter, returns the deduplicated union of organization secrets the caller may list, project secrets the caller may list, and the caller's own user secrets.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/SecretKindFilter'
         - $ref: '#/components/parameters/SecretOwnerKindFilter'
         - $ref: '#/components/parameters/SecretOwnerProjectIDFilter'
         - $ref: '#/components/parameters/SecretMetadataFilter'
@@ -3398,10 +3399,11 @@ paths:
             `model_output`, `tool_result`, or `context_checkpoint` as the
             SSE event name and set the SSE `id` field to the event's
             `sequence`, which reconnects can replay via `Last-Event-ID`.
-            Best-effort model previews use `model_output_delta` and terminal
-            stream errors use `error`; neither carries an SSE `id`, so
-            reconnects resume from the last durable event. Heartbeats are
-            SSE comments and carry no JSON payload.
+            Best-effort tool lifecycle updates use `tool_call_update`, model
+            previews use `model_output_delta`, and terminal stream errors use
+            `error`; none carries an SSE `id`, so reconnects resume from the
+            last durable event. Heartbeats are SSE comments and carry no JSON
+            payload.
           content:
             text/event-stream:
               schema:
@@ -4211,6 +4213,7 @@ paths:
       description: Includes directly owned and granted secrets, ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/SecretKindFilter'
         - $ref: '#/components/parameters/SecretOwnerKindFilter'
         - $ref: '#/components/parameters/SecretAvailabilitySourceFilter'
         - $ref: '#/components/parameters/SecretMetadataFilter'
@@ -4495,6 +4498,51 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/machines/connect:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    post:
+      operationId: connectBYOMachine
+      tags: [Machines]
+      summary: Connect a BYO machine
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectBYOMachineRequest'
+      responses:
+        '201':
+          description: Machine, daemon token, and selected project grants created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectBYOMachineResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/machines/{machineID}:
     parameters:
       - name: orgID
@@ -4615,7 +4663,7 @@ paths:
       operationId: createModelProviderConfig
       tags: [Models]
       summary: Create model provider config
-      description: Create a model provider config, validate the configured credential where the provider exposes a validation endpoint, then probe the provider's /models endpoint. The result is returned as model_discovery; failed validation or discovery does not fail creation.
+      description: Create a model provider config, validate the configured credential where the provider exposes a validation endpoint, then probe the provider's /models endpoint. The result is returned as model_catalog; a failed probe does not fail creation.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -4783,6 +4831,49 @@ paths:
       responses:
         '204':
           description: Resource deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: modelProviderConfigID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ModelProviderConfigID'
+    get:
+      operationId: getModelCatalog
+      tags: [Models]
+      summary: Get model catalog
+      description: >-
+        Fetches the provider's live model catalog by validating the configured credential and
+        probing the provider's /models endpoint. The call waits on the upstream provider, so it
+        is slower than the other model provider config routes and can report failure as data.
+      responses:
+        '200':
+          description: Route response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelCatalog'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5933,8 +6024,8 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: Omnara personal access token
-      description: A user's personal access token prefixed omnara_pat_.
+      bearerFormat: Omnara personal or organization access token
+      description: An opaque Omnara personal or organization bearer token.
     browserSessionCookie:
       type: apiKey
       in: cookie
@@ -5949,7 +6040,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Omnara machine daemon token
-      description: Machine daemon bearer token. The bootstrap route derives the canonical organization, installation, and machine identity from the token; runtime routes verify that the addressed runtime belongs to the token-derived machine.
+      description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -6006,6 +6097,13 @@ components:
         type: object
         additionalProperties:
           type: string
+    SecretKindFilter:
+      name: kind
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/SecretKind'
+      description: Filter secrets by material kind.
     SkillOwnerKindFilter:
       name: owner_kind
       in: query
@@ -6307,7 +6405,10 @@ components:
       enum: [bearer_token, api_key_header]
     ModelProviderAPIVariant:
       type: string
-      enum: [default, openrouter]
+      enum: [default, openrouter, bedrock]
+    ModelProviderAPIVariantResponse:
+      type: string
+      x-extensible-enum: [default, openrouter, bedrock]
     ModelAPIVariantOptions:
       type: object
       x-go-type: json.RawMessage
@@ -6424,7 +6525,7 @@ components:
         api_format:
           $ref: '#/components/schemas/ModelAPIFormat'
         api_variant:
-          $ref: '#/components/schemas/ModelProviderAPIVariant'
+          $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         base_url:
           type: string
           description: Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
@@ -6453,15 +6554,15 @@ components:
     CreateModelProviderConfigResponse:
       type: object
       additionalProperties: false
-      required: [config, model_discovery]
+      required: [config, model_catalog]
       properties:
         config:
           $ref: '#/components/schemas/ModelProviderConfig'
-        model_discovery:
-          $ref: '#/components/schemas/ModelDiscoveryResult'
-    ModelDiscoveryResult:
+        model_catalog:
+          $ref: '#/components/schemas/ModelCatalog'
+    ModelCatalog:
       type: object
-      description: Result of validating the configured credential and probing the provider's /models endpoint. A failed check does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
+      description: The provider's model catalog, obtained by validating the configured credential and probing the provider's /models endpoint. A failed probe does not affect the stored config; treat it as a warning that the base URL or API key may be invalid.
       additionalProperties: false
       required: [status]
       properties:
@@ -7440,7 +7541,7 @@ components:
         api_format:
           $ref: '#/components/schemas/ModelAPIFormat'
         api_variant:
-          $ref: '#/components/schemas/ModelProviderAPIVariant'
+          $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         context_window_tokens:
           type: integer
           description: Effective token window after configured-model, project-grant, and agent-config settings are applied.
@@ -8101,6 +8202,16 @@ components:
           $ref: '#/components/schemas/Timestamp'
         created_at:
           $ref: '#/components/schemas/Timestamp'
+    ToolCallUpdate:
+      description: An ephemeral notification that a tool call entered a lifecycle state.
+      type: object
+      additionalProperties: false
+      required: [tool_call_id, state]
+      properties:
+        tool_call_id:
+          $ref: '#/components/schemas/ToolCallID'
+        state:
+          $ref: '#/components/schemas/ToolCallState'
     ListToolCallsResponse:
       type: object
       additionalProperties: false
@@ -8528,9 +8639,11 @@ components:
     AgentEventStreamData:
       description: >-
         One JSON payload from the event stream: an authoritative durable event,
-        a best-effort model-output preview, or a terminal stream error.
+        a best-effort tool-call update, a best-effort model-output preview, or
+        a terminal stream error.
       oneOf:
         - $ref: '#/components/schemas/AgentEvent'
+        - $ref: '#/components/schemas/ToolCallUpdate'
         - $ref: '#/components/schemas/ModelOutputDelta'
         - $ref: '#/components/schemas/Error'
     ListAgentEventsResponse:
@@ -9331,6 +9444,7 @@ components:
           type: string
         token_id:
           type: string
+          description: Stable non-secret display identifier. It is not embedded in the bearer token.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         last_used_at:
@@ -9348,7 +9462,8 @@ components:
       properties:
         token:
           type: string
-          pattern: '^omnara_pat_[^_]+_[^_]+$'
+          minLength: 1
+          description: Opaque bearer credential.
         token_record:
           $ref: '#/components/schemas/PersonalAccessToken'
     OrgAPIKeyRole:
@@ -9368,6 +9483,7 @@ components:
           type: string
         token_id:
           type: string
+          description: Stable non-secret display identifier. It is not embedded in the bearer token.
         org_role:
           type: string
           description: The key's org role (admin or member). Empty for revoked keys.
@@ -9402,7 +9518,8 @@ components:
       properties:
         token:
           type: string
-          pattern: '^omnara_org_[^_]+_[^_]+$'
+          minLength: 1
+          description: Opaque bearer credential.
         api_key:
           $ref: '#/components/schemas/OrgAPIKey'
     UpdateOrgAPIKeyRequest:
@@ -9906,6 +10023,37 @@ components:
             $ref: '#/components/schemas/SecretID'
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
+    ConnectBYOMachineRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name, project_ids]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+        project_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ProjectID'
+    ConnectBYOMachineResponse:
+      type: object
+      additionalProperties: false
+      required: [machine, token, token_record, project_grants]
+      properties:
+        machine:
+          $ref: '#/components/schemas/Machine'
+        token:
+          type: string
+          minLength: 1
+          description: Opaque bearer credential.
+        token_record:
+          $ref: '#/components/schemas/MachineDaemonToken'
+        project_grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectMachineGrant'
     UpdateMachineRequest:
       type: object
       additionalProperties: false
@@ -10378,6 +10526,8 @@ components:
       properties:
         token:
           type: string
+          minLength: 1
+          description: Opaque bearer credential.
         token_record:
           $ref: '#/components/schemas/MachineDaemonToken'
     ListMachineDaemonTokensResponse:

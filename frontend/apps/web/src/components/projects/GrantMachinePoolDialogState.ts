@@ -32,22 +32,28 @@ import {
   type MachinePoolProvider,
   machinePoolProviderDefinitions,
 } from '@/components/org/machinePoolProviders'
+import {
+  memoryGbDraft,
+  memoryGbDraftValid,
+  memoryGbToMb,
+  memoryGbToMbPreservingOriginal,
+} from '@/lib/machine-memory'
 
 export interface PoolGrantOverrideDraft {
   description: string
   providerOptions: ProviderOptionsDraft
   cpu: string
-  memoryMb: string
+  memoryGb: string
   cwd: string
   envRows: EnvOverlayRow[]
   secretEnvRows: SecretEnvOverlayRow[]
   maxTotalMachines: string
   maxTotalCpu: string
-  maxTotalMemoryMb: string
+  maxTotalMemoryGb: string
   minMachineCpu: string
-  minMachineMemoryMb: string
+  minMachineMemoryGb: string
   maxMachineCpu: string
-  maxMachineMemoryMb: string
+  maxMachineMemoryGb: string
 }
 
 /**
@@ -59,17 +65,17 @@ export function emptyPoolGrantDraft(): PoolGrantOverrideDraft {
     description: '',
     providerOptions: emptyProviderOptions,
     cpu: '',
-    memoryMb: '',
+    memoryGb: '',
     cwd: '',
     envRows: [],
     secretEnvRows: [],
     maxTotalMachines: '',
     maxTotalCpu: '',
-    maxTotalMemoryMb: '',
+    maxTotalMemoryGb: '',
     minMachineCpu: '',
-    minMachineMemoryMb: '',
+    minMachineMemoryGb: '',
     maxMachineCpu: '',
-    maxMachineMemoryMb: '',
+    maxMachineMemoryGb: '',
   }
 }
 
@@ -77,16 +83,14 @@ export function poolGrantOverridesValid(draft: PoolGrantOverrideDraft) {
   return (
     envOverlayRowsValid(draft.envRows) &&
     secretEnvOverlayRowsValid(draft.secretEnvRows) &&
-    [draft.cpu, draft.memoryMb, draft.maxMachineCpu, draft.maxMachineMemoryMb].every(
-      optionalPositiveInt32Valid,
+    [draft.cpu, draft.maxMachineCpu].every(optionalPositiveInt32Valid) &&
+    memoryGbDraftValid(draft.memoryGb, { optional: true }) &&
+    memoryGbDraftValid(draft.maxMachineMemoryGb, { optional: true }) &&
+    [draft.maxTotalMachines, draft.maxTotalCpu, draft.minMachineCpu].every(
+      optionalNonNegativeInt32Valid,
     ) &&
-    [
-      draft.maxTotalMachines,
-      draft.maxTotalCpu,
-      draft.maxTotalMemoryMb,
-      draft.minMachineCpu,
-      draft.minMachineMemoryMb,
-    ].every(optionalNonNegativeInt32Valid)
+    memoryGbDraftValid(draft.maxTotalMemoryGb, { optional: true, allowZero: true }) &&
+    memoryGbDraftValid(draft.minMachineMemoryGb, { optional: true, allowZero: true })
   )
 }
 
@@ -146,17 +150,17 @@ export function poolGrantDraftFromGrant(
         )
       : emptyProviderOptions,
     cpu: numberDraft(grant.default_machine_cpu),
-    memoryMb: numberDraft(grant.default_machine_memory_mb),
+    memoryGb: memoryGbDraft(grant.default_machine_memory_mb),
     cwd: grant.default_cwd,
     envRows: envRowsFromOverlay(grant.default_machine_env_overlay),
     secretEnvRows: secretEnvRowsFromOverlay(grant.default_machine_secret_env_overlay),
     maxTotalMachines: numberDraft(grant.max_total_machines),
     maxTotalCpu: numberDraft(grant.max_total_cpu),
-    maxTotalMemoryMb: numberDraft(grant.max_total_memory_mb),
+    maxTotalMemoryGb: memoryGbDraft(grant.max_total_memory_mb),
     minMachineCpu: numberDraft(grant.min_machine_cpu),
-    minMachineMemoryMb: numberDraft(grant.min_machine_memory_mb),
+    minMachineMemoryGb: memoryGbDraft(grant.min_machine_memory_mb),
     maxMachineCpu: numberDraft(grant.max_machine_cpu),
-    maxMachineMemoryMb: numberDraft(grant.max_machine_memory_mb),
+    maxMachineMemoryGb: memoryGbDraft(grant.max_machine_memory_mb),
   }
 }
 
@@ -189,18 +193,27 @@ export function poolGrantUpdateRequest(
   return {
     description: draft.description.trim(),
     default_machine_cpu: optionalIntOrNull(draft.cpu),
-    default_machine_memory_mb: optionalIntOrNull(draft.memoryMb),
+    default_machine_memory_mb: optionalMemoryMbOrNull(
+      draft.memoryGb,
+      grant.default_machine_memory_mb,
+    ),
     default_machine_env_overlay: envOverlayFromRows(draft.envRows) ?? {},
     default_machine_secret_env_overlay: secretEnvOverlayFromRows(draft.secretEnvRows) ?? {},
     default_machine_provider_options_overlay: providerOptionsOverlayPatch,
     default_cwd: draft.cwd.trim(),
     max_total_machines: optionalIntOrNull(draft.maxTotalMachines),
     max_total_cpu: optionalIntOrNull(draft.maxTotalCpu),
-    max_total_memory_mb: optionalIntOrNull(draft.maxTotalMemoryMb),
+    max_total_memory_mb: optionalMemoryMbOrNull(draft.maxTotalMemoryGb, grant.max_total_memory_mb),
     min_machine_cpu: optionalIntOrNull(draft.minMachineCpu),
-    min_machine_memory_mb: optionalIntOrNull(draft.minMachineMemoryMb),
+    min_machine_memory_mb: optionalMemoryMbOrNull(
+      draft.minMachineMemoryGb,
+      grant.min_machine_memory_mb,
+    ),
     max_machine_cpu: optionalIntOrNull(draft.maxMachineCpu),
-    max_machine_memory_mb: optionalIntOrNull(draft.maxMachineMemoryMb),
+    max_machine_memory_mb: optionalMemoryMbOrNull(
+      draft.maxMachineMemoryGb,
+      grant.max_machine_memory_mb,
+    ),
   }
 }
 
@@ -212,7 +225,7 @@ export function poolGrantCreateRequest(
     machine_pool_id: pool.id,
     description: stringOrUndefined(draft.description),
     default_machine_cpu: optionalInt(draft.cpu),
-    default_machine_memory_mb: optionalInt(draft.memoryMb),
+    default_machine_memory_mb: optionalMemoryMb(draft.memoryGb),
     default_machine_env_overlay: envFromRows(draft.envRows),
     default_machine_secret_env_overlay: secretEnvFromRows(draft.secretEnvRows),
     default_machine_provider_options_overlay: isMachinePoolProvider(pool.provider)
@@ -225,10 +238,21 @@ export function poolGrantCreateRequest(
     default_cwd: stringOrUndefined(draft.cwd),
     max_total_machines: optionalInt(draft.maxTotalMachines),
     max_total_cpu: optionalInt(draft.maxTotalCpu),
-    max_total_memory_mb: optionalInt(draft.maxTotalMemoryMb),
+    max_total_memory_mb: optionalMemoryMb(draft.maxTotalMemoryGb),
     min_machine_cpu: optionalInt(draft.minMachineCpu),
-    min_machine_memory_mb: optionalInt(draft.minMachineMemoryMb),
+    min_machine_memory_mb: optionalMemoryMb(draft.minMachineMemoryGb),
     max_machine_cpu: optionalInt(draft.maxMachineCpu),
-    max_machine_memory_mb: optionalInt(draft.maxMachineMemoryMb),
+    max_machine_memory_mb: optionalMemoryMb(draft.maxMachineMemoryGb),
   }
+}
+
+function optionalMemoryMb(value: string) {
+  return value.trim() === '' ? undefined : memoryGbToMb(value)
+}
+
+function optionalMemoryMbOrNull(value: string, originalMemoryMb: number | null) {
+  if (value.trim() === '') return null
+  return originalMemoryMb === null
+    ? memoryGbToMb(value)
+    : memoryGbToMbPreservingOriginal(value, originalMemoryMb)
 }

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/bearertoken"
 )
 
 func TestPublicOrgAPIKeyManagement(t *testing.T) {
@@ -31,7 +31,7 @@ func TestPublicOrgAPIKeyManagement(t *testing.T) {
 		http.StatusCreated, project.adminBrowserAuthHeaders(),
 	)
 	keyToken, _ := created["token"].(string)
-	if !strings.HasPrefix(keyToken, identitystore.OrgAPIKeyPlaintextPrefix) {
+	if err := bearertoken.Validate(keyToken, bearertoken.KindOrganization); err != nil {
 		t.Fatalf("expected one-time org api key plaintext, got %+v", created)
 	}
 	apiKey, _ := created["api_key"].(map[string]any)
