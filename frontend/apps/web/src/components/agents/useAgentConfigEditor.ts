@@ -23,8 +23,11 @@ export function useAgentConfigEditor({
   onModeChange: (mode: AgentConfigMode) => void
   onDirtyChange: (dirty: boolean) => void
 }) {
-  const [session] = useState(() => (canManage ? createBasicConfigSession(source) : null))
+  const [session, setSession] = useState(() =>
+    canManage ? createBasicConfigSession(source) : null,
+  )
   const builderSession = session?.initialDraft != null ? session : null
+  const [formGeneration, setFormGeneration] = useState(0)
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
     initialAgentConfigModeState(builderSession ? preferredMode : 'yaml'),
@@ -34,6 +37,23 @@ export function useAgentConfigEditor({
   const handleBuilderYamlChange = (value: string, blocked: boolean) => {
     setBuilderBlocked(blocked)
     setBuilderYaml(value)
+  }
+
+  const switchMode = (nextMode: AgentConfigMode) => {
+    if (nextMode === 'builder' && mode.editorYaml !== null) {
+      const adopted = createBasicConfigSession(mode.editorYaml)
+      if (adopted.initialDraft != null) {
+        setSession(adopted)
+        setFormGeneration((generation) => generation + 1)
+        setBuilderYaml(mode.editorYaml)
+        dispatchMode({
+          type: 'editor-yaml-changed',
+          yaml: mode.editorYaml,
+          builderYaml: mode.editorYaml,
+        })
+      }
+    }
+    dispatchMode({ type: 'switch-mode', mode: nextMode })
   }
 
   const showBuilder = mode.mode === 'builder'
@@ -54,8 +74,10 @@ export function useAgentConfigEditor({
     source,
     canManage,
     builderSession,
+    formGeneration,
     mode,
     dispatchMode,
+    switchMode,
     builderYaml,
     editorYaml,
     yaml,

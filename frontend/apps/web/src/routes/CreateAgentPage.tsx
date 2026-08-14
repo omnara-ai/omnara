@@ -14,6 +14,7 @@ import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import {
+  type AgentConfigMode,
   agentConfigModeReducer,
   initialAgentConfigModeState,
   yamlDiverged,
@@ -70,12 +71,29 @@ export function CreateAgentPage() {
   })
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
   const savedProfile = useRef<SavedProfile | null>(null)
-  const [session] = useState(() => createBasicConfigSession(''))
+  const [session, setSession] = useState(() => createBasicConfigSession(''))
+  const [formGeneration, setFormGeneration] = useState(0)
   const [builderBlocked, setBuilderBlocked] = useState(false)
   const [builderYaml, setBuilderYaml] = useState('')
   const handleBuilderYamlChange = (value: string, blocked: boolean) => {
     setBuilderBlocked(blocked)
     if (!blocked) setBuilderYaml(value)
+  }
+  const switchMode = (nextMode: AgentConfigMode) => {
+    if (nextMode === 'builder' && mode.editorYaml !== null) {
+      const adopted = createBasicConfigSession(mode.editorYaml)
+      if (adopted.initialDraft != null) {
+        setSession(adopted)
+        setFormGeneration((generation) => generation + 1)
+        setBuilderYaml(mode.editorYaml)
+        dispatchMode({
+          type: 'editor-yaml-changed',
+          yaml: mode.editorYaml,
+          builderYaml: mode.editorYaml,
+        })
+      }
+    }
+    dispatchMode({ type: 'switch-mode', mode: nextMode })
   }
 
   if (projectIsPending) return <FullPageSpinner />
@@ -182,9 +200,7 @@ export function CreateAgentPage() {
         <h1 className="text-2xl font-bold tracking-tight">New agent</h1>
         <PillTabs
           value={mode.mode}
-          onValueChange={(nextMode) => {
-            dispatchMode({ type: 'switch-mode', mode: nextMode })
-          }}
+          onValueChange={switchMode}
           tabs={[
             { value: 'builder', label: 'Builder' },
             { value: 'yaml', label: 'YAML' },
@@ -208,6 +224,7 @@ export function CreateAgentPage() {
         </Field>
         <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
           <AgentConfigBasicForm
+            key={formGeneration}
             orgId={activeOrg.id}
             projectId={projectId}
             session={session}

@@ -34,9 +34,7 @@ export function AgentConfigEditorFields({
           {builderSession != null && (
             <PillTabs
               value={mode.mode}
-              onValueChange={(nextMode) => {
-                dispatchMode({ type: 'switch-mode', mode: nextMode })
-              }}
+              onValueChange={editor.switchMode}
               tabs={[
                 { value: 'builder', label: 'Builder' },
                 { value: 'yaml', label: 'YAML' },
@@ -48,6 +46,7 @@ export function AgentConfigEditorFields({
       {builderSession != null && (
         <div className={showBuilder ? 'flex flex-col gap-8' : 'hidden'}>
           <AgentConfigBasicForm
+            key={editor.formGeneration}
             orgId={orgId}
             projectId={projectId}
             session={builderSession}
