@@ -12,6 +12,7 @@ import {
   secretEnvOverlayRowsValid,
   stringOrUndefined,
 } from '@/components/machines/machineOverrides'
+import { memoryGbDraft, memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
 
 import { type MachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
 
@@ -35,17 +36,16 @@ export interface MachinePoolFormValues {
   secretEnvRows: SecretEnvOverlayRow[]
   /** Positive integer as entered in the number input. */
   cpu: string
-  /** Positive integer as entered in the number input. */
-  memoryMb: string
+  memoryGb: string
   /** Positive integer as entered in the number input. */
   maxMachines: string
   /** Optional caps; empty derives from machine size × max machines. */
   maxTotalCpu: string
-  maxTotalMemoryMb: string
+  maxTotalMemoryGb: string
   minMachineCpu: string
-  minMachineMemoryMb: string
+  minMachineMemoryGb: string
   maxMachineCpu: string
-  maxMachineMemoryMb: string
+  maxMachineMemoryGb: string
   /** Secret id; '' until one is selected. */
   secretId: string
   projectGrantIds: string[]
@@ -63,14 +63,14 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   envRows: [],
   secretEnvRows: [],
   cpu: '1',
-  memoryMb: '1024',
+  memoryGb: '1',
   maxMachines: '3',
   maxTotalCpu: '',
-  maxTotalMemoryMb: '',
+  maxTotalMemoryGb: '',
   minMachineCpu: '',
-  minMachineMemoryMb: '',
+  minMachineMemoryGb: '',
   maxMachineCpu: '',
-  maxMachineMemoryMb: '',
+  maxMachineMemoryGb: '',
   secretId: '',
   projectGrantIds: [],
   runtimeProtectionEnabled: false,
@@ -89,11 +89,22 @@ function aggregateFitsInt32(perMachine: string, maxMachines: string) {
   return perMachineValue <= Math.floor(maxInt32 / maxMachinesValue)
 }
 
+function memoryAggregateFitsInt32(perMachineGb: string, maxMachines: string) {
+  return memoryGbToMb(perMachineGb) <= Math.floor(maxInt32 / Number(maxMachines))
+}
+
 /** Placeholder for an aggregate cap input: machine size × max machines. */
 export function derivedTotalCapPlaceholder(perMachine: string, maxMachines: string) {
   if (!positiveInt32(perMachine) || !positiveInt32(maxMachines)) return undefined
   if (!aggregateFitsInt32(perMachine, maxMachines)) return undefined
   return String(Number(perMachine) * Number(maxMachines))
+}
+
+export function derivedMemoryTotalCapPlaceholder(perMachineGb: string, maxMachines: string) {
+  if (!memoryGbDraftValid(perMachineGb) || !positiveInt32(maxMachines)) return undefined
+  const perMachineMb = memoryGbToMb(perMachineGb)
+  if (!memoryAggregateFitsInt32(perMachineGb, maxMachines)) return undefined
+  return memoryGbDraft(perMachineMb * Number(maxMachines))
 }
 
 export function machinePoolFormAfterProviderChange(
@@ -113,16 +124,16 @@ export function machinePoolFormAfterProviderChange(
       currentDefinition.resources.cpu === nextDefinition.resources.cpu
         ? values.cpu
         : machinePoolFormDefaults.cpu,
-    memoryMb:
+    memoryGb:
       currentDefinition.resources.memoryMb === nextDefinition.resources.memoryMb
-        ? values.memoryMb
-        : machinePoolFormDefaults.memoryMb,
+        ? values.memoryGb
+        : machinePoolFormDefaults.memoryGb,
     maxTotalCpu: '',
-    maxTotalMemoryMb: '',
+    maxTotalMemoryGb: '',
     minMachineCpu: '',
-    minMachineMemoryMb: '',
+    minMachineMemoryGb: '',
     maxMachineCpu: '',
-    maxMachineMemoryMb: '',
+    maxMachineMemoryGb: '',
     secretId: '',
   }
 }
@@ -137,10 +148,10 @@ export function machinePoolFormValid(values: MachinePoolFormValues) {
       (values.maxTotalCpu.trim() !== '' || aggregateFitsInt32(values.cpu, values.maxMachines)))
   const memoryValid =
     provider.resources.memoryMb === 'unsupported' ||
-    (positiveInt32(values.memoryMb) &&
+    (memoryGbDraftValid(values.memoryGb) &&
       maxMachinesValid &&
-      (values.maxTotalMemoryMb.trim() !== '' ||
-        aggregateFitsInt32(values.memoryMb, values.maxMachines)))
+      (values.maxTotalMemoryGb.trim() !== '' ||
+        memoryAggregateFitsInt32(values.memoryGb, values.maxMachines)))
   return (
     values.name.trim() !== '' &&
     values.image.trim() !== '' &&
@@ -152,19 +163,17 @@ export function machinePoolFormValid(values: MachinePoolFormValues) {
     memoryValid &&
     envOverlayRowsValid(values.envRows) &&
     secretEnvOverlayRowsValid(values.secretEnvRows) &&
-    [values.maxMachineCpu, values.maxMachineMemoryMb].every(optionalPositiveInt32Valid) &&
-    [
-      values.maxTotalCpu,
-      values.maxTotalMemoryMb,
-      values.minMachineCpu,
-      values.minMachineMemoryMb,
-    ].every(optionalNonNegativeInt32Valid)
+    optionalPositiveInt32Valid(values.maxMachineCpu) &&
+    memoryGbDraftValid(values.maxMachineMemoryGb, { optional: true }) &&
+    [values.maxTotalCpu, values.minMachineCpu].every(optionalNonNegativeInt32Valid) &&
+    memoryGbDraftValid(values.maxTotalMemoryGb, { optional: true, allowZero: true }) &&
+    memoryGbDraftValid(values.minMachineMemoryGb, { optional: true, allowZero: true })
   )
 }
 
 export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateMachinePoolRequest {
   const cpu = Number(values.cpu)
-  const memoryMb = Number(values.memoryMb)
+  const memoryMb = memoryGbToMb(values.memoryGb)
   const maxMachines = Number(values.maxMachines)
   const common = {
     name: values.name,
@@ -190,11 +199,11 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
           ...startupScript,
         },
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
-        max_total_memory_mb: optionalInt(values.maxTotalMemoryMb) ?? memoryMb * maxMachines,
+        max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
         min_machine_cpu: optionalInt(values.minMachineCpu),
-        min_machine_memory_mb: optionalInt(values.minMachineMemoryMb),
+        min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
-        max_machine_memory_mb: optionalInt(values.maxMachineMemoryMb) ?? memoryMb,
+        max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
     case 'blaxel':
       return {
@@ -207,9 +216,9 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
           ...startupScript,
         },
         provider_config: { workspace: values.workspace.trim() },
-        max_total_memory_mb: optionalInt(values.maxTotalMemoryMb) ?? memoryMb * maxMachines,
-        min_machine_memory_mb: optionalInt(values.minMachineMemoryMb),
-        max_machine_memory_mb: optionalInt(values.maxMachineMemoryMb) ?? memoryMb,
+        max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
+        min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
+        max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
     case 'daytona':
       return {
@@ -221,11 +230,15 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
           ...startupScript,
         },
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
-        max_total_memory_mb: optionalInt(values.maxTotalMemoryMb) ?? memoryMb * maxMachines,
+        max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
         min_machine_cpu: optionalInt(values.minMachineCpu),
-        min_machine_memory_mb: optionalInt(values.minMachineMemoryMb),
+        min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
-        max_machine_memory_mb: optionalInt(values.maxMachineMemoryMb) ?? memoryMb,
+        max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
   }
+}
+
+function optionalMemoryMb(value: string) {
+  return value.trim() === '' ? undefined : memoryGbToMb(value)
 }

@@ -26,6 +26,7 @@ import {
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
+import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -146,7 +147,10 @@ export function ProjectMachineGrantsTables({
                 { label: 'Machine pool', value: item.grant.machine_pool_id, mono: true },
                 { label: 'Working directory', value: item.grant.default_cwd, mono: true },
                 { label: 'Machine CPU', value: item.grant.default_machine_cpu },
-                { label: 'Machine memory (MB)', value: item.grant.default_machine_memory_mb },
+                {
+                  label: 'Machine memory',
+                  value: formatMemoryGb(item.grant.default_machine_memory_mb),
+                },
                 {
                   label: 'Provider options',
                   value: overlaySummary(item.grant.default_machine_provider_options_overlay),
@@ -164,14 +168,20 @@ export function ProjectMachineGrantsTables({
                 },
                 { label: 'Max machines', value: item.grant.max_total_machines },
                 { label: 'Max total CPU', value: item.grant.max_total_cpu },
-                { label: 'Max total memory (MB)', value: item.grant.max_total_memory_mb },
+                {
+                  label: 'Max total memory',
+                  value: formatMemoryGb(item.grant.max_total_memory_mb),
+                },
                 { label: 'Min machine CPU', value: item.grant.min_machine_cpu },
                 {
-                  label: 'Min machine memory (MB)',
-                  value: item.grant.min_machine_memory_mb,
+                  label: 'Min machine memory',
+                  value: formatMemoryGb(item.grant.min_machine_memory_mb),
                 },
                 { label: 'Max machine CPU', value: item.grant.max_machine_cpu },
-                { label: 'Max machine memory (MB)', value: item.grant.max_machine_memory_mb },
+                {
+                  label: 'Max machine memory',
+                  value: formatMemoryGb(item.grant.max_machine_memory_mb),
+                },
                 { label: 'Created', value: formatDateTime(item.grant.created_at) },
               ]}
             />
