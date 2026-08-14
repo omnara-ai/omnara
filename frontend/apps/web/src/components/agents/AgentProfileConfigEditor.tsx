@@ -65,8 +65,7 @@ export function AgentProfileConfigEditor({
   const dirty = yaml !== source
   // A blocked builder draft also blocks the YAML tab while it still mirrors
   // the builder; hand-edited YAML (diverged) saves on its own merits.
-  const saveBlocked =
-    yaml.trim() === '' || (builderBlocked && (showBuilder || !yamlDiverged(mode)))
+  const saveBlocked = yaml.trim() === '' || (builderBlocked && (showBuilder || !yamlDiverged(mode)))
 
   // Lets the page warn before launching an agent with unsaved edits.
   useEffect(() => {

@@ -1,10 +1,7 @@
 import { Trash2Icon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
-import type {
-  BasicMachineSource,
-  MachineSourceKind,
-} from '@/components/agents/agentConfigBasic'
+import type { BasicMachineSource, MachineSourceKind } from '@/components/agents/agentConfigBasic'
 import {
   MachineSourceCombobox,
   PoolSourceCombobox,
@@ -169,13 +166,36 @@ export function AgentConfigMachineSourcesField({
                         reportAvailability(source.id, unavailable)
                       }}
                       onMachinesGranted={(names) => {
-                        const [first, ...rest] = names
+                        // Drop names already in the list, and only fill this
+                        // row when it's empty: reassigning a selected row
+                        // would keep its cwd/env overlays for a different
+                        // machine. Everything else appends as a fresh row.
+                        const used = new Set(
+                          sources
+                            .filter((candidate) => candidate.kind === 'machine')
+                            .map((candidate) => candidate.name),
+                        )
+                        const [first, ...rest] = [...new Set(names)].filter(
+                          (name) => !used.has(name),
+                        )
                         if (first === undefined) return
+                        if (source.name === '') {
+                          onSourcesChange([
+                            ...sources.map((candidate) =>
+                              candidate.id === source.id
+                                ? { ...candidate, name: first }
+                                : candidate,
+                            ),
+                            ...rest.map((name) => ({ ...newMachineSource('machine'), name })),
+                          ])
+                          return
+                        }
                         onSourcesChange([
-                          ...sources.map((candidate) =>
-                            candidate.id === source.id ? { ...candidate, name: first } : candidate,
-                          ),
-                          ...rest.map((name) => ({ ...newMachineSource('machine'), name })),
+                          ...sources,
+                          ...[first, ...rest].map((name) => ({
+                            ...newMachineSource('machine'),
+                            name,
+                          })),
                         ])
                       }}
                     />
