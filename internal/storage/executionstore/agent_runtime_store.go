@@ -299,6 +299,37 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 	return result, nil
 }
 
+type ListRecentAgentsForProjectsInput struct {
+	ProjectIDs []ID
+	Limit      int
+}
+
+// ListRecentAgentsForProjects returns the most recently updated active agents
+// across the given projects, newest first.
+func (s *Store) ListRecentAgentsForProjects(
+	ctx context.Context,
+	input ListRecentAgentsForProjectsInput,
+) ([]AgentRecord, error) {
+	if input.Limit <= 0 {
+		return nil, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return []AgentRecord{}, nil
+	}
+	rows, err := s.q.ListRecentAgentsForProjects(ctx, dbsqlc.ListRecentAgentsForProjectsParams{
+		ProjectIds: input.ProjectIDs,
+		RowLimit:   int64(input.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list recent agents: %w", err)
+	}
+	records := make([]AgentRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, agentRecordFromListRecentForProjectsSQLC(row))
+	}
+	return records, nil
+}
+
 func (s *Store) ArchiveAgent(
 	ctx context.Context,
 	projectID ID,

@@ -1,44 +1,39 @@
-import { useAgentProfiles, useAgents, useProjects } from '@omnara/react'
+import { useOrgOverview } from '@omnara/react'
 
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { FirstAgentCard } from '@/components/overview/FirstAgentCard'
 import { RecentAgentsSection } from '@/components/overview/RecentAgents'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function Overview() {
   const { activeOrg } = useActiveOrg()
-  const projectsQuery = useProjects(activeOrg.id)
-  const projects = useInfiniteQueryItems(projectsQuery)
+  const overviewQuery = useOrgOverview(activeOrg.id)
+  const overview = overviewQuery.data
 
-  const firstProject = projects.length === 1 ? projects[0] : undefined
-  const onboardingProject = firstProject?.access.can_manage ? firstProject : undefined
-  const profilesQuery = useAgentProfiles(activeOrg.id, onboardingProject?.id ?? '', {
-    pageSize: 1,
-    enabled: onboardingProject != null,
-  })
-  const agentsQuery = useAgents(activeOrg.id, onboardingProject?.id ?? '', {
-    pageSize: 1,
-    enabled: onboardingProject != null,
-  })
-  const overviewPending =
-    onboardingProject != null && (profilesQuery.isPending || agentsQuery.isPending)
+  const manageableProject = overview?.projects.find((project) => project.access.can_manage)
   const showOnboarding =
-    onboardingProject != null &&
-    profilesQuery.data?.pages[0]?.data.length === 0 &&
-    agentsQuery.data?.pages[0]?.data.length === 0
+    overview != null &&
+    manageableProject != null &&
+    overview.recent_agents.length === 0 &&
+    overview.recent_agent_profiles.length === 0
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <PageBreadcrumb items={[{ label: activeOrg.name }, { label: 'Overview' }]} />
 
-      {overviewPending ? (
+      {overviewQuery.isPending ? (
         <Skeleton className="h-28 rounded-xl" />
       ) : showOnboarding ? (
-        <FirstAgentCard projectId={onboardingProject.id} />
+        <FirstAgentCard projectId={manageableProject.id} />
       ) : (
-        <RecentAgentsSection orgId={activeOrg.id} projects={projects} />
+        <RecentAgentsSection
+          overview={overview}
+          isError={overviewQuery.isError}
+          onRetry={() => {
+            void overviewQuery.refetch()
+          }}
+        />
       )}
     </div>
   )

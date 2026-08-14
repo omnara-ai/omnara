@@ -1,7 +1,4 @@
-import { useOmnaraClient } from '@omnara/react'
-import type { Agent, AgentProfile, VisibleProject } from '@omnara/sdk'
-import { listAgentProfilesOptions, listAgentsOptions } from '@omnara/sdk/tanstack'
-import { useQueries } from '@tanstack/react-query'
+import type { OrgOverviewResponse, VisibleProject } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ChevronDownIcon, PlusIcon } from 'lucide-react'
 
@@ -14,74 +11,21 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-const maxProjects = 10
-const rowLimit = 5
-
-interface RecentAgentRow {
-  agent: Agent
-  project: VisibleProject
-}
-
-interface ProfileRow {
-  profile: AgentProfile
-  project: VisibleProject
-}
-
 export function RecentAgentsSection({
-  orgId,
-  projects,
+  overview,
+  isError,
+  onRetry,
 }: {
-  orgId: string
-  projects: VisibleProject[]
+  overview?: OrgOverviewResponse
+  isError: boolean
+  onRetry: () => void
 }) {
-  const client = useOmnaraClient()
   const navigate = useNavigate()
-  const readableProjects = projects.filter((project) => project.access.can_read)
-  const results = useQueries({
-    queries: readableProjects.slice(0, maxProjects).map((project) =>
-      listAgentsOptions({
-        path: { orgID: orgId, projectID: project.id },
-        query: { sort: '-updated_at' as const, limit: rowLimit },
-        client,
-      }),
-    ),
-  })
-
-  const rows: RecentAgentRow[] = readableProjects
-    .slice(0, maxProjects)
-    .flatMap((project, index) => {
-      const data = results[index]?.data
-      if (!data) return []
-      return data.data.map((agent) => ({ agent, project }))
-    })
-    .sort((a, b) => b.agent.updated_at.localeCompare(a.agent.updated_at))
-    .slice(0, rowLimit)
-
-  const isPending = results.some((result) => result.isPending)
-  const isError = rows.length === 0 && results.some((result) => result.isError)
-
-  const agentsEmpty = !isPending && !isError && rows.length === 0
-  const profileResults = useQueries({
-    queries: readableProjects.slice(0, maxProjects).map((project) => ({
-      ...listAgentProfilesOptions({
-        path: { orgID: orgId, projectID: project.id },
-        query: { sort: '-updated_at' as const, limit: rowLimit },
-        client,
-      }),
-      enabled: agentsEmpty,
-    })),
-  })
-  const profileRows: ProfileRow[] = readableProjects
-    .slice(0, maxProjects)
-    .flatMap((project, index) => {
-      const data = profileResults[index]?.data
-      if (!data) return []
-      return data.data.map((profile) => ({ profile, project }))
-    })
-    .sort((a, b) => b.profile.updated_at.localeCompare(a.profile.updated_at))
-    .slice(0, rowLimit)
-  const profilesPending = agentsEmpty && profileResults.some((result) => result.isPending)
-  const showProfiles = agentsEmpty && !profilesPending && profileRows.length > 0
+  const projects = overview?.projects ?? []
+  const projectNames = new Map(projects.map((project) => [project.id, project.name]))
+  const agents = overview?.recent_agents ?? []
+  const profiles = overview?.recent_agent_profiles ?? []
+  const showProfiles = !isError && agents.length === 0 && profiles.length > 0
 
   return (
     <div className="flex flex-col gap-3">
@@ -106,20 +50,20 @@ export function RecentAgentsSection({
             { header: 'Model' },
             { header: 'Updated', className: 'w-36' },
           ]}
-          data={profileRows}
-          getRowId={(row) => row.profile.id}
-          rowCells={(row) => [
-            <span className="font-medium">{row.profile.name}</span>,
-            <span className="text-muted-foreground">{row.project.name}</span>,
-            <span className="truncate">{row.profile.current_config.model.name}</span>,
+          data={profiles}
+          getRowId={(profile) => profile.id}
+          rowCells={(profile) => [
+            <span className="font-medium">{profile.name}</span>,
             <span className="text-muted-foreground">
-              {formatLastActive(row.profile.updated_at)}
+              {projectNames.get(profile.project_id) ?? '—'}
             </span>,
+            <span className="truncate">{profile.current_config.model.name}</span>,
+            <span className="text-muted-foreground">{formatLastActive(profile.updated_at)}</span>,
           ]}
-          onRowClick={(row) => {
+          onRowClick={(profile) => {
             void navigate({
               to: '/projects/$projectId/agent-profiles/$profileId',
-              params: { projectId: row.project.id, profileId: row.profile.id },
+              params: { projectId: profile.project_id, profileId: profile.id },
             })
           }}
           emptyMessage="No profiles yet."
@@ -132,31 +76,28 @@ export function RecentAgentsSection({
             { header: 'Model' },
             { header: 'Last active', className: 'w-36' },
           ]}
-          data={rows}
-          getRowId={(row) => row.agent.id}
-          rowCells={(row) => [
-            <span className="font-medium">{row.agent.name || 'Agent'}</span>,
-            <span className="text-muted-foreground">{row.project.name}</span>,
-            row.agent.model ? (
-              <span className="truncate">{row.agent.model.name}</span>
+          data={agents}
+          getRowId={(agent) => agent.id}
+          rowCells={(agent) => [
+            <span className="font-medium">{agent.name || 'Agent'}</span>,
+            <span className="text-muted-foreground">
+              {projectNames.get(agent.project_id) ?? '—'}
+            </span>,
+            agent.model ? (
+              <span className="truncate">{agent.model.name}</span>
             ) : (
               <span className="text-muted-foreground">—</span>
             ),
-            <span className="text-muted-foreground">{formatLastActive(row.agent.updated_at)}</span>,
+            <span className="text-muted-foreground">{formatLastActive(agent.updated_at)}</span>,
           ]}
-          onRowClick={(row) => {
+          onRowClick={(agent) => {
             void navigate({
               to: '/projects/$projectId/agents/$agentId',
-              params: { projectId: row.project.id, agentId: row.agent.id },
+              params: { projectId: agent.project_id, agentId: agent.id },
             })
           }}
-          isPending={isPending || profilesPending}
           isError={isError}
-          onRetry={() => {
-            for (const result of results) {
-              if (result.isError) void result.refetch()
-            }
-          }}
+          onRetry={onRetry}
           emptyMessage="No agents yet. Create one to get started."
         />
       )}

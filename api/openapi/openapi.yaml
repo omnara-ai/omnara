@@ -524,6 +524,43 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /api/v1/orgs/{orgID}/overview:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+    get:
+      operationId: getOrgOverview
+      x-hidden: true
+      tags: [Organizations and Projects]
+      summary: Get org overview
+      description: >-
+        Returns the data backing the web app's overview page: the caller's visible
+        projects plus the most recently active agents and most recently updated
+        agent profiles across every project the caller can read. Internal to the
+        web app and subject to change without notice.
+      responses:
+        '200':
+          description: Overview data for the organization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgOverviewResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /api/v1/orgs/{orgID}/projects:
     parameters:
       - name: orgID
@@ -10593,6 +10630,30 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
+    OrgOverviewResponse:
+      type: object
+      additionalProperties: false
+      required: [projects, recent_agents, recent_agent_profiles]
+      properties:
+        projects:
+          type: array
+          description: Projects visible to the caller, newest first (capped).
+          items:
+            $ref: '#/components/schemas/VisibleProject'
+        recent_agents:
+          type: array
+          description: >-
+            Most recently active agents across the caller's readable projects,
+            ordered by updated_at descending.
+          items:
+            $ref: '#/components/schemas/Agent'
+        recent_agent_profiles:
+          type: array
+          description: >-
+            Most recently updated agent profiles across the caller's readable
+            projects, ordered by updated_at descending.
+          items:
+            $ref: '#/components/schemas/AgentProfile'
     CurrentUserIdentity:
       type: object
       additionalProperties: false

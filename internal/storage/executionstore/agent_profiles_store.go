@@ -294,6 +294,37 @@ func (s *Store) ListAgentProfilesForProject(
 	return result, nil
 }
 
+type ListRecentAgentProfilesForProjectsInput struct {
+	ProjectIDs []ID
+	Limit      int
+}
+
+// ListRecentAgentProfilesForProjects returns the most recently updated agent
+// profiles across the given projects, newest first.
+func (s *Store) ListRecentAgentProfilesForProjects(
+	ctx context.Context,
+	input ListRecentAgentProfilesForProjectsInput,
+) ([]AgentProfileRecord, error) {
+	if input.Limit <= 0 {
+		return nil, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return []AgentProfileRecord{}, nil
+	}
+	rows, err := s.q.ListRecentAgentProfilesForProjects(ctx, dbsqlc.ListRecentAgentProfilesForProjectsParams{
+		ProjectIds: input.ProjectIDs,
+		RowLimit:   int64(input.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list recent agent profiles: %w", err)
+	}
+	records := make([]AgentProfileRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, agentProfileRecordFromListRecentForProjectsSQLC(row))
+	}
+	return records, nil
+}
+
 func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id ID) error {
 	if isNilID(projectID) || isNilID(id) {
 		return errors.New("project and agent profile are required")
