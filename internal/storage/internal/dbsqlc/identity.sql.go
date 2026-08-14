@@ -309,10 +309,21 @@ func (q *Queries) ConsumeAuthDeviceFlow(ctx context.Context, arg ConsumeAuthDevi
 }
 
 const consumeOrgInvitationForEmail = `-- name: ConsumeOrgInvitationForEmail :one
-DELETE FROM org_invitations
-WHERE id = $1
-  AND normalized_email = $2
-RETURNING id, org_id, email, normalized_email, org_role, created_at
+WITH consumed AS (
+  DELETE FROM org_invitations
+  WHERE org_invitations.id = $1
+    AND org_invitations.normalized_email = $2
+  RETURNING id, org_id, email, normalized_email, org_role, created_at
+)
+SELECT consumed.id,
+       consumed.org_id,
+       org.name AS org_name,
+       consumed.email,
+       consumed.normalized_email,
+       consumed.org_role,
+       consumed.created_at
+FROM consumed
+JOIN orgs org ON org.id = consumed.org_id AND org.deleted_at IS NULL
 `
 
 type ConsumeOrgInvitationForEmailParams struct {
@@ -320,12 +331,23 @@ type ConsumeOrgInvitationForEmailParams struct {
 	NormalizedEmail string
 }
 
-func (q *Queries) ConsumeOrgInvitationForEmail(ctx context.Context, arg ConsumeOrgInvitationForEmailParams) (OrgInvitation, error) {
+type ConsumeOrgInvitationForEmailRow struct {
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	OrgName         string
+	Email           string
+	NormalizedEmail string
+	OrgRole         string
+	CreatedAt       time.Time
+}
+
+func (q *Queries) ConsumeOrgInvitationForEmail(ctx context.Context, arg ConsumeOrgInvitationForEmailParams) (ConsumeOrgInvitationForEmailRow, error) {
 	row := q.db.QueryRow(ctx, consumeOrgInvitationForEmail, arg.ID, arg.NormalizedEmail)
-	var i OrgInvitation
+	var i ConsumeOrgInvitationForEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
+		&i.OrgName,
 		&i.Email,
 		&i.NormalizedEmail,
 		&i.OrgRole,

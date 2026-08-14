@@ -1177,10 +1177,21 @@ ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ConsumeOrgInvitationForEmail :one
-DELETE FROM org_invitations
-WHERE id = sqlc.arg(id)
-  AND normalized_email = sqlc.arg(normalized_email)
-RETURNING id, org_id, email, normalized_email, org_role, created_at;
+WITH consumed AS (
+  DELETE FROM org_invitations
+  WHERE org_invitations.id = sqlc.arg(id)
+    AND org_invitations.normalized_email = sqlc.arg(normalized_email)
+  RETURNING id, org_id, email, normalized_email, org_role, created_at
+)
+SELECT consumed.id,
+       consumed.org_id,
+       org.name AS org_name,
+       consumed.email,
+       consumed.normalized_email,
+       consumed.org_role,
+       consumed.created_at
+FROM consumed
+JOIN orgs org ON org.id = consumed.org_id AND org.deleted_at IS NULL;
 
 -- name: DeleteOrgInvitation :one
 DELETE FROM org_invitations

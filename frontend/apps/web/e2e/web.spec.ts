@@ -139,20 +139,20 @@ test('opens and declines pending invitations outside onboarding', async ({ page 
   await expect(page).toHaveURL('/invitations')
   await expect(page.getByRole('heading', { name: 'Pending invitations' })).toBeVisible()
 
-  const invitationCards = page.locator('[data-slot="card"]')
-  await expect(invitationCards.first()).toBeVisible()
-  const invitationCount = await invitationCards.count()
+  const declineButtons = page.getByRole('button', { name: /^Decline invitation to / })
+  await expect(declineButtons.first()).toBeVisible()
+  const invitationCount = await declineButtons.count()
   expect(invitationCount).toBeGreaterThan(0)
 
-  const invitationCard = invitationCards.first()
-  const invitationName = (
-    await invitationCard.locator('span.truncate.font-medium').textContent()
-  )?.trim()
+  const invitationLabel = await declineButtons.first().getAttribute('aria-label')
+  const invitationName = invitationLabel?.replace('Decline invitation to ', '').trim()
   if (!invitationName) throw new Error('Pending invitation organization name is missing')
-  await invitationCard.getByRole('button', { name: 'Decline' }).click()
+  await declineButtons.first().click()
 
-  await expect(page.getByText(invitationName, { exact: true })).toHaveCount(0)
-  await expect(invitationCards).toHaveCount(invitationCount - 1)
+  await expect(
+    page.getByRole('button', { name: `Decline invitation to ${invitationName}` }),
+  ).toHaveCount(0)
+  await expect(declineButtons).toHaveCount(invitationCount - 1)
 
   expect(failures).toEqual([])
 })

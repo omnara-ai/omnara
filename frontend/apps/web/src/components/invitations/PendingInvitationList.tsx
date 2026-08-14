@@ -97,6 +97,7 @@ export function PendingInvitationList({
               <div className="flex shrink-0 gap-2">
                 <Button
                   size="sm"
+                  aria-label={`Accept invitation to ${invitation.org_name}`}
                   disabled={actingId !== null}
                   onClick={() => {
                     void accept(invitation.id)
@@ -108,6 +109,7 @@ export function PendingInvitationList({
                 <Button
                   size="sm"
                   variant="outline"
+                  aria-label={`Decline invitation to ${invitation.org_name}`}
                   disabled={actingId !== null}
                   onClick={() => {
                     void decline(invitation.id)

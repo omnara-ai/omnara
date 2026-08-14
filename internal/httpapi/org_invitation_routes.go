@@ -56,11 +56,11 @@ func invitationListResponse(
 }
 
 func pendingInvitationListResponse(
-	invitations []identitystore.PendingOrgInvitationRecord,
+	invitations []identitystore.OrgInvitationWithOrgNameRecord,
 	hasMore bool,
 ) (openapi.ListOrgInvitationsResponse, error) {
 	data := make([]openapi.OrgInvitation, 0, len(invitations))
-	var last identitystore.PendingOrgInvitationRecord
+	var last identitystore.OrgInvitationWithOrgNameRecord
 	for _, invitation := range invitations {
 		response, err := orgInvitationResponse(
 			invitation.OrgInvitationRecord,
@@ -123,7 +123,7 @@ func (s strictOpenAPIServer) AcceptInvitation(
 	if errResponse != nil {
 		return nil, *errResponse
 	}
-	response, err := s.orgInvitationResponseWithName(ctx, invitation)
+	response, err := orgInvitationResponse(invitation.OrgInvitationRecord, invitation.OrgName)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s strictOpenAPIServer) DeclineInvitation(
 	if errResponse != nil {
 		return nil, *errResponse
 	}
-	response, err := s.orgInvitationResponseWithName(ctx, invitation)
+	response, err := orgInvitationResponse(invitation.OrgInvitationRecord, invitation.OrgName)
 	if err != nil {
 		return nil, err
 	}
@@ -149,22 +149,22 @@ func (s strictOpenAPIServer) answerInvitation(
 	ctx context.Context,
 	invitationIDRaw string,
 	accept bool,
-) (identitystore.OrgInvitationRecord, *apierror.ResponseError) {
+) (identitystore.OrgInvitationWithOrgNameRecord, *apierror.ResponseError) {
 	principal, ok := principalFromContext(ctx)
 	if !ok || principal.Type != identitystore.PrincipalTypeUser {
 		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-		return identitystore.OrgInvitationRecord{}, &err
+		return identitystore.OrgInvitationWithOrgNameRecord{}, &err
 	}
 	if s.server.store == nil {
 		err := apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
-		return identitystore.OrgInvitationRecord{}, &err
+		return identitystore.OrgInvitationWithOrgNameRecord{}, &err
 	}
 	invitationID, ok := parseOpenAPIPublicID(publicid.KindOrgInvitation, invitationIDRaw)
 	if !ok {
 		err := apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-		return identitystore.OrgInvitationRecord{}, &err
+		return identitystore.OrgInvitationWithOrgNameRecord{}, &err
 	}
-	var invitation identitystore.OrgInvitationRecord
+	var invitation identitystore.OrgInvitationWithOrgNameRecord
 	var err error
 	if accept {
 		invitation, err = s.server.store.Identity().AcceptOrgInvitation(
@@ -179,20 +179,9 @@ func (s strictOpenAPIServer) answerInvitation(
 	}
 	if err != nil {
 		apiErr := apierror.UserScoped(err)
-		return identitystore.OrgInvitationRecord{}, &apiErr
+		return identitystore.OrgInvitationWithOrgNameRecord{}, &apiErr
 	}
 	return invitation, nil
-}
-
-func (s strictOpenAPIServer) orgInvitationResponseWithName(
-	ctx context.Context,
-	invitation identitystore.OrgInvitationRecord,
-) (openapi.OrgInvitation, error) {
-	org, err := s.server.store.Identity().GetOrg(ctx, invitation.OrgID)
-	if err != nil {
-		return openapi.OrgInvitation{}, apierror.UserScoped(err)
-	}
-	return orgInvitationResponse(invitation, org.Name)
 }
 
 func (s strictOpenAPIServer) ListOrgInvitations(

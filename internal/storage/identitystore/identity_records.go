@@ -319,7 +319,7 @@ type OrgInvitationRecord struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-type PendingOrgInvitationRecord struct {
+type OrgInvitationWithOrgNameRecord struct {
 	OrgInvitationRecord
 	OrgName string `json:"org_name"`
 }
