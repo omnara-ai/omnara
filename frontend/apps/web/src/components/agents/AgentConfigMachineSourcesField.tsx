@@ -1,5 +1,5 @@
 import { Trash2Icon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { BasicMachineSource, MachineSourceKind } from '@/components/agents/agentConfigBasic'
 import {
@@ -54,7 +54,7 @@ export function AgentConfigMachineSourcesField({
   }
 
   const [unavailableIds, setUnavailableIds] = useState<ReadonlySet<string>>(new Set())
-  const reportAvailability = useCallback((id: string, unavailable: boolean) => {
+  const reportAvailability = (id: string, unavailable: boolean) => {
     setUnavailableIds((prev) => {
       if (prev.has(id) === unavailable) return prev
       const next = new Set(prev)
@@ -65,11 +65,11 @@ export function AgentConfigMachineSourcesField({
       }
       return next
     })
-  }, [])
+  }
   useEffect(() => {
     // Filter to live rows: a removed row's combobox never reports back.
     onUnavailableIdsChange(
-      sources.filter((source) => unavailableIds.has(source.id)).map((source) => source.id),
+      sources.flatMap((source) => (unavailableIds.has(source.id) ? [source.id] : [])),
     )
   }, [onUnavailableIdsChange, sources, unavailableIds])
 
@@ -171,9 +171,9 @@ export function AgentConfigMachineSourcesField({
                         // would keep its cwd/env overlays for a different
                         // machine. Everything else appends as a fresh row.
                         const used = new Set(
-                          sources
-                            .filter((candidate) => candidate.kind === 'machine')
-                            .map((candidate) => candidate.name),
+                          sources.flatMap((candidate) =>
+                            candidate.kind === 'machine' ? [candidate.name] : [],
+                          ),
                         )
                         const [first, ...rest] = [...new Set(names)].filter(
                           (name) => !used.has(name),

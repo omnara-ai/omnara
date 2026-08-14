@@ -10,7 +10,7 @@ import {
   useUpdateAgentProfile,
 } from '@omnara/react'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { type SyntheticEvent, useCallback, useReducer, useState } from 'react'
+import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import {
@@ -68,15 +68,14 @@ export function CreateAgentPage() {
     status: idle,
   })
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
-  const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null)
+  const savedProfile = useRef<SavedProfile | null>(null)
   const [builderBlocked, setBuilderBlocked] = useState(false)
-  // Stable identity: the builder's serialize effect depends on this callback.
   // Blocked drafts are not mirrored into the buffers, so the YAML tab starts
   // empty for hand authoring; the blocked flag still gates submission.
-  const handleBuilderYamlChange = useCallback((value: string, blocked: boolean) => {
+  const handleBuilderYamlChange = (value: string, blocked: boolean) => {
     setBuilderBlocked(blocked)
     if (!blocked) dispatchMode({ type: 'builder-yaml-changed', yaml: value })
-  }, [])
+  }
 
   if (projectIsPending) return <FullPageSpinner />
 >>>>>>> cc153ffda (review fixes, adapt to document based yaml)
@@ -119,7 +118,7 @@ export function CreateAgentPage() {
     setPendingAction(action)
     const name = draft.name.trim()
     try {
-      let profile = savedProfile
+      let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
         const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
         if (profile?.name === name) {
@@ -133,7 +132,7 @@ export function CreateAgentPage() {
           const created = await createAgentProfile.mutateAsync({ name, config: config.id })
           profile = { name, yaml, profileId: created.id, configId: config.id }
         }
-        setSavedProfile(profile)
+        savedProfile.current = profile
       }
       if (action === 'launch') {
         const launch = await createAgent.mutateAsync({

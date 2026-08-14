@@ -46,26 +46,22 @@ export function AgentProfilesSection({
       })
     } catch (error) {
       window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
-    } finally {
-      setLaunchingId(null)
     }
+    setLaunchingId(null)
   }
-
-  const newAgentButton = () =>
-    canManage ? (
-      <Button asChild size="sm">
-        <Link to="/projects/$projectId/agents/new" params={{ projectId }}>
-          New agent
-        </Link>
-      </Button>
-    ) : undefined
 
   return (
     <>
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-2xl font-bold tracking-tight">Agent profiles</h2>
-          {newAgentButton()}
+          {canManage && (
+            <Button asChild size="sm">
+              <Link to="/projects/$projectId/agents/new" params={{ projectId }}>
+                New agent
+              </Link>
+            </Button>
+          )}
         </div>
         {showToolbar && (
           <ResourceListToolbar
@@ -79,35 +75,52 @@ export function AgentProfilesSection({
         )}
         <DataTable
           columns={[
-            { header: 'Name' },
-            { header: 'Provider' },
-            { header: 'Model' },
-            { header: '', className: 'w-36', isActions: true },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (profile) => <span className="font-medium">{profile.name}</span>,
+            },
+            {
+              id: 'provider',
+              header: 'Provider',
+              cell: (profile) => profile.current_config.model.provider_config,
+            },
+            {
+              id: 'model',
+              header: 'Model',
+              cell: (profile) => (
+                <span className="text-muted-foreground">{profile.current_config.model.name}</span>
+              ),
+            },
+            {
+              id: 'actions',
+              header: '',
+              className: 'w-36',
+              isActions: true,
+              cell: (profile) => (
+                <div className="flex items-center gap-1">
+                  {canOperate && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={launchingId !== null}
+                      onClick={() => {
+                        void launch(profile)
+                      }}
+                    >
+                      {launchingId === profile.id && <Spinner />}
+                      Launch
+                    </Button>
+                  )}
+                </div>
+              ),
+            },
           ]}
           data={paged.rows}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(profile) => profile.id}
-          rowCells={(profile) => [
-            <span className="font-medium">{profile.name}</span>,
-            profile.current_config.model.provider_config,
-            <span className="text-muted-foreground">{profile.current_config.model.name}</span>,
-            <div className="flex items-center gap-1">
-              {canOperate && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={launchingId !== null}
-                  onClick={() => {
-                    void launch(profile)
-                  }}
-                >
-                  {launchingId === profile.id && <Spinner />}
-                  Launch
-                </Button>
-              )}
-            </div>,
-          ]}
           onRowClick={(profile) => {
             void navigate({
               to: '/projects/$projectId/agent-profiles/$profileId',

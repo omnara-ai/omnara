@@ -1,5 +1,4 @@
 import { useProjectMachinePoolGrants, useProjectMachines } from '@omnara/react'
-import type { ProjectMachinePoolGrantListItem, VisibleMachine } from '@omnara/sdk'
 import { PlusIcon } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 
@@ -30,16 +29,25 @@ function GrantAction({ label, onOpen }: { label: string; onOpen: () => void }): 
   )
 }
 
-const PoolNameCombobox = createResourceCombobox<ProjectMachinePoolGrantListItem>({
-  itemKey: (item) => item.machine_pool.name,
-  itemLabel: (item) => item.machine_pool.name,
+interface PoolOption {
+  name: string
+  pool?: SelectedPool
+}
+
+interface MachineOption {
+  name: string
+}
+
+const PoolNameCombobox = createResourceCombobox<PoolOption>({
+  itemKey: (item) => item.name,
+  itemLabel: (item) => item.name,
   placeholder: 'Search machine pools…',
   emptyMessage: 'No machine pools granted.',
 })
 
-const MachineNameCombobox = createResourceCombobox<VisibleMachine>({
-  itemKey: (machine) => machine.display_name,
-  itemLabel: (machine) => machine.display_name,
+const MachineNameCombobox = createResourceCombobox<MachineOption>({
+  itemKey: (machine) => machine.name,
+  itemLabel: (machine) => machine.name,
   placeholder: 'Search machines…',
   emptyMessage: 'No machines granted.',
 })
@@ -122,10 +130,13 @@ export function PoolSourceCombobox({
   return (
     <>
       <PoolNameCombobox
-        items={grants}
-        value={value || null}
+        items={grants.map((item) => ({
+          name: item.machine_pool.name,
+          pool: item.machine_pool,
+        }))}
+        value={value === '' ? null : { name: value }}
         onValueChange={(item) => {
-          onChange(item?.machine_pool.name ?? '', item?.machine_pool)
+          onChange(item?.name ?? '', item?.pool)
         }}
         search={search}
         query={grantsQuery}
@@ -200,10 +211,10 @@ export function MachineSourceCombobox({
   return (
     <>
       <MachineNameCombobox
-        items={machines}
-        value={value || null}
+        items={machines.map((machine) => ({ name: machine.display_name }))}
+        value={value === '' ? null : { name: value }}
         onValueChange={(machine) => {
-          onChange(machine?.display_name ?? '')
+          onChange(machine?.name ?? '')
         }}
         search={search}
         query={machinesQuery}

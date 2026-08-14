@@ -14,8 +14,8 @@ import {
 } from '@/components/machines/machineOverrides'
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 
-const machineEntryKeys = ['machine_name', 'cwd', 'env_overlay', 'secret_env_overlay']
-const poolEntryKeys = [
+const machineEntryKeys = new Set(['machine_name', 'cwd', 'env_overlay', 'secret_env_overlay'])
+const poolEntryKeys = new Set([
   'machine_pool_name',
   'initial_num_machines',
   'max_machines',
@@ -25,13 +25,13 @@ const poolEntryKeys = [
   'cwd',
   'env_overlay',
   'secret_env_overlay',
-]
-const toolEntryKeys = ['type', 'enabled', 'permission']
-const permissionKeys = ['mode', 'parameters']
-const mcpEntryKeys = ['url', 'permission', 'default_enabled', 'auth']
+])
+const toolEntryKeys = new Set(['type', 'enabled', 'permission'])
+const permissionKeys = new Set(['mode', 'parameters'])
+const mcpEntryKeys = new Set(['url', 'permission', 'default_enabled', 'auth'])
 
-function hasOnlyKeys(record: Record<string, unknown>, allowed: readonly string[]) {
-  return Object.keys(record).every((key) => allowed.includes(key))
+function hasOnlyKeys(record: Record<string, unknown>, allowed: ReadonlySet<string>) {
+  return Object.keys(record).every((key) => allowed.has(key))
 }
 
 export function extractBasicConfig(doc: Record<string, unknown>): BasicConfig | null {
@@ -249,10 +249,10 @@ function extractMcpServer(name: string, entry: unknown): BasicMcpServer | null {
   if (type !== 'oauth' && type !== 'bearer' && type !== 'sigv4') return null
   if (typeof secretId !== 'string') return null
   if (type !== 'sigv4') {
-    if (!hasOnlyKeys(entry.auth, ['type', 'secret_id'])) return null
+    if (!hasOnlyKeys(entry.auth, new Set(['type', 'secret_id']))) return null
     return { ...server, authType: type, secretId }
   }
-  if (!hasOnlyKeys(entry.auth, ['type', 'secret_id', 'service', 'region'])) return null
+  if (!hasOnlyKeys(entry.auth, new Set(['type', 'secret_id', 'service', 'region']))) return null
   if (typeof service !== 'string' || typeof region !== 'string') return null
   return { ...server, authType: type, secretId, service, region }
 }

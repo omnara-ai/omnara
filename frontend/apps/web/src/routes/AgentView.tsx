@@ -10,7 +10,7 @@ import {
 } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
 import { SettingsIcon } from 'lucide-react'
-import { type CSSProperties, useState } from 'react'
+import { type CSSProperties, useRef, useState } from 'react'
 
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
@@ -46,10 +46,10 @@ export function AgentView() {
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
   const [configOpen, setConfigOpen] = useState(false)
-  const [configDirty, setConfigDirty] = useState(false)
+  const configDirty = useRef(false)
 
   function closeConfig() {
-    setConfigDirty(false)
+    configDirty.current = false
     setConfigOpen(false)
   }
 
@@ -101,7 +101,7 @@ export function AgentView() {
                       setConfigOpen(true)
                       return
                     }
-                    if (configDirty && !window.confirm(discardConfigEditsPrompt)) return
+                    if (configDirty.current && !window.confirm(discardConfigEditsPrompt)) return
                     closeConfig()
                   }}
                 >
@@ -122,7 +122,9 @@ export function AgentView() {
               projectId={projectId}
               agent={agent}
               canManage={project?.access.can_manage ?? false}
-              onDirtyChange={setConfigDirty}
+              onDirtyChange={(dirty) => {
+                configDirty.current = dirty
+              }}
               onClose={closeConfig}
             />
           </main>

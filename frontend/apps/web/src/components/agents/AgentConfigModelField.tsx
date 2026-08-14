@@ -1,5 +1,6 @@
 import { useProjectModelGrants } from '@omnara/react'
 import type { ConfiguredModelSummary } from '@omnara/sdk'
+import { useEffect } from 'react'
 
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
 import { Field, FieldLabel } from '@/components/ui/field'

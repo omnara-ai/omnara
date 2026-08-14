@@ -1,7 +1,7 @@
 import { useProjectAvailableSkills } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
 import { CircleAlert, Sparkles, Trash2Icon } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -72,24 +72,18 @@ export function AgentConfigSkillsField({
     ...loadedSkills,
     ...completeResolve.items.map((access) => access.skill),
   ].filter((skill) => selectedSet.has(skill.id) && !resolvedSkills.has(skill.id))
-  useEffect(() => {
-    if (resolvableNow.length === 0) return
-    setResolvedSkills((prev) => {
-      const next = new Map(prev)
-      for (const skill of resolvableNow) next.set(skill.id, skill)
-      return next
-    })
-  }, [resolvableNow])
-  const danglingIds = useMemo(
-    () =>
-      completeResolve.isComplete
-        ? unresolvedIds.filter(
-            (id) => !completeResolve.items.some((access) => access.skill.id === id),
-          )
-        : [],
-    [completeResolve.isComplete, completeResolve.items, unresolvedIds],
-  )
+  if (resolvableNow.length > 0) {
+    const next = new Map(resolvedSkills)
+    for (const skill of resolvableNow) next.set(skill.id, skill)
+    setResolvedSkills(next)
+  }
+  const resolveInventoryIds = new Set(completeResolve.items.map((access) => access.skill.id))
+  const danglingIds = completeResolve.isComplete
+    ? unresolvedIds.filter((id) => !resolveInventoryIds.has(id))
+    : []
 
+  const loadedSkillIds = new Set(loadedSkills.map((skill) => skill.id))
+  const danglingIdSet = new Set(danglingIds)
   const selectedNames = new Set(
     selectedIds.flatMap((id) => {
       const skill = skillById(id)
@@ -97,11 +91,11 @@ export function AgentConfigSkillsField({
     }),
   )
   const available = loadedSkills.filter(
-    (skill) => !selectedIds.includes(skill.id) && !selectedNames.has(skill.name),
+    (skill) => !selectedSet.has(skill.id) && !selectedNames.has(skill.name),
   )
 
   const [unavailableIds, setUnavailableIds] = useState<ReadonlySet<string>>(new Set())
-  const reportAvailability = useCallback((id: string, availableNow: boolean) => {
+  const reportAvailability = (id: string, availableNow: boolean) => {
     setUnavailableIds((prev) => {
       if (prev.has(id) !== availableNow) return prev
       const next = new Set(prev)
@@ -112,10 +106,13 @@ export function AgentConfigSkillsField({
       }
       return next
     })
-  }, [])
+  }
+  // Keyed on the joined ids so the derived array's identity doesn't retrigger
+  // the report every render.
+  const unavailableReportKey = [...new Set([...unavailableIds, ...danglingIds])].join('\n')
   useEffect(() => {
-    onUnavailableIdsChange([...new Set([...unavailableIds, ...danglingIds])])
-  }, [danglingIds, onUnavailableIdsChange, unavailableIds])
+    onUnavailableIdsChange(unavailableReportKey === '' ? [] : unavailableReportKey.split('\n'))
+  }, [onUnavailableIdsChange, unavailableReportKey])
 
   return (
     <Field>
@@ -168,8 +165,8 @@ export function AgentConfigSkillsField({
               projectId={projectId}
               id={id}
               skill={skillById(id)}
-              listedNow={loadedSkills.some((skill) => skill.id === id)}
-              dangling={danglingIds.includes(id)}
+              listedNow={loadedSkillIds.has(id)}
+              dangling={danglingIdSet.has(id)}
               onAvailabilityChange={reportAvailability}
               onRemove={() => {
                 onSelectedIdsChange(selectedIds.filter((selectedId) => selectedId !== id))

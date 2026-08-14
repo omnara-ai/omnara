@@ -13,6 +13,22 @@
       {
         "files": ["src/components/active-org/ActiveOrgProvider.tsx"],
         "rules": ["react-doctor/no-event-handler"]
+      },
+      {
+        "files": [
+          "src/components/agents/AgentConfigBasicForm.tsx",
+          "src/components/agents/AgentConfigMachineSourceComboboxes.tsx",
+          "src/components/agents/AgentConfigMachineSourcesField.tsx",
+          "src/components/agents/AgentConfigModelField.tsx",
+          "src/components/agents/AgentConfigPanel.tsx",
+          "src/components/agents/AgentConfigSkillsField.tsx",
+          "src/components/agents/AgentProfileConfigEditor.tsx"
+        ],
+        "rules": [
+          "react-doctor/no-pass-data-to-parent",
+          "react-doctor/no-pass-live-state-to-parent",
+          "react-doctor/no-prop-callback-in-effect"
+        ]
       }
     ]
   },

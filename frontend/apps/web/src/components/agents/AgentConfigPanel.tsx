@@ -1,6 +1,6 @@
 import { useAgentConfig, useUpdateAgentConfig } from '@omnara/react'
 import { type Agent, type AgentConfig, ApiError } from '@omnara/sdk'
-import { type SyntheticEvent, useCallback, useEffect, useReducer, useState } from 'react'
+import { type SyntheticEvent, useEffect, useReducer, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import { deserializeBasicConfig } from '@/components/agents/agentConfigBasicYaml'
@@ -140,13 +140,12 @@ function AgentConfigPanelEditor({
   const [builderBlocked, setBuilderBlocked] = useState(false)
   const [error, setError] = useState('')
 
-  // Stable identity: the builder's serialize effect depends on this callback.
   // Blocked drafts (incomplete or referencing unavailable resources) still
   // update the buffers, so they count as dirty and the YAML tab mirrors them.
-  const handleBuilderYamlChange = useCallback((value: string, blocked: boolean) => {
+  const handleBuilderYamlChange = (value: string, blocked: boolean) => {
     setBuilderBlocked(blocked)
     dispatchMode({ type: 'builder-yaml-changed', yaml: value })
-  }, [])
+  }
 
   const showBuilder = mode.mode === 'builder'
   const yaml = showBuilder ? mode.builderYaml : mode.editorYaml

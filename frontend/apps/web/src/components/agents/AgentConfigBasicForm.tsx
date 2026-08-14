@@ -1,5 +1,5 @@
 import { useToolCatalog } from '@omnara/react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
   type BasicConfig,
@@ -95,13 +95,13 @@ export function AgentConfigBasicForm({
     unavailableSourceIds.length,
   ])
 
-  const onModelChange = useCallback((selection: ModelSelection) => {
+  const onModelChange = (selection: ModelSelection) => {
     setDraft((prev) => ({
       ...prev,
       providerConfig: selection.providerConfig,
       modelName: selection.modelName,
     }))
-  }, [])
+  }
 
   return (
     <FieldGroup className="gap-8">
