@@ -1,12 +1,12 @@
 import { useEffect, useReducer, useState } from 'react'
 
-import { createBasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import {
   type AgentConfigMode,
   agentConfigModeReducer,
   initialAgentConfigModeState,
   yamlDiverged,
 } from '@/components/agents/agentConfigModeMachine'
+import { createBasicConfigSession } from '@/components/agents/useAgentBuilderForm'
 
 export type AgentConfigEditorState = ReturnType<typeof useAgentConfigEditor>
 

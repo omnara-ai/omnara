@@ -1,11 +1,11 @@
 import { useToolCatalog } from '@omnara/react'
 
-import type { BasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
+import type { BasicConfigSession } from '@/components/agents/useAgentBuilderForm'
 import { useAgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'

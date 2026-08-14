@@ -13,7 +13,6 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
-import { createBasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
 import {
   agentConfigModeReducer,
   initialAgentConfigModeState,
@@ -22,6 +21,7 @@ import {
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
+import { createBasicConfigSession } from '@/components/agents/useAgentBuilderForm'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
