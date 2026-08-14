@@ -16,11 +16,16 @@ export function CreateAgentForm() {
 
   const toolCatalog = useToolCatalog()
   const poolGrantsQuery = useProjectMachinePoolGrants(activeOrg.id, projectId, {
-    sort: 'name',
-    pageSize: 1,
+    sort: 'created_at',
+    pageSize: 50,
   })
   const catalog = toolCatalog.data
-  const defaultPool = poolGrantsQuery.data?.pages[0]?.data[0]?.machine_pool
+  // Prefer the platform-installed default pool (cluster-managed pools are
+  // auto-granted when the org is bootstrapped); fall back to the oldest grant.
+  const poolGrants = poolGrantsQuery.data?.pages[0]?.data ?? []
+  const defaultPool = (
+    poolGrants.find((grant) => grant.machine_pool.management_kind === 'cluster') ?? poolGrants[0]
+  )?.machine_pool
   const templatesError = toolCatalog.isError || poolGrantsQuery.isError
   const templatesReady = !templatesError && !toolCatalog.isPending && !poolGrantsQuery.isPending
   const linkedTemplate = agentTemplates.find((template) => template.id === search.template)
