@@ -71,6 +71,7 @@ func TestWebE2E(t *testing.T) {
 	}
 	adminEmail := "web-admin-" + env.seed + "@example.com"
 	viewerEmail := "web-viewer-" + env.seed + "@example.com"
+	inviteeEmail := "web-invitee-" + env.seed + "@example.com"
 	adminUserID := createWebE2EUser(
 		t,
 		ctx,
@@ -91,6 +92,16 @@ func TestWebE2E(t *testing.T) {
 		authz.OrgRoleMember,
 		authz.ProjectRoleViewer,
 	)
+	createWebE2EUser(
+		t,
+		ctx,
+		store,
+		orgID,
+		projectID,
+		inviteeEmail,
+		authz.OrgRoleMember,
+		authz.ProjectRoleViewer,
+	)
 	switchOrg, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID:         adminUserID,
 		Name:           webE2ESwitchOrgName,
@@ -99,12 +110,40 @@ func TestWebE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create web e2e switch target organization: %v", err)
 	}
-	if _, err := store.Identity().CreateOrgInvitation(ctx, identitystore.CreateOrgInvitationInput{
-		OrgID: switchOrg.Org.ID,
-		Email: viewerEmail,
-		Role:  authz.OrgRoleMember,
-	}); err != nil {
-		t.Fatalf("create web e2e pending organization invitation: %v", err)
+	secondInvitationOrg, err := store.Organizations().CreateOrgForUser(
+		ctx,
+		orglifecycle.CreateOrgForUserInput{
+			UserID:         adminUserID,
+			Name:           "zz web invitation target two",
+			IdempotencyKey: "web-invitation-target-two",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create second web e2e invitation organization: %v", err)
+	}
+	thirdInvitationOrg, err := store.Organizations().CreateOrgForUser(
+		ctx,
+		orglifecycle.CreateOrgForUserInput{
+			UserID:         adminUserID,
+			Name:           "zz web invitation target three",
+			IdempotencyKey: "web-invitation-target-three",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create third web e2e invitation organization: %v", err)
+	}
+	for _, invitationOrgID := range []storage.ID{
+		switchOrg.Org.ID,
+		secondInvitationOrg.Org.ID,
+		thirdInvitationOrg.Org.ID,
+	} {
+		if _, err := store.Identity().CreateOrgInvitation(ctx, identitystore.CreateOrgInvitationInput{
+			OrgID: invitationOrgID,
+			Email: inviteeEmail,
+			Role:  authz.OrgRoleMember,
+		}); err != nil {
+			t.Fatalf("create web e2e pending organization invitation: %v", err)
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, "pnpm", "--filter", "@omnara/web", "run", "test:e2e")
@@ -117,6 +156,7 @@ func TestWebE2E(t *testing.T) {
 		"OMNARA_WEB_E2E_SWITCH_ORG_NAME="+webE2ESwitchOrgName,
 		"OMNARA_WEB_E2E_ADMIN_EMAIL="+adminEmail,
 		"OMNARA_WEB_E2E_VIEWER_EMAIL="+viewerEmail,
+		"OMNARA_WEB_E2E_INVITEE_EMAIL="+inviteeEmail,
 		"OMNARA_WEB_E2E_PASSWORD="+webE2EPassword,
 		"OMNARA_WEB_E2E_PROVIDER_CONFIG="+webE2EProviderConfig,
 		"OMNARA_WEB_E2E_MODEL_NAME="+webE2EModelName,

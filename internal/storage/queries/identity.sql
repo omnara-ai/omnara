@@ -1156,7 +1156,7 @@ SELECT invitation.id,
        invitation.org_role,
        invitation.created_at
 FROM org_invitations invitation
-JOIN orgs org ON org.id = invitation.org_id
+JOIN orgs org ON org.id = invitation.org_id AND org.deleted_at IS NULL
 WHERE invitation.normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
   AND (
     sqlc.narg(cursor_created_at)::timestamptz IS NULL

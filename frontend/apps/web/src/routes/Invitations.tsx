@@ -1,5 +1,6 @@
 import { useMe, usePendingInvitations } from '@omnara/react'
-import { Link } from '@tanstack/react-router'
+import type { OrgInvitation } from '@omnara/sdk'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { MailCheck } from 'lucide-react'
 
 import { ActiveOrgProvider } from '@/components/active-org/ActiveOrgProvider'
@@ -16,6 +17,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
+import { useActiveOrg } from '@/lib/use-active-org'
 
 export function Invitations() {
   const { data: me } = useMe()
@@ -28,7 +30,12 @@ export function Invitations() {
           Omnara
         </Link>
         <main className="w-full">
-          <InvitationsContent hasOrganizations={false} />
+          <InvitationsContent
+            hasOrganizations={false}
+            onAccepted={() => {
+              window.location.assign('/')
+            }}
+          />
         </main>
       </div>
     )
@@ -36,14 +43,35 @@ export function Invitations() {
 
   return (
     <ActiveOrgProvider>
-      <AppShell>
-        <InvitationsContent hasOrganizations />
-      </AppShell>
+      <OrganizationInvitations />
     </ActiveOrgProvider>
   )
 }
 
-function InvitationsContent({ hasOrganizations }: { hasOrganizations: boolean }) {
+function OrganizationInvitations() {
+  const navigate = useNavigate()
+  const { setActiveOrgId } = useActiveOrg()
+
+  return (
+    <AppShell>
+      <InvitationsContent
+        hasOrganizations
+        onAccepted={async (invitation) => {
+          setActiveOrgId(invitation.org_id)
+          await navigate({ to: '/' })
+        }}
+      />
+    </AppShell>
+  )
+}
+
+function InvitationsContent({
+  hasOrganizations,
+  onAccepted,
+}: {
+  hasOrganizations: boolean
+  onAccepted: (invitation: OrgInvitation) => void | Promise<void>
+}) {
   const { data } = usePendingInvitations()
   const invitations = data.data
 
@@ -59,7 +87,7 @@ function InvitationsContent({ hasOrganizations }: { hasOrganizations: boolean })
       </div>
 
       {invitations.length > 0 ? (
-        <PendingInvitationList invitations={invitations} />
+        <PendingInvitationList invitations={invitations} onAccepted={onAccepted} />
       ) : (
         <Empty className="border">
           <EmptyHeader>
@@ -83,7 +111,7 @@ function InvitationsContent({ hasOrganizations }: { hasOrganizations: boolean })
 
       {data.next_cursor && (
         <p className="text-muted-foreground text-sm">
-          More invitations are available. Respond to one to load the next invitation.
+          More invitations are available. Respond to one to see more.
         </p>
       )}
     </div>

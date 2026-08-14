@@ -12,6 +12,7 @@ const switchOrgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_SWITCH_ORG_NAM
 const createdOrgName = 'zz web created organization'
 const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
 const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
+const inviteeEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_INVITEE_EMAIL')
 const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
 const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONFIG')
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
@@ -125,17 +126,33 @@ test('creates an organization from a project page', async ({ page }) => {
   expect(failures).toEqual([])
 })
 
-test('opens pending invitations outside onboarding', async ({ page }) => {
+test('opens and declines pending invitations outside onboarding', async ({ page }) => {
   const failures = installFailureTracking(page)
-  await signIn(page, viewerEmail, '/')
+  await signIn(page, inviteeEmail, '/')
 
-  const pendingInvitations = page.getByRole('link', { name: 'Pending invitations, 1' })
+  const pendingInvitations = page.getByRole('link', {
+    name: /^Pending invitations, [1-3]$/,
+  })
   await expect(pendingInvitations).toBeVisible()
   await pendingInvitations.click()
 
   await expect(page).toHaveURL('/invitations')
   await expect(page.getByRole('heading', { name: 'Pending invitations' })).toBeVisible()
-  await expect(page.getByText(switchOrgName, { exact: true })).toBeVisible()
+
+  const invitationCards = page.locator('[data-slot="card"]')
+  await expect(invitationCards.first()).toBeVisible()
+  const invitationCount = await invitationCards.count()
+  expect(invitationCount).toBeGreaterThan(0)
+
+  const invitationCard = invitationCards.first()
+  const invitationName = (
+    await invitationCard.locator('span.truncate.font-medium').textContent()
+  )?.trim()
+  if (!invitationName) throw new Error('Pending invitation organization name is missing')
+  await invitationCard.getByRole('button', { name: 'Decline' }).click()
+
+  await expect(page.getByText(invitationName, { exact: true })).toHaveCount(0)
+  await expect(invitationCards).toHaveCount(invitationCount - 1)
 
   expect(failures).toEqual([])
 })
