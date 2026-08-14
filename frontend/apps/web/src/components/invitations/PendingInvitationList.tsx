@@ -120,7 +120,6 @@ export function PendingInvitationList({
                     title={copiedInvitationID === invitation.id ? 'Copied' : 'Copy organization ID'}
                     onClick={() => void copyOrganizationID(invitation)}
                   >
-                    <span className="shrink-0">Org ID:</span>
                     <code className="truncate font-mono text-[11px] font-normal">
                       {invitation.org_id}
                     </code>
