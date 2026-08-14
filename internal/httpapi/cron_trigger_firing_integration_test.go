@@ -143,6 +143,48 @@ func TestCronTriggerFiringAndCascade(t *testing.T) {
 		t.Fatalf("claimed triggers must not refire before their next schedule: %+v", repeatStats)
 	}
 
+	profileTriggerUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, profileTriggerID)
+	if _, err := pool.Exec(
+		ctx,
+		"UPDATE cron_triggers SET next_fire_after = transaction_timestamp() - interval '1 minute',"+
+			" claimed_until = transaction_timestamp() + interval '5 minutes' WHERE id = $1",
+		profileTriggerUUID,
+	); err != nil {
+		t.Fatalf("lease cron trigger: %v", err)
+	}
+	leasedStats, err := service.FireDueTriggers(ctx)
+	if err != nil {
+		t.Fatalf("fire with active lease: %v", err)
+	}
+	if leasedStats.Claimed != 0 {
+		t.Fatalf("leased trigger must not be claimable: %+v", leasedStats)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		"UPDATE cron_triggers SET claimed_until = transaction_timestamp() - interval '1 second' WHERE id = $1",
+		profileTriggerUUID,
+	); err != nil {
+		t.Fatalf("expire cron trigger lease: %v", err)
+	}
+	expiredStats, err := service.FireDueTriggers(ctx)
+	if err != nil {
+		t.Fatalf("fire after lease expiry: %v", err)
+	}
+	if expiredStats.Claimed != 1 || expiredStats.Launched != 1 {
+		t.Fatalf("expired lease must be reclaimed and fired: %+v", expiredStats)
+	}
+	var claimedUntil *string
+	if err := pool.QueryRow(
+		ctx,
+		"SELECT claimed_until::text FROM cron_triggers WHERE id = $1",
+		profileTriggerUUID,
+	).Scan(&claimedUntil); err != nil {
+		t.Fatalf("load cron trigger lease: %v", err)
+	}
+	if claimedUntil != nil {
+		t.Fatalf("completed firing must clear the claim lease, got %q", *claimedUntil)
+	}
+
 	requestJSONWithHeaders(
 		t,
 		handler,

@@ -474,16 +474,14 @@ type ClaimDueCronTriggersResult struct {
 	Disabled []ID
 }
 
+const cronTriggerClaimLease = 5 * time.Minute
+
 func (s *Store) ClaimDueCronTriggers(
 	ctx context.Context,
 	limit int32,
-	fire func(context.Context, ClaimedCronTrigger),
 ) (ClaimDueCronTriggersResult, error) {
 	if limit <= 0 {
 		return ClaimDueCronTriggersResult{}, errors.New("limit must be positive")
-	}
-	if fire == nil {
-		return ClaimDueCronTriggersResult{}, errors.New("fire callback is required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -503,9 +501,9 @@ func (s *Store) ClaimDueCronTriggers(
 		return ClaimDueCronTriggersResult{}, fmt.Errorf("select due cron triggers: %w", err)
 	}
 	result := ClaimDueCronTriggersResult{}
+	claimedUntil := now.Add(cronTriggerClaimLease)
 	for _, row := range rows {
-		next, err := cronschedule.Next(row.CronExpression, row.Timezone, now)
-		if err != nil {
+		if _, err := cronschedule.Next(row.CronExpression, row.Timezone, now); err != nil {
 			if _, err := qtx.DisableCronTrigger(ctx, dbsqlc.DisableCronTriggerParams{
 				ProjectID: row.ProjectID, ID: row.ID,
 			}); err != nil {
@@ -514,11 +512,10 @@ func (s *Store) ClaimDueCronTriggers(
 			result.Disabled = append(result.Disabled, row.ID)
 			continue
 		}
-		firedAt, err := qtx.MarkCronTriggerFired(ctx, dbsqlc.MarkCronTriggerFiredParams{
-			ProjectID: row.ProjectID, ID: row.ID, NextFireAfter: &next,
-		})
-		if err != nil {
-			return ClaimDueCronTriggersResult{}, fmt.Errorf("mark cron trigger fired: %w", err)
+		if _, err := qtx.ClaimCronTrigger(ctx, dbsqlc.ClaimCronTriggerParams{
+			ProjectID: row.ProjectID, ID: row.ID, ClaimedUntil: &claimedUntil,
+		}); err != nil {
+			return ClaimDueCronTriggersResult{}, fmt.Errorf("claim cron trigger: %w", err)
 		}
 		result.Claimed = append(result.Claimed, ClaimedCronTrigger{
 			TriggerID:       row.ID,
@@ -528,17 +525,55 @@ func (s *Store) ClaimDueCronTriggers(
 			Target:          cronTriggerTargetFromColumns(row.AgentProfileID, row.AgentID),
 			MessageTemplate: row.MessageTemplate,
 			DueAt:           nullableTimeToZero(row.NextFireAfter),
-			FiredAt:         nullableTimeToZero(firedAt),
+			FiredAt:         now,
 			LastFiredAt:     row.LastFiredAt,
 		})
-	}
-	for _, trigger := range result.Claimed {
-		fire(ctx, trigger)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ClaimDueCronTriggersResult{}, fmt.Errorf("commit claim due cron triggers: %w", err)
 	}
 	return result, nil
+}
+
+func (s *Store) CompleteCronTriggerFiring(ctx context.Context, projectID, triggerID ID) error {
+	if isNilID(projectID) || isNilID(triggerID) {
+		return errors.New("project and cron trigger are required")
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin complete cron trigger firing: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	qtx := s.q.WithTx(tx)
+	row, err := qtx.GetCronTriggerForUpdate(
+		ctx,
+		dbsqlc.GetCronTriggerForUpdateParams{ProjectID: projectID, ID: triggerID},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lock cron trigger for completion: %w", err)
+	}
+	record := cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row))
+	var nextFireAfter *time.Time
+	if record.Enabled {
+		next, err := cronTriggerNextFireTx(ctx, qtx, record.CronExpression, record.Timezone)
+		if err != nil {
+			return err
+		}
+		nextFireAfter = &next
+	}
+	if _, err := qtx.CompleteCronTriggerFiring(ctx, dbsqlc.CompleteCronTriggerFiringParams{
+		ProjectID: projectID, ID: triggerID, NextFireAfter: nextFireAfter,
+	}); err != nil {
+		return fmt.Errorf("complete cron trigger firing: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit complete cron trigger firing: %w", err)
+	}
+	return nil
 }
 
 func cronTriggerNextFireTx(

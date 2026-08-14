@@ -12,6 +12,7 @@ CREATE TABLE cron_triggers (
     enabled boolean NOT NULL DEFAULT true,
     last_fired_at timestamptz,
     next_fire_after timestamptz,
+    claimed_until timestamptz,
     idempotency_key text,
     deleted_at timestamptz,
     created_at timestamptz NOT NULL,

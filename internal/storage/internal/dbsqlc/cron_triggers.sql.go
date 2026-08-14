@@ -12,6 +12,54 @@ import (
 	"github.com/google/uuid"
 )
 
+const claimCronTrigger = `-- name: ClaimCronTrigger :execrows
+UPDATE cron_triggers
+SET claimed_until = $1,
+    updated_at = statement_timestamp()
+WHERE project_id = $2
+  AND id = $3
+  AND deleted_at IS NULL
+`
+
+type ClaimCronTriggerParams struct {
+	ClaimedUntil *time.Time
+	ProjectID    uuid.UUID
+	ID           uuid.UUID
+}
+
+func (q *Queries) ClaimCronTrigger(ctx context.Context, arg ClaimCronTriggerParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimCronTrigger, arg.ClaimedUntil, arg.ProjectID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const completeCronTriggerFiring = `-- name: CompleteCronTriggerFiring :execrows
+UPDATE cron_triggers
+SET last_fired_at = transaction_timestamp(),
+    next_fire_after = $1,
+    claimed_until = NULL,
+    updated_at = statement_timestamp()
+WHERE project_id = $2
+  AND id = $3
+  AND deleted_at IS NULL
+`
+
+type CompleteCronTriggerFiringParams struct {
+	NextFireAfter *time.Time
+	ProjectID     uuid.UUID
+	ID            uuid.UUID
+}
+
+func (q *Queries) CompleteCronTriggerFiring(ctx context.Context, arg CompleteCronTriggerFiringParams) (int64, error) {
+	result, err := q.db.Exec(ctx, completeCronTriggerFiring, arg.NextFireAfter, arg.ProjectID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countActiveCronTriggersForProject = `-- name: CountActiveCronTriggersForProject :one
 SELECT count(*) AS active_count
 FROM cron_triggers trigger
@@ -100,6 +148,7 @@ const disableCronTrigger = `-- name: DisableCronTrigger :execrows
 UPDATE cron_triggers
 SET enabled = false,
     next_fire_after = NULL,
+    claimed_until = NULL,
     updated_at = statement_timestamp()
 WHERE project_id = $1
   AND id = $2
@@ -503,30 +552,6 @@ func (q *Queries) ListCronTriggersForProject(ctx context.Context, arg ListCronTr
 	return items, nil
 }
 
-const markCronTriggerFired = `-- name: MarkCronTriggerFired :one
-UPDATE cron_triggers
-SET last_fired_at = transaction_timestamp(),
-    next_fire_after = $1,
-    updated_at = statement_timestamp()
-WHERE project_id = $2
-  AND id = $3
-  AND deleted_at IS NULL
-RETURNING last_fired_at
-`
-
-type MarkCronTriggerFiredParams struct {
-	NextFireAfter *time.Time
-	ProjectID     uuid.UUID
-	ID            uuid.UUID
-}
-
-func (q *Queries) MarkCronTriggerFired(ctx context.Context, arg MarkCronTriggerFiredParams) (*time.Time, error) {
-	row := q.db.QueryRow(ctx, markCronTriggerFired, arg.NextFireAfter, arg.ProjectID, arg.ID)
-	var last_fired_at *time.Time
-	err := row.Scan(&last_fired_at)
-	return last_fired_at, err
-}
-
 const selectDueCronTriggers = `-- name: SelectDueCronTriggers :many
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
@@ -537,6 +562,7 @@ JOIN projects project ON project.id = trigger.project_id AND project.deleted_at 
 WHERE trigger.enabled
   AND trigger.deleted_at IS NULL
   AND trigger.next_fire_after <= transaction_timestamp()
+  AND (trigger.claimed_until IS NULL OR trigger.claimed_until < transaction_timestamp())
 ORDER BY trigger.next_fire_after ASC, trigger.id ASC
 LIMIT $1::bigint
 FOR UPDATE OF trigger SKIP LOCKED

@@ -152,24 +152,34 @@ JOIN projects project ON project.id = trigger.project_id AND project.deleted_at 
 WHERE trigger.enabled
   AND trigger.deleted_at IS NULL
   AND trigger.next_fire_after <= transaction_timestamp()
+  AND (trigger.claimed_until IS NULL OR trigger.claimed_until < transaction_timestamp())
 ORDER BY trigger.next_fire_after ASC, trigger.id ASC
 LIMIT sqlc.arg(row_limit)::bigint
 FOR UPDATE OF trigger SKIP LOCKED;
 
--- name: MarkCronTriggerFired :one
+-- name: ClaimCronTrigger :execrows
 UPDATE cron_triggers
-SET last_fired_at = transaction_timestamp(),
-    next_fire_after = sqlc.arg(next_fire_after),
+SET claimed_until = sqlc.arg(claimed_until),
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
-  AND deleted_at IS NULL
-RETURNING last_fired_at;
+  AND deleted_at IS NULL;
+
+-- name: CompleteCronTriggerFiring :execrows
+UPDATE cron_triggers
+SET last_fired_at = transaction_timestamp(),
+    next_fire_after = sqlc.narg(next_fire_after),
+    claimed_until = NULL,
+    updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL;
 
 -- name: DisableCronTrigger :execrows
 UPDATE cron_triggers
 SET enabled = false,
     next_fire_after = NULL,
+    claimed_until = NULL,
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)

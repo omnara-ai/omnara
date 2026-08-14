@@ -3,6 +3,7 @@ package crontrigger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -42,40 +44,48 @@ type FireStats struct {
 }
 
 func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
-	stats := FireStats{}
-	claim, err := s.execution.ClaimDueCronTriggers(
-		ctx,
-		FireBatchSize,
-		func(ctx context.Context, trigger executionstore.ClaimedCronTrigger) {
-			if err := s.fireTrigger(ctx, trigger); err != nil {
-				stats.Failures++
-				s.logger.Error(
-					"fire cron trigger",
-					"cron_trigger_id", trigger.TriggerID,
-					"project_id", trigger.ProjectID,
-					"target_kind", trigger.Target.Kind,
-					"error", err,
-				)
-				return
+	claim, err := s.execution.ClaimDueCronTriggers(ctx, FireBatchSize)
+	if err != nil {
+		return FireStats{}, fmt.Errorf("claim due cron triggers: %w", err)
+	}
+	stats := FireStats{Claimed: len(claim.Claimed), Disabled: len(claim.Disabled)}
+	for _, disabled := range claim.Disabled {
+		s.logger.Error(
+			"disabled cron trigger with unparseable schedule",
+			"cron_trigger_id", disabled,
+		)
+	}
+	for _, trigger := range claim.Claimed {
+		if err := s.fireTrigger(ctx, trigger); err != nil {
+			stats.Failures++
+			retry := !permanentFireError(err)
+			s.logger.Error(
+				"fire cron trigger",
+				"cron_trigger_id", trigger.TriggerID,
+				"project_id", trigger.ProjectID,
+				"target_kind", trigger.Target.Kind,
+				"will_retry", retry,
+				"error", err,
+			)
+			if retry {
+				continue
 			}
+		} else {
 			switch trigger.Target.Kind {
 			case executionstore.CronTriggerTargetAgentProfile:
 				stats.Launched++
 			case executionstore.CronTriggerTargetAgent:
 				stats.Inputs++
 			}
-		},
-	)
-	if err != nil {
-		return FireStats{}, fmt.Errorf("claim due cron triggers: %w", err)
-	}
-	stats.Claimed = len(claim.Claimed)
-	stats.Disabled = len(claim.Disabled)
-	for _, disabled := range claim.Disabled {
-		s.logger.Error(
-			"disabled cron trigger with unparseable schedule",
-			"cron_trigger_id", disabled,
-		)
+		}
+		if err := s.execution.CompleteCronTriggerFiring(ctx, trigger.ProjectID, trigger.TriggerID); err != nil {
+			s.logger.Error(
+				"complete cron trigger firing",
+				"cron_trigger_id", trigger.TriggerID,
+				"project_id", trigger.ProjectID,
+				"error", err,
+			)
+		}
 	}
 	return stats, nil
 }
@@ -189,6 +199,12 @@ func cronTriggerActorParams(
 		ProviderUserID:   providerUserID,
 		DisplayName:      &displayName,
 	}, nil
+}
+
+func permanentFireError(err error) bool {
+	return errors.Is(err, storeerr.ErrNotFound) ||
+		errors.Is(err, storeerr.ErrInvalidRequest) ||
+		errors.Is(err, storeerr.ErrIdempotencyConflict)
 }
 
 func fireIdempotencyKey(trigger executionstore.ClaimedCronTrigger) string {
