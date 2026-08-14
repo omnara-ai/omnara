@@ -49,6 +49,7 @@ export {
   useAcceptInvitation,
   useDeclineInvitation,
   usePendingInvitations,
+  usePendingInvitationsQuery,
 } from './domains/invitations'
 export {
   CREATED_RESOURCE_LIST_SORTS,

@@ -165,7 +165,7 @@ type ListPendingOrgInvitationsForUserInput struct {
 }
 
 type ListPendingOrgInvitationsForUserResult struct {
-	Invitations []OrgInvitationRecord
+	Invitations []PendingOrgInvitationRecord
 	HasMore     bool
 }
 
@@ -191,7 +191,7 @@ func (s *Store) ListPendingOrgInvitationsForUser(
 		emails = append(emails, email.NormalizedEmail)
 	}
 	if len(emails) == 0 {
-		return ListPendingOrgInvitationsForUserResult{Invitations: []OrgInvitationRecord{}}, nil
+		return ListPendingOrgInvitationsForUserResult{Invitations: []PendingOrgInvitationRecord{}}, nil
 	}
 	params := dbsqlc.ListPendingOrgInvitationsForEmailsParams{
 		NormalizedEmails: emails,
@@ -207,9 +207,9 @@ func (s *Store) ListPendingOrgInvitationsForUser(
 	if err != nil {
 		return ListPendingOrgInvitationsForUserResult{}, fmt.Errorf("list pending invitations: %w", err)
 	}
-	records := make([]OrgInvitationRecord, 0, len(rows))
+	records := make([]PendingOrgInvitationRecord, 0, len(rows))
 	for _, row := range rows {
-		records = append(records, orgInvitationRecordFromSQLC(row))
+		records = append(records, pendingOrgInvitationRecordFromSQLC(row))
 	}
 	result := ListPendingOrgInvitationsForUserResult{}
 	if len(records) > input.Limit {

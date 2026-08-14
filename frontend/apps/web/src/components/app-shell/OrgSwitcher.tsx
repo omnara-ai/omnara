@@ -1,4 +1,4 @@
-import { usePendingInvitations } from '@omnara/react'
+import { usePendingInvitationsQuery } from '@omnara/react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Check, ChevronsUpDown, Mail, Plus, UserPlus } from 'lucide-react'
 import { useState } from 'react'
@@ -27,12 +27,12 @@ export function OrgSwitcher() {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { orgs, activeOrg, setActiveOrgId } = useActiveOrg()
-  const { data: pendingInvitations } = usePendingInvitations()
+  const { data: pendingInvitations } = usePendingInvitationsQuery()
   const canManage = canManageOrg(activeOrg.role)
   const [newOrgOpen, setNewOrgOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
-  const pendingCount = pendingInvitations.data.length
-  const pendingCountLabel = pendingInvitations.next_cursor
+  const pendingCount = pendingInvitations?.data.length ?? 0
+  const pendingCountLabel = pendingInvitations?.next_cursor
     ? `${pendingCount}+`
     : String(pendingCount)
 
@@ -108,15 +108,13 @@ export function OrgSwitcher() {
         {pendingCount > 0 && (
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={pathname === '/invitations'}>
-              <Link
-                to="/invitations"
-                aria-label={`${pendingCountLabel} pending ${pendingCount === 1 ? 'invitation' : 'invitations'}`}
-              >
+              <Link to="/invitations">
                 <Mail />
                 <span>Pending invitations</span>
+                <span className="sr-only">: {pendingCountLabel}</span>
               </Link>
             </SidebarMenuButton>
-            <SidebarMenuBadge className="bg-primary text-primary-foreground">
+            <SidebarMenuBadge aria-hidden="true" className="bg-primary text-primary-foreground">
               {pendingCountLabel}
             </SidebarMenuBadge>
           </SidebarMenuItem>

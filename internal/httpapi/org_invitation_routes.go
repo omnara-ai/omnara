@@ -50,6 +50,37 @@ func invitationListResponse(
 	return openapi.ListOrgInvitationsResponse{Data: data, NextCursor: nullableFromPtr(nextCursor)}, nil
 }
 
+func pendingInvitationListResponse(
+	invitations []identitystore.PendingOrgInvitationRecord,
+	hasMore bool,
+) (openapi.PendingOrgInvitationList, error) {
+	data := make([]openapi.PendingOrgInvitation, 0, len(invitations))
+	var last identitystore.PendingOrgInvitationRecord
+	for _, invitation := range invitations {
+		response, err := orgInvitationResponse(invitation.OrgInvitationRecord)
+		if err != nil {
+			return openapi.PendingOrgInvitationList{}, err
+		}
+		data = append(data, openapi.PendingOrgInvitation{
+			Id:        response.Id,
+			OrgId:     response.OrgId,
+			OrgName:   invitation.OrgName,
+			Email:     response.Email,
+			OrgRole:   response.OrgRole,
+			CreatedAt: response.CreatedAt,
+		})
+		last = invitation
+	}
+	nextCursor, err := encodeNextCursor(hasMore, last.CreatedAt, publicid.KindOrgInvitation, last.ID)
+	if err != nil {
+		return openapi.PendingOrgInvitationList{}, err
+	}
+	return openapi.PendingOrgInvitationList{
+		Data:       data,
+		NextCursor: nullableFromPtr(nextCursor),
+	}, nil
+}
+
 func (s strictOpenAPIServer) ListPendingInvitations(
 	ctx context.Context,
 	request openapi.ListPendingInvitationsRequestObject,
@@ -76,7 +107,7 @@ func (s strictOpenAPIServer) ListPendingInvitations(
 	if err != nil {
 		return nil, apierror.UserScoped(err)
 	}
-	response, err := invitationListResponse(page.Invitations, page.HasMore)
+	response, err := pendingInvitationListResponse(page.Invitations, page.HasMore)
 	if err != nil {
 		return nil, err
 	}

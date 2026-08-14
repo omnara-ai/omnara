@@ -1,5 +1,5 @@
 import { useAcceptInvitation, useDeclineInvitation } from '@omnara/react'
-import type { OrgInvitation } from '@omnara/sdk'
+import type { OrgInvitation, PendingOrgInvitation } from '@omnara/sdk'
 import { Building2, Check, X } from 'lucide-react'
 import { useState } from 'react'
 
@@ -18,7 +18,7 @@ export function PendingInvitationList({
   invitations,
   onAccepted,
 }: {
-  invitations: OrgInvitation[]
+  invitations: PendingOrgInvitation[]
   onAccepted?: (invitation: OrgInvitation) => void | Promise<void>
 }) {
   const acceptInvitation = useAcceptInvitation()
@@ -30,13 +30,24 @@ export function PendingInvitationList({
 
   async function accept(invitationID: string) {
     setAction({ kind: 'acting', invitationId: invitationID, response: 'accept' })
+    let invitation: OrgInvitation
     try {
-      const invitation = await acceptInvitation.mutateAsync(invitationID)
-      setAction({ kind: 'idle' })
-      await onAccepted?.(invitation)
+      invitation = await acceptInvitation.mutateAsync(invitationID)
     } catch (err) {
       setAction({ kind: 'error', message: errorMessage(err, 'Could not accept invitation') })
+      return
     }
+
+    try {
+      await onAccepted?.(invitation)
+    } catch (err) {
+      setAction({
+        kind: 'error',
+        message: errorMessage(err, 'Invitation accepted, but the page could not refresh'),
+      })
+      return
+    }
+    setAction({ kind: 'idle' })
   }
 
   async function decline(invitationID: string) {
@@ -74,7 +85,7 @@ export function PendingInvitationList({
                 <Building2 className="size-5" />
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="font-medium">Organization invitation</span>
+                <span className="truncate font-medium">{invitation.org_name}</span>
                 <span className="text-muted-foreground text-sm">
                   Join as {articleFor(invitation.org_role)}{' '}
                   <span className="capitalize">{invitation.org_role}</span>

@@ -335,7 +335,9 @@ func TestPublicInvitationFlow(t *testing.T) {
 		authHeaders(inviteeToken),
 	)
 	data := pending["data"].([]any)
-	if len(data) != 1 || data[0].(map[string]any)["id"] != inviteID {
+	if len(data) != 1 ||
+		data[0].(map[string]any)["id"] != inviteID ||
+		data[0].(map[string]any)["org_name"] != "invite-flow Org" {
 		t.Fatalf("unexpected pending invitations: %+v", pending)
 	}
 	accepted := requestJSONWithHeaders(

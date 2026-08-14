@@ -146,6 +146,22 @@ func orgInvitationRecordFromSQLC(row dbsqlc.OrgInvitation) OrgInvitationRecord {
 	}
 }
 
+func pendingOrgInvitationRecordFromSQLC(
+	row dbsqlc.ListPendingOrgInvitationsForEmailsRow,
+) PendingOrgInvitationRecord {
+	return PendingOrgInvitationRecord{
+		OrgInvitationRecord: OrgInvitationRecord{
+			ID:              row.ID,
+			OrgID:           row.OrgID,
+			Email:           row.Email,
+			NormalizedEmail: row.NormalizedEmail,
+			OrgRole:         row.OrgRole,
+			CreatedAt:       row.CreatedAt,
+		},
+		OrgName: row.OrgName,
+	}
+}
+
 func userOrgMembershipRecord(id, orgID, userID ID, role string, createdAt time.Time) OrgMembershipRecord {
 	return OrgMembershipRecord{
 		ID:        id,

@@ -1148,14 +1148,21 @@ WHERE org_id = sqlc.arg(org_id)
   AND normalized_email = sqlc.arg(normalized_email);
 
 -- name: ListPendingOrgInvitationsForEmails :many
-SELECT id, org_id, email, normalized_email, org_role, created_at
-FROM org_invitations
-WHERE normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
+SELECT invitation.id,
+       invitation.org_id,
+       org.name AS org_name,
+       invitation.email,
+       invitation.normalized_email,
+       invitation.org_role,
+       invitation.created_at
+FROM org_invitations invitation
+JOIN orgs org ON org.id = invitation.org_id
+WHERE invitation.normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
   AND (
     sqlc.narg(cursor_created_at)::timestamptz IS NULL
-    OR (created_at, id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    OR (invitation.created_at, invitation.id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
   )
-ORDER BY created_at ASC, id ASC
+ORDER BY invitation.created_at ASC, invitation.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListOrgInvitations :many

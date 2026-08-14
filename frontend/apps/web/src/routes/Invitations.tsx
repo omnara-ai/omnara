@@ -27,7 +27,9 @@ export function Invitations() {
           <BrandMark />
           Omnara
         </Link>
-        <InvitationsContent hasOrganizations={false} />
+        <main className="w-full">
+          <InvitationsContent hasOrganizations={false} />
+        </main>
       </div>
     )
   }
@@ -46,7 +48,7 @@ function InvitationsContent({ hasOrganizations }: { hasOrganizations: boolean })
   const invitations = data.data
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
       {hasOrganizations && <PageBreadcrumb items={[{ label: 'Invitations' }]} />}
 
       <div className="flex flex-col gap-2">
@@ -84,6 +86,6 @@ function InvitationsContent({ hasOrganizations }: { hasOrganizations: boolean })
           More invitations are available. Respond to one to load the next invitation.
         </p>
       )}
-    </main>
+    </div>
   )
 }
