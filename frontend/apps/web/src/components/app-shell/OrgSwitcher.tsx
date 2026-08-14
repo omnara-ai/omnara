@@ -93,43 +93,48 @@ export function OrgSwitcher() {
               <DropdownMenuLabel className="text-muted-foreground text-xs">
                 Organizations
               </DropdownMenuLabel>
-              {orgs.map((org) => (
-                <DropdownMenuItem
-                  key={org.id}
-                  className="gap-2"
-                  onClick={() => {
-                    void switchOrganization(org.id)
-                  }}
-                >
-                  <span className="flex-1 truncate">{org.name}</span>
-                  {org.id === activeOrg.id && <Check className="size-4 shrink-0" />}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="flex-col items-stretch gap-0.5"
-                aria-label={
-                  copiedOrgID === activeOrg.id
-                    ? `Copied organization ID ${activeOrg.id}`
-                    : `Copy organization ID ${activeOrg.id}`
-                }
-                onSelect={(event) => {
-                  event.preventDefault()
-                  void copyActiveOrganizationID()
-                }}
-              >
-                <span className="text-muted-foreground text-xs">Organization ID</span>
-                <span className="flex min-w-0 items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate font-mono text-xs font-normal">
-                    {activeOrg.id}
-                  </code>
-                  {copiedOrgID === activeOrg.id ? (
-                    <Check className="text-primary size-3.5" />
-                  ) : (
-                    <Copy className="size-3.5" />
-                  )}
-                </span>
-              </DropdownMenuItem>
+              {orgs.map((org) => {
+                const selected = org.id === activeOrg.id
+
+                return (
+                  <DropdownMenuItem
+                    key={org.id}
+                    className={selected ? 'flex-col items-stretch gap-0.5 py-2' : 'gap-2'}
+                    aria-label={
+                      selected
+                        ? copiedOrgID === org.id
+                          ? `Copied organization ID ${org.id}`
+                          : `${org.name}, selected. Copy organization ID ${org.id}`
+                        : `Switch to ${org.name}`
+                    }
+                    onSelect={(event) => {
+                      if (selected) {
+                        event.preventDefault()
+                        void copyActiveOrganizationID()
+                        return
+                      }
+                      void switchOrganization(org.id)
+                    }}
+                  >
+                    <span className="flex w-full min-w-0 items-center gap-2">
+                      <span className="flex-1 truncate">{org.name}</span>
+                      {selected && <Check className="size-4 shrink-0" />}
+                    </span>
+                    {selected && (
+                      <span className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
+                        <code className="min-w-0 truncate font-mono text-[11px] font-normal">
+                          {org.id}
+                        </code>
+                        {copiedOrgID === org.id ? (
+                          <Check className="text-primary size-3" />
+                        ) : (
+                          <Copy className="size-3" />
+                        )}
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                )
+              })}
               <DropdownMenuSeparator />
               {canManage && (
                 <DropdownMenuItem
