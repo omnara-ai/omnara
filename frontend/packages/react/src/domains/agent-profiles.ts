@@ -2,6 +2,7 @@ import { type ListAgentProfilesData, sdk, type UpdateAgentProfileRequest } from 
 import {
   getAgentProfileOptions,
   getAgentProfileQueryKey,
+  getOrgOverviewQueryKey,
   listAgentProfilesInfiniteOptions,
   listAgentProfilesQueryKey,
 } from '@omnara/sdk/tanstack'
@@ -59,9 +60,14 @@ export function useCreateAgentProfile(orgID: string, projectID: string) {
     { orgID, projectID },
     {
       onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
-        })
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+          }),
+        ])
       },
     },
   )
@@ -97,6 +103,9 @@ export function useUpdateAgentProfile(orgID: string, projectID: string) {
             client,
           }),
         }),
+        queryClient.invalidateQueries({
+          queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+        }),
       ])
     },
   })
@@ -114,9 +123,14 @@ export function useDeleteAgentProfile(orgID: string, projectID: string) {
       return data
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+        }),
+      ])
     },
   })
 }

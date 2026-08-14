@@ -1,6 +1,7 @@
 import { type ListAgentsData, sdk } from '@omnara/sdk'
 import {
   getAgentOptions,
+  getOrgOverviewQueryKey,
   listAgentsInfiniteOptions,
   listAgentsQueryKey,
 } from '@omnara/sdk/tanstack'
@@ -56,9 +57,14 @@ export function useCreateAgent(orgID: string, projectID: string) {
     { orgID, projectID },
     {
       onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
-        })
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+          }),
+        ])
       },
     },
   )
@@ -73,9 +79,14 @@ export function useArchiveAgent(orgID: string, projectID: string) {
       return data
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+        }),
+      ])
     },
   })
 }

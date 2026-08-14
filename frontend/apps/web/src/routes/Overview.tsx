@@ -11,7 +11,10 @@ export function Overview() {
   const overviewQuery = useOrgOverview(activeOrg.id)
   const overview = overviewQuery.data
 
-  const manageableProject = overview?.projects.find((project) => project.access.can_manage)
+  const manageableProject = overview?.projects
+    .slice()
+    .reverse()
+    .find((project) => project.access.can_manage)
   const showOnboarding =
     overview != null &&
     manageableProject != null &&
