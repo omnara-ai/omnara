@@ -6,12 +6,7 @@ import type {
   BasicMachineSource,
   BasicMcpServer,
 } from '@/components/agents/agentConfigBasic'
-import {
-  deepEqual,
-  extractBasicConfig,
-  isRecord,
-  normalizeMultiline,
-} from '@/components/agents/agentConfigBasicExtract'
+import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agentConfigBasicExtract'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import {
   envFromRows,
@@ -41,8 +36,7 @@ export interface BasicConfigSession {
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
   const doc = parseSourceDocument(source)
-  const js: unknown = doc?.toJS()
-  const initialDraft = isRecord(js) ? extractBasicConfig(js) : null
+  const initialDraft = doc == null ? null : extractBasicConfig(doc.toJS())
   return {
     initialDraft,
     apply(config) {
@@ -97,28 +91,16 @@ function applyToDocument(
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
     'tools',
-    config.tools.map((tool) => ({
-      name: tool.name.trim(),
-      comparable: permissionComparable(tool.permission),
-      wire: () => toolWire(tool),
-    })),
-    baseline == null
-      ? null
-      : baseline.tools.map((tool) => [tool.name, permissionComparable(tool.permission)]),
+    config.tools.map((tool) => [tool.name.trim(), toolWire(tool)]),
+    baseline == null ? null : baseline.tools.map((tool) => [tool.name, toolWire(tool)]),
     set,
     del,
   )
   applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
   applyNamedEntries(
     'mcp',
-    config.mcpServers.map((server) => ({
-      name: server.name.trim(),
-      comparable: mcpComparable(server),
-      wire: () => mcpWire(server),
-    })),
-    baseline == null
-      ? null
-      : baseline.mcpServers.map((server) => [server.name, mcpComparable(server)]),
+    config.mcpServers.map((server) => [server.name.trim(), mcpWire(server)]),
+    baseline == null ? null : baseline.mcpServers.map((server) => [server.name, mcpWire(server)]),
     set,
     del,
   )
@@ -126,15 +108,11 @@ function applyToDocument(
   return edits.count > 0 ? doc.toString() : baselineSource
 }
 
-interface NamedEntry {
-  name: string
-  comparable: unknown
-  wire: () => unknown
-}
-
+// Entries compare by wire form: a baseline entry serializes identically until
+// the user edits it, so untouched entries never get rewritten.
 function applyNamedEntries(
   key: string,
-  desired: NamedEntry[],
+  desired: [string, unknown][],
   baseline: [string, unknown][] | null,
   set: (path: string[], value: unknown) => void,
   del: (path: string[]) => void,
@@ -144,14 +122,14 @@ function applyNamedEntries(
     if (baseline == null || baselineByName.size > 0) del([key])
     return
   }
-  const desiredNames = new Set(desired.map((entry) => entry.name))
+  const desiredNames = new Set(desired.map(([name]) => name))
   for (const name of baselineByName.keys()) {
     if (!desiredNames.has(name)) del([key, name])
   }
-  for (const entry of desired) {
-    const base = baselineByName.get(entry.name)
-    if (base !== undefined && deepEqual(base, entry.comparable)) continue
-    set([key, entry.name], entry.wire())
+  for (const [name, wire] of desired) {
+    const base = baselineByName.get(name)
+    if (base !== undefined && deepEqual(base, wire)) continue
+    set([key, name], wire)
   }
 }
 
@@ -212,20 +190,23 @@ function machineSourceComparable(source: BasicMachineSource) {
   }
 }
 
-function permissionComparable(permission: ToolPermissionSelection) {
-  return { mode: permission.mode, parameters: permission.parameters }
+// Depth cap so alias cycles inside permission parameters can't recurse
+// forever; past it the entry just counts as changed and gets rewritten.
+function deepEqual(a: unknown, b: unknown, depth = 0): boolean {
+  if (Object.is(a, b)) return true
+  if (depth > 64) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((item, index) => deepEqual(item, b[index], depth + 1))
+  }
+  if (!isRecord(a) || !isRecord(b)) return false
+  const keys = Object.keys(a)
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((key) => key in b && deepEqual(a[key], b[key], depth + 1))
 }
 
-function mcpComparable(server: BasicMcpServer) {
-  return {
-    url: server.url.trim(),
-    permission: permissionComparable(server.permission),
-    defaultEnabled: server.defaultEnabled,
-    authType: server.authType,
-    secretId: server.authType === 'none' ? '' : server.secretId.trim(),
-    service: server.authType === 'sigv4' ? server.service.trim() : '',
-    region: server.authType === 'sigv4' ? server.region.trim() : '',
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function wireConfig(config: BasicConfig): Record<string, unknown> {
