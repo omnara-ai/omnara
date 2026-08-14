@@ -44,12 +44,6 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/web/src/components/ui/sidebar.tsx'],
-    rules: {
-      'max-lines': ['error', { max: 650, skipBlankLines: true, skipComments: true }],
-    },
-  },
-  {
     files: ['apps/web/**/*.{ts,tsx}'],
     ignores: ['apps/web/src/components/ui/**', 'apps/web/src/router.tsx'],
     plugins: { 'react-refresh': reactRefresh },
