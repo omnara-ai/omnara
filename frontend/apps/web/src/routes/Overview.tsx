@@ -90,6 +90,7 @@ function describePage(path: string, projects: Map<string, VisibleProject>) {
     '/skills': { title: 'Skills', context: 'Organization' },
     '/user/api-tokens': { title: 'API Tokens', context: 'Organization' },
     '/device': { title: 'Device authorization', context: 'Account' },
+    '/invitations': { title: 'Invitations', context: 'Account' },
   }
   if (organizationPages[path]) return organizationPages[path]
 

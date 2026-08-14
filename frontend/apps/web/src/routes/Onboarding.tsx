@@ -1,14 +1,9 @@
-import {
-  useAcceptInvitation,
-  useCreateOrganization,
-  useDeclineInvitation,
-  usePendingInvitations,
-} from '@omnara/react'
-import { Building2, Check, X } from 'lucide-react'
+import { useCreateOrganization, usePendingInvitations } from '@omnara/react'
 import type { SyntheticEvent } from 'react'
 import { useState } from 'react'
 
 import { BrandMark } from '@/components/brand/OmnaraMark'
+import { PendingInvitationList } from '@/components/invitations/PendingInvitationList'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -16,11 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
-type OnboardingAction =
-  | { kind: 'idle' }
-  | { kind: 'creating' }
-  | { kind: 'acting'; invitationId: string }
-  | { kind: 'error'; message: string }
+type OnboardingAction = { kind: 'idle' } | { kind: 'creating' } | { kind: 'error'; message: string }
 
 interface OnboardingState {
   name: string
@@ -33,15 +24,12 @@ function initialOnboardingState(): OnboardingState {
 }
 
 export function Onboarding() {
-  const { data, refetch } = usePendingInvitations()
+  const { data } = usePendingInvitations()
   const pending = data.data
   const createOrganization = useCreateOrganization()
-  const acceptInvitation = useAcceptInvitation()
-  const declineInvitation = useDeclineInvitation()
 
   const [state, setState] = useState<OnboardingState>(initialOnboardingState)
   const creating = state.action.kind === 'creating'
-  const actingId = state.action.kind === 'acting' ? state.action.invitationId : null
   const error = state.action.kind === 'error' ? state.action.message : null
 
   async function createOrg(event: SyntheticEvent<HTMLFormElement>) {
@@ -57,33 +45,6 @@ export function Onboarding() {
       setState((prev) => ({
         ...prev,
         action: { kind: 'error', message: errorMessage(err, 'Could not create organization') },
-      }))
-    }
-  }
-
-  async function accept(invitationID: string) {
-    setState((prev) => ({ ...prev, action: { kind: 'acting', invitationId: invitationID } }))
-    try {
-      await acceptInvitation.mutateAsync(invitationID)
-      window.location.assign('/')
-    } catch (err) {
-      setState((prev) => ({
-        ...prev,
-        action: { kind: 'error', message: errorMessage(err, 'Could not accept invitation') },
-      }))
-    }
-  }
-
-  async function decline(invitationID: string) {
-    setState((prev) => ({ ...prev, action: { kind: 'acting', invitationId: invitationID } }))
-    try {
-      await declineInvitation.mutateAsync(invitationID)
-      await refetch()
-      setState((prev) => ({ ...prev, action: { kind: 'idle' } }))
-    } catch (err) {
-      setState((prev) => ({
-        ...prev,
-        action: { kind: 'error', message: errorMessage(err, 'Could not decline invitation') },
       }))
     }
   }
@@ -108,46 +69,12 @@ export function Onboarding() {
         {error && <p className="text-destructive text-center text-sm">{error}</p>}
 
         {pending.length > 0 && (
-          <div className="flex flex-col gap-3">
-            {pending.map((invite) => (
-              <Card key={invite.id}>
-                <CardContent className="flex items-center gap-3 py-4">
-                  <span className="bg-secondary text-secondary-foreground flex size-9 shrink-0 items-center justify-center rounded-lg">
-                    <Building2 className="size-4" />
-                  </span>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-medium">Organization invitation</span>
-                    <span className="text-muted-foreground truncate text-xs capitalize">
-                      Role: {invite.org_role}
-                    </span>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <Button
-                      size="sm"
-                      disabled={actingId !== null}
-                      onClick={() => {
-                        void accept(invite.id)
-                      }}
-                    >
-                      {actingId === invite.id ? <Spinner /> : <Check />}
-                      Accept
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={actingId !== null}
-                      aria-label="Decline invitation"
-                      onClick={() => {
-                        void decline(invite.id)
-                      }}
-                    >
-                      <X />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <PendingInvitationList
+            invitations={pending}
+            onAccepted={() => {
+              window.location.assign('/')
+            }}
+          />
         )}
 
         <Card>

@@ -125,6 +125,25 @@ test('creates an organization from a project page', async ({ page }) => {
   expect(failures).toEqual([])
 })
 
+test('shows and manages pending invitations outside onboarding', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, viewerEmail, '/')
+
+  const pendingInvitations = page.getByRole('link', { name: '1 pending invitation' })
+  await expect(pendingInvitations).toBeVisible()
+  await pendingInvitations.click()
+
+  await expect(page).toHaveURL('/invitations')
+  await expect(page.getByRole('heading', { name: 'Pending invitations' })).toBeVisible()
+  await expect(page.getByText('Organization invitation')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Decline' }).click()
+
+  await expect(page.getByText('No pending invitations')).toBeVisible()
+  await expect(pendingInvitations).toHaveCount(0)
+  expect(failures).toEqual([])
+})
+
 test('creates an agent from YAML', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, adminEmail, createAgentPath)

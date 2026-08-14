@@ -91,12 +91,20 @@ func TestWebE2E(t *testing.T) {
 		authz.OrgRoleMember,
 		authz.ProjectRoleViewer,
 	)
-	if _, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+	switchOrg, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID:         adminUserID,
 		Name:           webE2ESwitchOrgName,
 		IdempotencyKey: "web-switch-target-org",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create web e2e switch target organization: %v", err)
+	}
+	if _, err := store.Identity().CreateOrgInvitation(ctx, identitystore.CreateOrgInvitationInput{
+		OrgID: switchOrg.Org.ID,
+		Email: viewerEmail,
+		Role:  authz.OrgRoleMember,
+	}); err != nil {
+		t.Fatalf("create web e2e pending organization invitation: %v", err)
 	}
 
 	cmd := exec.CommandContext(ctx, "pnpm", "--filter", "@omnara/web", "run", "test:e2e")

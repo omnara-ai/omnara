@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func TestSendGridSenderSendInviteBuildsRequest(t *testing.T) {
 	if err := json.NewDecoder(seenRequest.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	assertSendGridInviteBody(t, body, "user@example.com", "noreply@example.com", "Acme", "https://app.example.com")
+	assertSendGridInviteBody(t, body, "user@example.com", "noreply@example.com", "Acme", "https://app.example.com/invitations")
 	personalization := firstMapInSlice(t, body["personalizations"])
 	toEntry := firstMapInSlice(t, personalization["to"])
 	if got := toEntry["name"]; got != "User" {
@@ -97,6 +98,57 @@ func TestSendGridSenderSendInviteUsesDefaultInviteText(t *testing.T) {
 	if strings.Contains(value, "Sign in at ") {
 		t.Fatalf("invite body = %q, should omit empty public URL", value)
 	}
+}
+
+func TestInviteBodyNormalizesInvitationsURL(t *testing.T) {
+	value := inviteBody("Acme", "https://app.example.com/")
+	if !strings.Contains(value, "https://app.example.com/invitations") {
+		t.Fatalf("invite body = %q, want invitations URL", value)
+	}
+	if strings.Contains(value, "example.com//invitations") {
+		t.Fatalf("invite body = %q, contains double slash", value)
+	}
+}
+
+func TestConsoleSenderInviteIncludesInvitationsURL(t *testing.T) {
+	sender := ConsoleSender{PublicURL: "https://app.example.com"}
+	var sendErr error
+
+	output := captureStdout(t, func() {
+		sendErr = sender.SendInvite(context.Background(), "user@example.com", "Acme")
+	})
+	if sendErr != nil {
+		t.Fatalf("send invite: %v", sendErr)
+	}
+
+	if !strings.Contains(output, "https://app.example.com/invitations") {
+		t.Fatalf("console invite = %q, want invitations URL", output)
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	original := os.Stdout
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = original
+		_ = reader.Close()
+		_ = writer.Close()
+	}()
+
+	fn()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	return string(output)
 }
 
 func TestSendGridSenderAuthEmailBodies(t *testing.T) {
@@ -326,7 +378,7 @@ func TestSMTPSenderRequiresSTARTTLSWhenConfigured(t *testing.T) {
 	<-done
 }
 
-func assertSendGridInviteBody(t *testing.T, body map[string]any, to, from, orgName, publicURL string) {
+func assertSendGridInviteBody(t *testing.T, body map[string]any, to, from, orgName, inviteURL string) {
 	t.Helper()
 
 	personalization := firstMapInSlice(t, body["personalizations"])
@@ -351,7 +403,7 @@ func assertSendGridInviteBody(t *testing.T, body map[string]any, to, from, orgNa
 		t.Fatalf("content type = %v, want text/plain", got)
 	}
 	value, _ := content["value"].(string)
-	for _, want := range []string{orgName, publicURL, "accept or decline"} {
+	for _, want := range []string{orgName, inviteURL, "accept or decline"} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("invite body = %q, want to contain %q", value, want)
 		}
