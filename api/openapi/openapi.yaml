@@ -4466,8 +4466,7 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
     post:
       operationId: connectBYOMachine
       tags: [Machines]

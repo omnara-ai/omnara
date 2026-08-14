@@ -9562,7 +9562,7 @@ export type CreateMachineResponse = CreateMachineResponses[keyof CreateMachineRe
 export type ConnectByoMachineData = {
     body: ConnectByoMachineRequest;
     path: {
-        orgID: string;
+        orgID: OrganizationId;
     };
     query?: never;
     url: '/api/v1/orgs/{orgID}/machines/connect';
