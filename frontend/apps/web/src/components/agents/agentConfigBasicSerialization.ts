@@ -13,6 +13,7 @@ import {
   secretEnvOverlayRowsValid,
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
+import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
 
 export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 
@@ -42,7 +43,7 @@ export interface BasicMachineSource {
   initialNumMachines: string
   maxMachines: string
   machineCpu: string
-  machineMemoryMb: string
+  machineMemoryGb: string
   providerOptions: ProviderOptionsDraft
   envRows: EnvOverlayRow[]
   secretEnvRows: SecretEnvOverlayRow[]
@@ -98,7 +99,7 @@ function isBasicConfigComplete(config: BasicConfig) {
           (isMachineCountValid(source.initialNumMachines) &&
             isMachineCountValid(source.maxMachines) &&
             optionalPositiveInt32Valid(source.machineCpu) &&
-            optionalPositiveInt32Valid(source.machineMemoryMb))),
+            memoryGbDraftValid(source.machineMemoryGb, { optional: true }))),
     ) &&
     new Set(mcpServerNames).size === mcpServerNames.length &&
     config.mcpServers.every((server) => {
@@ -150,8 +151,8 @@ function serializeBasicConfig(config: BasicConfig) {
         if (source.machineCpu !== '') {
           lines.push(`    machine_cpu: ${source.machineCpu}`)
         }
-        if (source.machineMemoryMb !== '') {
-          lines.push(`    machine_memory_mb: ${source.machineMemoryMb}`)
+        if (source.machineMemoryGb !== '') {
+          lines.push(`    machine_memory_mb: ${memoryGbToMb(source.machineMemoryGb)}`)
         }
         const optionsOverlay = isMachinePoolProvider(source.provider)
           ? providerOptionsOverlay(
