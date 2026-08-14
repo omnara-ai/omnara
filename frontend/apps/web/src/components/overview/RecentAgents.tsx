@@ -179,6 +179,11 @@ function NewAgentButton({ projects }: { projects: VisibleProject[] }) {
   )
 }
 
+const lastActiveFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+})
+
 function formatLastActive(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
@@ -190,5 +195,5 @@ function formatLastActive(value: string) {
   if (hours < 24) return `${hours}h ago`
   const days = Math.round(hours / 24)
   if (days < 7) return `${days}d ago`
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date)
+  return lastActiveFormatter.format(date)
 }
