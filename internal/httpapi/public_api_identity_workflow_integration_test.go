@@ -306,19 +306,16 @@ func TestPublicInvitationFlow(t *testing.T) {
 	if invite["org_name"] != "invite-flow Org" {
 		t.Fatalf("invitation organization name = %v, want invite-flow Org", invite["org_name"])
 	}
-	updatedInvite := requestJSONWithHeaders(
+	requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/invitations",
 		`{"email":"invitee@example.com","role":"admin"}`,
 		"",
-		http.StatusCreated,
+		http.StatusConflict,
 		authHeaders(project.AdminToken),
 	)
-	if updatedInvite["id"] != inviteID || updatedInvite["org_role"] != "admin" {
-		t.Fatalf("updated pending invitation = %+v, want same invitation with admin role", updatedInvite)
-	}
 	requestJSONWithHeaders(
 		t,
 		handler,

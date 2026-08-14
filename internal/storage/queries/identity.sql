@@ -1136,14 +1136,16 @@ DELETE FROM auth_device_flows flow
 USING candidates
 WHERE flow.id = candidates.id;
 
--- name: UpsertOrgInvitation :one
+-- name: CreateOrgInvitation :one
 INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_at)
 VALUES (sqlc.arg(org_id), sqlc.arg(email), sqlc.arg(normalized_email), sqlc.arg(org_role), statement_timestamp())
-ON CONFLICT (org_id, normalized_email) DO UPDATE
-SET email = EXCLUDED.email,
-    org_role = EXCLUDED.org_role,
-    created_at = statement_timestamp()
 RETURNING id, org_id, email, normalized_email, org_role, created_at;
+
+-- name: GetPendingOrgInvitationByEmail :one
+SELECT id, org_id, email, normalized_email, org_role, created_at
+FROM org_invitations
+WHERE org_id = sqlc.arg(org_id)
+  AND normalized_email = sqlc.arg(normalized_email);
 
 -- name: ListPendingOrgInvitationsForEmails :many
 SELECT invitation.id,
