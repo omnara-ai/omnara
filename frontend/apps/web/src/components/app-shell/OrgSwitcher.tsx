@@ -108,10 +108,9 @@ export function OrgSwitcher() {
         {pendingCount > 0 && (
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={pathname === '/invitations'}>
-              <Link to="/invitations">
+              <Link to="/invitations" aria-label={`Pending invitations, ${pendingCountLabel}`}>
                 <Mail />
                 <span>Pending invitations</span>
-                <span className="sr-only">: {pendingCountLabel}</span>
               </Link>
             </SidebarMenuButton>
             <SidebarMenuBadge aria-hidden="true" className="bg-primary text-primary-foreground">

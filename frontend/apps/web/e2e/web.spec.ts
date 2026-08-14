@@ -129,7 +129,7 @@ test('opens pending invitations outside onboarding', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, viewerEmail, '/')
 
-  const pendingInvitations = page.getByRole('link', { name: 'Pending invitations: 1' })
+  const pendingInvitations = page.getByRole('link', { name: 'Pending invitations, 1' })
   await expect(pendingInvitations).toBeVisible()
   await pendingInvitations.click()
 
