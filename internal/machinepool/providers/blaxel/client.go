@@ -181,31 +181,26 @@ func (c *restClient) CreateSandbox(
 	ctx context.Context,
 	request createSandboxRequest,
 ) (sandbox, error) {
-	var lastErr error
-	for attempt := 0; attempt <= createRetries; attempt++ {
-		var result sandbox
-		_, lastErr = c.doRequest(
-			ctx,
-			http.MethodPost,
-			c.apiBaseURL+"/sandboxes?createIfNotExist=true",
-			request,
-			&result,
-		)
-		if lastErr == nil || !isTransientServerError(lastErr) {
-			return result, lastErr
-		}
-		if attempt < createRetries {
-			if err := waitForRetry(ctx, createRetryDelayFor(lastErr, attempt)); err != nil {
-				return sandbox{}, err
-			}
-		}
+	var result sandbox
+	_, err := c.doRequestWithRetry(
+		ctx,
+		http.MethodPost,
+		c.apiBaseURL+"/sandboxes?createIfNotExist=true",
+		request,
+		&result,
+		createRetries,
+		isTransientServerError,
+		createRetryDelayFor,
+	)
+	if err == nil || !isTransientServerError(err) {
+		return result, err
 	}
 	if request.Metadata.Name != "" {
-		if existing, found, err := c.GetSandbox(ctx, request.Metadata.Name); err == nil && found {
+		if existing, found, getErr := c.GetSandbox(ctx, request.Metadata.Name); getErr == nil && found {
 			return existing, nil
 		}
 	}
-	return sandbox{}, lastErr
+	return sandbox{}, err
 }
 
 func createRetryDelayFor(err error, attempt int) time.Duration {
@@ -357,19 +352,35 @@ func (c *restClient) doDataPlaneRequest(
 	method, requestURL string,
 	body, out any,
 ) (int, error) {
+	return c.doRequestWithRetry(
+		ctx,
+		method,
+		requestURL,
+		body,
+		out,
+		dataPlaneRetries,
+		isGatewayError,
+		func(error, int) time.Duration { return dataPlaneRetryDelay },
+	)
+}
+
+func (c *restClient) doRequestWithRetry(
+	ctx context.Context,
+	method, requestURL string,
+	body, out any,
+	maxRetries int,
+	retryable func(error) bool,
+	retryDelay func(error, int) time.Duration,
+) (int, error) {
 	var statusCode int
 	var lastErr error
-	for attempt := 0; attempt <= dataPlaneRetries; attempt++ {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		statusCode, lastErr = c.doRequest(ctx, method, requestURL, body, out)
-		if lastErr == nil || !isGatewayError(lastErr) || attempt == dataPlaneRetries {
+		if lastErr == nil || !retryable(lastErr) || attempt == maxRetries {
 			return statusCode, lastErr
 		}
-		timer := time.NewTimer(dataPlaneRetryDelay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return 0, ctx.Err()
-		case <-timer.C:
+		if err := waitForRetry(ctx, retryDelay(lastErr, attempt)); err != nil {
+			return 0, err
 		}
 	}
 	return statusCode, lastErr
