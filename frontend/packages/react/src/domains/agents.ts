@@ -1,4 +1,4 @@
-import { type ListAgentsData, sdk } from '@omnara/sdk'
+import { ApiError, type ListAgentsData, sdk } from '@omnara/sdk'
 import {
   getAgentConfigOptions,
   getAgentOptions,
@@ -67,14 +67,23 @@ export function useAgentConfig(orgID: string, projectID: string, agentConfigID?:
 export function useUpdateAgentConfig(orgID: string, projectID: string, agentID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
+  const invalidateAgent = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: getAgentQueryKey({ path: { orgID, projectID, agentID }, client }),
+    })
+  }
   return useScopedMutation(
     sdk.updateAgentConfig,
     { orgID, projectID, agentID },
     {
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: getAgentQueryKey({ path: { orgID, projectID, agentID }, client }),
-        })
+      onSuccess: invalidateAgent,
+      // A 409 means our current_config_id expectation was stale; refresh the
+      // agent (awaited before the mutation settles) so the conflict error is
+      // shown against the latest config and a discard-and-retry can succeed.
+      onError: async (error) => {
+        if (error instanceof ApiError && error.status === 409) {
+          await invalidateAgent()
+        }
       },
     },
   )

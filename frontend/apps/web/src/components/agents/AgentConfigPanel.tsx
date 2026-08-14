@@ -62,8 +62,14 @@ export function AgentConfigPanel({
           onModeChange={setPreferredMode}
           onDirtyChange={onDirtyChange}
           onDiscard={() => {
-            setSnapshot(configQuery.data ?? snapshot)
+            // Re-snapshot from the query rather than keeping the old snapshot:
+            // after a 409 the agent's current_config_id was refreshed, so the
+            // query now tracks the latest config (loading it if necessary).
+            setSnapshot(configQuery.data ?? null)
             setResetNonce((nonce) => nonce + 1)
+            // The editor may unmount into the loading state; the edits are
+            // already dropped, so the page must not keep prompting for them.
+            onDirtyChange(false)
           }}
           onClose={onClose}
         />
