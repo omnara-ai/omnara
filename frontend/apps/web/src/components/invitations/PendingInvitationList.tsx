@@ -1,5 +1,5 @@
 import { useAcceptInvitation, useDeclineInvitation } from '@omnara/react'
-import type { OrgInvitation, PendingOrgInvitation } from '@omnara/sdk'
+import type { OrgInvitation } from '@omnara/sdk'
 import { Building2, Check, X } from 'lucide-react'
 import { useState } from 'react'
 
@@ -18,7 +18,7 @@ export function PendingInvitationList({
   invitations,
   onAccepted,
 }: {
-  invitations: PendingOrgInvitation[]
+  invitations: OrgInvitation[]
   onAccepted?: (invitation: OrgInvitation) => void | Promise<void>
 }) {
   const acceptInvitation = useAcceptInvitation()

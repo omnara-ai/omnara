@@ -1569,23 +1569,10 @@ export const zOrganizationMembership = z.object({
 export const zOrgInvitation = z.object({
     id: zOrgInvitationId,
     org_id: zOrganizationId,
-    email: z.email(),
-    org_role: z.string(),
-    created_at: zTimestamp
-});
-
-export const zPendingOrgInvitation = z.object({
-    id: zOrgInvitationId,
-    org_id: zOrganizationId,
     org_name: z.string(),
     email: z.email(),
     org_role: z.string(),
     created_at: zTimestamp
-});
-
-export const zPendingOrgInvitationList = z.object({
-    data: z.array(zPendingOrgInvitation),
-    next_cursor: z.string().nullable()
 });
 
 export const zListOrgInvitationsResponse = z.object({
@@ -2369,7 +2356,7 @@ export const zGetCurrentUserResponse = zCurrentUser;
 /**
  * Pending organization invitations for the authenticated user.
  */
-export const zListPendingInvitationsResponse = zPendingOrgInvitationList;
+export const zListPendingInvitationsResponse = zListOrgInvitationsResponse;
 
 /**
  * The accepted invitation; accepting consumes it and creates the membership.

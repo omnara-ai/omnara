@@ -1872,26 +1872,10 @@ export type OrganizationMembership = {
 export type OrgInvitation = {
     id: OrgInvitationId;
     org_id: OrganizationId;
-    email: string;
-    org_role: string;
-    created_at: Timestamp;
-};
-
-export type PendingOrgInvitation = {
-    id: OrgInvitationId;
-    org_id: OrganizationId;
     org_name: string;
     email: string;
     org_role: string;
     created_at: Timestamp;
-};
-
-export type PendingOrgInvitationList = {
-    data: Array<PendingOrgInvitation>;
-    /**
-     * Opaque cursor for the next page, or null when this is the last page.
-     */
-    next_cursor: string | null;
 };
 
 export type ListOrgInvitationsResponse = {
@@ -3362,7 +3346,7 @@ export type ListPendingInvitationsResponses = {
     /**
      * Pending organization invitations for the authenticated user.
      */
-    200: PendingOrgInvitationList;
+    200: ListOrgInvitationsResponse;
 };
 
 export type ListPendingInvitationsResponse = ListPendingInvitationsResponses[keyof ListPendingInvitationsResponses];

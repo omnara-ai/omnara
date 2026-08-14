@@ -430,7 +430,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingOrgInvitationList'
+                $ref: '#/components/schemas/ListOrgInvitationsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -9351,22 +9351,6 @@ components:
     OrgInvitation:
       type: object
       additionalProperties: false
-      required: [id, org_id, email, org_role, created_at]
-      properties:
-        id:
-          $ref: '#/components/schemas/OrgInvitationID'
-        org_id:
-          $ref: '#/components/schemas/OrganizationID'
-        email:
-          type: string
-          format: email
-        org_role:
-          type: string
-        created_at:
-          $ref: '#/components/schemas/Timestamp'
-    PendingOrgInvitation:
-      type: object
-      additionalProperties: false
       required: [id, org_id, org_name, email, org_role, created_at]
       properties:
         id:
@@ -9382,18 +9366,6 @@ components:
           type: string
         created_at:
           $ref: '#/components/schemas/Timestamp'
-    PendingOrgInvitationList:
-      type: object
-      additionalProperties: false
-      required: [data, next_cursor]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/PendingOrgInvitation'
-        next_cursor:
-          type: [string, "null"]
-          description: Opaque cursor for the next page, or null when this is the last page.
     ListOrgInvitationsResponse:
       type: object
       additionalProperties: false
