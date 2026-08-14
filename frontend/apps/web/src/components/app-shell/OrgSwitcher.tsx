@@ -1,7 +1,7 @@
 import { usePendingInvitationsQuery } from '@omnara/react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Check, ChevronsUpDown, Mail, Plus, UserPlus } from 'lucide-react'
-import { useState } from 'react'
+import { Check, ChevronsUpDown, Copy, Mail, Plus, UserPlus } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { BrandMark } from '@/components/brand/OmnaraMark'
 import { CreateOrgDialog } from '@/components/org/CreateOrgDialog'
@@ -31,15 +31,37 @@ export function OrgSwitcher() {
   const canManage = canManageOrg(activeOrg.role)
   const [newOrgOpen, setNewOrgOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
+  const [copiedOrgID, setCopiedOrgID] = useState<string | null>(null)
   const pendingCount = pendingInvitations?.data.length ?? 0
   const pendingCountLabel = pendingInvitations?.next_cursor
     ? `${pendingCount}+`
     : String(pendingCount)
 
+  useEffect(() => {
+    if (copiedOrgID === null) return
+
+    const timeout = window.setTimeout(() => {
+      setCopiedOrgID(null)
+    }, 1500)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [copiedOrgID])
+
   async function switchOrganization(id: string) {
     if (id === activeOrg.id) return
     setActiveOrgId(id)
     await navigate({ to: '/', replace: true })
+  }
+
+  async function copyActiveOrganizationID() {
+    try {
+      await navigator.clipboard.writeText(activeOrg.id)
+      setCopiedOrgID(activeOrg.id)
+    } catch {
+      setCopiedOrgID(null)
+    }
   }
 
   return (
@@ -83,6 +105,31 @@ export function OrgSwitcher() {
                   {org.id === activeOrg.id && <Check className="size-4 shrink-0" />}
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="flex-col items-stretch gap-0.5"
+                aria-label={
+                  copiedOrgID === activeOrg.id
+                    ? `Copied organization ID ${activeOrg.id}`
+                    : `Copy organization ID ${activeOrg.id}`
+                }
+                onSelect={(event) => {
+                  event.preventDefault()
+                  void copyActiveOrganizationID()
+                }}
+              >
+                <span className="text-muted-foreground text-xs">Organization ID</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate font-mono text-xs font-normal">
+                    {activeOrg.id}
+                  </code>
+                  {copiedOrgID === activeOrg.id ? (
+                    <Check className="text-primary size-3.5" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                </span>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               {canManage && (
                 <DropdownMenuItem
