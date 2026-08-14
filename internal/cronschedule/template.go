@@ -7,10 +7,6 @@ import (
 	"time"
 )
 
-// MessageData is the template payload exposed to cron trigger message
-// templates as {{ .trigger.name }}, {{ .trigger.fired_at }}, and
-// {{ .trigger.last_fired_at }}. Times are RFC 3339 strings; last_fired_at is
-// empty when the trigger has never fired before.
 func MessageData(name string, firedAt time.Time, lastFiredAt *time.Time) map[string]any {
 	lastFired := ""
 	if lastFiredAt != nil {

@@ -1,5 +1,3 @@
-// Package cronschedule parses five-field cron expressions and computes fire
-// times in a trigger's IANA time zone.
 package cronschedule
 
 import (

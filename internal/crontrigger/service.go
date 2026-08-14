@@ -1,6 +1,3 @@
-// Package crontrigger fires due cron triggers: launching an agent from the
-// target profile or sending an input to the target agent, with the trigger's
-// rendered message template.
 package crontrigger
 
 import (
@@ -45,10 +42,6 @@ type FireStats struct {
 	Failures int
 }
 
-// FireDueTriggers claims one batch of due triggers and fires each one. A
-// trigger whose firing fails is not retried until its next scheduled time; the
-// idempotency key derived from the claimed fire time keeps any concurrent or
-// repeated delivery of the same firing from duplicating work.
 func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 	claim, err := s.execution.ClaimDueCronTriggers(ctx, FireBatchSize)
 	if err != nil {

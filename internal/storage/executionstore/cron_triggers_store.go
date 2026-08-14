@@ -188,7 +188,6 @@ type ListCronTriggersForProjectResult struct {
 	Next     listing.Cursor
 }
 
-// ListCronTriggersForProject returns one newest-first page of cron triggers.
 func (s *Store) ListCronTriggersForProject(
 	ctx context.Context,
 	input ListCronTriggersForProjectInput,
@@ -437,7 +436,6 @@ func loadCronTriggerByIdempotencyKeyTx(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// The key is held by a soft-deleted trigger; the key stays consumed.
 		return CronTriggerRecord{}, storeerr.ErrIdempotencyConflict
 	}
 	if err != nil {
@@ -462,10 +460,6 @@ type ClaimDueCronTriggersResult struct {
 	Disabled []ID
 }
 
-// ClaimDueCronTriggers claims one batch of due triggers: each claimed row gets
-// last_fired_at stamped and next_fire_after advanced to its next schedule
-// before commit, so a concurrent worker cannot double-fire it. Triggers whose
-// stored schedule no longer parses are disabled instead of claimed.
 func (s *Store) ClaimDueCronTriggers(
 	ctx context.Context,
 	limit int32,
