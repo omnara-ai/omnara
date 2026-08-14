@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -63,6 +64,34 @@ func (m Manager) ValidateDefaultMachinePool(defaultPoolTemplate executionstore.D
 		return fmt.Errorf("default machine pool: %w", err)
 	}
 	return nil
+}
+
+func (m Manager) StartLaunchProvisioning(
+	parent context.Context,
+	logger *slog.Logger,
+	orgID storage.ID,
+	machineIDs []storage.ID,
+) {
+	if len(machineIDs) == 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(
+			context.WithoutCancel(parent),
+			DefaultImmediateProvisioningTimeout,
+		)
+		defer cancel()
+		for _, machineID := range machineIDs {
+			if err := m.ProvisionMachine(ctx, orgID, machineID); err != nil {
+				logger.Warn(
+					"launch machine provisioning failed",
+					"org_id", orgID,
+					"machine_id", machineID,
+					"error", err,
+				)
+			}
+		}
+	}()
 }
 
 func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID storage.ID) error {

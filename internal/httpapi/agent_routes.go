@@ -920,27 +920,15 @@ func (s *Server) startLaunchMachineProvisioning(
 	logger *slog.Logger,
 	result executionstore.LaunchAgentResult,
 ) {
-	if s.machinePoolManager == nil || len(result.ProvisionMachineIDs) == 0 {
+	if s.machinePoolManager == nil {
 		return
 	}
-	orgID := result.Agent.OrgID
-	go func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), launchMachineProvisioningTimeout)
-		defer cancel()
-		for _, machineID := range result.ProvisionMachineIDs {
-			if err := s.machinePoolManager.ProvisionMachine(ctx, orgID, machineID); err != nil {
-				logger.Warn(
-					"launch machine provisioning failed",
-					"org_id",
-					orgID,
-					"machine_id",
-					machineID,
-					"error",
-					err,
-				)
-			}
-		}
-	}()
+	s.machinePoolManager.StartLaunchProvisioning(
+		parent,
+		logger,
+		result.Agent.OrgID,
+		result.ProvisionMachineIDs,
+	)
 }
 
 func (s *Server) startPoolMachineDeletion(parent context.Context, machines []executionstore.MachineRecord) {
@@ -1451,5 +1439,3 @@ func (s *Server) compileAgentConfigBodyForProject(
 		DefinitionHash:     result.Hash,
 	}, nil
 }
-
-const launchMachineProvisioningTimeout = 2 * time.Minute

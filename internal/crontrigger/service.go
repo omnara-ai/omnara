@@ -16,7 +16,6 @@ import (
 
 const (
 	FireBatchSize                = 100
-	fireMachineProvisionTimeout  = 2 * time.Minute
 	fireIdempotencyTimestampSpec = time.RFC3339
 )
 
@@ -43,35 +42,40 @@ type FireStats struct {
 }
 
 func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
-	claim, err := s.execution.ClaimDueCronTriggers(ctx, FireBatchSize)
+	stats := FireStats{}
+	claim, err := s.execution.ClaimDueCronTriggers(
+		ctx,
+		FireBatchSize,
+		func(ctx context.Context, trigger executionstore.ClaimedCronTrigger) {
+			if err := s.fireTrigger(ctx, trigger); err != nil {
+				stats.Failures++
+				s.logger.Error(
+					"fire cron trigger",
+					"cron_trigger_id", trigger.TriggerID,
+					"project_id", trigger.ProjectID,
+					"target_kind", trigger.Target.Kind,
+					"error", err,
+				)
+				return
+			}
+			switch trigger.Target.Kind {
+			case executionstore.CronTriggerTargetAgentProfile:
+				stats.Launched++
+			case executionstore.CronTriggerTargetAgent:
+				stats.Inputs++
+			}
+		},
+	)
 	if err != nil {
 		return FireStats{}, fmt.Errorf("claim due cron triggers: %w", err)
 	}
-	stats := FireStats{Claimed: len(claim.Claimed), Disabled: len(claim.Disabled)}
+	stats.Claimed = len(claim.Claimed)
+	stats.Disabled = len(claim.Disabled)
 	for _, disabled := range claim.Disabled {
 		s.logger.Error(
 			"disabled cron trigger with unparseable schedule",
 			"cron_trigger_id", disabled,
 		)
-	}
-	for _, trigger := range claim.Claimed {
-		if err := s.fireTrigger(ctx, trigger); err != nil {
-			stats.Failures++
-			s.logger.Error(
-				"fire cron trigger",
-				"cron_trigger_id", trigger.TriggerID,
-				"project_id", trigger.ProjectID,
-				"target_kind", trigger.Target.Kind,
-				"error", err,
-			)
-			continue
-		}
-		switch trigger.Target.Kind {
-		case executionstore.CronTriggerTargetAgentProfile:
-			stats.Launched++
-		case executionstore.CronTriggerTargetAgent:
-			stats.Inputs++
-		}
 	}
 	return stats, nil
 }
@@ -129,7 +133,14 @@ func (s *Service) launchFromProfile(
 	if err != nil {
 		return fmt.Errorf("launch agent from profile: %w", err)
 	}
-	s.provisionLaunchMachines(ctx, launch)
+	if s.machinePools != nil {
+		s.machinePools.StartLaunchProvisioning(
+			ctx,
+			s.logger,
+			launch.Agent.OrgID,
+			launch.ProvisionMachineIDs,
+		)
+	}
 	return nil
 }
 
@@ -160,30 +171,6 @@ func (s *Service) sendAgentInput(
 	return nil
 }
 
-func (s *Service) provisionLaunchMachines(
-	ctx context.Context,
-	launch executionstore.LaunchAgentResult,
-) {
-	if s.machinePools == nil || len(launch.ProvisionMachineIDs) == 0 {
-		return
-	}
-	provisionCtx, cancel := context.WithTimeout(
-		context.WithoutCancel(ctx),
-		fireMachineProvisionTimeout,
-	)
-	defer cancel()
-	for _, machineID := range launch.ProvisionMachineIDs {
-		if err := s.machinePools.ProvisionMachine(provisionCtx, launch.Agent.OrgID, machineID); err != nil {
-			s.logger.Warn(
-				"cron trigger launch machine provisioning failed",
-				"org_id", launch.Agent.OrgID,
-				"machine_id", machineID,
-				"error", err,
-			)
-		}
-	}
-}
-
 func cronTriggerActorParams(
 	trigger executionstore.ClaimedCronTrigger,
 ) (*executionstore.ActorParams, error) {
@@ -206,5 +193,5 @@ func cronTriggerActorParams(
 
 func fireIdempotencyKey(trigger executionstore.ClaimedCronTrigger) string {
 	return "cron_trigger:" + trigger.TriggerID.String() + ":" +
-		trigger.FiredAt.UTC().Format(fireIdempotencyTimestampSpec)
+		trigger.DueAt.UTC().Format(fireIdempotencyTimestampSpec)
 }

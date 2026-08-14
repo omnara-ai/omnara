@@ -15,6 +15,9 @@ func Validate(expression, timezone string) error {
 	if _, err := parser.Parse(expression); err != nil {
 		return fmt.Errorf("invalid cron expression: %w", err)
 	}
+	if timezone == "" || timezone == "Local" {
+		return fmt.Errorf("invalid timezone: %q", timezone)
+	}
 	if _, err := time.LoadLocation(timezone); err != nil {
 		return fmt.Errorf("invalid timezone: %w", err)
 	}

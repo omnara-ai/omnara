@@ -109,10 +109,18 @@ func (s *Store) CreateCronTrigger(
 	input.OrgID = project.OrgID
 	switch input.Target.Kind {
 	case CronTriggerTargetAgentProfile:
-		if _, err := loadAgentProfileTx(ctx, qtx, input.ProjectID, input.Target.ID); err != nil {
+		if _, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.Target.ID); err != nil {
 			return CronTriggerRecord{}, err
 		}
 	case CronTriggerTargetAgent:
+		if _, err := qtx.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
+			ProjectID: input.ProjectID, ID: input.Target.ID,
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return CronTriggerRecord{}, storeerr.ErrNotFound
+			}
+			return CronTriggerRecord{}, fmt.Errorf("lock cron trigger target agent: %w", err)
+		}
 		agent, err := loadAgentInProjectTx(ctx, tx, input.ProjectID, input.Target.ID)
 		if err != nil {
 			return CronTriggerRecord{}, err
@@ -167,7 +175,7 @@ func (s *Store) GetCronTrigger(ctx context.Context, projectID, id ID) (CronTrigg
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("load cron trigger: %w", err)
 	}
-	return cronTriggerRecordFromGetSQLC(row), nil
+	return cronTriggerRecordFromSQLC(row), nil
 }
 
 type ListCronTriggersForProjectInput struct {
@@ -262,6 +270,12 @@ func (s *Store) UpdateCronTrigger(
 		record.CronExpression = *input.CronExpression
 	}
 	if input.Timezone != nil {
+		if *input.Timezone == "" {
+			return CronTriggerRecord{}, fmt.Errorf(
+				"cron trigger timezone cannot be empty: %w",
+				storeerr.ErrInvalidRequest,
+			)
+		}
 		record.Timezone = *input.Timezone
 	}
 	if input.MessageTemplate != nil {
@@ -317,7 +331,7 @@ func (s *Store) UpdateCronTrigger(
 		}
 		return CronTriggerRecord{}, fmt.Errorf("update cron trigger: %w", err)
 	}
-	updated := cronTriggerRecordFromUpdateSQLC(row, record.OrgID)
+	updated := cronTriggerRecordFromWriteSQLC(dbsqlc.InsertCronTriggerRow(row), record.OrgID)
 	if err := tx.Commit(ctx); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("commit update cron trigger: %w", err)
 	}
@@ -372,7 +386,7 @@ func insertCronTriggerTx(
 	}
 	row, err := qtx.InsertCronTrigger(ctx, params)
 	if err == nil {
-		record := cronTriggerRecordFromInsertSQLC(row, input.OrgID)
+		record := cronTriggerRecordFromWriteSQLC(row, input.OrgID)
 		record.Created = true
 		return record, true, nil
 	}
@@ -408,18 +422,17 @@ func lockCronTriggerTx(
 	qtx *dbsqlc.Queries,
 	projectID, id ID,
 ) (CronTriggerRecord, error) {
-	_, err := qtx.LockCronTrigger(ctx, dbsqlc.LockCronTriggerParams{ProjectID: projectID, ID: id})
+	row, err := qtx.GetCronTriggerForUpdate(
+		ctx,
+		dbsqlc.GetCronTriggerForUpdateParams{ProjectID: projectID, ID: id},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CronTriggerRecord{}, storeerr.ErrNotFound
 	}
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("lock cron trigger: %w", err)
 	}
-	row, err := qtx.GetCronTrigger(ctx, dbsqlc.GetCronTriggerParams{ProjectID: projectID, ID: id})
-	if err != nil {
-		return CronTriggerRecord{}, fmt.Errorf("load cron trigger: %w", err)
-	}
-	return cronTriggerRecordFromGetSQLC(row), nil
+	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row)), nil
 }
 
 func loadCronTriggerByIdempotencyKeyTx(
@@ -441,7 +454,7 @@ func loadCronTriggerByIdempotencyKeyTx(
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("load idempotent cron trigger: %w", err)
 	}
-	return cronTriggerRecordFromGetByIdempotencySQLC(row), nil
+	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row)), nil
 }
 
 type ClaimedCronTrigger struct {
@@ -451,6 +464,7 @@ type ClaimedCronTrigger struct {
 	Name            string
 	Target          CronTriggerTarget
 	MessageTemplate string
+	DueAt           time.Time
 	FiredAt         time.Time
 	LastFiredAt     *time.Time
 }
@@ -463,9 +477,13 @@ type ClaimDueCronTriggersResult struct {
 func (s *Store) ClaimDueCronTriggers(
 	ctx context.Context,
 	limit int32,
+	fire func(context.Context, ClaimedCronTrigger),
 ) (ClaimDueCronTriggersResult, error) {
 	if limit <= 0 {
 		return ClaimDueCronTriggersResult{}, errors.New("limit must be positive")
+	}
+	if fire == nil {
+		return ClaimDueCronTriggersResult{}, errors.New("fire callback is required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -509,9 +527,13 @@ func (s *Store) ClaimDueCronTriggers(
 			Name:            row.Name,
 			Target:          cronTriggerTargetFromColumns(row.AgentProfileID, row.AgentID),
 			MessageTemplate: row.MessageTemplate,
+			DueAt:           nullableTimeToZero(row.NextFireAfter),
 			FiredAt:         nullableTimeToZero(firedAt),
 			LastFiredAt:     row.LastFiredAt,
 		})
+	}
+	for _, trigger := range result.Claimed {
+		fire(ctx, trigger)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ClaimDueCronTriggersResult{}, fmt.Errorf("commit claim due cron triggers: %w", err)

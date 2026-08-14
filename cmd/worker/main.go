@@ -278,6 +278,12 @@ func runCronTriggerFireLoop(
 				"failures", stats.Failures,
 			)
 		}
+		if ctx.Err() != nil {
+			return
+		}
+		if stats.Claimed == crontrigger.FireBatchSize {
+			continue
+		}
 		timer := time.NewTimer(jitteredFireDelay(interval))
 		select {
 		case <-ctx.Done():

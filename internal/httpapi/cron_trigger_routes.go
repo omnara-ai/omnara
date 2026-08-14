@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -104,11 +105,18 @@ func (s strictOpenAPIServer) listCronTriggers(
 		}
 		filters.AgentID = agentID
 	}
+	extra := struct{ AgentProfileID, AgentID string }{}
+	if filters.AgentProfileID != storage.NilID {
+		extra.AgentProfileID = filters.AgentProfileID.String()
+	}
+	if filters.AgentID != storage.NilID {
+		extra.AgentID = filters.AgentID.String()
+	}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "cron_triggers",
 		Scope: project.OrgID.String() + "/" + project.ID.String(), IDKind: publicid.KindCronTrigger,
-		AllowedSorts: defaultResourceSorts,
+		AllowedSorts: defaultResourceSorts, Extra: extra,
 	})
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
@@ -132,7 +140,7 @@ func (s strictOpenAPIServer) listCronTriggers(
 	}
 	nextCursor, err := encodeResourceListNextCursor(
 		page.HasMore, page.Next, list, "cron_triggers",
-		project.OrgID.String()+"/"+project.ID.String(), publicid.KindCronTrigger, nil,
+		project.OrgID.String()+"/"+project.ID.String(), publicid.KindCronTrigger, extra,
 	)
 	if err != nil {
 		return nil, err
@@ -197,12 +205,17 @@ func (s strictOpenAPIServer) updateCronTrigger(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
+	timezone := request.Body.Timezone
+	if timezone != nil {
+		trimmed := strings.TrimSpace(*timezone)
+		timezone = &trimmed
+	}
 	trigger, err := s.server.store.Execution().UpdateCronTrigger(ctx, executionstore.UpdateCronTriggerInput{
 		ProjectID:       project.ID,
 		TriggerID:       triggerID,
 		Name:            request.Body.Name,
 		CronExpression:  request.Body.Cron,
-		Timezone:        request.Body.Timezone,
+		Timezone:        timezone,
 		MessageTemplate: request.Body.MessageTemplate,
 		Enabled:         request.Body.Enabled,
 	})

@@ -80,13 +80,19 @@ ORDER BY CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN sort_key END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN id END DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: LockCronTrigger :one
-SELECT trigger.id
+-- name: GetCronTriggerForUpdate :one
+SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
+       trigger.agent_profile_id, trigger.agent_id,
+       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       coalesce(trigger.idempotency_key, '') AS idempotency_key,
+       trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
+JOIN projects project ON project.id = trigger.project_id
 WHERE trigger.project_id = sqlc.arg(project_id)
   AND trigger.id = sqlc.arg(id)
   AND trigger.deleted_at IS NULL
-FOR UPDATE;
+FOR UPDATE OF trigger;
 
 -- name: UpdateCronTrigger :one
 UPDATE cron_triggers

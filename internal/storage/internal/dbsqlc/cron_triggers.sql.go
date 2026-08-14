@@ -239,6 +239,67 @@ func (q *Queries) GetCronTriggerByIdempotencyKey(ctx context.Context, arg GetCro
 	return i, err
 }
 
+const getCronTriggerForUpdate = `-- name: GetCronTriggerForUpdate :one
+SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
+       trigger.agent_profile_id, trigger.agent_id,
+       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       coalesce(trigger.idempotency_key, '') AS idempotency_key,
+       trigger.created_at, trigger.updated_at
+FROM cron_triggers trigger
+JOIN projects project ON project.id = trigger.project_id
+WHERE trigger.project_id = $1
+  AND trigger.id = $2
+  AND trigger.deleted_at IS NULL
+FOR UPDATE OF trigger
+`
+
+type GetCronTriggerForUpdateParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+type GetCronTriggerForUpdateRow struct {
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	IdempotencyKey  string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+func (q *Queries) GetCronTriggerForUpdate(ctx context.Context, arg GetCronTriggerForUpdateParams) (GetCronTriggerForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getCronTriggerForUpdate, arg.ProjectID, arg.ID)
+	var i GetCronTriggerForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.Name,
+		&i.AgentProfileID,
+		&i.AgentID,
+		&i.CronExpression,
+		&i.Timezone,
+		&i.MessageTemplate,
+		&i.Enabled,
+		&i.LastFiredAt,
+		&i.NextFireAfter,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertCronTrigger = `-- name: InsertCronTrigger :one
 INSERT INTO cron_triggers(
     id, project_id, name, agent_profile_id, agent_id,
@@ -440,27 +501,6 @@ func (q *Queries) ListCronTriggersForProject(ctx context.Context, arg ListCronTr
 		return nil, err
 	}
 	return items, nil
-}
-
-const lockCronTrigger = `-- name: LockCronTrigger :one
-SELECT trigger.id
-FROM cron_triggers trigger
-WHERE trigger.project_id = $1
-  AND trigger.id = $2
-  AND trigger.deleted_at IS NULL
-FOR UPDATE
-`
-
-type LockCronTriggerParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) LockCronTrigger(ctx context.Context, arg LockCronTriggerParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, lockCronTrigger, arg.ProjectID, arg.ID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
 }
 
 const markCronTriggerFired = `-- name: MarkCronTriggerFired :one
