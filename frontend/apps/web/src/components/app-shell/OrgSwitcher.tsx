@@ -1,11 +1,10 @@
 import { usePendingInvitationsQuery } from '@omnara/react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Check, ChevronsUpDown, Copy, Mail, Plus, UserPlus } from 'lucide-react'
+import { Check, ChevronsUpDown, Mail, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { BrandMark } from '@/components/brand/OmnaraMark'
 import { CreateOrgDialog } from '@/components/org/CreateOrgDialog'
-import { InviteMemberDialog } from '@/components/org/InviteMemberDialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +19,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
-import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function OrgSwitcher() {
@@ -28,9 +26,7 @@ export function OrgSwitcher() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { orgs, activeOrg, setActiveOrgId } = useActiveOrg()
   const { data: pendingInvitations } = usePendingInvitationsQuery()
-  const canManage = canManageOrg(activeOrg.role)
   const [newOrgOpen, setNewOrgOpen] = useState(false)
-  const [inviteOpen, setInviteOpen] = useState(false)
   const [copiedOrgID, setCopiedOrgID] = useState<string | null>(null)
   const pendingCount = pendingInvitations?.data.length ?? 0
   const pendingCountLabel = pendingInvitations?.next_cursor
@@ -125,27 +121,13 @@ export function OrgSwitcher() {
                         <code className="min-w-0 truncate font-mono text-[11px] font-normal">
                           {org.id}
                         </code>
-                        {copiedOrgID === org.id ? (
-                          <Check className="text-primary size-3" />
-                        ) : (
-                          <Copy className="size-3" />
-                        )}
+                        {copiedOrgID === org.id && <Check className="text-primary size-3" />}
                       </span>
                     )}
                   </DropdownMenuItem>
                 )
               })}
               <DropdownMenuSeparator />
-              {canManage && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    setInviteOpen(true)
-                  }}
-                >
-                  <UserPlus />
-                  Invite members
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem
                 onClick={() => {
                   setNewOrgOpen(true)
@@ -173,9 +155,6 @@ export function OrgSwitcher() {
       </SidebarMenu>
 
       <CreateOrgDialog open={newOrgOpen} onOpenChange={setNewOrgOpen} />
-      {canManage && (
-        <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} orgId={activeOrg.id} />
-      )}
     </>
   )
 }

@@ -234,7 +234,14 @@ export function Members() {
       </div>
 
       {canManage && (
-        <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} orgId={activeOrg.id} />
+        <InviteMemberDialog
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          onInvited={() => {
+            setPage(0)
+          }}
+          orgId={activeOrg.id}
+        />
       )}
     </div>
   )
