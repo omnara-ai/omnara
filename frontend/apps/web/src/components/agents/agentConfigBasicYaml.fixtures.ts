@@ -1,5 +1,5 @@
-import type { BasicConfig } from '@/components/agents/agentConfigBasic'
 import { createBasicConfigSession } from '@/components/agents/agentConfigBasicYaml'
+import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 export const fullConfig: BasicConfig = {

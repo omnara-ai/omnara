@@ -5,7 +5,7 @@ import type {
   BasicConfig,
   BasicMachineSource,
   BasicMcpServer,
-} from '@/components/agents/agentConfigBasic'
+} from '@/components/agents/useAgentBuilderForm'
 import {
   emptyProviderOptions,
   type EnvOverlayRow,

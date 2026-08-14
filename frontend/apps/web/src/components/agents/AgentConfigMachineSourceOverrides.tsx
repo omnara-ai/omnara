@@ -1,4 +1,4 @@
-import type { BasicMachineSource } from '@/components/agents/agentConfigBasic'
+import type { BasicMachineSource } from '@/components/agents/useAgentBuilderForm'
 import {
   EnvOverlayEditor,
   OverridesCollapsible,

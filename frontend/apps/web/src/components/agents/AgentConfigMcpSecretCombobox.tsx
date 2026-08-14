@@ -1,7 +1,7 @@
 import { useProjectAvailableSecret, useProjectAvailableSecrets } from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
 
-import type { BasicMcpServer } from '@/components/agents/agentConfigBasic'
+import type { BasicMcpServer } from '@/components/agents/useAgentBuilderForm'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'

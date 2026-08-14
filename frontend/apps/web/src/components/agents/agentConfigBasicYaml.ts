@@ -1,13 +1,13 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
 import { Document, isMap, isNode, parseDocument } from 'yaml'
 
+import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agentConfigBasicExtract'
+import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import type {
   BasicConfig,
   BasicMachineSource,
   BasicMcpServer,
-} from '@/components/agents/agentConfigBasic'
-import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agentConfigBasicExtract'
-import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
+} from '@/components/agents/useAgentBuilderForm'
 import {
   envFromRows,
   providerOptionsOverlay,

@@ -1,12 +1,12 @@
 import { Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import type { BasicMachineSource, MachineSourceKind } from '@/components/agents/agentConfigBasic'
 import {
   MachineSourceCombobox,
   PoolSourceCombobox,
 } from '@/components/agents/AgentConfigMachineSourceComboboxes'
 import { SourceOverridesSection } from '@/components/agents/AgentConfigMachineSourceOverrides'
+import type { BasicMachineSource, MachineSourceKind } from '@/components/agents/useAgentBuilderForm'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import { Button } from '@/components/ui/button'
 import {
