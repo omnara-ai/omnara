@@ -82,7 +82,7 @@ function InvitationsContent({
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Pending invitations</h1>
         <p className="text-muted-foreground text-sm">
-          Review invitations to join other Omnara organizations.
+          Review invitations to join other organizations.
         </p>
       </div>
 

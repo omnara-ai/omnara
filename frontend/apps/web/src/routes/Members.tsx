@@ -176,7 +176,9 @@ export function Members() {
               className: 'w-28',
               cell: (row) =>
                 row.kind === 'invitation' ? (
-                  <Badge variant="secondary">Invited</Badge>
+                  <Badge variant="secondary" className="capitalize">
+                    {row.invitation.org_role}
+                  </Badge>
                 ) : (
                   <Badge variant="outline" className="capitalize">
                     {row.member.role}
