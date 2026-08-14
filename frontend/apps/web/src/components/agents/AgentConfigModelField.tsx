@@ -38,9 +38,6 @@ export function AgentConfigModelField({
   projectId: string
   value: ModelSelection
   onChange: (selection: ModelSelection) => void
-  /** Reports whether the selected model no longer resolves to a granted model,
-   *  once the point lookup completes. The value is kept so an existing config
-   *  stays editable; callers surface the problem. */
   onUnavailableChange?: (unavailable: boolean) => void
 }) {
   const search = useTypeaheadSearch()

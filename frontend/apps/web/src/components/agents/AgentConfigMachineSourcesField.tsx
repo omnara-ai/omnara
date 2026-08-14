@@ -67,7 +67,6 @@ export function AgentConfigMachineSourcesField({
     })
   }
   useEffect(() => {
-    // Filter to live rows: a removed row's combobox never reports back.
     onUnavailableIdsChange(
       sources.flatMap((source) => (unavailableIds.has(source.id) ? [source.id] : [])),
     )
@@ -166,10 +165,6 @@ export function AgentConfigMachineSourcesField({
                         reportAvailability(source.id, unavailable)
                       }}
                       onMachinesGranted={(names) => {
-                        // Drop names already in the list, and only fill this
-                        // row when it's empty: reassigning a selected row
-                        // would keep its cwd/env overlays for a different
-                        // machine. Everything else appends as a fresh row.
                         const used = new Set(
                           sources.flatMap((candidate) =>
                             candidate.kind === 'machine' ? [candidate.name] : [],

@@ -51,15 +51,9 @@ export function AgentConfigSkillsField({
   })
   const loadedSkills = useInfiniteQueryItems(skillsQuery).map((access) => access.skill)
 
-  // Cache of resolved skill objects — session picks plus anything a list
-  // result surfaced — so a row stays resolved when the picker's typeahead
-  // filters it out of the current list results.
   const [resolvedSkills, setResolvedSkills] = useState<ReadonlyMap<string, Skill>>(new Map())
   const skillById = (id: string) => resolvedSkills.get(id)
 
-  // Seeded ids (from a deserialized config) carry no name to look up, so
-  // resolve them by paging the whole availability inventory; ids the complete
-  // inventory still lacks are dangling and must block a save.
   const unresolvedIds = selectedIds.filter((id) => !resolvedSkills.has(id))
   const resolveQuery = useProjectAvailableSkills(orgId, projectId, {
     sort: 'name',
@@ -107,8 +101,6 @@ export function AgentConfigSkillsField({
       return next
     })
   }
-  // Keyed on the joined ids so the derived array's identity doesn't retrigger
-  // the report every render.
   const unavailableReportKey = [...new Set([...unavailableIds, ...danglingIds])].join('\n')
   useEffect(() => {
     onUnavailableIdsChange(unavailableReportKey === '' ? [] : unavailableReportKey.split('\n'))
@@ -193,9 +185,7 @@ function SelectedSkillRow({
   projectId: string
   id: string
   skill: Skill | undefined
-  /** Present in the field's current list results, which already proves availability. */
   listedNow: boolean
-  /** The complete availability inventory lacks this id, so it can't resolve. */
   dangling: boolean
   onAvailabilityChange: (id: string, available: boolean) => void
   onRemove: () => void

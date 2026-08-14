@@ -72,8 +72,6 @@ export function CreateAgentPage() {
   const savedProfile = useRef<SavedProfile | null>(null)
   const [session] = useState(() => createBasicConfigSession(''))
   const [builderBlocked, setBuilderBlocked] = useState(false)
-  // Blocked drafts are not mirrored into the buffer, so the YAML tab starts
-  // empty for hand authoring; the blocked flag still gates submission.
   const [builderYaml, setBuilderYaml] = useState('')
   const handleBuilderYamlChange = (value: string, blocked: boolean) => {
     setBuilderBlocked(blocked)
@@ -106,16 +104,12 @@ export function CreateAgentPage() {
   const errorMessage = statusError(draft.status)
   const editorYaml = mode.editorYaml ?? builderYaml
   const yaml = showBuilder ? builderYaml : editorYaml
-  // A blocked builder draft also blocks the YAML tab while it still mirrors
-  // the builder, so a stale last-complete draft can't be submitted.
   const canSubmit =
     !isSubmitting &&
     draft.name.trim() !== '' &&
     yaml.trim() !== '' &&
     !(builderBlocked && (showBuilder || !yamlDiverged(mode)))
 
-  // Every agent belongs to a profile, so both actions save the config as a
-  // profile first; "launch" additionally starts an agent from it.
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
     setDraft((prev) => ({ ...prev, status: submitting }))

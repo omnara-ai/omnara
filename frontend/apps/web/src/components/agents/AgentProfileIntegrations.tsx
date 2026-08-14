@@ -18,7 +18,6 @@ function installName(install: IntegrationInstall) {
   return install.provider_agent_display_name || install.provider_account_ref
 }
 
-/** Integration installs bound to one agent profile. */
 export function AgentProfileIntegrations({
   orgId,
   projectId,

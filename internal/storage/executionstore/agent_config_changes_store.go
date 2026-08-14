@@ -34,8 +34,6 @@ type AgentConfigChangeRecord struct {
 type ChangeAgentConfigInput struct {
 	CreateAgentConfigInput
 	AgentID ID
-	// NilID skips the check; otherwise the change only applies while the
-	// agent still runs this config.
 	ExpectedCurrentConfigID ID
 	ActorType               string
 	ActorID                 ID
@@ -94,8 +92,6 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	// A replayed request finds its own config already active; only a change to
-	// some other config is a conflict.
 	if !isNilID(input.ExpectedCurrentConfigID) &&
 		agent.CurrentConfigID != input.ExpectedCurrentConfigID &&
 		agent.CurrentConfigID != config.ID {

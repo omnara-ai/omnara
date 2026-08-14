@@ -113,8 +113,6 @@ export function AgentView() {
           </div>
         </header>
 
-        {/* Interactions and the composer stay mounted while the config panel
-            is open so blocking prompts remain visible and answerable. */}
         {configOpen ? (
           <main className="min-h-0 flex-1 overflow-y-auto">
             <AgentConfigPanel

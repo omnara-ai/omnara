@@ -16,21 +16,7 @@ import {
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 
 export interface BasicConfigSession {
-  /**
-   * Best-effort mapping of the session's source into a builder draft. Null
-   * when the source contains anything the builder cannot faithfully edit:
-   * unknown fields inside the entries apply() rewrites, non-built-in or
-   * disabled tools, or an unknown version. Fields outside those entries
-   * (unknown top-level keys, extra model keys) are fine — apply() never
-   * touches them, so the builder can't drop or change them.
-   */
   readonly initialDraft: BasicConfig | null
-  /**
-   * Serializes a draft onto the session's source, rewriting only the entries
-   * whose content actually changed so comments, key order, and formatting
-   * everywhere else survive. Returns the source verbatim when the draft still
-   * matches it.
-   */
   apply(config: BasicConfig): string
 }
 
@@ -40,8 +26,6 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
   return {
     initialDraft,
     apply(config) {
-      // Cloning the pristine document per call means reverting a field to its
-      // baseline value restores the entry's original formatting.
       return applyToDocument(doc?.clone() ?? new Document({}), source, initialDraft, config)
     },
   }
@@ -66,8 +50,6 @@ function applyToDocument(
   const edits = { count: 0 }
   const set = (path: string[], value: unknown) => {
     const node = doc.createNode(value)
-    // Comments before a sequence (e.g. above its first item) live on the
-    // sequence node itself; carry them onto the replacement.
     const previous = doc.getIn(path, true)
     if (isNode(previous) && isNode(node)) {
       node.commentBefore = previous.commentBefore
@@ -107,8 +89,6 @@ function applyToDocument(
   return edits.count > 0 ? doc.toString() : baselineSource
 }
 
-// Entries compare by wire form: a baseline entry serializes identically until
-// the user edits it, so untouched entries never get rewritten.
 function applyNamedEntries(
   key: string,
   desired: [string, unknown][],
@@ -169,11 +149,6 @@ function applySkills(
   set(['skills'], [...skillIds])
 }
 
-/**
- * Change detection compares these normalized shapes, not serialized output, so
- * a pool-resolution backfill of provider/managementKind never rewrites a row
- * the user didn't touch.
- */
 function machineSourceComparable(source: BasicMachineSource) {
   return {
     kind: source.kind,
@@ -189,8 +164,6 @@ function machineSourceComparable(source: BasicMachineSource) {
   }
 }
 
-// Depth cap so alias cycles inside permission parameters can't recurse
-// forever; past it the entry just counts as changed and gets rewritten.
 function deepEqual(a: unknown, b: unknown, depth = 0): boolean {
   if (Object.is(a, b)) return true
   if (depth > 64) return false

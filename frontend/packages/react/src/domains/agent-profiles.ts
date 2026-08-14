@@ -55,7 +55,6 @@ export function useAgentProfile(orgID: string, projectID: string, agentProfileID
   )
 }
 
-/** Non-suspending lookup for optional references; disabled while the id is absent. */
 export function useAgentProfileQuery(orgID: string, projectID: string, agentProfileID?: string) {
   const client = useOmnaraClient()
   return useQuery({

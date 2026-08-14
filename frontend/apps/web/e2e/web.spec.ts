@@ -43,8 +43,6 @@ function installFailureTracking(page: Page, ignore: RegExp[] = []) {
   return failures
 }
 
-// The login endpoint rate-limits each email, so tests in a worker share one
-// signed-in session instead of going through the login form every time.
 const sessionCookies = new Map<string, Cookie[]>()
 
 async function signInThroughLoginForm(page: Page, email: string, returnTo: string) {
@@ -94,8 +92,6 @@ async function createProfile(page: Page, name: string, instruction: string) {
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
 }
 
-/** Active profile names are unique per project, so a retry must not reuse the
- *  names a failed earlier attempt already claimed. */
 function uniqueName(base: string) {
   const retry = test.info().retry
   return retry === 0 ? base : `${base} (retry ${retry})`

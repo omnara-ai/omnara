@@ -124,8 +124,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         />
       </header>
 
-      {/* Hidden rather than unmounted so unsaved edits and pending saves
-          survive tab switches. */}
       <div className={tab === 'configuration' ? 'contents' : 'hidden'}>
         <ConfigurationTab
           orgId={activeOrg.id}
@@ -215,7 +213,6 @@ function ConfigurationTab({
           { label: 'Updated', value: formatDateTime(profile.updated_at) },
         ]}
       />
-      {/* Remounts to reset all edit state when a new revision lands or edits are discarded. */}
       <AgentProfileConfigEditor
         key={`${profile.current_config_id}:${resetNonce}`}
         orgId={orgId}

@@ -2,7 +2,6 @@ export type AgentConfigMode<Extra extends string = never> = 'builder' | 'yaml' |
 
 export interface AgentConfigModeState<Extra extends string = never> {
   mode: AgentConfigMode<Extra>
-  /** Hand-edited YAML; null while the YAML tab mirrors the builder. */
   editorYaml: string | null
   confirmDiscard: boolean
 }

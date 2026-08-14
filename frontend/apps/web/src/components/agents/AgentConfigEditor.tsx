@@ -6,8 +6,6 @@ import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYaml
 import { PillTabs } from '@/components/agents/PillTabs'
 import type { AgentConfigEditorState } from '@/components/agents/useAgentConfigEditor'
 
-/** The mode tabs, builder form, YAML field, and discard dialog both config
- *  editors render; the surrounding form, messages, and footer stay theirs. */
 export function AgentConfigEditorFields({
   editor,
   orgId,

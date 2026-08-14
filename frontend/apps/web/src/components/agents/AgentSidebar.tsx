@@ -22,7 +22,6 @@ import { cn } from '@/lib/utils'
 export const sidebarToggleActiveClass =
   'bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-400'
 
-/** Toggles the agent details sidebar; must render inside its SidebarProvider. */
 export function AgentSidebarToggle() {
   const { open, toggleSidebar } = useSidebar()
   return (
@@ -38,7 +37,6 @@ export function AgentSidebarToggle() {
   )
 }
 
-/** Key facts about a running agent, shown in a collapsible right sidebar. */
 export function AgentSidebar({
   orgId,
   projectId,

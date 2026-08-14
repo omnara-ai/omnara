@@ -30,9 +30,7 @@ export interface BasicMachineSource {
   id: string
   kind: MachineSourceKind
   name: string
-  /** Provider of the selected pool; '' until a pool is picked. */
   provider: string
-  /** Management kind of the selected pool; '' until a pool is picked. */
   managementKind: string
   defaultCwd: string
   initialNumMachines: string
@@ -52,6 +50,16 @@ export interface BasicConfig {
   tools: BasicTool[]
   mcpServers: BasicMcpServer[]
   skillIds: string[]
+}
+
+export const emptyBasicConfig: BasicConfig = {
+  instruction: '',
+  providerConfig: '',
+  modelName: '',
+  machineSources: [],
+  tools: [],
+  mcpServers: [],
+  skillIds: [],
 }
 
 const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/

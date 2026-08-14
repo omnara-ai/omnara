@@ -52,7 +52,6 @@ export function useCreateAgentConfig(orgID: string, projectID: string) {
   return useScopedMutation(sdk.createAgentConfig, { orgID, projectID })
 }
 
-/** Non-suspending config lookup; disabled while the id is absent. */
 export function useAgentConfig(orgID: string, projectID: string, agentConfigID?: string) {
   const client = useOmnaraClient()
   return useQuery({
@@ -77,9 +76,6 @@ export function useUpdateAgentConfig(orgID: string, projectID: string, agentID: 
     { orgID, projectID, agentID },
     {
       onSuccess: invalidateAgent,
-      // A 409 means our current_config_id expectation was stale; refresh the
-      // agent (awaited before the mutation settles) so the conflict error is
-      // shown against the latest config and a discard-and-retry can succeed.
       onError: async (error) => {
         if (error instanceof ApiError && error.status === 409) {
           await invalidateAgent()

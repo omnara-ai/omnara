@@ -205,8 +205,6 @@ func (s strictOpenAPIServer) updateAgentProfile(
 			"provide either name or config with expected_current_config_id")
 	}
 	if hasName {
-		// Renames have no idempotency ledger, so accepting a key would promise
-		// replay semantics the operation cannot provide.
 		if request.Params.IdempotencyKey != nil && strings.TrimSpace(*request.Params.IdempotencyKey) != "" {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest,
 				"idempotency keys are not supported for profile renames")

@@ -16,11 +16,11 @@
       },
       {
         "files": [
-          "src/components/agents/AgentConfigBasicForm.tsx",
           "src/components/agents/AgentConfigMachineSourceComboboxes.tsx",
           "src/components/agents/AgentConfigMachineSourcesField.tsx",
           "src/components/agents/AgentConfigModelField.tsx",
           "src/components/agents/AgentConfigSkillsField.tsx",
+          "src/components/agents/useAgentBuilderForm.ts",
           "src/components/agents/useAgentConfigEditor.ts"
         ],
         "rules": [

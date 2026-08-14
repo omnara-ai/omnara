@@ -11,7 +11,6 @@ import { Spinner } from '@/components/ui/spinner'
 
 export const discardConfigEditsPrompt = 'You have unsaved configuration changes. Discard them?'
 
-/** Builder/YAML editor for a live agent's config, mirroring the profile editor. */
 export function AgentConfigPanel({
   orgId,
   projectId,
@@ -24,16 +23,12 @@ export function AgentConfigPanel({
   projectId: string
   agent: Agent
   canManage: boolean
-  /** Lets the page confirm before unmounting the panel with unsaved edits. */
   onDirtyChange: (dirty: boolean) => void
   onClose: () => void
 }) {
   const configQuery = useAgentConfig(orgId, projectId, agent.current_config_id)
   const [resetNonce, setResetNonce] = useState(0)
   const [preferredMode, setPreferredMode] = useState<AgentConfigMode>('builder')
-  // Snapshot the config being edited so a background refetch (or another
-  // session's save changing current_config_id) can't remount the editor and
-  // wipe the draft; the save is guarded by expected_current_config_id instead.
   const [snapshot, setSnapshot] = useState<AgentConfig | null>(null)
   if (snapshot === null && configQuery.data !== undefined) {
     setSnapshot(configQuery.data)
@@ -54,13 +49,8 @@ export function AgentConfigPanel({
           onModeChange={setPreferredMode}
           onDirtyChange={onDirtyChange}
           onDiscard={() => {
-            // Re-snapshot from the query rather than keeping the old snapshot:
-            // after a 409 the agent's current_config_id was refreshed, so the
-            // query now tracks the latest config (loading it if necessary).
             setSnapshot(configQuery.data ?? null)
             setResetNonce((nonce) => nonce + 1)
-            // The editor may unmount into the loading state; the edits are
-            // already dropped, so the page must not keep prompting for them.
             onDirtyChange(false)
           }}
           onClose={onClose}
@@ -112,8 +102,6 @@ function AgentConfigPanelEditor({
   orgId: string
   projectId: string
   agentId: string
-  /** Config the edited source came from; the save is conditional on the agent
-   *  still running it. */
   configId: string
   source: string
   canManage: boolean

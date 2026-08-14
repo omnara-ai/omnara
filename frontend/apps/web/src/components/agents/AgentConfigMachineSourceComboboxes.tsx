@@ -10,7 +10,6 @@ import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { useProjectPage } from '@/lib/use-project-page'
 
-/** Pool fields the machine sources form needs from a selected pool. */
 export interface SelectedPool {
   provider: string
   management_kind: string
@@ -52,13 +51,6 @@ const MachineNameCombobox = createResourceCombobox<MachineOption>({
   emptyMessage: 'No machines granted.',
 })
 
-/**
- * Report whether the selected source name no longer resolves in the project,
- * once its point lookup completes. The name is kept so an existing config
- * stays editable; callers surface the problem instead. Pass an empty value to
- * skip the check (e.g. when the current list already contains the name).
- * Returns the matched item once the lookup finds it.
- */
 function useStaleName<TItem>(
   lookupQuery: {
     data?: { pages: { data: TItem[] }[] }
@@ -95,7 +87,6 @@ export function PoolSourceCombobox({
   value: string
   onChange: (name: string, pool?: SelectedPool) => void
   onUnavailableChange?: (unavailable: boolean) => void
-  /** Reports the granted pool the current value resolves to, e.g. so callers can backfill pool fields a deserialized config lacks. */
   onPoolResolved?: (pool: SelectedPool) => void
 }) {
   const { project } = useProjectPage()
@@ -180,8 +171,6 @@ export function MachineSourceCombobox({
   value: string
   onChange: (name: string) => void
   onUnavailableChange?: (unavailable: boolean) => void
-  /** Receives every machine granted through the dialog, not just the first,
-   *  so the caller can add a source row per granted machine. */
   onMachinesGranted?: (names: string[]) => void
 }) {
   const { project } = useProjectPage()

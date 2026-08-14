@@ -24,8 +24,6 @@ export function AgentProfileConfigEditor({
   projectId: string
   profile: AgentProfile
   canManage: boolean
-  /** Mode to open in when the config supports the builder; the editor reports
-   *  the user's switches back so it survives the remount after a save. */
   preferredMode: AgentConfigMode
   onModeChange: (mode: AgentConfigMode) => void
   onDirtyChange: (dirty: boolean) => void

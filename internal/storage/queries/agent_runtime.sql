@@ -1,6 +1,5 @@
 -- name: InsertAgent :one
 -- @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
--- The agent's current config keeps pointing at its model even after a soft delete.
 WITH inserted AS (
     INSERT INTO agents(
         org_id, project_id, state, name, agent_profile_id, current_config_id,
@@ -51,7 +50,6 @@ SELECT pg_advisory_xact_lock(
 
 -- name: GetAgentByIdempotencyKey :one
 -- @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
--- The agent's current config keeps pointing at its model even after a soft delete.
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
        agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
@@ -81,7 +79,6 @@ WHERE id = $1;
 
 -- name: GetAgentInProject :one
 -- @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
--- The agent's current config keeps pointing at its model even after a soft delete.
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
        agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,

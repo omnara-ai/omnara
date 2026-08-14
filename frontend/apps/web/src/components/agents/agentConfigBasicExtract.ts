@@ -65,9 +65,6 @@ const toolEntry = z.strictObject({
   permission,
 })
 
-// The subset of config documents the builder can faithfully edit. Entries the
-// builder rewrites wholesale are strict; the top level and model tolerate
-// unknown keys because apply() never touches them.
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
   instruction: z.string(),
@@ -91,9 +88,6 @@ export function extractBasicConfig(js: unknown): BasicConfig | null {
   }
 
   return {
-    // Block scalars parse back with a trailing newline the builder's textarea
-    // wouldn't show; trim here so the seeded instruction matches what was
-    // typed and an untouched draft compares equal to the source.
     instruction: normalizeMultiline(doc.instruction),
     providerConfig: doc.model.provider_config,
     modelName: doc.model.name,
@@ -144,14 +138,6 @@ function machineSourceDraft(
   }
 }
 
-/**
- * The overlay doesn't record which provider wrote it, so infer one whose
- * option keys account for every entry. Providers sharing a key read that
- * entry identically, so a wrong pick still seeds the same option values; once
- * the granted pool resolves, the sources field replaces the guess with the
- * pool's real provider, and untouched rows keep their stored overlay either
- * way.
- */
 function inferProviderOverlay(
   value?: Record<string, string>,
 ): { provider: string; options: ProviderOptionsDraft } | null {

@@ -10,7 +10,6 @@ import {
 
 export type AgentConfigEditorState = ReturnType<typeof useAgentConfigEditor>
 
-/** Shared builder/YAML editing state for the agent and profile config editors. */
 export function useAgentConfigEditor({
   source,
   canManage,
@@ -30,8 +29,6 @@ export function useAgentConfigEditor({
     agentConfigModeReducer,
     initialAgentConfigModeState(builderSession ? preferredMode : 'yaml'),
   )
-  // Blocked drafts (incomplete or referencing unavailable resources) still
-  // update the buffer, so they count as dirty and the YAML tab mirrors them.
   const [builderYaml, setBuilderYaml] = useState(source)
   const [builderBlocked, setBuilderBlocked] = useState(false)
   const handleBuilderYamlChange = (value: string, blocked: boolean) => {
@@ -43,8 +40,6 @@ export function useAgentConfigEditor({
   const editorYaml = mode.editorYaml ?? builderYaml
   const yaml = showBuilder ? builderYaml : editorYaml
   const dirty = yaml !== source
-  // A blocked builder draft also blocks the YAML tab while it still mirrors
-  // the builder; hand-edited YAML (diverged) saves on its own merits.
   const saveBlocked = yaml.trim() === '' || (builderBlocked && (showBuilder || !yamlDiverged(mode)))
 
   useEffect(() => {
