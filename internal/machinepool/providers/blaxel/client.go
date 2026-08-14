@@ -21,11 +21,9 @@ const (
 	apiBaseURL           = "https://api.blaxel.ai/v0"
 	apiVersion           = "2026-04-28"
 	maxSandboxListLimit  = 200
-	dataPlaneRetries     = 2
-	dataPlaneRetryDelay  = 500 * time.Millisecond
-	createRetries        = 2
-	createRetryDelay     = 250 * time.Millisecond
-	maxCreateRetryDelay  = 5 * time.Second
+	requestRetries       = 2
+	requestRetryDelay    = 250 * time.Millisecond
+	maxRequestRetryDelay = 5 * time.Second
 	maxAPIDiagnosticSize = 128
 )
 
@@ -188,9 +186,6 @@ func (c *restClient) CreateSandbox(
 		c.apiBaseURL+"/sandboxes?createIfNotExist=true",
 		request,
 		&result,
-		createRetries,
-		isTransientServerError,
-		createRetryDelayFor,
 	)
 	if err == nil || !isTransientServerError(err) {
 		return result, err
@@ -203,13 +198,13 @@ func (c *restClient) CreateSandbox(
 	return sandbox{}, err
 }
 
-func createRetryDelayFor(err error, attempt int) time.Duration {
-	delay := createRetryDelay << attempt
+func requestRetryDelayFor(err error, attempt int) time.Duration {
+	delay := requestRetryDelay << attempt
 	delay = delay/2 + time.Duration(rand.Int64N(int64(delay)))
 	if retryAfter, ok := providers.RetryAfter(err); ok && retryAfter > delay {
 		delay = retryAfter
 	}
-	return min(delay, maxCreateRetryDelay)
+	return min(delay, maxRequestRetryDelay)
 }
 
 func waitForRetry(ctx context.Context, delay time.Duration) error {
@@ -290,7 +285,7 @@ func (c *restClient) GetSandboxProcess(
 		return sandboxProcess{}, false, err
 	}
 	var process sandboxProcess
-	_, err = c.doDataPlaneRequest(
+	_, err = c.doRequestWithRetry(
 		ctx,
 		http.MethodGet,
 		sandboxURL+"/process/"+url.PathEscape(name),
@@ -311,7 +306,7 @@ func (c *restClient) WakeSandbox(ctx context.Context, target sandbox) error {
 	if err != nil {
 		return err
 	}
-	statusCode, err := c.doDataPlaneRequest(
+	statusCode, err := c.doRequestWithRetry(
 		ctx,
 		http.MethodGet,
 		fmt.Sprintf("%s/port/%d/", sandboxURL, daemonprotocol.WakeListenerPort),
@@ -347,39 +342,19 @@ func sandboxDataPlaneURL(target sandbox) (string, error) {
 	return sandboxURL, nil
 }
 
-func (c *restClient) doDataPlaneRequest(
-	ctx context.Context,
-	method, requestURL string,
-	body, out any,
-) (int, error) {
-	return c.doRequestWithRetry(
-		ctx,
-		method,
-		requestURL,
-		body,
-		out,
-		dataPlaneRetries,
-		isGatewayError,
-		func(error, int) time.Duration { return dataPlaneRetryDelay },
-	)
-}
-
 func (c *restClient) doRequestWithRetry(
 	ctx context.Context,
 	method, requestURL string,
 	body, out any,
-	maxRetries int,
-	retryable func(error) bool,
-	retryDelay func(error, int) time.Duration,
 ) (int, error) {
 	var statusCode int
 	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; attempt <= requestRetries; attempt++ {
 		statusCode, lastErr = c.doRequest(ctx, method, requestURL, body, out)
-		if lastErr == nil || !retryable(lastErr) || attempt == maxRetries {
+		if lastErr == nil || !isTransientServerError(lastErr) || attempt == requestRetries {
 			return statusCode, lastErr
 		}
-		if err := waitForRetry(ctx, retryDelay(lastErr, attempt)); err != nil {
+		if err := waitForRetry(ctx, requestRetryDelayFor(lastErr, attempt)); err != nil {
 			return 0, err
 		}
 	}
@@ -506,12 +481,9 @@ func isConflict(err error) bool {
 	return isStatus(err, http.StatusConflict)
 }
 
-func isGatewayError(err error) bool {
-	return isStatus(err, http.StatusBadGateway) ||
+func isTransientServerError(err error) bool {
+	return isStatus(err, http.StatusInternalServerError) ||
+		isStatus(err, http.StatusBadGateway) ||
 		isStatus(err, http.StatusServiceUnavailable) ||
 		isStatus(err, http.StatusGatewayTimeout)
-}
-
-func isTransientServerError(err error) bool {
-	return isStatus(err, http.StatusInternalServerError) || isGatewayError(err)
 }

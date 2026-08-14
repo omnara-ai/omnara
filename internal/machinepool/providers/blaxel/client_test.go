@@ -271,7 +271,7 @@ func TestBlaxelRESTClientCreateConvergesAfterAmbiguousErrors(t *testing.T) {
 		createSandboxRequest{Metadata: resourceMetadata{Name: "omnara-mch-test"}},
 	)
 	if err != nil || result.Metadata.Name != "omnara-mch-test" ||
-		createCalls.Load() != createRetries+1 || getCalls.Load() != 1 {
+		createCalls.Load() != requestRetries+1 || getCalls.Load() != 1 {
 		t.Fatalf(
 			"create result=%+v create calls=%d get calls=%d err=%v",
 			result, createCalls.Load(), getCalls.Load(), err,
@@ -325,7 +325,7 @@ func TestBlaxelRESTClientDataPlaneCancellation(t *testing.T) {
 		}, nil
 	})
 
-	_, err := client.doDataPlaneRequest(
+	_, err := client.doRequestWithRetry(
 		ctx,
 		http.MethodGet,
 		"https://sandbox.invalid.test/process",
