@@ -272,6 +272,25 @@ func TestProvisionMachineWithRetryExhaustsAttempts(t *testing.T) {
 	}
 }
 
+func TestProvisionMachineWithRetryPreservesProviderErrorWhenWaitExpires(t *testing.T) {
+	providerErr := errors.New("provider unavailable")
+	result, err := provisionMachineWithRetry(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, providerErr
+		},
+		func(context.Context, time.Duration) error {
+			return context.DeadlineExceeded
+		},
+	)
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("provision error = %v, want %v", err, providerErr)
+	}
+	if result.ProviderResourceID != "resource-1" {
+		t.Fatalf("provision result = %+v, want observed resource", result)
+	}
+}
+
 func TestProvisionMachineWithRetryHonorsProviderDelay(t *testing.T) {
 	providerErr := providers.WithRetryAfter(
 		errors.New("rate limited"),

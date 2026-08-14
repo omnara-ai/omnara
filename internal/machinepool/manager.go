@@ -260,13 +260,16 @@ func provisionMachineWithRetry(
 			delay = max(delay, retryAfter)
 		}
 		if err := wait(ctx, delay); err != nil {
-			return observed, err
+			return observed, provisionErr
 		}
 	}
 	return observed, provisionErr
 }
 
 func waitForProviderProvisionRetry(ctx context.Context, delay time.Duration) error {
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= delay {
+		return context.DeadlineExceeded
+	}
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
