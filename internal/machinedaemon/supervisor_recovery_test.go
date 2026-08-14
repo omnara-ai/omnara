@@ -527,7 +527,9 @@ func TestRejectedPreparationCleanupFailureDoesNotBlockFinalization(t *testing.T)
 	client := New(
 		Config{OmnaraHome: t.TempDir()},
 		nil,
-		slog.New(slog.NewTextHandler(&logs, nil)),
+		slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})),
 	)
 	client.bootstrap = daemonBootstrap{
 		InstallationID: "ins_cleanup_failure_isolation",

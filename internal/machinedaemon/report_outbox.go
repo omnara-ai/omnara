@@ -219,7 +219,7 @@ func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
 			continue
 		}
 		if err != nil {
-			c.log.Warn(
+			c.log.Debug(
 				"rejected process preparation cleanup failed",
 				"process_id",
 				runtime.processID,
