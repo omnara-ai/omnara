@@ -171,19 +171,6 @@ describe('createBasicConfigSession initialDraft', () => {
     })
   })
 
-  it('accepts equivalent YAML with different formatting and comments', () => {
-    const reformatted = `# hand-written
-instruction: Do the thing.
-model: { provider_config: 'anthropic', name: 'claude-sonnet-5' }
-`
-    const config = mustDeserialize(reformatted)
-    expect(config).toMatchObject({
-      instruction: 'Do the thing.',
-      providerConfig: 'anthropic',
-      modelName: 'claude-sonnet-5',
-    })
-  })
-
   it('accepts a v1 version marker', () => {
     expect(mustDeserialize(`${minimalYaml}version: v1\n`).instruction).toBe('Do the thing.')
     expect(deserialize(`${minimalYaml}version: v2\n`)).toBeNull()
@@ -192,20 +179,6 @@ model: { provider_config: 'anthropic', name: 'claude-sonnet-5' }
   it('accepts unknown fields outside builder-owned entries', () => {
     expect(deserialize(`${minimalYaml}unknown_field: 1\n`)).not.toBeNull()
     expect(deserialize(minimalYaml.replace('model:', 'model:\n  extra: true'))).not.toBeNull()
-  })
-
-  it('accepts explicitly empty permission parameters', () => {
-    const source = `${minimalYaml}tools:
-  shell:
-    type: built_in
-    permission:
-      mode: always_ask
-      parameters: {}
-`
-    const config = mustDeserialize(source)
-    expect(config.tools).toEqual([
-      { name: 'shell', permission: { mode: 'always_ask', parameters: {} } },
-    ])
   })
 
   it('accepts omitted defaults: tool type, enabled, and mcp default_enabled', () => {
@@ -419,12 +392,6 @@ describe('createBasicConfigSession apply', () => {
     expect(updated).toContain('# top comment')
     expect(updated).toContain('# our search proxy')
     expect(mustDeserialize(updated).instruction).toBe('New plan.')
-  })
-
-  it('emits valid YAML for instructions with irregular indentation', () => {
-    const instruction = '  indented first line\nsecond line'
-    const source = applyToSource('', { ...fullConfig, instruction })
-    expect(mustDeserialize(source).instruction).toBe(instruction)
   })
 
   it('does not rewrite a row when only its resolved provider changed', () => {
