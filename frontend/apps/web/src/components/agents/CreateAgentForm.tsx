@@ -98,7 +98,7 @@ export function CreateAgentForm({
   }, [])
 
   function applyTemplate(template: AgentTemplate) {
-    setConfigDraft((prev) => ({ ...prev, ...agentTemplateConfig(template, catalog, defaultPool) }))
+    setConfigDraft({ ...emptyBasicConfig, ...agentTemplateConfig(template, catalog, defaultPool) })
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
     setAppliedTemplate(template)
   }
