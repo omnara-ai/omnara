@@ -11,18 +11,18 @@ export function ActiveOrgProvider({ children }: { children: ReactNode }) {
   const { data: me } = useMe()
   const orgs = me.orgs
 
-  const [activeId, setActiveId] = useState(() => {
+  const [selectedOrgId, setSelectedOrgId] = useState(() => {
     const stored = readLocal(STORAGE_KEY)
     return stored && orgs.some((org) => org.id === stored) ? stored : (orgs[0]?.id ?? '')
   })
 
-  const activeOrg = orgs.find((org) => org.id === activeId) ?? orgs[0]
+  const activeOrg = orgs.find((org) => org.id === selectedOrgId) ?? orgs[0]
 
   useEffect(() => {
-    if (activeOrg) {
-      writeLocal(STORAGE_KEY, activeOrg.id)
+    if (selectedOrgId) {
+      writeLocal(STORAGE_KEY, selectedOrgId)
     }
-  }, [activeOrg])
+  }, [selectedOrgId])
 
   if (!activeOrg) {
     return <FullPageSpinner />
@@ -33,7 +33,7 @@ export function ActiveOrgProvider({ children }: { children: ReactNode }) {
     activeOrg,
     setActiveOrgId: (id) => {
       writeLocal(STORAGE_KEY, id)
-      setActiveId(id)
+      setSelectedOrgId(id)
     },
   }
 
