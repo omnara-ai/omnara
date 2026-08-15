@@ -13,6 +13,7 @@ import {
   type SecretEnvOverlayRow,
 } from '@/components/machines/machineOverrides'
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
+import { memoryGbDraft } from '@/lib/machine-memory'
 
 const permission = z.strictObject({
   mode: z.string(),
@@ -132,7 +133,7 @@ function machineSourceDraft(
     initialNumMachines: countDraft(isPool ? entry.initial_num_machines : undefined),
     maxMachines: countDraft(isPool ? entry.max_machines : undefined),
     machineCpu: countDraft(isPool ? entry.machine_cpu : undefined),
-    machineMemoryMb: countDraft(isPool ? entry.machine_memory_mb : undefined),
+    machineMemoryGb: memoryGbDraft(isPool ? entry.machine_memory_mb : undefined),
     providerOptions: providerOverlay.options,
     envRows: Object.entries(entry.env_overlay ?? {}).map(
       ([key, value]): EnvOverlayRow => ({ id: crypto.randomUUID(), key, value }),

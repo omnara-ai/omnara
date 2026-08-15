@@ -6,6 +6,7 @@ import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agen
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import {
+  emptyProviderOptions,
   envOverlayFromRows,
   type EnvOverlayRow,
   envOverlayRowsValid,
@@ -17,6 +18,7 @@ import {
   secretEnvOverlayRowsValid,
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
+import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
 
 export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 
@@ -44,7 +46,7 @@ export interface BasicMachineSource {
   initialNumMachines: string
   maxMachines: string
   machineCpu: string
-  machineMemoryMb: string
+  machineMemoryGb: string
   providerOptions: ProviderOptionsDraft
   envRows: EnvOverlayRow[]
   secretEnvRows: SecretEnvOverlayRow[]
@@ -58,6 +60,24 @@ export interface BasicConfig {
   tools: BasicTool[]
   mcpServers: BasicMcpServer[]
   skillIds: string[]
+}
+
+export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
+  return {
+    id: crypto.randomUUID(),
+    kind,
+    name: '',
+    provider: '',
+    managementKind: '',
+    defaultCwd: '',
+    initialNumMachines: '',
+    maxMachines: '',
+    machineCpu: '',
+    machineMemoryGb: '',
+    providerOptions: emptyProviderOptions,
+    envRows: [],
+    secretEnvRows: [],
+  }
 }
 
 const emptyBasicConfig: BasicConfig = {
@@ -88,8 +108,10 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
 
 export type AgentBuilderForm = ReturnType<typeof useAgentBuilderForm>
 
-export function useAgentBuilderForm(session: BasicConfigSession) {
-  const [draft, setDraft] = useState<BasicConfig>(session.initialDraft ?? emptyBasicConfig)
+export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: BasicConfig) {
+  const [draft, setDraft] = useState<BasicConfig>(
+    seedConfig ?? session.initialDraft ?? emptyBasicConfig,
+  )
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)
@@ -166,7 +188,7 @@ function machineSourceValid(source: BasicMachineSource) {
       (machineCountValid(source.initialNumMachines) &&
         machineCountValid(source.maxMachines) &&
         optionalPositiveInt32Valid(source.machineCpu) &&
-        optionalPositiveInt32Valid(source.machineMemoryMb)))
+        memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )
 }
 
@@ -314,7 +336,7 @@ function machineSourceComparable(source: BasicMachineSource) {
     initialNumMachines: source.initialNumMachines,
     maxMachines: source.maxMachines,
     machineCpu: source.machineCpu,
-    machineMemoryMb: source.machineMemoryMb,
+    machineMemoryGb: source.machineMemoryGb,
     providerOptions: source.providerOptions,
     env: envOverlayFromRows(source.envRows) ?? null,
     secretEnv: secretEnvOverlayFromRows(source.secretEnvRows) ?? null,
@@ -347,7 +369,7 @@ function machineSourceWire(source: BasicMachineSource): Record<string, unknown> 
     }
     if (source.maxMachines !== '') wire.max_machines = Number(source.maxMachines)
     if (source.machineCpu !== '') wire.machine_cpu = Number(source.machineCpu)
-    if (source.machineMemoryMb !== '') wire.machine_memory_mb = Number(source.machineMemoryMb)
+    if (source.machineMemoryGb !== '') wire.machine_memory_mb = memoryGbToMb(source.machineMemoryGb)
     const optionsOverlay = isMachinePoolProvider(source.provider)
       ? providerOptionsOverlay(source.provider, source.providerOptions)
       : undefined

@@ -20,7 +20,7 @@ const fullConfig: BasicConfig = {
       initialNumMachines: '2',
       maxMachines: '5',
       machineCpu: '4',
-      machineMemoryMb: '8192',
+      machineMemoryGb: '8',
       providerOptions: emptyProviderOptions,
       envRows: [{ id: 'env-1', key: 'MODE', value: 'ci' }],
       secretEnvRows: [{ id: 'secret-1', key: 'TOKEN', secretId: 'sec_123' }],
@@ -35,7 +35,7 @@ const fullConfig: BasicConfig = {
       initialNumMachines: '',
       maxMachines: '',
       machineCpu: '',
-      machineMemoryMb: '',
+      machineMemoryGb: '',
       providerOptions: emptyProviderOptions,
       envRows: [],
       secretEnvRows: [],
@@ -153,7 +153,7 @@ describe('createBasicConfigSession initialDraft', () => {
       initialNumMachines: '2',
       maxMachines: '5',
       machineCpu: '4',
-      machineMemoryMb: '8192',
+      machineMemoryGb: '8',
     })
     expect(poolSource?.envRows.map((row) => [row.key, row.value])).toEqual([['MODE', 'ci']])
     expect(config.tools).toMatchObject([

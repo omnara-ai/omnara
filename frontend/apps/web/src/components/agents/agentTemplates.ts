@@ -1,10 +1,7 @@
 import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
 
-import {
-  type BasicConfig,
-  newMachineSource,
-} from '@/components/agents/agentConfigBasicSerialization'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
+import { type BasicConfig, newMachineSource } from '@/components/agents/useAgentBuilderForm'
 
 export interface AgentTemplate {
   id: string

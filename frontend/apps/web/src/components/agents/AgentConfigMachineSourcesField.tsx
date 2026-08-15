@@ -6,7 +6,7 @@ import {
   PoolSourceCombobox,
 } from '@/components/agents/AgentConfigMachineSourceComboboxes'
 import { SourceOverridesSection } from '@/components/agents/AgentConfigMachineSourceOverrides'
-import type { BasicMachineSource, MachineSourceKind } from '@/components/agents/useAgentBuilderForm'
+import { type BasicMachineSource, newMachineSource } from '@/components/agents/useAgentBuilderForm'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,24 +17,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-
-function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
-  return {
-    id: crypto.randomUUID(),
-    kind,
-    name: '',
-    provider: '',
-    managementKind: '',
-    defaultCwd: '',
-    initialNumMachines: '',
-    maxMachines: '',
-    machineCpu: '',
-    machineMemoryMb: '',
-    providerOptions: emptyProviderOptions,
-    envRows: [],
-    secretEnvRows: [],
-  }
-}
 
 export function AgentConfigMachineSourcesField({
   orgId,
@@ -131,7 +113,7 @@ export function AgentConfigMachineSourcesField({
                           provider: pool?.provider ?? '',
                           managementKind: pool?.management_kind ?? '',
                           machineCpu: '',
-                          machineMemoryMb: '',
+                          machineMemoryGb: '',
                           providerOptions: emptyProviderOptions,
                           envRows: [],
                           secretEnvRows: [],
