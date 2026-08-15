@@ -2510,6 +2510,9 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	if err != nil {
 		t.Fatalf("parse cancel authorization URL: %v", err)
 	}
+	if got := authorizationURL.Query().Get("prompt"); got != "select_account" {
+		t.Fatalf("authorization prompt = %q, want select_account", got)
+	}
 	cancelState := authorizationURL.Query().Get("state")
 	if cancelState == "" {
 		t.Fatal("cancel authorization URL missing state")
