@@ -30,6 +30,11 @@ type ProvisionMachineResult struct {
 	SandboxURL         string
 }
 
+// ErrResourceReplaced signals that the provider deleted a replaceable resource
+// and any previously observed resource id is stale; the next retry may observe
+// a different id for the same machine.
+var ErrResourceReplaced = errors.New("provider resource was replaced")
+
 type WakeMachineInput struct {
 	ProviderResourceID string
 	SandboxURL         string
@@ -66,6 +71,8 @@ type Provider interface {
 	// resource, usually by using a deterministic allocation name. A provider must
 	// not create more than one live sandbox for one Omnara machine. The result must
 	// include any trusted resource id observed before a later readiness error.
+	// After deleting a replaceable resource the provider must return an error
+	// wrapping ErrResourceReplaced so callers discard previously observed ids.
 	// machineEnv is the machine's resolved environment and is applied to the
 	// provider resource at creation; retries that adopt an existing resource
 	// keep the environment it was created with.

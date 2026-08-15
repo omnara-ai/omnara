@@ -383,7 +383,7 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 				"machine-token",
 				nil,
 			)
-			if err == nil || !strings.Contains(err.Error(), "was deleted; provisioning must be retried") {
+			if !errors.Is(err, providers.ErrResourceReplaced) {
 				t.Fatalf("first provision after %s conflict error = %v", status, err)
 			}
 			if len(api.deletedNames) != 1 || api.deletedNames[0] != name ||

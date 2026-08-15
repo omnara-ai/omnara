@@ -238,6 +238,9 @@ func provisionMachineWithRetry(
 			machineEnv,
 		)
 		provisionErr = err
+		if errors.Is(err, providers.ErrResourceReplaced) {
+			observed = providers.ProvisionMachineResult{}
+		}
 		if result.ProviderResourceID != "" {
 			if observed.ProviderResourceID != "" && observed.ProviderResourceID != result.ProviderResourceID {
 				return observed, fmt.Errorf(

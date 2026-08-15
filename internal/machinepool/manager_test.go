@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -361,6 +362,35 @@ func TestProviderProvisionRetryDelayHonorsRetryAfter(t *testing.T) {
 	}
 	if delay := providerProvisionRetryDelay(1, errors.New("provider unavailable")); delay != 2*time.Second {
 		t.Fatalf("retry delay = %s, want 2s", delay)
+	}
+}
+
+func TestProvisionMachineWithRetryDiscardsReplacedResource(t *testing.T) {
+	stubProvisionRetryDelays(t)
+	calls := 0
+	result, err := provisionWithRetryForTest(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			switch calls {
+			case 1:
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"},
+					errors.New("delete stale sandbox: unavailable")
+			case 2:
+				return providers.ProvisionMachineResult{}, fmt.Errorf("sandbox was deleted: %w", providers.ErrResourceReplaced)
+			default:
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-2"}, nil
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("provision after replacement: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("provision calls = %d, want 3", calls)
+	}
+	if result.ProviderResourceID != "resource-2" {
+		t.Fatalf("provision result = %+v, want replaced resource", result)
 	}
 }
 
