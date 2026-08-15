@@ -8,7 +8,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
 const (
@@ -16,7 +15,6 @@ const (
 	// orgOverviewMaxProjects caps how many visible projects the overview
 	// considers (and returns); recents beyond this cap are best-effort omitted.
 	orgOverviewMaxProjects = 200
-	orgOverviewProjectPage = 100
 )
 
 func (s strictOpenAPIServer) GetOrgOverview(
@@ -27,14 +25,17 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	if err != nil {
 		return nil, err
 	}
-	principal, ok := principalFromContext(ctx)
-	if !ok || principal.ID == storage.NilID {
-		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
-	}
-	visible, err := s.visibleProjectsForOverview(ctx, org, principal)
+	principal, _ := principalFromContext(ctx)
+	page, err := s.server.store.Identity().ListVisibleProjectsForPrincipal(
+		ctx,
+		identitystore.ListVisibleProjectsForPrincipalInput{
+			OrgID: org.ID, Principal: principal, Limit: orgOverviewMaxProjects,
+		},
+	)
 	if err != nil {
-		return nil, err
+		return nil, apierror.ProjectScoped(err)
 	}
+	visible := page.Projects
 	projects := make([]openapi.VisibleProject, 0, len(visible))
 	agentProjectIDs := make([]storage.ID, 0, len(visible))
 	profileProjectIDs := make([]storage.ID, 0, len(visible))
@@ -90,35 +91,4 @@ func (s strictOpenAPIServer) GetOrgOverview(
 		RecentAgents:        recentAgents,
 		RecentAgentProfiles: recentProfiles,
 	}), nil
-}
-
-func (s strictOpenAPIServer) visibleProjectsForOverview(
-	ctx context.Context,
-	org identitystore.OrgRecord,
-	principal identitystore.PrincipalRecord,
-) ([]identitystore.VisibleProjectRecord, error) {
-	records := make([]identitystore.VisibleProjectRecord, 0)
-	after := listing.KeysetCursor{}
-	for len(records) < orgOverviewMaxProjects {
-		limit := orgOverviewProjectPage
-		if remaining := orgOverviewMaxProjects - len(records); remaining < limit {
-			limit = remaining
-		}
-		page, err := s.server.store.Identity().ListVisibleProjectsForPrincipal(
-			ctx,
-			identitystore.ListVisibleProjectsForPrincipalInput{
-				OrgID: org.ID, Principal: principal, Limit: limit, After: after,
-			},
-		)
-		if err != nil {
-			return nil, apierror.ProjectScoped(err)
-		}
-		records = append(records, page.Projects...)
-		if !page.HasMore || len(page.Projects) == 0 {
-			break
-		}
-		last := page.Projects[len(page.Projects)-1]
-		after = listing.KeysetCursor{Set: true, CreatedAt: last.Project.CreatedAt, ID: last.Project.ID}
-	}
-	return records, nil
 }
