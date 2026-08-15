@@ -375,6 +375,19 @@ mcp:
 })
 
 describe('createBasicConfigSession apply', () => {
+  it('keeps an empty source empty for an untouched form', () => {
+    const emptyConfig: BasicConfig = {
+      instruction: '',
+      providerConfig: '',
+      modelName: '',
+      machineSources: [],
+      tools: [],
+      mcpServers: [],
+      skillIds: [],
+    }
+    expect(applyToSource('', emptyConfig)).toBe('')
+  })
+
   it('returns the source verbatim when the draft matches it', () => {
     const config = mustDeserialize(commentedYaml)
     expect(applyToSource(commentedYaml, config)).toBe(commentedYaml)

@@ -242,11 +242,13 @@ function applyToDocument(
   }
 
   const instruction = normalizeMultiline(config.instruction)
-  if (instruction !== baseline?.instruction) set(['instruction'], instruction)
+  if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
   const providerConfig = config.providerConfig.trim()
-  if (providerConfig !== baseline?.providerConfig) set(['model', 'provider_config'], providerConfig)
+  if (providerConfig !== (baseline?.providerConfig ?? '')) {
+    set(['model', 'provider_config'], providerConfig)
+  }
   const modelName = config.modelName.trim()
-  if (modelName !== baseline?.modelName) set(['model', 'name'], modelName)
+  if (modelName !== (baseline?.modelName ?? '')) set(['model', 'name'], modelName)
 
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
