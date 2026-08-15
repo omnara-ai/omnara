@@ -162,17 +162,12 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID storage.
 	providerCtx, cancel = context.WithTimeout(ctx, provider.ProvisioningTimeout())
 	provisionResult, provisionErr := provisionMachineWithRetry(
 		providerCtx,
-		func() (providers.ProvisionMachineResult, error) {
-			return provider.ProvisionMachine(
-				providerCtx,
-				installationID,
-				machine.ID,
-				machineProvisioning,
-				providerProvisioning.DaemonToken.Token,
-				machineEnv,
-			)
-		},
-		waitForProviderProvisionRetry,
+		provider,
+		installationID,
+		machine.ID,
+		machineProvisioning,
+		providerProvisioning.DaemonToken.Token,
+		machineEnv,
 	)
 	cancel()
 	if provisionResult.ProviderResourceID != "" {
@@ -225,13 +220,23 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID storage.
 
 func provisionMachineWithRetry(
 	ctx context.Context,
-	provision func() (providers.ProvisionMachineResult, error),
-	wait func(context.Context, time.Duration) error,
+	provider providers.Provider,
+	installationID, machineID storage.ID,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+	machineToken string,
+	machineEnv map[string]string,
 ) (providers.ProvisionMachineResult, error) {
 	var observed providers.ProvisionMachineResult
 	var provisionErr error
 	for attempt := range providerProvisionRetryAttempts {
-		result, err := provision()
+		result, err := provider.ProvisionMachine(
+			ctx,
+			installationID,
+			machineID,
+			machineProvisioning,
+			machineToken,
+			machineEnv,
+		)
 		provisionErr = err
 		if result.ProviderResourceID != "" {
 			if observed.ProviderResourceID != "" && observed.ProviderResourceID != result.ProviderResourceID {
@@ -255,15 +260,19 @@ func provisionMachineWithRetry(
 		if attempt == providerProvisionRetryAttempts-1 {
 			break
 		}
-		delay := providerProvisionRetryDelays[attempt]
-		if retryAfter, ok := providers.RetryAfter(err); ok {
-			delay = max(delay, retryAfter)
-		}
-		if err := wait(ctx, delay); err != nil {
+		if err := waitForProviderProvisionRetry(ctx, providerProvisionRetryDelay(attempt, err)); err != nil {
 			return observed, provisionErr
 		}
 	}
 	return observed, provisionErr
+}
+
+func providerProvisionRetryDelay(attempt int, err error) time.Duration {
+	delay := providerProvisionRetryDelays[attempt]
+	if retryAfter, ok := providers.RetryAfter(err); ok {
+		delay = max(delay, retryAfter)
+	}
+	return delay
 }
 
 func waitForProviderProvisionRetry(ctx context.Context, delay time.Duration) error {
