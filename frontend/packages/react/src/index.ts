@@ -126,6 +126,7 @@ export {
   useInviteMember,
   useOrgInvitations,
   useOrgMembers,
+  useOrgOverview,
 } from './domains/orgs'
 export { cursorPagination } from './domains/pagination'
 export {

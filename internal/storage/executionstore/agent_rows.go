@@ -108,6 +108,36 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 	return record
 }
 
+func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProjectsRow) AgentRecord {
+	record := agentRecordFromSQLC(
+		row.ID,
+		row.OrgID,
+		row.ProjectID,
+		row.State,
+		row.Name,
+		row.AgentProfileID,
+		row.CurrentConfigID,
+		row.IntegrationTargetID,
+		row.IdempotencyKey,
+		row.NextEventSequence,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.ArchivedAt,
+	)
+	record.IntegrationTarget = IntegrationTargetDisplay{
+		Provider:         row.IntegrationTargetProvider,
+		ProviderTenantID: row.IntegrationTargetProviderTenantID,
+		ProviderRef:      row.IntegrationTargetProviderRef,
+		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
+		DisplayName:      row.IntegrationTargetDisplayName,
+	}
+	record.Model = AgentModelDisplay{
+		ProviderConfig: row.ModelProviderConfigName,
+		Name:           row.ModelName,
+	}
+	return record
+}
+
 func agentRecordFromListForProjectByCreatedAtDescSQLC(
 	row dbsqlc.ListAgentsForProjectByCreatedAtDescRow,
 ) AgentRecord {

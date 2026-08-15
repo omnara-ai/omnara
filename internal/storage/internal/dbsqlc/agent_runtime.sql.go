@@ -608,6 +608,121 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 	return items, nil
 }
 
+const listRecentAgentsForProjects = `-- name: ListRecentAgentsForProjects :many
+SELECT agent.id,
+       agent.org_id,
+       agent.project_id,
+       agent.state,
+       agent.name,
+       agent.agent_profile_id,
+       agent.current_config_id,
+       agent.integration_target_id,
+       coalesce(agent.idempotency_key, '') AS idempotency_key,
+       agent.next_event_sequence,
+       agent.created_at,
+       agent.updated_at,
+       agent.archived_at,
+       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
+       coalesce(target.provider_ref, '') AS integration_target_provider_ref,
+       coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.display_name, '') AS integration_target_display_name,
+       configured_model.name AS model_name,
+       model_provider_config.name AS model_provider_config_name
+FROM agents agent
+LEFT JOIN integration_targets target
+  ON target.project_id = agent.project_id
+ AND target.agent_id = agent.id
+ AND target.id = agent.integration_target_id
+ AND target.deleted_at IS NULL
+LEFT JOIN integration_installs install
+  ON install.project_id = target.project_id
+ AND install.id = target.integration_install_id
+ AND install.deleted_at IS NULL
+JOIN agent_configs agent_config
+  ON agent_config.project_id = agent.project_id
+ AND agent_config.id = agent.current_config_id
+JOIN configured_models configured_model
+  ON configured_model.org_id = agent.org_id
+ AND configured_model.id = agent_config.configured_model_id
+JOIN model_provider_configs model_provider_config
+  ON model_provider_config.org_id = configured_model.org_id
+ AND model_provider_config.id = configured_model.model_provider_config_id
+WHERE agent.project_id = ANY($1::uuid[])
+  AND agent.state = 'active'
+ORDER BY agent.updated_at DESC, agent.id DESC
+LIMIT $2::bigint
+`
+
+type ListRecentAgentsForProjectsParams struct {
+	ProjectIds []uuid.UUID
+	RowLimit   int64
+}
+
+type ListRecentAgentsForProjectsRow struct {
+	ID                                uuid.UUID
+	OrgID                             uuid.UUID
+	ProjectID                         uuid.UUID
+	State                             string
+	Name                              string
+	AgentProfileID                    *uuid.UUID
+	CurrentConfigID                   uuid.UUID
+	IntegrationTargetID               *uuid.UUID
+	IdempotencyKey                    string
+	NextEventSequence                 int64
+	CreatedAt                         time.Time
+	UpdatedAt                         time.Time
+	ArchivedAt                        *time.Time
+	IntegrationTargetProvider         string
+	IntegrationTargetProviderTenantID string
+	IntegrationTargetProviderRef      string
+	IntegrationTargetProviderRefKind  string
+	IntegrationTargetDisplayName      string
+	ModelName                         string
+	ModelProviderConfigName           string
+}
+
+func (q *Queries) ListRecentAgentsForProjects(ctx context.Context, arg ListRecentAgentsForProjectsParams) ([]ListRecentAgentsForProjectsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentAgentsForProjects, arg.ProjectIds, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentAgentsForProjectsRow{}
+	for rows.Next() {
+		var i ListRecentAgentsForProjectsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.State,
+			&i.Name,
+			&i.AgentProfileID,
+			&i.CurrentConfigID,
+			&i.IntegrationTargetID,
+			&i.IdempotencyKey,
+			&i.NextEventSequence,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ArchivedAt,
+			&i.IntegrationTargetProvider,
+			&i.IntegrationTargetProviderTenantID,
+			&i.IntegrationTargetProviderRef,
+			&i.IntegrationTargetProviderRefKind,
+			&i.IntegrationTargetDisplayName,
+			&i.ModelName,
+			&i.ModelProviderConfigName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockAgentInProject = `-- name: LockAgentInProject :one
 SELECT id, org_id
 FROM agents

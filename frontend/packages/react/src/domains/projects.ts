@@ -1,5 +1,6 @@
 import { sdk } from '@omnara/sdk'
 import {
+  getOrgOverviewQueryKey,
   listVisibleProjectsInfiniteOptions,
   listVisibleProjectsQueryKey,
 } from '@omnara/sdk/tanstack'
@@ -43,9 +44,14 @@ export function useCreateProject(orgID: string) {
     { orgID },
     {
       onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: listVisibleProjectsQueryKey({ path: { orgID }, client }),
-        })
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: listVisibleProjectsQueryKey({ path: { orgID }, client }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+          }),
+        ])
       },
     },
   )

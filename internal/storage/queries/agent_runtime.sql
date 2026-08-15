@@ -193,6 +193,51 @@ WHERE agent.project_id = sqlc.arg(project_id)
 ORDER BY agent.created_at DESC, agent.id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
+-- name: ListRecentAgentsForProjects :many
+SELECT agent.id,
+       agent.org_id,
+       agent.project_id,
+       agent.state,
+       agent.name,
+       agent.agent_profile_id,
+       agent.current_config_id,
+       agent.integration_target_id,
+       coalesce(agent.idempotency_key, '') AS idempotency_key,
+       agent.next_event_sequence,
+       agent.created_at,
+       agent.updated_at,
+       agent.archived_at,
+       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
+       coalesce(target.provider_ref, '') AS integration_target_provider_ref,
+       coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.display_name, '') AS integration_target_display_name,
+       configured_model.name AS model_name,
+       model_provider_config.name AS model_provider_config_name
+FROM agents agent
+LEFT JOIN integration_targets target
+  ON target.project_id = agent.project_id
+ AND target.agent_id = agent.id
+ AND target.id = agent.integration_target_id
+ AND target.deleted_at IS NULL
+LEFT JOIN integration_installs install
+  ON install.project_id = target.project_id
+ AND install.id = target.integration_install_id
+ AND install.deleted_at IS NULL
+JOIN agent_configs agent_config
+  ON agent_config.project_id = agent.project_id
+ AND agent_config.id = agent.current_config_id
+JOIN configured_models configured_model
+  ON configured_model.org_id = agent.org_id
+ AND configured_model.id = agent_config.configured_model_id
+JOIN model_provider_configs model_provider_config
+  ON model_provider_config.org_id = configured_model.org_id
+ AND model_provider_config.id = configured_model.model_provider_config_id
+WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND agent.state = 'active'
+ORDER BY agent.updated_at DESC, agent.id DESC
+LIMIT sqlc.arg(row_limit)::bigint;
+
 -- name: ArchiveAgent :execrows
 -- Idempotent: archiving an already-archived agent matches the row and keeps
 -- the original archived_at.

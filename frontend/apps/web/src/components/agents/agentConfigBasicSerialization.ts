@@ -2,6 +2,7 @@ import type { ToolPermissionSelection } from '@omnara/sdk'
 
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import {
+  emptyProviderOptions,
   envFromRows,
   type EnvOverlayRow,
   envOverlayRowsValid,
@@ -75,6 +76,24 @@ export function createEmptyBasicConfigDraft(): BasicConfigDraft {
 
 export function serializeBasicConfigDraft(draft: BasicConfigDraft) {
   return isBasicConfigComplete(draft) ? serializeBasicConfig(draft) : ''
+}
+
+export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
+  return {
+    id: crypto.randomUUID(),
+    kind,
+    name: '',
+    provider: '',
+    managementKind: '',
+    defaultCwd: '',
+    initialNumMachines: '',
+    maxMachines: '',
+    machineCpu: '',
+    machineMemoryGb: '',
+    providerOptions: emptyProviderOptions,
+    envRows: [],
+    secretEnvRows: [],
+  }
 }
 
 const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
