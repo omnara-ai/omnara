@@ -100,6 +100,10 @@ func (s *Store) CreateOrgInvitation(
 	if err := resourceguard.Lock(ctx, qtx, resourceOrgInvitations, input.OrgID.String()); err != nil {
 		return OrgInvitationRecord{}, err
 	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return OrgInvitationRecord{}, err
+	}
 	invitationCount, err := qtx.CountPendingOrgInvitationsForOrg(
 		ctx,
 		dbsqlc.CountPendingOrgInvitationsForOrgParams{OrgID: input.OrgID},
@@ -107,10 +111,10 @@ func (s *Store) CreateOrgInvitation(
 	if err != nil {
 		return OrgInvitationRecord{}, fmt.Errorf("count pending organization invitations: %w", err)
 	}
-	if invitationCount > MaxPendingOrgInvitationsPerOrg {
+	if invitationCount > limits.MaxPendingOrgInvitationsPerOrg {
 		return OrgInvitationRecord{}, resourceLimitExceeded(
 			"pending organization invitations",
-			MaxPendingOrgInvitationsPerOrg,
+			limits.MaxPendingOrgInvitationsPerOrg,
 		)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -327,9 +331,6 @@ func (s *Store) answerOrgInvitation(
 			return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("check org for invitation accept: %w", err)
 		}
 		if !orgActive {
-			// A pending invitation must never mint a membership in a deleted
-			// organization; deletion also revokes invitations, but the accept
-			// path guards against races.
 			return OrgInvitationWithOrgNameRecord{}, storeerr.ErrNotFound
 		}
 		_, membershipErr := qtx.LockUserOrgMembership(

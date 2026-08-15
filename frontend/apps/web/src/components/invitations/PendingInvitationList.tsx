@@ -25,9 +25,10 @@ export function PendingInvitationList({
   const declineInvitation = useDeclineInvitation()
   const [action, setAction] = useState<InvitationAction>({ kind: 'idle' })
   const [copiedInvitationID, setCopiedInvitationID] = useState<string | null>(null)
+  const [copyError, setCopyError] = useState<string | null>(null)
 
   const actingId = action.kind === 'acting' ? action.invitationId : null
-  const error = action.kind === 'error' ? action.message : null
+  const error = action.kind === 'error' ? action.message : copyError
 
   useEffect(() => {
     if (copiedInvitationID === null) return
@@ -76,9 +77,10 @@ export function PendingInvitationList({
   async function copyOrganizationID(invitation: OrgInvitation) {
     try {
       await navigator.clipboard.writeText(invitation.org_id)
+      setCopyError(null)
       setCopiedInvitationID(invitation.id)
     } catch {
-      setAction({ kind: 'error', message: 'Could not copy organization ID' })
+      setCopyError('Could not copy organization ID')
     }
   }
 

@@ -126,7 +126,7 @@ test('creates an organization from a project page', async ({ page }) => {
   expect(failures).toEqual([])
 })
 
-test('opens and declines pending invitations outside onboarding', async ({ page }) => {
+test('opens and answers pending invitations outside onboarding', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, inviteeEmail, '/')
 
@@ -153,6 +153,15 @@ test('opens and declines pending invitations outside onboarding', async ({ page 
     page.getByRole('button', { name: `Decline invitation to ${invitationName}` }),
   ).toHaveCount(0)
   await expect(declineButtons).toHaveCount(invitationCount - 1)
+
+  const acceptButton = page.getByRole('button', { name: /^Accept invitation to / }).first()
+  const acceptLabel = await acceptButton.getAttribute('aria-label')
+  const acceptedOrgName = acceptLabel?.replace('Accept invitation to ', '').trim()
+  if (!acceptedOrgName) throw new Error('Accepted invitation organization name is missing')
+  await acceptButton.click()
+
+  await expect(page).toHaveURL('/')
+  await expect(page.getByRole('button', { name: acceptedOrgName })).toBeVisible()
 
   expect(failures).toEqual([])
 })

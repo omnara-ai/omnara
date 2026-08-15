@@ -1,9 +1,10 @@
 import { type MachinePool, type VisibleMachine } from '@omnara/sdk'
 import { Trash2Icon } from 'lucide-react'
 
-import type {
-  BasicMachineSource,
-  MachineSourceKind,
+import {
+  type BasicMachineSource,
+  type MachineSourceKind,
+  newMachineSource,
 } from '@/components/agents/agentConfigBasicSerialization'
 import {
   MachineSourceCombobox,
@@ -22,24 +23,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-
-function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
-  return {
-    id: crypto.randomUUID(),
-    kind,
-    name: '',
-    provider: '',
-    managementKind: '',
-    defaultCwd: '',
-    initialNumMachines: '',
-    maxMachines: '',
-    machineCpu: '',
-    machineMemoryGb: '',
-    providerOptions: emptyProviderOptions,
-    envRows: [],
-    secretEnvRows: [],
-  }
-}
 
 export function AgentConfigMachineSourcesField({
   orgId,

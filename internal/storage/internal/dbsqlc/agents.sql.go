@@ -805,6 +805,105 @@ func (q *Queries) ListAgentProfilesForProject(ctx context.Context, arg ListAgent
 	return items, nil
 }
 
+const listRecentAgentProfilesForProjects = `-- name: ListRecentAgentProfilesForProjects :many
+SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
+       version.agent_config_id AS current_config_id,
+       version.generation AS current_generation,
+       coalesce(profile.idempotency_key, '') AS idempotency_key,
+       profile.created_at, profile.updated_at,
+       config.id AS config_id, config.org_id AS config_org_id,
+       config.project_id AS config_project_id,
+       config.configured_model_id AS config_configured_model_id,
+       config.source AS config_source, config.source_format AS config_source_format,
+       config.source_hash AS config_source_hash,
+       config.compiled_definition AS config_compiled_definition,
+       config.compiler_version AS config_compiler_version,
+       config.effective_definition_hash AS config_effective_definition_hash,
+       config.created_at AS config_created_at
+FROM agent_profiles profile
+JOIN projects project ON project.id = profile.project_id
+JOIN agent_profile_versions version
+  ON version.project_id = profile.project_id
+ AND version.profile_id = profile.id
+ AND version.id = profile.current_version_id
+ AND version.deleted_at IS NULL
+JOIN agent_configs config ON config.project_id = profile.project_id
+  AND config.id = version.agent_config_id
+WHERE profile.project_id = ANY($1::uuid[])
+  AND profile.deleted_at IS NULL
+ORDER BY profile.updated_at DESC, profile.id DESC
+LIMIT $2::bigint
+`
+
+type ListRecentAgentProfilesForProjectsParams struct {
+	ProjectIds []uuid.UUID
+	RowLimit   int64
+}
+
+type ListRecentAgentProfilesForProjectsRow struct {
+	ID                            uuid.UUID
+	OrgID                         uuid.UUID
+	ProjectID                     uuid.UUID
+	Name                          string
+	CurrentConfigID               uuid.UUID
+	CurrentGeneration             int32
+	IdempotencyKey                string
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
+	ConfigID                      uuid.UUID
+	ConfigOrgID                   uuid.UUID
+	ConfigProjectID               uuid.UUID
+	ConfigConfiguredModelID       uuid.UUID
+	ConfigSource                  string
+	ConfigSourceFormat            string
+	ConfigSourceHash              string
+	ConfigCompiledDefinition      json.RawMessage
+	ConfigCompilerVersion         string
+	ConfigEffectiveDefinitionHash string
+	ConfigCreatedAt               time.Time
+}
+
+func (q *Queries) ListRecentAgentProfilesForProjects(ctx context.Context, arg ListRecentAgentProfilesForProjectsParams) ([]ListRecentAgentProfilesForProjectsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentAgentProfilesForProjects, arg.ProjectIds, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentAgentProfilesForProjectsRow{}
+	for rows.Next() {
+		var i ListRecentAgentProfilesForProjectsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.Name,
+			&i.CurrentConfigID,
+			&i.CurrentGeneration,
+			&i.IdempotencyKey,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ConfigID,
+			&i.ConfigOrgID,
+			&i.ConfigProjectID,
+			&i.ConfigConfiguredModelID,
+			&i.ConfigSource,
+			&i.ConfigSourceFormat,
+			&i.ConfigSourceHash,
+			&i.ConfigCompiledDefinition,
+			&i.ConfigCompilerVersion,
+			&i.ConfigEffectiveDefinitionHash,
+			&i.ConfigCreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockAgentProfile = `-- name: LockAgentProfile :one
 SELECT profile.id
 FROM agent_profiles profile

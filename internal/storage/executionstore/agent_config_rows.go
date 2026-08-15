@@ -138,6 +138,36 @@ func agentProfileRecordFromListForProjectSQLC(row dbsqlc.ListAgentProfilesForPro
 	return record
 }
 
+func agentProfileRecordFromListRecentForProjectsSQLC(
+	row dbsqlc.ListRecentAgentProfilesForProjectsRow,
+) AgentProfileRecord {
+	record := AgentProfileRecord{
+		ID:                row.ID,
+		OrgID:             row.OrgID,
+		ProjectID:         row.ProjectID,
+		Name:              row.Name,
+		CurrentConfigID:   row.CurrentConfigID,
+		CurrentGeneration: int(row.CurrentGeneration),
+		IdempotencyKey:    row.IdempotencyKey,
+		CreatedAt:         row.CreatedAt,
+		UpdatedAt:         row.UpdatedAt,
+	}
+	record.CurrentConfig = AgentConfigRecord{
+		ID:                      row.ConfigID,
+		OrgID:                   row.ConfigOrgID,
+		ProjectID:               row.ConfigProjectID,
+		ConfiguredModelID:       row.ConfigConfiguredModelID,
+		Source:                  row.ConfigSource,
+		SourceFormat:            row.ConfigSourceFormat,
+		SourceHash:              row.ConfigSourceHash,
+		CompiledDefinition:      row.ConfigCompiledDefinition,
+		CompilerVersion:         row.ConfigCompilerVersion,
+		EffectiveDefinitionHash: row.ConfigEffectiveDefinitionHash,
+		CreatedAt:               row.ConfigCreatedAt,
+	}
+	return record
+}
+
 func agentProfileRecordFromGetByIdempotencySQLC(
 	row dbsqlc.GetAgentProfileByIdempotencyKeyRow,
 ) AgentProfileRecord {

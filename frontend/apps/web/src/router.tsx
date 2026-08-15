@@ -149,6 +149,8 @@ const agentProfileRoute = createRoute({
 const createAgentRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: '/projects/$projectId/agents/new',
+  validateSearch: (search: Record<string, unknown>): { template?: string } =>
+    typeof search.template === 'string' ? { template: search.template } : {},
   component: lazyRouteComponent(() => import('@/routes/CreateAgentPage'), 'CreateAgentPage'),
 })
 

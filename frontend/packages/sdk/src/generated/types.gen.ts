@@ -2542,6 +2542,21 @@ export type ListProjectsResponse = {
     next_cursor: string | null;
 };
 
+export type OrgOverviewResponse = {
+    /**
+     * Projects visible to the caller, newest first (capped).
+     */
+    projects: Array<VisibleProject>;
+    /**
+     * Most recently active agents across the caller's readable projects, ordered by updated_at descending.
+     */
+    recent_agents: Array<Agent>;
+    /**
+     * Most recently updated agent profiles across the caller's readable projects, ordered by updated_at descending.
+     */
+    recent_agent_profiles: Array<AgentProfile>;
+};
+
 export type CurrentUserIdentity = {
     id: UserId;
     /**
@@ -3484,6 +3499,65 @@ export type DeclineInvitationResponses = {
 };
 
 export type DeclineInvitationResponse = DeclineInvitationResponses[keyof DeclineInvitationResponses];
+
+export type GetOrgOverviewData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/overview';
+};
+
+export type GetOrgOverviewErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetOrgOverviewError = GetOrgOverviewErrors[keyof GetOrgOverviewErrors];
+
+export type GetOrgOverviewResponses = {
+    /**
+     * Overview data for the organization.
+     */
+    200: OrgOverviewResponse;
+};
+
+export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOverviewResponses];
 
 export type ListVisibleProjectsData = {
     body?: never;

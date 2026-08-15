@@ -60,6 +60,10 @@ func (s *Store) CreateAgentProfile(
 	if err := lockResourceCreation(ctx, qtx, resourceAgentProfiles, input.ProjectID.String()); err != nil {
 		return AgentProfileRecord{}, err
 	}
+	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return AgentProfileRecord{}, err
+	}
 	profileCount, err := qtx.CountActiveAgentProfilesForProject(
 		ctx,
 		dbsqlc.CountActiveAgentProfilesForProjectParams{ProjectID: input.ProjectID},
@@ -67,10 +71,10 @@ func (s *Store) CreateAgentProfile(
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("count active agent profiles: %w", err)
 	}
-	if profileCount > MaxActiveAgentProfilesPerProject {
+	if profileCount > limits.MaxActiveAgentProfilesPerProject {
 		return AgentProfileRecord{}, resourceLimitExceeded(
 			"active agent profiles",
-			MaxActiveAgentProfilesPerProject,
+			limits.MaxActiveAgentProfilesPerProject,
 		)
 	}
 
@@ -292,6 +296,37 @@ func (s *Store) ListAgentProfilesForProject(
 		result.Profiles = append(result.Profiles, record)
 	}
 	return result, nil
+}
+
+type ListRecentAgentProfilesForProjectsInput struct {
+	ProjectIDs []ID
+	Limit      int
+}
+
+// ListRecentAgentProfilesForProjects returns the most recently updated agent
+// profiles across the given projects, newest first.
+func (s *Store) ListRecentAgentProfilesForProjects(
+	ctx context.Context,
+	input ListRecentAgentProfilesForProjectsInput,
+) ([]AgentProfileRecord, error) {
+	if input.Limit <= 0 {
+		return nil, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return []AgentProfileRecord{}, nil
+	}
+	rows, err := s.q.ListRecentAgentProfilesForProjects(ctx, dbsqlc.ListRecentAgentProfilesForProjectsParams{
+		ProjectIds: input.ProjectIDs,
+		RowLimit:   int64(input.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list recent agent profiles: %w", err)
+	}
+	records := make([]AgentProfileRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, agentProfileRecordFromListRecentForProjectsSQLC(row))
+	}
+	return records, nil
 }
 
 func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id ID) error {

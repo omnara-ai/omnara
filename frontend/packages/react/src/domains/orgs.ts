@@ -6,11 +6,12 @@ import {
 } from '@omnara/sdk'
 import {
   getCurrentUserQueryKey,
+  getOrgOverviewOptions,
   listOrgInvitationsInfiniteOptions,
   listOrgInvitationsQueryKey,
   listOrgMembersInfiniteOptions,
 } from '@omnara/sdk/tanstack'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -45,6 +46,11 @@ export function useCreateOrganization() {
       await queryClient.invalidateQueries({ queryKey: getCurrentUserQueryKey({ client }) })
     },
   })
+}
+
+export function useOrgOverview(orgID: string) {
+  const client = useOmnaraClient()
+  return useQuery(getOrgOverviewOptions({ path: { orgID }, client }))
 }
 
 export function useInviteMember(orgID: string) {

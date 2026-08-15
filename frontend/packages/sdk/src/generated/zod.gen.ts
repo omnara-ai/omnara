@@ -2175,6 +2175,12 @@ export const zListProjectsResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
+export const zOrgOverviewResponse = z.object({
+    projects: z.array(zVisibleProject),
+    recent_agents: z.array(zAgent),
+    recent_agent_profiles: z.array(zAgentProfile)
+});
+
 export const zCurrentUserIdentity = z.object({
     id: zUserId,
     email: z.string(),
@@ -2367,6 +2373,11 @@ export const zAcceptInvitationResponse = zOrgInvitation;
  * The declined invitation; declining consumes it.
  */
 export const zDeclineInvitationResponse = zOrgInvitation;
+
+/**
+ * Overview data for the organization.
+ */
+export const zGetOrgOverviewResponse = zOrgOverviewResponse;
 
 /**
  * Projects visible to the authenticated user.

@@ -125,6 +125,7 @@ const (
 	operationGetDaemonSkillArchive         operationID = "GetDaemonSkillArchive"
 	operationGetMachine                    operationID = "GetMachine"
 	operationGetOrgAPIKey                  operationID = "GetOrgAPIKey"
+	operationGetOrgOverview                operationID = "GetOrgOverview"
 	operationGetMachinePool                operationID = "GetMachinePool"
 	operationGetModelCatalog               operationID = "GetModelCatalog"
 	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
@@ -275,6 +276,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationUpdateConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListOrgMembers:             accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOrgOverview:             accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListVisibleProjects:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListVisibleMachines:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationCreateSecret:               accountPolicy(orgScope(identitystore.OrgActionRead)),
