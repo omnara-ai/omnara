@@ -179,6 +179,15 @@ const onboardingRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/Onboarding'), 'Onboarding'),
 })
 
+const invitationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/invitations',
+  beforeLoad: async ({ context, location }) => {
+    await ensureMe(context.queryClient, context.omnaraClient, location.href)
+  },
+  component: lazyRouteComponent(() => import('@/routes/Invitations'), 'Invitations'),
+})
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
@@ -216,6 +225,7 @@ const routeTree = rootRoute.addChildren([
   resetPasswordRoute,
   forgotPasswordRoute,
   onboardingRoute,
+  invitationsRoute,
   authedRoute.addChildren([
     overviewRoute,
     membersRoute,

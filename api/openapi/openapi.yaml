@@ -9386,12 +9386,14 @@ components:
     OrgInvitation:
       type: object
       additionalProperties: false
-      required: [id, org_id, email, org_role, created_at]
+      required: [id, org_id, org_name, email, org_role, created_at]
       properties:
         id:
           $ref: '#/components/schemas/OrgInvitationID'
         org_id:
           $ref: '#/components/schemas/OrganizationID'
+        org_name:
+          type: string
         email:
           type: string
           format: email

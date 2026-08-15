@@ -1569,6 +1569,7 @@ export const zOrganizationMembership = z.object({
 export const zOrgInvitation = z.object({
     id: zOrgInvitationId,
     org_id: zOrganizationId,
+    org_name: z.string(),
     email: z.email(),
     org_role: z.string(),
     created_at: zTimestamp

@@ -11,7 +11,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
-func orgInvitationResponse(record identitystore.OrgInvitationRecord) (openapi.OrgInvitation, error) {
+func orgInvitationResponse(
+	record identitystore.OrgInvitationRecord,
+	orgName string,
+) (openapi.OrgInvitation, error) {
 	id, err := publicID(publicid.KindOrgInvitation, record.ID)
 	if err != nil {
 		return openapi.OrgInvitation{}, err
@@ -23,6 +26,7 @@ func orgInvitationResponse(record identitystore.OrgInvitationRecord) (openapi.Or
 	return openapi.OrgInvitation{
 		Id:        id,
 		OrgId:     orgID,
+		OrgName:   orgName,
 		Email:     openapi_types.Email(record.Email),
 		OrgRole:   record.OrgRole,
 		CreatedAt: record.CreatedAt,
@@ -32,11 +36,12 @@ func orgInvitationResponse(record identitystore.OrgInvitationRecord) (openapi.Or
 func invitationListResponse(
 	invitations []identitystore.OrgInvitationRecord,
 	hasMore bool,
+	orgName string,
 ) (openapi.ListOrgInvitationsResponse, error) {
 	data := make([]openapi.OrgInvitation, 0, len(invitations))
 	var last identitystore.OrgInvitationRecord
 	for _, invitation := range invitations {
-		response, err := orgInvitationResponse(invitation)
+		response, err := orgInvitationResponse(invitation, orgName)
 		if err != nil {
 			return openapi.ListOrgInvitationsResponse{}, err
 		}
@@ -48,6 +53,33 @@ func invitationListResponse(
 		return openapi.ListOrgInvitationsResponse{}, err
 	}
 	return openapi.ListOrgInvitationsResponse{Data: data, NextCursor: nullableFromPtr(nextCursor)}, nil
+}
+
+func pendingInvitationListResponse(
+	invitations []identitystore.OrgInvitationWithOrgNameRecord,
+	hasMore bool,
+) (openapi.ListOrgInvitationsResponse, error) {
+	data := make([]openapi.OrgInvitation, 0, len(invitations))
+	var last identitystore.OrgInvitationWithOrgNameRecord
+	for _, invitation := range invitations {
+		response, err := orgInvitationResponse(
+			invitation.OrgInvitationRecord,
+			invitation.OrgName,
+		)
+		if err != nil {
+			return openapi.ListOrgInvitationsResponse{}, err
+		}
+		data = append(data, response)
+		last = invitation
+	}
+	nextCursor, err := encodeNextCursor(hasMore, last.CreatedAt, publicid.KindOrgInvitation, last.ID)
+	if err != nil {
+		return openapi.ListOrgInvitationsResponse{}, err
+	}
+	return openapi.ListOrgInvitationsResponse{
+		Data:       data,
+		NextCursor: nullableFromPtr(nextCursor),
+	}, nil
 }
 
 func (s strictOpenAPIServer) ListPendingInvitations(
@@ -76,7 +108,7 @@ func (s strictOpenAPIServer) ListPendingInvitations(
 	if err != nil {
 		return nil, apierror.UserScoped(err)
 	}
-	response, err := invitationListResponse(page.Invitations, page.HasMore)
+	response, err := pendingInvitationListResponse(page.Invitations, page.HasMore)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +123,7 @@ func (s strictOpenAPIServer) AcceptInvitation(
 	if errResponse != nil {
 		return nil, *errResponse
 	}
-	response, err := orgInvitationResponse(invitation)
+	response, err := orgInvitationResponse(invitation.OrgInvitationRecord, invitation.OrgName)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +138,7 @@ func (s strictOpenAPIServer) DeclineInvitation(
 	if errResponse != nil {
 		return nil, *errResponse
 	}
-	response, err := orgInvitationResponse(invitation)
+	response, err := orgInvitationResponse(invitation.OrgInvitationRecord, invitation.OrgName)
 	if err != nil {
 		return nil, err
 	}
@@ -117,22 +149,22 @@ func (s strictOpenAPIServer) answerInvitation(
 	ctx context.Context,
 	invitationIDRaw string,
 	accept bool,
-) (identitystore.OrgInvitationRecord, *apierror.ResponseError) {
+) (identitystore.OrgInvitationWithOrgNameRecord, *apierror.ResponseError) {
 	principal, ok := principalFromContext(ctx)
 	if !ok || principal.Type != identitystore.PrincipalTypeUser {
 		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-		return identitystore.OrgInvitationRecord{}, &err
+		return identitystore.OrgInvitationWithOrgNameRecord{}, &err
 	}
 	if s.server.store == nil {
 		err := apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
-		return identitystore.OrgInvitationRecord{}, &err
+		return identitystore.OrgInvitationWithOrgNameRecord{}, &err
 	}
 	invitationID, ok := parseOpenAPIPublicID(publicid.KindOrgInvitation, invitationIDRaw)
 	if !ok {
 		err := apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-		return identitystore.OrgInvitationRecord{}, &err
+		return identitystore.OrgInvitationWithOrgNameRecord{}, &err
 	}
-	var invitation identitystore.OrgInvitationRecord
+	var invitation identitystore.OrgInvitationWithOrgNameRecord
 	var err error
 	if accept {
 		invitation, err = s.server.store.Identity().AcceptOrgInvitation(
@@ -147,7 +179,7 @@ func (s strictOpenAPIServer) answerInvitation(
 	}
 	if err != nil {
 		apiErr := apierror.UserScoped(err)
-		return identitystore.OrgInvitationRecord{}, &apiErr
+		return identitystore.OrgInvitationWithOrgNameRecord{}, &apiErr
 	}
 	return invitation, nil
 }
@@ -180,7 +212,7 @@ func (s strictOpenAPIServer) listOrgInvitations(
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	response, err := invitationListResponse(page.Invitations, page.HasMore)
+	response, err := invitationListResponse(page.Invitations, page.HasMore, org.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +251,7 @@ func (s strictOpenAPIServer) createOrgInvitation(
 			logent.OrgInvitationEmailFailed(ctx, err)
 		}
 	}
-	response, err := orgInvitationResponse(invitation)
+	response, err := orgInvitationResponse(invitation, org.Name)
 	if err != nil {
 		return nil, err
 	}

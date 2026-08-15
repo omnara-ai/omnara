@@ -297,18 +297,21 @@ func TestPublicInvitationFlow(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/invitations",
-		`{"email":"Invitee@Example.com","role":"admin"}`,
+		`{"email":"Invitee@Example.com","role":"member"}`,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
 	inviteID := invite["id"].(string)
+	if invite["org_name"] != "invite-flow Org" {
+		t.Fatalf("invitation organization name = %v, want invite-flow Org", invite["org_name"])
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/invitations",
-		`{"email":"invitee@example.com","role":"member"}`,
+		`{"email":"invitee@example.com","role":"admin"}`,
 		"",
 		http.StatusConflict,
 		authHeaders(project.AdminToken),
@@ -335,9 +338,35 @@ func TestPublicInvitationFlow(t *testing.T) {
 		authHeaders(inviteeToken),
 	)
 	data := pending["data"].([]any)
-	if len(data) != 1 || data[0].(map[string]any)["id"] != inviteID {
+	if len(data) != 1 ||
+		data[0].(map[string]any)["id"] != inviteID ||
+		data[0].(map[string]any)["org_name"] != "invite-flow Org" {
 		t.Fatalf("unexpected pending invitations: %+v", pending)
 	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/invitations/"+inviteID+"/decline",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(inviteeToken),
+	)
+	reinvited := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/invitations",
+		`{"email":"invitee@example.com","role":"admin"}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	if reinvited["id"] == inviteID {
+		t.Fatalf("invitation after decline reused consumed id: %+v", reinvited)
+	}
+	inviteID = reinvited["id"].(string)
 	accepted := requestJSONWithHeaders(
 		t,
 		handler,
@@ -348,7 +377,9 @@ func TestPublicInvitationFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(inviteeToken),
 	)
-	if accepted["org_id"] == nil || accepted["id"] == nil {
+	if accepted["org_id"] == nil ||
+		accepted["id"] == nil ||
+		accepted["org_name"] != "invite-flow Org" {
 		t.Fatalf("expected consumed invitation receipt, got %+v", accepted)
 	}
 	launchPublicHTTPAgent(

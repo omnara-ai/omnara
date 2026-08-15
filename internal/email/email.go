@@ -34,10 +34,12 @@ type Sender interface {
 	SendPasswordChangedNotice(ctx context.Context, to string) error
 }
 
-type ConsoleSender struct{}
+type ConsoleSender struct {
+	PublicURL string
+}
 
 func (s ConsoleSender) SendInvite(ctx context.Context, to, orgName string) error {
-	return s.log(ctx, to, "You have an Omnara invitation", inviteBody(orgName, ""))
+	return s.log(ctx, to, "You have an Omnara invitation", inviteBody(orgName, s.PublicURL))
 }
 
 func (s ConsoleSender) SendEmailVerification(ctx context.Context, to, verifyURL string) error {
@@ -327,7 +329,7 @@ func inviteBody(orgName, publicURL string) string {
 		return "You have a pending invitation to join " + orgName + " in Omnara. Sign in to Omnara to accept or decline it."
 	}
 	return "You have a pending invitation to join " + orgName + " in Omnara. Sign in at " +
-		publicURL + " to accept or decline it."
+		strings.TrimRight(publicURL, "/") + "/invitations to accept or decline it."
 }
 
 func emailVerificationBody(verifyURL string) string {

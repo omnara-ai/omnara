@@ -49,8 +49,8 @@ export function CreateOrgDialog({
         body: { name: state.name },
         idempotencyKey: state.idempotencyKey,
       })
-      await navigate({ to: '/', replace: true })
       setActiveOrgId(result.org.id)
+      await navigate({ to: '/', replace: true })
       setState(initialState())
       onOpenChange(false)
     } catch (err) {

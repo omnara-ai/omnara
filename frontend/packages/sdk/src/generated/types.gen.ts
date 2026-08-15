@@ -1872,6 +1872,7 @@ export type OrganizationMembership = {
 export type OrgInvitation = {
     id: OrgInvitationId;
     org_id: OrganizationId;
+    org_name: string;
     email: string;
     org_role: string;
     created_at: Timestamp;

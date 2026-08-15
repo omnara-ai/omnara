@@ -402,7 +402,7 @@ func apiOptions(
 	}
 	switch cfg.EmailDriver {
 	case "console":
-		opts = append(opts, httpapi.WithEmailSender(email.ConsoleSender{}))
+		opts = append(opts, httpapi.WithEmailSender(email.ConsoleSender{PublicURL: cfg.PublicURL}))
 	case "smtp":
 		opts = append(
 			opts,

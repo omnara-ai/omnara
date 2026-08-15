@@ -12,9 +12,16 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, statusError, submitError, success } from '@/lib/submit-status'
+import { idle, statusError, submitError } from '@/lib/submit-status'
 
 const roles = ['member', 'admin'] as const
 
@@ -27,10 +34,12 @@ interface InviteMemberState {
 export function InviteMemberDialog({
   open,
   onOpenChange,
+  onInvited,
   orgId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onInvited?: () => void
   orgId: string
 }) {
   const inviteMember = useInviteMember(orgId)
@@ -46,7 +55,9 @@ export function InviteMemberDialog({
     setState((prev) => ({ ...prev, status: idle }))
     try {
       await inviteMember.mutateAsync({ email: state.email, role: state.role })
-      setState((prev) => ({ ...prev, email: '', status: success }))
+      setState((prev) => ({ ...prev, email: '' }))
+      onInvited?.()
+      handleOpenChange(false)
     } catch (err) {
       setState((prev) => ({ ...prev, status: submitError(err, 'Could not send invitation') }))
     }
@@ -89,26 +100,28 @@ export function InviteMemberDialog({
               />
             </Field>
             <Field>
-              <FieldLabel>Role</FieldLabel>
-              <div className="flex gap-2">
-                {roles.map((option) => (
-                  <Button
-                    key={option}
-                    type="button"
-                    variant={state.role === option ? 'default' : 'outline'}
-                    className="flex-1 capitalize"
-                    onClick={() => {
-                      setState((prev) => ({ ...prev, role: option }))
-                    }}
-                  >
-                    {option}
-                  </Button>
-                ))}
-              </div>
+              <FieldLabel htmlFor="invite-role">Role</FieldLabel>
+              <Select
+                value={state.role}
+                onValueChange={(role) => {
+                  setState((prev) => ({
+                    ...prev,
+                    role: role as InviteMemberState['role'],
+                  }))
+                }}
+              >
+                <SelectTrigger id="invite-role" className="w-full capitalize">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role} value={role} className="capitalize">
+                      {role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
-            {state.status.phase === 'success' && (
-              <p className="text-muted-foreground text-sm">Invitation sent.</p>
-            )}
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
               <Button type="submit" disabled={inviteMember.isPending || state.email.trim() === ''}>

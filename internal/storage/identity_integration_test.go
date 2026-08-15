@@ -2953,11 +2953,8 @@ func TestOrgInvitationAcceptDoesNotChangeExistingMembership(t *testing.T) {
 	if _, err := store.Identity().CreateOrgInvitation(
 		ctx,
 		identitystore.CreateOrgInvitationInput{OrgID: testOrgID, Email: "invitee@example.com", Role: "member"},
-	); !errors.Is(
-		err,
-		storeerr.ErrIdempotencyConflict,
-	) {
-		t.Fatalf("expected role conflict, got %v", err)
+	); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("expected pending invitation role conflict, got %v", err)
 	}
 	if _, err := store.Identity().CreateOrgInvitation(
 		ctx,
@@ -3151,7 +3148,7 @@ func TestOrgInvitationRejectsExistingMemberAndPreservesMembershipLimits(t *testi
 		identitystore.CreateOrgInvitationInput{OrgID: testOrgID, Email: "member@example.com", Role: "admin"},
 	); !errors.Is(
 		err,
-		storeerr.ErrIdempotencyConflict,
+		storeerr.ErrConflict,
 	) {
 		t.Fatalf("expected existing member invite conflict, got %v", err)
 	}

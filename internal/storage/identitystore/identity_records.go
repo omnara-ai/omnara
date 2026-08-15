@@ -319,6 +319,11 @@ type OrgInvitationRecord struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+type OrgInvitationWithOrgNameRecord struct {
+	OrgInvitationRecord
+	OrgName string `json:"org_name"`
+}
+
 type AcceptOrgInvitationInput struct {
 	ID     ID
 	UserID ID
