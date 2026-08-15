@@ -4,7 +4,7 @@ import {
   useCreateAgentProfile,
   useUpdateAgentProfile,
 } from '@omnara/react'
-import type { MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
+import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
@@ -55,11 +55,13 @@ interface SavedProfile {
 export function CreateAgentFormView({
   catalog,
   defaultPool,
+  defaultModel,
   templatesReady,
   initialTemplate,
 }: {
   catalog?: ToolCatalog
   defaultPool?: MachinePoolSummary
+  defaultModel?: ConfiguredModelSummary
   templatesReady: boolean
   initialTemplate?: AgentTemplate
 }) {
@@ -82,7 +84,7 @@ export function CreateAgentFormView({
     initialTemplate
       ? {
           ...createEmptyBasicConfigDraft(),
-          ...agentTemplateConfig(initialTemplate, catalog, defaultPool),
+          ...agentTemplateConfig(initialTemplate, catalog, defaultPool, defaultModel),
         }
       : createEmptyBasicConfigDraft(),
   )
@@ -95,9 +97,17 @@ export function CreateAgentFormView({
   if (project == null) return null
 
   function applyTemplate(template: AgentTemplate) {
-    setConfigDraft({
-      ...createEmptyBasicConfigDraft(),
-      ...agentTemplateConfig(template, catalog, defaultPool),
+    setConfigDraft((prev) => {
+      const next = {
+        ...createEmptyBasicConfigDraft(),
+        ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
+      }
+      // Keep a model the user already picked; templates only fill the gap.
+      if (prev.providerConfig !== '' && prev.modelName !== '') {
+        next.providerConfig = prev.providerConfig
+        next.modelName = prev.modelName
+      }
+      return next
     })
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
     setAppliedTemplate(template)

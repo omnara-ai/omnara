@@ -1,4 +1,4 @@
-import type { MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
+import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
 
 import {
   type BasicConfig,
@@ -75,9 +75,12 @@ export function agentTemplateConfig(
   template: AgentTemplate,
   catalog?: ToolCatalog,
   defaultPool?: MachinePoolSummary,
-): Pick<BasicConfig, 'instruction' | 'tools' | 'machineSources'> {
+  defaultModel?: ConfiguredModelSummary,
+): Pick<BasicConfig, 'instruction' | 'tools' | 'machineSources' | 'providerConfig' | 'modelName'> {
   return {
     instruction: template.instruction,
+    providerConfig: defaultModel?.provider_config ?? '',
+    modelName: defaultModel?.name ?? '',
     tools: catalog ? agentTemplateTools(catalog) : [],
     machineSources: defaultPool
       ? [
