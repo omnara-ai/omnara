@@ -27,6 +27,7 @@ const (
 	oauthFlowCookieTTL        = 10 * time.Minute
 	oauthLoginRateLimit       = 30
 	oauthLoginClientRateLimit = 120
+	googleOIDCIssuer          = "https://accounts.google.com"
 )
 
 func (h *Handler) connectorLoginRoute(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +92,10 @@ func (h *Handler) startExternalLogin(w http.ResponseWriter, r *http.Request, slu
 		return
 	}
 	options := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(codeVerifier)}
+	if connector.Kind == identitystore.AuthConnectorKindGitHub ||
+		(connector.Kind == identitystore.AuthConnectorKindOIDC && connector.Issuer == googleOIDCIssuer) {
+		options = append(options, oauth2.SetAuthURLParam("prompt", "select_account"))
+	}
 	if connector.Kind == identitystore.AuthConnectorKindOIDC {
 		options = append(options, oauth2.SetAuthURLParam("nonce", nonce))
 	}
@@ -301,7 +306,7 @@ func (h *Handler) oidcIdentity(
 		}
 	}
 	emailVerified := claims.EmailVerified != nil && *claims.EmailVerified
-	if emailVerified && connector.Issuer == "https://accounts.google.com" {
+	if emailVerified && connector.Issuer == googleOIDCIssuer {
 		emailVerified = googleEmailAuthoritative(claims.Email, claims.HostedDomain)
 	}
 	return externalIdentity{
