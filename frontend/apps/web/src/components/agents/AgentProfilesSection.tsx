@@ -14,7 +14,6 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 
@@ -114,11 +113,11 @@ export function AgentProfilesSection({
                       size="sm"
                       variant="secondary"
                       disabled={launchingId !== null}
+                      loading={launchingId === profile.id}
                       onClick={() => {
                         void launch(profile)
                       }}
                     >
-                      {launchingId === profile.id && <Spinner />}
                       Launch
                     </Button>
                   )}

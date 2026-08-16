@@ -8,7 +8,6 @@ import { InviteMemberDialog } from '@/components/org/InviteMemberDialog'
 import { MemberDetailPanel } from '@/components/org/MemberDetailPanel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
 import type { PaginationControls } from '@/hooks/use-paged-query'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
@@ -140,9 +139,9 @@ export function Members() {
               variant="outline"
               className="shrink-0"
               disabled={invitationsQuery.isFetching}
+              loading={invitationsQuery.isFetching}
               onClick={() => void invitationsQuery.refetch()}
             >
-              {invitationsQuery.isFetching && <Spinner />}
               Retry
             </Button>
           </div>
@@ -203,6 +202,7 @@ export function Members() {
                     variant="outline"
                     className="text-destructive hover:text-destructive shrink-0"
                     disabled={deleteInvitation.isPending}
+                    loading={deleteInvitation.isPending}
                     onClick={() => {
                       if (
                         window.confirm(`Revoke the invitation sent to ${row.invitation.email}?`)
@@ -211,7 +211,6 @@ export function Members() {
                       }
                     }}
                   >
-                    {deleteInvitation.isPending && <Spinner />}
                     Revoke invitation
                   </Button>
                 )}

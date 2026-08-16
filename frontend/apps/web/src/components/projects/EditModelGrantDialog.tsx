@@ -20,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -217,8 +216,11 @@ export function EditModelGrantDialog({
             </div>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting || !modelGrantOverridesValid(draft)}>
-                {isSubmitting && <Spinner />}
+              <Button
+                type="submit"
+                disabled={isSubmitting || !modelGrantOverridesValid(draft)}
+                loading={isSubmitting}
+              >
                 Save changes
               </Button>
             </DialogFooter>

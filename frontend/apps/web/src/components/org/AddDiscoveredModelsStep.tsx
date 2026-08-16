@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
-import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
 import { configuredModelRequestForDiscoveredModel } from './CreateModelProviderDialogState'
@@ -131,11 +130,11 @@ export function AddDiscoveredModelsStep({
           <Button
             type="button"
             disabled={submitting || state.selectedSlugs.length === 0}
+            loading={submitting}
             onClick={() => {
               void createSelected()
             }}
           >
-            {submitting && <Spinner />}
             {state.selectedSlugs.length > 0
               ? `Create ${String(state.selectedSlugs.length)} ${state.selectedSlugs.length === 1 ? 'model' : 'models'}`
               : 'Create models'}

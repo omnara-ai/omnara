@@ -84,16 +84,13 @@ export function DeviceAuth() {
           </div>
           <div className="flex flex-wrap gap-3">
             <Button
+              loading={state.kind === 'submitting'}
+              icon={<Check className="h-4 w-4" />}
               onClick={() => {
                 void submit('approve')
               }}
               disabled={state.kind === 'submitting'}
             >
-              {state.kind === 'submitting' ? (
-                <Spinner />
-              ) : (
-                <Check className="h-4 w-4" aria-hidden />
-              )}
               Approve
             </Button>
             <Button

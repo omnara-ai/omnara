@@ -19,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -124,8 +123,11 @@ export function InviteMemberDialog({
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={inviteMember.isPending || state.email.trim() === ''}>
-                {inviteMember.isPending && <Spinner />}
+              <Button
+                type="submit"
+                disabled={inviteMember.isPending || state.email.trim() === ''}
+                loading={inviteMember.isPending}
+              >
                 Send invitation
               </Button>
             </DialogFooter>

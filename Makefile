@@ -9,6 +9,7 @@ GOOSE_TOOL_MOD := tools/goose/go.mod
 GOOSE_OFFLINE_BUILD_TAGS := no_clickhouse,no_libsql,no_mssql,no_mysql,no_postgres,no_sqlite3,no_vertica,no_ydb
 GOOSE ?= GOFLAGS='-tags=$(GOOSE_OFFLINE_BUILD_TAGS)' $(GO) tool -modfile=$(GOOSE_TOOL_MOD) github.com/pressly/goose/v3/cmd/goose
 REPO_ROOT := $(CURDIR)
+REACT_DOCTOR_BASE ?= origin/main
 GOLANGCI_LINT ?= $(REPO_ROOT)/.tools/custom-golangci-lint
 GOVULNCHECK ?= $(CI_TOOL) golang.org/x/vuln/cmd/govulncheck
 OAPI_CODEGEN ?= $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
@@ -65,7 +66,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance \
 	test-service-e2e \
-	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-check web-e2e run-web \
+	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-e2e run-web \
 	test-live-web test-live-openai test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
 	test-live-api-format-switching test-live-sandbox-providers test-live \
 	docs-openapi docs-openapi-check
@@ -372,8 +373,12 @@ build-omnarad:
 web-lint:
 	cd frontend && pnpm run lint
 
+web-doctor:
+	cd frontend && pnpm run doctor:changed --base "$(REACT_DOCTOR_BASE)"
+
 web-check:
 	cd frontend && pnpm install --frozen-lockfile && pnpm run generate:api
+	$(MAKE) web-doctor REACT_DOCTOR_BASE="$(REACT_DOCTOR_BASE)"
 	@untracked="$$(git ls-files --others --exclude-standard frontend/packages/sdk/src/generated)"; \
 	if [ -n "$$untracked" ]; then \
 		echo "untracked generated files:"; echo "$$untracked"; exit 1; \

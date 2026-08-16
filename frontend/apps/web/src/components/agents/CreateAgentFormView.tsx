@@ -31,7 +31,6 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
@@ -271,15 +270,14 @@ export function CreateAgentFormView({
             type="button"
             variant="outline"
             disabled={!canSubmit}
+            loading={pendingAction === 'profile'}
             onClick={() => {
               void submit('profile')
             }}
           >
-            {pendingAction === 'profile' && <Spinner />}
             Create profile
           </Button>
-          <Button type="submit" disabled={!canSubmit}>
-            {pendingAction === 'launch' && <Spinner />}
+          <Button type="submit" disabled={!canSubmit} loading={pendingAction === 'launch'}>
             Create & launch agent
           </Button>
         </div>

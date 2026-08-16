@@ -25,7 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -267,8 +266,8 @@ export function CreateModelProviderDialog({
                   <Button
                     type="submit"
                     disabled={providerPending || !createModelProviderFormValid(values)}
+                    loading={providerPending}
                   >
-                    {providerPending && <Spinner />}
                     Add provider
                   </Button>
                 </DialogFooter>

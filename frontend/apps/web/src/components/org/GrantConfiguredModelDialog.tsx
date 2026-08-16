@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { FieldGroup } from '@/components/ui/field'
-import { Spinner } from '@/components/ui/spinner'
 import { collectGrantFailures } from '@/lib/grant-failures'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -96,8 +95,11 @@ export function GrantConfiguredModelDialog({
             />
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting || state.projectIds.length === 0}>
-                {isSubmitting && <Spinner />}
+              <Button
+                type="submit"
+                disabled={isSubmitting || state.projectIds.length === 0}
+                loading={isSubmitting}
+              >
                 Grant model
               </Button>
             </DialogFooter>

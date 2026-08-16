@@ -14,8 +14,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  statuses: write
 
 concurrency:
   group: react-doctor-${{ github.event.pull_request.number || github.ref }}
@@ -32,22 +30,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+
+      - run: corepack enable
+
+      - run: pnpm --dir frontend install --frozen-lockfile
+
       - name: Check pull request changes
         if: github.event_name == 'pull_request'
-        uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
-        with:
-          blocking: warning
-          directory: frontend
-          project: "*"
-          scope: changed
-          version: 0.7.2
+        env:
+          REACT_DOCTOR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: make web-doctor
 
       - name: Audit the default branch
         if: github.event_name != 'pull_request'
-        uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
-        with:
-          blocking: none
-          directory: frontend
-          project: "*"
-          scope: full
-          version: 0.7.2
+        run: pnpm --dir frontend run doctor

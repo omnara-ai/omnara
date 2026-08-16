@@ -20,7 +20,6 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
-import { Spinner } from '@/components/ui/spinner'
 import { formatDateTime } from '@/lib/format'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
@@ -147,8 +146,12 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           </div>
           <div className="flex items-center gap-2">
             {canOperate && (
-              <Button size="sm" disabled={createAgent.isPending} onClick={() => void launch()}>
-                {createAgent.isPending && <Spinner />}
+              <Button
+                size="sm"
+                disabled={createAgent.isPending}
+                loading={createAgent.isPending}
+                onClick={() => void launch()}
+              >
                 Launch
               </Button>
             )}
@@ -278,8 +281,11 @@ function ConfigurationTab({
           {error && <p className="text-destructive whitespace-pre-wrap text-sm">{error}</p>}
           {canManage && (
             <div className="flex items-center gap-2">
-              <Button type="submit" disabled={pending || !dirty || yaml.trim() === ''}>
-                {pending && <Spinner />}
+              <Button
+                type="submit"
+                disabled={pending || !dirty || yaml.trim() === ''}
+                loading={pending}
+              >
                 Save revision
               </Button>
               {dirty && !pending && (

@@ -8,7 +8,6 @@ import { AuthHeading, AuthLayout } from '@/components/auth/AuthLayout'
 import { Button } from '@/components/ui/button'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting, success } from '@/lib/submit-status'
 
@@ -83,8 +82,7 @@ export function ForgotPassword() {
               />
             </Field>
             {errorMessage && <FieldError>{errorMessage}</FieldError>}
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting && <Spinner />}
+            <Button type="submit" className="w-full" disabled={isSubmitting} loading={isSubmitting}>
               Send reset link
             </Button>
           </FieldGroup>

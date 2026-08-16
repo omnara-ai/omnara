@@ -22,7 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
 import {
@@ -237,8 +236,7 @@ export function DeployAgentProfileDialog({
                 selector={(state) => [deployFormValid(state.values), state.isSubmitting] as const}
               >
                 {([valid, isSubmitting]) => (
-                  <Button type="submit" disabled={isSubmitting || !valid}>
-                    {isSubmitting && <Spinner />}
+                  <Button type="submit" disabled={isSubmitting || !valid} loading={isSubmitting}>
                     Continue
                   </Button>
                 )}
