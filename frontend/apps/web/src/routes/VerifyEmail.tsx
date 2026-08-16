@@ -47,7 +47,8 @@ export function VerifyEmail() {
       await completeEmailVerification(token, state.password, state.displayName)
       window.location.assign('/')
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Email verification failed') }))
+      const status = submitError(err, 'Email verification failed')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 

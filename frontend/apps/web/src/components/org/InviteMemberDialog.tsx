@@ -58,7 +58,8 @@ export function InviteMemberDialog({
       onInvited?.()
       handleOpenChange(false)
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Could not send invitation') }))
+      const status = submitError(err, 'Could not send invitation')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 

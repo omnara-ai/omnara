@@ -45,7 +45,8 @@ export function ResetPassword() {
       await completePasswordReset(token, state.password)
       window.location.assign('/')
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Password reset failed') }))
+      const status = submitError(err, 'Password reset failed')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 

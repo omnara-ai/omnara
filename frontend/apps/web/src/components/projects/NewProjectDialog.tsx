@@ -41,9 +41,10 @@ export function NewProjectDialog({
       setState((prev) => ({ ...prev, name: '' }))
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not create project')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not create project'),
+        status,
       }))
     }
   }

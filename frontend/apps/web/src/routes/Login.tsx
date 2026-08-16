@@ -59,7 +59,8 @@ export function Login() {
       await sessionLogin(state.email, state.password)
       window.location.assign(returnTo)
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Login failed') }))
+      const status = submitError(err, 'Login failed')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 

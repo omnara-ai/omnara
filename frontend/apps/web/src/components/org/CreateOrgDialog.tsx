@@ -53,9 +53,10 @@ export function CreateOrgDialog({
       setState(initialState())
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not create organization')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not create organization'),
+        status,
       }))
     }
   }

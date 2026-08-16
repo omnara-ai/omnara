@@ -29,9 +29,10 @@ export function SignUp() {
       await requestSignup(state.email)
       setState((prev) => ({ ...prev, status: success }))
     } catch (err) {
+      const status = submitError(err, 'Signup request failed')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Signup request failed'),
+        status,
       }))
     }
   }

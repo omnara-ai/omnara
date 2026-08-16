@@ -160,12 +160,13 @@ export function CreateAgentFormView({
       }
       setDraft((prev) => ({ ...prev, status: idle }))
     } catch (err) {
+      const status = submitError(
+        err,
+        action === 'launch' ? 'Could not create agent' : 'Could not create profile',
+      )
       setDraft((prev) => ({
         ...prev,
-        status: submitError(
-          err,
-          action === 'launch' ? 'Could not create agent' : 'Could not create profile',
-        ),
+        status,
       }))
     } finally {
       setPendingAction(null)

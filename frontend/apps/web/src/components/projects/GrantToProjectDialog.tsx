@@ -68,7 +68,8 @@ export function GrantToProjectDialog({
       setState((prev) => ({ ...prev, projectIds: [], status: idle }))
       onOpenChange(false)
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Could not grant access') }))
+      const status = submitError(err, 'Could not grant access')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 

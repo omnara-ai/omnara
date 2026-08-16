@@ -28,9 +28,10 @@ export function ForgotPassword() {
       await requestPasswordReset(state.email)
       setState((prev) => ({ ...prev, status: success }))
     } catch (err) {
+      const status = submitError(err, 'Password reset request failed')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Password reset request failed'),
+        status,
       }))
     }
   }

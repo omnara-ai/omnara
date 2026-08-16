@@ -66,7 +66,8 @@ export function GrantConfiguredModelDialog({
       setState({ projectIds: [], status: idle })
       onOpenChange(false)
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Could not grant model') }))
+      const status = submitError(err, 'Could not grant model')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 

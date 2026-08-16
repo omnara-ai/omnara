@@ -54,9 +54,10 @@ export function EditModelProviderDialog({
       })
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not update model provider')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not update model provider'),
+        status,
       }))
     }
   }

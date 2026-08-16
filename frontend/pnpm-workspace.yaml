@@ -3,9 +3,6 @@ packages:
   - apps/*
 
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
 
 minimumReleaseAge: 14400
-
-onlyBuiltDependencies:
-  - esbuild

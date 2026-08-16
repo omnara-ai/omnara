@@ -24,7 +24,7 @@ export function PageBreadcrumb({ items }: { items: Crumb[] }) {
         {items.map((item, index) => {
           const isLast = index === items.length - 1
           return (
-            <Fragment key={`${String(index)}-${item.label}`}>
+            <Fragment key={`${item.to ?? 'current'}-${item.label}`}>
               {index > 0 && <BreadcrumbSeparator />}
               <BreadcrumbItem>
                 {isLast ? (

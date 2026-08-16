@@ -64,36 +64,39 @@ export function AddDiscoveredModelsStep({
     const slugs = state.selectedSlugs
     setState((prev) => ({ ...prev, error: '' }))
     setSubmitting(true)
-    const results = await Promise.allSettled(
-      slugs.map((slug) =>
-        createConfiguredModel.mutateAsync({
-          modelProviderConfigID: provider.id,
-          ...configuredModelRequestForDiscoveredModel(
-            provider.name,
-            creatableModels.find((model) => model.slug === slug) ?? { slug },
-          ),
-        }),
-      ),
-    )
-    if (!mounted.current) return
-    setSubmitting(false)
-    const failedSlugs = slugs.filter((_, index) => results[index]?.status === 'rejected')
-    const succeeded = slugs.length - failedSlugs.length
-    if (failedSlugs.length > 0) {
-      const firstFailure = results.find(
-        (result): result is PromiseRejectedResult => result.status === 'rejected',
+    try {
+      const results = await Promise.allSettled(
+        slugs.map((slug) =>
+          createConfiguredModel.mutateAsync({
+            modelProviderConfigID: provider.id,
+            ...configuredModelRequestForDiscoveredModel(
+              provider.name,
+              creatableModels.find((model) => model.slug === slug) ?? { slug },
+            ),
+          }),
+        ),
       )
-      setState((prev) => ({
-        ...prev,
-        selectedSlugs: failedSlugs,
-        createdCount: prev.createdCount + succeeded,
-        error:
-          `Created ${String(succeeded)} of ${String(slugs.length)} models. ` +
-          errorMessage(firstFailure?.reason, 'The remaining models could not be created.'),
-      }))
-      return
+      if (!mounted.current) return
+      const failedSlugs = slugs.filter((_, index) => results[index]?.status === 'rejected')
+      const succeeded = slugs.length - failedSlugs.length
+      if (failedSlugs.length > 0) {
+        const firstFailure = results.find(
+          (result): result is PromiseRejectedResult => result.status === 'rejected',
+        )
+        setState((prev) => ({
+          ...prev,
+          selectedSlugs: failedSlugs,
+          createdCount: prev.createdCount + succeeded,
+          error:
+            `Created ${String(succeeded)} of ${String(slugs.length)} models. ` +
+            errorMessage(firstFailure?.reason, 'The remaining models could not be created.'),
+        }))
+        return
+      }
+      onDone()
+    } finally {
+      if (mounted.current) setSubmitting(false)
     }
-    onDone()
   }
 
   return (

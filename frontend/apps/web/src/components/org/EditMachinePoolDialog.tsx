@@ -57,9 +57,10 @@ export function EditMachinePoolDialog({
       })
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not update machine pool')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not update machine pool'),
+        status,
       }))
     }
   }

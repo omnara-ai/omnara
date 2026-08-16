@@ -2,7 +2,7 @@
   "name": "@omnara/frontend",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.24.0",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=22"
   },
@@ -29,7 +29,7 @@
     "globals": "^15.11.0",
     "prettier": "^3.3.0",
     "prettier-plugin-tailwindcss": "^0.6.0",
-    "react-doctor": "0.7.2",
+    "react-doctor": "0.9.5",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.10.0"
   }
