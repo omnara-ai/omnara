@@ -32,7 +32,7 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
+import { idle, settleSubmission, statusError, submitError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
@@ -125,7 +125,7 @@ export function CreateAgentFormView({
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
     const name = draft.name.trim()
-    try {
+    const result = await settleSubmission(async () => {
       let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
         const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
@@ -158,18 +158,21 @@ export function CreateAgentFormView({
           params: { projectId, profileId: profile.profileId },
         })
       }
+    }).finally(() => {
+      setPendingAction(null)
+    })
+
+    if (result.ok) {
       setDraft((prev) => ({ ...prev, status: idle }))
-    } catch (err) {
+    } else {
       const status = submitError(
-        err,
+        result.error,
         action === 'launch' ? 'Could not create agent' : 'Could not create profile',
       )
       setDraft((prev) => ({
         ...prev,
         status,
       }))
-    } finally {
-      setPendingAction(null)
     }
   }
 

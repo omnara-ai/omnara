@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
-import { errorMessage } from '@/lib/submit-status'
+import { errorMessage, settleSubmission } from '@/lib/submit-status'
 
 import { configuredModelRequestForDiscoveredModel } from './CreateModelProviderDialogState'
 
@@ -64,8 +64,8 @@ export function AddDiscoveredModelsStep({
     const slugs = state.selectedSlugs
     setState((prev) => ({ ...prev, error: '' }))
     setSubmitting(true)
-    try {
-      const results = await Promise.allSettled(
+    const result = await settleSubmission(() =>
+      Promise.allSettled(
         slugs.map((slug) =>
           createConfiguredModel.mutateAsync({
             modelProviderConfigID: provider.id,
@@ -75,28 +75,36 @@ export function AddDiscoveredModelsStep({
             ),
           }),
         ),
-      )
-      if (!mounted.current) return
-      const failedSlugs = slugs.filter((_, index) => results[index]?.status === 'rejected')
-      const succeeded = slugs.length - failedSlugs.length
-      if (failedSlugs.length > 0) {
-        const firstFailure = results.find(
-          (result): result is PromiseRejectedResult => result.status === 'rejected',
-        )
-        setState((prev) => ({
-          ...prev,
-          selectedSlugs: failedSlugs,
-          createdCount: prev.createdCount + succeeded,
-          error:
-            `Created ${String(succeeded)} of ${String(slugs.length)} models. ` +
-            errorMessage(firstFailure?.reason, 'The remaining models could not be created.'),
-        }))
-        return
-      }
-      onDone()
-    } finally {
+      ),
+    ).finally(() => {
       if (mounted.current) setSubmitting(false)
+    })
+    if (!mounted.current) return
+    if (!result.ok) {
+      setState((prev) => ({
+        ...prev,
+        error: errorMessage(result.error, 'The models could not be created.'),
+      }))
+      return
     }
+
+    const failedSlugs = slugs.filter((_, index) => result.value[index]?.status === 'rejected')
+    const succeeded = slugs.length - failedSlugs.length
+    if (failedSlugs.length > 0) {
+      const firstFailure = result.value.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      )
+      setState((prev) => ({
+        ...prev,
+        selectedSlugs: failedSlugs,
+        createdCount: prev.createdCount + succeeded,
+        error:
+          `Created ${String(succeeded)} of ${String(slugs.length)} models. ` +
+          errorMessage(firstFailure?.reason, 'The remaining models could not be created.'),
+      }))
+      return
+    }
+    onDone()
   }
 
   return (

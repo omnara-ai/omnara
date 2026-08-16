@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, statusError, submitError } from '@/lib/submit-status'
+import { idle, settleSubmission, statusError, submitError } from '@/lib/submit-status'
 
 const roles = ['member', 'admin'] as const
 
@@ -52,13 +52,15 @@ export function InviteMemberDialog({
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setState((prev) => ({ ...prev, status: idle }))
-    try {
-      await inviteMember.mutateAsync({ email: state.email, role: state.role })
-      setState((prev) => ({ ...prev, email: '' }))
+    const result = await settleSubmission(() =>
+      inviteMember.mutateAsync({ email: state.email, role: state.role }),
+    )
+    if (result.ok) {
+      setState((prev) => ({ ...prev, email: '', status: idle }))
       onInvited?.()
-      handleOpenChange(false)
-    } catch (err) {
-      const status = submitError(err, 'Could not send invitation')
+      onOpenChange(false)
+    } else {
+      const status = submitError(result.error, 'Could not send invitation')
       setState((prev) => ({ ...prev, status }))
     }
   }

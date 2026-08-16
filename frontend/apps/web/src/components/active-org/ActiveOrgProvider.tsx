@@ -1,5 +1,5 @@
 import { useMe } from '@omnara/react'
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { FullPageSpinner } from '@/components/ui/spinner'
 import { ActiveOrgContext, type ActiveOrgValue } from '@/lib/active-org-context'
@@ -24,17 +24,18 @@ export function ActiveOrgProvider({ children }: { children: ReactNode }) {
     }
   }, [selectedOrgId])
 
-  const setActiveOrgId = useCallback((id: string) => {
-    writeLocal(STORAGE_KEY, id)
-    setSelectedOrgId(id)
-  }, [])
+  if (!activeOrg) {
+    return <FullPageSpinner />
+  }
 
-  const value = useMemo<ActiveOrgValue | null>(
-    () => (activeOrg ? { orgs, activeOrg, setActiveOrgId } : null),
-    [activeOrg, orgs, setActiveOrgId],
-  )
-
-  if (!value) return <FullPageSpinner />
+  const value: ActiveOrgValue = {
+    orgs,
+    activeOrg,
+    setActiveOrgId: (id) => {
+      writeLocal(STORAGE_KEY, id)
+      setSelectedOrgId(id)
+    },
+  }
 
   return <ActiveOrgContext.Provider value={value}>{children}</ActiveOrgContext.Provider>
 }

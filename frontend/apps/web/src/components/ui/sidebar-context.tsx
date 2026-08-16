@@ -1,5 +1,5 @@
 import type { ComponentProps, CSSProperties } from 'react'
-import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react'
+import { createContext, use, useEffect, useState } from 'react'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -59,40 +59,43 @@ function SidebarProvider({
   const [internalOpen, setInternalOpen] = useState(defaultOpen)
   const open = openProp ?? internalOpen
 
-  const setOpen = useCallback(
-    (nextOpen: boolean) => {
-      commitDesktopSidebarOpen(nextOpen, setOpenProp, setInternalOpen)
-    },
-    [setOpenProp],
-  )
+  const setOpen = (nextOpen: boolean) => {
+    commitDesktopSidebarOpen(nextOpen, setOpenProp, setInternalOpen)
+  }
 
-  const toggleSidebar = useCallback(() => {
+  const toggleSidebar = () => {
     if (isMobile) {
       setOpenMobile((value) => !value)
     } else {
       commitDesktopSidebarOpen(!open, setOpenProp, setInternalOpen)
     }
-  }, [isMobile, open, setOpenProp])
+  }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
-        toggleSidebar()
+        if (isMobile) setOpenMobile((value) => !value)
+        else commitDesktopSidebarOpen(!open, setOpenProp, setInternalOpen)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [toggleSidebar])
+  }, [isMobile, open, setOpenProp])
 
   const state = open ? 'expanded' : 'collapsed'
 
-  const contextValue = useMemo<SidebarContextProps>(
-    () => ({ state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar],
-  )
+  const contextValue: SidebarContextProps = {
+    state,
+    open,
+    setOpen,
+    isMobile,
+    openMobile,
+    setOpenMobile,
+    toggleSidebar,
+  }
 
   return (
     <SidebarContext.Provider value={contextValue}>

@@ -18,6 +18,16 @@ export const idle: SubmitStatus = { phase: 'idle' }
 export const submitting: SubmitStatus = { phase: 'submitting' }
 export const success: SubmitStatus = { phase: 'success' }
 
+export type SubmissionResult<T> = { ok: true; value: T } | { ok: false; error: unknown }
+
+export async function settleSubmission<T>(submit: () => Promise<T>): Promise<SubmissionResult<T>> {
+  try {
+    return { ok: true, value: await submit() }
+  } catch (error) {
+    return { ok: false, error }
+  }
+}
+
 export function submitError(err: unknown, fallback: string): SubmitStatus {
   return { phase: 'error', message: errorMessage(err, fallback) }
 }

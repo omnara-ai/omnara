@@ -13,6 +13,11 @@
       {
         "files": ["src/components/active-org/ActiveOrgProvider.tsx"],
         "rules": ["react-doctor/no-event-handler"]
+      },
+      {
+        // Vitest loads happy-dom through @vitest-environment control comments.
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dev-dependency"]
       }
     ]
   },
