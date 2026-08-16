@@ -36,7 +36,7 @@ jobs:
 
       - run: corepack enable
 
-      - run: pnpm --dir frontend install --frozen-lockfile
+      - run: cd frontend && pnpm install --frozen-lockfile
 
       - name: Check pull request changes
         if: github.event_name == 'pull_request'
@@ -46,4 +46,4 @@ jobs:
 
       - name: Audit the default branch
         if: github.event_name != 'pull_request'
-        run: pnpm --dir frontend run doctor
+        run: cd frontend && pnpm run doctor
