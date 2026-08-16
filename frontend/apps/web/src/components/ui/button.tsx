@@ -25,6 +25,7 @@ function Button({
   ...props
 }: ButtonProps) {
   const classes = cn(buttonVariants({ variant, size, className }))
+  const hasVisibleIcon = icon !== undefined || loading === true
   if (asChild) {
     return (
       <SlotPrimitive.Root data-slot="button" className={classes} {...props}>
@@ -38,6 +39,7 @@ function Button({
       type={type ?? 'button'}
       className={classes}
       aria-busy={loading ? true : undefined}
+      data-has-icon={hasVisibleIcon ? true : undefined}
       {...props}
     >
       {loading === undefined && icon === undefined ? (
