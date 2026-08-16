@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/breadcrumb'
 
 export interface Crumb {
+  id: string
   label: string
   to?: LinkProps['to']
   params?: LinkProps['params']
@@ -24,7 +25,7 @@ export function PageBreadcrumb({ items }: { items: Crumb[] }) {
         {items.map((item, index) => {
           const isLast = index === items.length - 1
           return (
-            <Fragment key={`${item.to ?? 'current'}-${item.label}`}>
+            <Fragment key={item.id}>
               {index > 0 && <BreadcrumbSeparator />}
               <BreadcrumbItem>
                 {isLast ? (

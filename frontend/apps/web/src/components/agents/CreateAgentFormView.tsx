@@ -183,10 +183,15 @@ export function CreateAgentFormView({
     >
       <PageBreadcrumb
         items={[
-          { label: activeOrg.name, to: '/' },
-          { label: project.name },
-          { label: 'Agents', to: '/projects/$projectId/agents', params: { projectId } },
-          { label: 'New agent' },
+          { id: 'organization', label: activeOrg.name, to: '/' },
+          { id: 'project', label: project.name },
+          {
+            id: 'agents',
+            label: 'Agents',
+            to: '/projects/$projectId/agents',
+            params: { projectId },
+          },
+          { id: 'new-agent', label: 'New agent' },
         ]}
       />
       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -126,14 +126,15 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
       <header className="flex flex-col gap-4">
         <PageBreadcrumb
           items={[
-            { label: activeOrg.name, to: '/' },
-            ...(project ? [{ label: project.name }] : []),
+            { id: 'organization', label: activeOrg.name, to: '/' },
+            ...(project ? [{ id: 'project', label: project.name }] : []),
             {
+              id: 'agents',
               label: 'Agents',
               to: '/projects/$projectId/agents' as const,
               params: { projectId },
             },
-            { label: profile.name },
+            { id: 'profile', label: profile.name },
           ]}
         />
         <div className="flex flex-wrap items-start justify-between gap-3">

@@ -109,7 +109,12 @@ export function Members() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ label: activeOrg.name, to: '/' }, { label: 'Members' }]} />
+      <PageBreadcrumb
+        items={[
+          { id: 'organization', label: activeOrg.name, to: '/' },
+          { id: 'members', label: 'Members' },
+        ]}
+      />
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
