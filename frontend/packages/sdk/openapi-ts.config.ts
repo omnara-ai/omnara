@@ -4,7 +4,13 @@ export default defineConfig({
   input: '../../../api/openapi/openapi.yaml',
   output: {
     path: 'src/generated',
-    postProcess: [],
+    postProcess: [
+      {
+        name: 'Unicode resource-name lengths',
+        command: 'node',
+        args: ['scripts/fix-resource-name-zod.mjs', '{{path}}'],
+      },
+    ],
   },
   plugins: [
     { name: '@hey-api/client-fetch', throwOnError: true },

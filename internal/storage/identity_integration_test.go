@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -2234,12 +2235,12 @@ func TestPoolTeardownCompletionDestroysDeletedOrgSecretVersions(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO machines(
-			id, org_id, machine_pool_id, source_kind, provider, lifecycle_state,
+			id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
 			lifecycle_changed_at,
 			memory_mb, provider_options, next_reconcile_after, delete_attempts,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, 'pool', 'test', 'deleting', $4, 1024, '{}'::jsonb, $4, 1, $4, $4)
+		VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', $4, 1024, '{}'::jsonb, $4, 1, $4, $4)
 	`, machineID, testOrgID, poolID, now); err != nil {
 		t.Fatalf("insert deleting pool machine: %v", err)
 	}
@@ -4270,7 +4271,7 @@ func TestDeviceAuthFlowSchemaEnforcesApprovalIntegrity(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at)
 		VALUES ('device-schema-long-token', 'device-schema-long-token-user', 'client', $1, $2, $3)
-	`, strings.Repeat("a", 129), now, now.Add(time.Hour)); !isCheckViolation(err) {
+	`, strings.Repeat("a", resourcename.MaxCodePoints+1), now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("long token name error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -4316,6 +4317,21 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 		storeerr.ErrInvalidDeviceAuthFlow,
 	) {
 		t.Fatalf("control character token name error = %v, want ErrInvalidDeviceAuthFlow", err)
+	}
+	if _, err := store.Identity().StartDeviceAuthFlow(
+		ctx,
+		identitystore.StartDeviceAuthFlowInput{
+			ClientName: "CLI",
+			TokenName:  strings.Repeat("a", resourcename.MaxCodePoints+1),
+		},
+	); !errors.Is(err, storeerr.ErrInvalidDeviceAuthFlow) {
+		t.Fatalf("long token name error = %v, want ErrInvalidDeviceAuthFlow", err)
+	}
+	if _, err := store.Identity().StartDeviceAuthFlow(
+		ctx,
+		identitystore.StartDeviceAuthFlowInput{ClientName: "CLI", TokenName: " CLI token "},
+	); !errors.Is(err, storeerr.ErrInvalidDeviceAuthFlow) {
+		t.Fatalf("boundary whitespace token name error = %v, want ErrInvalidDeviceAuthFlow", err)
 	}
 	flow, err := store.Identity().StartDeviceAuthFlow(
 		ctx,

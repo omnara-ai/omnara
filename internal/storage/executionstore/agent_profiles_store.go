@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -22,6 +23,9 @@ func (s *Store) CreateAgentProfile(
 	}
 	if input.Name == "" {
 		return AgentProfileRecord{}, errors.New("agent profile name is required")
+	}
+	if err := resourcename.Validate("agent profile name", input.Name); err != nil {
+		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
 	}
 	if isNilID(input.CurrentConfigID) {
 		return AgentProfileRecord{}, errors.New("current config is required")

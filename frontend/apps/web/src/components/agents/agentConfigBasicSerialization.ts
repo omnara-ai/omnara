@@ -15,6 +15,7 @@ import {
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
+import { resourceNameValid } from '@/lib/resource-name'
 
 export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 
@@ -104,14 +105,14 @@ function isMachineCountValid(value: string) {
 }
 
 function isBasicConfigComplete(config: BasicConfig) {
-  const mcpServerNames = config.mcpServers.map((server) => server.name.trim())
+  const mcpServerNames = config.mcpServers.map((server) => server.name)
   return (
     config.instruction.trim() !== '' &&
-    config.providerConfig.trim() !== '' &&
-    config.modelName.trim() !== '' &&
+    resourceNameValid(config.providerConfig) &&
+    resourceNameValid(config.modelName) &&
     config.machineSources.every(
       (source) =>
-        source.name.trim() !== '' &&
+        resourceNameValid(source.name) &&
         envOverlayRowsValid(source.envRows) &&
         secretEnvOverlayRowsValid(source.secretEnvRows) &&
         (source.kind === 'machine' ||
@@ -122,9 +123,8 @@ function isBasicConfigComplete(config: BasicConfig) {
     ) &&
     new Set(mcpServerNames).size === mcpServerNames.length &&
     config.mcpServers.every((server) => {
-      const serverName = server.name.trim()
       return (
-        mcpServerNamePattern.test(serverName) &&
+        mcpServerNamePattern.test(server.name) &&
         server.url.trim() !== '' &&
         (server.authType === 'none' ||
           (server.secretId.trim() !== '' &&
@@ -153,14 +153,14 @@ function serializeBasicConfig(config: BasicConfig) {
   const lines: string[] = []
   lines.push(`instruction: ${yamlBlock(config.instruction.trimEnd())}`)
   lines.push('model:')
-  lines.push(`  provider_config: ${yamlString(config.providerConfig.trim())}`)
-  lines.push(`  name: ${yamlString(config.modelName.trim())}`)
+  lines.push(`  provider_config: ${yamlString(config.providerConfig)}`)
+  lines.push(`  name: ${yamlString(config.modelName)}`)
 
   if (config.machineSources.length > 0) {
     lines.push('machine_sources:')
     for (const source of config.machineSources) {
       if (source.kind === 'pool') {
-        lines.push(`  - machine_pool_name: ${yamlString(source.name.trim())}`)
+        lines.push(`  - machine_pool_name: ${yamlString(source.name)}`)
         if (source.initialNumMachines !== '') {
           lines.push(`    initial_num_machines: ${source.initialNumMachines}`)
         }
@@ -184,7 +184,7 @@ function serializeBasicConfig(config: BasicConfig) {
           lines.push(`    machine_provider_options_overlay: ${JSON.stringify(optionsOverlay)}`)
         }
       } else {
-        lines.push(`  - machine_name: ${yamlString(source.name.trim())}`)
+        lines.push(`  - machine_name: ${yamlString(source.name)}`)
       }
       if (source.defaultCwd.trim() !== '') {
         lines.push(`    cwd: ${yamlString(source.defaultCwd.trim())}`)
@@ -219,7 +219,7 @@ function serializeBasicConfig(config: BasicConfig) {
   if (config.mcpServers.length > 0) {
     lines.push('mcp:')
     for (const server of config.mcpServers) {
-      lines.push(`  ${server.name.trim()}:`)
+      lines.push(`  ${server.name}:`)
       lines.push(`    url: ${yamlString(server.url.trim())}`)
       appendPermission(lines, '    ', server.permission)
       lines.push(`    default_enabled: ${server.defaultEnabled ? 'true' : 'false'}`)

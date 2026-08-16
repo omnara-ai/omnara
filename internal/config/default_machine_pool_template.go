@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"gopkg.in/yaml.v3"
 
@@ -84,11 +85,17 @@ func defaultMachinePoolTemplateFromFile(
 	parsed defaultMachinePoolTemplateFile,
 	label string,
 ) (executionstore.DefaultMachinePoolTemplate, error) {
-	parsed.Name = strings.TrimSpace(parsed.Name)
 	if parsed.Name == "" {
 		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf(
 			"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES %s.name is required",
 			label,
+		)
+	}
+	if err := resourcename.Validate("machine pool name", parsed.Name); err != nil {
+		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf(
+			"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES %s.name: %w",
+			label,
+			err,
 		)
 	}
 	if parsed.Provider == "" {

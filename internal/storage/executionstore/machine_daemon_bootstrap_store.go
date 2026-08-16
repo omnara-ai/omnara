@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
@@ -55,6 +56,9 @@ func prepareBYOMachineDaemonTokenCreate(
 		return preparedBYOMachineDaemonTokenCreate{}, errors.New(
 			"org, machine, and name are required",
 		)
+	}
+	if err := resourcename.Validate("machine daemon token name", input.Name); err != nil {
+		return preparedBYOMachineDaemonTokenCreate{}, storeerr.InvalidRequest(err)
 	}
 	metadata, err := metadataColumn(input.Metadata, "daemon token metadata")
 	if err != nil {
@@ -142,6 +146,9 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 		return PoolMachineProviderProvisioningStart{}, errors.New(
 			"org, machine, and token name are required",
 		)
+	}
+	if err := resourcename.Validate("machine daemon token name", input.TokenName); err != nil {
+		return PoolMachineProviderProvisioningStart{}, storeerr.InvalidRequest(err)
 	}
 	if input.ProvisionAttempt <= 0 {
 		return PoolMachineProviderProvisioningStart{}, errors.New("provision attempt is required")

@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -668,6 +669,9 @@ func patchConfiguredModelInput(
 		ID:                    configuredModelID,
 	}
 	if body.Name != nil {
+		if err := resourcename.Validate("configured model name", *body.Name); err != nil {
+			return modelstore.PatchConfiguredModelInput{}, err
+		}
 		input.Name = body.Name
 	}
 	if body.ProviderModelSlug != nil {

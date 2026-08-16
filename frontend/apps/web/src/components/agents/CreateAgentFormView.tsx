@@ -31,7 +31,9 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { Spinner } from '@/components/ui/spinner'
+import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
@@ -119,13 +121,13 @@ export function CreateAgentFormView({
   const yaml = showBuilder ? builderYaml : editorYaml
   const isSubmitting = draft.status.phase === 'submitting'
   const errorMessage = statusError(draft.status)
-  const canSubmit = !isSubmitting && draft.name.trim() !== '' && yaml.trim() !== ''
+  const canSubmit = !isSubmitting && resourceNameValid(draft.name) && yaml.trim() !== ''
 
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
-    const name = draft.name.trim()
+    const name = draft.name
     try {
       let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
@@ -212,6 +214,7 @@ export function CreateAgentFormView({
           <Input
             id="agent-config-name"
             required
+            maxLength={resourceNameInputMaxLength}
             value={draft.name}
             placeholder="Demo research agent"
             className="max-w-md"
@@ -219,6 +222,7 @@ export function CreateAgentFormView({
               setDraft((prev) => ({ ...prev, name: event.target.value }))
             }}
           />
+          <ResourceNameFieldError value={draft.name} />
         </Field>
         <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
           <AgentConfigBasicForm

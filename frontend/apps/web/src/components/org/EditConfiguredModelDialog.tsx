@@ -12,7 +12,9 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { Spinner } from '@/components/ui/spinner'
+import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 function optionalNumber(value: string) {
@@ -45,7 +47,7 @@ export function EditConfiguredModelDialog({
         await mutation.mutateAsync({
           modelProviderConfigID: model.model_provider_config_id,
           configuredModelID: model.id,
-          name: value.name.trim(),
+          name: value.name === model.name ? undefined : value.name,
           provider_model_slug: value.slug.trim(),
           context_window_tokens: Number(value.contextWindow),
           max_output_tokens: Number(value.maxOutput),
@@ -79,10 +81,15 @@ export function EditConfiguredModelDialog({
                 <Field>
                   <FieldLabel>Name</FieldLabel>
                   <Input
+                    maxLength={resourceNameInputMaxLength}
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)
                     }}
+                  />
+                  <ResourceNameFieldError
+                    value={field.state.value}
+                    validate={field.state.value !== model.name}
                   />
                 </Field>
               )}
@@ -155,7 +162,11 @@ export function EditConfiguredModelDialog({
                 {([name, slug]) => (
                   <Button
                     type="submit"
-                    disabled={mutation.isPending || name.trim() === '' || slug.trim() === ''}
+                    disabled={
+                      mutation.isPending ||
+                      (name !== model.name && !resourceNameValid(name)) ||
+                      slug.trim() === ''
+                    }
                   >
                     {mutation.isPending && <Spinner />}Save changes
                   </Button>

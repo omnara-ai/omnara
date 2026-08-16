@@ -92,7 +92,6 @@ func ResolveConfiguredModelOutputLimits(
 }
 
 func normalizeCreateConfiguredModelInput(input CreateConfiguredModelInput) CreateConfiguredModelInput {
-	input.Name = strings.TrimSpace(input.Name)
 	input.ProviderModelSlug = strings.TrimSpace(input.ProviderModelSlug)
 	input.DefaultCacheRetention,
 		input.DefaultReasoningEffort,
@@ -110,7 +109,6 @@ func normalizeCreateConfiguredModelInput(input CreateConfiguredModelInput) Creat
 }
 
 func normalizeConfiguredModelUpdate(input configuredModelUpdate) configuredModelUpdate {
-	input.Name = strings.TrimSpace(input.Name)
 	input.ProviderModelSlug = strings.TrimSpace(input.ProviderModelSlug)
 	input.DefaultCacheRetention,
 		input.DefaultReasoningEffort,

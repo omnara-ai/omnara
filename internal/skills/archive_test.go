@@ -201,6 +201,24 @@ func TestExtractMetadataRejectsInvalidNameGrammar(t *testing.T) {
 	}
 }
 
+func TestExtractMetadataRejectsBoundaryWhitespaceName(t *testing.T) {
+	body := "---\nname: \" pdf-tools \"\ndescription: Extract text from PDFs.\n---\n\n# Skill\n"
+	raw := buildZip(t, map[string]string{"pdf-tools/SKILL.md": body})
+	_, err := ExtractMetadata(FormatZip, raw)
+	if err == nil || !strings.Contains(err.Error(), "lowercase alphanumeric") {
+		t.Fatalf("expected boundary whitespace rejection, got %v", err)
+	}
+}
+
+func TestValidateNameLengthBoundary(t *testing.T) {
+	if err := ValidateName(strings.Repeat("a", MaxSkillNameChars)); err != nil {
+		t.Fatalf("ValidateName at limit: %v", err)
+	}
+	if err := ValidateName(strings.Repeat("a", MaxSkillNameChars+1)); err == nil {
+		t.Fatal("ValidateName above limit succeeded")
+	}
+}
+
 func TestExtractMetadataRejectsOversizedDescription(t *testing.T) {
 	body := "---\nname: pdf-tools\ndescription: " +
 		strings.Repeat("x", MaxSkillDescriptionChars+1) +

@@ -28,6 +28,60 @@ machine_sources:
 	}
 }
 
+func TestParseSourceRejectsInvalidResourceNameReferences(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "provider config boundary whitespace",
+			source: `
+instruction: Help the user make progress.
+model:
+  provider_config: " openai-prod"
+  name: gpt-test
+`,
+			want: "provider_config",
+		},
+		{
+			name: "configured model boundary whitespace",
+			source: `
+instruction: Help the user make progress.
+model:
+  provider_config: openai-prod
+  name: "gpt-test "
+`,
+			want: "/model/name",
+		},
+		{
+			name: "machine boundary whitespace",
+			source: validAgentSource(`
+machine_sources:
+  - machine_name: " Primary Machine"
+`),
+			want: "machine_name",
+		},
+		{
+			name: "machine pool boundary whitespace",
+			source: validAgentSource(`
+machine_sources:
+  - machine_pool_name: "Build Pool "
+`),
+			want: "machine_pool_name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseSource(SourceFormatYAML, []byte(tt.source))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ParseSource error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseStoredSourceAllowsLegacyName(t *testing.T) {
 	source := `
 name: legacy-agent

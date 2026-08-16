@@ -12,6 +12,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
+// ErrInvalidSecretName marks validation detail safe to return publicly.
+var ErrInvalidSecretName = errors.New("invalid secret name")
+
 func (s *Store) encryptSecretPayload(
 	ctx context.Context,
 	orgID, secretID, versionID ID,
@@ -39,6 +42,11 @@ func (s *Store) encryptSecretPayload(
 
 func invalidSecretRequest(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", storeerr.ErrInvalidSecretRequest, fmt.Sprintf(format, args...))
+}
+
+func invalidSecretName(format string, args ...any) error {
+	detail := fmt.Errorf(format, args...)
+	return storeerr.Tag(ErrInvalidSecretName, storeerr.InvalidRequest(detail))
 }
 
 func encryptedPayloadFromSecretVersion(version SecretVersionRecord) secrets.EncryptedPayload {

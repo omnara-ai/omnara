@@ -20,6 +20,7 @@ import (
 	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"gopkg.in/yaml.v3"
 )
 
@@ -139,6 +140,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		Components struct {
 			SecuritySchemes map[string]any `yaml:"securitySchemes"`
 			Schemas         map[string]struct {
+				MaxLength            int            `yaml:"maxLength"`
 				Pattern              string         `yaml:"pattern"`
 				Required             []string       `yaml:"required"`
 				Properties           map[string]any `yaml:"properties"`
@@ -156,6 +158,31 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 
 	if got := doc.Components.Schemas["ProjectID"].Pattern; got != `^proj_[a-z2-7]{26}$` {
 		t.Fatalf("ProjectID pattern = %q, want proj_ public ID prefix", got)
+	}
+	if got := doc.Components.Schemas["ResourceName"].MaxLength; got != resourcename.MaxCodePoints {
+		t.Fatalf("ResourceName maxLength = %d, want %d", got, resourcename.MaxCodePoints)
+	}
+	if got := doc.Components.Schemas["SkillName"].MaxLength; got != 64 {
+		t.Fatalf("SkillName maxLength = %d, want 64", got)
+	}
+	organizationName := openAPIPropertySchema(
+		t,
+		doc.Components.Schemas["CreateOrganizationRequest"].Properties,
+		"name",
+	)
+	if got := organizationName["$ref"]; got != "#/components/schemas/ResourceName" {
+		t.Fatalf("CreateOrganizationRequest name schema = %v, want ResourceName", got)
+	}
+	organizationResponseName := openAPIPropertySchema(
+		t,
+		doc.Components.Schemas["Organization"].Properties,
+		"name",
+	)
+	if got := organizationResponseName["$ref"]; got != "#/components/schemas/ResourceNameResponse" {
+		t.Fatalf("Organization name schema = %v, want ResourceNameResponse", got)
+	}
+	if got := doc.Components.Schemas["ResourceNameResponse"].MaxLength; got != 0 {
+		t.Fatalf("ResourceNameResponse maxLength = %d, want no response cap", got)
 	}
 	if _, ok := doc.Components.SecuritySchemes["machineDaemonAuth"]; !ok {
 		t.Fatal("machineDaemonAuth security scheme is required for daemon routes")
@@ -965,6 +992,32 @@ func TestOpenAPIRequestValidatorRejectsTrailingJSON(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("trailing whitespace status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
+	}
+}
+
+func TestOpenAPIResourceNameLengthCountsUnicodeCodePoints(t *testing.T) {
+	handler := newOpenAPIValidatorTestHandler(t)
+	for _, test := range []struct {
+		name       string
+		value      string
+		wantStatus int
+	}{
+		{name: "at limit", value: strings.Repeat("😀", resourcename.MaxCodePoints), wantStatus: http.StatusNoContent},
+		{name: "above limit", value: strings.Repeat("界", resourcename.MaxCodePoints+1), wantStatus: http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]string{"name": test.value})
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/orgs", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != test.wantStatus {
+				t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), test.wantStatus)
+			}
+		})
 	}
 }
 

@@ -279,7 +279,6 @@ func completeMachinePoolCreateInputForTest(
 			t,
 			ctx,
 			store,
-			"machine-pool-provider-auth-"+strings.ToLower(strings.ReplaceAll(input.Name, " ", "-")),
 			"test-token",
 		)
 	}
@@ -290,14 +289,14 @@ func createMachinePoolProviderAuthSecretForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	name, value string,
+	value string,
 ) ID {
 	t.Helper()
 	suffix, err := newSecretUUID()
 	if err != nil {
 		t.Fatalf("generate machine pool provider auth secret suffix: %v", err)
 	}
-	name = name + "-" + suffix.String()
+	name := "machine-pool-auth-" + suffix.String()
 	admin := createSecretTestUser(t, ctx, store, name+" admin", "admin")
 	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     testOrgID,
@@ -408,7 +407,6 @@ func TestCreateMachinePoolRequiresDefaultMachineProviderOptions(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"missing-resource-provider-auth",
 		"test-token",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
@@ -443,7 +441,6 @@ func TestCreateMachinePoolAllowsOmittedDefaultMachineEnv(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"omitted-env-provider-auth",
 		"test-token",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
@@ -541,7 +538,6 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"mutable-pool-provider-auth-rotated",
 		"rotated-token",
 	)
 	machinePoolProviders.validatedProvider = ""
@@ -697,7 +693,6 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"reserved-env-provider-auth",
 		"test-token",
 	)
 
@@ -862,6 +857,69 @@ tools:
 	}
 }
 
+func TestUpdateMachinePoolGrandfathersUnchangedLegacyName(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	created, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(
+			t,
+			ctx,
+			store,
+			machinePoolInputWithDefaultMachineForTest(
+				executionstore.CreateMachinePoolInput{
+					OrgID:            testOrgID,
+					Name:             "Legacy Pool",
+					Provider:         "test",
+					MaxTotalMachines: 1,
+				},
+				defaultMachineFieldsForTest{
+					DefaultMachineCPU:             1,
+					DefaultMachineMemoryMB:        1024,
+					DefaultMachineProviderOptions: json.RawMessage(`{}`),
+				},
+			),
+		),
+	)
+	if err != nil {
+		t.Fatalf("create machine pool: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE machine_pools DISABLE TRIGGER machine_pools_name_policy`); err != nil {
+		t.Fatalf("disable machine pool name trigger: %v", err)
+	}
+	const legacyName = " legacy pool "
+	if _, err := pool.Exec(ctx, `UPDATE machine_pools SET name = $1 WHERE id = $2`, legacyName, created.ID); err != nil {
+		t.Fatalf("seed legacy machine pool name: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE machine_pools ENABLE TRIGGER machine_pools_name_policy`); err != nil {
+		t.Fatalf("enable machine pool name trigger: %v", err)
+	}
+
+	description := "updated without a rename"
+	updated, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID:       testOrgID,
+		ID:          created.ID,
+		Description: &description,
+	})
+	if err != nil {
+		t.Fatalf("update machine pool with unchanged legacy name: %v", err)
+	}
+	if updated.Name != legacyName || updated.Description != description {
+		t.Fatalf("updated machine pool = %+v, want legacy name and new description", updated)
+	}
+	changedInvalidName := " another invalid pool "
+	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID: testOrgID,
+		ID:    created.ID,
+		Name:  &changedInvalidName,
+	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("changed invalid machine pool name error = %v, want invalid request", err)
+	}
+}
+
 func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -874,7 +932,6 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"secret-env-provider-auth",
 		"test-token",
 	)
 
@@ -1209,7 +1266,6 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 		t,
 		ctx,
 		store,
-		"cap-fit-provider-auth",
 		"test-token",
 	)
 	maxCPU, maxMemoryMB := 16, 32768
@@ -2855,7 +2911,6 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"pool-grant-update-provider-auth",
 		"test-token",
 	)
 	maxCPU, maxMemoryMB := 16, 32768

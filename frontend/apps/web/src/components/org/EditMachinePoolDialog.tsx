@@ -12,7 +12,9 @@ import {
 } from '@/components/ui/dialog'
 import { CheckboxField, Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { Spinner } from '@/components/ui/spinner'
+import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -51,7 +53,7 @@ export function EditMachinePoolDialog({
     try {
       await mutation.mutateAsync({
         poolID: pool.id,
-        name: state.name.trim(),
+        name: state.name === pool.name ? undefined : state.name,
         description: state.description.trim(),
         max_total_machines: Number(state.maxMachines),
         runtime_protection_enabled: state.runtimeProtectionEnabled,
@@ -76,11 +78,13 @@ export function EditMachinePoolDialog({
             <Field>
               <FieldLabel>Name</FieldLabel>
               <Input
+                maxLength={resourceNameInputMaxLength}
                 value={state.name}
                 onChange={(event) => {
                   setState((prev) => ({ ...prev, name: event.target.value }))
                 }}
               />
+              <ResourceNameFieldError value={state.name} validate={state.name !== pool.name} />
             </Field>
             <CheckboxField
               label="Runtime protection"
@@ -115,7 +119,12 @@ export function EditMachinePoolDialog({
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={mutation.isPending || state.name.trim() === ''}>
+              <Button
+                type="submit"
+                disabled={
+                  mutation.isPending || (state.name !== pool.name && !resourceNameValid(state.name))
+                }
+              >
                 {mutation.isPending && <Spinner />}Save changes
               </Button>
             </DialogFooter>

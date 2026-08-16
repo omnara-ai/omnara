@@ -755,7 +755,7 @@ func (s strictOpenAPIServer) createAgent(
 	}
 	name := ""
 	if request.Body.Name != nil {
-		name = strings.TrimSpace(*request.Body.Name)
+		name = *request.Body.Name
 	}
 	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      project.ID,

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -79,6 +79,9 @@ func (s *Store) createConfiguredModelTx(
 		return ConfiguredModelRecord{}, errors.New(
 			"org, provider config, configured model name, and provider model slug are required",
 		)
+	}
+	if err := resourcename.Validate("configured model name", input.Name); err != nil {
+		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
 	if input.MaxOutputTokens <= 0 {
 		return ConfiguredModelRecord{}, fmt.Errorf(
@@ -213,24 +216,25 @@ func (s *Store) PatchConfiguredModel(
 	behaviorChanged := configuredModelBehaviorChanged(current, update)
 	if !behaviorChanged {
 		record := current
-		if input.Name != nil {
+		if input.Name != nil && update.Name != current.Name {
 			if update.Name == "" {
 				return ConfiguredModelRecord{}, errors.New("configured model name is required")
 			}
-			if update.Name != current.Name {
-				renamed, err := renameConfiguredModelTx(ctx, qtx, update)
-				if err != nil {
-					return ConfiguredModelRecord{}, err
-				}
-				record = renamed
+			if err := resourcename.Validate("configured model name", update.Name); err != nil {
+				return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 			}
+			renamed, err := renameConfiguredModelTx(ctx, qtx, update)
+			if err != nil {
+				return ConfiguredModelRecord{}, err
+			}
+			record = renamed
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return ConfiguredModelRecord{}, err
 		}
 		return record, nil
 	}
-	record, err := updateConfiguredModelTx(ctx, qtx, update, management.Tenant)
+	record, err := updateConfiguredModelTx(ctx, qtx, update, current.Name, management.Tenant)
 	if err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -310,11 +314,17 @@ func updateConfiguredModelTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input configuredModelUpdate,
+	previousName string,
 	managementKind management.Kind,
 ) (ConfiguredModelRecord, error) {
 	input = normalizeConfiguredModelUpdate(input)
-	if input.Name == "" {
-		return ConfiguredModelRecord{}, errors.New("configured model name is required")
+	if input.Name != previousName {
+		if input.Name == "" {
+			return ConfiguredModelRecord{}, errors.New("configured model name is required")
+		}
+		if err := resourcename.Validate("configured model name", input.Name); err != nil {
+			return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
+		}
 	}
 	if input.ProviderModelSlug == "" {
 		return ConfiguredModelRecord{}, errors.New("provider model slug is required")
@@ -374,9 +384,11 @@ func renameConfiguredModelTx(
 	qtx *dbsqlc.Queries,
 	input configuredModelUpdate,
 ) (ConfiguredModelRecord, error) {
-	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" {
 		return ConfiguredModelRecord{}, errors.New("configured model name is required")
+	}
+	if err := resourcename.Validate("configured model name", input.Name); err != nil {
+		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
 	row, err := qtx.RenameConfiguredModel(
 		ctx,

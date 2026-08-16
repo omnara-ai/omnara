@@ -2,6 +2,7 @@ package skillstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+// ErrInvalidSkillName marks validation detail safe to return publicly.
+var ErrInvalidSkillName = errors.New("invalid skill name")
 
 const (
 	SkillOwnerOrg     = "org"
@@ -105,6 +109,10 @@ type skillRevisionInsertResult struct {
 func invalidSkillRequest(format string, args ...any) error {
 	detail := fmt.Sprintf(format, args...)
 	return storeerr.InvalidRequest(fmt.Errorf("invalid skill request: %s", detail))
+}
+
+func invalidSkillName(format string, args ...any) error {
+	return storeerr.Tag(ErrInvalidSkillName, invalidSkillRequest(format, args...))
 }
 
 func isNilUUID(value uuid.UUID) bool {

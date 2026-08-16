@@ -4,6 +4,7 @@ import type { ConfiguredModelSummary } from '@omnara/sdk'
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
@@ -87,6 +88,8 @@ export function AgentConfigModelField({
         disabled={grantsQuery.isError || selectedQuery.isError}
       />
       {selected && <p className="text-muted-foreground text-xs">{selected.provider_config}</p>}
+      <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider name" />
+      <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
       {grantsQuery.isError && (
         <p className="text-destructive text-sm">
           Could not load granted models.{' '}

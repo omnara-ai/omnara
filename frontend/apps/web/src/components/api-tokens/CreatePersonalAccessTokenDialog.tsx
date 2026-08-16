@@ -13,7 +13,9 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { Spinner } from '@/components/ui/spinner'
+import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 export function CreatePersonalAccessTokenDialog({
@@ -32,7 +34,7 @@ export function CreatePersonalAccessTokenDialog({
     event.preventDefault()
     setError(undefined)
     try {
-      const result = await createToken.mutateAsync({ name: name.trim() })
+      const result = await createToken.mutateAsync({ name })
       setPlaintext(result.token)
     } catch (err) {
       setError(errorMessage(err, 'Could not create API token'))
@@ -73,6 +75,7 @@ export function CreatePersonalAccessTokenDialog({
                   <Input
                     id="api-token-name"
                     required
+                    maxLength={resourceNameInputMaxLength}
                     value={name}
                     placeholder="Local development"
                     autoComplete="off"
@@ -80,11 +83,15 @@ export function CreatePersonalAccessTokenDialog({
                       setName(event.target.value)
                     }}
                   />
+                  <ResourceNameFieldError value={name} />
                   <FieldDescription>Describe where you plan to use this token.</FieldDescription>
                 </Field>
                 {error && <p className="text-destructive text-sm">{error}</p>}
                 <DialogFooter>
-                  <Button type="submit" disabled={createToken.isPending || name.trim() === ''}>
+                  <Button
+                    type="submit"
+                    disabled={createToken.isPending || !resourceNameValid(name)}
+                  >
                     {createToken.isPending && <Spinner />}
                     Create token
                   </Button>

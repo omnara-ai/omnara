@@ -3,6 +3,63 @@
 import * as z from 'zod';
 
 /**
+ * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode control or format characters. Omit unchanged grandfathered names from updates.
+ */
+export const zResourceName = z
+    .string()
+    .min(1)
+    .refine((value) => Array.from(value).length <= 64, {
+        message: 'Resource name cannot exceed 64 Unicode characters'
+    })
+    .refine((value) => new TextEncoder().encode(value).length <= 256, {
+        message: 'Resource name cannot exceed 256 UTF-8 bytes'
+    })
+    .refine((value) => !/^\p{White_Space}|\p{White_Space}$/u.test(value), {
+        message: 'Resource name must not start or end with whitespace'
+    })
+    .refine((value) => !/[\p{Cc}\p{Cf}\p{Cs}]/u.test(value), {
+        message: 'Resource name contains an unsupported control or format character'
+    })
+    .refine((value) => !Array.from(value).some(
+        (character) => character !== ' ' && /\p{White_Space}/u.test(character)
+    ), {
+        message: 'Resource name may only use ordinary spaces'
+    });
+
+/**
+ * Human-facing name returned by the API. Grandfathered values may not satisfy ResourceName.
+ */
+export const zResourceNameResponse = z.string();
+
+/**
+ * Empty requests the documented server default; non-empty values use ResourceName.
+ */
+export const zDefaultableResourceName = z
+    .string()
+    .refine((value) => value === '' || Array.from(value).length <= 64, {
+        message: 'Resource name cannot exceed 64 Unicode characters'
+    })
+    .refine((value) => value === '' || new TextEncoder().encode(value).length <= 256, {
+        message: 'Resource name cannot exceed 256 UTF-8 bytes'
+    })
+    .refine((value) => value === '' || !/^\p{White_Space}|\p{White_Space}$/u.test(value), {
+        message: 'Resource name must not start or end with whitespace'
+    })
+    .refine((value) => value === '' || !/[\p{Cc}\p{Cf}\p{Cs}]/u.test(value), {
+        message: 'Resource name contains an unsupported control or format character'
+    })
+    .refine((value) => value === '' || !Array.from(value).some(
+        (character) => character !== ' ' && /\p{White_Space}/u.test(character)
+    ), {
+        message: 'Resource name may only use ordinary spaces'
+    });
+
+/**
+ * Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export const zSkillName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+/**
  * Sort order for named resources that expose created and modified timestamps.
  */
 export const zResourceListSort = z.enum([
@@ -183,7 +240,7 @@ export const zModelCatalog = z.object({
 });
 
 export const zCreateConfiguredModelRequest = z.object({
-    name: z.string().min(1),
+    name: zResourceName,
     provider_model_slug: z.string().min(1),
     context_window_tokens: z.int().gte(2).lte(2147483647),
     max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
@@ -202,7 +259,7 @@ export const zCreateConfiguredModelRequest = z.object({
  * Update a configured model. Omitted fields keep their current values. Runtime changes create a new immutable model revision; changing only name just renames the model.
  */
 export const zUpdateConfiguredModelRequest = z.object({
-    name: z.string().min(1).optional(),
+    name: zResourceName.optional(),
     provider_model_slug: z.string().min(1).optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
     max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
@@ -272,7 +329,7 @@ export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
  * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
  */
 export const zCreateModelProviderConfigRequest = z.object({
-    name: z.string().min(1),
+    name: zResourceName,
     preset: z.enum([
         'openai',
         'openrouter',
@@ -322,7 +379,7 @@ export const zModelProviderConfig = z.object({
     id: zModelProviderConfigId,
     org_id: zOrganizationId,
     management_kind: zManagementKind,
-    name: z.string(),
+    name: zResourceNameResponse,
     api_format: zModelApiFormat,
     api_variant: zModelProviderApiVariantResponse,
     base_url: z.string(),
@@ -351,7 +408,7 @@ export const zConfiguredModel = z.object({
     id: zConfiguredModelId,
     org_id: zOrganizationId,
     model_provider_config_id: zModelProviderConfigId,
-    name: z.string(),
+    name: zResourceNameResponse,
     current_revision_id: zConfiguredModelRevisionId,
     provider_model_slug: z.string(),
     context_window_tokens: z.int(),
@@ -402,8 +459,8 @@ export const zConfiguredModelSummary = z.object({
     id: zConfiguredModelId,
     org_id: zOrganizationId,
     model_provider_config_id: zModelProviderConfigId,
-    name: z.string(),
-    provider_config: z.string(),
+    name: zResourceNameResponse,
+    provider_config: zResourceNameResponse,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -466,7 +523,7 @@ export const zSkill = z.object({
     id: zSkillId,
     org_id: zOrganizationId,
     owner: zSkillOwner,
-    name: z.string(),
+    name: zSkillName,
     revision_id: zSkillRevisionId,
     revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     description: z.string(),
@@ -627,8 +684,8 @@ export const zToolCatalog = z.object({
 });
 
 export const zAgentConfigModel = z.object({
-    provider_config: z.string(),
-    name: z.string(),
+    provider_config: zResourceNameResponse,
+    name: zResourceNameResponse,
     provider_model_slug: z.string(),
     configured_model_id: zConfiguredModelId,
     current_revision_id: zConfiguredModelRevisionId,
@@ -660,7 +717,7 @@ export const zAgentConfig = z.object({
 });
 
 export const zCreateAgentProfileRequest = z.object({
-    name: z.string(),
+    name: zResourceName,
     config: zAgentConfigId
 });
 
@@ -673,7 +730,7 @@ export const zAgentProfile = z.object({
     id: zAgentProfileId,
     org_id: zOrganizationId,
     project_id: zProjectId,
-    name: z.string(),
+    name: zResourceNameResponse,
     current_config_id: zAgentConfigId,
     current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     current_config: zAgentConfig,
@@ -689,13 +746,13 @@ export const zListAgentProfilesResponse = z.object({
 export const zCreateAgentRequest = z.object({
     profile: zAgentProfileId.optional(),
     config: zAgentConfigId,
-    name: z.string().optional(),
+    name: zDefaultableResourceName.optional(),
     message: z.string().optional()
 });
 
 export const zAgentModel = z.object({
-    provider_config: z.string(),
-    name: z.string()
+    provider_config: zResourceNameResponse,
+    name: zResourceNameResponse
 });
 
 export const zIntegrationTarget = z.object({
@@ -712,7 +769,7 @@ export const zAgent = z.object({
     project_id: zProjectId,
     agent_profile_id: zAgentProfileId.optional(),
     state: z.enum(['active', 'archived']),
-    name: z.string(),
+    name: zResourceNameResponse,
     integration_target: zIntegrationTarget.optional(),
     current_config_id: zAgentConfigId.optional(),
     model: zAgentModel.optional(),
@@ -1401,7 +1458,7 @@ export const zSecretOwnerInput = z.discriminatedUnion('kind', [
 export const zMcpoAuthStartRequest = z.object({
     owner: zSecretOwnerInput,
     mcp_url: z.string().min(1),
-    name: z.string().min(1),
+    name: zResourceName,
     return_to: z.string().optional(),
     client_id: z.string().optional(),
     client_secret: z.string().optional(),
@@ -1470,13 +1527,13 @@ export const zSecretMaterial = z.discriminatedUnion('kind', [
 
 export const zCreateSecretRequest = z.object({
     owner: zSecretOwnerInput,
-    name: z.string().min(1),
+    name: zResourceName,
     metadata: zMetadata.optional(),
     material: zSecretMaterial
 });
 
 export const zUpdateSecretRequest = z.object({
-    name: z.string().min(1).optional(),
+    name: zResourceName.optional(),
     metadata: zMetadata.optional()
 });
 
@@ -1500,7 +1557,7 @@ export const zSecret = z.object({
     org_id: zOrganizationId,
     management_kind: zManagementKind,
     owner: zSecretOwner,
-    name: z.string(),
+    name: zResourceNameResponse,
     kind: zSecretKind,
     metadata: zMetadata,
     current_version_number: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -1549,12 +1606,12 @@ export const zSecretGrant = z.object({
 });
 
 export const zCreateOrganizationRequest = z.object({
-    name: z.string().min(1)
+    name: zResourceName
 });
 
 export const zOrganization = z.object({
     id: zOrganizationId,
-    name: z.string(),
+    name: zResourceNameResponse,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1586,13 +1643,13 @@ export const zCreateOrgInvitationRequest = z.object({
 });
 
 export const zCreatePersonalAccessTokenRequest = z.object({
-    name: z.string().min(1)
+    name: zResourceName
 });
 
 export const zPersonalAccessToken = z.object({
     id: zPersonalAccessTokenId,
     user_id: zUserId,
-    name: z.string(),
+    name: zResourceNameResponse,
     token_id: z.string(),
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),
@@ -1612,7 +1669,7 @@ export const zOrgApiKeyRole = z.enum(['admin', 'member']);
 export const zOrgApiKey = z.object({
     id: zOrgApiKeyId,
     org_id: zOrganizationId,
-    name: z.string(),
+    name: zResourceNameResponse,
     token_id: z.string(),
     org_role: z.string(),
     created_by_user_id: zUserId,
@@ -1623,7 +1680,7 @@ export const zOrgApiKey = z.object({
 });
 
 export const zCreateOrgApiKeyRequest = z.object({
-    name: z.string().min(1),
+    name: zResourceName,
     org_role: zOrgApiKeyRole
 });
 
@@ -1633,7 +1690,7 @@ export const zCreateOrgApiKeyResponse = z.object({
 });
 
 export const zUpdateOrgApiKeyRequest = z.object({
-    name: z.string().min(1).optional(),
+    name: zResourceName.optional(),
     org_role: zOrgApiKeyRole.optional()
 });
 
@@ -1655,7 +1712,7 @@ export const zArtifact = z.object({
 });
 
 export const zCreateMachinePoolRequestBase = z.object({
-    name: z.string().min(1),
+    name: zResourceName,
     description: z.string().optional(),
     provider: z.string().min(1),
     default_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
@@ -1703,7 +1760,7 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
 ]));
 
 export const zUpdateMachinePoolRequest = z.object({
-    name: z.string().min(1).optional(),
+    name: zResourceName.optional(),
     description: z.string().optional(),
     default_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     default_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
@@ -1727,7 +1784,7 @@ export const zUpdateMachinePoolRequest = z.object({
 export const zMachinePool = z.object({
     id: zMachinePoolId,
     org_id: zOrganizationId,
-    name: z.string(),
+    name: zResourceNameResponse,
     management_kind: zManagementKind,
     description: z.string(),
     provider: z.string(),
@@ -1783,7 +1840,7 @@ export const zMachine = z.object({
     org_id: zOrganizationId,
     source_kind: zMachineSourceKind,
     machine_pool_id: zMachinePoolId.nullish(),
-    display_name: z.string(),
+    display_name: zResourceNameResponse,
     description: z.string(),
     provider: z.string(),
     lifecycle_state: zMachineLifecycleState,
@@ -1805,7 +1862,7 @@ export const zMachine = z.object({
 });
 
 export const zCreateMachineRequest = z.object({
-    display_name: z.string().min(1),
+    display_name: zResourceName,
     description: z.string().optional(),
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
@@ -1814,7 +1871,7 @@ export const zCreateMachineRequest = z.object({
 });
 
 export const zConnectByoMachineRequest = z.object({
-    display_name: z.string().min(1),
+    display_name: zResourceName,
     project_ids: z.array(zProjectId).max(100)
 });
 
@@ -1831,7 +1888,7 @@ export const zMachineSummaryFields = z.object({
     id: zMachineId,
     org_id: zOrganizationId,
     source_kind: zMachineSourceKind,
-    display_name: z.string(),
+    display_name: zResourceNameResponse,
     description: z.string(),
     provider: z.string(),
     lifecycle_state: zMachineLifecycleState,
@@ -1966,7 +2023,7 @@ export const zUpdateProjectMachinePoolGrantRequest = z.object({
 export const zMachinePoolSummary = z.object({
     id: zMachinePoolId,
     org_id: zOrganizationId,
-    name: z.string(),
+    name: zResourceNameResponse,
     management_kind: zManagementKind,
     description: z.string(),
     provider: z.string(),
@@ -1985,7 +2042,7 @@ export const zListProjectMachinePoolGrantsResponse = z.object({
 });
 
 export const zCreateMachineDaemonTokenRequest = z.object({
-    name: z.string().optional(),
+    name: zDefaultableResourceName.optional(),
     metadata: zMetadata.optional()
 });
 
@@ -1993,7 +2050,7 @@ export const zMachineDaemonToken = z.object({
     id: zMachineDaemonTokenId,
     org_id: zOrganizationId,
     machine_id: zMachineId,
-    name: z.string(),
+    name: zResourceNameResponse,
     metadata: zMetadata,
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),
@@ -2117,7 +2174,7 @@ export const zBootstrapDaemonResponse = z.object({
 });
 
 export const zCreateProjectRequest = z.object({
-    name: z.string().min(1)
+    name: zResourceName
 });
 
 /**
@@ -2126,7 +2183,7 @@ export const zCreateProjectRequest = z.object({
 export const zProjectFields = z.object({
     id: zProjectId,
     org_id: zOrganizationId,
-    name: z.string(),
+    name: zResourceNameResponse,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -2189,7 +2246,7 @@ export const zCurrentUserIdentity = z.object({
 
 export const zCurrentUserOrg = z.object({
     id: zOrganizationId,
-    name: z.string(),
+    name: zResourceNameResponse,
     role: z.string(),
     created_at: zTimestamp
 });
@@ -2227,7 +2284,7 @@ export const zSetProjectMembershipRequest = z.object({
 
 export const zProjectMembershipGrant = z.object({
     project_id: zProjectId,
-    project_name: z.string(),
+    project_name: zResourceNameResponse,
     role: z.string(),
     created_at: zTimestamp
 });

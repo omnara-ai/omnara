@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -41,7 +40,7 @@ func (s *Service) ReconcileDefaults(
 		if err := s.execution.ValidateDefaultMachinePoolTemplate(template); err != nil {
 			return ReconcileDefaultsResult{}, fmt.Errorf("default machine pool: %w", err)
 		}
-		name := strings.TrimSpace(template.Name)
+		name := template.Name
 		rows, err := s.q.ListClusterManagedMachinePoolsByName(
 			ctx,
 			dbsqlc.ListClusterManagedMachinePoolsByNameParams{Name: name},

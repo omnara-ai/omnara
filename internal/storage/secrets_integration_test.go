@@ -1557,6 +1557,59 @@ VALUES ($1, $2, 'Other Project', 'idem-secret-other-project', $3, $3)
 	}
 }
 
+func TestUpdateSecretMetadataGrandfathersUnchangedLegacyName(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	admin := createSecretTestUser(t, ctx, store, "Legacy Secret Admin", "admin")
+
+	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     testOrgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "legacy-secret",
+		Material:  secrets.GenericMaterial{Value: "secret"},
+		Actor:     userPrincipal(admin.ID),
+	})
+	if err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE secrets DISABLE TRIGGER secrets_name_policy`); err != nil {
+		t.Fatalf("disable secret name trigger: %v", err)
+	}
+	const legacyName = " legacy secret "
+	if _, err := pool.Exec(ctx, `UPDATE secrets SET name = $1 WHERE id = $2`, legacyName, secret.ID); err != nil {
+		t.Fatalf("seed legacy secret name: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE secrets ENABLE TRIGGER secrets_name_policy`); err != nil {
+		t.Fatalf("enable secret name trigger: %v", err)
+	}
+
+	updated, err := store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
+		OrgID:    testOrgID,
+		SecretID: secret.ID,
+		Name:     legacyName,
+		Metadata: resourcemeta.Metadata{"updated": "true"},
+		Actor:    userPrincipal(admin.ID),
+	})
+	if err != nil {
+		t.Fatalf("update metadata with unchanged legacy name: %v", err)
+	}
+	if updated.Name != legacyName {
+		t.Fatalf("updated secret name = %q, want unchanged legacy name", updated.Name)
+	}
+	changedInvalidName := " another invalid name "
+	if _, err := store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
+		OrgID:    testOrgID,
+		SecretID: secret.ID,
+		Name:     changedInvalidName,
+		Actor:    userPrincipal(admin.ID),
+	}); !errors.Is(err, secretstore.ErrInvalidSecretName) {
+		t.Fatalf("changed invalid legacy name error = %v, want invalid secret name", err)
+	}
+}
+
 func TestSecretTenantBoundaries(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -13,6 +13,7 @@ import {
   stringOrUndefined,
 } from '@/components/machines/machineOverrides'
 import { memoryGbDraft, memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
+import { resourceNameValid } from '@/lib/resource-name'
 
 import { type MachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
 
@@ -153,7 +154,7 @@ export function machinePoolFormValid(values: MachinePoolFormValues) {
       (values.maxTotalMemoryGb.trim() !== '' ||
         memoryAggregateFitsInt32(values.memoryGb, values.maxMachines)))
   return (
-    values.name.trim() !== '' &&
+    resourceNameValid(values.name) &&
     values.image.trim() !== '' &&
     values.location.trim() !== '' &&
     (!provider.requiresWorkspace || values.workspace.trim() !== '') &&

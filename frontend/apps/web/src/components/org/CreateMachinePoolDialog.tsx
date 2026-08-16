@@ -16,8 +16,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { FieldGroup } from '@/components/ui/field'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { Spinner } from '@/components/ui/spinner'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
+import { resourceNameInputMaxLength } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 import { CreateMachinePoolAdvancedSection } from './CreateMachinePoolAdvancedSection'
@@ -134,9 +136,11 @@ export function CreateMachinePoolDialog({
                     id="mpool-name"
                     label="Name"
                     required
+                    maxLength={resourceNameInputMaxLength}
                     value={field.state.value}
                     placeholder="default"
                     onValueChange={field.handleChange}
+                    error={<ResourceNameFieldError value={field.state.value} />}
                   />
                 )}
               </form.Field>

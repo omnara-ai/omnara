@@ -453,7 +453,8 @@ func listMachinePoolSources(
 			return nil, err
 		}
 		out = append(out, MachinePoolSourceRecord{
-			MachinePoolID:   source.MachinePoolID,
+			MachinePoolID: source.MachinePoolID,
+			// Preserve trimming for stored sources compiled before the exact-value cutover.
 			MachinePoolName: strings.TrimSpace(configSource.MachineSources[source.Index].MachinePoolName),
 			Description:     source.Contract.Description,
 		})
@@ -717,7 +718,7 @@ func createPoolMachineBindingTx(
 		OrgID:                  input.OrgID,
 		MachinePoolID:          &poolGrant.MachinePoolID,
 		SourceKind:             string(MachineSourceKindPool),
-		DisplayName:            "Instance of " + poolGrant.PoolName,
+		DisplayName:            poolMachineDisplayName(poolGrant.PoolName),
 		Description:            input.Description,
 		Provider:               poolGrant.Provider,
 		LifecycleState:         string(MachineLifecycleStateProvisioning),

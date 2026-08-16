@@ -103,8 +103,9 @@ export function AddDiscoveredModelsStep({
         <DialogTitle>Add models</DialogTitle>
         <DialogDescription>
           Create model configurations for {provider.name}. Provider-reported token limits are used
-          when available and can be edited later. Model names are prefixed with {provider.name} to
-          keep them distinct.
+          when available and can be edited later. Model names use the provider and model slug when
+          they fit; longer or unsupported provider-reported names are shortened to a stable,
+          model-specific name.
         </DialogDescription>
       </DialogHeader>
       <FieldGroup>

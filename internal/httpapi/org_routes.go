@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -65,6 +66,9 @@ func (s strictOpenAPIServer) CreateOrganization(
 	}
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	if err := resourcename.Validate("organization name", request.Body.Name); err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
@@ -229,6 +233,8 @@ func hostedCredentialProvisioningAPIError(err error) error {
 
 func (s strictOpenAPIServer) createOrganizationStorageError(operation string, err error) error {
 	switch {
+	case errors.Is(err, storeerr.ErrInvalidRequest):
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	case errors.Is(err, storeerr.ErrIdempotencyConflict):
 		return apierror.FromCode(
 			openapi.ErrorCodeIdempotencyKeyConflict,

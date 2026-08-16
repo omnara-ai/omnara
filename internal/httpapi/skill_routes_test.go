@@ -2,17 +2,35 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"mime/multipart"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/skills"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 )
+
+func TestSkillAPIErrorOnlyExposesFieldSpecificNameValidation(t *testing.T) {
+	nameErr := storeerr.Tag(
+		skillstore.ErrInvalidSkillName,
+		storeerr.InvalidRequest(errors.New("skill name must use lowercase segments")),
+	)
+	if got := skillAPIError(context.Background(), nameErr).Message; !strings.Contains(got, "skill name") {
+		t.Fatalf("skill name API error = %q, want field-specific detail", got)
+	}
+	generalErr := storeerr.InvalidRequest(errors.New("org and actor are required"))
+	if got := skillAPIError(context.Background(), generalErr).Message; strings.Contains(got, "org and actor") {
+		t.Fatalf("general skill API error exposed internal detail: %q", got)
+	}
+}
 
 func TestParseSkillOwner(t *testing.T) {
 	principal := identitystore.PrincipalRecord{ID: uuid.New(), Type: identitystore.PrincipalTypeUser}

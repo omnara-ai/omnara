@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import {
   Select,
   SelectContent,
@@ -26,6 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
+import { resourceNameInputMaxLength } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -93,7 +95,7 @@ export function CreateModelProviderDialog({
     setStatus(idle)
     try {
       const common = {
-        name: values.name.trim(),
+        name: values.name,
         credential_secret_id: values.secretId,
       }
       let request: CreateModelProviderConfigRequest
@@ -184,12 +186,14 @@ export function CreateModelProviderDialog({
                     <Input
                       id="mp-name"
                       required
+                      maxLength={resourceNameInputMaxLength}
                       value={values.name}
                       placeholder={`Production ${provider.label}`}
                       onChange={(event) => {
                         setValues((prev) => ({ ...prev, name: event.target.value }))
                       }}
                     />
+                    <ResourceNameFieldError value={values.name} />
                   </Field>
                 </div>
                 {values.provider === 'bedrock' && (

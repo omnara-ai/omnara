@@ -60,6 +60,49 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
+func TestResourceNameMigrationGrandfathersLegacyRows(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool, _ := openPostgresMigrationTestDB(t, ctx)
+	if _, err := pool.Exec(ctx, `ALTER TABLE orgs DISABLE TRIGGER orgs_name_policy`); err != nil {
+		t.Fatalf("disable resource-name trigger: %v", err)
+	}
+	var orgID string
+	if err := pool.QueryRow(
+		ctx,
+		`INSERT INTO orgs(name, created_at, updated_at)
+		 VALUES (' legacy ', now(), now())
+		 RETURNING id`,
+	).Scan(&orgID); err != nil {
+		t.Fatalf("insert simulated legacy organization: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE orgs ENABLE TRIGGER orgs_name_policy`); err != nil {
+		t.Fatalf("enable resource-name trigger: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE orgs SET updated_at = now() WHERE id = $1`, orgID); err != nil {
+		t.Fatalf("unrelated legacy-row update: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = name WHERE id = $1`, orgID); err != nil {
+		t.Fatalf("unchanged legacy name update: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = ' still invalid ' WHERE id = $1`, orgID); err == nil {
+		t.Fatal("changed invalid legacy name succeeded")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
+		t.Fatalf("repair legacy name: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO orgs(name, created_at, updated_at) VALUES ($1, now(), now())`,
+		strings.Repeat("x", 65),
+	); err == nil {
+		t.Fatal("oversized new organization name succeeded")
+	}
+}
+
 func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 
 export function AgentConfigMachineSourcesField({
   orgId,
@@ -156,6 +157,10 @@ export function AgentConfigMachineSourcesField({
                       }}
                     />
                   )}
+                  <ResourceNameFieldError
+                    value={source.name}
+                    fieldLabel={source.kind === 'pool' ? 'Machine pool name' : 'Machine name'}
+                  />
                 </Field>
                 <div className="hidden items-end sm:flex">
                   <Button

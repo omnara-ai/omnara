@@ -151,13 +151,15 @@
           "type": "integer"
         },
         "machine_name": {
+          "maxLength": 64,
           "minLength": 1,
-          "pattern": "\\S",
+          "pattern": "^\\S(?:.*\\S)?$",
           "type": "string"
         },
         "machine_pool_name": {
+          "maxLength": 64,
           "minLength": 1,
-          "pattern": "\\S",
+          "pattern": "^\\S(?:.*\\S)?$",
           "type": "string"
         },
         "machine_provider_options_overlay": {
@@ -222,13 +224,15 @@
           "type": "integer"
         },
         "name": {
+          "maxLength": 64,
           "minLength": 1,
-          "pattern": "\\S",
+          "pattern": "^\\S(?:.*\\S)?$",
           "type": "string"
         },
         "provider_config": {
+          "maxLength": 64,
           "minLength": 1,
-          "pattern": "\\S",
+          "pattern": "^\\S(?:.*\\S)?$",
           "type": "string"
         },
         "reasoning": {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
@@ -77,6 +78,9 @@ func (s *Store) createModelProviderConfigTx(
 	if isNilID(input.OrgID) || input.Name == "" || input.APIFormat == "" || input.BaseURL == "" ||
 		isNilID(input.CredentialSecretID) {
 		return ModelProviderConfigRecord{}, errors.New("org, name, API format, base url, and credential secret are required")
+	}
+	if err := resourcename.Validate("model provider config name", input.Name); err != nil {
+		return ModelProviderConfigRecord{}, storeerr.InvalidRequest(err)
 	}
 	if err := validateModelProviderAPIFormat(input.APIFormat); err != nil {
 		return ModelProviderConfigRecord{}, err
