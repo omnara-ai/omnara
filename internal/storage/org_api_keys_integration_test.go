@@ -334,13 +334,13 @@ func TestDeleteOrganizationDeletesOrgAPIKeys(t *testing.T) {
 	}
 }
 
-func TestUpdateOrgAPIKeyGrandfathersUnchangedLegacyName(t *testing.T) {
+func TestUpdateOrgAPIKeyRejectsInvalidStoredName(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := NewStore(pool)
 	seedDefaultProject(t, ctx, store)
-	creator := mustCreateIdentityUser(t, ctx, store, "legacy-key-creator@example.com", "Legacy Key Creator")
+	creator := mustCreateIdentityUser(t, ctx, store, "invalid-key-creator@example.com", "Invalid Key Creator")
 	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
 		OrgID: testOrgID, UserID: creator.ID, Role: authz.OrgRoleAdmin,
 	}); err != nil {
@@ -349,39 +349,36 @@ func TestUpdateOrgAPIKeyGrandfathersUnchangedLegacyName(t *testing.T) {
 	created, err := store.Identity().CreateOrgAPIKeyWithPlaintext(ctx, identitystore.CreateOrgAPIKeyInput{
 		OrgID:           testOrgID,
 		CreatedByUserID: creator.ID,
-		Name:            "legacy-key",
+		Name:            "stored-key",
 		OrgRole:         authz.OrgRoleMember,
 	})
 	if err != nil {
 		t.Fatalf("create org API key: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE org_api_keys DISABLE TRIGGER org_api_keys_name_policy`); err != nil {
-		t.Fatalf("disable org API key name trigger: %v", err)
+	if _, err := pool.Exec(ctx, `ALTER TABLE org_api_keys DROP CONSTRAINT org_api_keys_name_policy`); err != nil {
+		t.Fatalf("drop org API key name constraint: %v", err)
 	}
-	const legacyName = " legacy key "
-	if _, err := pool.Exec(ctx, `UPDATE org_api_keys SET name = $1 WHERE id = $2`, legacyName, created.Record.ID); err != nil {
-		t.Fatalf("seed legacy org API key name: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE org_api_keys ENABLE TRIGGER org_api_keys_name_policy`); err != nil {
-		t.Fatalf("enable org API key name trigger: %v", err)
+	const invalidStoredName = " invalid key "
+	if _, err := pool.Exec(ctx, `UPDATE org_api_keys SET name = $1 WHERE id = $2`, invalidStoredName, created.Record.ID); err != nil {
+		t.Fatalf("seed invalid org API key name: %v", err)
 	}
 
-	updated, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
+	if _, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
 		OrgID:   testOrgID,
 		KeyID:   created.Record.ID,
-		Name:    legacyName,
+		Name:    invalidStoredName,
 		OrgRole: authz.OrgRoleAdmin,
+	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("update with invalid stored org API key name error = %v, want invalid request", err)
+	}
+	updated, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
+		OrgID: testOrgID, KeyID: created.Record.ID, Name: "Repaired key", OrgRole: authz.OrgRoleAdmin,
 	})
 	if err != nil {
-		t.Fatalf("update role with unchanged legacy key name: %v", err)
+		t.Fatalf("repair org API key name: %v", err)
 	}
-	if updated.Name != legacyName || updated.OrgRole != authz.OrgRoleAdmin {
-		t.Fatalf("updated org API key = %+v, want legacy name and admin role", updated)
-	}
-	if _, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
-		OrgID: testOrgID, KeyID: created.Record.ID, Name: " another invalid key ",
-	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("changed invalid org API key name error = %v, want invalid request", err)
+	if updated.Name != "Repaired key" || updated.OrgRole != authz.OrgRoleAdmin {
+		t.Fatalf("repaired org API key = %+v", updated)
 	}
 }
 
