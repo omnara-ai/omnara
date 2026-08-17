@@ -68,9 +68,10 @@ func setOrgResourceLimitOverrides(
     max_active_tenant_machine_pools_per_org,
     max_live_machines_per_org,
     max_active_byo_daemon_tokens_per_machine,
-    max_non_terminal_processes_per_agent
+    max_non_terminal_processes_per_agent,
+    max_active_cron_triggers_per_project
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
 )
 ON CONFLICT (org_id) DO UPDATE SET
     max_active_projects_per_org = EXCLUDED.max_active_projects_per_org,
@@ -86,7 +87,8 @@ ON CONFLICT (org_id) DO UPDATE SET
     max_active_tenant_machine_pools_per_org = EXCLUDED.max_active_tenant_machine_pools_per_org,
     max_live_machines_per_org = EXCLUDED.max_live_machines_per_org,
     max_active_byo_daemon_tokens_per_machine = EXCLUDED.max_active_byo_daemon_tokens_per_machine,
-    max_non_terminal_processes_per_agent = EXCLUDED.max_non_terminal_processes_per_agent`,
+    max_non_terminal_processes_per_agent = EXCLUDED.max_non_terminal_processes_per_agent,
+    max_active_cron_triggers_per_project = EXCLUDED.max_active_cron_triggers_per_project`,
 		testOrgID,
 		value("max_active_projects_per_org"),
 		value("max_pending_org_invitations_per_org"),
@@ -102,6 +104,7 @@ ON CONFLICT (org_id) DO UPDATE SET
 		value("max_live_machines_per_org"),
 		value("max_active_byo_daemon_tokens_per_machine"),
 		value("max_non_terminal_processes_per_agent"),
+		value("max_active_cron_triggers_per_project"),
 	); err != nil {
 		t.Fatalf("set resource limit overrides: %v", err)
 	}
@@ -134,6 +137,7 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxLiveMachinesPerOrg:                     10_000,
 		MaxActiveByoDaemonTokensPerMachine:        20,
 		MaxNonTerminalProcessesPerAgent:           32,
+		MaxActiveCronTriggersPerProject:           1_000,
 	}
 	if limits != wantDefaults {
 		t.Fatalf("default resource limits = %+v, want %+v", limits, wantDefaults)
@@ -154,6 +158,7 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		"max_live_machines_per_org":                        12,
 		"max_active_byo_daemon_tokens_per_machine":         13,
 		"max_non_terminal_processes_per_agent":             42,
+		"max_active_cron_triggers_per_project":             14,
 	}
 	setOrgResourceLimitOverrides(t, ctx, pool, overrides)
 	limits, err = resourceguard.ResolveLimits(ctx, q, testOrgID)
@@ -176,6 +181,7 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxLiveMachinesPerOrg:                     12,
 		MaxActiveByoDaemonTokensPerMachine:        13,
 		MaxNonTerminalProcessesPerAgent:           42,
+		MaxActiveCronTriggersPerProject:           14,
 	}
 	if limits != wantOverrides {
 		t.Fatalf("overridden resource limits = %+v, want %+v", limits, wantOverrides)

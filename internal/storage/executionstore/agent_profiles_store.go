@@ -427,6 +427,11 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id ID) error 
 	}); err != nil {
 		return fmt.Errorf("delete agent profile versions: %w", err)
 	}
+	if _, err := qtx.DeleteCronTriggersForAgentProfile(ctx, dbsqlc.DeleteCronTriggersForAgentProfileParams{
+		ProjectID: projectID, AgentProfileID: &id,
+	}); err != nil {
+		return fmt.Errorf("delete agent profile cron triggers: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit delete agent profile: %w", err)
 	}

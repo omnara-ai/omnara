@@ -306,7 +306,8 @@ SELECT
     max_active_tenant_machine_pools_per_org,
     max_live_machines_per_org,
     max_active_byo_daemon_tokens_per_machine,
-    max_non_terminal_processes_per_agent
+    max_non_terminal_processes_per_agent,
+    max_active_cron_triggers_per_project
 FROM effective_resource_limits
 WHERE org_id = $1
 `
@@ -334,6 +335,7 @@ func (q *Queries) GetEffectiveResourceLimits(ctx context.Context, arg GetEffecti
 		&i.MaxLiveMachinesPerOrg,
 		&i.MaxActiveByoDaemonTokensPerMachine,
 		&i.MaxNonTerminalProcessesPerAgent,
+		&i.MaxActiveCronTriggersPerProject,
 	)
 	return i, err
 }

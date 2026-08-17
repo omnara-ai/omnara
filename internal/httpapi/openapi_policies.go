@@ -101,6 +101,11 @@ const (
 	operationCreateProjectMachinePoolGrant operationID = "CreateProjectMachinePoolGrant"
 	operationCreateProjectModelGrant       operationID = "CreateProjectModelGrant"
 	operationCreateSlackSetup              operationID = "CreateSlackSetup"
+	operationCreateCronTrigger             operationID = "CreateCronTrigger"
+	operationListCronTriggers              operationID = "ListCronTriggers"
+	operationGetCronTrigger                operationID = "GetCronTrigger"
+	operationUpdateCronTrigger             operationID = "UpdateCronTrigger"
+	operationDeleteCronTrigger             operationID = "DeleteCronTrigger"
 	operationDeclineInvitation             operationID = "DeclineInvitation"
 	operationArchiveAgent                  operationID = "ArchiveAgent"
 	operationDeleteAgentProfile            operationID = "DeleteAgentProfile"
@@ -307,6 +312,11 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateIntegrationOAuthSetup:   userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateSlackSetup:              userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListCronTriggers:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetToolCatalog:                accountPolicy(noScope()),
 	operationGetAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionRead)),

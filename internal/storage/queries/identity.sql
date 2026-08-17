@@ -182,6 +182,10 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 UPDATE agent_profiles SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
+-- name: DeleteProjectCronTriggers :exec
+UPDATE cron_triggers SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
+
 -- name: DeleteProjectIntegrationTargets :exec
 UPDATE integration_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
