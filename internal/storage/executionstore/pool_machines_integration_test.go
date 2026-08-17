@@ -24,7 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func TestListMachinePoolSourcesUsesCapturedLegacyNamesAfterSwap(t *testing.T) {
+func TestListMachinePoolSourcesUsesCapturedNamesAfterSwap(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -78,28 +78,6 @@ tools:
 `, firstPool.Name, secondPool.Name),
 		now.Add(4*time.Second),
 	)
-	legacySource := strings.Replace(
-		config.Source,
-		"machine_pool_name: First Pool",
-		`machine_pool_name: " First Pool "`,
-		1,
-	)
-	if legacySource == config.Source {
-		t.Fatal("legacy source fixture did not change")
-	}
-	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               config.ProjectID,
-		Definition:              config.Definition,
-		Source:                  legacySource,
-		SourceFormat:            config.SourceFormat,
-		ConfiguredModelID:       config.ConfiguredModelID,
-		CompiledDefinition:      config.CompiledDefinition,
-		CompilerVersion:         config.CompilerVersion,
-		EffectiveDefinitionHash: config.EffectiveDefinitionHash,
-	})
-	if err != nil {
-		t.Fatalf("create legacy agent config: %v", err)
-	}
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 		ProjectID:       testProjectID,
 		CurrentConfigID: config.ID,

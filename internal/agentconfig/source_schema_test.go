@@ -82,7 +82,7 @@ machine_sources:
 	}
 }
 
-func TestParseStoredSourceAllowsLegacyName(t *testing.T) {
+func TestParseStoredSourceAllowsHistoricalFieldsButValidatesResourceNames(t *testing.T) {
 	source := `
 name: legacy-agent
 instruction: Help the user make progress.
@@ -93,17 +93,21 @@ machine_sources:
   - machine_pool_name: Build Pool
 `
 	if _, err := ParseSource(SourceFormatYAML, []byte(source)); err == nil {
-		t.Fatal("expected ParseSource to reject legacy top-level name")
+		t.Fatal("expected ParseSource to reject historical top-level name field")
 	}
 	parsed, err := ParseStoredSource(SourceFormatYAML, []byte(source))
 	if err != nil {
-		t.Fatalf("parse stored source with legacy name: %v", err)
+		t.Fatalf("parse stored source with historical field: %v", err)
 	}
 	if len(parsed.MachineSources) != 1 {
 		t.Fatalf("machine sources = %d, want 1", len(parsed.MachineSources))
 	}
 	if parsed.Model.Name != "gpt-test" {
 		t.Fatalf("model name = %q, want gpt-test", parsed.Model.Name)
+	}
+	invalidSource := strings.Replace(source, "Build Pool", `" Build Pool"`, 1)
+	if _, err := ParseStoredSource(SourceFormatYAML, []byte(invalidSource)); err == nil {
+		t.Fatal("expected ParseStoredSource to reject invalid resource name")
 	}
 }
 

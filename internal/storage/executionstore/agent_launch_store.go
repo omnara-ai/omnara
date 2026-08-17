@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -331,14 +330,7 @@ func launchAgentName(name string, profile *AgentProfileRecord) string {
 		return name
 	}
 	if profile != nil {
-		if resourcename.Validate("agent profile name", profile.Name) == nil {
-			return profile.Name
-		}
-		profileID, err := publicid.Encode(publicid.KindAgentProfile, profile.ID)
-		if err == nil {
-			return "Agent from " + profileID
-		}
-		return "Agent from legacy profile"
+		return profile.Name
 	}
 	return ""
 }

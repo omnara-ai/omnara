@@ -239,11 +239,7 @@ func poolMachineDisplayName(poolName string) string {
 		poolNameCodePoints = poolNameCodePoints[:maxPoolNameCodePoints]
 		poolNameCodePoints = []rune(strings.TrimRight(string(poolNameCodePoints), " "))
 	}
-	displayName := poolMachineDisplayNamePrefix + string(poolNameCodePoints)
-	if err := resourcename.Validate("machine display name", displayName); err != nil {
-		return poolMachineDisplayNamePrefix + "legacy pool"
-	}
-	return displayName
+	return poolMachineDisplayNamePrefix + string(poolNameCodePoints)
 }
 
 func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) CreateMachinePoolInput {

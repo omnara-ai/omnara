@@ -155,6 +155,9 @@ func ParseStoredSource(format SourceFormat, raw []byte) (AgentConfigSource, erro
 	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
 		return AgentConfigSource{}, fmt.Errorf("decode agent config source: %w", err)
 	}
+	if err := validateSourceResourceNames(parsed); err != nil {
+		return AgentConfigSource{}, err
+	}
 	return parsed, nil
 }
 

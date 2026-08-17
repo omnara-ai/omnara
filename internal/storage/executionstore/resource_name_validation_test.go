@@ -54,16 +54,6 @@ func TestPoolMachineDisplayNameDoesNotCreateTrailingSpaceWhenTruncated(t *testin
 	}
 }
 
-func TestPoolMachineDisplayNameDoesNotCopyInvalidLegacyCharacters(t *testing.T) {
-	displayName := poolMachineDisplayName("Build\tPool")
-	if displayName != poolMachineDisplayNamePrefix+"legacy pool" {
-		t.Fatalf("pool machine display name = %q, want legacy fallback", displayName)
-	}
-	if err := resourcename.Validate("machine display name", displayName); err != nil {
-		t.Fatalf("pool machine display name fallback is invalid: %v", err)
-	}
-}
-
 func TestCreateMachinePoolRejectsClusterManagedKind(t *testing.T) {
 	store := &Store{}
 	cpu := 1

@@ -1,32 +1,11 @@
 package executionstore
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/resourcename"
 )
-
-func TestLaunchAgentNameUsesSafeDefaultForLegacyProfileName(t *testing.T) {
-	profile := &AgentProfileRecord{ID: uuid.New(), Name: " legacy profile "}
-	got := launchAgentName("", profile)
-	profileID, err := publicid.Encode(publicid.KindAgentProfile, profile.ID)
-	if err != nil {
-		t.Fatalf("encode profile id: %v", err)
-	}
-	if got != "Agent from "+profileID {
-		t.Fatalf("launch agent name = %q, want deterministic profile fallback", got)
-	}
-	if err := resourcename.Validate("agent name", got); err != nil {
-		t.Fatalf("launch agent fallback name is invalid: %v", err)
-	}
-	if strings.Contains(got, profile.Name) {
-		t.Fatalf("launch agent name %q copied invalid legacy profile name", got)
-	}
-}
 
 func TestLaunchAgentNamePreservesValidProfileName(t *testing.T) {
 	profile := &AgentProfileRecord{ID: uuid.New(), Name: "Research profile"}

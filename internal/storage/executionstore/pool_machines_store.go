@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -453,9 +452,8 @@ func listMachinePoolSources(
 			return nil, err
 		}
 		out = append(out, MachinePoolSourceRecord{
-			MachinePoolID: source.MachinePoolID,
-			// Preserve trimming for stored sources compiled before the exact-value cutover.
-			MachinePoolName: strings.TrimSpace(configSource.MachineSources[source.Index].MachinePoolName),
+			MachinePoolID:   source.MachinePoolID,
+			MachinePoolName: configSource.MachineSources[source.Index].MachinePoolName,
 			Description:     source.Contract.Description,
 		})
 	}
