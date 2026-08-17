@@ -4,90 +4,71 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func TestCompactionRequestPolicyBoundsOutputAndReasoning(t *testing.T) {
-	client := &summaryModel{caps: model.Capabilities{
-		MaxOutputTokens:        64_000,
-		DefaultMaxOutputTokens: 2_048,
-		DefaultCacheRetention:  model.CacheRetentionShort,
-		SupportsReasoning:      true,
-		DefaultReasoningEffort: "high",
-		SupportedReasoningEfforts: []string{
-			"max", "xhigh", "high", "medium", "low", "minimal", "none",
-		},
-	}}
-	got := compactionRequestPolicy(client)
-	if got.MaxOutputTokens != 16_384 || got.CacheRetention != model.CacheRetentionShort ||
-		got.DefaultReasoningEffort != "low" {
-		t.Fatalf("compaction request policy = %+v", got)
-	}
-}
-
-func TestCompactionReasoningEffortUsesSemanticOrder(t *testing.T) {
+func TestCompactionRequestPolicyOnlyCapsSummaryOutput(t *testing.T) {
+	supportsTools := false
 	tests := []struct {
-		name      string
-		supported []string
-		defaulted string
-		supports  bool
-		want      string
+		name       string
+		caps       model.Capabilities
+		wantOutput int
 	}{
 		{
-			name: "preserves minimal default", supports: true, defaulted: "minimal",
-			supported: []string{"high", "low", "minimal"}, want: "minimal",
+			name: "summary cap changes only output policy",
+			caps: model.Capabilities{
+				MaxOutputTokens:           64_000,
+				DefaultMaxOutputTokens:    2_048,
+				DefaultCacheRetention:     model.CacheRetentionShort,
+				SupportsTools:             &supportsTools,
+				SupportsReasoning:         true,
+				DefaultReasoningEffort:    "high",
+				SupportedReasoningEfforts: []string{"low", "medium", "high"},
+			},
+			wantOutput: 16_384,
 		},
 		{
-			name: "preserves provider-declared none default", supports: true, defaulted: "none",
-			supported: []string{"none", "minimal", "low"}, want: "none",
+			name: "model output limit below summary cap is retained",
+			caps: model.Capabilities{
+				MaxOutputTokens:           8_192,
+				DefaultMaxOutputTokens:    2_048,
+				SupportsReasoning:         true,
+				DefaultReasoningEffort:    "low",
+				SupportedReasoningEfforts: []string{"low", "high"},
+			},
+			wantOutput: 8_192,
 		},
 		{
-			name: "targets low independent of list order", supports: true, defaulted: "high",
-			supported: []string{"max", "minimal", "medium", "low"}, want: "low",
+			name: "default output limit is used when model maximum is unavailable",
+			caps: model.Capabilities{
+				DefaultMaxOutputTokens:    2_048,
+				SupportsReasoning:         true,
+				DefaultReasoningEffort:    "vendor-deep",
+				SupportedReasoningEfforts: []string{"vendor-deep"},
+			},
+			wantOutput: 2_048,
 		},
-		{
-			name: "prefers strongest effort below low", supports: true, defaulted: "high",
-			supported: []string{"high", "medium", "minimal"}, want: "minimal",
-		},
-		{
-			name: "uses least effort above low when necessary", supports: true,
-			defaulted: "high", supported: []string{"high", "medium"}, want: "medium",
-		},
-		{name: "retains configured default without enumeration", supports: true, defaulted: "high", want: "high"},
-		{
-			name: "retains configured default with only unknown enumeration", supports: true,
-			defaulted: "vendor-low", supported: []string{"vendor-low"}, want: "vendor-low",
-		},
-		{
-			name: "retains unknown configured default beside known efforts", supports: true,
-			defaulted: "vendor-low", supported: []string{"vendor-low", "high", "none"}, want: "vendor-low",
-		},
-		{
-			name: "preserves advertised wire spelling", supports: true,
-			defaulted: "HIGH", supported: []string{"HIGH", "LOW"}, want: "LOW",
-		},
-		{
-			name: "uses only provider-declared none effort", supports: true,
-			defaulted: "none", supported: []string{"none"}, want: "none",
-		},
-		{name: "omits for nonreasoning model", defaulted: "high", supported: []string{"high", "low"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := compactionReasoningEffort(model.Capabilities{
-				SupportsReasoning:         test.supports,
-				DefaultReasoningEffort:    test.defaulted,
-				SupportedReasoningEfforts: test.supported,
-			})
-			if got != test.want {
-				t.Fatalf("effort = %q, want %q", got, test.want)
+			client := openairesponses.Client{
+				ProviderModelSlug: "policy-test",
+				ModelCapabilities: test.caps,
+			}
+			got := compactionRequestPolicy(client)
+			want := model.RequestPolicyFromCapabilities(test.caps)
+			want.MaxOutputTokens = test.wantOutput
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("compaction policy = %+v, want %+v", got, want)
 			}
 		})
 	}

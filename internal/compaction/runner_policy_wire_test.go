@@ -13,75 +13,133 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
-func TestCompactionPolicyOutputReservationMatchesProviderWireCap(t *testing.T) {
-	capabilities := model.Capabilities{
+func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *testing.T) {
+	highReasoning := model.Capabilities{
 		ContextWindowTokens:    200_000,
 		MaxOutputTokens:        64_000,
+		DefaultMaxOutputTokens: 2_048,
 		SupportsReasoning:      true,
 		DefaultReasoningEffort: "high",
 		SupportedReasoningEfforts: []string{
 			"high", "low",
 		},
 	}
-	uppercaseEfforts := capabilities
-	uppercaseEfforts.DefaultReasoningEffort = "HIGH"
-	uppercaseEfforts.SupportedReasoningEfforts = []string{"HIGH", "LOW"}
+	opaqueReasoning := highReasoning
+	opaqueReasoning.DefaultReasoningEffort = "vendor-deep"
+	opaqueReasoning.SupportedReasoningEfforts = []string{"vendor-fast", "vendor-deep"}
+	explicitNone := highReasoning
+	explicitNone.DefaultReasoningEffort = "none"
+	explicitNone.SupportedReasoningEfforts = []string{"none", "high"}
+	providerDefaultReasoning := highReasoning
+	providerDefaultReasoning.DefaultReasoningEffort = ""
+	nonReasoning := highReasoning
+	nonReasoning.SupportsReasoning = false
+	nonReasoning.DefaultReasoningEffort = ""
+	nonReasoning.SupportedReasoningEfforts = nil
 	tests := []struct {
-		name        string
-		client      model.Client
-		outputField string
-		reasoning   string
+		name             string
+		client           model.Client
+		outputField      string
+		wantFields       map[string]string
+		wantAbsentFields []string
 	}{
+		{
+			name: "OpenAI Chat Completions",
+			client: openaichatcompletions.Client{
+				EndpointPath:      "/chat/completions",
+				ProviderModelSlug: "gpt-test",
+				ModelCapabilities: highReasoning,
+			},
+			outputField: "max_completion_tokens",
+			wantFields: map[string]string{
+				"reasoning_effort": `"high"`,
+			},
+			wantAbsentFields: []string{"reasoning"},
+		},
 		{
 			name: "OpenRouter Chat Completions",
 			client: openaichatcompletions.Client{
 				EndpointPath:      "/chat/completions",
 				ProviderModelSlug: "openai/gpt-test",
-				ModelCapabilities: capabilities,
+				ModelCapabilities: opaqueReasoning,
 				APIVariant:        modelprotocol.APIVariantOpenRouter,
 			},
 			outputField: "max_completion_tokens",
-			reasoning:   `{"effort":"low"}`,
+			wantFields: map[string]string{
+				"reasoning": `{"effort":"vendor-deep"}`,
+			},
+			wantAbsentFields: []string{"reasoning_effort"},
 		},
 		{
 			name: "OpenAI Responses",
 			client: openairesponses.Client{
 				EndpointPath:      "/responses",
 				ProviderModelSlug: "gpt-test",
-				ModelCapabilities: capabilities,
+				ModelCapabilities: highReasoning,
 			},
 			outputField: "max_output_tokens",
-			reasoning:   `{"effort":"low"}`,
-		},
-		{
-			name: "Anthropic Messages",
-			client: anthropicmessages.Client{
-				EndpointPath:      "/messages",
-				ProviderModelSlug: "claude-test",
-				ModelCapabilities: capabilities,
+			wantFields: map[string]string{
+				"reasoning": `{"effort":"high"}`,
 			},
-			outputField: "max_tokens",
+			wantAbsentFields: []string{"reasoning_effort"},
 		},
 		{
-			name: "OpenRouter preserves advertised reasoning wire value",
+			name: "explicit model-supported none option",
+			client: openaichatcompletions.Client{
+				EndpointPath:      "/chat/completions",
+				ProviderModelSlug: "gpt-test",
+				ModelCapabilities: explicitNone,
+			},
+			outputField: "max_completion_tokens",
+			wantFields: map[string]string{
+				"reasoning_effort": `"none"`,
+			},
+			wantAbsentFields: []string{"reasoning"},
+		},
+		{
+			name: "OpenRouter adapter reasoning option with no selected effort",
 			client: openaichatcompletions.Client{
 				EndpointPath:      "/chat/completions",
 				ProviderModelSlug: "openai/gpt-test",
-				ModelCapabilities: uppercaseEfforts,
+				ModelCapabilities: providerDefaultReasoning,
 				APIVariant:        modelprotocol.APIVariantOpenRouter,
+				APIVariantOptions: json.RawMessage(`{"reasoning":{"enabled":false}}`),
 			},
 			outputField: "max_completion_tokens",
-			reasoning:   `{"effort":"LOW"}`,
+			wantFields: map[string]string{
+				"reasoning": `{"enabled":false}`,
+			},
+			wantAbsentFields: []string{"reasoning_effort"},
 		},
 		{
-			name: "Responses preserves advertised reasoning wire value",
+			name: "reasoning-capable Responses model with provider default",
 			client: openairesponses.Client{
 				EndpointPath:      "/responses",
 				ProviderModelSlug: "gpt-test",
-				ModelCapabilities: uppercaseEfforts,
+				ModelCapabilities: providerDefaultReasoning,
 			},
-			outputField: "max_output_tokens",
-			reasoning:   `{"effort":"LOW"}`,
+			outputField:      "max_output_tokens",
+			wantAbsentFields: []string{"reasoning", "reasoning_effort"},
+		},
+		{
+			name: "non-reasoning OpenAI Chat Completions model",
+			client: openaichatcompletions.Client{
+				EndpointPath:      "/chat/completions",
+				ProviderModelSlug: "gpt-test",
+				ModelCapabilities: nonReasoning,
+			},
+			outputField:      "max_completion_tokens",
+			wantAbsentFields: []string{"reasoning", "reasoning_effort"},
+		},
+		{
+			name: "non-reasoning Anthropic Messages model",
+			client: anthropicmessages.Client{
+				EndpointPath:      "/messages",
+				ProviderModelSlug: "claude-test",
+				ModelCapabilities: nonReasoning,
+			},
+			outputField:      "max_tokens",
+			wantAbsentFields: []string{"reasoning", "reasoning_effort", "thinking"},
 		},
 	}
 	bundle := modelcontext.Bundle{
@@ -94,33 +152,66 @@ func TestCompactionPolicyOutputReservationMatchesProviderWireCap(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			policy := compactionRequestPolicy(test.client)
-			if policy.MaxOutputTokens != 16_384 {
-				t.Fatalf("reserved output = %d, want 16384", policy.MaxOutputTokens)
-			}
-			prepared, err := test.client.Prepare(
-				context.Background(),
-				model.PrepareInput{Context: bundle, Policy: policy},
+			compactionBody := preparePolicyWireBody(
+				t,
+				test.client,
+				bundle,
+				compactionRequestPolicy(test.client),
 			)
-			if err != nil {
-				t.Fatalf("prepare compaction wire request: %v", err)
+			normalBody := preparePolicyWireBody(
+				t,
+				test.client,
+				bundle,
+				model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(test.client)),
+			)
+			if got := string(compactionBody[test.outputField]); got != "16384" {
+				t.Fatalf("wire %s = %s, want 16384", test.outputField, got)
 			}
-			var body map[string]json.RawMessage
-			if err := json.Unmarshal(prepared.Body, &body); err != nil {
-				t.Fatalf("decode compaction wire request: %v", err)
-			}
-			if got := string(body[test.outputField]); got != "16384" {
-				t.Fatalf("wire %s = %s, want 16384 in %s", test.outputField, got, prepared.Body)
-			}
-			if test.reasoning == "" {
-				if _, found := body["reasoning"]; found {
-					t.Fatalf("unexpected Anthropic reasoning field in %s", prepared.Body)
+			for _, field := range []string{"reasoning", "reasoning_effort", "include", "thinking"} {
+				compactionValue, compactionHasField := compactionBody[field]
+				normalValue, normalHasField := normalBody[field]
+				if compactionHasField != normalHasField || string(compactionValue) != string(normalValue) {
+					t.Fatalf(
+						"compaction %s = %s (present=%v), normal = %s (present=%v)",
+						field,
+						compactionValue,
+						compactionHasField,
+						normalValue,
+						normalHasField,
+					)
 				}
-				return
 			}
-			if got := string(body["reasoning"]); got != test.reasoning {
-				t.Fatalf("wire reasoning = %s, want %s in %s", got, test.reasoning, prepared.Body)
+			for field, want := range test.wantFields {
+				if got := string(compactionBody[field]); got != want {
+					t.Fatalf("wire %s = %s, want %s", field, got, want)
+				}
+			}
+			for _, field := range test.wantAbsentFields {
+				if _, found := compactionBody[field]; found {
+					t.Fatalf("unexpected %s in compaction request: %s", field, compactionBody[field])
+				}
 			}
 		})
 	}
+}
+
+func preparePolicyWireBody(
+	t *testing.T,
+	client model.Client,
+	bundle modelcontext.Bundle,
+	policy model.RequestPolicy,
+) map[string]json.RawMessage {
+	t.Helper()
+	prepared, err := client.Prepare(
+		context.Background(),
+		model.PrepareInput{Context: bundle, Policy: policy},
+	)
+	if err != nil {
+		t.Fatalf("prepare wire request: %v", err)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(prepared.Body, &body); err != nil {
+		t.Fatalf("decode wire request: %v", err)
+	}
+	return body
 }

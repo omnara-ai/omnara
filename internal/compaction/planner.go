@@ -10,6 +10,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
+// A larger context window gives compaction more source to summarize, not a
+// reason to grow exact recent history without bound. The quarter-window clamp
+// below keeps the same policy usable for smaller windows.
 const maxRecentTailTargetTokens = 20_000
 
 func RecentTailTargetTokens(usableInputTokens int) int {

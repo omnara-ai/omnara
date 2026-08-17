@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -263,6 +262,8 @@ func irreducibleCompactionError(detail string) error {
 func compactionRequestPolicy(client model.Client) model.RequestPolicy {
 	capabilities := model.CapabilitiesForClient(client)
 	policy := model.RequestPolicyFromCapabilities(capabilities)
+	// Keep summary cost and admission reservation bounded independently of the
+	// model's context size; a smaller model output limit still wins.
 	const maxSummaryOutputTokens = 16_384
 	policy.MaxOutputTokens = capabilities.MaxOutputTokens
 	if policy.MaxOutputTokens <= 0 {
@@ -271,44 +272,7 @@ func compactionRequestPolicy(client model.Client) model.RequestPolicy {
 	if policy.MaxOutputTokens > maxSummaryOutputTokens {
 		policy.MaxOutputTokens = maxSummaryOutputTokens
 	}
-	policy.DefaultReasoningEffort = compactionReasoningEffort(capabilities)
 	return policy
-}
-
-func compactionReasoningEffort(capabilities model.Capabilities) string {
-	if !capabilities.SupportsReasoning {
-		return ""
-	}
-	configuredWire := capabilities.DefaultReasoningEffort
-	configuredKey := strings.ToLower(strings.TrimSpace(configuredWire))
-	preference := []string{"low", "minimal", "medium", "high", "xhigh", "max", "none"}
-	if configuredWire != "" && !slices.Contains(preference, configuredKey) {
-		return configuredWire
-	}
-
-	supported := make(map[string]string, len(capabilities.SupportedReasoningEfforts))
-	for _, value := range capabilities.SupportedReasoningEfforts {
-		key := strings.ToLower(strings.TrimSpace(value))
-		if slices.Contains(preference, key) {
-			if _, found := supported[key]; !found {
-				supported[key] = value
-			}
-		}
-	}
-	if len(supported) == 0 {
-		return configuredWire
-	}
-	if configuredKey == "none" || configuredKey == "minimal" || configuredKey == "low" {
-		if wire, found := supported[configuredKey]; found {
-			return wire
-		}
-	}
-	for _, key := range preference {
-		if wire, found := supported[key]; found {
-			return wire
-		}
-	}
-	return configuredWire
 }
 
 func validateCompactionResponse(errorSource string, response model.Response) (string, error) {

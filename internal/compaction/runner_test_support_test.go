@@ -428,14 +428,22 @@ func (m *summaryModel) Respond(_ context.Context, input model.Request) (model.Re
 }
 
 func defaultCompactionAgentConfig() executionstore.AgentConfigRecord {
-	compiled, err := agentconfig.Compile(
-		agentconfig.SourceFormatYAML,
-		[]byte(`
+	return compactionAgentConfigWithReasoning("")
+}
+
+func compactionAgentConfigWithReasoning(reasoningEffort string) executionstore.AgentConfigRecord {
+	source := `
 instruction: Continue the task.
 model:
   provider_config: openai-prod
   name: summary
-`),
+`
+	if reasoningEffort != "" {
+		source += "  reasoning:\n    effort: " + reasoningEffort + "\n"
+	}
+	compiled, err := agentconfig.Compile(
+		agentconfig.SourceFormatYAML,
+		[]byte(source),
 		agentconfig.CompileOptions{
 			ResolveModelSelection: func(_, _ string) (agentconfig.ResolvedModelSelection, error) {
 				return agentconfig.ResolvedModelSelection{ConfiguredModelID: testIDN(600).String()}, nil

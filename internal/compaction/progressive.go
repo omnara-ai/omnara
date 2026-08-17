@@ -2,6 +2,8 @@ package compaction
 
 import "fmt"
 
+// Bound repeated checkpointing so an input that cannot gain enough headroom
+// terminates instead of cycling through summaries indefinitely.
 const defaultMaxProgressiveCheckpoints = 3
 
 type ProgressiveCheckpointPolicy interface {

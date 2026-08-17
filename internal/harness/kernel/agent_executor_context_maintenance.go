@@ -14,6 +14,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
+const (
+	contextMaintenanceErrorCodeInputBudgetExceeded = "configured_input_budget_exceeded"
+	contextMaintenanceErrorCodeCannotCompact       = "context_cannot_be_compacted"
+)
+
 type contextMaintenanceTrigger struct {
 	Kind      model.ErrorKind
 	Code      string
@@ -74,7 +79,7 @@ func localInputBudgetTrigger(
 	)
 	return contextMaintenanceTrigger{
 		Kind:    model.ErrorKindContextWindow,
-		Code:    "configured_input_budget_exceeded",
+		Code:    contextMaintenanceErrorCodeInputBudgetExceeded,
 		Message: message,
 		Details: details,
 		Cause:   errors.New(message),
@@ -129,7 +134,7 @@ func (e AgentExecutor) enterContextMaintenance(
 			return modelStep{}, errors.Join(trigger.Cause, marshalErr)
 		}
 		trigger.Kind = model.ErrorKindContextWindow
-		trigger.Code = "context_cannot_be_compacted"
+		trigger.Code = contextMaintenanceErrorCodeCannotCompact
 		trigger.Message = "The current model input is too large and has no closed event prefix that can be compacted safely."
 		trigger.Details = details
 		return e.recordTerminalContextMaintenanceFailure(
