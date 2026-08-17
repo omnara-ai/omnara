@@ -22,10 +22,12 @@ export {
   type AgentProfileListOptions,
   type AgentProfileListSort,
   useAgentProfile,
+  useAgentProfileQuery,
   useAgentProfiles,
   useCreateAgentProfile,
   useCreateSlackSetup,
   useDeleteAgentProfile,
+  useRenameAgentProfile,
   useUpdateAgentProfile,
 } from './domains/agent-profiles'
 export {
@@ -33,10 +35,12 @@ export {
   type AgentListOptions,
   type AgentListSort,
   useAgent,
+  useAgentConfig,
   useAgents,
   useArchiveAgent,
   useCreateAgent,
   useCreateAgentConfig,
+  useUpdateAgentConfig,
 } from './domains/agents'
 export {
   type IntegrationInstallListFilters,
@@ -80,6 +84,7 @@ export {
   useConnectMachine,
   useDeleteMachine,
   useGrantMachineToProject,
+  useMachine,
   useMachines,
   useProjectMachines,
 } from './domains/machines'

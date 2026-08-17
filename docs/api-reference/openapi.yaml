@@ -2462,6 +2462,43 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: renameAgentProfile
+      tags: [Configs and Profiles]
+      summary: Rename agent profile
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameAgentProfileRequest'
+      responses:
+        '200':
+          description: Agent profile renamed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteAgentProfile
       tags: [Configs and Profiles]
@@ -2704,7 +2741,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GetAgentResponse'
+                $ref: '#/components/schemas/CurrentAgentResponse'
         '201':
           description: Agent launched.
           content:
@@ -2858,7 +2895,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GetAgentResponse'
+                $ref: '#/components/schemas/CurrentAgentResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -2908,7 +2945,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateAgentConfigRequest'
+              $ref: '#/components/schemas/UpdateAgentConfigRequest'
       responses:
         '200':
           description: Agent config updated.
@@ -7457,6 +7494,24 @@ components:
         source_format:
           type: string
           enum: [yaml, json]
+    UpdateAgentConfigRequest:
+      description: >-
+        Replaces a live agent's config. expected_current_config_id makes the
+        change conditional on the agent still running that config, so
+        concurrent editors get a conflict instead of silently overwriting each
+        other.
+      type: object
+      additionalProperties: false
+      required: [source, source_format]
+      properties:
+        source:
+          type: string
+          minLength: 1
+        source_format:
+          type: string
+          enum: [yaml, json]
+        expected_current_config_id:
+          $ref: '#/components/schemas/AgentConfigID'
     ToolPermissionSelection:
       type: object
       additionalProperties: false
@@ -7614,6 +7669,13 @@ components:
           $ref: '#/components/schemas/AgentConfigID'
         expected_current_config_id:
           $ref: '#/components/schemas/AgentConfigID'
+    RenameAgentProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
     AgentProfile:
       type: object
       additionalProperties: false
@@ -7719,13 +7781,50 @@ components:
         provider_uri:
           type: string
           format: uri
-    GetAgentResponse:
+    AgentMCPConnection:
+      type: object
+      additionalProperties: false
+      required: [server_key, endpoint_url, state, initialize_error, created_at, updated_at]
+      properties:
+        server_key:
+          type: string
+        endpoint_url:
+          type: string
+        state:
+          type: string
+          enum: [initializing, ready, failed, expired]
+        protocol_version:
+          type: string
+        initialize_error:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    CurrentAgentResponse:
       type: object
       additionalProperties: false
       required: [agent]
       properties:
         agent:
           $ref: '#/components/schemas/Agent'
+    GetAgentResponse:
+      type: object
+      additionalProperties: false
+      required: [agent, machine_ids, mcp_connections]
+      properties:
+        agent:
+          $ref: '#/components/schemas/Agent'
+        machine_ids:
+          description: Machines currently attached to the agent, in binding creation order.
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineID'
+        mcp_connections:
+          description: The agent's MCP server connections, ordered by server key.
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentMCPConnection'
     ListAgentsResponse:
       type: object
       additionalProperties: false
@@ -8047,6 +8146,29 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    MachineFailureReport:
+      description: >-
+        The machine's most recent daemon-reported failure. A single slot,
+        overwritten by newer reports and cleared when the daemon recovers.
+      type: object
+      additionalProperties: false
+      required: [stage, output_tail, output_truncated, reported_at]
+      properties:
+        stage:
+          type: string
+          enum: [startup_script, daemon_install, daemon_update, daemon_uninstall, daemon_uninstalled]
+        exit_status:
+          type: integer
+        output_tail:
+          type: string
+        output_truncated:
+          type: boolean
+        daemon_version:
+          type: string
+        target_version:
+          type: string
+        reported_at:
           $ref: '#/components/schemas/Timestamp'
     LaunchAgentResponse:
       type: object
@@ -9982,6 +10104,8 @@ components:
           type: string
         lifecycle_reason_message:
           type: string
+        failure_report:
+          $ref: '#/components/schemas/MachineFailureReport'
         next_reconcile_after:
           anyOf:
             - $ref: '#/components/schemas/Timestamp'

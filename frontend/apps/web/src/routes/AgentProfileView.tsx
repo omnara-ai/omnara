@@ -1,36 +1,25 @@
-import {
-  useAgentProfile,
-  useCreateAgent,
-  useCreateAgentConfig,
-  useDeleteAgentProfile,
-  useUpdateAgentProfile,
-} from '@omnara/react'
+import { useAgentProfile, useCreateAgent, useDeleteAgentProfile } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
+import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfigEditor'
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
+import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
 import { AgentsTable } from '@/components/agents/AgentsSection'
 import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DetailList } from '@/components/data-table/DetailList'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
-import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
-import { FieldGroup } from '@/components/ui/field'
 import { Spinner } from '@/components/ui/spinner'
 import { formatDateTime } from '@/lib/format'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
-type ProfileTab = 'configuration' | 'agents'
-
-interface ConfigDraft {
-  configId: string
-  yaml: string
-}
+type ProfileTab = 'configuration' | 'integrations' | 'agents'
 
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
@@ -50,42 +39,11 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
 
   const [tab, setTab] = useState<ProfileTab>('configuration')
   const [deployOpen, setDeployOpen] = useState(false)
-  const [draft, setDraft] = useState<ConfigDraft | null>(null)
-
-  const savedYaml = profile.current_config.source ?? ''
-  const activeDraft = draft?.configId === profile.current_config_id ? draft : null
-  const yaml = activeDraft?.yaml ?? savedYaml
-  const configDirty = yaml !== savedYaml
+  const [configDirty, setConfigDirty] = useState(false)
 
   const createAgent = useCreateAgent(activeOrg.id, projectId)
-  const createConfig = useCreateAgentConfig(activeOrg.id, projectId)
-  const updateProfile = useUpdateAgentProfile(activeOrg.id, projectId)
   const deleteProfile = useDeleteAgentProfile(activeOrg.id, projectId)
   const navigate = useNavigate()
-
-  const [saveError, setSaveError] = useState('')
-  const [saveErrorConfigId, setSaveErrorConfigId] = useState(profile.current_config_id)
-  const savePending = createConfig.isPending || updateProfile.isPending
-
-  if (saveErrorConfigId !== profile.current_config_id) {
-    setSaveErrorConfigId(profile.current_config_id)
-    setSaveError('')
-  }
-
-  async function saveRevision() {
-    setSaveError('')
-    try {
-      const config = await createConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
-      await updateProfile.mutateAsync({
-        agentProfileID: profile.id,
-        config: config.id,
-        expected_current_config_id: profile.current_config_id,
-      })
-      setDraft(null)
-    } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : 'Could not update agent profile')
-    }
-  }
 
   async function launch() {
     if (
@@ -139,11 +97,12 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="text-2xl font-bold tracking-tight">{profile.name}</h1>
-            <p className="text-muted-foreground text-sm">
-              <span className="font-mono text-xs">{profile.id}</span>
-              {' · '}Updated {formatDateTime(profile.updated_at)}
-            </p>
+            <AgentProfileNameHeading
+              orgId={activeOrg.id}
+              projectId={projectId}
+              profile={profile}
+              canManage={canManage}
+            />
           </div>
           <div className="flex items-center gap-2">
             {canOperate && (
@@ -152,15 +111,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
                 Launch
               </Button>
             )}
-            {canManage && (
-              <ResourceRowActions
-                onGrant={() => {
-                  setDeployOpen(true)
-                }}
-                grantLabel="Deploy to app"
-                onDelete={remove}
-              />
-            )}
           </div>
         </div>
         <PillTabs
@@ -168,33 +118,46 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           onValueChange={setTab}
           tabs={[
             { value: 'configuration', label: 'Configuration' },
+            { value: 'integrations', label: 'Integrations' },
             { value: 'agents', label: 'Agents' },
           ]}
         />
       </header>
 
-      {tab === 'configuration' ? (
+      <div className={tab === 'configuration' ? 'contents' : 'hidden'}>
         <ConfigurationTab
           orgId={activeOrg.id}
           projectId={projectId}
           profile={profile}
           canManage={canManage}
-          yaml={yaml}
-          dirty={configDirty}
-          error={saveError}
-          pending={savePending}
-          onYamlChange={(value) => {
-            setDraft({ configId: profile.current_config_id, yaml: value })
-          }}
-          onDiscard={() => {
-            setDraft(null)
-            setSaveError('')
-          }}
-          onSave={() => {
-            void saveRevision()
-          }}
+          onDirtyChange={setConfigDirty}
+          onDelete={remove}
         />
-      ) : (
+      </div>
+      {tab === 'integrations' && (
+        <div className="flex flex-col gap-4">
+          {canManage && (
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setDeployOpen(true)
+                }}
+              >
+                Add integration
+              </Button>
+            </div>
+          )}
+          <AgentProfileIntegrations
+            orgId={activeOrg.id}
+            projectId={projectId}
+            profileId={profile.id}
+            canManage={canManage}
+          />
+        </div>
+      )}
+      {tab === 'agents' && (
         <AgentsTable
           orgId={activeOrg.id}
           projectId={projectId}
@@ -223,30 +186,24 @@ function ConfigurationTab({
   projectId,
   profile,
   canManage,
-  yaml,
-  dirty,
-  error,
-  pending,
-  onYamlChange,
-  onDiscard,
-  onSave,
+  onDirtyChange,
+  onDelete,
 }: {
   orgId: string
   projectId: string
   profile: AgentProfile
   canManage: boolean
-  yaml: string
-  dirty: boolean
-  error: string
-  pending: boolean
-  onYamlChange: (value: string) => void
-  onDiscard: () => void
-  onSave: () => void
+  onDirtyChange: (dirty: boolean) => void
+  onDelete: () => void
 }) {
+  const [resetNonce, setResetNonce] = useState(0)
+  const [preferredMode, setPreferredMode] = useState<AgentConfigMode>('builder')
+
   return (
     <div className="flex flex-col gap-6">
       <DetailList
         items={[
+          { label: 'ID', value: profile.id, mono: true },
           { label: 'Generation', value: profile.current_generation },
           {
             label: 'Model',
@@ -256,46 +213,19 @@ function ConfigurationTab({
           { label: 'Updated', value: formatDateTime(profile.updated_at) },
         ]}
       />
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          onSave()
-        }}
-      >
-        <FieldGroup>
-          <AgentConfigYamlField
-            id="agent-profile-config-yaml"
-            value={yaml}
-            onChange={onYamlChange}
-            readOnly={!canManage}
-            className="h-[28rem]"
-          />
-          {profile.current_config.source === undefined && yaml.trim() === '' && (
-            <p className="text-muted-foreground text-sm">
-              The current source is unavailable. Paste the replacement YAML configuration.
-            </p>
-          )}
-          {error && <p className="text-destructive whitespace-pre-wrap text-sm">{error}</p>}
-          {canManage && (
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={pending || !dirty || yaml.trim() === ''}>
-                {pending && <Spinner />}
-                Save revision
-              </Button>
-              {dirty && !pending && (
-                <Button type="button" variant="ghost" onClick={onDiscard}>
-                  Discard changes
-                </Button>
-              )}
-            </div>
-          )}
-        </FieldGroup>
-      </form>
-      <AgentProfileIntegrations
+      <AgentProfileConfigEditor
+        key={`${profile.current_config_id}:${resetNonce}`}
         orgId={orgId}
         projectId={projectId}
-        profileId={profile.id}
+        profile={profile}
         canManage={canManage}
+        preferredMode={preferredMode}
+        onModeChange={setPreferredMode}
+        onDirtyChange={onDirtyChange}
+        onDiscard={() => {
+          setResetNonce((nonce) => nonce + 1)
+        }}
+        onDelete={onDelete}
       />
     </div>
   )

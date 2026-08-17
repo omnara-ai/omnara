@@ -1,8 +1,8 @@
 import type { ToolPermissionProfile } from '@omnara/sdk'
 import { Trash2Icon } from 'lucide-react'
 
-import type { BasicMcpServer, McpAuthType } from '@/components/agents/agentConfigBasicSerialization'
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
+import type { BasicMcpServer, McpAuthType } from '@/components/agents/useAgentBuilderForm'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -124,7 +124,9 @@ export function AgentConfigMcpServersField({
                   <Field>
                     <FieldLabel>Tool permission</FieldLabel>
                     <Select
-                      value={server.permission.mode}
+                      value={
+                        server.permission?.mode ?? permissionProfile?.default_permission.mode ?? ''
+                      }
                       disabled={permissionProfile == null}
                       onValueChange={(mode) => {
                         updateServer(server.id, { permission: { mode, parameters: {} } })
@@ -132,7 +134,10 @@ export function AgentConfigMcpServersField({
                     >
                       <SelectTrigger className="w-full" aria-label="MCP tool permission">
                         <SelectValue>
-                          {permissionModeLabel(permissionProfile, server.permission.mode)}
+                          {permissionModeLabel(
+                            permissionProfile,
+                            server.permission?.mode ?? permissionProfile?.default_permission.mode,
+                          )}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
@@ -244,6 +249,6 @@ export function AgentConfigMcpServersField({
   )
 }
 
-function permissionModeLabel(profile: ToolPermissionProfile | undefined, value: string) {
-  return profile?.permission_modes.find((mode) => mode.name === value)?.label ?? value
+function permissionModeLabel(profile: ToolPermissionProfile | undefined, value?: string) {
+  return profile?.permission_modes.find((mode) => mode.name === value)?.label ?? value ?? ''
 }

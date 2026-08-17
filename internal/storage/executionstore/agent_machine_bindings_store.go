@@ -36,6 +36,27 @@ func (s *Store) ListExecutableAgentMachineBindings(
 	return listExecutableAgentMachineBindings(ctx, s.q, projectID, agentID)
 }
 
+func (s *Store) ListAgentMachineBindings(
+	ctx context.Context,
+	projectID, agentID ID,
+) ([]AgentMachineBindingRecord, error) {
+	if isNilID(projectID) || isNilID(agentID) {
+		return nil, errors.New("project and agent are required")
+	}
+	rows, err := s.q.ListAgentMachineBindings(
+		ctx,
+		dbsqlc.ListAgentMachineBindingsParams{ProjectID: projectID, AgentID: agentID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list agent machine bindings: %w", err)
+	}
+	out := make([]AgentMachineBindingRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, agentMachineBindingRecordFromListSQLC(row))
+	}
+	return out, nil
+}
+
 func (r *ToolCallReader) ListExecutableAgentMachineBindings(
 	ctx context.Context,
 ) ([]AgentMachineBindingRecord, error) {
