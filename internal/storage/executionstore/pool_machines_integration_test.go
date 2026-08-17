@@ -94,7 +94,7 @@ tools:
 		SourceFormat:            config.SourceFormat,
 		ConfiguredModelID:       config.ConfiguredModelID,
 		CompiledDefinition:      config.CompiledDefinition,
-		CompilerVersion:         "legacy-resource-names",
+		CompilerVersion:         config.CompilerVersion,
 		EffectiveDefinitionHash: config.EffectiveDefinitionHash,
 	})
 	if err != nil {
