@@ -946,17 +946,17 @@ model:
 	}
 }
 
-func TestPatchConfiguredModelGrandfathersUnchangedLegacyName(t *testing.T) {
+func TestPatchConfiguredModelRejectsInvalidStoredName(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	admin := createSecretTestUser(t, ctx, store, "Legacy Model Admin", "admin")
+	admin := createSecretTestUser(t, ctx, store, "Invalid Model Admin", "admin")
 	credential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     testOrgID,
 		OwnerKind: secretstore.SecretOwnerOrg,
-		Name:      "legacy-model-credential",
+		Name:      "stored-model-credential",
 		Material:  secrets.GenericMaterial{Value: "sk-test"},
 		Actor:     userPrincipal(admin.ID),
 	})
@@ -965,7 +965,7 @@ func TestPatchConfiguredModelGrandfathersUnchangedLegacyName(t *testing.T) {
 	}
 	provider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              testOrgID,
-		Name:               "legacy-model-provider",
+		Name:               "stored-model-provider",
 		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
 		BaseURL:            "https://api.openai.com/v1",
 		CredentialSecretID: credential.ID,
@@ -976,7 +976,7 @@ func TestPatchConfiguredModelGrandfathersUnchangedLegacyName(t *testing.T) {
 	model, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
 		OrgID:                 testOrgID,
 		ModelProviderConfigID: provider.ID,
-		Name:                  "legacy-model",
+		Name:                  "stored-model",
 		ProviderModelSlug:     "model-v1",
 		ContextWindowTokens:   128000,
 		MaxOutputTokens:       8192,
@@ -984,51 +984,35 @@ func TestPatchConfiguredModelGrandfathersUnchangedLegacyName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create configured model: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE configured_models DISABLE TRIGGER configured_models_name_policy`); err != nil {
-		t.Fatalf("disable configured model name trigger: %v", err)
+	if _, err := pool.Exec(ctx, `ALTER TABLE configured_models DROP CONSTRAINT configured_models_name_policy`); err != nil {
+		t.Fatalf("drop configured model name constraint: %v", err)
 	}
-	const legacyName = " legacy model "
-	if _, err := pool.Exec(ctx, `UPDATE configured_models SET name = $1 WHERE id = $2`, legacyName, model.ID); err != nil {
-		t.Fatalf("seed legacy configured model name: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE configured_models ENABLE TRIGGER configured_models_name_policy`); err != nil {
-		t.Fatalf("enable configured model name trigger: %v", err)
+	const invalidStoredName = " invalid model "
+	if _, err := pool.Exec(ctx, `UPDATE configured_models SET name = $1 WHERE id = $2`, invalidStoredName, model.ID); err != nil {
+		t.Fatalf("seed invalid configured model name: %v", err)
 	}
 
 	providerModelSlug := "model-v2"
-	updated, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
-		OrgID:                 testOrgID,
-		ModelProviderConfigID: provider.ID,
-		ID:                    model.ID,
-		ProviderModelSlug:     &providerModelSlug,
-	})
-	if err != nil {
-		t.Fatalf("patch behavior with unchanged legacy name: %v", err)
-	}
-	if updated.Name != legacyName || updated.ProviderModelSlug != providerModelSlug {
-		t.Fatalf("patched configured model = %+v, want legacy name and updated behavior", updated)
-	}
-	unchangedLegacyName := legacyName
-	unchangedName, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
-		OrgID:                 testOrgID,
-		ModelProviderConfigID: provider.ID,
-		ID:                    model.ID,
-		Name:                  &unchangedLegacyName,
-	})
-	if err != nil {
-		t.Fatalf("echo unchanged legacy configured model name: %v", err)
-	}
-	if unchangedName.Name != legacyName {
-		t.Fatalf("echoed configured model name = %q, want unchanged legacy name", unchangedName.Name)
-	}
-	changedInvalidName := " another invalid model "
 	if _, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
 		OrgID:                 testOrgID,
 		ModelProviderConfigID: provider.ID,
 		ID:                    model.ID,
-		Name:                  &changedInvalidName,
+		ProviderModelSlug:     &providerModelSlug,
 	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("changed invalid configured model name error = %v, want invalid request", err)
+		t.Fatalf("patch with invalid stored configured model name error = %v, want invalid request", err)
+	}
+	repairedName := "Repaired model"
+	repaired, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+		OrgID:                 testOrgID,
+		ModelProviderConfigID: provider.ID,
+		ID:                    model.ID,
+		Name:                  &repairedName,
+	})
+	if err != nil {
+		t.Fatalf("repair configured model name: %v", err)
+	}
+	if repaired.Name != repairedName || repaired.ProviderModelSlug != "model-v1" {
+		t.Fatalf("repaired configured model = %+v", repaired)
 	}
 }
 
