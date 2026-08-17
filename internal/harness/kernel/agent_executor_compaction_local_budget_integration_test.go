@@ -19,7 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 )
 
-func TestAgentExecutorCompactsAndRetriesAfterLocalBudgetOverflow(t *testing.T) {
+func TestAgentExecutorCompactsBeforeSendWhenProviderUsageFloorExceedsBudget(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	agentID, userID := fixture.createAgentWithModelOptions(
@@ -43,6 +43,7 @@ func TestAgentExecutorCompactsAndRetriesAfterLocalBudgetOverflow(t *testing.T) {
 			ID:         "resp_large_history",
 			Content:    []model.ResponsePart{{Type: "text", Text: "large history accepted"}},
 			StopReason: model.StopReasonEndTurn,
+			Usage:      model.Usage{InputTokens: 1_450, OutputTokens: 10},
 		}},
 	}
 	largeText := "large history " + strings.Repeat("context payload ", 100)
@@ -66,13 +67,8 @@ func TestAgentExecutorCompactsAndRetriesAfterLocalBudgetOverflow(t *testing.T) {
 	}
 
 	retryModel := &sequenceKernelModel{
-		providerModelSlug: "kernel-test",
-		preparedInputTokenEstimator: func(bundle modelcontext.Bundle) int {
-			if bundle.ContextCheckpoint != nil || isCompactionRequestBundle(bundle) {
-				return 500
-			}
-			return 2_000
-		},
+		providerModelSlug:           "kernel-test",
+		preparedInputTokenEstimator: func(modelcontext.Bundle) int { return 500 },
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 1600,
 			MaxOutputTokens:     64,
@@ -170,7 +166,7 @@ func TestAgentExecutorCompactsAndRetriesAfterLocalBudgetOverflow(t *testing.T) {
 		  AND mcc.state = 'failed'
 		  AND mcc.recovery_kind = 'compact'
 		  AND mcc.error_kind = 'context_window'
-		  AND mcc.error_code = 'prepared_request_budget_overflow'`, kernelTestProjectID, agentID, retryTurn.TurnID).Scan(&failedBudgetContexts); err != nil {
+		  AND mcc.error_code = 'configured_input_budget_exceeded'`, kernelTestProjectID, agentID, retryTurn.TurnID).Scan(&failedBudgetContexts); err != nil {
 		t.Fatalf("count failed budget contexts: %v", err)
 	}
 	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after budget compaction'`, kernelTestProjectID, agentID, retryTurn.TurnID).
@@ -179,6 +175,38 @@ func TestAgentExecutorCompactsAndRetriesAfterLocalBudgetOverflow(t *testing.T) {
 	}
 	if failedBudgetContexts != 1 || finalOutputs != 1 {
 		t.Fatalf("budget retry state failed_contexts=%d final_outputs=%d, want 1/1", failedBudgetContexts, finalOutputs)
+	}
+	var errorDetails json.RawMessage
+	if err := fixture.Pool.QueryRow(ctx, `
+		SELECT mcc.error_details
+		FROM model_call_contexts mcc
+		JOIN LATERAL (
+			  SELECT opening.turn_id
+			  FROM agent_events opening
+			  WHERE opening.agent_id = mcc.agent_id
+		    AND opening.is_opening_event
+		    AND opening.sequence <= mcc.input_event_sequence
+		  ORDER BY opening.sequence DESC, opening.id DESC
+		  LIMIT 1
+		) context_turn ON true
+		WHERE mcc.project_id = $1
+		  AND mcc.agent_id = $2
+		  AND context_turn.turn_id = $3
+		  AND mcc.error_code = 'configured_input_budget_exceeded'`, kernelTestProjectID, agentID, retryTurn.TurnID).Scan(&errorDetails); err != nil {
+		t.Fatalf("load provider-usage budget details: %v", err)
+	}
+	var triggerDetails struct {
+		RequestAdmission model.InputBudgetAssessment `json:"request_admission"`
+	}
+	if err := json.Unmarshal(errorDetails, &triggerDetails); err != nil {
+		t.Fatalf("decode provider-usage trigger details: %v", err)
+	}
+	assessment := triggerDetails.RequestAdmission
+	if assessment.EstimateSource != model.InputEstimateProviderUsage ||
+		assessment.LocalEstimateTokens != 500 ||
+		assessment.ProviderUsageFloorTokens <= assessment.UsableInputTokens ||
+		assessment.EstimatedInputTokens != assessment.ProviderUsageFloorTokens {
+		t.Fatalf("provider-usage admission = %+v", assessment)
 	}
 }
 

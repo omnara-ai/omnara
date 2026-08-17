@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/openaierrors"
+	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
@@ -82,9 +82,9 @@ func classifyProviderError(
 		message = fallbackMessage
 	}
 	code := providerErr.codeText()
-	providerStatus := openaierrors.StatusCode(providerErr.Code)
-	effectiveStatus := openaierrors.EffectiveStatusCode(statusCode, providerStatus)
-	kind := openaierrors.Classify(
+	providerStatus := providererrors.StatusCode(providerErr.Code)
+	effectiveStatus := providererrors.EffectiveStatusCode(statusCode, providerStatus)
+	kind := providererrors.Classify(
 		statusCode,
 		providerStatus,
 		message,
@@ -115,7 +115,7 @@ type chatProviderError struct {
 func (e chatProviderError) present() bool {
 	return e.Message != "" ||
 		e.Type != "" ||
-		openaierrors.CodeText(e.Code) != "" ||
+		providererrors.CodeText(e.Code) != "" ||
 		e.Metadata.ErrorType != "" ||
 		e.Metadata.ProviderCode != ""
 }
@@ -127,7 +127,7 @@ func (e chatProviderError) codeText() string {
 	if e.Metadata.ProviderCode != "" {
 		return e.Metadata.ProviderCode
 	}
-	if code := openaierrors.CodeText(e.Code); code != "" {
+	if code := providererrors.CodeText(e.Code); code != "" {
 		return code
 	}
 	return e.Type
@@ -137,7 +137,7 @@ func (e chatProviderError) classificationValues() []string {
 	return []string{
 		e.Metadata.ErrorType,
 		e.Metadata.ProviderCode,
-		openaierrors.CodeText(e.Code),
+		providererrors.CodeText(e.Code),
 		e.Type,
 	}
 }

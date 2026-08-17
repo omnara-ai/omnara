@@ -568,6 +568,53 @@ func TestChatCompletionsConsumeStreamClassifiesOpenRouterMidStreamError(t *testi
 	}
 }
 
+func TestChatCompletionsConsumeStreamClassifiesOpenRouterWrappedContextOverflow(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_context","object":"chat.completion.chunk","created":123,` +
+			`"model":"openai/gpt-5","provider":"openai","error":{"code":502,` +
+			`"message":"Your input exceeds the context window of this model.",` +
+			`"metadata":{"error_type":"provider_unavailable"}},` +
+			`"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error"}],` +
+			`"usage":{"prompt_tokens":914245,"completion_tokens":0}}`,
+	)
+	_, err := consumeChatCompletionsStream(
+		t,
+		stream,
+		&chatRecordingSink{},
+		modelprotocol.APIVariantOpenRouter,
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindContextWindow ||
+		providerErr.StatusCode != http.StatusBadGateway ||
+		providerErr.Code != "provider_unavailable" ||
+		model.IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("wrapped OpenRouter context overflow = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestChatCompletionsConsumeStreamClassifiesOpenRouterWrappedPayloadOverflow(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_payload","object":"chat.completion.chunk","created":123,` +
+			`"model":"openai/gpt-5","provider":"openai","error":{"code":502,` +
+			`"message":"Payload too large for the upstream provider.",` +
+			`"metadata":{"error_type":"provider_unavailable"}},` +
+			`"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error"}]}`,
+	)
+	_, err := consumeChatCompletionsStream(
+		t,
+		stream,
+		&chatRecordingSink{},
+		modelprotocol.APIVariantOpenRouter,
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindPayloadTooLarge ||
+		providerErr.StatusCode != http.StatusBadGateway ||
+		providerErr.Code != "provider_unavailable" ||
+		model.IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("wrapped OpenRouter payload overflow = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
 func TestChatCompletionsConsumeStreamClassifiesErrorBeforeSuccessPayloadValidation(t *testing.T) {
 	tests := []struct {
 		name    string

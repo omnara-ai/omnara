@@ -164,6 +164,7 @@ func (r Runner) run(
 		)
 	}
 	providerAttempt := providerAttemptEvidence{APIFormat: apiFormat, APIVariant: apiVariant}
+	errorSource := modelErrorSourceForAPIFormat(apiFormat)
 	policy := compactionRequestPolicy(client)
 	policy.SuppressProviderReplay, err = r.Store.ModelCallOperationHasFailedWithErrorKind(
 		ctx,
@@ -203,7 +204,11 @@ func (r Runner) run(
 		boundaryWindow.atomicGroups,
 		client,
 		policy,
-		modelErrorSourceForAPIFormat(apiFormat),
+		model.RequestLineage{
+			AgentConfigID:             claim.Context.AgentConfigID.String(),
+			ConfiguredModelRevisionID: claim.Context.ConfiguredModelRevisionID.String(),
+		},
+		errorSource,
 	)
 	if err != nil {
 		return r.recordPreSendFailure(
@@ -265,7 +270,6 @@ func (r Runner) run(
 	}
 	response = model.WithoutToolCallsOnMaxTokens(response)
 	providerAttempt.Response = response
-	errorSource := modelErrorSourceForAPIFormat(apiFormat)
 	if err := model.ValidateProviderResponse(response); err != nil {
 		return r.recordFailure(
 			ctx,
@@ -295,31 +299,44 @@ func (r Runner) run(
 			Summary:                        summary,
 		},
 	})
+	candidateOverBudget := false
 	if candidateErr == nil {
-		_, candidateErr = model.PrepareForSend(
+		var candidatePrepared model.PreparedRequest
+		candidatePrepared, candidateErr = model.PrepareForSend(
 			ctx,
 			client,
-			candidateBundle,
-			model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
-			modelErrorSourceForAPIFormat(apiFormat),
+			model.PrepareForSendInput{
+				Context: candidateBundle,
+				Policy: model.RequestPolicyFromCapabilities(
+					model.CapabilitiesForClient(client),
+				),
+				ErrorSource: errorSource,
+				Lineage: model.RequestLineage{
+					AgentConfigID:             claim.Context.AgentConfigID.String(),
+					ConfiguredModelRevisionID: claim.Context.ConfiguredModelRevisionID.String(),
+				},
+			},
 		)
+		if candidateErr == nil {
+			candidateOverBudget = candidatePrepared.InputBudget.OverBudget()
+		}
 	}
 	if candidateErr != nil {
-		if !requestSizeError(candidateErr) {
-			if _, classified := model.ClassifyError(candidateErr); classified {
-				return r.recordFailure(
-					ctx,
-					input,
-					claim,
-					candidateErr,
-					providerAttempt,
-				)
-			}
-			return RunResult{}, fmt.Errorf(
-				"validate projected context with candidate checkpoint: %w",
+		if _, classified := model.ClassifyError(candidateErr); classified {
+			return r.recordFailure(
+				ctx,
+				input,
+				claim,
 				candidateErr,
+				providerAttempt,
 			)
 		}
+		return RunResult{}, fmt.Errorf(
+			"validate projected context with candidate checkpoint: %w",
+			candidateErr,
+		)
+	}
+	if candidateOverBudget {
 		hasRemainingSource, err := r.hasRemainingSemanticSource(ctx, input, protectOpening)
 		if err != nil {
 			return RunResult{}, err

@@ -150,13 +150,19 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 		if err != nil {
 			return nil, err
 		}
-		modelCallContextID := ""
-		if event.ModelCallContextID != storage.NilID {
-			modelCallContextID = event.ModelCallContextID.String()
-		}
-		modelProviderConfigID := ""
-		if event.ModelProviderConfigID != storage.NilID {
-			modelProviderConfigID = event.ModelProviderConfigID.String()
+		modelCallContextID := idString(event.ModelCallContextID)
+		var usageAnchor *ProviderUsageAnchor
+		if modelCallContextID != "" {
+			usageAnchor = &ProviderUsageAnchor{
+				Identity: ModelRequestIdentity{
+					AgentConfigID:             idString(event.AgentConfigID),
+					ConfiguredModelRevisionID: idString(event.ConfiguredModelRevisionID),
+					RequestedModelSlug:        event.RequestedModelSlug,
+					APIFormat:                 event.APIFormat,
+					APIVariant:                event.APIVariant,
+				},
+				Usage: event.Usage,
+			}
 		}
 		out = append(
 			out,
@@ -169,15 +175,23 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 				Content:            event.ContentParts,
 				ProviderReplay:     event.ProviderReplay,
 				ProviderReplaySource: modelenvelope.ProviderReplayIdentity{
-					ModelProviderConfigID:      modelProviderConfigID,
+					ModelProviderConfigID:      idString(event.ModelProviderConfigID),
 					RequestedProviderModelSlug: event.RequestedModelSlug,
 					APIFormat:                  event.APIFormat,
 					APIVariant:                 event.APIVariant,
 				},
+				UsageAnchor: usageAnchor,
 			},
 		)
 	}
 	return out, nil
+}
+
+func idString(id storage.ID) string {
+	if id == storage.NilID {
+		return ""
+	}
+	return id.String()
 }
 
 func contextEventRole(event executionstore.ContextEventRecord) (modelprotocol.MessageRole, error) {

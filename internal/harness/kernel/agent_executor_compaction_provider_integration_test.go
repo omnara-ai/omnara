@@ -4,6 +4,7 @@ package kernel
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -253,6 +254,292 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 	}
 	if outputBlocks != 1 {
 		t.Fatalf("final output block count = %d, want 1", outputBlocks)
+	}
+}
+
+func TestAgentExecutorReplaysOverflowWhenPlanningIsInterruptedBeforeHandoff(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
+
+	seedModel := &sequenceKernelModel{
+		providerModelSlug: "kernel-test",
+		responses: []model.Response{{
+			ID:         "resp_interrupted_compaction_seed",
+			Content:    []model.ResponsePart{{Type: "text", Text: "closed history before interrupted compaction"}},
+			StopReason: model.StopReasonEndTurn,
+		}},
+	}
+	seedTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"seed compactable history before the interrupted overflow",
+		fixture.Now.Add(time.Second),
+	)
+	if err := (AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, seedModel),
+		ToolExecutor:  tools.Executor{Store: fixture.Store},
+		Now:           func() time.Time { return fixture.Now.Add(2 * time.Second) },
+	}).ExecuteModelWork(ctx, seedTurn); err != nil {
+		t.Fatalf("execute interrupted-compaction seed: %v", err)
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		seedTurn.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release interrupted-compaction seed runtime: %v", err)
+	}
+
+	attemptCtx, cancelAttempt := context.WithCancel(ctx)
+	defer cancelAttempt()
+	modelClient := &sequenceKernelModel{
+		providerModelSlug: "kernel-test",
+		capabilities: model.Capabilities{
+			ContextWindowTokens: 128000,
+			MaxOutputTokens:     128,
+		},
+		responses: []model.Response{
+			{
+				ID:         "resp_overflow_before_interrupted_handoff",
+				Content:    []model.ResponsePart{{Type: "text", Text: "context window exceeded before handoff"}},
+				StopReason: model.StopReasonContextWindow,
+				Usage:      model.Usage{InputTokens: 128000},
+			},
+			{
+				ID:         "resp_overflow_after_ambiguous_replay",
+				Content:    []model.ResponsePart{{Type: "text", Text: "context window exceeded on replay"}},
+				StopReason: model.StopReasonContextWindow,
+				Usage:      model.Usage{InputTokens: 128000},
+			},
+			{
+				ID:         "resp_summary_after_ambiguous_replay",
+				Content:    []model.ResponsePart{{Type: "text", Text: "The earlier compactable history was preserved after recovery."}},
+				StopReason: model.StopReasonEndTurn,
+			},
+			{
+				ID:         "resp_final_after_ambiguous_replay",
+				Content:    []model.ResponsePart{{Type: "text", Text: "continued after interrupted compaction recovery"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
+		afterRespond: func(response model.Response) {
+			if response.ID == "resp_overflow_before_interrupted_handoff" {
+				cancelAttempt()
+			}
+		},
+	}
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"trigger an overflow whose first maintenance plan is interrupted",
+		fixture.Now.Add(3*time.Second),
+	)
+	executor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
+		ToolExecutor:  tools.Executor{Store: fixture.Store},
+		Now:           func() time.Time { return fixture.Now.Add(4 * time.Second) },
+	}
+	if err := executor.ExecuteModelWork(attemptCtx, turn); !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted maintenance planning error = %v, want context canceled", err)
+	}
+	if modelClient.respondedCount() != 1 {
+		t.Fatalf("requests before interrupted handoff = %d, want one overflow", modelClient.respondedCount())
+	}
+
+	var interruptedContextID storage.ID
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT id
+FROM model_call_contexts
+WHERE project_id = $1
+  AND agent_id = $2
+  AND input_event_sequence = $3
+  AND operation_kind = 'normal'
+  AND state = 'started'
+`, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(&interruptedContextID); err != nil {
+		t.Fatalf("load normal context left active before handoff: %v", err)
+	}
+	assertNoInterruptedCompactionArtifacts := func(stage string) {
+		t.Helper()
+		var compactions, checkpoints int
+		if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)
+FROM model_call_contexts
+WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'compaction'
+`, kernelTestProjectID, agentID).Scan(&compactions); err != nil {
+			t.Fatalf("count compactions %s: %v", stage, err)
+		}
+		if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)
+FROM context_checkpoints checkpoint
+JOIN agents agent ON agent.id = checkpoint.agent_id
+WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
+`, kernelTestProjectID, agentID).Scan(&checkpoints); err != nil {
+			t.Fatalf("count checkpoints %s: %v", stage, err)
+		}
+		if compactions != 0 || checkpoints != 0 {
+			t.Fatalf("compactions/checkpoints %s = %d/%d, want 0/0", stage, compactions, checkpoints)
+		}
+	}
+	assertNoInterruptedCompactionArtifacts("before runtime release")
+
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		turn.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release runtime after interrupted maintenance planning: %v", err)
+	}
+	interrupted, found, err := fixture.Store.Execution().GetModelCallContext(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		interruptedContextID,
+	)
+	if err != nil || !found {
+		t.Fatalf("load interrupted overflow context: found=%v err=%v", found, err)
+	}
+	if interrupted.State != executionstore.ModelCallContextFailed ||
+		interrupted.RecoveryKind != executionstore.ModelCallRecoveryRetry ||
+		interrupted.ErrorCode != "runtime_released_before_model_result_acceptance" ||
+		interrupted.RetryAt == nil ||
+		!kernelModelCallOutcomeAmbiguous(t, interrupted.ErrorDetails) {
+		t.Fatalf("interrupted overflow context = %+v", interrupted)
+	}
+	assertNoInterruptedCompactionArtifacts("after runtime release")
+
+	claimAt := interrupted.RetryAt.Add(time.Second)
+	if wallNow := time.Now().UTC(); claimAt.Before(wallNow) {
+		claimAt = wallNow.Add(time.Second)
+	}
+	retryClaim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
+		ctx,
+		kernelTestClaimInput(claimAt),
+	)
+	if err != nil {
+		t.Fatalf("claim ambiguous overflow replay: %v", err)
+	}
+	if !found || retryClaim.Kind != executionstore.AgentWorkModel ||
+		retryClaim.Model.ModelCallContextID != interruptedContextID {
+		t.Fatalf("ambiguous overflow replay claim = %+v found=%v", retryClaim, found)
+	}
+	retryWork := modelWorkExecutionFromClaimForKernelTest(retryClaim, claimAt)
+	executor.Now = func() time.Time { return claimAt }
+	if err := executor.ExecuteModelWork(ctx, retryWork); err != nil {
+		t.Fatalf("execute ambiguous overflow replay and compaction: %v", err)
+	}
+	if modelClient.respondedCount() != 3 {
+		t.Fatalf("requests through replay compaction = %d, want overflow/overflow/summary", modelClient.respondedCount())
+	}
+
+	finalNow := claimAt.Add(time.Second)
+	finalWork := continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, retryWork, finalNow)
+	executor.Now = func() time.Time { return finalNow }
+	if err := executor.ExecuteModelWork(ctx, finalWork); err != nil {
+		t.Fatalf("execute continuation after interrupted compaction recovery: %v", err)
+	}
+	if modelClient.respondedCount() != 4 {
+		t.Fatalf("total requests after interrupted compaction recovery = %d, want four", modelClient.respondedCount())
+	}
+	if summaryRequest := string(modelClient.responded[2].ProviderRequest); !strings.Contains(
+		summaryRequest,
+		"closed history before interrupted compaction",
+	) {
+		t.Fatalf("replayed compaction summary omitted closed history: %s", summaryRequest)
+	}
+	if finalRequest := string(modelClient.responded[3].ProviderRequest); !strings.Contains(
+		finalRequest,
+		"The earlier compactable history was preserved after recovery.",
+	) {
+		t.Fatalf("continued request omitted recovered checkpoint: %s", finalRequest)
+	}
+
+	var ambiguousRetries, compactFailures, successfulCompactions, successfulContinuations int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*) FILTER (
+         WHERE context.operation_kind = 'normal'
+           AND context.state = 'failed'
+           AND context.recovery_kind = 'retry'
+           AND context.error_code = 'runtime_released_before_model_result_acceptance'
+       ),
+       count(*) FILTER (
+         WHERE context.operation_kind = 'normal'
+           AND context.state = 'failed'
+           AND context.recovery_kind = 'compact'
+           AND context.error_kind = 'context_window'
+       ),
+       count(*) FILTER (
+         WHERE context.operation_kind = 'compaction'
+           AND context.state = 'succeeded'
+       ),
+       count(*) FILTER (
+         WHERE context.operation_kind = 'normal'
+           AND context.state = 'succeeded'
+       )
+FROM model_call_contexts context
+JOIN LATERAL (
+  SELECT opening.turn_id
+  FROM agent_events opening
+  WHERE opening.agent_id = context.agent_id
+    AND opening.is_opening_event
+    AND opening.sequence <= context.input_event_sequence
+  ORDER BY opening.sequence DESC, opening.id DESC
+  LIMIT 1
+) context_turn ON true
+WHERE context.project_id = $1
+  AND context.agent_id = $2
+  AND context_turn.turn_id = $3
+`, kernelTestProjectID, agentID, turn.TurnID).Scan(
+		&ambiguousRetries,
+		&compactFailures,
+		&successfulCompactions,
+		&successfulContinuations,
+	); err != nil {
+		t.Fatalf("load interrupted compaction recovery chain: %v", err)
+	}
+	if ambiguousRetries != 1 || compactFailures != 1 ||
+		successfulCompactions != 1 || successfulContinuations != 1 {
+		t.Fatalf(
+			"recovery chain ambiguous/compact/summary/continuation = %d/%d/%d/%d, want 1/1/1/1",
+			ambiguousRetries,
+			compactFailures,
+			successfulCompactions,
+			successfulContinuations,
+		)
+	}
+	var checkpoints, finalOutputs int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)
+FROM context_checkpoints checkpoint
+JOIN agents agent ON agent.id = checkpoint.agent_id
+WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
+`, kernelTestProjectID, agentID).Scan(&checkpoints); err != nil {
+		t.Fatalf("count recovered checkpoints: %v", err)
+	}
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)
+FROM agent_events event
+JOIN agents agent ON agent.id = event.agent_id
+JOIN content_blocks block
+  ON block.agent_id = event.agent_id
+ AND block.owner_model_output_id = event.model_output_id
+WHERE agent.project_id = $1
+  AND event.agent_id = $2
+  AND event.turn_id = $3
+  AND block.text_content = 'continued after interrupted compaction recovery'
+`, kernelTestProjectID, agentID, turn.TurnID).Scan(&finalOutputs); err != nil {
+		t.Fatalf("count interrupted-compaction final outputs: %v", err)
+	}
+	if checkpoints != 1 || finalOutputs != 1 {
+		t.Fatalf("recovered checkpoints/final outputs = %d/%d, want 1/1", checkpoints, finalOutputs)
 	}
 }
 
@@ -736,8 +1023,8 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 				RuntimeLockID:      turn.RuntimeLockID,
 				RecoveryKind:       executionstore.ModelCallRecoveryCompact,
 				ErrorKind:          model.ErrorKindContextWindow,
-				ErrorCode:          "prepared_request_budget_overflow",
-				ErrorMessage:       "The serialized provider request exceeds the configured input budget.",
+				ErrorCode:          "configured_input_budget_exceeded",
+				ErrorMessage:       "The prepared model request exceeds the configured input budget.",
 			},
 			SourceEventSequenceEnd: turn.OpeningEventSequence - 1,
 		},

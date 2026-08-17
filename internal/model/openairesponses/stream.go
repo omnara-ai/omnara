@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/openaierrors"
+	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/model/route"
 )
 
@@ -240,9 +240,10 @@ func (a *openAIStreamAccumulator) handleResponseEvidence(event, data string) err
 
 func (a *openAIStreamAccumulator) handleErrorEvent(event, data string) error {
 	var frame struct {
-		Error   responsesError `json:"error"`
-		Code    any            `json:"code"`
-		Message string         `json:"message"`
+		ErrorType string         `json:"error_type"`
+		Error     responsesError `json:"error"`
+		Code      any            `json:"code"`
+		Message   string         `json:"message"`
 	}
 	if err := json.Unmarshal([]byte(data), &frame); err != nil {
 		return a.recordMalformedErrorEvent(event, data, err)
@@ -253,7 +254,8 @@ func (a *openAIStreamAccumulator) handleErrorEvent(event, data string) error {
 	if frame.Error.Message == "" {
 		frame.Error.Message = frame.Message
 	}
-	if !frame.Error.present() && openaierrors.CodeText(frame.Code) == "" && frame.Message == "" {
+	if !frame.Error.present() && frame.ErrorType == "" &&
+		providererrors.CodeText(frame.Code) == "" && frame.Message == "" {
 		return a.recordMalformedErrorEvent(event, data, errors.New("payload missing error evidence"))
 	}
 	message := frame.Error.Message
@@ -265,12 +267,18 @@ func (a *openAIStreamAccumulator) handleErrorEvent(event, data string) error {
 			a.statusCode,
 			0,
 			message,
+			frame.ErrorType,
 			frame.Error.codeText(),
 			frame.Error.Type,
 		),
 		Source:     a.protocol.errorSource(),
 		StatusCode: a.statusCode,
-		Code:       firstNonEmpty(frame.Error.codeText(), frame.Error.Type, openaierrors.CodeText(frame.Code)),
+		Code: firstNonEmpty(
+			frame.ErrorType,
+			frame.Error.codeText(),
+			frame.Error.Type,
+			providererrors.CodeText(frame.Code),
+		),
 		Message:    message,
 		RequestID:  model.RequestIDFromHeader(a.header),
 		RetryAfter: model.RetryAfterFromHeader(a.header),

@@ -540,7 +540,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		if err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window' AND error_code = 'prepared_request_budget_overflow'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window' AND error_code = 'configured_input_budget_exceeded'`, projectUUID, agentUUID).
 			Scan(&failedBudgetContexts); err != nil {
 			return false, err.Error()
 		}

@@ -41,6 +41,43 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 	}
 }
 
+func TestRunnerStopsBeforeSendWhenSmallestSourceExceedsBudget(t *testing.T) {
+	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+		textCompactionEvent(1, "only closed semantic unit"),
+	}}
+	client := &summaryModel{
+		caps: model.Capabilities{
+			ContextWindowTokens: 8_000,
+			MaxOutputTokens:     1_024,
+		},
+		preparedEstimates: []int{7_000},
+	}
+
+	result, err := testRunner(store, client).
+		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	if err != nil {
+		t.Fatalf("run irreducibly oversized source: %v", err)
+	}
+	if result.State != RunTerminal || len(store.terminalFailures) != 1 ||
+		store.terminalFailures[0].ErrorKind != model.ErrorKindContextWindow ||
+		store.terminalFailures[0].ErrorCode != "compaction_source_irreducible" ||
+		!strings.Contains(store.terminalFailures[0].ErrorMessage, "no closed source prefix fits") ||
+		len(client.preparedBundles) != 1 || len(client.requests) != 0 ||
+		len(store.replacements) != 0 || len(store.retryFailures) != 0 ||
+		len(store.publishInputs) != 0 {
+		t.Fatalf(
+			"irreducible result=%+v terminal=%+v prepares=%d requests=%d replacements=%+v retries=%+v publishes=%+v",
+			result,
+			store.terminalFailures,
+			len(client.preparedBundles),
+			len(client.requests),
+			store.replacements,
+			store.retryFailures,
+			store.publishInputs,
+		)
+	}
+}
+
 func TestRunnerRecordsBoundaryAdjustmentSeparatelyFromBudgetOverflow(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
 		textCompactionEvent(1, strings.Repeat("closed semantic event ", 20)),
@@ -117,7 +154,7 @@ func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testin
 		t.Fatalf("run serialized oversized source: %v", err)
 	}
 	if result.State != RunCompleted || len(store.replacements) != 1 ||
-		store.replacements[0].ErrorCode != "prepared_request_budget_overflow" ||
+		store.replacements[0].ErrorCode != "compaction_source_over_budget" ||
 		store.replacements[0].NextSourceEventSequenceEnd != 1 ||
 		store.replacements[0].APIFormat != client.APIFormat() ||
 		store.replacements[0].APIVariant != client.ModelAPIVariant() ||

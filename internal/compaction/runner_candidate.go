@@ -43,12 +43,6 @@ func compactionSourceAdjustmentError(
 	}
 }
 
-func requestSizeError(err error) bool {
-	providerErr, ok := model.ClassifyError(err)
-	return ok && (providerErr.Kind == model.ErrorKindContextWindow ||
-		providerErr.Kind == model.ErrorKindPayloadTooLarge)
-}
-
 func (r Runner) loadClosedEventRange(
 	ctx context.Context,
 	plan Plan,
@@ -179,6 +173,7 @@ func largestFittingCompactionRequest(
 	groups []executionstore.CompactionAtomicGroupRecord,
 	client model.Client,
 	policy model.RequestPolicy,
+	lineage model.RequestLineage,
 	errorSource string,
 ) (preparedCompactionRequest, error) {
 	candidates := safeCompactionSourceEndsWithWitness(
@@ -192,7 +187,7 @@ func largestFittingCompactionRequest(
 	low, high := 0, len(candidates)-1
 	best := -1
 	var bestRequest preparedCompactionRequest
-	var sizeErr error
+	localOverBudget := false
 	for low <= high {
 		mid := low + (high-low)/2
 		end := candidates[mid]
@@ -211,15 +206,18 @@ func largestFittingCompactionRequest(
 		prepared, err := model.PrepareForSend(
 			ctx,
 			client,
-			bundle,
-			policy,
-			errorSource,
+			model.PrepareForSendInput{
+				Context:     bundle,
+				Policy:      policy,
+				ErrorSource: errorSource,
+				Lineage:     lineage,
+			},
 		)
 		if err != nil {
-			if !requestSizeError(err) {
-				return preparedCompactionRequest{}, err
-			}
-			sizeErr = err
+			return preparedCompactionRequest{}, err
+		}
+		if prepared.InputBudget.OverBudget() {
+			localOverBudget = true
 			high = mid - 1
 			continue
 		}
@@ -234,7 +232,14 @@ func largestFittingCompactionRequest(
 	if best < 0 {
 		return preparedCompactionRequest{}, nil
 	}
-	bestRequest.adjustmentCause = sizeErr
+	if localOverBudget {
+		bestRequest.adjustmentCause = compactionSourceAdjustmentError(
+			events,
+			witnessEvents,
+			groups,
+			input.Plan.EventSequenceEnd,
+		)
+	}
 	return bestRequest, nil
 }
 

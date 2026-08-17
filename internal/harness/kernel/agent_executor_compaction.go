@@ -13,6 +13,19 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+func (e AgentExecutor) compactionRunner(
+	resolver model.Resolver,
+	builder modelcontext.Builder,
+) compaction.Runner {
+	return compaction.Runner{
+		Store:           compaction.NewStore(e.Store.Execution()),
+		Resolver:        resolver,
+		ContextBuilder:  builder,
+		Now:             e.Now,
+		ModelRetryDelay: e.ModelRetryDelay,
+	}
+}
+
 func (e AgentExecutor) resumeCompactionContext(
 	ctx context.Context,
 	input ModelWorkExecution,
@@ -48,13 +61,7 @@ func (e AgentExecutor) resumeCompactionContext(
 	if !found {
 		return fmt.Errorf("active compaction context has no parent normal call: %w", storeerr.ErrStateTransitionConflict)
 	}
-	_, err = (compaction.Runner{
-		Store:           compaction.NewStore(e.Store.Execution()),
-		Resolver:        resolver,
-		ContextBuilder:  builder,
-		Now:             e.Now,
-		ModelRetryDelay: e.ModelRetryDelay,
-	}).Run(
+	_, err = e.compactionRunner(resolver, builder).Run(
 		ctx,
 		compaction.RunInput{
 			Plan: compaction.Plan{
@@ -226,25 +233,25 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 			if buildErr != nil {
 				return false, buildErr
 			}
-			_, prepareErr := model.PrepareForSend(
+			prepared, prepareErr := model.PrepareForSend(
 				ctx,
 				client,
-				bundle,
-				model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
-				modelErrorSourceForClient(client),
+				model.PrepareForSendInput{
+					Context: bundle,
+					Policy: model.RequestPolicyFromCapabilities(
+						model.CapabilitiesForClient(client),
+					),
+					ErrorSource: modelErrorSourceForClient(client),
+					Lineage: model.RequestLineage{
+						AgentConfigID:             contextRow.AgentConfigID.String(),
+						ConfiguredModelRevisionID: contextRow.ConfiguredModelRevisionID.String(),
+					},
+				},
 			)
-			if prepareErr == nil {
-				return true, nil
+			if prepareErr != nil {
+				return false, prepareErr
 			}
-			providerErr, classified := model.ClassifyError(prepareErr)
-			if classified && (providerErr.Kind == model.ErrorKindContextWindow ||
-				providerErr.Kind == model.ErrorKindPayloadTooLarge) {
-				return false, nil
-			}
-			if classified {
-				return true, nil
-			}
-			return false, prepareErr
+			return prepared.InputBudget.Fits(), nil
 		},
 	)
 }

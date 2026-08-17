@@ -14,17 +14,82 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func TestCompactionRequestPolicyUsesLiveMaximumAsSafetyCeiling(t *testing.T) {
+func TestCompactionRequestPolicyBoundsOutputAndReasoning(t *testing.T) {
 	client := &summaryModel{caps: model.Capabilities{
-		MaxOutputTokens:        4_096,
+		MaxOutputTokens:        64_000,
 		DefaultMaxOutputTokens: 2_048,
 		DefaultCacheRetention:  model.CacheRetentionShort,
+		SupportsReasoning:      true,
 		DefaultReasoningEffort: "high",
+		SupportedReasoningEfforts: []string{
+			"max", "xhigh", "high", "medium", "low", "minimal", "none",
+		},
 	}}
 	got := compactionRequestPolicy(client)
-	if got.MaxOutputTokens != 4_096 || got.CacheRetention != model.CacheRetentionShort ||
-		got.DefaultReasoningEffort != "high" {
+	if got.MaxOutputTokens != 16_384 || got.CacheRetention != model.CacheRetentionShort ||
+		got.DefaultReasoningEffort != "low" {
 		t.Fatalf("compaction request policy = %+v", got)
+	}
+}
+
+func TestCompactionReasoningEffortUsesSemanticOrder(t *testing.T) {
+	tests := []struct {
+		name      string
+		supported []string
+		defaulted string
+		supports  bool
+		want      string
+	}{
+		{
+			name: "preserves minimal default", supports: true, defaulted: "minimal",
+			supported: []string{"high", "low", "minimal"}, want: "minimal",
+		},
+		{
+			name: "preserves provider-declared none default", supports: true, defaulted: "none",
+			supported: []string{"none", "minimal", "low"}, want: "none",
+		},
+		{
+			name: "targets low independent of list order", supports: true, defaulted: "high",
+			supported: []string{"max", "minimal", "medium", "low"}, want: "low",
+		},
+		{
+			name: "prefers strongest effort below low", supports: true, defaulted: "high",
+			supported: []string{"high", "medium", "minimal"}, want: "minimal",
+		},
+		{
+			name: "uses least effort above low when necessary", supports: true,
+			defaulted: "high", supported: []string{"high", "medium"}, want: "medium",
+		},
+		{name: "retains configured default without enumeration", supports: true, defaulted: "high", want: "high"},
+		{
+			name: "retains configured default with only unknown enumeration", supports: true,
+			defaulted: "vendor-low", supported: []string{"vendor-low"}, want: "vendor-low",
+		},
+		{
+			name: "retains unknown configured default beside known efforts", supports: true,
+			defaulted: "vendor-low", supported: []string{"vendor-low", "high", "none"}, want: "vendor-low",
+		},
+		{
+			name: "preserves advertised wire spelling", supports: true,
+			defaulted: "HIGH", supported: []string{"HIGH", "LOW"}, want: "LOW",
+		},
+		{
+			name: "uses only provider-declared none effort", supports: true,
+			defaulted: "none", supported: []string{"none"}, want: "none",
+		},
+		{name: "omits for nonreasoning model", defaulted: "high", supported: []string{"high", "low"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := compactionReasoningEffort(model.Capabilities{
+				SupportsReasoning:         test.supports,
+				DefaultReasoningEffort:    test.defaulted,
+				SupportedReasoningEfforts: test.supported,
+			})
+			if got != test.want {
+				t.Fatalf("effort = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

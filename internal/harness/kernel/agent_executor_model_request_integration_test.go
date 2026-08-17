@@ -655,29 +655,31 @@ WHERE context.project_id = $1
 		)
 	}
 	var details struct {
-		ProviderMetadata struct {
-			CompactionTrigger struct {
-				Kind    string          `json:"kind"`
-				Code    string          `json:"code"`
-				Message string          `json:"message"`
-				Details json.RawMessage `json:"details"`
-			} `json:"compaction_trigger"`
-		} `json:"provider_metadata"`
+		CompactionTrigger struct {
+			Kind    string          `json:"kind"`
+			Code    string          `json:"code"`
+			Message string          `json:"message"`
+			Details json.RawMessage `json:"details"`
+		} `json:"compaction_trigger"`
 	}
 	if err := json.Unmarshal(errorDetails, &details); err != nil {
 		t.Fatalf("decode serialized overflow details: %v", err)
 	}
-	trigger := details.ProviderMetadata.CompactionTrigger
+	trigger := details.CompactionTrigger
 	var triggerDetails struct {
-		Source string `json:"source"`
+		Source           string                      `json:"source"`
+		RequestAdmission model.InputBudgetAssessment `json:"request_admission"`
 	}
 	if err := json.Unmarshal(trigger.Details, &triggerDetails); err != nil {
 		t.Fatalf("decode serialized overflow trigger details: %v", err)
 	}
 	if trigger.Kind != string(model.ErrorKindContextWindow) ||
-		trigger.Code != "prepared_request_budget_overflow" ||
-		trigger.Message != "The serialized provider request exceeds the configured input budget." ||
-		triggerDetails.Source != "openai-responses" {
+		trigger.Code != "configured_input_budget_exceeded" ||
+		!strings.Contains(trigger.Message, "exceeding the configured budget") ||
+		triggerDetails.Source != "openai-responses" ||
+		triggerDetails.RequestAdmission.EstimatedInputTokens <=
+			triggerDetails.RequestAdmission.UsableInputTokens ||
+		triggerDetails.RequestAdmission.EstimateSource == "" {
 		t.Fatalf(
 			"serialized overflow compaction trigger = %+v source=%q",
 			trigger,
@@ -1045,7 +1047,7 @@ WHERE context.project_id = $1
 		t.Fatalf("load compactable serialized overflow attempt: %v", err)
 	}
 	if state != executionstore.ModelCallContextFailed || recoveryKind != executionstore.ModelCallRecoveryCompact ||
-		errorCode != "prepared_request_budget_overflow" {
+		errorCode != "configured_input_budget_exceeded" {
 		t.Fatalf(
 			"compactable serialized overflow attempt = %q/%q/%q",
 			state,

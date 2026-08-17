@@ -124,46 +124,104 @@ type PreparedRequest struct {
 	// the provider transport. Respond must not rebuild or mutate it.
 	Body               json.RawMessage
 	InputTokenEstimate int
+	InputBudget        InputBudgetAssessment
+}
+
+type RequestLineage struct {
+	AgentConfigID             string
+	ConfiguredModelRevisionID string
+}
+
+type PrepareForSendInput struct {
+	Context     modelcontext.Bundle
+	Policy      RequestPolicy
+	ErrorSource string
+	Lineage     RequestLineage
+}
+
+type InputEstimateSource string
+
+const (
+	InputEstimatePreparedRequest InputEstimateSource = "prepared_request"
+	InputEstimateProviderUsage   InputEstimateSource = "provider_usage_floor"
+)
+
+// InputBudgetAssessment is the admission result for the exact prepared body.
+// Exceeding the configured budget is ordinary control flow, not a provider or
+// request-preparation error.
+type InputBudgetAssessment struct {
+	EstimatedInputTokens     int                 `json:"estimated_input_tokens"`
+	UsableInputTokens        int                 `json:"usable_input_tokens"`
+	LocalEstimateTokens      int                 `json:"local_estimate_tokens"`
+	ProviderUsageFloorTokens int                 `json:"provider_usage_floor_tokens,omitempty"`
+	EstimateSource           InputEstimateSource `json:"estimate_source"`
+}
+
+func (a InputBudgetAssessment) Fits() bool {
+	return a.EstimatedInputTokens > 0 &&
+		a.EstimatedInputTokens <= a.UsableInputTokens
+}
+
+func (a InputBudgetAssessment) OverBudget() bool {
+	return !a.Fits()
 }
 
 func PrepareForSend(
 	ctx context.Context,
 	client Client,
-	bundle modelcontext.Bundle,
-	policy RequestPolicy,
-	errorSource string,
+	input PrepareForSendInput,
 ) (PreparedRequest, error) {
 	if client == nil {
 		return PreparedRequest{}, errors.New("model client is required")
 	}
-	if err := validateRequestModalities(bundle, CapabilitiesForClient(client), errorSource); err != nil {
+	if err := validateRequestModalities(
+		input.Context,
+		CapabilitiesForClient(client),
+		input.ErrorSource,
+	); err != nil {
 		return PreparedRequest{}, err
 	}
-	prepared, err := client.Prepare(ctx, PrepareInput{Context: bundle, Policy: policy})
+	prepared, err := client.Prepare(ctx, PrepareInput{Context: input.Context, Policy: input.Policy})
 	if err != nil {
 		return PreparedRequest{}, err
 	}
 	if len(prepared.Body) == 0 {
 		return PreparedRequest{}, ProviderError{
 			Kind:    ErrorKindInvalidRequest,
-			Source:  errorSource,
+			Source:  input.ErrorSource,
 			Code:    "empty_prepared_request",
 			Message: "The configured model produced an empty provider request.",
 		}
 	}
 	estimate := prepared.InputTokenEstimate
 	if estimate <= 0 {
-		estimate = modelcontext.EstimatePreparedRequest(prepared.Body, bundle.RenderedMedia)
+		estimate = modelcontext.EstimatePreparedRequest(prepared.Body, input.Context.RenderedMedia)
 	}
 	prepared.InputTokenEstimate = estimate
-	window := modelWindowForRequest(CapabilitiesForClient(client), policy)
-	if !window.FitsInputEstimate(estimate) {
-		return PreparedRequest{}, ProviderError{
-			Kind:    ErrorKindContextWindow,
-			Source:  errorSource,
-			Code:    "prepared_request_budget_overflow",
-			Message: "The serialized provider request exceeds the configured input budget.",
-		}
+	providerUsageFloor, hasProviderUsageFloor := modelcontext.ProviderUsageInputFloor(
+		input.Context,
+		modelcontext.ModelRequestIdentity{
+			AgentConfigID:             input.Lineage.AgentConfigID,
+			ConfiguredModelRevisionID: input.Lineage.ConfiguredModelRevisionID,
+			RequestedModelSlug:        client.RequestedProviderModelSlug(),
+			APIFormat:                 client.APIFormat(),
+			APIVariant:                client.ModelAPIVariant(),
+		},
+		input.Policy.SuppressProviderReplay,
+	)
+	effectiveEstimate := estimate
+	estimateSource := InputEstimatePreparedRequest
+	if hasProviderUsageFloor && providerUsageFloor > effectiveEstimate {
+		effectiveEstimate = providerUsageFloor
+		estimateSource = InputEstimateProviderUsage
+	}
+	window := modelWindowForRequest(CapabilitiesForClient(client), input.Policy)
+	prepared.InputBudget = InputBudgetAssessment{
+		EstimatedInputTokens:     effectiveEstimate,
+		UsableInputTokens:        window.UsableInputTokens(),
+		LocalEstimateTokens:      estimate,
+		ProviderUsageFloorTokens: providerUsageFloor,
+		EstimateSource:           estimateSource,
 	}
 	return prepared, nil
 }

@@ -91,6 +91,20 @@ type Message struct {
 	Content              json.RawMessage                      `json:"content"`
 	ProviderReplay       json.RawMessage                      `json:"-"`
 	ProviderReplaySource modelenvelope.ProviderReplayIdentity `json:"-"`
+	UsageAnchor          *ProviderUsageAnchor                 `json:"-"`
+}
+
+type ModelRequestIdentity struct {
+	AgentConfigID             string
+	ConfiguredModelRevisionID string
+	RequestedModelSlug        string
+	APIFormat                 modelprotocol.APIFormat
+	APIVariant                modelprotocol.APIVariant
+}
+
+type ProviderUsageAnchor struct {
+	Identity ModelRequestIdentity
+	Usage    modelenvelope.Usage
 }
 
 type ToolSpec struct {
@@ -146,7 +160,9 @@ type MachinePoolRef struct {
 }
 
 type CheckpointRef struct {
-	ID                             string `json:"-"`
+	ID string `json:"-"`
+	// PublishedEventSequence is zero for synthetic, unpublished candidates.
+	PublishedEventSequence         int64  `json:"-"`
 	SummarizedThroughEventSequence int64  `json:"summarized_through_event_sequence"`
 	Summary                        string `json:"summary"`
 }

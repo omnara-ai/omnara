@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -244,9 +243,15 @@ func (e AgentExecutor) executeModelStep(
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,
-		bundle,
-		policy,
-		modelErrorSourceForClient(client),
+		model.PrepareForSendInput{
+			Context:     bundle,
+			Policy:      policy,
+			ErrorSource: modelErrorSourceForClient(client),
+			Lineage: model.RequestLineage{
+				AgentConfigID:             claim.Context.AgentConfigID.String(),
+				ConfiguredModelRevisionID: claim.Context.ConfiguredModelRevisionID.String(),
+			},
+		},
 	)
 	if err != nil {
 		return e.recordNormalPreSendFailure(
@@ -255,6 +260,24 @@ func (e AgentExecutor) executeModelStep(
 				Code:    preSendErrorCodePrepareModelRequestFailed,
 				Message: "Omnara could not prepare the provider request for this attempt.",
 			},
+		)
+	}
+	if prepared.InputBudget.OverBudget() {
+		trigger, triggerErr := localInputBudgetTrigger(
+			prepared.InputBudget,
+			modelErrorSourceForClient(client),
+		)
+		if triggerErr != nil {
+			return modelStep{}, triggerErr
+		}
+		return e.enterContextMaintenance(
+			ctx,
+			input,
+			claim,
+			resolved,
+			trigger,
+			false,
+			model.Response{},
 		)
 	}
 	request := model.Request{
@@ -291,7 +314,7 @@ func (e AgentExecutor) executeModelStep(
 			resolved,
 			model.MalformedProviderResponse(string(apiFormat), err),
 			true,
-			model.ResponseEvidenceForStorage(response),
+			response,
 		)
 	}
 	envelope, err := model.NewResponseEnvelopeForStorage(
@@ -308,7 +331,7 @@ func (e AgentExecutor) executeModelStep(
 			resolved,
 			model.MalformedProviderResponse(string(apiFormat), err),
 			true,
-			model.ResponseEvidenceForStorage(response),
+			response,
 		)
 	}
 	step := modelStep{
@@ -488,134 +511,56 @@ func (e AgentExecutor) recordNormalFailure(
 	providerRequestStarted bool,
 	response model.Response,
 ) (modelStep, error) {
-	response = model.ResponseEvidenceForStorage(response)
+	if trigger, ok := providerInputFailureTrigger(cause); ok {
+		return e.enterContextMaintenance(
+			ctx,
+			input,
+			claim,
+			resolved,
+			trigger,
+			providerRequestStarted,
+			response,
+		)
+	}
 	now := e.now()
 	evidence, decision := modelretry.Decide(
 		cause,
 		modelretry.Attempt{Number: claim.Context.AttemptNumber},
 		claim.Context.ID.String(),
-		now, modelretry.CompactOnInputOverflow)
+		now,
+	)
 	if decision.Action == modelretry.ActionRetry {
 		decision.RetryDelay = e.modelRetryDelay(decision.RetryDelay)
 	}
 
-	var plan compaction.Plan
-	if decision.Action == modelretry.ActionCompact {
-		planned, ok, err := e.planCompactionForContext(
-			ctx,
-			claim.Context,
-			resolved.Client,
-			input,
-		)
-		if err != nil {
-			return modelStep{}, err
-		}
-		if !ok {
-			compactionTrigger, err := marshalJSON(map[string]any{
-				"compaction_trigger": map[string]any{
-					"kind":    evidence.Kind,
-					"code":    evidence.Code,
-					"message": evidence.Message,
-					"details": evidence.Details,
-				},
-			})
-			if err != nil {
-				return modelStep{}, err
-			}
-			cause = model.ProviderError{
-				Kind:      model.ErrorKindContextWindow,
-				Source:    modelErrorSourceForClient(resolved.Client),
-				Code:      "context_cannot_be_compacted",
-				Message:   "The current model input is too large and has no closed event prefix that can be compacted safely.",
-				RequestID: evidence.RequestID,
-				Metadata:  compactionTrigger,
-			}
-			evidence = modelretry.EvidenceFor(cause)
-			decision.Action = modelretry.ActionStop
-		} else {
-			plan = planned
-		}
-	}
-	apiFormat, apiVariant, _ := model.APIIdentityForClient(resolved.Client)
-	servedSlug := ""
-	providerRequestID := ""
-	providerResponseID := ""
-	usage := modelenvelope.Usage{}
-	var providerReportedCostUSD modelenvelope.ProviderReportedCostUSD
-	if providerRequestStarted {
-		servedSlug = response.ServedProviderModelSlug
-		providerRequestID = evidence.RequestID
-		if providerRequestID == "" {
-			providerRequestID = response.ProviderRequestID
-		}
-		providerResponseID = response.ID
-		usage = response.Usage
-		providerReportedCostUSD = response.ProviderReportedCostUSD
-	}
-	if decision.Action == modelretry.ActionRetry || decision.Action == modelretry.ActionCompact {
-		recoveryKind := executionstore.ModelCallRecoveryRetry
-		if decision.Action == modelretry.ActionCompact {
-			recoveryKind = executionstore.ModelCallRecoveryCompact
-		}
+	failureEvidence := collectNormalCallFailureEvidence(
+		resolved,
+		evidence.RequestID,
+		providerRequestStarted,
+		response,
+	)
+	if decision.Action == modelretry.ActionRetry {
 		failureInput := executionstore.RecordRecoverableModelCallFailureInput{
 			ProjectID:               input.ProjectID,
 			AgentID:                 input.AgentID,
 			ModelCallContextID:      claim.Context.ID,
 			RuntimeLockID:           input.RuntimeLockID,
-			RecoveryKind:            recoveryKind,
-			APIFormat:               apiFormat,
-			APIVariant:              apiVariant,
-			ProviderRequestID:       providerRequestID,
-			ProviderResponseID:      providerResponseID,
+			RecoveryKind:            executionstore.ModelCallRecoveryRetry,
+			APIFormat:               failureEvidence.APIFormat,
+			APIVariant:              failureEvidence.APIVariant,
+			ProviderRequestID:       failureEvidence.ProviderRequestID,
+			ProviderResponseID:      failureEvidence.ProviderResponseID,
 			ErrorKind:               evidence.Kind,
 			ErrorCode:               evidence.Code,
 			ErrorMessage:            evidence.Message,
 			ErrorDetails:            evidence.Details,
 			RetryDelay:              decision.RetryDelay,
-			Usage:                   usage,
-			ProviderReportedCostUSD: providerReportedCostUSD,
+			Usage:                   failureEvidence.Usage,
+			ProviderReportedCostUSD: failureEvidence.ProviderReportedCostUSD,
 		}
-		var (
-			contextRecord executionstore.ModelCallContextRecord
-			err           error
-		)
-		compactionBoundaryPreempted := false
-		var compactionClaim executionstore.ModelCallClaim
-		if decision.Action == modelretry.ActionCompact {
-			handoff, handoffErr := e.Store.Execution().RecordModelCallFailureAndClaimCompaction(
-				ctx,
-				executionstore.RecordModelCallFailureAndClaimCompactionInput{
-					ParentContextID:        claim.Context.ID,
-					Failure:                failureInput,
-					SourceEventSequenceEnd: plan.EventSequenceEnd,
-				},
-			)
-			contextRecord, err = handoff.ParentContext, handoffErr
-			compactionBoundaryPreempted = handoff.BoundaryPreempted
-			compactionClaim = handoff.CompactionCall
-		} else {
-			contextRecord, err = e.Store.Execution().RecordRetryableModelCallFailure(ctx, failureInput)
-		}
+		contextRecord, err := e.Store.Execution().RecordRetryableModelCallFailure(ctx, failureInput)
 		if err != nil {
 			return modelStep{}, errors.Join(cause, err)
-		}
-		if decision.Action == modelretry.ActionCompact && !compactionBoundaryPreempted {
-			if _, err := (compaction.Runner{
-				Store:           compaction.NewStore(e.Store.Execution()),
-				Resolver:        e.ModelResolver,
-				ContextBuilder:  e.contextBuilder(),
-				Now:             e.Now,
-				ModelRetryDelay: e.ModelRetryDelay,
-			}).RunClaimed(ctx, compaction.RunInput{
-				Plan:                     plan,
-				TurnID:                   input.TurnID,
-				OpeningInputIDs:          input.InputIDs,
-				OpeningEventSequence:     input.OpeningEventSequence,
-				RuntimeLockID:            input.RuntimeLockID,
-				ParentModelCallContextID: claim.Context.ID,
-			}, compactionClaim); err != nil {
-				return modelStep{}, err
-			}
 		}
 		return modelStep{State: modelStepWaiting, Context: contextRecord, Resolved: resolved}, nil
 	}
@@ -626,17 +571,17 @@ func (e AgentExecutor) recordNormalFailure(
 			AgentID:                 input.AgentID,
 			RuntimeLockID:           input.RuntimeLockID,
 			ModelCallContextID:      claim.Context.ID,
-			APIFormat:               apiFormat,
-			APIVariant:              apiVariant,
-			ServedProviderModelSlug: servedSlug,
-			ProviderRequestID:       providerRequestID,
-			ProviderResponseID:      providerResponseID,
+			APIFormat:               failureEvidence.APIFormat,
+			APIVariant:              failureEvidence.APIVariant,
+			ServedProviderModelSlug: failureEvidence.ServedModelSlug,
+			ProviderRequestID:       failureEvidence.ProviderRequestID,
+			ProviderResponseID:      failureEvidence.ProviderResponseID,
 			ErrorKind:               evidence.Kind,
 			ErrorCode:               evidence.Code,
 			ErrorMessage:            evidence.Message,
 			ErrorDetails:            evidence.Details,
-			Usage:                   usage,
-			ProviderReportedCostUSD: providerReportedCostUSD,
+			Usage:                   failureEvidence.Usage,
+			ProviderReportedCostUSD: failureEvidence.ProviderReportedCostUSD,
 		},
 	)
 	if err != nil {

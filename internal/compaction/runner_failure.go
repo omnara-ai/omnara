@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -79,7 +80,6 @@ func (r Runner) recordFailure(
 	cause error,
 	providerAttempt providerAttemptEvidence,
 ) (RunResult, error) {
-	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
 	if shrinkableCompactionFailure(cause) {
 		nextEnd, err := r.nextSmallerSourceEnd(ctx, input.Plan)
 		if err != nil {
@@ -97,12 +97,14 @@ func (r Runner) recordFailure(
 		}
 		cause = irreducibleCompactionError(irreducibleCompactionFailureDetail(cause))
 	}
+	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
 	now := r.now()
 	evidence, decision := modelretry.Decide(
 		cause,
 		modelretry.Attempt{Number: claim.Context.AttemptNumber},
 		claim.Context.ID.String(),
-		now, modelretry.StopOnInputOverflow)
+		now,
+	)
 	if decision.Action == modelretry.ActionRetry {
 		decision.RetryDelay = r.modelRetryDelay(decision.RetryDelay)
 	}
@@ -261,9 +263,52 @@ func irreducibleCompactionError(detail string) error {
 func compactionRequestPolicy(client model.Client) model.RequestPolicy {
 	capabilities := model.CapabilitiesForClient(client)
 	policy := model.RequestPolicyFromCapabilities(capabilities)
-	// The prompt controls summary length; this ceiling prevents truncation.
+	const maxSummaryOutputTokens = 16_384
 	policy.MaxOutputTokens = capabilities.MaxOutputTokens
+	if policy.MaxOutputTokens <= 0 {
+		policy.MaxOutputTokens = capabilities.DefaultMaxOutputTokens
+	}
+	if policy.MaxOutputTokens > maxSummaryOutputTokens {
+		policy.MaxOutputTokens = maxSummaryOutputTokens
+	}
+	policy.DefaultReasoningEffort = compactionReasoningEffort(capabilities)
 	return policy
+}
+
+func compactionReasoningEffort(capabilities model.Capabilities) string {
+	if !capabilities.SupportsReasoning {
+		return ""
+	}
+	configuredWire := capabilities.DefaultReasoningEffort
+	configuredKey := strings.ToLower(strings.TrimSpace(configuredWire))
+	preference := []string{"low", "minimal", "medium", "high", "xhigh", "max", "none"}
+	if configuredWire != "" && !slices.Contains(preference, configuredKey) {
+		return configuredWire
+	}
+
+	supported := make(map[string]string, len(capabilities.SupportedReasoningEfforts))
+	for _, value := range capabilities.SupportedReasoningEfforts {
+		key := strings.ToLower(strings.TrimSpace(value))
+		if slices.Contains(preference, key) {
+			if _, found := supported[key]; !found {
+				supported[key] = value
+			}
+		}
+	}
+	if len(supported) == 0 {
+		return configuredWire
+	}
+	if configuredKey == "none" || configuredKey == "minimal" || configuredKey == "low" {
+		if wire, found := supported[configuredKey]; found {
+			return wire
+		}
+	}
+	for _, key := range preference {
+		if wire, found := supported[key]; found {
+			return wire
+		}
+	}
+	return configuredWire
 }
 
 func validateCompactionResponse(errorSource string, response model.Response) (string, error) {

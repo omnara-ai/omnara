@@ -22,16 +22,8 @@ const (
 type Action string
 
 const (
-	ActionRetry   Action = "retry"
-	ActionCompact Action = "compact"
-	ActionStop    Action = "stop"
-)
-
-type InputOverflowPolicy uint8
-
-const (
-	StopOnInputOverflow InputOverflowPolicy = iota
-	CompactOnInputOverflow
+	ActionRetry Action = "retry"
+	ActionStop  Action = "stop"
 )
 
 type Decision struct {
@@ -58,19 +50,10 @@ func Decide(
 	attempt Attempt,
 	contextID string,
 	now time.Time,
-	inputOverflowPolicy InputOverflowPolicy,
 ) (Evidence, Decision) {
 	evidence := EvidenceFor(err)
 	now = now.UTC()
 	decision := Decision{}
-	if compactableInputFailure(evidence.Provider.Kind) {
-		if inputOverflowPolicy == CompactOnInputOverflow {
-			decision.Action = ActionCompact
-		} else {
-			decision.Action = ActionStop
-		}
-		return evidence, decision
-	}
 	if !retryable(evidence) {
 		decision.Action = ActionStop
 		return evidence, decision
@@ -242,6 +225,11 @@ func providerMetadataForStorage(raw json.RawMessage) (json.RawMessage, bool) {
 }
 
 func retryable(evidence Evidence) bool {
+	// A deterministic input-size rejection cannot succeed when resent unchanged.
+	// Recovery belongs to the caller's compaction policy, not to retry policy.
+	if deterministicInputFailure(evidence.Provider.Kind) {
+		return false
+	}
 	if evidence.Ambiguous {
 		return true
 	}
@@ -252,8 +240,6 @@ func retryable(evidence Evidence) bool {
 	case model.ErrorKindTransient,
 		model.ErrorKindRateLimit,
 		model.ErrorKindProviderUnavailable,
-		model.ErrorKindContextWindow,
-		model.ErrorKindPayloadTooLarge,
 		model.ErrorKindReplayRejected,
 		model.ErrorKindUnknown:
 		return true
@@ -266,7 +252,7 @@ func retryable(evidence Evidence) bool {
 	}
 }
 
-func compactableInputFailure(kind model.ErrorKind) bool {
+func deterministicInputFailure(kind model.ErrorKind) bool {
 	return kind == model.ErrorKindContextWindow || kind == model.ErrorKindPayloadTooLarge
 }
 

@@ -150,6 +150,48 @@ func TestRespondClassifiesCompleteMid200OpenRouterError(t *testing.T) {
 	}
 }
 
+func TestRespondClassifiesOpenRouterWrappedContextOverflow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(
+			`{"error":{"code":502,"message":"Your input exceeds the context window of this model.",` +
+				`"metadata":{"error_type":"provider_unavailable"}}}`,
+		))
+	}))
+	defer server.Close()
+	_, err := testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindContextWindow ||
+		providerErr.StatusCode != http.StatusBadGateway ||
+		providerErr.Code != "provider_unavailable" {
+		t.Fatalf("wrapped context overflow = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestRespondClassifiesOpenRouterWrappedPayloadOverflow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(
+			`{"error":{"code":502,"message":"Request entity too large for the upstream provider.",` +
+				`"metadata":{"error_type":"provider_unavailable"}}}`,
+		))
+	}))
+	defer server.Close()
+	_, err := testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindPayloadTooLarge ||
+		providerErr.StatusCode != http.StatusBadGateway ||
+		providerErr.Code != "provider_unavailable" {
+		t.Fatalf("wrapped payload overflow = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
 func TestRespondClassifiesModerationForbiddenAsInvalidRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)

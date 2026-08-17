@@ -16,98 +16,105 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-func TestServiceE2EDeterministicCompactionRetryContinuesTurn(t *testing.T) {
+func TestServiceE2EOpenRouterWrappedContextOverflowCompactsAndContinuesTurn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "deterministic-compaction-retry")
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "openrouter-wrapped-context-overflow")
 
 	var requestCount atomic.Int64
-	openai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
+	const configuredModelName = "service-e2e-openrouter"
+	openrouter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
 			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Accept") != "text/event-stream" {
+			t.Errorf("OpenRouter request Accept = %q, want text/event-stream", r.Header.Get("Accept"))
+			http.Error(w, "streaming required", http.StatusBadRequest)
 			return
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decode OpenAI request: %v", err)
+			t.Errorf("decode OpenRouter request: %v", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
+		if body["model"] != configuredModelName || body["stream"] != true {
+			t.Errorf("unexpected OpenRouter model or stream mode: %+v", body)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 		switch requestCount.Add(1) {
 		case 1:
-			_, _ = w.Write(
-				[]byte(
-					`{"id":"resp_before_compaction","status":"completed","output":[` +
-						`{"id":"msg_before_compaction","type":"message",` +
-						`"content":[{"type":"output_text","text":"history before compaction"}]}],` +
-						`"usage":{"input_tokens":7,"output_tokens":4}}`,
-				),
+			writeServiceE2EOpenRouterChatMessage(
+				w,
+				"chatcmpl_before_compaction",
+				configuredModelName,
+				"history before compaction",
+				7,
+				4,
 			)
 		case 2:
-			http.Error(
-				w,
-				`{"error":{"message":"context length exceeded in deterministic test","code":"context_length_exceeded"}}`,
-				http.StatusBadRequest,
-			)
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(
+				`data: {"id":"chatcmpl_context_overflow","object":"chat.completion.chunk","created":123,"model":"service-e2e-openrouter","provider":"openai","error":{"code":502,"message":"Your input exceeds the context window of this model.","metadata":{"error_type":"provider_unavailable"}},"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error"}],"usage":{"prompt_tokens":914245,"completion_tokens":0}}` + "\n\n",
+			))
 		case 3:
-			instructions, _ := body["instructions"].(string)
-			if !strings.Contains(instructions, "compact a closed Omnara event prefix") {
+			bodyText := mustJSONString(body)
+			if !strings.Contains(bodyText, "compact a closed Omnara event prefix") {
 				t.Errorf("third request was not the compaction prompt: %+v", body)
 			}
-			inputText := mustJSONString(body["input"])
-			if !strings.Contains(inputText, "create a small accepted history item") {
+			if !strings.Contains(bodyText, "create a small accepted history item") {
 				t.Errorf("compaction prompt did not include semantic history: %+v", body)
 			}
-			if !strings.Contains(inputText, "history before compaction") {
+			if !strings.Contains(bodyText, "history before compaction") {
 				t.Errorf("compaction prompt did not include the complete closed turn: %+v", body)
 			}
-			_, _ = w.Write(
-				[]byte(
-					`{"id":"resp_compaction_summary","status":"completed","output":[` +
-						`{"id":"msg_compaction_summary","type":"message","content":[` +
-						`{"type":"output_text","text":"Earlier request asked for a small accepted history item, and the model replied with history before compaction."}]}],` +
-						`"usage":{"input_tokens":11,"output_tokens":8}}`,
-				),
+			writeServiceE2EOpenRouterChatMessage(
+				w,
+				"chatcmpl_compaction_summary",
+				configuredModelName,
+				"Earlier request asked for a small accepted history item, and the model replied with history before compaction.",
+				11,
+				8,
 			)
 		case 4:
-			instructions, _ := body["instructions"].(string)
-			if strings.Contains(instructions, "Earlier request asked") ||
-				!strings.Contains(instructions, "not a new user request") {
-				t.Errorf("retry request elevated checkpoint content into instructions: %+v", body)
+			bodyText := mustJSONString(body)
+			if strings.Contains(bodyText, "compact a closed Omnara event prefix") {
+				t.Errorf("continued request reused the compaction prompt: %+v", body)
 			}
 			assertServiceE2ECheckpointUserHistory(
 				t,
-				body["input"],
+				body["messages"],
 				"Earlier request asked for a small accepted history item, and the model replied with history before compaction.",
 			)
-			if count := strings.Count(mustJSONString(body["input"]), "history before compaction"); count != 1 {
+			if count := strings.Count(bodyText, "history before compaction"); count != 1 {
 				t.Errorf("compacted history appears %d times, want checkpoint only: %+v", count, body)
 			}
-			_, _ = w.Write(
-				[]byte(
-					`{"id":"resp_after_compaction","status":"completed","output":[` +
-						`{"id":"msg_after_compaction","type":"message",` +
-						`"content":[{"type":"output_text","text":"final answer after compact retry"}]}],` +
-						`"usage":{"input_tokens":9,"output_tokens":5}}`,
-				),
+			writeServiceE2EOpenRouterChatMessage(
+				w,
+				"chatcmpl_after_compaction",
+				configuredModelName,
+				"final answer after compact retry",
+				9,
+				5,
 			)
 		default:
-			t.Errorf("unexpected extra OpenAI request: %+v", body)
+			t.Errorf("unexpected extra OpenRouter request: %+v", body)
 			http.Error(w, "unexpected request", http.StatusTeapot)
 		}
 	}))
-	defer openai.Close()
+	defer openrouter.Close()
 
 	env.startAPI(t, ctx)
 	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(
 		t,
 		ctx,
-		"deterministic-compaction",
-		"openai-prod",
-		"service-e2e-local",
+		"openrouter-wrapped-context-overflow",
+		"openrouter-prod",
+		configuredModelName,
 		map[string]serviceE2EConfiguredModelOptions{
-			"service-e2e-local": {
+			configuredModelName: {
 				ContextWindowTokens:    128000,
 				MaxOutputTokens:        8192,
 				DefaultMaxOutputTokens: 64,
@@ -120,7 +127,7 @@ func TestServiceE2EDeterministicCompactionRetryContinuesTurn(t *testing.T) {
 		t,
 		ctx,
 		project.projectID,
-		serviceWorkerOptions{ProviderConfig: "openai-prod", BaseURL: openai.URL},
+		serviceWorkerOptions{ProviderConfig: "openrouter-prod", BaseURL: openrouter.URL},
 	)
 
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
@@ -138,7 +145,7 @@ func TestServiceE2EDeterministicCompactionRetryContinuesTurn(t *testing.T) {
 
 	project.createInput(t, ctx, agentID, "force budget overflow "+strings.Repeat("large context ", 120))
 	secondWorker := env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
-		ProviderConfig: "openai-prod", BaseURL: openai.URL,
+		ProviderConfig: "openrouter-prod", BaseURL: openrouter.URL,
 	})
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var outputs, checkpoints, contexts int
@@ -164,7 +171,7 @@ func TestServiceE2EDeterministicCompactionRetryContinuesTurn(t *testing.T) {
 	})
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var failedContextWindow, checkpointProducer, retryContexts, locks, wakeups int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window' AND error_code = 'provider_unavailable'`, projectUUID, agentUUID).
 			Scan(&failedContextWindow); err != nil {
 			return false, err.Error()
 		}
@@ -241,32 +248,64 @@ WHERE retry_context.project_id = $1
 		return retryLineageRows == 1, fmt.Sprintf("retry context lineage rows=%d", retryLineageRows)
 	})
 	if got := requestCount.Load(); got != 4 {
-		t.Fatalf("fake OpenAI server saw %d requests, want 4", got)
+		t.Fatalf("fake OpenRouter server saw %d requests, want 4", got)
 	}
+}
+
+func writeServiceE2EOpenRouterChatMessage(
+	w http.ResponseWriter,
+	id string,
+	modelName string,
+	text string,
+	inputTokens int,
+	outputTokens int,
+) {
+	message, _ := json.Marshal(map[string]any{
+		"id":    id,
+		"model": modelName,
+		"choices": []map[string]any{{
+			"index":         0,
+			"delta":         map[string]any{"role": "assistant", "content": text},
+			"finish_reason": "stop",
+		}},
+	})
+	usage, _ := json.Marshal(map[string]any{
+		"id":      id,
+		"model":   modelName,
+		"choices": []any{},
+		"usage": map[string]any{
+			"prompt_tokens":     inputTokens,
+			"completion_tokens": outputTokens,
+		},
+	})
+	w.Header().Set("Content-Type", "text/event-stream")
+	_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\ndata: [DONE]\n\n", message, usage)
 }
 
 func assertServiceE2ECheckpointUserHistory(
 	t *testing.T,
-	rawItems any,
+	rawMessages any,
 	summaryText string,
 ) {
 	t.Helper()
-	items, ok := rawItems.([]any)
-	if !ok || len(items) == 0 {
-		t.Errorf("provider history = %T(%v), want checkpoint user item", rawItems, rawItems)
+	messages, ok := rawMessages.([]any)
+	if !ok || len(messages) == 0 {
+		t.Errorf("provider history = %T(%v), want checkpoint user message", rawMessages, rawMessages)
 		return
 	}
-	checkpoint, ok := items[0].(map[string]any)
-	if !ok || checkpoint["role"] != "user" {
-		t.Errorf("first provider history item = %T(%v), want user checkpoint", items[0], items[0])
-		return
+	for _, rawMessage := range messages {
+		message, ok := rawMessage.(map[string]any)
+		if !ok || message["role"] != "user" {
+			continue
+		}
+		checkpointText := fmt.Sprint(message["content"])
+		if strings.Contains(checkpointText, "<context_checkpoint>") &&
+			strings.Contains(checkpointText, "</context_checkpoint>") &&
+			strings.Contains(checkpointText, summaryText) {
+			return
+		}
 	}
-	checkpointText := fmt.Sprint(checkpoint["content"])
-	if !strings.Contains(checkpointText, "<context_checkpoint>") ||
-		!strings.Contains(checkpointText, "</context_checkpoint>") ||
-		!strings.Contains(checkpointText, summaryText) {
-		t.Errorf("checkpoint user history is not clearly delimited: %v", checkpoint)
-	}
+	t.Errorf("provider history has no clearly delimited user checkpoint: %v", messages)
 }
 
 func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {

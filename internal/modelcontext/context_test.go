@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -203,17 +204,20 @@ func TestContextEventsToMessagesPreservesDurableErrorAndReplayMetadata(t *testin
 	replay := json.RawMessage(`{"format":"openai-responses","payload":[{"type":"reasoning","id":"rs_1"}]}`)
 	content := json.RawMessage(`[{"type":"error","text":"provider unavailable","category":"provider_overloaded"}]`)
 	messages, err := contextEventsToMessages([]executionstore.ContextEventRecord{{
-		ID:                    testIDN(906),
-		AgentInputID:          inputID,
-		ModelCallContextID:    testIDN(907),
-		ModelProviderConfigID: testIDN(908),
-		Role:                  modelprotocol.RoleAssistant,
-		Sequence:              8,
-		ContentParts:          content,
-		RequestedModelSlug:    "gpt-test",
-		APIFormat:             "openai-responses",
-		APIVariant:            "openai",
-		ProviderReplay:        replay,
+		ID:                        testIDN(906),
+		AgentInputID:              inputID,
+		ModelCallContextID:        testIDN(907),
+		AgentConfigID:             testIDN(910),
+		ConfiguredModelRevisionID: testIDN(911),
+		ModelProviderConfigID:     testIDN(908),
+		Role:                      modelprotocol.RoleAssistant,
+		Sequence:                  8,
+		ContentParts:              content,
+		RequestedModelSlug:        "gpt-test",
+		APIFormat:                 "openai-responses",
+		APIVariant:                "openai",
+		Usage:                     modelenvelope.Usage{InputTokens: 120, OutputTokens: 30},
+		ProviderReplay:            replay,
 	}})
 	if err != nil {
 		t.Fatalf("project context events: %v", err)
@@ -231,7 +235,13 @@ func TestContextEventsToMessagesPreservesDurableErrorAndReplayMetadata(t *testin
 		message.ProviderReplaySource.ModelProviderConfigID != testIDN(908).String() ||
 		message.ProviderReplaySource.RequestedProviderModelSlug != "gpt-test" ||
 		message.ProviderReplaySource.APIFormat != "openai-responses" ||
-		message.ProviderReplaySource.APIVariant != "openai" {
+		message.ProviderReplaySource.APIVariant != "openai" ||
+		message.UsageAnchor == nil ||
+		message.UsageAnchor.Identity.AgentConfigID != testIDN(910).String() ||
+		message.UsageAnchor.Identity.ConfiguredModelRevisionID != testIDN(911).String() ||
+		message.UsageAnchor.Identity.RequestedModelSlug != "gpt-test" ||
+		message.UsageAnchor.Usage.InputTokens != 120 ||
+		message.UsageAnchor.Usage.OutputTokens != 30 {
 		t.Fatalf("durable error or replay metadata changed during projection: %+v", message)
 	}
 }
@@ -1331,6 +1341,7 @@ func TestBuildUsesLatestApplicableCheckpointAndUnsummarizedTail(t *testing.T) {
 	}
 	if bundle.ContextCheckpoint == nil ||
 		bundle.ContextCheckpoint.ID != testIDN(942).String() ||
+		bundle.ContextCheckpoint.PublishedEventSequence != 161 ||
 		bundle.ContextCheckpoint.SummarizedThroughEventSequence != 160 ||
 		bundle.ContextCheckpoint.Summary != "cumulative middle" {
 		t.Fatalf("latest applicable checkpoint = %+v", bundle.ContextCheckpoint)
