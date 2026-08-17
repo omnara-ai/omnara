@@ -4,6 +4,7 @@ package dbmigrate_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -105,7 +106,7 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 	}
 }
 
-func TestResourceNameMigrationRequiresStoredAgentConfigReferencesToBeValid(t *testing.T) {
+func TestResourceNameMigrationRequiresStoredAgentConfigsToUseCurrentNamesAndSchema(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -184,6 +185,66 @@ INSERT INTO agent_configs(
 		`DELETE FROM agent_configs WHERE source_hash = 'invalid-resource-name-source'`,
 	); err != nil {
 		t.Fatalf("remove invalid stored agent config: %v", err)
+	}
+	const validSource = `
+instruction: Test migration preflight.
+model:
+  provider_config: Provider
+  name: Model
+`
+	const legacyCompiledDefinition = `{"name":"legacy-agent-name"}`
+	legacyDefinitionHash := fmt.Sprintf("%x", sha256.Sum256([]byte(legacyCompiledDefinition)))
+	if _, err := pool.Exec(ctx, `
+INSERT INTO agent_configs(
+    org_id,
+    project_id,
+    configured_model_id,
+    definition,
+    source,
+    source_format,
+    source_hash,
+    compiled_definition,
+    compiler_version,
+    effective_definition_hash,
+    created_at
+) VALUES (
+    uuidv7(),
+    uuidv7(),
+    uuidv7(),
+    '{}'::jsonb,
+    $1,
+    'yaml',
+    'legacy-compiled-name',
+    $2::jsonb,
+    '',
+    $3,
+    now()
+)
+`, validSource, legacyCompiledDefinition, legacyDefinitionHash); err != nil {
+		t.Fatalf("insert stored agent config with legacy compiled name: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("enable agent config triggers after inserting legacy compiled name: %v", err)
+	}
+	triggersDisabled = false
+
+	err = dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
+	if err == nil || !strings.Contains(err.Error(), `unknown field "name"`) {
+		t.Fatalf("resource-name migration error = %v, want legacy compiled name rejection", err)
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
+		t.Fatalf("migration version after rejected compiled name = %d, want 20", got)
+	}
+
+	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("disable agent config triggers for compiled name repair: %v", err)
+	}
+	triggersDisabled = true
+	if _, err := pool.Exec(
+		ctx,
+		`DELETE FROM agent_configs WHERE source_hash = 'legacy-compiled-name'`,
+	); err != nil {
+		t.Fatalf("remove stored agent config with legacy compiled name: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
 		t.Fatalf("enable agent config triggers after repair: %v", err)

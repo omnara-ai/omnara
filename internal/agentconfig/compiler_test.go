@@ -1322,7 +1322,7 @@ tools:
 	}
 }
 
-func TestRuntimeContractAllowsUnknownCompiledFields(t *testing.T) {
+func TestRuntimeContractRejectsUnknownCompiledFields(t *testing.T) {
 	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 tools:
   run_command: {}
@@ -1331,22 +1331,36 @@ tools:
 		t.Fatalf("compile run_command: %v", err)
 	}
 
-	var body map[string]any
-	if err := json.Unmarshal(compiled.CanonicalJSON, &body); err != nil {
-		t.Fatalf("unmarshal compiled: %v", err)
+	assertRejectsMutation := func(name string, mutate func(map[string]any)) {
+		t.Helper()
+		var body map[string]any
+		if err := json.Unmarshal(compiled.CanonicalJSON, &body); err != nil {
+			t.Fatalf("unmarshal compiled: %v", err)
+		}
+		mutate(body)
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal mutated %s: %v", name, err)
+		}
+		if _, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw)); err == nil {
+			t.Fatalf("expected mutated %s contract to be rejected", name)
+		}
 	}
-	body["name"] = "legacy-agent-name"
-	raw, err := json.Marshal(body)
-	if err != nil {
-		t.Fatalf("marshal mutated compiled: %v", err)
-	}
-	contract, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw))
-	if err != nil {
-		t.Fatalf("expected legacy name field to be tolerated: %v", err)
-	}
-	if len(contract.Tools) == 0 {
-		t.Fatal("expected tools in contract")
-	}
+
+	assertRejectsMutation("legacy top-level name", func(body map[string]any) {
+		body["name"] = "legacy-agent-name"
+	})
+	assertRejectsMutation("unknown tool field", func(body map[string]any) {
+		tools, ok := body["tools"].(map[string]any)
+		if !ok {
+			t.Fatalf("compiled tools shape = %#v", body["tools"])
+		}
+		runCommand, ok := tools["run_command"].(map[string]any)
+		if !ok {
+			t.Fatalf("compiled run_command shape = %#v", tools["run_command"])
+		}
+		runCommand["unexpected"] = true
+	})
 }
 
 func TestRuntimeContractRejectsBuiltInNameMarkedCustom(t *testing.T) {

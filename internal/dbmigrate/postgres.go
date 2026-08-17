@@ -3,9 +3,9 @@ package dbmigrate
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io/fs"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -154,25 +154,46 @@ func validateStoredAgentConfigResourceNames(ctx context.Context, db *sql.DB) err
 	}
 	rows, err := db.QueryContext(
 		ctx,
-		`SELECT id::text, source_format, source FROM agent_configs ORDER BY id`,
+		`SELECT
+			id::text,
+			source_format,
+			source,
+			compiled_definition::text,
+			compiler_version,
+			effective_definition_hash
+		 FROM agent_configs
+		 ORDER BY id`,
 	)
 	if err != nil {
 		return fmt.Errorf("list stored agent configs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
-		var id, format, source string
-		if err := rows.Scan(&id, &format, &source); err != nil {
+		var id, format, source, compiledDefinition, compilerVersion, definitionHash string
+		if err := rows.Scan(
+			&id,
+			&format,
+			&source,
+			&compiledDefinition,
+			&compilerVersion,
+			&definitionHash,
+		); err != nil {
 			return fmt.Errorf("scan stored agent config: %w", err)
 		}
-		if strings.TrimSpace(source) == "" {
-			continue
+		if source != "" {
+			if _, err := agentconfig.ParseSource(
+				agentconfig.SourceFormat(format),
+				[]byte(source),
+			); err != nil {
+				return fmt.Errorf("agent config %s source must be migrated: %w", id, err)
+			}
 		}
-		if _, err := agentconfig.ParseStoredSource(
-			agentconfig.SourceFormat(format),
-			[]byte(source),
+		if _, err := agentconfig.RuntimeContractFromCompiled(
+			json.RawMessage(compiledDefinition),
+			compilerVersion,
+			definitionHash,
 		); err != nil {
-			return fmt.Errorf("agent config %s source must be migrated: %w", id, err)
+			return fmt.Errorf("agent config %s compiled definition must be migrated: %w", id, err)
 		}
 	}
 	if err := rows.Err(); err != nil {
