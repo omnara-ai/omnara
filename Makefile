@@ -435,32 +435,35 @@ test-live-web:
 test-live-openai:
 	@$(LOAD_DOTENV); \
 	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI tests}"; \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAI(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAI(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAICompactionCreatesCheckpoint$$'
 
 test-live-openai-chat-completions:
 	@$(LOAD_DOTENV); \
 	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI Chat Completions tests}"; \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenAIChatCompletionsText$$' && \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIChatCompletionsModelTurn$$'
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIChatCompletions(ModelTurn|CompactionRecall)$$' && \
+	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAIChatCompletionsCompactionCreatesCheckpoint$$'
 
 test-live-openrouter:
 	@$(LOAD_DOTENV); \
 	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for live OpenRouter tests}"; \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenRouterChatCompletions' && \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouterModelTurn$$'
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouter(ModelTurn|CompactionRecall)$$' && \
+	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenRouterCompactionCreatesCheckpoint$$'
 
 test-live-anthropic:
 	@$(LOAD_DOTENV); \
 	: "$${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required for live Anthropic tests}"; \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAnthropic(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAnthropic(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveAnthropicCompactionCreatesCheckpoint$$'
 
 test-live-api-format-switching:
 	@$(LOAD_DOTENV); \
 	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live API-format switching tests}"; \
+	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for live API-format switching tests}"; \
 	: "$${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required for live API-format switching tests}"; \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAPIFormatSwitchingPreservesHistory$$'
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAPIFormatSwitchingPreservesHistory$$'
 
 test-live-sandbox-providers:
 	@$(LOAD_DOTENV); \

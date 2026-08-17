@@ -347,9 +347,10 @@ jobs:
           OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG }}
 
       - run: make test-live-api-format-switching
-        if: steps.secrets.outputs.openai == 'true' && steps.secrets.outputs.anthropic == 'true'
+        if: steps.secrets.outputs.openai == 'true' && steps.secrets.outputs.openrouter == 'true' && steps.secrets.outputs.anthropic == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG }}
           OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG }}

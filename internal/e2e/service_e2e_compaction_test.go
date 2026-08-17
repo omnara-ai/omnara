@@ -463,8 +463,8 @@ JOIN model_call_contexts mcc ON mcc.agent_id = checkpoint.agent_id
 WHERE mcc.project_id = $1
   AND checkpoint.agent_id = $2
   AND mcc.state = 'succeeded'
-  AND checkpoint.summary LIKE '%' || $3 || '%'
-  AND checkpoint.summary NOT LIKE '%' || $4 || '%'
+  AND strpos(checkpoint.summary, $3) > 0
+  AND strpos(checkpoint.summary, $4) = 0
 `, projectUUID, agentUUID, summaryNeedle, omittedNeedle).Scan(&contexts)
 	return contexts, err
 }

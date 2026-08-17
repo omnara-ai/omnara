@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/testutil/mcptest"
@@ -19,74 +21,54 @@ import (
 )
 
 func TestServiceE2ELiveOpenAIModelTurn(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		t.Fatal("OPENAI_API_KEY is required for live OpenAI service E2E")
-	}
-	runLiveServiceModelTurn(t, ctx, liveServiceModelTurnOptions{
-		Seed:                "live-openai-model-turn",
-		ProviderConfig:      "openai-prod",
-		ConfiguredModelName: liveOpenAIConfiguredModelName(),
-		BaseURL:             os.Getenv("OPENAI_BASE_URL"),
-	})
+	runLiveServiceProviderJourney(
+		t,
+		"openai-prod",
+		"model-turn",
+		3*time.Minute,
+		runLiveServiceModelTurn,
+	)
 }
 
 func TestServiceE2ELiveOpenAIChatCompletionsModelTurn(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		t.Fatal("OPENAI_API_KEY is required for live OpenAI Chat Completions service E2E")
-	}
-	runLiveServiceModelTurn(t, ctx, liveServiceModelTurnOptions{
-		Seed:                "live-openai-chat-completions-model-turn",
-		ProviderConfig:      "openai-chat-prod",
-		ConfiguredModelName: liveOpenAIChatConfiguredModelName(),
-		BaseURL:             os.Getenv("OPENAI_BASE_URL"),
-	})
+	runLiveServiceProviderJourney(
+		t,
+		"openai-chat-prod",
+		"model-turn",
+		3*time.Minute,
+		runLiveServiceModelTurn,
+	)
 }
 
 func TestServiceE2ELiveOpenRouterModelTurn(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
-	if apiKey == "" {
-		t.Fatal("OPENROUTER_API_KEY is required for live OpenRouter service E2E")
-	}
-	runLiveServiceModelTurn(t, ctx, liveServiceModelTurnOptions{
-		Seed:                        "live-openrouter-model-turn",
-		ProviderConfig:              "openrouter-prod",
-		ConfiguredModelName:         liveOpenRouterConfiguredModel,
-		BaseURL:                     os.Getenv("OPENROUTER_BASE_URL"),
-		RequireProviderReportedCost: true,
-	})
+	runLiveServiceProviderJourney(
+		t,
+		"openrouter-prod",
+		"model-turn",
+		3*time.Minute,
+		runLiveServiceModelTurn,
+	)
 }
 
 func TestServiceE2ELiveAnthropicModelTurn(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		t.Fatal("ANTHROPIC_API_KEY is required for live Anthropic service E2E")
-	}
-	runLiveServiceModelTurn(t, ctx, liveServiceModelTurnOptions{
-		Seed:                "live-anthropic-model-turn",
-		ProviderConfig:      "anthropic-prod",
-		ConfiguredModelName: liveAnthropicConfiguredModelName(),
-		BaseURL:             os.Getenv("ANTHROPIC_BASE_URL"),
-	})
+	runLiveServiceProviderJourney(
+		t,
+		"anthropic-prod",
+		"model-turn",
+		3*time.Minute,
+		runLiveServiceModelTurn,
+	)
 }
 
 func TestServiceE2ELiveAPIFormatSwitchingPreservesHistory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		t.Fatal("OPENAI_API_KEY is required for live API-format switching E2E")
-	}
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Fatal("ANTHROPIC_API_KEY is required for live API-format switching E2E")
+	openAI := requireLiveServiceProvider(t, "openai-prod")
+	openAIChat := requireLiveServiceProvider(t, "openai-chat-prod")
+	openRouter := requireLiveServiceProvider(t, "openrouter-prod")
+	anthropic := requireLiveServiceProvider(t, "anthropic-prod")
+	for _, provider := range []liveServiceProvider{openAI, openAIChat, openRouter, anthropic} {
+		provider.requireAPIKey(t)
 	}
 
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "live-api-format-switching")
@@ -98,11 +80,12 @@ func TestServiceE2ELiveAPIFormatSwitchingPreservesHistory(t *testing.T) {
 	toolArgument := "TOOL_FACT_" + nonce
 	secondFact := "BETA_" + nonce
 	thirdFact := "GAMMA_" + nonce
+	fourthFact := "DELTA_" + nonce
 	stages := []liveAPIFormatSwitchStage{
 		{
-			ProviderConfig:      "openai-prod",
-			ConfiguredModelName: liveOpenAIConfiguredModelName(),
-			BaseURL:             os.Getenv("OPENAI_BASE_URL"),
+			ProviderConfig:      openAI.ProviderConfig,
+			ConfiguredModelName: openAI.ConfiguredModelName,
+			BaseURL:             openAI.BaseURL,
 			Prompt: strings.Join([]string{
 				"Call the " + toolName + " tool exactly once with name set to " + toolArgument + ".",
 				"The exact result is generated inside the tool server and cannot be reconstructed from the tool name or arguments.",
@@ -111,45 +94,63 @@ func TestServiceE2ELiveAPIFormatSwitchingPreservesHistory(t *testing.T) {
 			}, "\n"),
 			ExpectedOutput:     []string{"TOOL_CAPTURED_" + nonce},
 			ForbiddenOutput:    []string{toolResult},
-			ExpectedFormat:     "openai-responses",
+			ExpectedFormat:     openAI.APIFormat,
+			ExpectedVariant:    openAI.APIVariant,
 			ExpectedModelCalls: 2,
 		},
 		{
-			ProviderConfig:      "anthropic-prod",
-			ConfiguredModelName: liveAnthropicConfiguredModelName(),
-			BaseURL:             os.Getenv("ANTHROPIC_BASE_URL"),
+			ProviderConfig:      anthropic.ProviderConfig,
+			ConfiguredModelName: anthropic.ConfiguredModelName,
+			BaseURL:             anthropic.BaseURL,
 			Prompt: strings.Join([]string{
 				"Do not call any tool. Recall the exact greeting returned by the only earlier tool call.",
 				"Also remember this second opaque durable fact for later: " + secondFact + ". Do not repeat the second fact yet.",
 				"Reply on one line beginning with ANTHROPIC_RECALL_" + nonce + " followed by the exact tool greeting.",
 			}, "\n"),
 			ExpectedOutput:     []string{"ANTHROPIC_RECALL_" + nonce, toolResult},
-			ExpectedFormat:     "anthropic-messages",
+			ExpectedFormat:     anthropic.APIFormat,
+			ExpectedVariant:    anthropic.APIVariant,
 			ExpectedModelCalls: 1,
 		},
 		{
-			ProviderConfig:      "openai-chat-prod",
-			ConfiguredModelName: liveOpenAIChatConfiguredModelName(),
-			BaseURL:             os.Getenv("OPENAI_BASE_URL"),
+			ProviderConfig:      openAIChat.ProviderConfig,
+			ConfiguredModelName: openAIChat.ConfiguredModelName,
+			BaseURL:             openAIChat.BaseURL,
 			Prompt: strings.Join([]string{
 				"Do not call any tool. Recall the exact earlier tool greeting and the second durable fact.",
 				"Also remember this third opaque durable fact for later: " + thirdFact + ". Do not repeat the third fact yet.",
 				"Reply on one line beginning with CHAT_RECALL_" + nonce + " followed by the tool greeting and second fact.",
 			}, "\n"),
 			ExpectedOutput:     []string{"CHAT_RECALL_" + nonce, toolResult, secondFact},
-			ExpectedFormat:     "openai-chat-completions",
+			ExpectedFormat:     openAIChat.APIFormat,
+			ExpectedVariant:    openAIChat.APIVariant,
 			ExpectedModelCalls: 1,
 		},
 		{
-			ProviderConfig:      "openai-prod",
-			ConfiguredModelName: liveOpenAIConfiguredModelName(),
-			BaseURL:             os.Getenv("OPENAI_BASE_URL"),
+			ProviderConfig:      openRouter.ProviderConfig,
+			ConfiguredModelName: openRouter.ConfiguredModelName,
+			BaseURL:             openRouter.BaseURL,
 			Prompt: strings.Join([]string{
-				"Do not call any tool. Recall the exact earlier tool greeting and both later durable facts.",
-				"Reply on one line beginning with FINAL_RECALL_" + nonce + " followed by the greeting and both facts.",
+				"Do not call any tool. Recall the exact earlier tool greeting and all three durable facts.",
+				"Also remember this fourth opaque durable fact for later: " + fourthFact + ". Do not repeat the fourth fact yet.",
+				"Reply on one line beginning with OPENROUTER_RECALL_" + nonce + " followed by the greeting and the first three facts.",
 			}, "\n"),
-			ExpectedOutput:     []string{"FINAL_RECALL_" + nonce, toolResult, secondFact, thirdFact},
-			ExpectedFormat:     "openai-responses",
+			ExpectedOutput:     []string{"OPENROUTER_RECALL_" + nonce, toolResult, secondFact, thirdFact},
+			ExpectedFormat:     openRouter.APIFormat,
+			ExpectedVariant:    openRouter.APIVariant,
+			ExpectedModelCalls: 1,
+		},
+		{
+			ProviderConfig:      openAI.ProviderConfig,
+			ConfiguredModelName: openAI.ConfiguredModelName,
+			BaseURL:             openAI.BaseURL,
+			Prompt: strings.Join([]string{
+				"Do not call any tool. Recall the exact earlier tool greeting and all four durable facts.",
+				"Reply on one line beginning with FINAL_RECALL_" + nonce + " followed by the greeting and all four facts.",
+			}, "\n"),
+			ExpectedOutput:     []string{"FINAL_RECALL_" + nonce, toolResult, secondFact, thirdFact, fourthFact},
+			ExpectedFormat:     openAI.APIFormat,
+			ExpectedVariant:    openAI.APIVariant,
 			ExpectedModelCalls: 1,
 		},
 	}
@@ -198,7 +199,7 @@ func TestServiceE2ELiveAPIFormatSwitchingPreservesHistory(t *testing.T) {
 	}
 
 	rows, err := env.db.Query(ctx, `
-SELECT provider_config.api_format, revision.provider_model_slug
+SELECT provider_config.name, context.api_format, context.api_variant, revision.provider_model_slug
 FROM model_call_contexts context
 JOIN configured_model_revisions revision
   ON revision.org_id = context.org_id
@@ -215,46 +216,68 @@ ORDER BY context.input_event_sequence, context.attempt_number, context.created_a
 		t.Fatalf("query API-format switching model contexts: %v", err)
 	}
 	defer rows.Close()
-	var gotFormats, gotModels []string
+	var gotProviders, gotFormats, gotVariants, gotModels []string
 	for rows.Next() {
-		var apiFormat, providerModelSlug string
-		if err := rows.Scan(&apiFormat, &providerModelSlug); err != nil {
+		var providerConfig, apiFormat, apiVariant, providerModelSlug string
+		if err := rows.Scan(&providerConfig, &apiFormat, &apiVariant, &providerModelSlug); err != nil {
 			t.Fatalf("scan API-format switching model context: %v", err)
 		}
+		gotProviders = append(gotProviders, providerConfig)
 		gotFormats = append(gotFormats, apiFormat)
+		gotVariants = append(gotVariants, apiVariant)
 		gotModels = append(gotModels, providerModelSlug)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate API-format switching model contexts: %v", err)
 	}
+	wantProviders := make([]string, 0, len(stages))
 	wantFormats := make([]string, 0, len(stages))
+	wantVariants := make([]string, 0, len(stages))
 	wantModels := make([]string, 0, len(stages))
 	for _, stage := range stages {
 		for range stage.ExpectedModelCalls {
+			wantProviders = append(wantProviders, stage.ProviderConfig)
 			wantFormats = append(wantFormats, stage.ExpectedFormat)
+			wantVariants = append(wantVariants, stage.ExpectedVariant)
 			wantModels = append(wantModels, stage.ConfiguredModelName)
 		}
 	}
-	if strings.Join(gotFormats, ",") != strings.Join(wantFormats, ",") ||
+	if strings.Join(gotProviders, ",") != strings.Join(wantProviders, ",") ||
+		strings.Join(gotFormats, ",") != strings.Join(wantFormats, ",") ||
+		strings.Join(gotVariants, ",") != strings.Join(wantVariants, ",") ||
 		strings.Join(gotModels, ",") != strings.Join(wantModels, ",") {
 		t.Fatalf(
-			"model context formats/models = %v/%v, want %v/%v",
+			"model context providers/formats/variants/models = %v/%v/%v/%v, want %v/%v/%v/%v",
+			gotProviders,
 			gotFormats,
+			gotVariants,
 			gotModels,
+			wantProviders,
 			wantFormats,
+			wantVariants,
 			wantModels,
 		)
 	}
-	var toolCalls, completedGreetingCalls, greetingResultBlocks int
+	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
+}
+
+func assertLiveToolResultEvidence(
+	t *testing.T,
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectUUID, agentUUID, toolName, toolResult string,
+) {
+	t.Helper()
+	var toolCalls, completedCalls, resultBlocks int
 	if err := env.db.QueryRow(ctx, `
 SELECT count(*),
        count(*) FILTER (WHERE call.name = $3 AND call.state = 'completed')
 FROM tool_call_read_projection call
 WHERE call.project_id = $1 AND call.agent_id = $2`, projectUUID, agentUUID, toolName).Scan(
 		&toolCalls,
-		&completedGreetingCalls,
+		&completedCalls,
 	); err != nil {
-		t.Fatalf("query API-format switching tool calls: %v", err)
+		t.Fatalf("query live tool calls: %v", err)
 	}
 	if err := env.db.QueryRow(ctx, `
 SELECT count(*)
@@ -268,55 +291,254 @@ JOIN content_blocks block
 WHERE call.project_id = $1
   AND call.agent_id = $2
   AND call.name = $3
+  AND result.outcome = 'succeeded'
   AND block.block_kind = 'text'
-  AND block.text_content = $4`, projectUUID, agentUUID, toolName, toolResult).Scan(&greetingResultBlocks); err != nil {
-		t.Fatalf("query API-format switching tool result: %v", err)
+  AND block.text_content = $4`, projectUUID, agentUUID, toolName, toolResult).Scan(&resultBlocks); err != nil {
+		t.Fatalf("query live tool result: %v", err)
 	}
-	if toolCalls != 1 || completedGreetingCalls != 1 || greetingResultBlocks != 1 {
+	if toolCalls != 1 || completedCalls != 1 || resultBlocks != 1 {
 		t.Fatalf(
-			"tool evidence calls=%d completed_greetings=%d greeting_results=%d, want 1/1/1",
+			"live tool evidence calls=%d completed=%d result_blocks=%d, want 1/1/1",
 			toolCalls,
-			completedGreetingCalls,
-			greetingResultBlocks,
+			completedCalls,
+			resultBlocks,
 		)
 	}
 }
 
-func TestServiceE2ELiveOpenAICompactionRecall(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
-	defer cancel()
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		t.Fatal("OPENAI_API_KEY is required for live OpenAI compaction recall E2E")
+func assertLiveToolResultSummarized(
+	t *testing.T,
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectUUID, agentUUID, toolName, toolResult string,
+) {
+	t.Helper()
+	var callSequence, resultSequence, summarizedThrough int64
+	if err := env.db.QueryRow(ctx, `
+SELECT call.source_event_sequence,
+       result_event.sequence,
+       checkpoint.summarized_through_event_sequence
+FROM tool_call_read_projection call
+JOIN tool_call_results result
+  ON result.agent_id = call.agent_id
+ AND result.tool_call_id = call.id
+JOIN agent_events result_event
+  ON result_event.agent_id = result.agent_id
+ AND result_event.tool_call_result_id = result.id
+ AND result_event.event_kind = 'tool_result'
+JOIN context_checkpoints checkpoint
+  ON checkpoint.agent_id = call.agent_id
+ AND strpos(checkpoint.summary, $4) > 0
+WHERE call.project_id = $1
+  AND call.agent_id = $2
+  AND call.name = $3
+ORDER BY checkpoint.created_at DESC, checkpoint.id DESC
+LIMIT 1`, projectUUID, agentUUID, toolName, toolResult).Scan(
+		&callSequence,
+		&resultSequence,
+		&summarizedThrough,
+	); err != nil {
+		t.Fatalf("query summarized live tool boundary: %v", err)
 	}
-	runLiveServiceCompactionRecall(t, ctx, liveServiceModelTurnOptions{
-		Seed:                "live-openai-compaction-recall",
-		ProviderConfig:      "openai-prod",
-		ConfiguredModelName: liveOpenAIConfiguredModelName(),
-		BaseURL:             os.Getenv("OPENAI_BASE_URL"),
-	})
+	if callSequence >= resultSequence || resultSequence > summarizedThrough {
+		t.Fatalf(
+			"live compaction cut tool boundary call=%d result=%d summarized_through=%d",
+			callSequence,
+			resultSequence,
+			summarizedThrough,
+		)
+	}
+}
+
+func assertLiveBudgetAdmissionEvidence(
+	t *testing.T,
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectUUID, agentUUID string,
+) {
+	t.Helper()
+	var errorDetails json.RawMessage
+	if err := env.db.QueryRow(ctx, `
+SELECT error_details
+FROM model_call_contexts
+WHERE project_id = $1
+  AND agent_id = $2
+  AND state = 'failed'
+  AND recovery_kind = 'compact'
+  AND error_kind = 'context_window'
+  AND error_code = 'configured_input_budget_exceeded'
+ORDER BY created_at DESC, id DESC
+LIMIT 1`, projectUUID, agentUUID).Scan(&errorDetails); err != nil {
+		t.Fatalf("query live request-admission evidence: %v", err)
+	}
+	var details struct {
+		RequestAdmission model.InputBudgetAssessment `json:"request_admission"`
+	}
+	if err := json.Unmarshal(errorDetails, &details); err != nil {
+		t.Fatalf("decode live request-admission evidence: %v", err)
+	}
+	assessment := details.RequestAdmission
+	wantEstimate := max(assessment.LocalEstimateTokens, assessment.ProviderUsageFloorTokens)
+	if assessment.LocalEstimateTokens <= 0 ||
+		assessment.ProviderUsageFloorTokens <= 0 ||
+		assessment.EstimatedInputTokens != wantEstimate ||
+		assessment.EstimatedInputTokens <= assessment.UsableInputTokens {
+		t.Fatalf("live request admission = %+v, want max(local, provider floor) above usable input", assessment)
+	}
+}
+
+func TestServiceE2ELiveOpenAICompactionRecall(t *testing.T) {
+	runLiveServiceProviderJourney(
+		t,
+		"openai-prod",
+		"compaction-recall",
+		8*time.Minute,
+		runLiveServiceCompactionRecall,
+	)
+}
+
+func TestServiceE2ELiveOpenAIChatCompletionsCompactionRecall(t *testing.T) {
+	runLiveServiceProviderJourney(
+		t,
+		"openai-chat-prod",
+		"compaction-recall",
+		8*time.Minute,
+		runLiveServiceCompactionRecall,
+	)
+}
+
+func TestServiceE2ELiveOpenRouterCompactionRecall(t *testing.T) {
+	runLiveServiceProviderJourney(
+		t,
+		"openrouter-prod",
+		"compaction-recall",
+		8*time.Minute,
+		runLiveServiceCompactionRecall,
+	)
 }
 
 func TestServiceE2ELiveAnthropicCompactionRecall(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
-	defer cancel()
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		t.Fatal("ANTHROPIC_API_KEY is required for live Anthropic compaction recall E2E")
-	}
-	runLiveServiceCompactionRecall(t, ctx, liveServiceModelTurnOptions{
-		Seed:                "live-anthropic-compaction-recall",
-		ProviderConfig:      "anthropic-prod",
-		ConfiguredModelName: liveAnthropicConfiguredModelName(),
-		BaseURL:             os.Getenv("ANTHROPIC_BASE_URL"),
-	})
+	runLiveServiceProviderJourney(
+		t,
+		"anthropic-prod",
+		"compaction-recall",
+		8*time.Minute,
+		runLiveServiceCompactionRecall,
+	)
 }
 
-type liveServiceModelTurnOptions struct {
+func runLiveServiceProviderJourney(
+	t *testing.T,
+	providerConfig, journey string,
+	timeout time.Duration,
+	run func(*testing.T, context.Context, liveServiceJourneyOptions),
+) {
+	t.Helper()
+	provider := requireLiveServiceProvider(t, providerConfig)
+	provider.requireAPIKey(t)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	run(t, ctx, provider.journeyOptions(journey))
+}
+
+type liveServiceProvider struct {
+	Name                        string
+	Seed                        string
+	APIKeyEnv                   string
+	ProviderConfig              string
+	ConfiguredModelName         string
+	BaseURL                     string
+	APIFormat                   string
+	APIVariant                  string
+	APIVariantOptions           map[string]any
+	RequireProviderReportedCost bool
+}
+
+func liveServiceProviders() []liveServiceProvider {
+	return []liveServiceProvider{
+		{
+			Name:                "OpenAI Responses",
+			Seed:                "openai",
+			APIKeyEnv:           "OPENAI_API_KEY",
+			ProviderConfig:      "openai-prod",
+			ConfiguredModelName: liveOpenAIConfiguredModelName(),
+			BaseURL:             os.Getenv("OPENAI_BASE_URL"),
+			APIFormat:           "openai-responses",
+			APIVariant:          "default",
+		},
+		{
+			Name:                "OpenAI Chat Completions",
+			Seed:                "openai-chat-completions",
+			APIKeyEnv:           "OPENAI_API_KEY",
+			ProviderConfig:      "openai-chat-prod",
+			ConfiguredModelName: liveOpenAIChatConfiguredModelName(),
+			BaseURL:             os.Getenv("OPENAI_BASE_URL"),
+			APIFormat:           "openai-chat-completions",
+			APIVariant:          "default",
+		},
+		{
+			Name:                "OpenRouter",
+			Seed:                "openrouter",
+			APIKeyEnv:           "OPENROUTER_API_KEY",
+			ProviderConfig:      "openrouter-prod",
+			ConfiguredModelName: liveOpenRouterConfiguredModel,
+			BaseURL:             os.Getenv("OPENROUTER_BASE_URL"),
+			APIFormat:           "openai-chat-completions",
+			APIVariant:          "openrouter",
+			// Keep live summaries bounded and match the direct OpenRouter runner.
+			APIVariantOptions: map[string]any{
+				"reasoning": map[string]any{"enabled": false},
+			},
+			RequireProviderReportedCost: true,
+		},
+		{
+			Name:                "Anthropic Messages",
+			Seed:                "anthropic",
+			APIKeyEnv:           "ANTHROPIC_API_KEY",
+			ProviderConfig:      "anthropic-prod",
+			ConfiguredModelName: liveAnthropicConfiguredModelName(),
+			BaseURL:             os.Getenv("ANTHROPIC_BASE_URL"),
+			APIFormat:           "anthropic-messages",
+			APIVariant:          "default",
+		},
+	}
+}
+
+func requireLiveServiceProvider(t *testing.T, providerConfig string) liveServiceProvider {
+	t.Helper()
+	for _, provider := range liveServiceProviders() {
+		if provider.ProviderConfig == providerConfig {
+			return provider
+		}
+	}
+	t.Fatalf("live service provider %q is not registered", providerConfig)
+	return liveServiceProvider{}
+}
+
+func (provider liveServiceProvider) requireAPIKey(t *testing.T) {
+	t.Helper()
+	if strings.TrimSpace(os.Getenv(provider.APIKeyEnv)) == "" {
+		t.Fatalf("%s is required for live %s service E2E", provider.APIKeyEnv, provider.Name)
+	}
+}
+
+func (provider liveServiceProvider) journeyOptions(journey string) liveServiceJourneyOptions {
+	return liveServiceJourneyOptions{
+		Seed:                        "live-" + provider.Seed + "-" + journey,
+		ProviderConfig:              provider.ProviderConfig,
+		ConfiguredModelName:         provider.ConfiguredModelName,
+		BaseURL:                     provider.BaseURL,
+		APIVariantOptions:           provider.APIVariantOptions,
+		RequireProviderReportedCost: provider.RequireProviderReportedCost,
+	}
+}
+
+type liveServiceJourneyOptions struct {
 	Seed                        string
 	ProviderConfig              string
 	ConfiguredModelName         string
 	BaseURL                     string
+	APIVariantOptions           map[string]any
 	RequireProviderReportedCost bool
 }
 
@@ -328,6 +550,7 @@ type liveAPIFormatSwitchStage struct {
 	ExpectedOutput      []string
 	ForbiddenOutput     []string
 	ExpectedFormat      string
+	ExpectedVariant     string
 	ExpectedModelCalls  int
 }
 
@@ -346,7 +569,7 @@ func liveAPIFormatSwitchConfig(stage liveAPIFormatSwitchStage, mcpURL string) st
 	}, "\n")
 }
 
-func runLiveServiceModelTurn(t *testing.T, ctx context.Context, opts liveServiceModelTurnOptions) {
+func runLiveServiceModelTurn(t *testing.T, ctx context.Context, opts liveServiceJourneyOptions) {
 	t.Helper()
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, opts.Seed)
 	env.startAPI(t, ctx)
@@ -433,31 +656,102 @@ LIMIT 1`, projectID, agentID, outputContains).Scan(
 	); err != nil {
 		t.Fatalf("query live model usage: %v", err)
 	}
+	assertLivePersistedModelUsage(
+		t,
+		"normal",
+		usage,
+		providerReportedCostUSD,
+		requireProviderReportedCost,
+	)
+}
+
+func assertLiveCompactionUsage(
+	t *testing.T,
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectID, agentID string,
+	requireProviderReportedCost bool,
+) {
+	t.Helper()
+	var (
+		usage                   modelenvelope.Usage
+		providerReportedCostUSD *string
+	)
+	if err := env.db.QueryRow(ctx, `
+SELECT coalesce(input_tokens_total, 0),
+       coalesce(uncached_input_tokens, 0),
+       coalesce(cache_read_input_tokens, 0),
+       coalesce(cache_write_input_tokens, 0),
+       coalesce(output_tokens_total, 0),
+       coalesce(reasoning_output_tokens, 0),
+       provider_reported_cost_usd::text
+FROM model_call_contexts
+WHERE project_id = $1
+  AND agent_id = $2
+  AND operation_kind = 'compaction'
+  AND state = 'succeeded'
+ORDER BY created_at DESC, id DESC
+LIMIT 1`, projectID, agentID).Scan(
+		&usage.InputTokens,
+		&usage.UncachedInputTokens,
+		&usage.CacheReadTokens,
+		&usage.CacheWriteTokens,
+		&usage.OutputTokens,
+		&usage.ReasoningTokens,
+		&providerReportedCostUSD,
+	); err != nil {
+		t.Fatalf("query live compaction usage: %v", err)
+	}
+	assertLivePersistedModelUsage(
+		t,
+		"compaction",
+		usage,
+		providerReportedCostUSD,
+		requireProviderReportedCost,
+	)
+}
+
+func assertLivePersistedModelUsage(
+	t *testing.T,
+	operation string,
+	usage modelenvelope.Usage,
+	providerReportedCostUSD *string,
+	requireProviderReportedCost bool,
+) {
+	t.Helper()
 	if usage.InputTokens == 0 || usage.OutputTokens == 0 {
-		t.Fatalf("live model usage totals not persisted: %+v", usage)
+		t.Fatalf("live %s model usage totals not persisted: %+v", operation, usage)
 	}
 	if normalized := modelenvelope.NormalizeUsage(usage); normalized != usage {
-		t.Fatalf("live model usage is internally inconsistent: %+v", usage)
+		t.Fatalf("live %s model usage is internally inconsistent: %+v", operation, usage)
 	}
 	if requireProviderReportedCost {
 		if providerReportedCostUSD == nil {
-			t.Fatal("live provider-reported cost was not persisted")
+			t.Fatalf("live %s provider-reported cost was not persisted", operation)
 		}
 		if _, valid := modelenvelope.ParseProviderReportedCostUSD(*providerReportedCostUSD); !valid {
-			t.Fatalf("persisted live provider-reported cost is invalid: %q", *providerReportedCostUSD)
+			t.Fatalf("persisted live %s provider-reported cost is invalid: %q", operation, *providerReportedCostUSD)
 		}
 	}
 }
 
-func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts liveServiceModelTurnOptions) {
+func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts liveServiceJourneyOptions) {
 	t.Helper()
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, opts.Seed)
+	toolResult := "OPAQUE_COMPACTION_TOOL_RESULT_" + rand.Text()
+	mcpServer := mcptest.NewJSONServerWithGreetResult(t, toolResult)
+	toolName := toolcatalog.MCPRuntimeToolName("docs", "greet")
 	env.startAPI(t, ctx)
 	sourceYAML := strings.Join([]string{
-		"instruction: Help the user make progress.",
+		"instruction: Use tools only when explicitly requested. Preserve exact tool results and opaque facts across compaction.",
 		"model:",
 		"  provider_config: " + opts.ProviderConfig,
 		"  name: " + opts.ConfiguredModelName,
+		"mcp:",
+		"  docs:",
+		"    url: " + mcpServer.URL,
+		"    permission:",
+		"      mode: always_allow",
 		"",
 	}, "\n")
 	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(
@@ -470,6 +764,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 				ContextWindowTokens:    16000,
 				MaxOutputTokens:        8192,
 				DefaultMaxOutputTokens: 4096,
+				APIVariantOptions:      opts.APIVariantOptions,
 			},
 		},
 	)
@@ -495,11 +790,14 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	projectLabel := "PROJECT_LABEL_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	bridgeToken := "BRIDGE_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	rawPaddingToken := "RAW_PADDING_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
+	toolArgument := "COMPACTION_TOOL_FACT_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	firstPrompt := strings.Join([]string{
 		"The fictional project label for this conversation is " + projectLabel + ".",
-		"Remember this exact label if the conversation is summarized or compacted.",
-		"Reply with exactly ACK_" + projectLabel + " and no other words.",
-		"Disposable context padding for the first turn: " + strings.Repeat(rawPaddingToken+" ", 250),
+		"Call the " + toolName + " tool exactly once with name set to " + toolArgument + ".",
+		"The exact result is generated inside the tool server and cannot be reconstructed from the tool name or arguments.",
+		"Remember both the exact project label and exact tool result if the conversation is summarized or compacted.",
+		"After the tool returns, do not call another tool. Reply with exactly ACK_" + projectLabel + " and no other words.",
+		"Disposable context padding for the first turn: " + strings.Repeat(rawPaddingToken+" ", 150),
 	}, "\n")
 	project.createInput(t, ctx, agentID, firstPrompt)
 	worker := env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
@@ -508,11 +806,13 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	})
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
-	waitForLiveModelOutputText(t, ctx, env, project.projectID, agentID, projectLabel, worker)
+	waitForLiveModelOutputText(t, ctx, env, project.projectID, agentID, "ACK_"+projectLabel, worker)
+	waitForLiveAgentIdle(t, ctx, env, project.projectID, agentID, worker)
+	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
 
 	secondPrompt := strings.Join([]string{
 		"Create enough ordinary context pressure that the system may compact older history before this turn completes.",
-		"Do not mention the earlier project label in this response.",
+		"Do not mention the earlier project label or tool result in this response.",
 		"Reply with exactly " + bridgeToken + " and no other words.",
 		"Additional current-turn padding: " + strings.Repeat("fresh continuation detail ", 1100),
 	}, "\n")
@@ -524,7 +824,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	project.createInput(t, ctx, agentID, secondPrompt)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		var checkpoints, compactedContexts, failedBudgetContexts int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summary LIKE '%' || $3 || '%' AND checkpoint.summary NOT LIKE '%' || $4 || '%'`, projectUUID, agentUUID, projectLabel, rawPaddingToken).
+		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0`, projectUUID, agentUUID, projectLabel, toolResult, rawPaddingToken).
 			Scan(&checkpoints); err != nil {
 			return false, err.Error()
 		}
@@ -554,7 +854,9 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		if err != nil {
 			return false, err.Error()
 		}
-		outputMatches := strings.Contains(latestOutput, bridgeToken) && !strings.Contains(latestOutput, projectLabel)
+		outputMatches := strings.Contains(latestOutput, bridgeToken) &&
+			!strings.Contains(latestOutput, projectLabel) &&
+			!strings.Contains(latestOutput, toolResult)
 		if outputMatches && checkpoints == 1 && compactedContexts >= 1 && failedBudgetContexts == 1 {
 			return true, ""
 		}
@@ -569,10 +871,11 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		}
 		if checkpoints == 1 && compactedContexts >= 1 && failedBudgetContexts == 1 && locks == 0 && wakeups == 0 {
 			t.Fatalf(
-				"post-compaction model output violated bridge contract: output=%q want_contains=%q want_excludes=%q",
+				"post-compaction model output violated bridge contract: output=%q want_contains=%q want_excludes=%q,%q",
 				latestOutput,
 				bridgeToken,
 				projectLabel,
+				toolResult,
 			)
 		}
 		return false, "live compaction bridge not complete checkpoints=" + itoa(checkpoints) +
@@ -583,6 +886,18 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			" latest_output=" + strconv.Quote(latestOutput) +
 			" worker_logs=" + worker.logExcerpt()
 	})
+	waitForLiveAgentIdle(t, ctx, env, project.projectID, agentID, worker)
+	assertLiveBudgetAdmissionEvidence(t, ctx, env, projectUUID, agentUUID)
+	assertLiveCompactionUsage(
+		t,
+		ctx,
+		env,
+		projectUUID,
+		agentUUID,
+		opts.RequireProviderReportedCost,
+	)
+	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
+	assertLiveToolResultSummarized(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
 
 	var beforeRecallSequence int64
 	if err := env.db.QueryRow(ctx, `SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`, projectUUID, agentUUID).
@@ -593,7 +908,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		t,
 		ctx,
 		agentID,
-		"What is the fictional project label from earlier? Reply with the exact label and no explanation.",
+		"What are the fictional project label and exact opaque tool result from earlier? Reply with both exact values and no explanation.",
 	)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		var compactedContexts, locks, wakeups int
@@ -627,14 +942,17 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		if err != nil {
 			return false, err.Error()
 		}
-		if strings.Contains(latestOutput, projectLabel) && compactedContexts >= 2 && locks == 0 && wakeups == 0 {
+		if strings.Contains(latestOutput, projectLabel) &&
+			strings.Contains(latestOutput, toolResult) &&
+			compactedContexts >= 2 && locks == 0 && wakeups == 0 {
 			return true, ""
 		}
 		if compactedContexts >= 2 && locks == 0 && wakeups == 0 {
 			t.Fatalf(
-				"post-compaction recall output omitted durable fact: output=%q want_contains=%q",
+				"post-compaction recall output omitted durable fact: output=%q want_contains=%q,%q",
 				latestOutput,
 				projectLabel,
+				toolResult,
 			)
 		}
 		return false, "live compaction recall not complete compacted_contexts=" + itoa(compactedContexts) +
@@ -643,6 +961,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			" latest_output=" + strconv.Quote(latestOutput) +
 			" worker_logs=" + worker.logExcerpt()
 	})
+	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
 }
 
 func latestModelOutputTextAfterSequence(
