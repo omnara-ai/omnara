@@ -181,8 +181,8 @@ function AgentConfigPanelEditor({
             <Button
               type="submit"
               disabled={updateConfig.isPending || !editor.dirty || editor.saveBlocked}
+              loading={updateConfig.isPending}
             >
-              {updateConfig.isPending && <Spinner />}
               Save config
             </Button>
           )}

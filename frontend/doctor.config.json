@@ -15,6 +15,11 @@
         "rules": ["react-doctor/no-event-handler"]
       },
       {
+        // Vitest loads happy-dom through @vitest-environment control comments.
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dev-dependency"]
+      },
+      {
         "files": [
           "src/components/agents/AgentConfigMachineSourceComboboxes.tsx",
           "src/components/agents/AgentConfigMachineSourcesField.tsx",

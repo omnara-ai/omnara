@@ -2,9 +2,14 @@ import type { ToolPermissionProfile } from '@omnara/sdk'
 import { Trash2Icon } from 'lucide-react'
 
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
-import type { BasicMcpServer, McpAuthType } from '@/components/agents/useAgentBuilderForm'
+import {
+  type BasicMcpServer,
+  type McpAuthType,
+  mcpServerNameError,
+  mcpServerNameMaxLength,
+} from '@/components/agents/useAgentBuilderForm'
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -18,6 +23,13 @@ const awsSigningFields = [
   { key: 'service', label: 'Signing service' },
   { key: 'region', label: 'Signing region' },
 ] as const
+
+const mcpAuthTypeOptions: { value: McpAuthType; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'oauth', label: 'OAuth secret' },
+  { value: 'bearer', label: 'Bearer secret' },
+  { value: 'sigv4', label: 'AWS Signature V4' },
+]
 
 function newMcpServer(permissionProfile: ToolPermissionProfile): BasicMcpServer {
   return {
@@ -78,22 +90,32 @@ export function AgentConfigMcpServersField({
           </div>
         ) : (
           servers.map((server) => {
+            const duplicateName = servers.some(
+              (candidate) => candidate.id !== server.id && candidate.name === server.name,
+            )
+            const nameError =
+              mcpServerNameError(server.name) ??
+              (duplicateName ? 'Name must be unique within this configuration.' : undefined)
             return (
               <div
                 key={server.id}
                 className="border-border bg-background space-y-4 rounded-lg border p-4"
               >
                 <div className="grid gap-4 sm:grid-cols-[minmax(8rem,14rem)_1fr_auto]">
-                  <Field>
+                  <Field data-invalid={nameError !== undefined}>
                     <FieldLabel htmlFor={`${server.id}-name`}>Name</FieldLabel>
                     <Input
                       id={`${server.id}-name`}
+                      required
+                      maxLength={mcpServerNameMaxLength}
+                      aria-invalid={nameError !== undefined}
                       value={server.name}
                       placeholder="github"
                       onChange={(event) => {
                         updateServer(server.id, { name: event.target.value })
                       }}
                     />
+                    <FieldError>{nameError}</FieldError>
                   </Field>
                   <Field>
                     <FieldLabel htmlFor={`${server.id}-url`}>URL</FieldLabel>
@@ -158,7 +180,9 @@ export function AgentConfigMcpServersField({
                       }}
                     >
                       <SelectTrigger className="w-full" aria-label="MCP default enable">
-                        <SelectValue />
+                        <SelectValue>
+                          {server.defaultEnabled ? 'Enabled by default' : 'Disabled by default'}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="true">Enabled by default</SelectItem>
@@ -182,13 +206,17 @@ export function AgentConfigMcpServersField({
                       }}
                     >
                       <SelectTrigger className="w-full" aria-label="MCP auth type">
-                        <SelectValue />
+                        <SelectValue>
+                          {mcpAuthTypeOptions.find((option) => option.value === server.authType)
+                            ?.label ?? server.authType}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="oauth">OAuth secret</SelectItem>
-                        <SelectItem value="bearer">Bearer secret</SelectItem>
-                        <SelectItem value="sigv4">AWS Signature V4</SelectItem>
+                        {mcpAuthTypeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </Field>

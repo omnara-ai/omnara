@@ -13,7 +13,6 @@ import {
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 
 export function EditSecretDialog({
@@ -66,8 +65,9 @@ export function EditSecretDialog({
               <Button
                 type="submit"
                 disabled={mutation.isPending || name === secret.name || !resourceNameValid(name)}
+                loading={mutation.isPending}
               >
-                {mutation.isPending && <Spinner />}Save changes
+                Save changes
               </Button>
             </DialogFooter>
           </FieldGroup>

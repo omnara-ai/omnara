@@ -3,7 +3,12 @@ import { parse } from 'yaml'
 
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
-import { type BasicConfig, basicConfigValid, createBasicConfigSession } from './useAgentBuilderForm'
+import {
+  type BasicConfig,
+  basicConfigValid,
+  createBasicConfigSession,
+  mcpServerNameError,
+} from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
   instruction: 'You are a research assistant.\n\nCite sources.',
@@ -545,6 +550,25 @@ describe('basic agent config names', () => {
   it('rejects rather than trims MCP server keys', () => {
     const mcpServers = fullConfig.mcpServers.map((server, index) =>
       index === 0 ? { ...server, name: ` ${server.name}` } : server,
+    )
+    expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
+  })
+
+  it.each([
+    ['', 'Name is required.'],
+    [' github', 'Name must start with a letter.'],
+    ['1github', 'Name must start with a letter.'],
+    ['git_hub', 'Name may only contain letters, numbers, and hyphens.'],
+    ['a'.repeat(33), 'Name cannot exceed 32 characters.'],
+    ['github', undefined],
+    ['GitHub-2', undefined],
+  ])('reports the MCP server key rule for %j', (name, expected) => {
+    expect(mcpServerNameError(name)).toBe(expected)
+  })
+
+  it('rejects duplicate MCP server keys', () => {
+    const mcpServers = fullConfig.mcpServers.map((server, index) =>
+      index === 1 ? { ...server, name: fullConfig.mcpServers[0]?.name ?? '' } : server,
     )
     expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
   })

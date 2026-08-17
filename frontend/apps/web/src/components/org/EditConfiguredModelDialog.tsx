@@ -13,7 +13,6 @@ import {
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -167,8 +166,9 @@ export function EditConfiguredModelDialog({
                       (name !== model.name && !resourceNameValid(name)) ||
                       slug.trim() === ''
                     }
+                    loading={mutation.isPending}
                   >
-                    {mutation.isPending && <Spinner />}Save changes
+                    Save changes
                   </Button>
                 )}
               </form.Subscribe>

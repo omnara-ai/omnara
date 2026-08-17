@@ -22,7 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
 import {
@@ -106,7 +105,7 @@ export function DeployAgentProfileDialog({
                   <FieldLabel htmlFor="deploy-provider">Destination</FieldLabel>
                   <Select value={field.state.value} onValueChange={field.handleChange}>
                     <SelectTrigger id="deploy-provider" className="w-full">
-                      <SelectValue />
+                      <SelectValue>Slack</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="slack">Slack</SelectItem>
@@ -237,8 +236,7 @@ export function DeployAgentProfileDialog({
                 selector={(state) => [deployFormValid(state.values), state.isSubmitting] as const}
               >
                 {([valid, isSubmitting]) => (
-                  <Button type="submit" disabled={isSubmitting || !valid}>
-                    {isSubmitting && <Spinner />}
+                  <Button type="submit" disabled={isSubmitting || !valid} loading={isSubmitting}>
                     Continue
                   </Button>
                 )}

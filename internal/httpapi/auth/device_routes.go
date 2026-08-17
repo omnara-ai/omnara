@@ -7,6 +7,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -26,6 +27,10 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		TokenName  string `json:"token_name"`
 	}
 	if err := decodeAllowedJSONBody(r, &body, map[string]bool{"client_name": true, "token_name": true}, nil); err != nil {
+		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
+		return
+	}
+	if err := resourcename.Validate("token_name", body.TokenName); err != nil {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}

@@ -14,7 +14,6 @@ import {
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
@@ -56,9 +55,10 @@ export function CreateOrgDialog({
       setState(initialState())
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not create organization')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not create organization'),
+        status,
       }))
     }
   }
@@ -109,8 +109,8 @@ export function CreateOrgDialog({
               <Button
                 type="submit"
                 disabled={createOrganization.isPending || !resourceNameValid(state.name)}
+                loading={createOrganization.isPending}
               >
-                {createOrganization.isPending && <Spinner />}
                 Create organization
               </Button>
             </DialogFooter>

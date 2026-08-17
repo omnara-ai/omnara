@@ -3,7 +3,6 @@ import { SendHorizontal, Square } from 'lucide-react'
 import { type KeyboardEvent, type SyntheticEvent, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 
 export function AgentComposer({
@@ -77,9 +76,11 @@ export function AgentComposer({
               variant="outline"
               size="sm"
               disabled={!canOperate || cancelPending}
+              loading={cancelPending}
+              icon={<Square className="size-3 fill-current" />}
               onClick={() => void onCancel().catch(() => undefined)}
             >
-              {cancelPending ? <Spinner /> : <Square className="size-3 fill-current" />} Stop agent
+              Stop agent
             </Button>
           )}
           <Button type="submit" size="sm" disabled={!canSend}>

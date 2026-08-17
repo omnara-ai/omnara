@@ -6,8 +6,7 @@ import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
-import { Spinner } from '@/components/ui/spinner'
-import { errorMessage } from '@/lib/submit-status'
+import { errorMessage, settleSubmission } from '@/lib/submit-status'
 
 import { configuredModelRequestForDiscoveredModel } from './CreateModelProviderDialogState'
 
@@ -65,23 +64,34 @@ export function AddDiscoveredModelsStep({
     const slugs = state.selectedSlugs
     setState((prev) => ({ ...prev, error: '' }))
     setSubmitting(true)
-    const results = await Promise.allSettled(
-      slugs.map((slug) =>
-        createConfiguredModel.mutateAsync({
-          modelProviderConfigID: provider.id,
-          ...configuredModelRequestForDiscoveredModel(
-            provider.name,
-            creatableModels.find((model) => model.slug === slug) ?? { slug },
-          ),
-        }),
+    const result = await settleSubmission(() =>
+      Promise.allSettled(
+        slugs.map((slug) =>
+          createConfiguredModel.mutateAsync({
+            modelProviderConfigID: provider.id,
+            ...configuredModelRequestForDiscoveredModel(
+              provider.name,
+              creatableModels.find((model) => model.slug === slug) ?? { slug },
+            ),
+          }),
+        ),
       ),
-    )
+    ).finally(() => {
+      if (mounted.current) setSubmitting(false)
+    })
     if (!mounted.current) return
-    setSubmitting(false)
-    const failedSlugs = slugs.filter((_, index) => results[index]?.status === 'rejected')
+    if (!result.ok) {
+      setState((prev) => ({
+        ...prev,
+        error: errorMessage(result.error, 'The models could not be created.'),
+      }))
+      return
+    }
+
+    const failedSlugs = slugs.filter((_, index) => result.value[index]?.status === 'rejected')
     const succeeded = slugs.length - failedSlugs.length
     if (failedSlugs.length > 0) {
-      const firstFailure = results.find(
+      const firstFailure = result.value.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
       )
       setState((prev) => ({
@@ -132,11 +142,11 @@ export function AddDiscoveredModelsStep({
           <Button
             type="button"
             disabled={submitting || state.selectedSlugs.length === 0}
+            loading={submitting}
             onClick={() => {
               void createSelected()
             }}
           >
-            {submitting && <Spinner />}
             {state.selectedSlugs.length > 0
               ? `Create ${String(state.selectedSlugs.length)} ${state.selectedSlugs.length === 1 ? 'model' : 'models'}`
               : 'Create models'}

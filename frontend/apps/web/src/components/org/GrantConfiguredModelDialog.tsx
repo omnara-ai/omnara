@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { FieldGroup } from '@/components/ui/field'
-import { Spinner } from '@/components/ui/spinner'
 import { collectGrantFailures } from '@/lib/grant-failures'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -67,7 +66,8 @@ export function GrantConfiguredModelDialog({
       setState({ projectIds: [], status: idle })
       onOpenChange(false)
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Could not grant model') }))
+      const status = submitError(err, 'Could not grant model')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 
@@ -96,8 +96,11 @@ export function GrantConfiguredModelDialog({
             />
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting || state.projectIds.length === 0}>
-                {isSubmitting && <Spinner />}
+              <Button
+                type="submit"
+                disabled={isSubmitting || state.projectIds.length === 0}
+                loading={isSubmitting}
+              >
                 Grant model
               </Button>
             </DialogFooter>

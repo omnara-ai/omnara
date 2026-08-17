@@ -40,8 +40,12 @@ export function ApiTokenRevealContent({ token, onDone }: { token: string; onDone
                 event.currentTarget.select()
               }}
             />
-            <Button type="button" variant="outline" onClick={() => void copyToken()}>
-              {copied ? <Check /> : <Copy />}
+            <Button
+              type="button"
+              variant="outline"
+              icon={copied ? <Check /> : <Copy />}
+              onClick={() => void copyToken()}
+            >
               {copied ? 'Copied' : 'Copy'}
             </Button>
           </div>

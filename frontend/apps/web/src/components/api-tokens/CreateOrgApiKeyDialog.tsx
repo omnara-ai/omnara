@@ -15,7 +15,6 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -118,8 +117,11 @@ export function CreateOrgApiKeyDialog({
                 </Field>
                 {error && <p className="text-destructive text-sm">{error}</p>}
                 <DialogFooter>
-                  <Button type="submit" disabled={createKey.isPending || !resourceNameValid(name)}>
-                    {createKey.isPending && <Spinner />}
+                  <Button
+                    type="submit"
+                    disabled={createKey.isPending || !resourceNameValid(name)}
+                    loading={createKey.isPending}
+                  >
                     Create token
                   </Button>
                 </DialogFooter>

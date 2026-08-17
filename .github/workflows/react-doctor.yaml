@@ -15,11 +15,12 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
   statuses: write
 
 concurrency:
   group: react-doctor-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   react-doctor:
@@ -32,22 +33,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Check pull request changes
-        if: github.event_name == 'pull_request'
-        uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
+      - uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
         with:
+          directory: frontend
+          project: '*'
           blocking: warning
-          directory: frontend
-          project: "*"
-          scope: changed
-          version: 0.7.2
-
-      - name: Audit the default branch
-        if: github.event_name != 'pull_request'
-        uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
-        with:
-          blocking: none
-          directory: frontend
-          project: "*"
-          scope: full
-          version: 0.7.2
+          node-version: '24'

@@ -193,11 +193,25 @@ function machineSourceValid(source: BasicMachineSource) {
   )
 }
 
+export const mcpServerNameMaxLength = 32
+
 const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
+
+export function mcpServerNameError(name: string): string | undefined {
+  if (name === '') return 'Name is required.'
+  if (name.length > mcpServerNameMaxLength) {
+    return `Name cannot exceed ${mcpServerNameMaxLength} characters.`
+  }
+  if (!/^[a-zA-Z]/.test(name)) return 'Name must start with a letter.'
+  if (!mcpServerNamePattern.test(name)) {
+    return 'Name may only contain letters, numbers, and hyphens.'
+  }
+  return undefined
+}
 
 function mcpServerValid(server: BasicMcpServer) {
   return (
-    mcpServerNamePattern.test(server.name) &&
+    mcpServerNameError(server.name) === undefined &&
     server.url.trim() !== '' &&
     (server.authType === 'none' ||
       (server.secretId.trim() !== '' &&

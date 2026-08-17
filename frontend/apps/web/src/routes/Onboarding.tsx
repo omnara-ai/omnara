@@ -9,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -114,8 +113,8 @@ export function Onboarding() {
                   type="submit"
                   className="w-full"
                   disabled={creating || !resourceNameValid(state.name)}
+                  loading={creating}
                 >
-                  {creating && <Spinner />}
                   Create organization
                 </Button>
               </FieldGroup>

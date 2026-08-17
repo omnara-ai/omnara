@@ -6,7 +6,6 @@ import { type SyntheticEvent, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 
 export function AgentProfileNameHeading({
@@ -79,9 +78,9 @@ export function AgentProfileNameHeading({
                 renameProfile.isPending ||
                 (nameDraft !== profile.name && !resourceNameValid(nameDraft))
               }
-            >
-              {renameProfile.isPending ? <Spinner /> : <CheckIcon />}
-            </Button>
+              loading={renameProfile.isPending}
+              icon={<CheckIcon />}
+            />
             <Button
               size="icon"
               type="button"

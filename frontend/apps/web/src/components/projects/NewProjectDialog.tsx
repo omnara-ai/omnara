@@ -13,7 +13,6 @@ import {
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
@@ -44,9 +43,10 @@ export function NewProjectDialog({
       setState((prev) => ({ ...prev, name: '' }))
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not create project')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not create project'),
+        status,
       }))
     }
   }
@@ -83,8 +83,8 @@ export function NewProjectDialog({
               <Button
                 type="submit"
                 disabled={createProject.isPending || !resourceNameValid(state.name)}
+                loading={createProject.isPending}
               >
-                {createProject.isPending && <Spinner />}
                 Create project
               </Button>
             </DialogFooter>

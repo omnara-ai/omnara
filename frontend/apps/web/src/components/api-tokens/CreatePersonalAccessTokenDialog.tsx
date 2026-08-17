@@ -14,7 +14,6 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -91,8 +90,8 @@ export function CreatePersonalAccessTokenDialog({
                   <Button
                     type="submit"
                     disabled={createToken.isPending || !resourceNameValid(name)}
+                    loading={createToken.isPending}
                   >
-                    {createToken.isPending && <Spinner />}
                     Create token
                   </Button>
                 </DialogFooter>

@@ -7,7 +7,6 @@ import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
 import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
-import { Spinner } from '@/components/ui/spinner'
 
 export function AgentProfileConfigEditor({
   orgId,
@@ -93,8 +92,11 @@ export function AgentProfileConfigEditor({
             >
               Delete profile
             </Button>
-            <Button type="submit" disabled={pending || !editor.dirty || editor.saveBlocked}>
-              {pending && <Spinner />}
+            <Button
+              type="submit"
+              disabled={pending || !editor.dirty || editor.saveBlocked}
+              loading={pending}
+            >
               Save revision
             </Button>
           </div>

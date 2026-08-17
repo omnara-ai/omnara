@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -159,11 +158,11 @@ function InlineNewSecretFields({
               type="button"
               size="sm"
               disabled={createSecret.isPending || !valid}
+              loading={createSecret.isPending}
               onClick={() => {
                 void submit()
               }}
             >
-              {createSecret.isPending && <Spinner />}
               Create secret
             </Button>
           </div>

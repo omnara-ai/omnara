@@ -13,7 +13,6 @@ import {
 import { CheckboxField, Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
@@ -60,9 +59,10 @@ export function EditMachinePoolDialog({
       })
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not update machine pool')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not update machine pool'),
+        status,
       }))
     }
   }
@@ -124,8 +124,9 @@ export function EditMachinePoolDialog({
                 disabled={
                   mutation.isPending || (state.name !== pool.name && !resourceNameValid(state.name))
                 }
+                loading={mutation.isPending}
               >
-                {mutation.isPending && <Spinner />}Save changes
+                Save changes
               </Button>
             </DialogFooter>
           </FieldGroup>

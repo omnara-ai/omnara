@@ -20,7 +20,6 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { Spinner } from '@/components/ui/spinner'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { resourceNameInputMaxLength } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
@@ -293,8 +292,8 @@ export function CreateConfiguredModelDialog({
                   <Button
                     type="submit"
                     disabled={isSubmitting || (phase.kind === 'form' && !valid)}
+                    loading={isSubmitting}
                   >
-                    {isSubmitting && <Spinner />}
                     {phase.kind === 'retry-grants' ? 'Retry project grants' : 'Add model'}
                   </Button>
                 )}
