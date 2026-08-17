@@ -95,9 +95,9 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 			},
 			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread", AppendOnly: true},
 			wantMessage: "one more thing",
-			wantHidden: "This message was posted in a Slack thread that is already attached " +
-				"to this agent. It may be part of the ongoing conversation even if it does not " +
-				"directly mention the agent.\n\n" +
+			wantHidden: "This Slack thread may include multiple participants, and not every " +
+				"message is necessarily directed at you. Use your judgment to decide whether to call " +
+				"`send_integration_message` at all.\n\n" +
 				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{
@@ -278,6 +278,27 @@ func TestRenderTextRendersSlackBroadcastMentions(t *testing.T) {
 	want := "@here @channel @everyone @here <!subteam^S123|team> <!date^123^{date}|jan>"
 	if got != want {
 		t.Fatalf("RenderText = %q, want %q", got, want)
+	}
+}
+
+func TestRenderTextDecodesSlackEntities(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "ampersand", text: "fish &amp; chips", want: "fish & chips"},
+		{name: "less than", text: "1 &lt; 2", want: "1 < 2"},
+		{name: "greater than", text: "2 &gt; 1", want: "2 > 1"},
+		{name: "one pass", text: "&amp;gt;", want: "&gt;"},
+		{name: "escaped mention", text: "&lt;@U123|Ada&gt;", want: "<@U123|Ada>"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := (DisplayLabels{}).RenderText(test.text); got != test.want {
+				t.Fatalf("RenderText(%q) = %q, want %q", test.text, got, test.want)
+			}
+		})
 	}
 }
 
