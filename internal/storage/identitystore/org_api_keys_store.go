@@ -264,10 +264,15 @@ func (s *Store) UpdateOrgAPIKey(
 	if err != nil {
 		return OrgAPIKeyRecord{}, err
 	}
-	if input.Name != "" && input.Name != current.Name {
-		if err := resourcename.Validate("org api key name", input.Name); err != nil {
-			return OrgAPIKeyRecord{}, storeerr.InvalidRequest(err)
-		}
+	effectiveName := current.Name
+	if input.Name != "" {
+		effectiveName = input.Name
+	}
+	if effectiveName == "" {
+		return OrgAPIKeyRecord{}, errors.New("org api key name is required")
+	}
+	if err := resourcename.Validate("org api key name", effectiveName); err != nil {
+		return OrgAPIKeyRecord{}, storeerr.InvalidRequest(err)
 	}
 	var row dbsqlc.OrgApiKey
 	if input.Name != "" {

@@ -160,7 +160,6 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 					ctx,
 					qtx,
 					configuredModelUpdateFromDefault(model.ID, desired),
-					model.Name,
 					management.Cluster,
 				); err != nil {
 					return nil, nil, fmt.Errorf("update default configured model %q: %w", modelTemplate.Name, err)

@@ -215,14 +215,14 @@ func (s *Store) PatchConfiguredModel(
 	update = normalizeConfiguredModelUpdate(update)
 	behaviorChanged := configuredModelBehaviorChanged(current, update)
 	if !behaviorChanged {
+		if update.Name == "" {
+			return ConfiguredModelRecord{}, errors.New("configured model name is required")
+		}
+		if err := resourcename.Validate("configured model name", update.Name); err != nil {
+			return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
+		}
 		record := current
 		if input.Name != nil && update.Name != current.Name {
-			if update.Name == "" {
-				return ConfiguredModelRecord{}, errors.New("configured model name is required")
-			}
-			if err := resourcename.Validate("configured model name", update.Name); err != nil {
-				return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
-			}
 			renamed, err := renameConfiguredModelTx(ctx, qtx, update)
 			if err != nil {
 				return ConfiguredModelRecord{}, err
@@ -234,7 +234,7 @@ func (s *Store) PatchConfiguredModel(
 		}
 		return record, nil
 	}
-	record, err := updateConfiguredModelTx(ctx, qtx, update, current.Name, management.Tenant)
+	record, err := updateConfiguredModelTx(ctx, qtx, update, management.Tenant)
 	if err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -314,17 +314,14 @@ func updateConfiguredModelTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input configuredModelUpdate,
-	previousName string,
 	managementKind management.Kind,
 ) (ConfiguredModelRecord, error) {
 	input = normalizeConfiguredModelUpdate(input)
-	if input.Name != previousName {
-		if input.Name == "" {
-			return ConfiguredModelRecord{}, errors.New("configured model name is required")
-		}
-		if err := resourcename.Validate("configured model name", input.Name); err != nil {
-			return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
-		}
+	if input.Name == "" {
+		return ConfiguredModelRecord{}, errors.New("configured model name is required")
+	}
+	if err := resourcename.Validate("configured model name", input.Name); err != nil {
+		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
 	if input.ProviderModelSlug == "" {
 		return ConfiguredModelRecord{}, errors.New("provider model slug is required")

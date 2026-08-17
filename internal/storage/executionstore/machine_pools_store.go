@@ -734,13 +734,11 @@ func (s *Store) UpdateMachinePool(
 	if input.Metadata != nil {
 		merged.Metadata = input.Metadata
 	}
-	if merged.Name != locked.Name {
-		if merged.Name == "" {
-			return MachinePoolRecord{}, storeerr.InvalidRequest(errors.New("name is required"))
-		}
-		if err := resourcename.Validate("machine pool name", merged.Name); err != nil {
-			return MachinePoolRecord{}, storeerr.InvalidRequest(err)
-		}
+	if merged.Name == "" {
+		return MachinePoolRecord{}, storeerr.InvalidRequest(errors.New("name is required"))
+	}
+	if err := resourcename.Validate("machine pool name", merged.Name); err != nil {
+		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
 	poolDefaults, err := prepareMachinePoolConfigInput(&merged)
 	if err != nil {

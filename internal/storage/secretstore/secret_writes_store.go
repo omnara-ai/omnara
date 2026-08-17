@@ -257,10 +257,8 @@ func (s *Store) UpdateSecretMetadata(
 	if err := s.authorizeSecretManage(ctx, current, input.Actor); err != nil {
 		return SecretRecord{}, err
 	}
-	if input.Name != current.Name {
-		if err := validateSecretName(input.Name); err != nil {
-			return SecretRecord{}, err
-		}
+	if err := validateSecretName(input.Name); err != nil {
+		return SecretRecord{}, err
 	}
 	row, err := qtx.UpdateSecretMetadata(
 		ctx,
