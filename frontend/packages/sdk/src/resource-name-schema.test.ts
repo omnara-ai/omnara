@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { zDefaultableResourceName, zResourceName, zResourceNameResponse } from './generated/zod.gen'
+import { zDefaultableResourceName, zResourceName } from './generated/zod.gen'
 
 describe('generated ResourceName schema', () => {
   it('counts Unicode code points rather than UTF-16 code units', () => {
@@ -20,12 +20,6 @@ describe('generated ResourceName schema', () => {
     'Acme\ud800Labs',
   ])('rejects unsafe presentation characters in %j', (name) => {
     expect(zResourceName.safeParse(name).success).toBe(false)
-  })
-})
-
-describe('generated ResourceNameResponse schema', () => {
-  it('accepts grandfathered names returned by the API', () => {
-    expect(zResourceNameResponse.safeParse(` ${'a'.repeat(100)} `).success).toBe(true)
   })
 })
 

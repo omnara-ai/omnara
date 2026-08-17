@@ -3,7 +3,7 @@
 import * as z from 'zod';
 
 /**
- * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode control or format characters. Omit unchanged grandfathered names from updates.
+ * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode control or format characters.
  */
 export const zResourceName = z
     .string()
@@ -27,12 +27,7 @@ export const zResourceName = z
     });
 
 /**
- * Human-facing name returned by the API. Grandfathered values may not satisfy ResourceName.
- */
-export const zResourceNameResponse = z.string();
-
-/**
- * Empty requests the documented server default; non-empty values use ResourceName.
+ * Empty represents the endpoint's documented default or unnamed state; non-empty values use ResourceName.
  */
 export const zDefaultableResourceName = z
     .string()
@@ -379,7 +374,7 @@ export const zModelProviderConfig = z.object({
     id: zModelProviderConfigId,
     org_id: zOrganizationId,
     management_kind: zManagementKind,
-    name: zResourceNameResponse,
+    name: zResourceName,
     api_format: zModelApiFormat,
     api_variant: zModelProviderApiVariantResponse,
     base_url: z.string(),
@@ -408,7 +403,7 @@ export const zConfiguredModel = z.object({
     id: zConfiguredModelId,
     org_id: zOrganizationId,
     model_provider_config_id: zModelProviderConfigId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     current_revision_id: zConfiguredModelRevisionId,
     provider_model_slug: z.string(),
     context_window_tokens: z.int(),
@@ -459,8 +454,8 @@ export const zConfiguredModelSummary = z.object({
     id: zConfiguredModelId,
     org_id: zOrganizationId,
     model_provider_config_id: zModelProviderConfigId,
-    name: zResourceNameResponse,
-    provider_config: zResourceNameResponse,
+    name: zResourceName,
+    provider_config: zResourceName,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -693,8 +688,8 @@ export const zToolCatalog = z.object({
 });
 
 export const zAgentConfigModel = z.object({
-    provider_config: zResourceNameResponse,
-    name: zResourceNameResponse,
+    provider_config: zResourceName,
+    name: zResourceName,
     provider_model_slug: z.string(),
     configured_model_id: zConfiguredModelId,
     current_revision_id: zConfiguredModelRevisionId,
@@ -743,7 +738,7 @@ export const zAgentProfile = z.object({
     id: zAgentProfileId,
     org_id: zOrganizationId,
     project_id: zProjectId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     current_config_id: zAgentConfigId,
     current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     current_config: zAgentConfig,
@@ -764,8 +759,8 @@ export const zCreateAgentRequest = z.object({
 });
 
 export const zAgentModel = z.object({
-    provider_config: zResourceNameResponse,
-    name: zResourceNameResponse
+    provider_config: zResourceName,
+    name: zResourceName
 });
 
 export const zIntegrationTarget = z.object({
@@ -782,7 +777,7 @@ export const zAgent = z.object({
     project_id: zProjectId,
     agent_profile_id: zAgentProfileId.optional(),
     state: z.enum(['active', 'archived']),
-    name: zResourceNameResponse,
+    name: zDefaultableResourceName,
     integration_target: zIntegrationTarget.optional(),
     current_config_id: zAgentConfigId.optional(),
     model: zAgentModel.optional(),
@@ -1610,7 +1605,7 @@ export const zSecret = z.object({
     org_id: zOrganizationId,
     management_kind: zManagementKind,
     owner: zSecretOwner,
-    name: zResourceNameResponse,
+    name: zResourceName,
     kind: zSecretKind,
     metadata: zMetadata,
     current_version_number: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -1664,7 +1659,7 @@ export const zCreateOrganizationRequest = z.object({
 
 export const zOrganization = z.object({
     id: zOrganizationId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1679,7 +1674,7 @@ export const zOrganizationMembership = z.object({
 export const zOrgInvitation = z.object({
     id: zOrgInvitationId,
     org_id: zOrganizationId,
-    org_name: zResourceNameResponse,
+    org_name: zResourceName,
     email: z.email(),
     org_role: z.string(),
     created_at: zTimestamp
@@ -1702,7 +1697,7 @@ export const zCreatePersonalAccessTokenRequest = z.object({
 export const zPersonalAccessToken = z.object({
     id: zPersonalAccessTokenId,
     user_id: zUserId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     token_id: z.string(),
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),
@@ -1722,7 +1717,7 @@ export const zOrgApiKeyRole = z.enum(['admin', 'member']);
 export const zOrgApiKey = z.object({
     id: zOrgApiKeyId,
     org_id: zOrganizationId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     token_id: z.string(),
     org_role: z.string(),
     created_by_user_id: zUserId,
@@ -1837,7 +1832,7 @@ export const zUpdateMachinePoolRequest = z.object({
 export const zMachinePool = z.object({
     id: zMachinePoolId,
     org_id: zOrganizationId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     management_kind: zManagementKind,
     description: z.string(),
     provider: z.string(),
@@ -1893,7 +1888,7 @@ export const zMachine = z.object({
     org_id: zOrganizationId,
     source_kind: zMachineSourceKind,
     machine_pool_id: zMachinePoolId.nullish(),
-    display_name: zResourceNameResponse,
+    display_name: zResourceName,
     description: z.string(),
     provider: z.string(),
     lifecycle_state: zMachineLifecycleState,
@@ -1942,7 +1937,7 @@ export const zMachineSummaryFields = z.object({
     id: zMachineId,
     org_id: zOrganizationId,
     source_kind: zMachineSourceKind,
-    display_name: zResourceNameResponse,
+    display_name: zResourceName,
     description: z.string(),
     provider: z.string(),
     lifecycle_state: zMachineLifecycleState,
@@ -2077,7 +2072,7 @@ export const zUpdateProjectMachinePoolGrantRequest = z.object({
 export const zMachinePoolSummary = z.object({
     id: zMachinePoolId,
     org_id: zOrganizationId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     management_kind: zManagementKind,
     description: z.string(),
     provider: z.string(),
@@ -2104,7 +2099,7 @@ export const zMachineDaemonToken = z.object({
     id: zMachineDaemonTokenId,
     org_id: zOrganizationId,
     machine_id: zMachineId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     metadata: zMetadata,
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),
@@ -2237,7 +2232,7 @@ export const zCreateProjectRequest = z.object({
 export const zProjectFields = z.object({
     id: zProjectId,
     org_id: zOrganizationId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -2300,7 +2295,7 @@ export const zCurrentUserIdentity = z.object({
 
 export const zCurrentUserOrg = z.object({
     id: zOrganizationId,
-    name: zResourceNameResponse,
+    name: zResourceName,
     role: z.string(),
     created_at: zTimestamp
 });
@@ -2338,7 +2333,7 @@ export const zSetProjectMembershipRequest = z.object({
 
 export const zProjectMembershipGrant = z.object({
     project_id: zProjectId,
-    project_name: zResourceNameResponse,
+    project_name: zResourceName,
     role: z.string(),
     created_at: zTimestamp
 });

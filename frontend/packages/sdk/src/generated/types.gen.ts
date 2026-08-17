@@ -5,17 +5,12 @@ export type ClientOptions = {
 };
 
 /**
- * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode control or format characters. Omit unchanged grandfathered names from updates.
+ * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode control or format characters.
  */
 export type ResourceName = string;
 
 /**
- * Human-facing name returned by the API. Grandfathered values may not satisfy ResourceName.
- */
-export type ResourceNameResponse = string;
-
-/**
- * Empty requests the documented server default; non-empty values use ResourceName.
+ * Empty represents the endpoint's documented default or unnamed state; non-empty values use ResourceName.
  */
 export type DefaultableResourceName = string;
 
@@ -186,7 +181,7 @@ export type ModelProviderConfig = {
     id: ModelProviderConfigId;
     org_id: OrganizationId;
     management_kind: ManagementKind;
-    name: ResourceNameResponse;
+    name: ResourceName;
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
@@ -356,7 +351,7 @@ export type ConfiguredModel = {
     /**
      * User-assigned configured model name used by agent YAML as model.name.
      */
-    name: ResourceNameResponse;
+    name: ResourceName;
     current_revision_id: ConfiguredModelRevisionId;
     /**
      * Exact provider model slug sent to the provider endpoint by the current revision.
@@ -564,11 +559,11 @@ export type ConfiguredModelSummary = {
     /**
      * User-assigned configured model name used by agent YAML as model.name.
      */
-    name: ResourceNameResponse;
+    name: ResourceName;
     /**
      * Name of the provider config that owns this model, used by agent YAML as model.provider_config.
      */
-    provider_config: ResourceNameResponse;
+    provider_config: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -861,11 +856,11 @@ export type ToolCatalog = {
 };
 
 export type AgentConfigModel = {
-    provider_config: ResourceNameResponse;
+    provider_config: ResourceName;
     /**
      * Configured model name selected by this agent config, rendered from the current configured model record.
      */
-    name: ResourceNameResponse;
+    name: ResourceName;
     /**
      * Exact provider model slug on the configured model's current revision at response time.
      */
@@ -926,7 +921,7 @@ export type AgentProfile = {
     id: AgentProfileId;
     org_id: OrganizationId;
     project_id: ProjectId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     current_config_id: AgentConfigId;
     current_generation: number;
     current_config: AgentConfig;
@@ -946,7 +941,7 @@ export type CreateAgentRequest = {
     profile?: AgentProfileId;
     config: AgentConfigId;
     /**
-     * Agent name. Empty defaults to the profile name; invalid legacy profile names use a deterministic ID-based fallback.
+     * Agent name. Empty defaults to the profile name.
      */
     name?: DefaultableResourceName;
     message?: string;
@@ -959,9 +954,9 @@ export type Agent = {
     agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
     /**
-     * Agent name. Only explicitly unnamed agents are empty; grandfathered values may not satisfy ResourceName.
+     * Agent name. Only explicitly unnamed agents are empty.
      */
-    name: ResourceNameResponse;
+    name: DefaultableResourceName;
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
@@ -971,8 +966,8 @@ export type Agent = {
 };
 
 export type AgentModel = {
-    provider_config: ResourceNameResponse;
-    name: ResourceNameResponse;
+    provider_config: ResourceName;
+    name: ResourceName;
 };
 
 export type IntegrationTarget = {
@@ -1857,7 +1852,7 @@ export type Secret = {
     org_id: OrganizationId;
     management_kind: ManagementKind;
     owner: SecretOwner;
-    name: ResourceNameResponse;
+    name: ResourceName;
     kind: SecretKind;
     metadata: Metadata;
     current_version_number: number;
@@ -1928,7 +1923,7 @@ export type CreateOrganizationResponse = {
 
 export type Organization = {
     id: OrganizationId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -1943,7 +1938,7 @@ export type OrganizationMembership = {
 export type OrgInvitation = {
     id: OrgInvitationId;
     org_id: OrganizationId;
-    org_name: ResourceNameResponse;
+    org_name: ResourceName;
     email: string;
     org_role: string;
     created_at: Timestamp;
@@ -1969,7 +1964,7 @@ export type CreatePersonalAccessTokenRequest = {
 export type PersonalAccessToken = {
     id: PersonalAccessTokenId;
     user_id: UserId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     /**
      * Stable non-secret display identifier. It is not embedded in the bearer token.
      */
@@ -1995,7 +1990,7 @@ export type OrgApiKeyRole = 'admin' | 'member';
 export type OrgApiKey = {
     id: OrgApiKeyId;
     org_id: OrganizationId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     /**
      * Stable non-secret display identifier. It is not embedded in the bearer token.
      */
@@ -2152,7 +2147,7 @@ export type UpdateMachinePoolRequest = {
 export type MachinePool = {
     id: MachinePoolId;
     org_id: OrganizationId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     management_kind: ManagementKind;
     description: string;
     provider: string;
@@ -2214,7 +2209,7 @@ export type Machine = {
     org_id: OrganizationId;
     source_kind: MachineSourceKind;
     machine_pool_id?: MachinePoolId | null;
-    display_name: ResourceNameResponse;
+    display_name: ResourceName;
     description: string;
     provider: string;
     lifecycle_state: MachineLifecycleState;
@@ -2285,7 +2280,7 @@ export type MachineSummaryFields = {
     id: MachineId;
     org_id: OrganizationId;
     source_kind: MachineSourceKind;
-    display_name: ResourceNameResponse;
+    display_name: ResourceName;
     description: string;
     provider: string;
     lifecycle_state: MachineLifecycleState;
@@ -2460,7 +2455,7 @@ export type ProjectMachinePoolGrantListItem = {
 export type MachinePoolSummary = {
     id: MachinePoolId;
     org_id: OrganizationId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     management_kind: ManagementKind;
     description: string;
     provider: string;
@@ -2480,7 +2475,7 @@ export type MachineDaemonToken = {
     id: MachineDaemonTokenId;
     org_id: OrganizationId;
     machine_id: MachineId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     metadata: Metadata;
     created_at: Timestamp;
     last_used_at: Timestamp | null;
@@ -2591,7 +2586,7 @@ export type CreateProjectRequest = {
 export type ProjectFields = {
     id: ProjectId;
     org_id: OrganizationId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -2643,7 +2638,7 @@ export type CurrentUserIdentity = {
 
 export type CurrentUserOrg = {
     id: OrganizationId;
-    name: ResourceNameResponse;
+    name: ResourceName;
     /**
      * The authenticated user's role in this organization.
      */
@@ -2705,7 +2700,7 @@ export type SetProjectMembershipRequest = {
 
 export type ProjectMembershipGrant = {
     project_id: ProjectId;
-    project_name: ResourceNameResponse;
+    project_name: ResourceName;
     /**
      * The member's role on the project (admin, developer, operator, or viewer).
      */

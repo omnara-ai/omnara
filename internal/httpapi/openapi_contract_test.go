@@ -166,9 +166,6 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	if got := doc.Components.Schemas["SkillName"].MaxLength; got != 64 {
 		t.Fatalf("SkillName maxLength = %d, want 64", got)
 	}
-	if got := doc.Components.Schemas["ResourceNameResponse"].MaxLength; got != 0 {
-		t.Fatalf("ResourceNameResponse maxLength = %d, want no response cap", got)
-	}
 	if _, ok := doc.Components.SecuritySchemes["machineDaemonAuth"]; !ok {
 		t.Fatal("machineDaemonAuth security scheme is required for daemon routes")
 	}
@@ -367,7 +364,15 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	propertiesByRef := map[string][]string{
 		"#/components/schemas/ResourceName": {
+			"AgentConfigModel.name",
+			"AgentConfigModel.provider_config",
+			"AgentModel.name",
+			"AgentModel.provider_config",
+			"AgentProfile.name",
 			"ConnectBYOMachineRequest.display_name",
+			"ConfiguredModel.name",
+			"ConfiguredModelSummary.name",
+			"ConfiguredModelSummary.provider_config",
 			"CreateAgentProfileRequest.name",
 			"CreateConfiguredModelRequest.name",
 			"CreateMachinePoolRequestBase.name",
@@ -378,33 +383,13 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 			"CreatePersonalAccessTokenRequest.name",
 			"CreateProjectRequest.name",
 			"CreateSecretRequest.name",
-			"MCPOAuthStartRequest.name",
-			"RenameAgentProfileRequest.name",
-			"UpdateConfiguredModelRequest.name",
-			"UpdateMachinePoolRequest.name",
-			"UpdateOrgAPIKeyRequest.name",
-			"UpdateSecretRequest.name",
-		},
-		"#/components/schemas/DefaultableResourceName": {
-			"CreateAgentRequest.name",
-			"CreateMachineDaemonTokenRequest.name",
-		},
-		"#/components/schemas/ResourceNameResponse": {
-			"Agent.name",
-			"AgentConfigModel.name",
-			"AgentConfigModel.provider_config",
-			"AgentModel.name",
-			"AgentModel.provider_config",
-			"AgentProfile.name",
-			"ConfiguredModel.name",
-			"ConfiguredModelSummary.name",
-			"ConfiguredModelSummary.provider_config",
 			"CurrentUserOrg.name",
 			"Machine.display_name",
 			"MachineDaemonToken.name",
 			"MachinePool.name",
 			"MachinePoolSummary.name",
 			"MachineSummaryFields.display_name",
+			"MCPOAuthStartRequest.name",
 			"ModelProviderConfig.name",
 			"OrgAPIKey.name",
 			"Organization.name",
@@ -412,7 +397,17 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 			"PersonalAccessToken.name",
 			"ProjectFields.name",
 			"ProjectMembershipGrant.project_name",
+			"RenameAgentProfileRequest.name",
 			"Secret.name",
+			"UpdateConfiguredModelRequest.name",
+			"UpdateMachinePoolRequest.name",
+			"UpdateOrgAPIKeyRequest.name",
+			"UpdateSecretRequest.name",
+		},
+		"#/components/schemas/DefaultableResourceName": {
+			"Agent.name",
+			"CreateAgentRequest.name",
+			"CreateMachineDaemonTokenRequest.name",
 		},
 		"#/components/schemas/SkillName": {
 			"Skill.name",
