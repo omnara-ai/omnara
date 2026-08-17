@@ -38,3 +38,4 @@ jobs:
           directory: frontend
           project: '*'
           blocking: warning
+          node-version: '24'

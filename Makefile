@@ -66,7 +66,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance \
 	test-service-e2e \
-	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-doctor-full web-check web-e2e run-web \
+	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
 	test-live-api-format-switching test-live-sandbox-providers test-live \
 	docs-openapi docs-openapi-check
@@ -373,15 +373,11 @@ build-omnarad:
 web-lint:
 	cd frontend && pnpm run lint
 
-web-doctor:
-	cd frontend && pnpm run doctor:changed --base "$(REACT_DOCTOR_BASE)"
+web-doctor: ## Run React Doctor against changes from REACT_DOCTOR_BASE
+	cd frontend && pnpm run doctor --base "$(REACT_DOCTOR_BASE)"
 
-web-doctor-full:
-	cd frontend && pnpm run doctor
-
-web-check:
+web-check: ## Run the frontend test, typecheck, build, lint, and format gate
 	cd frontend && pnpm install --frozen-lockfile && pnpm run generate:api
-	$(MAKE) web-doctor REACT_DOCTOR_BASE="$(REACT_DOCTOR_BASE)"
 	@untracked="$$(git ls-files --others --exclude-standard frontend/packages/sdk/src/generated)"; \
 	if [ -n "$$untracked" ]; then \
 		echo "untracked generated files:"; echo "$$untracked"; exit 1; \
@@ -389,6 +385,9 @@ web-check:
 	git diff --exit-code -- frontend/packages/sdk/src/generated
 	cd frontend && pnpm run test && pnpm run typecheck && pnpm run build && pnpm run lint && pnpm run format:check
 	$(GO) test -run '^$$' -tags=requirespa ./cmd/api
+
+web-check-all: web-check ## Run the frontend gate plus React Doctor locally
+	$(MAKE) web-doctor REACT_DOCTOR_BASE="$(REACT_DOCTOR_BASE)"
 
 web-e2e: web-check db-up
 	cd frontend && pnpm --filter @omnara/web exec playwright install $${CI:+--with-deps} --only-shell chromium

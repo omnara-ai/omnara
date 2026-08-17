@@ -4,15 +4,14 @@
   "type": "module",
   "packageManager": "pnpm@11.22.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "pnpm --filter @omnara/web dev",
     "build": "pnpm --filter @omnara/web build",
     "preview": "pnpm --filter @omnara/web preview",
     "generate:api": "pnpm --filter @omnara/sdk generate:api",
-    "doctor": "npx --yes react-doctor@latest . --project \"*\" --scope full --blocking warning",
-    "doctor:changed": "npx --yes react-doctor@latest . --project \"*\" --scope changed --blocking warning",
+    "doctor": "npx --yes react-doctor@latest . --project \"*\" --scope changed --blocking warning",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "eslint . --max-warnings=0",
