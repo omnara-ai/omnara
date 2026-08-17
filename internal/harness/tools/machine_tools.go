@@ -185,13 +185,13 @@ func listMachines(
 	); err != nil {
 		return nil, err
 	}
-	machines, err := call.Reader.ListPoolMachines(ctx)
+	machines, err := call.Reader.ListAgentMachineObservations(ctx)
 	if err != nil {
 		return nil, err
 	}
 	machineResults := make([]machineObservationPayload, 0, len(machines))
 	for _, machine := range machines {
-		machineResults = append(machineResults, machineObservation(machine))
+		machineResults = append(machineResults, agentMachineObservation(machine))
 	}
 	content, err := structuredToolResultContent(
 		machineListResult{Machines: machineResults},
@@ -210,12 +210,12 @@ func inspectMachine(
 	if err != nil {
 		return nil, err
 	}
-	var record executionstore.PoolMachineRecord
+	var record executionstore.AgentMachineObservationRecord
 	if input.MachineRef != "" {
-		record, err = call.Reader.GetPoolMachineByRef(ctx, input.MachineRef)
+		record, err = call.Reader.GetAgentMachineObservationByRef(ctx, input.MachineRef)
 	} else {
-		var machines []executionstore.PoolMachineRecord
-		machines, err = call.Reader.ListPoolMachines(ctx)
+		var machines []executionstore.AgentMachineObservationRecord
+		machines, err = call.Reader.ListAgentMachineObservations(ctx)
 		if err == nil {
 			record, err = selectOnlyMachine(machines)
 		}
@@ -230,7 +230,7 @@ func inspectMachine(
 	}
 	authorizationInput, err := machineObservationAuthorizationInput(
 		machineObservationInspect,
-		record.Binding.MachineRef,
+		record.MachineRef,
 	)
 	if err != nil {
 		return nil, err
@@ -244,7 +244,7 @@ func inspectMachine(
 	); err != nil {
 		return nil, err
 	}
-	content, err := structuredToolResultContent(machineInspection(record))
+	content, err := structuredToolResultContent(agentMachineInspection(record))
 	if err != nil {
 		return nil, err
 	}
@@ -424,21 +424,25 @@ func resolveMachineRefRequest(raw json.RawMessage, optional bool) (machineRefReq
 	return input, nil
 }
 
-func selectOnlyMachine(machines []executionstore.PoolMachineRecord) (executionstore.PoolMachineRecord, error) {
+func selectOnlyMachine[T any](machines []T) (T, error) {
+	var zero T
 	switch len(machines) {
 	case 0:
-		return executionstore.PoolMachineRecord{}, ErrNoMachine
+		return zero, ErrNoMachine
 	case 1:
 		return machines[0], nil
 	default:
-		return executionstore.PoolMachineRecord{}, ErrMachineSelectionRequired
+		return zero, ErrMachineSelectionRequired
 	}
 }
 
 type machineObservationPayload struct {
 	MachineRef             string    `json:"machine_ref"`
-	MachinePoolName        string    `json:"machine_pool_name"`
+	SourceKind             string    `json:"source_kind,omitempty"`
+	BindingKind            string    `json:"binding_kind,omitempty"`
 	BindingState           string    `json:"binding_state"`
+	DisplayName            string    `json:"display_name,omitempty"`
+	MachinePoolName        string    `json:"machine_pool_name,omitempty"`
 	LifecycleState         string    `json:"lifecycle_state"`
 	ConnectionState        string    `json:"connection_state"`
 	ConnectionStateReason  string    `json:"connection_state_reason,omitempty"`
@@ -499,8 +503,8 @@ func machineObservation(record executionstore.PoolMachineRecord) machineObservat
 	}
 	return machineObservationPayload{
 		MachineRef:             record.Binding.MachineRef,
-		MachinePoolName:        record.MachinePoolName,
 		BindingState:           string(record.Binding.State),
+		MachinePoolName:        record.MachinePoolName,
 		LifecycleState:         string(record.Machine.LifecycleState),
 		ConnectionState:        string(record.Machine.ConnectionState),
 		ConnectionStateReason:  record.Machine.ConnectionStateReason,
@@ -514,9 +518,34 @@ func machineObservation(record executionstore.PoolMachineRecord) machineObservat
 	}
 }
 
-func machineInspection(record executionstore.PoolMachineRecord) machineInspectionPayload {
+func agentMachineObservation(
+	record executionstore.AgentMachineObservationRecord,
+) machineObservationPayload {
+	return machineObservationPayload{
+		MachineRef:             record.MachineRef,
+		SourceKind:             string(record.SourceKind),
+		BindingKind:            string(record.BindingKind),
+		BindingState:           string(record.BindingState),
+		DisplayName:            record.DisplayName,
+		MachinePoolName:        record.MachinePoolName,
+		LifecycleState:         string(record.LifecycleState),
+		ConnectionState:        string(record.ConnectionState),
+		ConnectionStateReason:  record.ConnectionStateReason,
+		Description:            record.Description,
+		Cwd:                    record.Cwd,
+		Executable:             record.Executable,
+		LifecycleReasonCode:    record.LifecycleReasonCode,
+		LifecycleReasonMessage: record.LifecycleReasonMessage,
+		CreatedAt:              record.CreatedAt,
+		UpdatedAt:              record.UpdatedAt,
+	}
+}
+
+func agentMachineInspection(
+	record executionstore.AgentMachineObservationRecord,
+) machineInspectionPayload {
 	return machineInspectionPayload{
-		machineObservationPayload: machineObservation(record),
+		machineObservationPayload: agentMachineObservation(record),
 		FailureReport:             record.FailureReport,
 	}
 }

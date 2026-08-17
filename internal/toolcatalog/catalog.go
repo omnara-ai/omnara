@@ -34,8 +34,8 @@ const (
 	listProcessesToolDescription  = "List active processes in the current agent."
 	createMachineToolDescription  = "Request another pool-backed machine for this agent. machine_pool_name is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List pool-backed machines currently associated with this agent."
-	inspectMachineToolDescription = "Inspect a pool-backed machine. machine_ref is only needed when multiple machines are available."
+	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent."
+	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_ref is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
 	sendIntegrationMessageToolDescription = "Send a user-visible message to the current integration target. " +
@@ -83,7 +83,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	deleteMachineRef := map[string]any{
 		"type":        "string",
-		"description": "Exact machine_ref of the machine to delete. Use list_machines first if you need the ref.",
+		"description": "Exact machine_ref of the pool-backed machine to delete. Use list_machines first if you need the ref.",
 	}
 	machinePoolName := map[string]any{
 		"type":        "string",

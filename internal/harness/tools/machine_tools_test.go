@@ -168,20 +168,44 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 	}
 }
 
+func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
+	record := executionstore.AgentMachineObservationRecord{
+		MachineRef:      "mchr-byo001",
+		SourceKind:      executionstore.MachineSourceKindBYO,
+		BindingKind:     executionstore.MachineBindingKindExplicit,
+		BindingState:    executionstore.AgentMachineBindingStateAttached,
+		DisplayName:     "Developer laptop",
+		LifecycleState:  executionstore.MachineLifecycleStateActive,
+		ConnectionState: executionstore.MachineConnectionStateOnline,
+		Executable:      true,
+	}
+	got := agentMachineObservation(record)
+	if got.SourceKind != "byo" || got.BindingKind != "explicit" || got.DisplayName != "Developer laptop" {
+		t.Fatalf("BYO observation identity = %+v", got)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal BYO observation: %v", err)
+	}
+	if strings.Contains(string(encoded), "machine_pool_name") {
+		t.Fatalf("BYO observation = %s, want machine_pool_name omitted", encoded)
+	}
+}
+
 func TestMachineInspectionIncludesFailureReport(t *testing.T) {
 	failure := json.RawMessage(`{"stage":"daemon_install","exit_status":7,"output_tail":"failed"}`)
-	record := executionstore.PoolMachineRecord{
-		Binding:       executionstore.AgentMachineBindingRecord{MachineRef: "mchr-pool01"},
+	record := executionstore.AgentMachineObservationRecord{
+		MachineRef:    "mchr-pool01",
 		FailureReport: failure,
 	}
-	inspected, err := json.Marshal(machineInspection(record))
+	inspected, err := json.Marshal(agentMachineInspection(record))
 	if err != nil {
 		t.Fatalf("marshal machine inspection: %v", err)
 	}
 	if !strings.Contains(string(inspected), `"failure_report":`+string(failure)) {
 		t.Fatalf("machine inspection = %s, want failure report", inspected)
 	}
-	listed, err := json.Marshal(machineObservation(record))
+	listed, err := json.Marshal(agentMachineObservation(record))
 	if err != nil {
 		t.Fatalf("marshal machine observation: %v", err)
 	}

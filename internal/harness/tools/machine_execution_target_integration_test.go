@@ -192,6 +192,203 @@ func TestResolveMachineExecutionTargetUsesMachineRefSelection(t *testing.T) {
 	_ = secondAgentBinding
 }
 
+func TestMachineObservationToolsIncludeAttachedBYOMachine(t *testing.T) {
+	ctx := context.Background()
+	fixture := newMachineDispatchFixture(t, ctx, "observe-byo")
+	byo := createExecutableBinding(
+		t,
+		ctx,
+		fixture.Store,
+		fixture.UserID,
+		"observe-byo",
+		fixture.Now.Add(5*time.Second),
+	)
+	machineRef := "mchr-byo001"
+	if _, err := fixture.Pool.Exec(
+		ctx,
+		`INSERT INTO agent_machine_bindings(
+		   org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state,
+		   description, cwd, created_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, 'explicit', 'attached', $6, $7, $8, $8)`,
+		toolsTestOrgID,
+		toolsTestProjectID,
+		fixture.Launch.Agent.ID,
+		byo.MachineID,
+		machineRef,
+		"local checkout",
+		"/checkout",
+		fixture.Now.Add(6*time.Second),
+	); err != nil {
+		t.Fatalf("attach BYO machine: %v", err)
+	}
+
+	listCall := model.ToolCall{ID: "call_observe-byo-list", Name: "list_machines", Input: json.RawMessage(`{}`)}
+	inspectCall := model.ToolCall{ID: "call_observe-byo-inspect", Name: "inspect_machine", Input: json.RawMessage(`{}`)}
+	mixedInspectCall := model.ToolCall{
+		ID:    "call_observe-byo-mixed-inspect",
+		Name:  "inspect_machine",
+		Input: json.RawMessage(`{}`),
+	}
+	createPoolCall := model.ToolCall{ID: "call_observe-byo-create-pool", Name: "create_machine", Input: json.RawMessage(`{}`)}
+	toolCalls, lock, admitted, contextRecord := recordMachineToolCallsForDirectStoreTest(
+		t,
+		ctx,
+		fixture.Store,
+		fixture.Launch.Agent.ID,
+		fixture.UserID,
+		fixture.Config.ID,
+		"observe-byo",
+		[]model.ToolCall{listCall, inspectCall, mixedInspectCall, createPoolCall},
+		fixture.Now.Add(7*time.Second),
+	)
+	for _, index := range []int{0, 3} {
+		if _, err := fixture.Store.Execution().MarkToolCallReady(
+			ctx,
+			executionstore.MarkToolCallReadyInput{
+				ProjectID:     toolsTestProjectID,
+				AgentID:       fixture.Launch.Agent.ID,
+				ID:            toolCalls[index].ID,
+				RuntimeLockID: lock.ID,
+			},
+		); err != nil {
+			t.Fatalf("allow %s: %v", toolCalls[index].ProviderCallID, err)
+		}
+	}
+	turn := Turn{
+		ProjectID:          toolsTestProjectID,
+		AgentID:            fixture.Launch.Agent.ID,
+		SourceEventID:      admitted.Events[0].ID,
+		RuntimeLockID:      lock.ID,
+		ModelCallContextID: contextRecord.ID,
+		Tools: map[string]ToolSpec{
+			"list_machines": {
+				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+			},
+			"inspect_machine": {
+				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
+			},
+		},
+	}
+	executor := Executor{
+		Store: fixture.Store,
+		Now:   func() time.Time { return fixture.Now.Add(8 * time.Second) },
+	}
+	if err := executor.PrepareToolCallPermission(ctx, turn, inspectCall); err != nil {
+		t.Fatalf("prepare inspect_machine permission: %v", err)
+	}
+
+	listResult, err := executor.Dispatch(ctx, turn, listCall)
+	if err != nil {
+		t.Fatalf("dispatch list_machines: %v", err)
+	}
+	listBody := toolResultMapFromTestParts(t, listResult.ContentParts)
+	machines, ok := listBody["machines"].([]any)
+	if !ok || len(machines) != 1 {
+		t.Fatalf("list_machines result = %+v, want one machine", listBody)
+	}
+	listed, ok := machines[0].(map[string]any)
+	if !ok {
+		t.Fatalf("list_machines entry = %+v", machines[0])
+	}
+	assertBYOMachineObservationResult(t, listed, machineRef, byo.DisplayName)
+
+	interaction, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
+		ctx,
+		toolsTestProjectID,
+		fixture.Launch.Agent.ID,
+		toolCalls[1].ID,
+		"permission",
+	)
+	if err != nil {
+		t.Fatalf("load inspect_machine permission: %v", err)
+	}
+	if !found {
+		t.Fatal("inspect_machine permission interaction not found")
+	}
+	resolvedBy, err := executionstore.OmnaraActorParams(
+		toolsTestOrgID,
+		toolsTestUserPrincipal(fixture.UserID),
+	)
+	if err != nil {
+		t.Fatalf("build inspect_machine permission actor: %v", err)
+	}
+	if _, err := fixture.Store.Execution().ResolveAgentInteraction(
+		ctx,
+		executionstore.ResolveAgentInteractionInput{
+			ProjectID: toolsTestProjectID,
+			AgentID:   fixture.Launch.Agent.ID,
+			ID:        interaction.ID,
+			Resolution: interactionform.Resolution{
+				Answers: []interactionform.Answer{{
+					OptionIndices: []int{toolpermission.AllowOptionIndex},
+				}},
+			},
+			Actor: resolvedBy,
+		},
+	); err != nil {
+		t.Fatalf("approve inspect_machine permission: %v", err)
+	}
+	executor.Now = func() time.Time { return fixture.Now.Add(9 * time.Second) }
+	inspectResult, err := executor.Dispatch(ctx, turn, inspectCall)
+	if err != nil {
+		t.Fatalf("dispatch inspect_machine: %v", err)
+	}
+	inspected := toolResultMapFromTestParts(t, inspectResult.ContentParts)
+	assertBYOMachineObservationResult(t, inspected, machineRef, byo.DisplayName)
+
+	if _, err := storagetest.ExecuteToolCallCommand[executionstore.CreatePoolMachineResult](
+		ctx,
+		fixture.Store,
+		executionstore.ExecuteToolCallInput{
+			ProjectID:     toolsTestProjectID,
+			AgentID:       fixture.Launch.Agent.ID,
+			ToolCallID:    toolCalls[3].ID,
+			RuntimeLockID: lock.ID,
+		},
+		executionstore.CreatePoolMachineForToolCall(
+			executionstore.CreatePoolMachineInput{MachinePoolID: fixture.MachinePool.ID},
+			func(executionstore.CreatePoolMachineResult) (executionstore.ToolCallCompletionInput, error) {
+				return executionstore.ToolCallCompletionInput{
+					Outcome:            executionstore.ToolResultOutcomeSucceeded,
+					ResultContentParts: json.RawMessage(`[{"type":"text","text":"accepted"}]`),
+				}, nil
+			},
+		),
+	); err != nil {
+		t.Fatalf("create pool machine for mixed observation: %v", err)
+	}
+	if err := executor.PrepareToolCallPermission(ctx, turn, mixedInspectCall); err != nil {
+		t.Fatalf("prepare mixed-source inspect_machine permission: %v", err)
+	}
+	mixedResult, err := executor.Dispatch(ctx, turn, mixedInspectCall)
+	if err != nil {
+		t.Fatalf("dispatch mixed-source inspect_machine: %v", err)
+	}
+	mixedBody := toolResultMapFromTestParts(t, mixedResult.ContentParts)
+	if mixedBody["error_code"] != ErrMachineSelectionRequired.Error() ||
+		mixedBody["error"] != "machine_ref is required when multiple machines are available" {
+		t.Fatalf("mixed-source inspect_machine result = %+v", mixedBody)
+	}
+}
+
+func assertBYOMachineObservationResult(
+	t *testing.T,
+	result map[string]any,
+	machineRef, displayName string,
+) {
+	t.Helper()
+	if result["machine_ref"] != machineRef || result["source_kind"] != "byo" ||
+		result["binding_kind"] != "explicit" || result["binding_state"] != "attached" ||
+		result["display_name"] != displayName || result["cwd"] != "/checkout" ||
+		result["connection_state"] != "online" || result["executable"] != true {
+		t.Fatalf("BYO machine observation = %+v", result)
+	}
+	if _, found := result["machine_pool_name"]; found {
+		t.Fatalf("BYO machine observation includes machine_pool_name: %+v", result)
+	}
+}
+
 func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 	ctx := context.Background()
 	fixture := newMachineDispatchFixture(t, ctx, "approved-machine-target-change")
