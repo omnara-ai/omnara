@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -43,47 +43,39 @@ function warnConfigIgnored(message: string): void {
   console.error(message)
 }
 
-function parseConfig(raw: string): ConfigFile | string {
-  let contents: unknown
-  try {
-    contents = JSON.parse(raw)
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error)
-  }
-  const result = zConfigFile.safeParse(contents)
-  if (!result.success) return z.prettifyError(result.error)
-  return result.data
+const zConfigContents = z
+  .string()
+  .transform((raw, ctx): unknown => {
+    try {
+      return JSON.parse(raw)
+    } catch (error) {
+      ctx.addIssue(error instanceof Error ? error.message : String(error))
+      return z.NEVER
+    }
+  })
+  .pipe(zConfigFile)
+
+function loadConfigFile(): z.ZodSafeParseResult<ConfigFile> {
+  const path = configFilePath()
+  if (!existsSync(path)) return { success: true, data: {} }
+  return zConfigContents.safeParse(readFileSync(path, 'utf8'))
 }
 
 export function readConfigFile(): ConfigFile {
-  let raw: string
-  try {
-    raw = readFileSync(configFilePath(), 'utf8')
-  } catch {
-    return {}
-  }
-  const parsed = parseConfig(raw)
-  if (typeof parsed === 'string') {
-    warnConfigIgnored(`warning: ignoring unreadable config at ${configFilePath()}: ${parsed}`)
-    return {}
-  }
-  return parsed
+  const result = loadConfigFile()
+  if (result.success) return result.data
+  warnConfigIgnored(
+    `warning: ignoring unreadable config at ${configFilePath()}: ${z.prettifyError(result.error)}`,
+  )
+  return {}
 }
 
 function readConfigFileForUpdate(): ConfigFile {
-  let raw: string
-  try {
-    raw = readFileSync(configFilePath(), 'utf8')
-  } catch {
-    return {}
-  }
-  const parsed = parseConfig(raw)
-  if (typeof parsed === 'string') {
-    throw new CliInputError(
-      `refusing to modify unreadable config at ${configFilePath()} (fix or delete it first): ${parsed}`,
-    )
-  }
-  return parsed
+  const result = loadConfigFile()
+  if (result.success) return result.data
+  throw new CliInputError(
+    `refusing to modify unreadable config at ${configFilePath()} (fix or delete it first): ${z.prettifyError(result.error)}`,
+  )
 }
 
 export function updateConfigFile(patch: Partial<ConfigFile>): ConfigFile {

@@ -11,7 +11,10 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['agent'],
     summary: 'Launch and manage agents',
     operations: [
-      op('list', 'List agents in a project', sdk.listAgents, {
+      op({
+        verb: 'list',
+        summary: 'List agents in a project',
+        fn: sdk.listAgents,
         format: (response) =>
           formatTable(['id', 'name', 'state', 'model', 'created_at'])({
             data: response.data.map((agent) => ({ ...agent, model: agent.model?.name })),
@@ -20,21 +23,33 @@ export const commandGroups: CommandGroup[] = [
         path: schemas.zListAgentsPath,
         query: schemas.zListAgentsQuery,
       }),
-      op('get', 'Fetch an agent', sdk.getAgent, {
+      op({
+        verb: 'get',
+        summary: 'Fetch an agent',
+        fn: sdk.getAgent,
         format: formatRecord(),
         path: schemas.zGetAgentPath,
       }),
-      op('launch', 'Launch a new agent', sdk.createAgent, {
+      op({
+        verb: 'launch',
+        summary: 'Launch a new agent',
+        fn: sdk.createAgent,
         format: formatRecord(),
         path: schemas.zCreateAgentPath,
         body: schemas.zCreateAgentBody,
       }),
-      op('cancel', 'Cancel a running agent', sdk.cancelAgent, {
+      op({
+        verb: 'cancel',
+        summary: 'Cancel a running agent',
+        fn: sdk.cancelAgent,
         format: formatRecord(),
         path: schemas.zCancelAgentPath,
         body: schemas.zCancelAgentBody,
       }),
-      op('archive', 'Archive an agent', sdk.archiveAgent, {
+      op({
+        verb: 'archive',
+        summary: 'Archive an agent',
+        fn: sdk.archiveAgent,
         format: formatRecord(),
         path: schemas.zArchiveAgentPath,
       }),
@@ -45,15 +60,24 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['org'],
     summary: 'Manage organizations',
     operations: [
-      op('create', 'Create an organization', sdk.createOrganization, {
+      op({
+        verb: 'create',
+        summary: 'Create an organization',
+        fn: sdk.createOrganization,
         format: formatRecord(),
         body: schemas.zCreateOrganizationBody,
       }),
-      op('overview', 'Show an organization overview', sdk.getOrgOverview, {
+      op({
+        verb: 'overview',
+        summary: 'Show an organization overview',
+        fn: sdk.getOrgOverview,
         format: formatRecord(),
         path: schemas.zGetOrgOverviewPath,
       }),
-      op('delete', 'Delete an organization', sdk.deleteOrganization, {
+      op({
+        verb: 'delete',
+        summary: 'Delete an organization',
+        fn: sdk.deleteOrganization,
         format: formatVoid('deleted'),
         path: schemas.zDeleteOrganizationPath,
         positional: ['orgID'],
@@ -65,17 +89,26 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['project'],
     summary: 'Manage projects',
     operations: [
-      op('list', 'List projects visible to you', sdk.listVisibleProjects, {
+      op({
+        verb: 'list',
+        summary: 'List projects visible to you',
+        fn: sdk.listVisibleProjects,
         format: formatTable(['id', 'name', 'created_at', 'updated_at']),
         path: schemas.zListVisibleProjectsPath,
         query: schemas.zListVisibleProjectsQuery,
       }),
-      op('create', 'Create a project', sdk.createProject, {
+      op({
+        verb: 'create',
+        summary: 'Create a project',
+        fn: sdk.createProject,
         format: formatRecord(),
         path: schemas.zCreateProjectPath,
         body: schemas.zCreateProjectBody,
       }),
-      op('delete', 'Delete a project', sdk.deleteProject, {
+      op({
+        verb: 'delete',
+        summary: 'Delete a project',
+        fn: sdk.deleteProject,
         format: formatVoid('deleted'),
         path: schemas.zDeleteProjectPath,
         positional: ['projectID'],
@@ -87,17 +120,26 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['member'],
     summary: 'Manage organization members and invitations',
     operations: [
-      op('list', 'List organization members', sdk.listOrgMembers, {
+      op({
+        verb: 'list',
+        summary: 'List organization members',
+        fn: sdk.listOrgMembers,
         format: formatTable(['user_id', 'email', 'display_name', 'role', 'created_at']),
         path: schemas.zListOrgMembersPath,
         query: schemas.zListOrgMembersQuery,
       }),
-      op('update', "Update a member's role", sdk.updateOrgMember, {
+      op({
+        verb: 'update',
+        summary: "Update a member's role",
+        fn: sdk.updateOrgMember,
         format: formatRecord(),
         path: schemas.zUpdateOrgMemberPath,
         body: schemas.zUpdateOrgMemberBody,
       }),
-      op('remove', 'Remove a member from the organization', sdk.removeOrgMember, {
+      op({
+        verb: 'remove',
+        summary: 'Remove a member from the organization',
+        fn: sdk.removeOrgMember,
         format: formatVoid('removed'),
         path: schemas.zRemoveOrgMemberPath,
       }),
@@ -108,29 +150,47 @@ export const commandGroups: CommandGroup[] = [
         aliases: ['invite'],
         summary: 'Manage organization invitations',
         operations: [
-          op('list', "List an organization's invitations", sdk.listOrgInvitations, {
+          op({
+            verb: 'list',
+            summary: "List an organization's invitations",
+            fn: sdk.listOrgInvitations,
             format: formatTable(['id', 'email', 'org_role', 'created_at']),
             path: schemas.zListOrgInvitationsPath,
             query: schemas.zListOrgInvitationsQuery,
           }),
-          op('create', 'Invite someone to the organization', sdk.createOrgInvitation, {
+          op({
+            verb: 'create',
+            summary: 'Invite someone to the organization',
+            fn: sdk.createOrgInvitation,
             format: formatRecord(),
             path: schemas.zCreateOrgInvitationPath,
             body: schemas.zCreateOrgInvitationBody,
           }),
-          op('delete', 'Withdraw an invitation', sdk.deleteOrgInvitation, {
+          op({
+            verb: 'delete',
+            summary: 'Withdraw an invitation',
+            fn: sdk.deleteOrgInvitation,
             format: formatVoid('deleted'),
             path: schemas.zDeleteOrgInvitationPath,
           }),
-          op('pending', 'List invitations waiting on you', sdk.listPendingInvitations, {
+          op({
+            verb: 'pending',
+            summary: 'List invitations waiting on you',
+            fn: sdk.listPendingInvitations,
             format: formatTable(['id', 'org_name', 'email', 'org_role', 'created_at']),
             query: schemas.zListPendingInvitationsQuery,
           }),
-          op('accept', 'Accept an invitation', sdk.acceptInvitation, {
+          op({
+            verb: 'accept',
+            summary: 'Accept an invitation',
+            fn: sdk.acceptInvitation,
             format: formatRecord(),
             path: schemas.zAcceptInvitationPath,
           }),
-          op('decline', 'Decline an invitation', sdk.declineInvitation, {
+          op({
+            verb: 'decline',
+            summary: 'Decline an invitation',
+            fn: sdk.declineInvitation,
             format: formatRecord(),
             path: schemas.zDeclineInvitationPath,
           }),
@@ -147,7 +207,10 @@ export const commandGroups: CommandGroup[] = [
         name: 'org',
         summary: 'Inspect organization API keys',
         operations: [
-          op('list', 'List organization API keys', sdk.listOrgApiKeys, {
+          op({
+            verb: 'list',
+            summary: 'List organization API keys',
+            fn: sdk.listOrgApiKeys,
             format: formatTable([
               'id',
               'name',
@@ -159,7 +222,10 @@ export const commandGroups: CommandGroup[] = [
             path: schemas.zListOrgApiKeysPath,
             query: schemas.zListOrgApiKeysQuery,
           }),
-          op('get', 'Fetch an organization API key', sdk.getOrgApiKey, {
+          op({
+            verb: 'get',
+            summary: 'Fetch an organization API key',
+            fn: sdk.getOrgApiKey,
             format: formatRecord(),
             path: schemas.zGetOrgApiKeyPath,
           }),
@@ -169,20 +235,24 @@ export const commandGroups: CommandGroup[] = [
         name: 'personal',
         summary: 'Manage your personal access tokens',
         operations: [
-          op(
-            'list',
-            "List the authenticated user's personal access tokens",
-            sdk.listPersonalAccessTokens,
-            {
-              query: schemas.zListPersonalAccessTokensQuery,
-              format: formatTable(['id', 'name', 'created_at', 'last_used_at', 'revoked_at']),
-            },
-          ),
-          op('create', 'Create a personal access token', sdk.createPersonalAccessToken, {
+          op({
+            verb: 'list',
+            summary: "List the authenticated user's personal access tokens",
+            fn: sdk.listPersonalAccessTokens,
+            query: schemas.zListPersonalAccessTokensQuery,
+            format: formatTable(['id', 'name', 'created_at', 'last_used_at', 'revoked_at']),
+          }),
+          op({
+            verb: 'create',
+            summary: 'Create a personal access token',
+            fn: sdk.createPersonalAccessToken,
             format: formatRecord(),
             body: schemas.zCreatePersonalAccessTokenBody,
           }),
-          op('revoke', 'Revoke a personal access token', sdk.revokePersonalAccessToken, {
+          op({
+            verb: 'revoke',
+            summary: 'Revoke a personal access token',
+            fn: sdk.revokePersonalAccessToken,
             format: formatRecord(),
             path: schemas.zRevokePersonalAccessTokenPath,
           }),
@@ -195,7 +265,10 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['machine'],
     summary: 'Manage machines',
     operations: [
-      op('list', 'List machines visible to you', sdk.listVisibleMachines, {
+      op({
+        verb: 'list',
+        summary: 'List machines visible to you',
+        fn: sdk.listVisibleMachines,
         format: formatTable([
           'id',
           'display_name',
@@ -208,21 +281,33 @@ export const commandGroups: CommandGroup[] = [
         path: schemas.zListVisibleMachinesPath,
         query: schemas.zListVisibleMachinesQuery,
       }),
-      op('get', 'Fetch a machine', sdk.getMachine, {
+      op({
+        verb: 'get',
+        summary: 'Fetch a machine',
+        fn: sdk.getMachine,
         format: formatRecord(),
         path: schemas.zGetMachinePath,
       }),
-      op('create', 'Create a machine', sdk.createMachine, {
+      op({
+        verb: 'create',
+        summary: 'Create a machine',
+        fn: sdk.createMachine,
         format: formatRecord(),
         path: schemas.zCreateMachinePath,
         body: schemas.zCreateMachineBody,
       }),
-      op('update', 'Update a machine', sdk.updateMachine, {
+      op({
+        verb: 'update',
+        summary: 'Update a machine',
+        fn: sdk.updateMachine,
         format: formatRecord(),
         path: schemas.zUpdateMachinePath,
         body: schemas.zUpdateMachineBody,
       }),
-      op('delete', 'Delete a machine', sdk.deleteMachine, {
+      op({
+        verb: 'delete',
+        summary: 'Delete a machine',
+        fn: sdk.deleteMachine,
         format: formatVoid('deleted'),
         path: schemas.zDeleteMachinePath,
       }),
@@ -233,26 +318,41 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['pool'],
     summary: 'Manage machine pools',
     operations: [
-      op('list', 'List machine pools', sdk.listMachinePools, {
+      op({
+        verb: 'list',
+        summary: 'List machine pools',
+        fn: sdk.listMachinePools,
         format: formatTable(['id', 'name', 'provider', 'max_total_machines', 'created_at']),
         path: schemas.zListMachinePoolsPath,
         query: schemas.zListMachinePoolsQuery,
       }),
-      op('get', 'Fetch a machine pool', sdk.getMachinePool, {
+      op({
+        verb: 'get',
+        summary: 'Fetch a machine pool',
+        fn: sdk.getMachinePool,
         format: formatRecord(),
         path: schemas.zGetMachinePoolPath,
       }),
-      op('create', 'Create a machine pool', sdk.createMachinePool, {
+      op({
+        verb: 'create',
+        summary: 'Create a machine pool',
+        fn: sdk.createMachinePool,
         format: formatRecord(),
         path: schemas.zCreateMachinePoolPath,
         body: schemas.zCreateMachinePoolBody,
       }),
-      op('update', 'Update a machine pool', sdk.updateMachinePool, {
+      op({
+        verb: 'update',
+        summary: 'Update a machine pool',
+        fn: sdk.updateMachinePool,
         format: formatRecord(),
         path: schemas.zUpdateMachinePoolPath,
         body: schemas.zUpdateMachinePoolBody,
       }),
-      op('delete', 'Delete a machine pool', sdk.deleteMachinePool, {
+      op({
+        verb: 'delete',
+        summary: 'Delete a machine pool',
+        fn: sdk.deleteMachinePool,
         format: formatVoid('deleted'),
         path: schemas.zDeleteMachinePoolPath,
       }),
@@ -263,30 +363,48 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['model-provider'],
     summary: 'Manage model provider configs',
     operations: [
-      op('list', 'List model provider configs', sdk.listModelProviderConfigs, {
+      op({
+        verb: 'list',
+        summary: 'List model provider configs',
+        fn: sdk.listModelProviderConfigs,
         format: formatTable(['id', 'name', 'api_format', 'base_url', 'created_at']),
         path: schemas.zListModelProviderConfigsPath,
         query: schemas.zListModelProviderConfigsQuery,
       }),
-      op('get', 'Fetch a model provider config', sdk.getModelProviderConfig, {
+      op({
+        verb: 'get',
+        summary: 'Fetch a model provider config',
+        fn: sdk.getModelProviderConfig,
         format: formatRecord(),
         path: schemas.zGetModelProviderConfigPath,
       }),
-      op('create', 'Create a model provider config', sdk.createModelProviderConfig, {
+      op({
+        verb: 'create',
+        summary: 'Create a model provider config',
+        fn: sdk.createModelProviderConfig,
         format: formatRecord(),
         path: schemas.zCreateModelProviderConfigPath,
         body: schemas.zCreateModelProviderConfigBody,
       }),
-      op('update', 'Update a model provider config', sdk.updateModelProviderConfig, {
+      op({
+        verb: 'update',
+        summary: 'Update a model provider config',
+        fn: sdk.updateModelProviderConfig,
         format: formatRecord(),
         path: schemas.zUpdateModelProviderConfigPath,
         body: schemas.zUpdateModelProviderConfigBody,
       }),
-      op('delete', 'Delete a model provider config', sdk.deleteModelProviderConfig, {
+      op({
+        verb: 'delete',
+        summary: 'Delete a model provider config',
+        fn: sdk.deleteModelProviderConfig,
         format: formatVoid('deleted'),
         path: schemas.zDeleteModelProviderConfigPath,
       }),
-      op('catalog', "Show a provider's model catalog", sdk.getModelCatalog, {
+      op({
+        verb: 'catalog',
+        summary: "Show a provider's model catalog",
+        fn: sdk.getModelCatalog,
         format: formatRecord(),
         path: schemas.zGetModelCatalogPath,
       }),
@@ -297,7 +415,10 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['model'],
     summary: 'Manage configured models on a provider config',
     operations: [
-      op('list', 'List configured models', sdk.listConfiguredModels, {
+      op({
+        verb: 'list',
+        summary: 'List configured models',
+        fn: sdk.listConfiguredModels,
         format: formatTable([
           'id',
           'name',
@@ -308,17 +429,26 @@ export const commandGroups: CommandGroup[] = [
         path: schemas.zListConfiguredModelsPath,
         query: schemas.zListConfiguredModelsQuery,
       }),
-      op('create', 'Configure a model', sdk.createConfiguredModel, {
+      op({
+        verb: 'create',
+        summary: 'Configure a model',
+        fn: sdk.createConfiguredModel,
         format: formatRecord(),
         path: schemas.zCreateConfiguredModelPath,
         body: schemas.zCreateConfiguredModelBody,
       }),
-      op('update', 'Update a configured model', sdk.updateConfiguredModel, {
+      op({
+        verb: 'update',
+        summary: 'Update a configured model',
+        fn: sdk.updateConfiguredModel,
         format: formatRecord(),
         path: schemas.zUpdateConfiguredModelPath,
         body: schemas.zUpdateConfiguredModelBody,
       }),
-      op('delete', 'Remove a configured model', sdk.deleteConfiguredModel, {
+      op({
+        verb: 'delete',
+        summary: 'Remove a configured model',
+        fn: sdk.deleteConfiguredModel,
         format: formatVoid('deleted'),
         path: schemas.zDeleteConfiguredModelPath,
       }),
@@ -329,7 +459,10 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['secret'],
     summary: 'Manage organization secrets',
     operations: [
-      op('list', 'List secrets visible through ownership authority', sdk.listSecrets, {
+      op({
+        verb: 'list',
+        summary: 'List secrets visible through ownership authority',
+        fn: sdk.listSecrets,
         format: formatTable([
           'id',
           'name',
@@ -341,21 +474,33 @@ export const commandGroups: CommandGroup[] = [
         path: schemas.zListSecretsPath,
         query: schemas.zListSecretsQuery,
       }),
-      op('get', 'Fetch a secret', sdk.getSecret, {
+      op({
+        verb: 'get',
+        summary: 'Fetch a secret',
+        fn: sdk.getSecret,
         format: formatRecord(),
         path: schemas.zGetSecretPath,
       }),
-      op('create', 'Create a secret', sdk.createSecret, {
+      op({
+        verb: 'create',
+        summary: 'Create a secret',
+        fn: sdk.createSecret,
         format: formatRecord(),
         path: schemas.zCreateSecretPath,
         body: schemas.zCreateSecretBody,
       }),
-      op('update', "Update a secret's name or metadata", sdk.updateSecret, {
+      op({
+        verb: 'update',
+        summary: "Update a secret's name or metadata",
+        fn: sdk.updateSecret,
         format: formatRecord(),
         path: schemas.zUpdateSecretPath,
         body: schemas.zUpdateSecretBody,
       }),
-      op('delete', 'Delete a secret', sdk.deleteSecret, {
+      op({
+        verb: 'delete',
+        summary: 'Delete a secret',
+        fn: sdk.deleteSecret,
         format: formatVoid('deleted'),
         path: schemas.zDeleteSecretPath,
       }),
@@ -366,16 +511,25 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['skill'],
     summary: 'Manage skills',
     operations: [
-      op('list', 'List skills', sdk.listSkills, {
+      op({
+        verb: 'list',
+        summary: 'List skills',
+        fn: sdk.listSkills,
         format: formatTable(['id', 'name', 'description', 'created_at', 'updated_at']),
         path: schemas.zListSkillsPath,
         query: schemas.zListSkillsQuery,
       }),
-      op('get', 'Fetch a skill', sdk.getSkill, {
+      op({
+        verb: 'get',
+        summary: 'Fetch a skill',
+        fn: sdk.getSkill,
         format: formatRecord(),
         path: schemas.zGetSkillPath,
       }),
-      op('create', 'Create a skill from a directory or a .zip/.tar.gz archive', sdk.createSkill, {
+      op({
+        verb: 'create',
+        summary: 'Create a skill from a directory or a .zip/.tar.gz archive',
+        fn: sdk.createSkill,
         format: formatRecord(),
         path: schemas.zCreateSkillPath,
         body: zCreateSkillCliBody,
@@ -384,7 +538,10 @@ export const commandGroups: CommandGroup[] = [
           archive: loadSkillArchive(body.archive),
         }),
       }),
-      op('delete', 'Delete a skill', sdk.deleteSkill, {
+      op({
+        verb: 'delete',
+        summary: 'Delete a skill',
+        fn: sdk.deleteSkill,
         format: formatVoid('deleted'),
         path: schemas.zDeleteSkillPath,
       }),
@@ -395,29 +552,98 @@ export const commandGroups: CommandGroup[] = [
     aliases: ['profile'],
     summary: 'Manage agent launch profiles',
     operations: [
-      op('list', 'List agent profiles in a project', sdk.listAgentProfiles, {
+      op({
+        verb: 'list',
+        summary: 'List agent profiles in a project',
+        fn: sdk.listAgentProfiles,
         format: formatTable(['id', 'name', 'current_generation', 'created_at', 'updated_at']),
         path: schemas.zListAgentProfilesPath,
         query: schemas.zListAgentProfilesQuery,
       }),
-      op('get', 'Fetch an agent profile', sdk.getAgentProfile, {
+      op({
+        verb: 'get',
+        summary: 'Fetch an agent profile',
+        fn: sdk.getAgentProfile,
         format: formatRecord(),
         path: schemas.zGetAgentProfilePath,
       }),
-      op('create', 'Create an agent profile', sdk.createAgentProfile, {
+      op({
+        verb: 'create',
+        summary: 'Create an agent profile',
+        fn: sdk.createAgentProfile,
         format: formatRecord(),
         path: schemas.zCreateAgentProfilePath,
         body: schemas.zCreateAgentProfileBody,
       }),
-      op('rename', 'Rename an agent profile', sdk.renameAgentProfile, {
+      op({
+        verb: 'rename',
+        summary: 'Rename an agent profile',
+        fn: sdk.renameAgentProfile,
         format: formatRecord(),
         path: schemas.zRenameAgentProfilePath,
         body: schemas.zRenameAgentProfileBody,
       }),
-      op('delete', 'Delete an agent profile', sdk.deleteAgentProfile, {
+      op({
+        verb: 'delete',
+        summary: 'Delete an agent profile',
+        fn: sdk.deleteAgentProfile,
         format: formatVoid('deleted'),
         path: schemas.zDeleteAgentProfilePath,
       }),
+    ],
+    groups: [
+      {
+        name: 'cron',
+        summary: 'Manage cron triggers',
+        operations: [
+          op({
+            verb: 'list',
+            summary: 'List cron triggers in a project',
+            fn: sdk.listCronTriggers,
+            format: formatTable([
+              'id',
+              'name',
+              'cron',
+              'timezone',
+              'enabled',
+              'next_fire_at',
+              'created_at',
+            ]),
+            path: schemas.zListCronTriggersPath,
+            query: schemas.zListCronTriggersQuery,
+          }),
+          op({
+            verb: 'get',
+            summary: 'Fetch a cron trigger',
+            fn: sdk.getCronTrigger,
+            format: formatRecord(),
+            path: schemas.zGetCronTriggerPath,
+          }),
+          op({
+            verb: 'create',
+            summary: 'Create a cron trigger',
+            fn: sdk.createCronTrigger,
+            format: formatRecord(),
+            path: schemas.zCreateCronTriggerPath,
+            body: schemas.zCreateCronTriggerBody,
+          }),
+          op({
+            verb: 'update',
+            summary: 'Update a cron trigger',
+            fn: sdk.updateCronTrigger,
+            format: formatRecord(),
+            path: schemas.zUpdateCronTriggerPath,
+            body: schemas.zUpdateCronTriggerBody,
+          }),
+          op({
+            verb: 'delete',
+            summary: 'Delete a cron trigger',
+            fn: sdk.deleteCronTrigger,
+            format: formatVoid('deleted'),
+            path: schemas.zDeleteCronTriggerPath,
+          }),
+        ],
+      },
     ],
   },
 ]

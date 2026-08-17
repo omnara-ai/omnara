@@ -4,7 +4,7 @@ import * as z from 'zod'
 
 import { type CliContext, updateConfigFile } from './context.ts'
 import { deriveFlags, type FlagSpec, kebabCase } from './flags.ts'
-import type { FormattedOutput, OutputFormat } from './format.ts'
+import type { OutputFormat } from './format.ts'
 import {
   canPromptInteractively,
   promptOrgSelection,
@@ -20,16 +20,16 @@ type ResponseOf<F extends SdkOperation> = F extends (options: never) => PromiseL
     : never
   : never
 
-export interface OperationSpec {
+export interface OperationSpec<Response = never, ParsedBody = never> {
   verb: string
   summary: string
   fn: SdkOperation
   path?: z.ZodObject<z.ZodRawShape>
   query?: z.ZodObject<z.ZodRawShape>
   body?: z.ZodType
-  transformBody?: (body: unknown) => unknown
+  transformBody?: (body: ParsedBody) => unknown
   positional?: string[]
-  format: (data: never) => FormattedOutput
+  format: OutputFormat<Response>
 }
 
 export interface CommandGroup {
@@ -40,31 +40,10 @@ export interface CommandGroup {
   groups?: CommandGroup[]
 }
 
-export function op<F extends SdkOperation, B extends z.ZodType = z.ZodType>(
-  verb: string,
-  summary: string,
-  fn: F,
-  schemas: {
-    path?: z.ZodObject<z.ZodRawShape>
-    query?: z.ZodObject<z.ZodRawShape>
-    body?: B
-    transformBody?: (body: z.output<B>) => unknown
-    positional?: string[]
-    format: OutputFormat<ResponseOf<F>>
-  },
+export function op<F extends SdkOperation, B extends z.ZodType = z.ZodNever>(
+  spec: Omit<OperationSpec<ResponseOf<F>, z.output<B>>, 'fn' | 'body'> & { fn: F; body?: B },
 ): OperationSpec {
-  const { body, transformBody, ...rest } = schemas
-  return {
-    verb,
-    summary,
-    fn,
-    body,
-    ...rest,
-    transformBody:
-      body === undefined || transformBody === undefined
-        ? undefined
-        : (raw: unknown) => transformBody(body.parse(raw)),
-  }
+  return spec
 }
 
 interface ContextParam {
@@ -278,7 +257,7 @@ function registerOperation(parent: Command, ctx: CliContext, spec: OperationSpec
           options.body === undefined ? {} : parseWithSchema(zBodyObject, options.body, '--body')
         const body = { ...base, ...collectFlagValues(bodyFlags, options) }
         const parsed = parseWithSchema(spec.body, body, 'request body')
-        input.body = spec.transformBody ? spec.transformBody(parsed) : parsed
+        input.body = spec.transformBody ? spec.transformBody(parsed as never) : parsed
       }
       const data =
         options.all === true && isPaginatedList(spec)
