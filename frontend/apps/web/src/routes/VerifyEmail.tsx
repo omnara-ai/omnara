@@ -7,7 +7,6 @@ import { PasswordRequirements } from '@/components/auth/PasswordRequirements'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { authTokenFromURL, clearAuthTokenFromURL } from '@/lib/auth-link'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -48,7 +47,8 @@ export function VerifyEmail() {
       await completeEmailVerification(token, state.password, state.displayName)
       window.location.assign('/')
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Email verification failed') }))
+      const status = submitError(err, 'Email verification failed')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 
@@ -117,8 +117,12 @@ export function VerifyEmail() {
               {state.passwordsMismatch && <FieldError>Passwords do not match.</FieldError>}
             </Field>
             {errorMessage && <FieldError>{errorMessage}</FieldError>}
-            <Button type="submit" className="w-full" disabled={isSubmitting || !token}>
-              {isSubmitting && <Spinner />}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isSubmitting || !token}
+              loading={isSubmitting}
+            >
               Continue
             </Button>
           </FieldGroup>

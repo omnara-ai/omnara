@@ -1,6 +1,6 @@
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import { Select as SelectPrimitive } from 'radix-ui'
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -12,8 +12,27 @@ function SelectGroup(props: ComponentProps<typeof SelectPrimitive.Group>) {
   return <SelectPrimitive.Group data-slot="select-group" {...props} />
 }
 
-function SelectValue(props: ComponentProps<typeof SelectPrimitive.Value>) {
-  return <SelectPrimitive.Value data-slot="select-value" {...props} />
+function SelectValue({
+  children,
+  placeholder,
+  ...props
+}: Omit<ComponentProps<typeof SelectPrimitive.Value>, 'children' | 'placeholder'> & {
+  children: ReactNode
+  placeholder?: ReactNode
+}) {
+  return (
+    <SelectPrimitive.Value
+      data-slot="select-value"
+      placeholder={
+        placeholder === undefined ? undefined : (
+          <span data-slot="select-value-label">{placeholder}</span>
+        )
+      }
+      {...props}
+    >
+      <span data-slot="select-value-label">{children}</span>
+    </SelectPrimitive.Value>
+  )
 }
 
 function SelectTrigger({

@@ -78,14 +78,15 @@ export function AgentView() {
           <div className="flex min-w-0 items-center justify-between gap-2">
             <PageBreadcrumb
               items={[
-                { label: activeOrg.name, to: '/' },
-                ...(project ? [{ label: project.name }] : []),
+                { id: 'organization', label: activeOrg.name, to: '/' },
+                ...(project ? [{ id: 'project', label: project.name }] : []),
                 {
+                  id: 'agents',
                   label: 'Agents',
                   to: '/projects/$projectId/agents' as const,
                   params: { projectId },
                 },
-                { label: agent.name || 'Agent' },
+                { id: 'agent', label: agent.name || 'Agent' },
               ]}
             />
             <div className="flex shrink-0 items-center gap-1">

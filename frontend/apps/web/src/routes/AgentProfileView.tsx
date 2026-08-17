@@ -14,7 +14,6 @@ import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDi
 import { DetailList } from '@/components/data-table/DetailList'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
 import { formatDateTime } from '@/lib/format'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
@@ -85,14 +84,15 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
       <header className="flex flex-col gap-4">
         <PageBreadcrumb
           items={[
-            { label: activeOrg.name, to: '/' },
-            ...(project ? [{ label: project.name }] : []),
+            { id: 'organization', label: activeOrg.name, to: '/' },
+            ...(project ? [{ id: 'project', label: project.name }] : []),
             {
+              id: 'agents',
               label: 'Agents',
               to: '/projects/$projectId/agents' as const,
               params: { projectId },
             },
-            { label: profile.name },
+            { id: 'profile', label: profile.name },
           ]}
         />
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -106,8 +106,12 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           </div>
           <div className="flex items-center gap-2">
             {canOperate && (
-              <Button size="sm" disabled={createAgent.isPending} onClick={() => void launch()}>
-                {createAgent.isPending && <Spinner />}
+              <Button
+                size="sm"
+                disabled={createAgent.isPending}
+                loading={createAgent.isPending}
+                onClick={() => void launch()}
+              >
                 Launch
               </Button>
             )}

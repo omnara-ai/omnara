@@ -23,7 +23,12 @@ export function Overview() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ label: activeOrg.name }, { label: 'Overview' }]} />
+      <PageBreadcrumb
+        items={[
+          { id: 'organization', label: activeOrg.name },
+          { id: 'overview', label: 'Overview' },
+        ]}
+      />
 
       {overviewQuery.isPending ? (
         <Skeleton className="h-28 rounded-xl" />

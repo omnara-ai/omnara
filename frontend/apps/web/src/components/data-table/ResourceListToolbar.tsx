@@ -53,7 +53,9 @@ export function ResourceListToolbar<TSort extends string>({
             className="relative min-w-44 rounded-l-none rounded-r-lg border-l-0 focus-visible:z-10"
             aria-label="Sort results"
           >
-            <SelectValue placeholder="Sort by" />
+            <SelectValue placeholder="Sort by">
+              {sortOptions.find((option) => option.value === sort)?.label ?? sort}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {sortOptions.map((option) => (

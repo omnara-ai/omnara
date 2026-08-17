@@ -10,7 +10,6 @@ import type { OrgApiKey } from '@omnara/sdk'
 import { ProjectAccessEditor } from '@/components/org/ProjectAccessEditor'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
 const ORG_ROLES = ['member', 'admin'] as const
@@ -77,6 +76,7 @@ export function OrgApiKeyDetailPanel({ orgId, apiKey }: { orgId: string; apiKey:
                     variant="outline"
                     className="text-destructive hover:text-destructive shrink-0"
                     disabled={revokeKey.isPending}
+                    loading={revokeKey.isPending}
                     onClick={() => {
                       if (
                         window.confirm(
@@ -87,7 +87,6 @@ export function OrgApiKeyDetailPanel({ orgId, apiKey }: { orgId: string; apiKey:
                       }
                     }}
                   >
-                    {revokeKey.isPending && <Spinner />}
                     Revoke token
                   </Button>
                 </div>

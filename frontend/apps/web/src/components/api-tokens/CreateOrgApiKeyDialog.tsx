@@ -14,7 +14,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
 const ORG_ROLES = ['member', 'admin'] as const
@@ -114,8 +113,11 @@ export function CreateOrgApiKeyDialog({
                 </Field>
                 {error && <p className="text-destructive text-sm">{error}</p>}
                 <DialogFooter>
-                  <Button type="submit" disabled={createKey.isPending || name.trim() === ''}>
-                    {createKey.isPending && <Spinner />}
+                  <Button
+                    type="submit"
+                    disabled={createKey.isPending || name.trim() === ''}
+                    loading={createKey.isPending}
+                  >
                     Create token
                   </Button>
                 </DialogFooter>

@@ -15,7 +15,12 @@ export function SecretsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ label: activeOrg.name, to: '/' }, { label: 'Secrets' }]} />
+      <PageBreadcrumb
+        items={[
+          { id: 'organization', label: activeOrg.name, to: '/' },
+          { id: 'secrets', label: 'Secrets' },
+        ]}
+      />
       <Tabs
         value={owner}
         onValueChange={(nextOwner) => {

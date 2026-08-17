@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 
 export function EditSecretDialog({
   open,
@@ -59,8 +58,12 @@ export function EditSecretDialog({
             </Field>
             {error && <p className="text-destructive text-sm">{error}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={mutation.isPending || name.trim() === ''}>
-                {mutation.isPending && <Spinner />}Save changes
+              <Button
+                type="submit"
+                disabled={mutation.isPending || name.trim() === ''}
+                loading={mutation.isPending}
+              >
+                Save changes
               </Button>
             </DialogFooter>
           </FieldGroup>

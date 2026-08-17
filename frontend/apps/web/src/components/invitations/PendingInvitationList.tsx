@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Spinner } from '@/components/ui/spinner'
 import { formatDateTime } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -145,11 +144,12 @@ export function PendingInvitationList({
                   size="sm"
                   aria-label={`Accept invitation to ${invitation.org_name}`}
                   disabled={actingId !== null}
+                  loading={accepting}
+                  icon={<Check />}
                   onClick={() => {
                     void accept(invitation.id)
                   }}
                 >
-                  {accepting ? <Spinner /> : <Check />}
                   Accept
                 </Button>
                 <Button
@@ -157,11 +157,12 @@ export function PendingInvitationList({
                   variant="outline"
                   aria-label={`Decline invitation to ${invitation.org_name}`}
                   disabled={actingId !== null}
+                  loading={declining}
+                  icon={<X />}
                   onClick={() => {
                     void decline(invitation.id)
                   }}
                 >
-                  {declining ? <Spinner /> : <X />}
                   Decline
                 </Button>
               </div>

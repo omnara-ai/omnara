@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
-import { Spinner } from '@/components/ui/spinner'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import type { SubmitStatus } from '@/lib/submit-status'
@@ -154,8 +153,8 @@ export function GrantMachinePoolDialog({
                   !completeGrants.isComplete ||
                   !poolGrantOverridesValid(selected.draft)
                 }
+                loading={isSubmitting}
               >
-                {isSubmitting && <Spinner />}
                 Grant pool
               </Button>
             </DialogFooter>

@@ -14,7 +14,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
 /**
@@ -155,8 +154,11 @@ export function ConnectMachineDialog({
                 <p className="text-destructive whitespace-pre-wrap text-sm">{state.error}</p>
               )}
               <DialogFooter>
-                <Button type="submit" disabled={state.submitting || state.name.trim() === ''}>
-                  {state.submitting && <Spinner />}
+                <Button
+                  type="submit"
+                  disabled={state.submitting || state.name.trim() === ''}
+                  loading={state.submitting}
+                >
                   Connect machine
                 </Button>
               </DialogFooter>
@@ -175,13 +177,13 @@ export function ConnectMachineDialog({
               <Button
                 type="button"
                 variant="outline"
+                icon={state.copied === 'command' ? <CheckIcon /> : <CopyIcon />}
                 onClick={() => {
                   void navigator.clipboard.writeText(installCommand).then(() => {
                     dispatch({ type: 'copied', target: 'command' })
                   })
                 }}
               >
-                {state.copied === 'command' ? <CheckIcon /> : <CopyIcon />}
                 {state.copied === 'command' ? 'Copied' : 'Copy command'}
               </Button>
             </Field>
@@ -194,13 +196,13 @@ export function ConnectMachineDialog({
               <Button
                 type="button"
                 variant="outline"
+                icon={state.copied === 'token' ? <CheckIcon /> : <CopyIcon />}
                 onClick={() => {
                   void navigator.clipboard.writeText(state.machineToken).then(() => {
                     dispatch({ type: 'copied', target: 'token' })
                   })
                 }}
               >
-                {state.copied === 'token' ? <CheckIcon /> : <CopyIcon />}
                 {state.copied === 'token' ? 'Copied' : 'Copy token'}
               </Button>
             </Field>
