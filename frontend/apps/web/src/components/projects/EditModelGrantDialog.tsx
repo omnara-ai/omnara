@@ -64,7 +64,9 @@ function InheritableToggleField({
         }}
       >
         <SelectTrigger className="w-full">
-          <SelectValue />
+          <SelectValue>
+            {value === 'inherit' ? inheritLabel : value === 'enabled' ? 'Enabled' : 'Disabled'}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="inherit">{inheritLabel}</SelectItem>
@@ -167,7 +169,13 @@ export function EditModelGrantDialog({
                   }}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      {draft.cacheRetention === 'inherit'
+                        ? model
+                          ? `Inherit (${model.default_cache_retention})`
+                          : 'Inherit'
+                        : draft.cacheRetention}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="inherit">

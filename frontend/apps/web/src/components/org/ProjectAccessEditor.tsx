@@ -131,7 +131,7 @@ export function ProjectAccessEditor({
                 }}
               >
                 <SelectTrigger className="h-8 w-full capitalize">
-                  <SelectValue />
+                  <SelectValue>{grant.role}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {PROJECT_ROLES.map((role) => (
@@ -178,7 +178,7 @@ export function ProjectAccessEditor({
               }}
             >
               <SelectTrigger className="h-8 w-full capitalize">
-                <SelectValue />
+                <SelectValue>{selectedRole}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {PROJECT_ROLES.map((role) => (

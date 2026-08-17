@@ -167,7 +167,7 @@ export function CreateModelProviderDialog({
                       }}
                     >
                       <SelectTrigger id="mp-provider" className="w-full">
-                        <SelectValue />
+                        <SelectValue>{provider.label}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {modelProviderOptions.map((option) => (
@@ -205,7 +205,7 @@ export function CreateModelProviderDialog({
                         }}
                       >
                         <SelectTrigger id="mp-bedrock-api" className="w-full">
-                          <SelectValue />
+                          <SelectValue>{bedrockAPIOption(values.bedrockAPI).label}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {bedrockAPIOptions.map((option) => (

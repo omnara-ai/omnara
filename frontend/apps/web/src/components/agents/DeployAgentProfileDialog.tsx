@@ -105,7 +105,7 @@ export function DeployAgentProfileDialog({
                   <FieldLabel htmlFor="deploy-provider">Destination</FieldLabel>
                   <Select value={field.state.value} onValueChange={field.handleChange}>
                     <SelectTrigger id="deploy-provider" className="w-full">
-                      <SelectValue />
+                      <SelectValue>Slack</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="slack">Slack</SelectItem>

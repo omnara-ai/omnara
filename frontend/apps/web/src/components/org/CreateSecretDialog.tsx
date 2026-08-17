@@ -155,7 +155,10 @@ export function CreateSecretDialog({
                 }}
               >
                 <SelectTrigger id="secret-kind" className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {secretKinds.find((option) => option.value === state.secret.kind)?.label ??
+                      state.secret.kind}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {secretKinds.map((option) => (

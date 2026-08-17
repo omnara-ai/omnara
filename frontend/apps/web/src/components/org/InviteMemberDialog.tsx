@@ -113,7 +113,7 @@ export function InviteMemberDialog({
                 }}
               >
                 <SelectTrigger id="invite-role" className="w-full capitalize">
-                  <SelectValue />
+                  <SelectValue>{state.role}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {roles.map((role) => (
