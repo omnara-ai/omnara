@@ -903,14 +903,22 @@ func TestUpdateMachinePoolRejectsInvalidStoredName(t *testing.T) {
 	if seededName != invalidStoredName {
 		t.Fatalf("seeded machine pool name = %q", seededName)
 	}
+	stored, err := store.Execution().GetMachinePool(ctx, testOrgID, created.ID)
+	if err != nil {
+		t.Fatalf("load invalid stored machine pool: %v", err)
+	}
+	if stored.Name != invalidStoredName {
+		t.Fatalf("loaded machine pool name = %q", stored.Name)
+	}
 
 	description := "updated without a rename"
-	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+	updatedInvalid, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
 		OrgID:       testOrgID,
 		ID:          created.ID,
 		Description: &description,
-	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("update with invalid stored machine pool name error = %v, want invalid request", err)
+	})
+	if !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("update with invalid stored machine pool name = %+v, error = %v, want invalid request", updatedInvalid, err)
 	}
 	repairedName := "Repaired Pool"
 	updated, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
