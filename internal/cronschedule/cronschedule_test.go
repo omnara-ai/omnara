@@ -67,6 +67,44 @@ func TestRenderMessageRejectsOversizedOutput(t *testing.T) {
 	}
 }
 
+func TestRenderMessageBoundsPrintf(t *testing.T) {
+	data := MessageData("sample", time.Time{}, nil)
+	rendered, err := RenderMessage(`{{ printf "%6s!" .trigger.name }}`, data)
+	if err != nil {
+		t.Fatalf("render bounded printf: %v", err)
+	}
+	if rendered != "sample!" {
+		t.Fatalf("rendered = %q, want %q", rendered, "sample!")
+	}
+	rejected := []string{
+		`{{ printf "%1000000000s" "" }}`,
+		`{{ printf "%.1000000000f" 1.0 }}`,
+		`{{ printf "%01000000000d" 1 }}`,
+		`{{ printf "%*s" 1000000000 "" }}`,
+	}
+	for _, messageTemplate := range rejected {
+		if _, err := RenderMessage(messageTemplate, data); err == nil {
+			t.Fatalf("expected printf bomb to be rejected: %s", messageTemplate)
+		}
+	}
+}
+
+func TestRenderMessageBoundsFormattedValues(t *testing.T) {
+	data := MessageData("sample", time.Time{}, nil)
+	doubling := `{{ $a := "aaaaaaaaaaaaaaaa" }}` +
+		strings.Repeat(`{{ $a = printf "%s%s%s%s" $a $a $a $a }}`, 10) +
+		`{{ len $a }}`
+	if _, err := RenderMessage(doubling, data); err == nil {
+		t.Fatal("expected amplified printf output to be rejected")
+	}
+	if _, err := RenderMessage(
+		`{{ $a := printf "%1000s" "" }}{{ print $a $a `+strings.Repeat("$a ", 70)+`}}`,
+		data,
+	); err == nil {
+		t.Fatal("expected amplified print output to be rejected")
+	}
+}
+
 func TestRenderMessageRejectsMissingKeys(t *testing.T) {
 	if _, err := RenderMessage("{{ .missing }}", MessageData("sample", time.Time{}, nil)); err == nil {
 		t.Fatal("expected missing key to be rejected")

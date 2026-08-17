@@ -8,9 +8,12 @@ import (
 )
 
 func cronTriggerRecordFromSQLC(row dbsqlc.GetCronTriggerRow) (CronTriggerRecord, error) {
-	failureReport, err := cronTriggerFailureReportFromSQLC(row.FailureReport)
-	if err != nil {
-		return CronTriggerRecord{}, err
+	var failureReport *CronTriggerFailureReport
+	if row.FailureReport != nil {
+		failureReport = &CronTriggerFailureReport{}
+		if err := json.Unmarshal(*row.FailureReport, failureReport); err != nil {
+			return CronTriggerRecord{}, fmt.Errorf("decode cron trigger failure report: %w", err)
+		}
 	}
 	return CronTriggerRecord{
 		ID:              row.ID,
@@ -76,15 +79,4 @@ func cronTriggerRecordFromListSQLC(
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	})
-}
-
-func cronTriggerFailureReportFromSQLC(raw *json.RawMessage) (*CronTriggerFailureReport, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	report := &CronTriggerFailureReport{}
-	if err := json.Unmarshal(*raw, report); err != nil {
-		return nil, fmt.Errorf("decode cron trigger failure report: %w", err)
-	}
-	return report, nil
 }

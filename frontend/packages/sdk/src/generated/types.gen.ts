@@ -951,7 +951,7 @@ export type CronExpression = string;
 export type CronTimezone = string;
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export type CronMessageTemplate = string;
 
@@ -1003,7 +1003,7 @@ export type CronTrigger = {
      */
     next_fire_at: Timestamp | null;
     /**
-     * Most recent failed firing, or null if no firing has failed.
+     * Most recent failed firing, or null if no firing has failed since the last successful firing.
      */
     failure_report: CronTriggerFailureReport | null;
     created_at: Timestamp;

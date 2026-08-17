@@ -173,6 +173,7 @@ WHERE project_id = sqlc.arg(project_id)
 -- name: CompleteCronTriggerFiring :execrows
 UPDATE cron_triggers
 SET last_fired_at = CASE WHEN sqlc.arg(fired)::boolean THEN transaction_timestamp() ELSE last_fired_at END,
+    failure_report = CASE WHEN sqlc.arg(fired)::boolean THEN NULL ELSE failure_report END,
     next_fire_after = sqlc.narg(next_fire_after),
     claimed_until = NULL,
     claim_token = NULL,

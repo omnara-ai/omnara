@@ -249,6 +249,35 @@ func TestCronTriggerFiringAndCascade(t *testing.T) {
 
 	if _, err := pool.Exec(
 		ctx,
+		"UPDATE cron_triggers SET message_template = 'Recovered {{ .trigger.name }}.',"+
+			" next_fire_after = transaction_timestamp() - interval '3 minutes' WHERE id = $1",
+		agentTriggerUUID,
+	); err != nil {
+		t.Fatalf("repair cron trigger template: %v", err)
+	}
+	recoveredStats, err := service.FireDueTriggers(ctx)
+	if err != nil {
+		t.Fatalf("fire trigger with repaired template: %v", err)
+	}
+	if recoveredStats.Claimed != 1 || recoveredStats.Inputs != 1 || recoveredStats.Failures != 0 {
+		t.Fatalf("repaired template must fire cleanly: %+v", recoveredStats)
+	}
+	recovered := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		triggersPath+"/"+agentTriggerID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if recovered["failure_report"] != nil {
+		t.Fatalf("successful firing must clear failure_report: %+v", recovered)
+	}
+
+	if _, err := pool.Exec(
+		ctx,
 		"UPDATE cron_triggers SET cron_expression = '61 0 * * *',"+
 			" next_fire_after = transaction_timestamp() - interval '1 minute' WHERE id = $1",
 		agentTriggerUUID,
