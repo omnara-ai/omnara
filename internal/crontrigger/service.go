@@ -56,6 +56,7 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 		)
 	}
 	for _, trigger := range claim.Claimed {
+		fired := false
 		if err := s.fireTrigger(ctx, trigger); err != nil {
 			stats.Failures++
 			retry := !permanentFireError(err)
@@ -67,10 +68,25 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 				"will_retry", retry,
 				"error", err,
 			)
+			if recordErr := s.execution.RecordCronTriggerFailure(ctx, executionstore.CronTriggerFailureParams{
+				ProjectID:  trigger.ProjectID,
+				TriggerID:  trigger.TriggerID,
+				ClaimToken: trigger.ClaimToken,
+				Message:    err.Error(),
+				WillRetry:  retry,
+			}); recordErr != nil {
+				s.logger.Error(
+					"record cron trigger failure",
+					"cron_trigger_id", trigger.TriggerID,
+					"project_id", trigger.ProjectID,
+					"error", recordErr,
+				)
+			}
 			if retry {
 				continue
 			}
 		} else {
+			fired = true
 			switch trigger.Target.Kind {
 			case executionstore.CronTriggerTargetAgentProfile:
 				stats.Launched++
@@ -78,7 +94,12 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 				stats.Inputs++
 			}
 		}
-		if err := s.execution.CompleteCronTriggerFiring(ctx, trigger.ProjectID, trigger.TriggerID); err != nil {
+		if err := s.execution.CompleteCronTriggerFiring(ctx, executionstore.CompleteCronTriggerFiringInput{
+			ProjectID:  trigger.ProjectID,
+			TriggerID:  trigger.TriggerID,
+			ClaimToken: trigger.ClaimToken,
+			Fired:      fired,
+		}); err != nil {
 			s.logger.Error(
 				"complete cron trigger firing",
 				"cron_trigger_id", trigger.TriggerID,
@@ -96,12 +117,7 @@ func (s *Service) fireTrigger(ctx context.Context, trigger executionstore.Claime
 		cronschedule.MessageData(trigger.Name, trigger.FiredAt, trigger.LastFiredAt),
 	)
 	if err != nil {
-		message = trigger.MessageTemplate
-		s.logger.Error(
-			"render cron trigger message template; sending raw template",
-			"cron_trigger_id", trigger.TriggerID,
-			"error", err,
-		)
+		return fmt.Errorf("render cron trigger message: %s: %w", err.Error(), storeerr.ErrInvalidRequest)
 	}
 	idempotencyKey := fireIdempotencyKey(trigger)
 	switch trigger.Target.Kind {

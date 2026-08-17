@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -48,21 +50,28 @@ type UpdateCronTriggerInput struct {
 }
 
 type CronTriggerRecord struct {
-	ID              ID                `json:"id"`
-	OrgID           ID                `json:"org_id"`
-	ProjectID       ID                `json:"project_id"`
-	Name            string            `json:"name"`
-	Target          CronTriggerTarget `json:"target"`
-	CronExpression  string            `json:"cron_expression"`
-	Timezone        string            `json:"timezone"`
-	MessageTemplate string            `json:"message_template"`
-	Enabled         bool              `json:"enabled"`
-	LastFiredAt     *time.Time        `json:"last_fired_at"`
-	NextFireAfter   *time.Time        `json:"next_fire_after"`
-	IdempotencyKey  string            `json:"-"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
-	Created         bool              `json:"-"`
+	ID              ID                        `json:"id"`
+	OrgID           ID                        `json:"org_id"`
+	ProjectID       ID                        `json:"project_id"`
+	Name            string                    `json:"name"`
+	Target          CronTriggerTarget         `json:"target"`
+	CronExpression  string                    `json:"cron_expression"`
+	Timezone        string                    `json:"timezone"`
+	MessageTemplate string                    `json:"message_template"`
+	Enabled         bool                      `json:"enabled"`
+	LastFiredAt     *time.Time                `json:"last_fired_at"`
+	NextFireAfter   *time.Time                `json:"next_fire_after"`
+	FailureReport   *CronTriggerFailureReport `json:"failure_report"`
+	IdempotencyKey  string                    `json:"-"`
+	CreatedAt       time.Time                 `json:"created_at"`
+	UpdatedAt       time.Time                 `json:"updated_at"`
+	Created         bool                      `json:"-"`
+}
+
+type CronTriggerFailureReport struct {
+	Message   string    `json:"message"`
+	WillRetry bool      `json:"will_retry"`
+	FailedAt  time.Time `json:"failed_at"`
 }
 
 func (s *Store) CreateCronTrigger(
@@ -175,7 +184,7 @@ func (s *Store) GetCronTrigger(ctx context.Context, projectID, id ID) (CronTrigg
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("load cron trigger: %w", err)
 	}
-	return cronTriggerRecordFromSQLC(row), nil
+	return cronTriggerRecordFromSQLC(row)
 }
 
 type ListCronTriggersForProjectInput struct {
@@ -233,7 +242,11 @@ func (s *Store) ListCronTriggersForProject(
 	}
 	result.Triggers = make([]CronTriggerRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Triggers = append(result.Triggers, cronTriggerRecordFromListSQLC(row))
+		record, err := cronTriggerRecordFromListSQLC(row)
+		if err != nil {
+			return ListCronTriggersForProjectResult{}, err
+		}
+		result.Triggers = append(result.Triggers, record)
 	}
 	return result, nil
 }
@@ -331,7 +344,10 @@ func (s *Store) UpdateCronTrigger(
 		}
 		return CronTriggerRecord{}, fmt.Errorf("update cron trigger: %w", err)
 	}
-	updated := cronTriggerRecordFromWriteSQLC(dbsqlc.InsertCronTriggerRow(row), record.OrgID)
+	updated, err := cronTriggerRecordFromWriteSQLC(dbsqlc.InsertCronTriggerRow(row), record.OrgID)
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("commit update cron trigger: %w", err)
 	}
@@ -386,7 +402,10 @@ func insertCronTriggerTx(
 	}
 	row, err := qtx.InsertCronTrigger(ctx, params)
 	if err == nil {
-		record := cronTriggerRecordFromWriteSQLC(row, input.OrgID)
+		record, err := cronTriggerRecordFromWriteSQLC(row, input.OrgID)
+		if err != nil {
+			return CronTriggerRecord{}, false, err
+		}
 		record.Created = true
 		return record, true, nil
 	}
@@ -432,7 +451,7 @@ func lockCronTriggerTx(
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("lock cron trigger: %w", err)
 	}
-	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row)), nil
+	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row))
 }
 
 func loadCronTriggerByIdempotencyKeyTx(
@@ -454,11 +473,12 @@ func loadCronTriggerByIdempotencyKeyTx(
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("load idempotent cron trigger: %w", err)
 	}
-	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row)), nil
+	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row))
 }
 
 type ClaimedCronTrigger struct {
 	TriggerID       ID
+	ClaimToken      ID
 	OrgID           ID
 	ProjectID       ID
 	Name            string
@@ -503,22 +523,31 @@ func (s *Store) ClaimDueCronTriggers(
 	result := ClaimDueCronTriggersResult{}
 	claimedUntil := now.Add(cronTriggerClaimLease)
 	for _, row := range rows {
-		if _, err := cronschedule.Next(row.CronExpression, row.Timezone, now); err != nil {
+		if _, nextErr := cronschedule.Next(row.CronExpression, row.Timezone, now); nextErr != nil {
 			if _, err := qtx.DisableCronTrigger(ctx, dbsqlc.DisableCronTriggerParams{
 				ProjectID: row.ProjectID, ID: row.ID,
+				FailureMessage: cronTriggerFailureMessage(
+					"disabled: evaluate cron schedule: " + nextErr.Error(),
+				),
 			}); err != nil {
 				return ClaimDueCronTriggersResult{}, fmt.Errorf("disable cron trigger: %w", err)
 			}
 			result.Disabled = append(result.Disabled, row.ID)
 			continue
 		}
+		claimToken, err := uuid.NewV7()
+		if err != nil {
+			return ClaimDueCronTriggersResult{}, fmt.Errorf("generate cron trigger claim token: %w", err)
+		}
 		if _, err := qtx.ClaimCronTrigger(ctx, dbsqlc.ClaimCronTriggerParams{
-			ProjectID: row.ProjectID, ID: row.ID, ClaimedUntil: &claimedUntil,
+			ProjectID: row.ProjectID, ID: row.ID,
+			ClaimedUntil: &claimedUntil, ClaimToken: &claimToken,
 		}); err != nil {
 			return ClaimDueCronTriggersResult{}, fmt.Errorf("claim cron trigger: %w", err)
 		}
 		result.Claimed = append(result.Claimed, ClaimedCronTrigger{
 			TriggerID:       row.ID,
+			ClaimToken:      claimToken,
 			OrgID:           row.OrgID,
 			ProjectID:       row.ProjectID,
 			Name:            row.Name,
@@ -535,9 +564,19 @@ func (s *Store) ClaimDueCronTriggers(
 	return result, nil
 }
 
-func (s *Store) CompleteCronTriggerFiring(ctx context.Context, projectID, triggerID ID) error {
-	if isNilID(projectID) || isNilID(triggerID) {
-		return errors.New("project and cron trigger are required")
+type CompleteCronTriggerFiringInput struct {
+	ProjectID  ID
+	TriggerID  ID
+	ClaimToken ID
+	Fired      bool
+}
+
+func (s *Store) CompleteCronTriggerFiring(
+	ctx context.Context,
+	input CompleteCronTriggerFiringInput,
+) error {
+	if isNilID(input.ProjectID) || isNilID(input.TriggerID) || isNilID(input.ClaimToken) {
+		return errors.New("project, cron trigger, and claim token are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -548,7 +587,7 @@ func (s *Store) CompleteCronTriggerFiring(ctx context.Context, projectID, trigge
 	qtx := s.q.WithTx(tx)
 	row, err := qtx.GetCronTriggerForUpdate(
 		ctx,
-		dbsqlc.GetCronTriggerForUpdateParams{ProjectID: projectID, ID: triggerID},
+		dbsqlc.GetCronTriggerForUpdateParams{ProjectID: input.ProjectID, ID: input.TriggerID},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -556,7 +595,10 @@ func (s *Store) CompleteCronTriggerFiring(ctx context.Context, projectID, trigge
 	if err != nil {
 		return fmt.Errorf("lock cron trigger for completion: %w", err)
 	}
-	record := cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row))
+	record, err := cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow(row))
+	if err != nil {
+		return err
+	}
 	var nextFireAfter *time.Time
 	if record.Enabled {
 		next, err := cronTriggerNextFireTx(ctx, qtx, record.CronExpression, record.Timezone)
@@ -565,15 +607,63 @@ func (s *Store) CompleteCronTriggerFiring(ctx context.Context, projectID, trigge
 		}
 		nextFireAfter = &next
 	}
-	if _, err := qtx.CompleteCronTriggerFiring(ctx, dbsqlc.CompleteCronTriggerFiringParams{
-		ProjectID: projectID, ID: triggerID, NextFireAfter: nextFireAfter,
-	}); err != nil {
+	rows, err := qtx.CompleteCronTriggerFiring(ctx, dbsqlc.CompleteCronTriggerFiringParams{
+		ProjectID:     input.ProjectID,
+		ID:            input.TriggerID,
+		ClaimToken:    &input.ClaimToken,
+		NextFireAfter: nextFireAfter,
+		Fired:         input.Fired,
+	})
+	if err != nil {
 		return fmt.Errorf("complete cron trigger firing: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("cron trigger claim was taken over: %w", storeerr.ErrConflict)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit complete cron trigger firing: %w", err)
 	}
 	return nil
+}
+
+const maxCronTriggerFailureMessageBytes = 4 * 1024
+
+type CronTriggerFailureParams struct {
+	ProjectID  ID
+	TriggerID  ID
+	ClaimToken ID
+	Message    string
+	WillRetry  bool
+}
+
+func (s *Store) RecordCronTriggerFailure(
+	ctx context.Context,
+	params CronTriggerFailureParams,
+) error {
+	if isNilID(params.ProjectID) || isNilID(params.TriggerID) || isNilID(params.ClaimToken) {
+		return errors.New("project, cron trigger, and claim token are required")
+	}
+	rows, err := s.q.RecordCronTriggerFailure(ctx, dbsqlc.RecordCronTriggerFailureParams{
+		ProjectID:      params.ProjectID,
+		ID:             params.TriggerID,
+		ClaimToken:     &params.ClaimToken,
+		FailureMessage: cronTriggerFailureMessage(params.Message),
+		WillRetry:      params.WillRetry,
+	})
+	if err != nil {
+		return fmt.Errorf("record cron trigger failure: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("cron trigger claim was taken over: %w", storeerr.ErrConflict)
+	}
+	return nil
+}
+
+func cronTriggerFailureMessage(message string) string {
+	if len(message) > maxCronTriggerFailureMessageBytes {
+		message = strings.ToValidUTF8(message[:maxCronTriggerFailureMessageBytes], "")
+	}
+	return message
 }
 
 func cronTriggerNextFireTx(

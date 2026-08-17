@@ -1,10 +1,17 @@
 package executionstore
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func cronTriggerRecordFromSQLC(row dbsqlc.GetCronTriggerRow) CronTriggerRecord {
+func cronTriggerRecordFromSQLC(row dbsqlc.GetCronTriggerRow) (CronTriggerRecord, error) {
+	failureReport, err := cronTriggerFailureReportFromSQLC(row.FailureReport)
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
 	return CronTriggerRecord{
 		ID:              row.ID,
 		OrgID:           row.OrgID,
@@ -17,13 +24,17 @@ func cronTriggerRecordFromSQLC(row dbsqlc.GetCronTriggerRow) CronTriggerRecord {
 		Enabled:         row.Enabled,
 		LastFiredAt:     row.LastFiredAt,
 		NextFireAfter:   row.NextFireAfter,
+		FailureReport:   failureReport,
 		IdempotencyKey:  row.IdempotencyKey,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
-	}
+	}, nil
 }
 
-func cronTriggerRecordFromWriteSQLC(row dbsqlc.InsertCronTriggerRow, orgID ID) CronTriggerRecord {
+func cronTriggerRecordFromWriteSQLC(
+	row dbsqlc.InsertCronTriggerRow,
+	orgID ID,
+) (CronTriggerRecord, error) {
 	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow{
 		ID:              row.ID,
 		OrgID:           orgID,
@@ -37,13 +48,16 @@ func cronTriggerRecordFromWriteSQLC(row dbsqlc.InsertCronTriggerRow, orgID ID) C
 		Enabled:         row.Enabled,
 		LastFiredAt:     row.LastFiredAt,
 		NextFireAfter:   row.NextFireAfter,
+		FailureReport:   row.FailureReport,
 		IdempotencyKey:  row.IdempotencyKey,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	})
 }
 
-func cronTriggerRecordFromListSQLC(row dbsqlc.ListCronTriggersForProjectRow) CronTriggerRecord {
+func cronTriggerRecordFromListSQLC(
+	row dbsqlc.ListCronTriggersForProjectRow,
+) (CronTriggerRecord, error) {
 	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow{
 		ID:              row.ID,
 		OrgID:           row.OrgID,
@@ -57,8 +71,20 @@ func cronTriggerRecordFromListSQLC(row dbsqlc.ListCronTriggersForProjectRow) Cro
 		Enabled:         row.Enabled,
 		LastFiredAt:     row.LastFiredAt,
 		NextFireAfter:   row.NextFireAfter,
+		FailureReport:   row.FailureReport,
 		IdempotencyKey:  row.IdempotencyKey,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	})
+}
+
+func cronTriggerFailureReportFromSQLC(raw *json.RawMessage) (*CronTriggerFailureReport, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	report := &CronTriggerFailureReport{}
+	if err := json.Unmarshal(*raw, report); err != nil {
+		return nil, fmt.Errorf("decode cron trigger failure report: %w", err)
+	}
+	return report, nil
 }

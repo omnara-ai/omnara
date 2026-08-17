@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/http"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
 func TestCronTriggerRoutes(t *testing.T) {
@@ -342,5 +344,28 @@ func TestCronTriggerRoutes(t *testing.T) {
 	)
 	if recreated["id"] == triggerID {
 		t.Fatalf("recreate after delete should mint a new trigger id")
+	}
+
+	recreatedUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, recreated["id"].(string))
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodDelete,
+		project.ProjectPath,
+		"",
+		"",
+		http.StatusNoContent,
+		authHeaders(project.AdminToken),
+	)
+	var triggerDeleted bool
+	if err := pool.QueryRow(
+		ctx,
+		"SELECT deleted_at IS NOT NULL FROM cron_triggers WHERE id = $1",
+		recreatedUUID,
+	).Scan(&triggerDeleted); err != nil {
+		t.Fatalf("load cron trigger after project deletion: %v", err)
+	}
+	if !triggerDeleted {
+		t.Fatal("project deletion must soft delete its cron triggers")
 	}
 }

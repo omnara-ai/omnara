@@ -2725,7 +2725,10 @@ paths:
       description: >-
         Creates a cron trigger that fires on a schedule. A trigger targeting an agent profile
         launches a new agent from the profile's current config on each firing; a trigger targeting
-        an agent sends an input to that agent.
+        an agent sends an input to that agent. Missed firings are coalesced, matching standard
+        cron behavior: if one or more scheduled times pass while firing is delayed, the trigger
+        fires once for the oldest missed time and then resumes its schedule from the current time,
+        without retroactively firing for the other missed times.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -7962,7 +7965,9 @@ components:
           profile: '#/components/schemas/AgentProfileCronTriggerTarget'
     CronExpression:
       type: string
-      description: Standard five-field cron expression (minute, hour, day of month, month, day of week).
+      description: >-
+        Standard five-field cron expression (minute, hour, day of month, month, day of week).
+        `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
       minLength: 9
       maxLength: 256
     CronTimezone:
@@ -7975,7 +7980,22 @@ components:
       description: >-
         Go text/template rendered on each firing to produce the message sent to the target. The
         template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields.
+        Rendering is capped at 64 KiB of output and one second of wall-clock time; a firing whose
+        template fails to render is recorded in `failure_report` without sending a message.
       maxLength: 65536
+    CronTriggerFailureReport:
+      type: object
+      additionalProperties: false
+      required: [message, will_retry, failed_at]
+      properties:
+        message:
+          type: string
+          description: Why the most recent failed firing did not deliver a message.
+        will_retry:
+          type: boolean
+          description: Whether the firing will be retried after the claim lease expires.
+        failed_at:
+          $ref: '#/components/schemas/Timestamp'
     CreateCronTriggerRequest:
       type: object
       additionalProperties: false
@@ -8011,7 +8031,7 @@ components:
     CronTrigger:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, last_fired_at, next_fire_at, created_at, updated_at]
+      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, last_fired_at, next_fire_at, failure_report, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/CronTriggerID'
@@ -8041,6 +8061,11 @@ components:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
           description: Next scheduled firing, or null while the trigger is disabled.
+        failure_report:
+          oneOf:
+            - $ref: '#/components/schemas/CronTriggerFailureReport'
+            - type: "null"
+          description: Most recent failed firing, or null if no firing has failed.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:

@@ -941,7 +941,7 @@ export type CronTriggerTarget = ({
 } & AgentProfileCronTriggerTarget);
 
 /**
- * Standard five-field cron expression (minute, hour, day of month, month, day of week).
+ * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
  */
 export type CronExpression = string;
 
@@ -951,9 +951,21 @@ export type CronExpression = string;
 export type CronTimezone = string;
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export type CronMessageTemplate = string;
+
+export type CronTriggerFailureReport = {
+    /**
+     * Why the most recent failed firing did not deliver a message.
+     */
+    message: string;
+    /**
+     * Whether the firing will be retried after the claim lease expires.
+     */
+    will_retry: boolean;
+    failed_at: Timestamp;
+};
 
 export type CreateCronTriggerRequest = {
     name: string;
@@ -990,6 +1002,10 @@ export type CronTrigger = {
      * Next scheduled firing, or null while the trigger is disabled.
      */
     next_fire_at: Timestamp | null;
+    /**
+     * Most recent failed firing, or null if no firing has failed.
+     */
+    failure_report: CronTriggerFailureReport | null;
     created_at: Timestamp;
     updated_at: Timestamp;
 };

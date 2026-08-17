@@ -375,7 +375,21 @@ func cronTriggerResponseFromRecord(
 		Enabled:         record.Enabled,
 		LastFiredAt:     nullableFromPtr(record.LastFiredAt),
 		NextFireAt:      nullableFromPtr(record.NextFireAfter),
+		FailureReport:   nullableFromPtr(cronTriggerFailureReportResponse(record.FailureReport)),
 		CreatedAt:       record.CreatedAt,
 		UpdatedAt:       record.UpdatedAt,
 	}, nil
+}
+
+func cronTriggerFailureReportResponse(
+	report *executionstore.CronTriggerFailureReport,
+) *openapi.CronTriggerFailureReport {
+	if report == nil {
+		return nil
+	}
+	return &openapi.CronTriggerFailureReport{
+		Message:   report.Message,
+		WillRetry: report.WillRetry,
+		FailedAt:  report.FailedAt,
+	}
 }

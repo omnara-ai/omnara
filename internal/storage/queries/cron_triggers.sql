@@ -14,7 +14,7 @@ VALUES (
 ON CONFLICT (project_id, idempotency_key) DO NOTHING
 RETURNING id, project_id, name, agent_profile_id, agent_id,
           cron_expression, timezone, message_template, enabled,
-          last_fired_at, next_fire_after,
+          last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at;
 
@@ -23,6 +23,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
@@ -36,6 +37,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
@@ -50,6 +52,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at,
        CASE sqlc.arg(sort_field)::text
@@ -68,7 +71,7 @@ WHERE trigger.project_id = sqlc.arg(project_id)
 )
 SELECT id, org_id, project_id, name, agent_profile_id, agent_id,
        cron_expression, timezone, message_template, enabled,
-       last_fired_at, next_fire_after, idempotency_key,
+       last_fired_at, next_fire_after, failure_report, idempotency_key,
        created_at, updated_at, sort_key, sort_is_null
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
@@ -85,6 +88,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
@@ -108,7 +112,7 @@ WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL
 RETURNING id, project_id, name, agent_profile_id, agent_id,
           cron_expression, timezone, message_template, enabled,
-          last_fired_at, next_fire_after,
+          last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at;
 
@@ -160,6 +164,7 @@ FOR UPDATE OF trigger SKIP LOCKED;
 -- name: ClaimCronTrigger :execrows
 UPDATE cron_triggers
 SET claimed_until = sqlc.arg(claimed_until),
+    claim_token = sqlc.arg(claim_token),
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
@@ -167,12 +172,14 @@ WHERE project_id = sqlc.arg(project_id)
 
 -- name: CompleteCronTriggerFiring :execrows
 UPDATE cron_triggers
-SET last_fired_at = transaction_timestamp(),
+SET last_fired_at = CASE WHEN sqlc.arg(fired)::boolean THEN transaction_timestamp() ELSE last_fired_at END,
     next_fire_after = sqlc.narg(next_fire_after),
     claimed_until = NULL,
+    claim_token = NULL,
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
+  AND claim_token = sqlc.arg(claim_token)
   AND deleted_at IS NULL;
 
 -- name: DisableCronTrigger :execrows
@@ -180,7 +187,26 @@ UPDATE cron_triggers
 SET enabled = false,
     next_fire_after = NULL,
     claimed_until = NULL,
+    claim_token = NULL,
+    failure_report = jsonb_build_object(
+        'message', sqlc.arg(failure_message)::text,
+        'will_retry', false,
+        'failed_at', to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+    ),
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
+  AND deleted_at IS NULL;
+
+-- name: RecordCronTriggerFailure :execrows
+UPDATE cron_triggers
+SET failure_report = jsonb_build_object(
+        'message', sqlc.arg(failure_message)::text,
+        'will_retry', sqlc.arg(will_retry)::boolean,
+        'failed_at', to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+    ),
+    updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND claim_token = sqlc.arg(claim_token)
   AND deleted_at IS NULL;

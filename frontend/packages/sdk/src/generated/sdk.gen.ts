@@ -1463,7 +1463,7 @@ export const listCronTriggers = <ThrowOnError extends boolean = true>(options: O
 /**
  * Create cron trigger
  *
- * Creates a cron trigger that fires on a schedule. A trigger targeting an agent profile launches a new agent from the profile's current config on each firing; a trigger targeting an agent sends an input to that agent.
+ * Creates a cron trigger that fires on a schedule. A trigger targeting an agent profile launches a new agent from the profile's current config on each firing; a trigger targeting an agent sends an input to that agent. Missed firings are coalesced, matching standard cron behavior: if one or more scheduled times pass while firing is delayed, the trigger fires once for the oldest missed time and then resumes its schedule from the current time, without retroactively firing for the other missed times.
  */
 export const createCronTrigger = <ThrowOnError extends boolean = true>(options: Options<CreateCronTriggerData, ThrowOnError>): RequestResult<CreateCronTriggerResponses, CreateCronTriggerErrors, ThrowOnError> => (options.client ?? client).post<CreateCronTriggerResponses, CreateCronTriggerErrors, ThrowOnError>({
     responseValidator: async (data) => await zCreateCronTriggerResponse.parseAsync(data),

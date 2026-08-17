@@ -4,13 +4,17 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func TestCronTriggerFiringAndCascade(t *testing.T) {
@@ -185,6 +189,101 @@ func TestCronTriggerFiringAndCascade(t *testing.T) {
 		t.Fatalf("completed firing must clear the claim lease, got %q", *claimedUntil)
 	}
 
+	agentTriggerUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, agentTriggerID)
+	beforeFailure := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		triggersPath+"/"+agentTriggerID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if _, err := pool.Exec(
+		ctx,
+		"UPDATE cron_triggers SET message_template = '{{ .missing }}',"+
+			" next_fire_after = transaction_timestamp() - interval '1 minute' WHERE id = $1",
+		agentTriggerUUID,
+	); err != nil {
+		t.Fatalf("corrupt cron trigger template: %v", err)
+	}
+	renderFailStats, err := service.FireDueTriggers(ctx)
+	if err != nil {
+		t.Fatalf("fire trigger with broken template: %v", err)
+	}
+	if renderFailStats.Claimed != 1 || renderFailStats.Failures != 1 || renderFailStats.Inputs != 0 {
+		t.Fatalf("broken template must fail without sending a message: %+v", renderFailStats)
+	}
+	renderFailed := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		triggersPath+"/"+agentTriggerID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	renderReport, ok := renderFailed["failure_report"].(map[string]any)
+	if !ok {
+		t.Fatalf("render failure must be recorded in failure_report: %+v", renderFailed)
+	}
+	if !strings.Contains(renderReport["message"].(string), "invalid message template") {
+		t.Fatalf("unexpected failure report message: %+v", renderReport)
+	}
+	if renderReport["will_retry"] != false || renderReport["failed_at"] == nil {
+		t.Fatalf("render failure must be permanent with a timestamp: %+v", renderReport)
+	}
+	if renderFailed["next_fire_at"] == nil {
+		t.Fatalf("permanent failure must still reschedule the trigger: %+v", renderFailed)
+	}
+	if renderFailed["last_fired_at"] != beforeFailure["last_fired_at"] {
+		t.Fatalf(
+			"failed firing must not update last_fired_at: %v -> %v",
+			beforeFailure["last_fired_at"],
+			renderFailed["last_fired_at"],
+		)
+	}
+	assertCronBacklogMessage(t, ctx, pool, handler, project, agentID, "Nudge agent-nudge.")
+
+	if _, err := pool.Exec(
+		ctx,
+		"UPDATE cron_triggers SET cron_expression = '61 0 * * *',"+
+			" next_fire_after = transaction_timestamp() - interval '1 minute' WHERE id = $1",
+		agentTriggerUUID,
+	); err != nil {
+		t.Fatalf("corrupt cron trigger expression: %v", err)
+	}
+	disableStats, err := service.FireDueTriggers(ctx)
+	if err != nil {
+		t.Fatalf("fire trigger with broken schedule: %v", err)
+	}
+	if disableStats.Claimed != 0 || disableStats.Disabled != 1 {
+		t.Fatalf("broken schedule must disable the trigger: %+v", disableStats)
+	}
+	disabled := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		triggersPath+"/"+agentTriggerID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if disabled["enabled"] != false || disabled["next_fire_at"] != nil {
+		t.Fatalf("broken schedule must leave the trigger disabled: %+v", disabled)
+	}
+	disableReport, ok := disabled["failure_report"].(map[string]any)
+	if !ok {
+		t.Fatalf("disable must be recorded in failure_report: %+v", disabled)
+	}
+	if !strings.Contains(disableReport["message"].(string), "invalid cron expression") ||
+		disableReport["will_retry"] != false {
+		t.Fatalf("unexpected disable failure report: %+v", disableReport)
+	}
+
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -238,6 +337,117 @@ func TestCronTriggerFiringAndCascade(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
+}
+
+func TestCronTriggerClaimFencing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(integrationKeyWrapper()))
+
+	project := bootstrapPublicHTTPProject(t, handler, "cron-fence")
+	launch := launchPublicHTTPAgent(t, handler, project, "cron-fence-agent", project.AdminToken, http.StatusCreated)
+	agentID := launch["agent"].(map[string]any)["id"].(string)
+
+	trigger := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/cron-triggers",
+		`{"name":"fence","target":{"type":"agent","agent_id":"`+agentID+`"},`+
+			`"cron":"0 9 * * *","message_template":"Fence."}`,
+		"idem-cron-fence-trigger",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	triggerUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, trigger["id"].(string))
+
+	if _, err := pool.Exec(
+		ctx,
+		"UPDATE cron_triggers SET next_fire_after = transaction_timestamp() - interval '1 minute' WHERE id = $1",
+		triggerUUID,
+	); err != nil {
+		t.Fatalf("backdate cron trigger: %v", err)
+	}
+	firstClaim, err := store.Execution().ClaimDueCronTriggers(ctx, 10)
+	if err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if len(firstClaim.Claimed) != 1 {
+		t.Fatalf("expected one claimed trigger, got %+v", firstClaim)
+	}
+	stale := firstClaim.Claimed[0]
+
+	if _, err := pool.Exec(
+		ctx,
+		"UPDATE cron_triggers SET claimed_until = transaction_timestamp() - interval '1 second' WHERE id = $1",
+		triggerUUID,
+	); err != nil {
+		t.Fatalf("expire cron trigger lease: %v", err)
+	}
+	secondClaim, err := store.Execution().ClaimDueCronTriggers(ctx, 10)
+	if err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
+	if len(secondClaim.Claimed) != 1 {
+		t.Fatalf("expected the expired lease to be reclaimed, got %+v", secondClaim)
+	}
+	current := secondClaim.Claimed[0]
+	if current.ClaimToken == stale.ClaimToken {
+		t.Fatal("reclaim must mint a fresh claim token")
+	}
+
+	staleComplete := store.Execution().CompleteCronTriggerFiring(ctx, executionstore.CompleteCronTriggerFiringInput{
+		ProjectID:  stale.ProjectID,
+		TriggerID:  stale.TriggerID,
+		ClaimToken: stale.ClaimToken,
+		Fired:      true,
+	})
+	if !errors.Is(staleComplete, storeerr.ErrConflict) {
+		t.Fatalf("stale completion must conflict, got %v", staleComplete)
+	}
+	staleFailure := store.Execution().RecordCronTriggerFailure(ctx, executionstore.CronTriggerFailureParams{
+		ProjectID:  stale.ProjectID,
+		TriggerID:  stale.TriggerID,
+		ClaimToken: stale.ClaimToken,
+		Message:    "stale worker failure",
+		WillRetry:  true,
+	})
+	if !errors.Is(staleFailure, storeerr.ErrConflict) {
+		t.Fatalf("stale failure recording must conflict, got %v", staleFailure)
+	}
+	var claimHeld, fireRecorded bool
+	if err := pool.QueryRow(
+		ctx,
+		"SELECT claimed_until IS NOT NULL, last_fired_at IS NOT NULL FROM cron_triggers WHERE id = $1",
+		triggerUUID,
+	).Scan(&claimHeld, &fireRecorded); err != nil {
+		t.Fatalf("load cron trigger claim state: %v", err)
+	}
+	if !claimHeld || fireRecorded {
+		t.Fatalf("stale writes must not touch the active claim: held=%v fired=%v", claimHeld, fireRecorded)
+	}
+
+	if err := store.Execution().CompleteCronTriggerFiring(ctx, executionstore.CompleteCronTriggerFiringInput{
+		ProjectID:  current.ProjectID,
+		TriggerID:  current.TriggerID,
+		ClaimToken: current.ClaimToken,
+		Fired:      true,
+	}); err != nil {
+		t.Fatalf("current claim completion: %v", err)
+	}
+	if err := pool.QueryRow(
+		ctx,
+		"SELECT claimed_until IS NOT NULL, last_fired_at IS NOT NULL FROM cron_triggers WHERE id = $1",
+		triggerUUID,
+	).Scan(&claimHeld, &fireRecorded); err != nil {
+		t.Fatalf("load cron trigger completion state: %v", err)
+	}
+	if claimHeld || !fireRecorded {
+		t.Fatalf("holder completion must clear the claim and record the firing: held=%v fired=%v", claimHeld, fireRecorded)
+	}
 }
 
 func assertCronBacklogMessage(

@@ -1,7 +1,9 @@
 package cronschedule
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -11,8 +13,16 @@ var parser = cron.NewParser(
 	cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
 )
 
+func parseExpression(expression string) (cron.Schedule, error) {
+	trimmed := strings.TrimSpace(expression)
+	if strings.HasPrefix(trimmed, "TZ=") || strings.HasPrefix(trimmed, "CRON_TZ=") {
+		return nil, errors.New("timezone prefixes are not supported; use the timezone field")
+	}
+	return parser.Parse(expression)
+}
+
 func Validate(expression, timezone string) error {
-	if _, err := parser.Parse(expression); err != nil {
+	if _, err := parseExpression(expression); err != nil {
 		return fmt.Errorf("invalid cron expression: %w", err)
 	}
 	if timezone == "" || timezone == "Local" {
@@ -25,7 +35,7 @@ func Validate(expression, timezone string) error {
 }
 
 func Next(expression, timezone string, after time.Time) (time.Time, error) {
-	schedule, err := parser.Parse(expression)
+	schedule, err := parseExpression(expression)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid cron expression: %w", err)
 	}

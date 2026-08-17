@@ -7,6 +7,7 @@ package dbsqlc
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,20 +16,27 @@ import (
 const claimCronTrigger = `-- name: ClaimCronTrigger :execrows
 UPDATE cron_triggers
 SET claimed_until = $1,
+    claim_token = $2,
     updated_at = statement_timestamp()
-WHERE project_id = $2
-  AND id = $3
+WHERE project_id = $3
+  AND id = $4
   AND deleted_at IS NULL
 `
 
 type ClaimCronTriggerParams struct {
 	ClaimedUntil *time.Time
+	ClaimToken   *uuid.UUID
 	ProjectID    uuid.UUID
 	ID           uuid.UUID
 }
 
 func (q *Queries) ClaimCronTrigger(ctx context.Context, arg ClaimCronTriggerParams) (int64, error) {
-	result, err := q.db.Exec(ctx, claimCronTrigger, arg.ClaimedUntil, arg.ProjectID, arg.ID)
+	result, err := q.db.Exec(ctx, claimCronTrigger,
+		arg.ClaimedUntil,
+		arg.ClaimToken,
+		arg.ProjectID,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -37,23 +45,33 @@ func (q *Queries) ClaimCronTrigger(ctx context.Context, arg ClaimCronTriggerPara
 
 const completeCronTriggerFiring = `-- name: CompleteCronTriggerFiring :execrows
 UPDATE cron_triggers
-SET last_fired_at = transaction_timestamp(),
-    next_fire_after = $1,
+SET last_fired_at = CASE WHEN $1::boolean THEN transaction_timestamp() ELSE last_fired_at END,
+    next_fire_after = $2,
     claimed_until = NULL,
+    claim_token = NULL,
     updated_at = statement_timestamp()
-WHERE project_id = $2
-  AND id = $3
+WHERE project_id = $3
+  AND id = $4
+  AND claim_token = $5
   AND deleted_at IS NULL
 `
 
 type CompleteCronTriggerFiringParams struct {
+	Fired         bool
 	NextFireAfter *time.Time
 	ProjectID     uuid.UUID
 	ID            uuid.UUID
+	ClaimToken    *uuid.UUID
 }
 
 func (q *Queries) CompleteCronTriggerFiring(ctx context.Context, arg CompleteCronTriggerFiringParams) (int64, error) {
-	result, err := q.db.Exec(ctx, completeCronTriggerFiring, arg.NextFireAfter, arg.ProjectID, arg.ID)
+	result, err := q.db.Exec(ctx, completeCronTriggerFiring,
+		arg.Fired,
+		arg.NextFireAfter,
+		arg.ProjectID,
+		arg.ID,
+		arg.ClaimToken,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -149,19 +167,26 @@ UPDATE cron_triggers
 SET enabled = false,
     next_fire_after = NULL,
     claimed_until = NULL,
+    claim_token = NULL,
+    failure_report = jsonb_build_object(
+        'message', $1::text,
+        'will_retry', false,
+        'failed_at', to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+    ),
     updated_at = statement_timestamp()
-WHERE project_id = $1
-  AND id = $2
+WHERE project_id = $2
+  AND id = $3
   AND deleted_at IS NULL
 `
 
 type DisableCronTriggerParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
+	FailureMessage string
+	ProjectID      uuid.UUID
+	ID             uuid.UUID
 }
 
 func (q *Queries) DisableCronTrigger(ctx context.Context, arg DisableCronTriggerParams) (int64, error) {
-	result, err := q.db.Exec(ctx, disableCronTrigger, arg.ProjectID, arg.ID)
+	result, err := q.db.Exec(ctx, disableCronTrigger, arg.FailureMessage, arg.ProjectID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -173,6 +198,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
@@ -200,6 +226,7 @@ type GetCronTriggerRow struct {
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
 	IdempotencyKey  string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -221,6 +248,7 @@ func (q *Queries) GetCronTrigger(ctx context.Context, arg GetCronTriggerParams) 
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
+		&i.FailureReport,
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -233,6 +261,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
@@ -260,6 +289,7 @@ type GetCronTriggerByIdempotencyKeyRow struct {
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
 	IdempotencyKey  string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -281,6 +311,7 @@ func (q *Queries) GetCronTriggerByIdempotencyKey(ctx context.Context, arg GetCro
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
+		&i.FailureReport,
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -293,6 +324,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
@@ -321,6 +353,7 @@ type GetCronTriggerForUpdateRow struct {
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
 	IdempotencyKey  string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -342,6 +375,7 @@ func (q *Queries) GetCronTriggerForUpdate(ctx context.Context, arg GetCronTrigge
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
+		&i.FailureReport,
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -365,7 +399,7 @@ VALUES (
 ON CONFLICT (project_id, idempotency_key) DO NOTHING
 RETURNING id, project_id, name, agent_profile_id, agent_id,
           cron_expression, timezone, message_template, enabled,
-          last_fired_at, next_fire_after,
+          last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at
 `
@@ -395,6 +429,7 @@ type InsertCronTriggerRow struct {
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
 	IdempotencyKey  string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -426,6 +461,7 @@ func (q *Queries) InsertCronTrigger(ctx context.Context, arg InsertCronTriggerPa
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
+		&i.FailureReport,
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -439,6 +475,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at,
        CASE $6::text
@@ -457,7 +494,7 @@ WHERE trigger.project_id = $7
 )
 SELECT id, org_id, project_id, name, agent_profile_id, agent_id,
        cron_expression, timezone, message_template, enabled,
-       last_fired_at, next_fire_after, idempotency_key,
+       last_fired_at, next_fire_after, failure_report, idempotency_key,
        created_at, updated_at, sort_key, sort_is_null
 FROM listed
 WHERE $1::boolean = false
@@ -496,6 +533,7 @@ type ListCronTriggersForProjectRow struct {
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
 	IdempotencyKey  string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -536,6 +574,7 @@ func (q *Queries) ListCronTriggersForProject(ctx context.Context, arg ListCronTr
 			&i.Enabled,
 			&i.LastFiredAt,
 			&i.NextFireAfter,
+			&i.FailureReport,
 			&i.IdempotencyKey,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -550,6 +589,42 @@ func (q *Queries) ListCronTriggersForProject(ctx context.Context, arg ListCronTr
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordCronTriggerFailure = `-- name: RecordCronTriggerFailure :execrows
+UPDATE cron_triggers
+SET failure_report = jsonb_build_object(
+        'message', $1::text,
+        'will_retry', $2::boolean,
+        'failed_at', to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+    ),
+    updated_at = statement_timestamp()
+WHERE project_id = $3
+  AND id = $4
+  AND claim_token = $5
+  AND deleted_at IS NULL
+`
+
+type RecordCronTriggerFailureParams struct {
+	FailureMessage string
+	WillRetry      bool
+	ProjectID      uuid.UUID
+	ID             uuid.UUID
+	ClaimToken     *uuid.UUID
+}
+
+func (q *Queries) RecordCronTriggerFailure(ctx context.Context, arg RecordCronTriggerFailureParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordCronTriggerFailure,
+		arg.FailureMessage,
+		arg.WillRetry,
+		arg.ProjectID,
+		arg.ID,
+		arg.ClaimToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const selectDueCronTriggers = `-- name: SelectDueCronTriggers :many
@@ -632,7 +707,7 @@ WHERE project_id = $7
   AND deleted_at IS NULL
 RETURNING id, project_id, name, agent_profile_id, agent_id,
           cron_expression, timezone, message_template, enabled,
-          last_fired_at, next_fire_after,
+          last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at
 `
@@ -660,6 +735,7 @@ type UpdateCronTriggerRow struct {
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
 	IdempotencyKey  string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -689,6 +765,7 @@ func (q *Queries) UpdateCronTrigger(ctx context.Context, arg UpdateCronTriggerPa
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
+		&i.FailureReport,
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,

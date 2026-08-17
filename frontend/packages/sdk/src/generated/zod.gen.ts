@@ -717,7 +717,7 @@ export const zCronTriggerTarget = z.discriminatedUnion('type', [
 ]);
 
 /**
- * Standard five-field cron expression (minute, hour, day of month, month, day of week).
+ * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
  */
 export const zCronExpression = z.string().min(9).max(256);
 
@@ -727,9 +727,15 @@ export const zCronExpression = z.string().min(9).max(256);
 export const zCronTimezone = z.string().max(64).default('UTC');
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export const zCronMessageTemplate = z.string().max(65536);
+
+export const zCronTriggerFailureReport = z.object({
+    message: z.string(),
+    will_retry: z.boolean(),
+    failed_at: zTimestamp
+});
 
 export const zCreateCronTriggerRequest = z.object({
     name: z.string(),
@@ -760,6 +766,7 @@ export const zCronTrigger = z.object({
     enabled: z.boolean(),
     last_fired_at: zTimestamp.nullable(),
     next_fire_at: zTimestamp.nullable(),
+    failure_report: zCronTriggerFailureReport.nullable(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });

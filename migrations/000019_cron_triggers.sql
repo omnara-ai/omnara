@@ -13,6 +13,8 @@ CREATE TABLE cron_triggers (
     last_fired_at timestamptz,
     next_fire_after timestamptz,
     claimed_until timestamptz,
+    claim_token uuid,
+    failure_report jsonb,
     idempotency_key text,
     deleted_at timestamptz,
     created_at timestamptz NOT NULL,
@@ -21,6 +23,8 @@ CREATE TABLE cron_triggers (
     CHECK (cron_expression <> ''),
     CHECK (timezone <> ''),
     CHECK (message_template <> ''),
+    CHECK (failure_report IS NULL OR jsonb_typeof(failure_report) = 'object'),
+    CHECK (NOT enabled OR next_fire_after IS NOT NULL),
     CHECK (
         (agent_profile_id IS NOT NULL AND agent_id IS NULL) OR
         (agent_profile_id IS NULL AND agent_id IS NOT NULL)
@@ -37,7 +41,7 @@ CREATE UNIQUE INDEX cron_triggers_active_name_idx ON cron_triggers(project_id, n
 CREATE INDEX cron_triggers_name_trgm_idx ON cron_triggers USING gin (name gin_trgm_ops)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX cron_triggers_due_idx ON cron_triggers(next_fire_after)
+CREATE INDEX cron_triggers_due_idx ON cron_triggers(next_fire_after, id)
     WHERE enabled AND deleted_at IS NULL;
 
 CREATE INDEX cron_triggers_agent_profile_idx ON cron_triggers(project_id, agent_profile_id)
