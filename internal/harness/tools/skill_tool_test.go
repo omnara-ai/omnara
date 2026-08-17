@@ -44,7 +44,6 @@ func TestExecutorSkillStoreResolution(t *testing.T) {
 func TestValidateSkillInput(t *testing.T) {
 	valid := []model.ToolCall{
 		{Name: "skill", Input: json.RawMessage(`{"name":"deploy"}`)},
-		{Name: "skill", Input: json.RawMessage(`{"name":"  deploy  "}`)},
 	}
 	for _, call := range valid {
 		if err := validateSkillInput(call.Input); err != nil {
@@ -58,8 +57,10 @@ func TestValidateSkillInput(t *testing.T) {
 		want string
 	}{
 		{name: "empty input", call: model.ToolCall{Name: "skill", Input: nil}, want: "parse skill request"},
-		{name: "missing name", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{}`)}, want: "`name` is required"},
-		{name: "blank name", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":"   "}`)}, want: "`name` is required"},
+		{name: "missing name", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{}`)}, want: "skill name is required"},
+		{name: "blank name", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":"   "}`)}, want: "skill name must use"},
+		{name: "boundary whitespace", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":" deploy "}`)}, want: "skill name must use"},
+		{name: "invalid slug", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":"Deploy"}`)}, want: "skill name must use"},
 		{name: "null name", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":null}`)}, want: "cannot be null"},
 		{name: "extra field", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":"deploy","machine_ref":"mchr-123"}`)}, want: "unsupported field"},
 		{name: "wrong type", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":42}`)}, want: "parse skill request"},
