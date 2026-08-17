@@ -12,6 +12,20 @@ process.stdout.on('error', (error: NodeJS.ErrnoException) => {
 })
 
 const program = new Command('omnara').description('Interact with the Omnara API')
+program.configureHelp({
+  subcommandTerm: (cmd) => {
+    const args = cmd.registeredArguments
+      .map((arg) =>
+        arg.required
+          ? `<${arg.name()}${arg.variadic ? '...' : ''}>`
+          : `[${arg.name()}${arg.variadic ? '...' : ''}]`,
+      )
+      .join(' ')
+    return [cmd.name(), cmd.options.length > 0 ? '[options]' : '', args]
+      .filter((part) => part !== '')
+      .join(' ')
+  },
+})
 const ctx = loadContext()
 for (const group of commandGroups) registerGroup(program, ctx, group)
 registerWhoami(program, ctx)

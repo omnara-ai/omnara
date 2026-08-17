@@ -131,12 +131,27 @@ function collectFlagValues(
   specs: FlagSpec[],
   options: Record<string, unknown>,
 ): Record<string, unknown> {
-  const values: Record<string, unknown> = {}
+  const root: Record<string, unknown> = {}
+  const containers = new Map<string, Record<string, unknown>>()
+  const containerFor = (path: readonly string[]): Record<string, unknown> => {
+    const name = path[path.length - 1]
+    if (name === undefined) return root
+    const pathKey = path.join('.')
+    let container = containers.get(pathKey)
+    if (container === undefined) {
+      container = {}
+      containers.set(pathKey, container)
+      containerFor(path.slice(0, -1))[name] = container
+    }
+    return container
+  }
   for (const spec of specs) {
     const value = options[spec.optionKey]
-    if (value !== undefined) values[spec.key] = value
+    const name = spec.path[spec.path.length - 1]
+    if (value === undefined || name === undefined) continue
+    containerFor(spec.path.slice(0, -1))[name] = value
   }
-  return values
+  return root
 }
 
 function parseWithSchema<S extends z.ZodType>(

@@ -3,7 +3,7 @@ import * as z from 'zod'
 export type FlagValueKind = 'string' | 'number' | 'boolean' | 'json' | 'stringArray'
 
 export interface FlagSpec {
-  key: string
+  path: string[]
   flag: string
   optionKey: string
   kind: FlagValueKind
@@ -50,6 +50,10 @@ function nonNullVariants(property: JsonSchema): JsonSchema[] | undefined {
 }
 
 function flagKind(property: JsonSchema): FlagValueKind {
+  if (property.const !== undefined) {
+    const kind = typeof property.const
+    return kind === 'string' || kind === 'number' || kind === 'boolean' ? kind : 'json'
+  }
   if (property.enum !== undefined) return 'string'
   const variants = nonNullVariants(property)
   if (variants !== undefined) {
@@ -80,6 +84,9 @@ function flagKind(property: JsonSchema): FlagValueKind {
 }
 
 function enumChoices(property: JsonSchema): (string | number)[] | undefined {
+  if (typeof property.const === 'string' || typeof property.const === 'number') {
+    return [property.const]
+  }
   if (property.enum !== undefined) {
     const choices = property.enum.filter(
       (value) => typeof value === 'string' || typeof value === 'number',
@@ -91,40 +98,77 @@ function enumChoices(property: JsonSchema): (string | number)[] | undefined {
   return only === undefined ? undefined : enumChoices(only)
 }
 
-function flagDescription(property: JsonSchema, kind: FlagValueKind): string {
+interface FlagDraft {
+  path: string[]
+  kind: FlagValueKind
+  required: boolean
+  description: string | undefined
+  choices: (string | number)[] | undefined
+}
+
+function expandsToFlags(property: JsonSchema): boolean {
+  return objectMembers(property, false).length > 0
+}
+
+function collectDrafts(
+  drafts: Map<string, FlagDraft>,
+  schema: JsonSchema,
+  prefix: string[],
+  conditional: boolean,
+): void {
+  for (const member of objectMembers(schema, conditional)) {
+    const required = new Set(member.schema.required ?? [])
+    for (const [key, property] of Object.entries(member.schema.properties ?? {})) {
+      if (typeof property === 'boolean') continue
+      const path = [...prefix, key]
+      const propertyRequired = !member.conditional && required.has(key)
+      if (expandsToFlags(property)) {
+        collectDrafts(drafts, property, path, !propertyRequired)
+        continue
+      }
+      const choices = enumChoices(property)
+      const description = property.description?.split('\n')[0]
+      const existing = drafts.get(path.join('.'))
+      if (existing !== undefined) {
+        existing.required = existing.required || propertyRequired
+        existing.description ??= description
+        existing.choices =
+          existing.choices !== undefined && choices !== undefined
+            ? [...new Set([...existing.choices, ...choices])]
+            : undefined
+        continue
+      }
+      drafts.set(path.join('.'), {
+        path,
+        kind: flagKind(property),
+        required: propertyRequired,
+        description,
+        choices,
+      })
+    }
+  }
+}
+
+function finalizeFlag(draft: FlagDraft): FlagSpec {
+  const flag = draft.path.map(kebabCase).join('-')
   const parts: string[] = []
-  if (property.description !== undefined) parts.push(property.description.split('\n')[0] ?? '')
-  const choices = enumChoices(property)
-  if (choices !== undefined) parts.push(`choices: ${choices.join(', ')}`)
-  if (kind === 'json') parts.push('JSON value')
-  if (kind === 'stringArray') parts.push('repeatable')
-  return parts.join(' — ')
+  if (draft.description !== undefined) parts.push(draft.description)
+  if (draft.choices !== undefined) parts.push(`choices: ${draft.choices.join(', ')}`)
+  if (draft.kind === 'json') parts.push('JSON value')
+  if (draft.kind === 'stringArray') parts.push('repeatable')
+  return {
+    path: draft.path,
+    flag,
+    optionKey: camelCase(flag),
+    kind: draft.kind,
+    required: draft.required,
+    description: parts.join(' — '),
+  }
 }
 
 export function deriveFlags(schema: z.ZodType): FlagSpec[] {
   const jsonSchema: JsonSchema = z.toJSONSchema(schema, { io: 'input' })
-  const flags = new Map<string, FlagSpec>()
-  for (const member of objectMembers(jsonSchema, false)) {
-    const required = new Set(member.schema.required ?? [])
-    for (const [key, property] of Object.entries(member.schema.properties ?? {})) {
-      if (typeof property === 'boolean') continue
-      const memberRequired = !member.conditional && required.has(key)
-      const existing = flags.get(key)
-      if (existing !== undefined) {
-        existing.required = existing.required || memberRequired
-        continue
-      }
-      const kind = flagKind(property)
-      const flag = kebabCase(key)
-      flags.set(key, {
-        key,
-        flag,
-        optionKey: camelCase(flag),
-        kind,
-        required: memberRequired,
-        description: flagDescription(property, kind),
-      })
-    }
-  }
-  return [...flags.values()]
+  const drafts = new Map<string, FlagDraft>()
+  collectDrafts(drafts, jsonSchema, [], false)
+  return [...drafts.values()].map(finalizeFlag)
 }
