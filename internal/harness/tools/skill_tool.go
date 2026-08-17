@@ -47,7 +47,7 @@ func resolveSkillToolRequest(raw json.RawMessage) (skillToolInput, error) {
 		}
 	}
 	if err := skills.ValidateName(input.Name); err != nil {
-		return skillToolInput{}, fmt.Errorf("skill name %v", err)
+		return skillToolInput{}, fmt.Errorf("skill name %w", err)
 	}
 	return input, nil
 }
