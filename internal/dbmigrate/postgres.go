@@ -5,18 +5,21 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 )
 
 const (
-	postgresMigrationLockID int64 = 0x4f4d4e415241
-	minimumPostgresVersion  int   = 180000
+	postgresMigrationLockID      int64 = 0x4f4d4e415241
+	minimumPostgresVersion       int   = 180000
+	resourceNameMigrationVersion int64 = 21
 
 	defaultLockTimeout      = "30s"
 	defaultStatementTimeout = "15min"
@@ -113,6 +116,11 @@ func ApplyPostgres(
 	if current > target {
 		return newerDatabaseVersionError(current, target)
 	}
+	if current < resourceNameMigrationVersion && target >= resourceNameMigrationVersion {
+		if err := validateStoredAgentConfigResourceNames(ctx, db); err != nil {
+			return fmt.Errorf("resource-name migration preflight: %w", err)
+		}
+	}
 	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("apply PostgreSQL migrations: %w", err)
 	}
@@ -129,6 +137,46 @@ func ApplyPostgres(
 			current,
 			target,
 		)
+	}
+	return nil
+}
+
+func validateStoredAgentConfigResourceNames(ctx context.Context, db *sql.DB) error {
+	var tableExists bool
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT to_regclass(current_schema() || '.agent_configs') IS NOT NULL`,
+	).Scan(&tableExists); err != nil {
+		return fmt.Errorf("locate stored agent configs: %w", err)
+	}
+	if !tableExists {
+		return nil
+	}
+	rows, err := db.QueryContext(
+		ctx,
+		`SELECT id::text, source_format, source FROM agent_configs ORDER BY id`,
+	)
+	if err != nil {
+		return fmt.Errorf("list stored agent configs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id, format, source string
+		if err := rows.Scan(&id, &format, &source); err != nil {
+			return fmt.Errorf("scan stored agent config: %w", err)
+		}
+		if strings.TrimSpace(source) == "" {
+			continue
+		}
+		if _, err := agentconfig.ParseStoredSource(
+			agentconfig.SourceFormat(format),
+			[]byte(source),
+		); err != nil {
+			return fmt.Errorf("agent config %s source must be migrated: %w", id, err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate stored agent configs: %w", err)
 	}
 	return nil
 }

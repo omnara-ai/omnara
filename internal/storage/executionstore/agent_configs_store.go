@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -196,6 +197,14 @@ func insertAgentConfigTx(
 ) (AgentConfigRecord, error) {
 	input.Definition = normalizedJSON(input.Definition)
 	input = withDefaultAgentConfigCompilation(input)
+	if strings.TrimSpace(input.Source) != "" {
+		if _, err := agentconfig.ParseStoredSource(
+			agentconfig.SourceFormat(input.SourceFormat),
+			[]byte(input.Source),
+		); err != nil {
+			return AgentConfigRecord{}, storeerr.InvalidRequest(err)
+		}
+	}
 	if isNilID(input.ConfiguredModelID) {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")
 	}

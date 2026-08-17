@@ -2073,9 +2073,19 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	req := newJSONRequest(
 		http.MethodPost,
 		"http://app.omnara.test/api/auth/device/code",
-		`{"client_name":"CLI","token_name":" CLI token "}`,
+		`{"client_name":"CLI\u202eApp","token_name":"CLI token"}`,
 	)
 	rec := performRequest(handler, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "client_name contains an unsupported") {
+		t.Fatalf("invalid device client name status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = newJSONRequest(
+		http.MethodPost,
+		"http://app.omnara.test/api/auth/device/code",
+		`{"client_name":"CLI","token_name":" CLI token "}`,
+	)
+	rec = performRequest(handler, req)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "token_name must not start or end with whitespace") {
 		t.Fatalf("invalid device token name status=%d body=%s", rec.Code, rec.Body.String())
 	}

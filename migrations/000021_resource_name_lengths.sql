@@ -1,21 +1,72 @@
 -- +goose Up
 
--- Go additionally rejects Unicode format characters that PostgreSQL cannot classify portably.
+-- Unicode Cc, Cf, and White_Space except U+0020, kept in sync with Go's unicode tables.
 -- +goose StatementBegin
-CREATE FUNCTION resource_name_is_valid(candidate text, allow_empty boolean) RETURNS boolean AS $$
+CREATE FUNCTION resource_name_codepoint_is_forbidden(codepoint integer) RETURNS boolean AS $$
+    SELECT codepoint BETWEEN 0 AND 31
+        OR codepoint BETWEEN 127 AND 160
+        OR codepoint = 173
+        OR codepoint BETWEEN 1536 AND 1541
+        OR codepoint = 1564
+        OR codepoint = 1757
+        OR codepoint = 1807
+        OR codepoint BETWEEN 2192 AND 2193
+        OR codepoint = 2274
+        OR codepoint = 5760
+        OR codepoint = 6158
+        OR codepoint BETWEEN 8192 AND 8207
+        OR codepoint BETWEEN 8232 AND 8239
+        OR codepoint BETWEEN 8287 AND 8292
+        OR codepoint BETWEEN 8294 AND 8303
+        OR codepoint = 12288
+        OR codepoint = 65279
+        OR codepoint BETWEEN 65529 AND 65531
+        OR codepoint = 69821
+        OR codepoint = 69837
+        OR codepoint BETWEEN 78896 AND 78911
+        OR codepoint BETWEEN 113824 AND 113827
+        OR codepoint BETWEEN 119155 AND 119162
+        OR codepoint = 917505
+        OR codepoint BETWEEN 917536 AND 917631;
+$$ LANGUAGE sql IMMUTABLE;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE FUNCTION resource_name_is_valid_with_max(
+    candidate text,
+    allow_empty boolean,
+    max_code_points integer
+) RETURNS boolean AS $$
     SELECT candidate IS NOT NULL
         AND (allow_empty OR candidate <> '')
-        AND char_length(candidate) <= 64
-        AND octet_length(candidate) <= 256
-        AND candidate !~ '[[:cntrl:]]'
+        AND max_code_points IS NOT NULL
+        AND max_code_points > 0
+        AND char_length(candidate) <= max_code_points
+        AND octet_length(candidate) <= 4 * max_code_points
         AND candidate = btrim(candidate, ' ')
-        AND replace(candidate, ' ', '') !~ '[[:space:]]';
+        AND NOT EXISTS (
+            SELECT 1
+            FROM generate_series(
+                1,
+                least(char_length(candidate), max_code_points)
+            ) AS positions(position)
+            WHERE resource_name_codepoint_is_forbidden(
+                ascii(substr(candidate, positions.position, 1))
+            )
+        );
+$$ LANGUAGE sql IMMUTABLE;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE FUNCTION resource_name_is_valid(candidate text, allow_empty boolean) RETURNS boolean AS $$
+    SELECT resource_name_is_valid_with_max(candidate, allow_empty, 64);
 $$ LANGUAGE sql IMMUTABLE;
 -- +goose StatementEnd
 
 ALTER TABLE orgs ADD CONSTRAINT orgs_name_policy CHECK (resource_name_is_valid(name, false));
 ALTER TABLE projects ADD CONSTRAINT projects_name_policy CHECK (resource_name_is_valid(name, false));
 ALTER TABLE personal_access_tokens ADD CONSTRAINT personal_access_tokens_name_policy CHECK (resource_name_is_valid(name, false));
+ALTER TABLE auth_device_flows ADD CONSTRAINT auth_device_flows_client_name_policy CHECK (resource_name_is_valid_with_max(client_name, false, 128));
 ALTER TABLE auth_device_flows ADD CONSTRAINT auth_device_flows_token_name_policy CHECK (resource_name_is_valid(token_name, false));
 ALTER TABLE org_api_keys ADD CONSTRAINT org_api_keys_name_policy CHECK (resource_name_is_valid(name, false));
 ALTER TABLE secrets ADD CONSTRAINT secrets_name_policy CHECK (resource_name_is_valid(name, false));
@@ -25,6 +76,7 @@ ALTER TABLE agent_profiles ADD CONSTRAINT agent_profiles_name_policy CHECK (reso
 ALTER TABLE agents ADD CONSTRAINT agents_name_policy CHECK (resource_name_is_valid(name, true));
 ALTER TABLE machine_pools ADD CONSTRAINT machine_pools_name_policy CHECK (resource_name_is_valid(name, false));
 ALTER TABLE machines ADD CONSTRAINT machines_display_name_policy CHECK (resource_name_is_valid(display_name, false));
+ALTER TABLE machines ALTER COLUMN display_name DROP DEFAULT;
 ALTER TABLE machine_daemon_tokens ADD CONSTRAINT machine_daemon_tokens_name_policy CHECK (resource_name_is_valid(name, false));
 ALTER TABLE cron_triggers ADD CONSTRAINT cron_triggers_name_policy CHECK (resource_name_is_valid(name, false));
 

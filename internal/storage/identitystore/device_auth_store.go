@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -19,15 +17,15 @@ import (
 const (
 	DeviceAuthFlowTTL            = 15 * time.Minute
 	DeviceAuthPollInterval       = 5 * time.Second
+	DeviceAuthClientNameMaxRunes = 128
 	deviceAuthCodeAttempts       = 5
-	deviceAuthClientNameMaxRunes = 128
 )
 
 func (s *Store) StartDeviceAuthFlow(
 	ctx context.Context,
 	input StartDeviceAuthFlowInput,
 ) (DeviceAuthFlowStartRecord, error) {
-	clientName := strings.TrimSpace(input.ClientName)
+	clientName := input.ClientName
 	if clientName == "" {
 		clientName = "Device"
 	}
@@ -306,19 +304,8 @@ func (s *Store) PollDeviceAuthFlow(
 }
 
 func validateDeviceAuthClientName(value string) error {
-	if utf8.RuneCountInString(value) > deviceAuthClientNameMaxRunes {
-		return storeerr.Tag(
-			storeerr.ErrInvalidDeviceAuthFlow,
-			fmt.Errorf("client_name cannot exceed %d characters", deviceAuthClientNameMaxRunes),
-		)
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			return storeerr.Tag(
-				storeerr.ErrInvalidDeviceAuthFlow,
-				errors.New("client_name cannot include control characters"),
-			)
-		}
+	if err := resourcename.ValidateWithMax("client_name", value, DeviceAuthClientNameMaxRunes); err != nil {
+		return storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
 	return nil
 }

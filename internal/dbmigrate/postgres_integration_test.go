@@ -11,16 +11,19 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
@@ -75,8 +78,9 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 	if err := pool.QueryRow(
 		ctx,
 		`INSERT INTO orgs(name, created_at, updated_at)
-		 VALUES (' legacy ', now(), now())
+		 VALUES ($1, now(), now())
 		 RETURNING id`,
+		"\u00a0legacy",
 	).Scan(&orgID); err != nil {
 		t.Fatalf("insert simulated legacy organization: %v", err)
 	}
@@ -98,6 +102,180 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 		strings.Repeat("x", 65),
 	); err == nil {
 		t.Fatal("oversized new organization name succeeded")
+	}
+}
+
+func TestResourceNameMigrationRequiresStoredAgentConfigReferencesToBeValid(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
+		t.Fatalf("apply migrations before resource-name policy: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("disable agent config triggers: %v", err)
+	}
+	triggersDisabled := true
+	t.Cleanup(func() {
+		if triggersDisabled {
+			_, _ = pool.Exec(context.Background(), `ALTER TABLE agent_configs ENABLE TRIGGER ALL`)
+		}
+	})
+	const invalidSource = `
+instruction: Test migration preflight.
+model:
+  provider_config: Provider
+  name: Model
+machine_sources:
+  - machine_pool_name: " Build Pool"
+`
+	if _, err := pool.Exec(ctx, `
+INSERT INTO agent_configs(
+    org_id,
+    project_id,
+    configured_model_id,
+    definition,
+    source,
+    source_format,
+    source_hash,
+    compiled_definition,
+    compiler_version,
+    effective_definition_hash,
+    created_at
+) VALUES (
+    uuidv7(),
+    uuidv7(),
+    uuidv7(),
+    '{}'::jsonb,
+    $1,
+    'yaml',
+    'invalid-resource-name-source',
+    '{}'::jsonb,
+    '',
+    'invalid-resource-name-source',
+    now()
+)
+`, invalidSource); err != nil {
+		t.Fatalf("insert stored agent config with invalid resource reference: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("enable agent config triggers: %v", err)
+	}
+	triggersDisabled = false
+
+	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
+	if err == nil || !strings.Contains(err.Error(), "machine_pool_name") {
+		t.Fatalf("resource-name migration error = %v, want invalid machine_pool_name reference", err)
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
+		t.Fatalf("migration version after rejected agent config source = %d, want 20", got)
+	}
+
+	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("disable agent config triggers for repair: %v", err)
+	}
+	triggersDisabled = true
+	if _, err := pool.Exec(
+		ctx,
+		`DELETE FROM agent_configs WHERE source_hash = 'invalid-resource-name-source'`,
+	); err != nil {
+		t.Fatalf("remove invalid stored agent config: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("enable agent config triggers after repair: %v", err)
+	}
+	triggersDisabled = false
+	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+		t.Fatalf("apply resource-name migration after agent config repair: %v", err)
+	}
+}
+
+func TestPostgresResourceNamePolicyMatchesGo(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool, _ := openPostgresMigrationTestDB(t, ctx)
+	wantForbidden := make([]int, 0)
+	for codepoint := rune(0); codepoint <= unicode.MaxRune; codepoint++ {
+		if unicode.IsControl(codepoint) || unicode.In(codepoint, unicode.Cf) ||
+			(unicode.IsSpace(codepoint) && codepoint != ' ') {
+			wantForbidden = append(wantForbidden, int(codepoint))
+		}
+	}
+	rows, err := pool.Query(ctx, `
+SELECT codepoint
+FROM generate_series(0, $1) AS codepoints(codepoint)
+WHERE resource_name_codepoint_is_forbidden(codepoint)
+ORDER BY codepoint
+`, int(unicode.MaxRune))
+	if err != nil {
+		t.Fatalf("query forbidden resource-name code points: %v", err)
+	}
+	defer rows.Close()
+	gotForbidden := make([]int, 0, len(wantForbidden))
+	for rows.Next() {
+		var codepoint int
+		if err := rows.Scan(&codepoint); err != nil {
+			t.Fatalf("scan forbidden resource-name code point: %v", err)
+		}
+		gotForbidden = append(gotForbidden, codepoint)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate forbidden resource-name code points: %v", err)
+	}
+	if !slices.Equal(gotForbidden, wantForbidden) {
+		t.Fatalf("PostgreSQL forbidden code points differ from Go\n got: %v\nwant: %v", gotForbidden, wantForbidden)
+	}
+
+	tests := []struct {
+		value      string
+		allowEmpty bool
+		max        int
+	}{
+		{value: "", max: resourcename.MaxCodePoints},
+		{value: "", allowEmpty: true, max: resourcename.MaxCodePoints},
+		{value: "Studio  54", max: resourcename.MaxCodePoints},
+		{value: "研究開発 شركة برمجيات", max: resourcename.MaxCodePoints},
+		{value: "🚀 Lab", max: resourcename.MaxCodePoints},
+		{value: strings.Repeat("界", resourcename.MaxCodePoints), max: resourcename.MaxCodePoints},
+		{value: strings.Repeat("界", resourcename.MaxCodePoints+1), max: resourcename.MaxCodePoints},
+		{value: " Acme", max: resourcename.MaxCodePoints},
+		{value: "Acme ", max: resourcename.MaxCodePoints},
+		{value: "\u00a0Acme", max: resourcename.MaxCodePoints},
+		{value: "Acme\u00a0Labs", max: resourcename.MaxCodePoints},
+		{value: "Acme\u200dLabs", max: resourcename.MaxCodePoints},
+		{value: "Acme\u202eLabs", max: resourcename.MaxCodePoints},
+		{value: strings.Repeat("a", 128), max: 128},
+		{value: strings.Repeat("a", 129), max: 128},
+	}
+	for _, test := range tests {
+		want := (test.allowEmpty || test.value != "") &&
+			resourcename.ValidateWithMax("name", test.value, test.max) == nil
+		var got bool
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT resource_name_is_valid_with_max($1, $2, $3)`,
+			test.value,
+			test.allowEmpty,
+			test.max,
+		).Scan(&got); err != nil {
+			t.Fatalf("validate resource name %q in PostgreSQL: %v", test.value, err)
+		}
+		if got != want {
+			t.Errorf(
+				"PostgreSQL resource-name validity for %q (allow_empty=%t, max=%d) = %t, want %t",
+				test.value,
+				test.allowEmpty,
+				test.max,
+				got,
+				want,
+			)
+		}
 	}
 }
 
