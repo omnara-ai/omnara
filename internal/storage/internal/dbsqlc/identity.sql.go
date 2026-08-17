@@ -1287,6 +1287,20 @@ func (q *Queries) DeleteProjectAgentProfiles(ctx context.Context, arg DeleteProj
 	return err
 }
 
+const deleteProjectCronTriggers = `-- name: DeleteProjectCronTriggers :exec
+UPDATE cron_triggers SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+WHERE project_id = $1 AND deleted_at IS NULL
+`
+
+type DeleteProjectCronTriggersParams struct {
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) DeleteProjectCronTriggers(ctx context.Context, arg DeleteProjectCronTriggersParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectCronTriggers, arg.ProjectID)
+	return err
+}
+
 const deleteProjectIntegrationInstalls = `-- name: DeleteProjectIntegrationInstalls :exec
 UPDATE integration_installs
 SET credential_secret_id = NULL, deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()

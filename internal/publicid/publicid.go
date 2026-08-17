@@ -20,6 +20,7 @@ const (
 	KindAgent                   Kind = "agent"
 	KindAgentConfig             Kind = "agent_config"
 	KindAgentProfile            Kind = "agent_profile"
+	KindCronTrigger             Kind = "cron_trigger"
 	KindIntegrationInstall      Kind = "integration_install"
 	KindIntegrationTarget       Kind = "integration_target"
 	KindAgentEvent              Kind = "agent_event"
@@ -62,6 +63,7 @@ var kindPrefixes = map[Kind]string{
 	KindAgent:                   "agt",
 	KindAgentConfig:             "acfg",
 	KindAgentProfile:            "aprf",
+	KindCronTrigger:             "cron",
 	KindIntegrationInstall:      "iin",
 	KindIntegrationTarget:       "itgt",
 	KindAgentEvent:              "evt",

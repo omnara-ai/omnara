@@ -68,7 +68,7 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 19)); err != nil {
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
 		t.Fatalf("apply migrations before resource-name policy: %v", err)
 	}
 	var orgID string
@@ -83,8 +83,8 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err == nil {
 		t.Fatal("resource-name migration accepted invalid existing organization")
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 19 {
-		t.Fatalf("migration version after rejected resource name = %d, want 19", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
+		t.Fatalf("migration version after rejected resource name = %d, want 20", got)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
 		t.Fatalf("repair organization name: %v", err)
@@ -132,7 +132,7 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions,agent_profiles,agents,integration_installs,integration_targets,model_call_contexts,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants"
+	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions,agent_profiles,agents,cron_triggers,integration_installs,integration_targets,model_call_contexts,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants"
 	var actual string
 	if err := db.QueryRowContext(ctx, `
 	SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')

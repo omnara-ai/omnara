@@ -225,6 +225,7 @@ type EffectiveResourceLimit struct {
 	MaxLiveMachinesPerOrg                     int64
 	MaxActiveByoDaemonTokensPerMachine        int64
 	MaxNonTerminalProcessesPerAgent           int64
+	MaxActiveCronTriggersPerProject           int64
 }
 
 type IntegrationInstall struct {

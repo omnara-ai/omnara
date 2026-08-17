@@ -2504,10 +2504,11 @@ paths:
       tags: [Configs and Profiles]
       summary: Delete agent profile
       description: >-
-        Deletes the profile and all of its profile versions. Agents launched from the profile are
-        retained and keep running: each agent holds an immutable snapshot of the configuration it was
-        launched with, so its reference to the profile becomes historical provenance only. Deletion is
-        blocked while an active integration install references the profile.
+        Deletes the profile, all of its profile versions, and any cron triggers targeting the
+        profile. Agents launched from the profile are retained and keep running: each agent holds an
+        immutable snapshot of the configuration it was launched with, so its reference to the profile
+        becomes historical provenance only. Deletion is blocked while an active integration install
+        references the profile.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2704,6 +2705,225 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/cron-triggers:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    post:
+      operationId: createCronTrigger
+      tags: [Configs and Profiles]
+      summary: Create cron trigger
+      description: >-
+        Creates a cron trigger that fires on a schedule. A trigger targeting an agent profile
+        launches a new agent from the profile's current config on each firing; a trigger targeting
+        an agent sends an input to that agent. Missed firings are coalesced, matching standard
+        cron behavior: if one or more scheduled times pass while firing is delayed, the trigger
+        fires once for the oldest missed time and then resumes its schedule from the current time,
+        without retroactively firing for the other missed times.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCronTriggerRequest'
+      responses:
+        '200':
+          description: Existing cron trigger returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronTrigger'
+        '201':
+          description: Cron trigger created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronTrigger'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    get:
+      operationId: listCronTriggers
+      tags: [Configs and Profiles]
+      summary: List cron triggers
+      description: Items are ordered by created_at descending, then id descending.
+      parameters:
+        - $ref: '#/components/parameters/ResourceNameFilter'
+        - name: agent_id
+          in: query
+          description: Only return triggers targeting this agent.
+          schema:
+            $ref: '#/components/schemas/AgentID'
+        - name: agent_profile_id
+          in: query
+          description: Only return triggers targeting this agent profile.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - name: sort
+          in: query
+          schema:
+            $ref: '#/components/schemas/ResourceListSort'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Cron triggers in the project, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCronTriggersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: cronTriggerID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/CronTriggerID'
+    get:
+      operationId: getCronTrigger
+      tags: [Configs and Profiles]
+      summary: Get cron trigger
+      responses:
+        '200':
+          description: Cron trigger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronTrigger'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: updateCronTrigger
+      tags: [Configs and Profiles]
+      summary: Update cron trigger
+      description: >-
+        Updates the schedule, message template, or enabled state. The target is immutable; delete
+        the trigger and create a new one to retarget.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCronTriggerRequest'
+      responses:
+        '200':
+          description: Cron trigger updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronTrigger'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteCronTrigger
+      tags: [Configs and Profiles]
+      summary: Delete cron trigger
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Resource deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agents:
     parameters:
       - name: orgID
@@ -2880,9 +3100,9 @@ paths:
       summary: Archive agent
       description: >-
         Archives the agent: requests cancellation of its active runtime, cancels queued inputs and
-        affected processes, removes its pending wakeup, releases explicit machine bindings, and deletes
-        pooled machines created for the agent. The agent and its full event history stay readable by
-        id; archived agents leave listings. The agent's profile and configuration are retained, as are
+        affected processes, removes its pending wakeup, releases explicit machine bindings, deletes
+        pooled machines created for the agent, and deletes cron triggers targeting the agent. The
+        agent and its full event history stay readable by id; archived agents leave listings. The agent's profile and configuration are retained, as are
         explicitly attached BYO machines. Archiving an already-archived agent is a no-op that returns
         the agent unchanged.
       security:
@@ -6404,6 +6624,9 @@ components:
     AgentProfileID:
       type: string
       pattern: '^aprf_[a-z2-7]{26}$'
+    CronTriggerID:
+      type: string
+      pattern: '^cron_[a-z2-7]{26}$'
     IntegrationInstallID:
       type: string
       pattern: '^iin_[a-z2-7]{26}$'
@@ -7722,6 +7945,157 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AgentProfile'
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page, or null when this is the last page.
+    AgentCronTriggerTarget:
+      type: object
+      additionalProperties: false
+      required: [type, agent_id]
+      properties:
+        type:
+          type: string
+          enum: [agent]
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+    AgentProfileCronTriggerTarget:
+      type: object
+      additionalProperties: false
+      required: [type, agent_profile_id]
+      properties:
+        type:
+          type: string
+          enum: [profile]
+        agent_profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+    CronTriggerTarget:
+      oneOf:
+        - $ref: '#/components/schemas/AgentCronTriggerTarget'
+        - $ref: '#/components/schemas/AgentProfileCronTriggerTarget'
+      discriminator:
+        propertyName: type
+        mapping:
+          agent: '#/components/schemas/AgentCronTriggerTarget'
+          profile: '#/components/schemas/AgentProfileCronTriggerTarget'
+    CronExpression:
+      type: string
+      description: >-
+        Standard five-field cron expression (minute, hour, day of month, month, day of week).
+        `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
+      minLength: 9
+      maxLength: 256
+    CronTimezone:
+      type: string
+      description: IANA time zone the schedule is evaluated in.
+      default: UTC
+      maxLength: 64
+    CronMessageTemplate:
+      type: string
+      description: >-
+        Go text/template rendered on each firing to produce the message sent to the target. The
+        template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields.
+        Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf`
+        width and precision specifiers are capped at 1024; a firing whose template fails to
+        render is recorded in `failure_report` without sending a message.
+      maxLength: 65536
+    CronTriggerFailureReport:
+      type: object
+      additionalProperties: false
+      required: [message, will_retry, failed_at]
+      properties:
+        message:
+          type: string
+          description: Why the most recent failed firing did not deliver a message.
+        will_retry:
+          type: boolean
+          description: Whether the firing will be retried after the claim lease expires.
+        failed_at:
+          $ref: '#/components/schemas/Timestamp'
+    CreateCronTriggerRequest:
+      type: object
+      additionalProperties: false
+      required: [name, target, cron, message_template]
+      properties:
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        target:
+          $ref: '#/components/schemas/CronTriggerTarget'
+        cron:
+          $ref: '#/components/schemas/CronExpression'
+        timezone:
+          $ref: '#/components/schemas/CronTimezone'
+        message_template:
+          $ref: '#/components/schemas/CronMessageTemplate'
+        enabled:
+          type: boolean
+          default: true
+    UpdateCronTriggerRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        cron:
+          $ref: '#/components/schemas/CronExpression'
+        timezone:
+          $ref: '#/components/schemas/CronTimezone'
+        message_template:
+          $ref: '#/components/schemas/CronMessageTemplate'
+        enabled:
+          type: boolean
+    CronTrigger:
+      type: object
+      additionalProperties: false
+      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, last_fired_at, next_fire_at, failure_report, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/CronTriggerID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        target:
+          $ref: '#/components/schemas/CronTriggerTarget'
+        cron:
+          $ref: '#/components/schemas/CronExpression'
+        timezone:
+          $ref: '#/components/schemas/CronTimezone'
+        message_template:
+          $ref: '#/components/schemas/CronMessageTemplate'
+        enabled:
+          type: boolean
+        last_fired_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: "null"
+          description: When the trigger last fired, or null if it has never fired.
+        next_fire_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: "null"
+          description: Next scheduled firing, or null while the trigger is disabled.
+        failure_report:
+          oneOf:
+            - $ref: '#/components/schemas/CronTriggerFailureReport'
+            - type: "null"
+          description: >-
+            Most recent failed firing, or null if no firing has failed since the last
+            successful firing.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ListCronTriggersResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CronTrigger'
         next_cursor:
           type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.

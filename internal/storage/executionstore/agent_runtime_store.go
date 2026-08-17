@@ -436,6 +436,12 @@ func archiveAgentTx(
 	}); err != nil {
 		return nil, fmt.Errorf("cancel archived agent queued backlog inputs: %w", err)
 	}
+	if _, err := qtx.DeleteCronTriggersForAgent(ctx, dbsqlc.DeleteCronTriggersForAgentParams{
+		ProjectID: projectID,
+		AgentID:   &agentID,
+	}); err != nil {
+		return nil, fmt.Errorf("delete archived agent cron triggers: %w", err)
+	}
 	if err := completeExecutionRevokedProcessesTx(
 		ctx,
 		txNotifications,

@@ -26,6 +26,7 @@ ALTER TABLE agents ADD CONSTRAINT agents_name_policy CHECK (resource_name_is_val
 ALTER TABLE machine_pools ADD CONSTRAINT machine_pools_name_policy CHECK (resource_name_is_valid(name, false));
 ALTER TABLE machines ADD CONSTRAINT machines_display_name_policy CHECK (resource_name_is_valid(display_name, false));
 ALTER TABLE machine_daemon_tokens ADD CONSTRAINT machine_daemon_tokens_name_policy CHECK (resource_name_is_valid(name, false));
+ALTER TABLE cron_triggers ADD CONSTRAINT cron_triggers_name_policy CHECK (resource_name_is_valid(name, false));
 
 -- +goose StatementBegin
 CREATE FUNCTION skill_name_is_valid(candidate text) RETURNS boolean AS $$
