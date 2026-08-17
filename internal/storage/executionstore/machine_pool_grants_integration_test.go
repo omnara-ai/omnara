@@ -891,8 +891,17 @@ func TestUpdateMachinePoolRejectsInvalidStoredName(t *testing.T) {
 		t.Fatalf("drop machine pool name constraint: %v", err)
 	}
 	const invalidStoredName = " invalid pool "
-	if _, err := pool.Exec(ctx, `UPDATE machine_pools SET name = $1 WHERE id = $2`, invalidStoredName, created.ID); err != nil {
+	var seededName string
+	if err := pool.QueryRow(
+		ctx,
+		`UPDATE machine_pools SET name = $1 WHERE id = $2 RETURNING name`,
+		invalidStoredName,
+		created.ID,
+	).Scan(&seededName); err != nil {
 		t.Fatalf("seed invalid machine pool name: %v", err)
+	}
+	if seededName != invalidStoredName {
+		t.Fatalf("seeded machine pool name = %q", seededName)
 	}
 
 	description := "updated without a rename"
