@@ -43,7 +43,18 @@ describe('openAgentEventStream', () => {
     expect(result.fetch).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['{"event_kind":"unknown"}', 'not JSON'])(
+  it('passes frames with an unknown event_kind through unvalidated', async () => {
+    const result = await readStream(
+      new Response('data: {"event_kind":"unknown"}\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    )
+
+    expect(result.frames).toEqual([{ event_kind: 'unknown' }])
+  })
+
+  it.each(['{"event_kind":123}', 'not JSON'])(
     'stops after one malformed frame instead of reconnecting: %s',
     async (data) => {
       const { client, fetch } = clientReturning(

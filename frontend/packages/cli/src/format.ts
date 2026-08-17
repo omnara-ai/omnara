@@ -1,7 +1,5 @@
-import type { RenderValue } from './output.ts'
-
 export interface FormattedOutput {
-  value: RenderValue
+  value: unknown
   columns?: readonly string[]
 }
 
@@ -17,9 +15,12 @@ type FieldName<Value> = Extract<keyof Value, string>
 function pickFields<Value extends object>(
   source: Value,
   fields: readonly FieldName<Value>[],
-): Record<string, RenderValue> {
-  const picked: Record<string, RenderValue> = {}
-  for (const field of fields) picked[field] = source[field] as RenderValue
+): Record<string, unknown> {
+  const picked: Record<string, unknown> = {}
+  for (const field of fields) {
+    const value = source[field]
+    if (value !== undefined) picked[field] = value
+  }
   return picked
 }
 
@@ -41,10 +42,4 @@ export function formatRecord<Value extends object>(): OutputFormat<Value> {
 
 export function formatVoid(message = 'ok'): OutputFormat<void> {
   return () => ({ value: message })
-}
-
-export function formatFields<Value extends object>(
-  fields: readonly FieldName<Value>[],
-): OutputFormat<Value> {
-  return (data) => ({ value: pickFields(data, fields) })
 }

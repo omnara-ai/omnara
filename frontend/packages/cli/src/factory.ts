@@ -1,17 +1,18 @@
-import { Command, InvalidArgumentError } from 'commander'
-import * as z from 'zod'
 import type { OmnaraClient } from '@omnara/sdk'
-import { updateConfigFile, type CliContext } from './context.ts'
-import { deriveFlags, type FlagSpec } from './flags.ts'
+import { type Command, InvalidArgumentError } from 'commander'
+import * as z from 'zod'
+
+import { type CliContext, updateConfigFile } from './context.ts'
+import { deriveFlags, type FlagSpec, kebabCase } from './flags.ts'
 import type { FormattedOutput, OutputFormat } from './format.ts'
 import {
   canPromptInteractively,
   promptOrgSelection,
   promptProjectSelection,
 } from './interactive.ts'
-import { CliInputError, renderResult, runCliAction, type RenderValue } from './output.ts'
+import { CliInputError, renderResult, runCliAction } from './output.ts'
 
-type SdkOperation = (options: never) => Promise<{ data?: RenderValue }>
+type SdkOperation = (options: never) => Promise<{ data?: unknown }>
 
 type ResponseOf<F extends SdkOperation> = F extends (options: never) => PromiseLike<infer R>
   ? R extends { data?: infer D }
@@ -19,16 +20,14 @@ type ResponseOf<F extends SdkOperation> = F extends (options: never) => PromiseL
     : never
   : never
 
-interface OperationSchemas {
-  path?: z.ZodObject<z.ZodRawShape>
-  query?: z.ZodObject<z.ZodRawShape>
-  body?: z.ZodType
-}
-
-export interface OperationSpec extends OperationSchemas {
+export interface OperationSpec {
   verb: string
   summary: string
   fn: SdkOperation
+  path?: z.ZodObject<z.ZodRawShape>
+  query?: z.ZodObject<z.ZodRawShape>
+  body?: z.ZodType
+  transformBody?: (body: unknown) => unknown
   positional?: string[]
   format: (data: never) => FormattedOutput
 }
@@ -41,16 +40,31 @@ export interface CommandGroup {
   groups?: CommandGroup[]
 }
 
-export function op<F extends SdkOperation>(
+export function op<F extends SdkOperation, B extends z.ZodType = z.ZodType>(
   verb: string,
   summary: string,
   fn: F,
-  schemas: OperationSchemas & {
+  schemas: {
+    path?: z.ZodObject<z.ZodRawShape>
+    query?: z.ZodObject<z.ZodRawShape>
+    body?: B
+    transformBody?: (body: z.output<B>) => unknown
     positional?: string[]
     format: OutputFormat<ResponseOf<F>>
   },
 ): OperationSpec {
-  return { verb, summary, fn, ...schemas }
+  const { body, transformBody, ...rest } = schemas
+  return {
+    verb,
+    summary,
+    fn,
+    body,
+    ...rest,
+    transformBody:
+      body === undefined || transformBody === undefined
+        ? undefined
+        : (raw: unknown) => transformBody(body.parse(raw)),
+  }
 }
 
 interface ContextParam {
@@ -60,7 +74,7 @@ interface ContextParam {
   configKey: 'org_id' | 'project_id'
   describe: string
   resolve: (ctx: CliContext) => string | undefined
-  prompt: (client: OmnaraClient, path: Record<string, RenderValue>) => Promise<string>
+  prompt: (client: OmnaraClient, path: Record<string, unknown>) => Promise<string>
 }
 
 const CONTEXT_PARAMS: ContextParam[] = [
@@ -90,19 +104,22 @@ const CONTEXT_PARAMS: ContextParam[] = [
   },
 ]
 
-function kebabCase(name: string): string {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replaceAll('_', '-')
-    .toLowerCase()
-}
-
-function parseJsonFlag(raw: string): RenderValue {
+function parseJsonFlag(raw: string): unknown {
   try {
-    return JSON.parse(raw)
+    const parsed: unknown = JSON.parse(raw)
+    return parsed
   } catch {
     throw new InvalidArgumentError('expects valid JSON')
   }
+}
+
+const NUMBER_PATTERN = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/
+
+function parseNumberFlag(raw: string): number {
+  if (!NUMBER_PATTERN.test(raw.trim())) {
+    throw new InvalidArgumentError('expects a number')
+  }
+  return Number(raw)
 }
 
 function registerFlag(command: Command, spec: FlagSpec): void {
@@ -111,9 +128,10 @@ function registerFlag(command: Command, spec: FlagSpec): void {
   switch (spec.kind) {
     case 'boolean':
       command.option(`--${spec.flag}`, description)
+      command.option(`--no-${spec.flag}`, `set ${spec.flag} to false`)
       break
     case 'number':
-      command.option(`--${spec.flag} <number>`, description, Number)
+      command.option(`--${spec.flag} <number>`, description, parseNumberFlag)
       break
     case 'stringArray':
       command.option(
@@ -132,9 +150,9 @@ function registerFlag(command: Command, spec: FlagSpec): void {
 
 function collectFlagValues(
   specs: FlagSpec[],
-  options: Record<string, RenderValue>,
-): Record<string, RenderValue> {
-  const values: Record<string, RenderValue> = {}
+  options: Record<string, unknown>,
+): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
   for (const spec of specs) {
     const value = options[spec.optionKey]
     if (value !== undefined) values[spec.key] = value
@@ -142,22 +160,26 @@ function collectFlagValues(
   return values
 }
 
-function parseWithSchema(schema: z.ZodType, value: RenderValue, label: string): RenderValue {
+function parseWithSchema<S extends z.ZodType>(
+  schema: S,
+  value: unknown,
+  label: string,
+): z.output<S> {
   const result = schema.safeParse(value)
   if (!result.success) {
     throw new CliInputError(`invalid ${label}:\n${z.prettifyError(result.error)}`)
   }
-  return result.data as RenderValue
+  return result.data
 }
 
 interface CallInput {
   client: OmnaraClient
-  path?: Record<string, RenderValue>
-  query?: Record<string, RenderValue>
-  body?: RenderValue
+  path?: Record<string, unknown>
+  query?: Record<string, unknown>
+  body?: unknown
 }
 
-async function callOperation(spec: OperationSpec, input: CallInput): Promise<RenderValue> {
+async function callOperation(spec: OperationSpec, input: CallInput): Promise<unknown> {
   const result = await spec.fn(input as never)
   return result.data
 }
@@ -166,18 +188,17 @@ function isPaginatedList(spec: OperationSpec): boolean {
   return spec.query?.shape.cursor !== undefined
 }
 
-async function fetchAllPages(
-  spec: OperationSpec,
-  input: CallInput,
-): Promise<RenderValue> {
-  const rows: RenderValue[] = []
+const zListPage = z.object({
+  data: z.array(z.unknown()),
+  next_cursor: z.string().nullable(),
+})
+
+async function fetchAllPages(spec: OperationSpec, input: CallInput): Promise<unknown> {
+  const rows: unknown[] = []
   let cursor: string | undefined
   for (;;) {
     const query = { ...input.query, ...(cursor === undefined ? {} : { cursor }) }
-    const page = (await callOperation(spec, { ...input, query })) as {
-      data: RenderValue[]
-      next_cursor: string | null
-    }
+    const page = zListPage.parse(await callOperation(spec, { ...input, query }))
     rows.push(...page.data)
     if (page.next_cursor === null) break
     cursor = page.next_cursor
@@ -185,12 +206,23 @@ async function fetchAllPages(
   return { data: rows, next_cursor: null }
 }
 
+const zBodyObject = z.looseObject({})
+
+function saveContextDefault(configKey: 'org_id' | 'project_id', value: string): void {
+  try {
+    updateConfigFile({ [configKey]: value })
+    console.error(`saved ${configKey}=${value} as your default (change with omnara context)`)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    console.error(`warning: could not save ${configKey} as your default: ${reason}`)
+  }
+}
+
 function registerOperation(parent: Command, ctx: CliContext, spec: OperationSpec): void {
   const command = parent.command(spec.verb).description(spec.summary)
   const pathParams = spec.path ? Object.keys(spec.path.shape) : []
   const contextParams = CONTEXT_PARAMS.filter(
-    (context) =>
-      pathParams.includes(context.key) && !(spec.positional ?? []).includes(context.key),
+    (context) => pathParams.includes(context.key) && !(spec.positional ?? []).includes(context.key),
   )
   const positionalParams = pathParams.filter(
     (param) => !contextParams.some((context) => context.key === param),
@@ -213,37 +245,40 @@ function registerOperation(parent: Command, ctx: CliContext, spec: OperationSpec
   command.option('--json', 'print the raw JSON response')
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
-      const options = command.optsWithGlobals<Record<string, RenderValue>>()
+      const options = command.opts<Record<string, unknown>>()
       const input: CallInput = { client: ctx.client }
       if (spec.path) {
-        const path: Record<string, RenderValue> = {}
+        const path: Record<string, unknown> = {}
         positionalParams.forEach((param, index) => {
           path[param] = args[index]
         })
+        let usedExplicitOverride = false
         for (const context of contextParams) {
-          let value = options[context.optionKey] ?? context.resolve(ctx)
+          const explicitOption = options[context.optionKey]
+          const explicit = typeof explicitOption === 'string' ? explicitOption : undefined
+          usedExplicitOverride = usedExplicitOverride || explicit !== undefined
+          let value = explicit ?? context.resolve(ctx)
           if (value === undefined && canPromptInteractively()) {
             value = await context.prompt(ctx.client, path)
-            updateConfigFile({ [context.configKey]: value })
-            console.error(
-              `saved ${context.configKey}=${String(value)} as your default (change with omnara context)`,
-            )
+            if (!usedExplicitOverride) saveContextDefault(context.configKey, value)
           }
           if (value === undefined) {
             throw new CliInputError(`missing ${context.optionKey}: ${context.describe}`)
           }
           path[context.key] = value
         }
-        input.path = parseWithSchema(spec.path, path, 'arguments') as Record<string, RenderValue>
+        input.path = parseWithSchema(spec.path, path, 'arguments')
       }
       if (spec.query) {
         const query = collectFlagValues(queryFlags, options)
-        input.query = parseWithSchema(spec.query, query, 'query flags') as Record<string, RenderValue>
+        input.query = parseWithSchema(spec.query, query, 'query flags')
       }
       if (spec.body) {
-        const base = typeof options.body === 'object' && options.body !== null ? options.body : {}
+        const base =
+          options.body === undefined ? {} : parseWithSchema(zBodyObject, options.body, '--body')
         const body = { ...base, ...collectFlagValues(bodyFlags, options) }
-        input.body = parseWithSchema(spec.body, body, 'request body')
+        const parsed = parseWithSchema(spec.body, body, 'request body')
+        input.body = spec.transformBody ? spec.transformBody(parsed) : parsed
       }
       const data =
         options.all === true && isPaginatedList(spec)

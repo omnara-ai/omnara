@@ -1,20 +1,22 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { Command } from 'commander'
-import * as z from 'zod'
+
 import { bearerToken, createOmnaraClient, type OmnaraClient } from '@omnara/sdk'
 import { zOrganizationId, zProjectId } from '@omnara/sdk/zod'
-import { CliInputError, runCliAction } from './output.ts'
+import type { Command } from 'commander'
+import * as z from 'zod'
+
 import {
   canPromptInteractively,
   promptOrgSelection,
   promptProjectSelection,
 } from './interactive.ts'
+import { CliInputError, runCliAction } from './output.ts'
 
 export const DEFAULT_BASE_URL = 'https://app.omnara.com'
 
-const zConfigFile = z.object({
+const zConfigFile = z.looseObject({
   base_url: z.url().optional(),
   token: z.string().min(1).optional(),
   org_id: zOrganizationId.optional(),
@@ -41,6 +43,18 @@ function warnConfigIgnored(message: string): void {
   console.error(message)
 }
 
+function parseConfig(raw: string): ConfigFile | string {
+  let contents: unknown
+  try {
+    contents = JSON.parse(raw)
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  const result = zConfigFile.safeParse(contents)
+  if (!result.success) return z.prettifyError(result.error)
+  return result.data
+}
+
 export function readConfigFile(): ConfigFile {
   let raw: string
   try {
@@ -48,41 +62,43 @@ export function readConfigFile(): ConfigFile {
   } catch {
     return {}
   }
-  let contents: ConfigFile
+  const parsed = parseConfig(raw)
+  if (typeof parsed === 'string') {
+    warnConfigIgnored(`warning: ignoring unreadable config at ${configFilePath()}: ${parsed}`)
+    return {}
+  }
+  return parsed
+}
+
+function readConfigFileForUpdate(): ConfigFile {
+  let raw: string
   try {
-    contents = JSON.parse(raw) as ConfigFile
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    warnConfigIgnored(`warning: ignoring unreadable config at ${configFilePath()}: ${reason}`)
+    raw = readFileSync(configFilePath(), 'utf8')
+  } catch {
     return {}
   }
-  const result = zConfigFile.safeParse(contents)
-  if (!result.success) {
-    warnConfigIgnored(
-      `warning: ignoring invalid config at ${configFilePath()}:\n${z.prettifyError(result.error)}`,
+  const parsed = parseConfig(raw)
+  if (typeof parsed === 'string') {
+    throw new CliInputError(
+      `refusing to modify unreadable config at ${configFilePath()} (fix or delete it first): ${parsed}`,
     )
-    return {}
   }
-  return result.data
+  return parsed
 }
 
 export function updateConfigFile(patch: Partial<ConfigFile>): ConfigFile {
-  return writeConfig({ ...readConfigFile(), ...patch })
-}
-
-export function removeConfigKeys(keys: readonly (keyof ConfigFile)[]): ConfigFile {
-  const config = readConfigFile()
-  for (const key of keys) delete config[key]
-  return writeConfig(config)
-}
-
-function writeConfig(config: ConfigFile): ConfigFile {
-  const result = zConfigFile.safeParse(config)
+  const merged = Object.fromEntries(
+    Object.entries({ ...readConfigFileForUpdate(), ...patch }).filter(
+      ([, value]) => value !== undefined,
+    ),
+  )
+  const result = zConfigFile.safeParse(merged)
   if (!result.success) {
     throw new CliInputError(`refusing to save invalid config:\n${z.prettifyError(result.error)}`)
   }
-  mkdirSync(dirname(configFilePath()), { recursive: true })
-  writeFileSync(configFilePath(), `${JSON.stringify(result.data, null, 2)}\n`)
+  mkdirSync(dirname(configFilePath()), { recursive: true, mode: 0o700 })
+  writeFileSync(configFilePath(), `${JSON.stringify(result.data, null, 2)}\n`, { mode: 0o600 })
+  chmodSync(configFilePath(), 0o600)
   return result.data
 }
 
@@ -137,17 +153,21 @@ export function registerContextCommand(program: Command, ctx: CliContext): void 
     .option('--org <org-id>', 'save this organization ID as the default')
     .option('--project <project-id>', 'save this project ID as the default')
     .option('--base-url <url>', 'save this API base URL as the default')
-    .action(async (_options: ContextOptions, command: Command) => {
-      await runCliAction(async () => {
-        const options = command.optsWithGlobals<ContextOptions>()
+    .action(async (options: ContextOptions) => {
+      await runCliAction(() => {
         if (
           options.org !== undefined ||
           options.project !== undefined ||
           options.baseUrl !== undefined
         ) {
+          const clearStaleProject = options.org !== undefined && options.project === undefined
           updateConfigFile({
             ...(options.org !== undefined ? { org_id: options.org } : {}),
-            ...(options.project !== undefined ? { project_id: options.project } : {}),
+            ...(clearStaleProject
+              ? { project_id: undefined }
+              : options.project !== undefined
+                ? { project_id: options.project }
+                : {}),
             ...(options.baseUrl !== undefined ? { base_url: options.baseUrl } : {}),
           })
         }
@@ -162,11 +182,9 @@ export function registerContextCommand(program: Command, ctx: CliContext): void 
         if (!canPromptInteractively()) {
           throw new CliInputError('interactive selection needs a terminal')
         }
-        removeConfigKeys(['org_id', 'project_id'])
         const orgId = await promptOrgSelection(ctx.client)
-        updateConfigFile({ org_id: orgId })
         const projectId = await promptProjectSelection(ctx.client, orgId)
-        updateConfigFile({ project_id: projectId })
+        updateConfigFile({ org_id: orgId, project_id: projectId })
         printContext()
       })
     })

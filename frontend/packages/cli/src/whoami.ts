@@ -1,5 +1,6 @@
-import type { Command } from 'commander'
 import { sdk } from '@omnara/sdk'
+import type { Command } from 'commander'
+
 import type { CliContext } from './context.ts'
 import { renderResult, runCliAction } from './output.ts'
 

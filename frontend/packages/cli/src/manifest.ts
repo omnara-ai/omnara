@@ -1,7 +1,9 @@
 import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
-import { op, type CommandGroup } from './factory.ts'
+
+import { type CommandGroup, op } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
+import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
 
 export const commandGroups: CommandGroup[] = [
   {
@@ -19,8 +21,8 @@ export const commandGroups: CommandGroup[] = [
         query: schemas.zListAgentsQuery,
       }),
       op('get', 'Fetch an agent', sdk.getAgent, {
-        format: formatRecord(), 
-        path: schemas.zGetAgentPath
+        format: formatRecord(),
+        path: schemas.zGetAgentPath,
       }),
       op('launch', 'Launch a new agent', sdk.createAgent, {
         format: formatRecord(),
@@ -34,7 +36,7 @@ export const commandGroups: CommandGroup[] = [
       }),
       op('archive', 'Archive an agent', sdk.archiveAgent, {
         format: formatRecord(),
-        path: schemas.zArchiveAgentPath
+        path: schemas.zArchiveAgentPath,
       }),
     ],
   },
@@ -90,7 +92,7 @@ export const commandGroups: CommandGroup[] = [
         path: schemas.zListOrgMembersPath,
         query: schemas.zListOrgMembersQuery,
       }),
-      op("update", "Update a member's role", sdk.updateOrgMember, {
+      op('update', "Update a member's role", sdk.updateOrgMember, {
         format: formatRecord(),
         path: schemas.zUpdateOrgMemberPath,
         body: schemas.zUpdateOrgMemberBody,
@@ -146,12 +148,20 @@ export const commandGroups: CommandGroup[] = [
         summary: 'Inspect organization API keys',
         operations: [
           op('list', 'List organization API keys', sdk.listOrgApiKeys, {
-            format: formatTable(['id', 'name', 'org_role', 'created_at', 'last_used_at', 'revoked_at']),
+            format: formatTable([
+              'id',
+              'name',
+              'org_role',
+              'created_at',
+              'last_used_at',
+              'revoked_at',
+            ]),
             path: schemas.zListOrgApiKeysPath,
             query: schemas.zListOrgApiKeysQuery,
           }),
           op('get', 'Fetch an organization API key', sdk.getOrgApiKey, {
-            format: formatRecord(), path: schemas.zGetOrgApiKeyPath
+            format: formatRecord(),
+            path: schemas.zGetOrgApiKeyPath,
           }),
         ],
       },
@@ -159,10 +169,15 @@ export const commandGroups: CommandGroup[] = [
         name: 'personal',
         summary: 'Manage your personal access tokens',
         operations: [
-          op('list', "List the authenticated user's personal access tokens", sdk.listPersonalAccessTokens, {
-            query: schemas.zListPersonalAccessTokensQuery,
-            format: formatTable(['id', 'name', 'created_at', 'last_used_at', 'revoked_at']),
-          }),
+          op(
+            'list',
+            "List the authenticated user's personal access tokens",
+            sdk.listPersonalAccessTokens,
+            {
+              query: schemas.zListPersonalAccessTokensQuery,
+              format: formatTable(['id', 'name', 'created_at', 'last_used_at', 'revoked_at']),
+            },
+          ),
           op('create', 'Create a personal access token', sdk.createPersonalAccessToken, {
             format: formatRecord(),
             body: schemas.zCreatePersonalAccessTokenBody,
@@ -181,12 +196,21 @@ export const commandGroups: CommandGroup[] = [
     summary: 'Manage machines',
     operations: [
       op('list', 'List machines visible to you', sdk.listVisibleMachines, {
-        format: formatTable(['id', 'display_name', 'source_kind', 'provider', 'lifecycle_state', 'connection_state', 'created_at']),
+        format: formatTable([
+          'id',
+          'display_name',
+          'source_kind',
+          'provider',
+          'lifecycle_state',
+          'connection_state',
+          'created_at',
+        ]),
         path: schemas.zListVisibleMachinesPath,
         query: schemas.zListVisibleMachinesQuery,
       }),
       op('get', 'Fetch a machine', sdk.getMachine, {
-        format: formatRecord(), path: schemas.zGetMachinePath
+        format: formatRecord(),
+        path: schemas.zGetMachinePath,
       }),
       op('create', 'Create a machine', sdk.createMachine, {
         format: formatRecord(),
@@ -199,7 +223,8 @@ export const commandGroups: CommandGroup[] = [
         body: schemas.zUpdateMachineBody,
       }),
       op('delete', 'Delete a machine', sdk.deleteMachine, {
-        format: formatVoid('deleted'), path: schemas.zDeleteMachinePath
+        format: formatVoid('deleted'),
+        path: schemas.zDeleteMachinePath,
       }),
     ],
   },
@@ -214,7 +239,8 @@ export const commandGroups: CommandGroup[] = [
         query: schemas.zListMachinePoolsQuery,
       }),
       op('get', 'Fetch a machine pool', sdk.getMachinePool, {
-        format: formatRecord(), path: schemas.zGetMachinePoolPath
+        format: formatRecord(),
+        path: schemas.zGetMachinePoolPath,
       }),
       op('create', 'Create a machine pool', sdk.createMachinePool, {
         format: formatRecord(),
@@ -227,7 +253,8 @@ export const commandGroups: CommandGroup[] = [
         body: schemas.zUpdateMachinePoolBody,
       }),
       op('delete', 'Delete a machine pool', sdk.deleteMachinePool, {
-        format: formatVoid('deleted'), path: schemas.zDeleteMachinePoolPath
+        format: formatVoid('deleted'),
+        path: schemas.zDeleteMachinePoolPath,
       }),
     ],
   },
@@ -271,7 +298,13 @@ export const commandGroups: CommandGroup[] = [
     summary: 'Manage configured models on a provider config',
     operations: [
       op('list', 'List configured models', sdk.listConfiguredModels, {
-        format: formatTable(['id', 'name', 'provider_model_slug', 'context_window_tokens', 'created_at']),
+        format: formatTable([
+          'id',
+          'name',
+          'provider_model_slug',
+          'context_window_tokens',
+          'created_at',
+        ]),
         path: schemas.zListConfiguredModelsPath,
         query: schemas.zListConfiguredModelsQuery,
       }),
@@ -297,12 +330,20 @@ export const commandGroups: CommandGroup[] = [
     summary: 'Manage organization secrets',
     operations: [
       op('list', 'List secrets visible through ownership authority', sdk.listSecrets, {
-        format: formatTable(['id', 'name', 'kind', 'current_version_number', 'created_at', 'updated_at']),
+        format: formatTable([
+          'id',
+          'name',
+          'kind',
+          'current_version_number',
+          'created_at',
+          'updated_at',
+        ]),
         path: schemas.zListSecretsPath,
         query: schemas.zListSecretsQuery,
       }),
       op('get', 'Fetch a secret', sdk.getSecret, {
-        format: formatRecord(), path: schemas.zGetSecretPath
+        format: formatRecord(),
+        path: schemas.zGetSecretPath,
       }),
       op('create', 'Create a secret', sdk.createSecret, {
         format: formatRecord(),
@@ -315,7 +356,8 @@ export const commandGroups: CommandGroup[] = [
         body: schemas.zUpdateSecretBody,
       }),
       op('delete', 'Delete a secret', sdk.deleteSecret, {
-        format: formatVoid('deleted'), path: schemas.zDeleteSecretPath
+        format: formatVoid('deleted'),
+        path: schemas.zDeleteSecretPath,
       }),
     ],
   },
@@ -330,15 +372,21 @@ export const commandGroups: CommandGroup[] = [
         query: schemas.zListSkillsQuery,
       }),
       op('get', 'Fetch a skill', sdk.getSkill, {
-        format: formatRecord(), path: schemas.zGetSkillPath
+        format: formatRecord(),
+        path: schemas.zGetSkillPath,
       }),
-      op('create', 'Create a skill', sdk.createSkill, {
+      op('create', 'Create a skill from a directory or a .zip/.tar.gz archive', sdk.createSkill, {
         format: formatRecord(),
         path: schemas.zCreateSkillPath,
-        body: schemas.zCreateSkillBody,
+        body: zCreateSkillCliBody,
+        transformBody: (body) => ({
+          ...body,
+          archive: loadSkillArchive(body.archive),
+        }),
       }),
       op('delete', 'Delete a skill', sdk.deleteSkill, {
-        format: formatVoid('deleted'), path: schemas.zDeleteSkillPath
+        format: formatVoid('deleted'),
+        path: schemas.zDeleteSkillPath,
       }),
     ],
   },
@@ -353,7 +401,8 @@ export const commandGroups: CommandGroup[] = [
         query: schemas.zListAgentProfilesQuery,
       }),
       op('get', 'Fetch an agent profile', sdk.getAgentProfile, {
-        format: formatRecord(), path: schemas.zGetAgentProfilePath
+        format: formatRecord(),
+        path: schemas.zGetAgentProfilePath,
       }),
       op('create', 'Create an agent profile', sdk.createAgentProfile, {
         format: formatRecord(),

@@ -1,9 +1,10 @@
 import { isCancel, select } from '@clack/prompts'
-import { sdk, type OmnaraClient } from '@omnara/sdk'
+import { type OmnaraClient, sdk } from '@omnara/sdk'
+
 import { CliInputError } from './output.ts'
 
 export function canPromptInteractively(): boolean {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true
+  return process.stdin.isTTY && process.stdout.isTTY
 }
 
 interface Choice {
@@ -12,8 +13,8 @@ interface Choice {
 }
 
 async function selectFrom(message: string, choices: Choice[]): Promise<string> {
-  if (choices.length === 1) {
-    const only = choices[0] as Choice
+  const [only] = choices
+  if (choices.length === 1 && only !== undefined) {
     console.log(`${message}: ${only.label} (only option)`)
     return only.id
   }
@@ -36,10 +37,7 @@ export async function promptOrgSelection(client: OmnaraClient): Promise<string> 
   )
 }
 
-export async function promptProjectSelection(
-  client: OmnaraClient,
-  orgId: string,
-): Promise<string> {
+export async function promptProjectSelection(client: OmnaraClient, orgId: string): Promise<string> {
   const projects: Choice[] = []
   let cursor: string | undefined
   do {
