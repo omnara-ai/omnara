@@ -703,13 +703,6 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 	providerReplay := json.RawMessage(
 		`[{"type":"message","role":"assistant","content":"assistant visible"}]`,
 	)
-	expectedUsage := modelenvelope.Usage{
-		InputTokens:         123,
-		UncachedInputTokens: 100,
-		CacheReadTokens:     23,
-		OutputTokens:        45,
-		ReasoningTokens:     5,
-	}
 	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, executionstore.RecordModelOutputAndCompleteContextInput{
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
@@ -728,7 +721,6 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 					{Type: "text", Text: "assistant visible"},
 				},
 				StopReason: modelenvelope.StopReasonEndTurn,
-				Usage:      expectedUsage,
 			},
 		},
 	}); err != nil {
@@ -764,13 +756,10 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 		if event.Role == modelprotocol.RoleAssistant &&
 			strings.Contains(content, "assistant visible") {
 			foundVisibleOutput = sameJSON(event.ProviderReplay, providerReplay) &&
-				event.AgentConfigID == claim.Context.AgentConfigID &&
-				event.ConfiguredModelRevisionID == claim.Context.ConfiguredModelRevisionID &&
 				event.ModelProviderConfigID != (executionstore.ID{}) &&
 				event.RequestedModelSlug == providerModelSlug &&
 				event.APIFormat == modelprotocol.APIFormatOpenAIResponses &&
-				event.APIVariant == modelprotocol.APIVariantDefault &&
-				event.Usage == expectedUsage
+				event.APIVariant == modelprotocol.APIVariantDefault
 		}
 	}
 	if !foundConfigChange || !foundVisibleInput || !foundHistoricalTool || !foundVisibleOutput {

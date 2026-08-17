@@ -247,10 +247,6 @@ func (e AgentExecutor) executeModelStep(
 			Context:     bundle,
 			Policy:      policy,
 			ErrorSource: modelErrorSourceForClient(client),
-			Lineage: model.RequestLineage{
-				AgentConfigID:             claim.Context.AgentConfigID.String(),
-				ConfiguredModelRevisionID: claim.Context.ConfiguredModelRevisionID.String(),
-			},
 		},
 	)
 	if err != nil {

@@ -242,10 +242,6 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 						model.CapabilitiesForClient(client),
 					),
 					ErrorSource: modelErrorSourceForClient(client),
-					Lineage: model.RequestLineage{
-						AgentConfigID:             contextRow.AgentConfigID.String(),
-						ConfiguredModelRevisionID: contextRow.ConfiguredModelRevisionID.String(),
-					},
 				},
 			)
 			if prepareErr != nil {

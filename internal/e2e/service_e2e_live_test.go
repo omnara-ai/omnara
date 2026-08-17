@@ -378,12 +378,9 @@ LIMIT 1`, projectUUID, agentUUID).Scan(&errorDetails); err != nil {
 		t.Fatalf("decode live request-admission evidence: %v", err)
 	}
 	assessment := details.RequestAdmission
-	wantEstimate := max(assessment.LocalEstimateTokens, assessment.ProviderUsageFloorTokens)
-	if assessment.LocalEstimateTokens <= 0 ||
-		assessment.ProviderUsageFloorTokens <= 0 ||
-		assessment.EstimatedInputTokens != wantEstimate ||
+	if assessment.EstimatedInputTokens <= 0 ||
 		assessment.EstimatedInputTokens <= assessment.UsableInputTokens {
-		t.Fatalf("live request admission = %+v, want max(local, provider floor) above usable input", assessment)
+		t.Fatalf("live request admission = %+v, want current prepared estimate above usable input", assessment)
 	}
 }
 

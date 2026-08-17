@@ -173,7 +173,6 @@ func largestFittingCompactionRequest(
 	groups []executionstore.CompactionAtomicGroupRecord,
 	client model.Client,
 	policy model.RequestPolicy,
-	lineage model.RequestLineage,
 	errorSource string,
 ) (preparedCompactionRequest, error) {
 	candidates := safeCompactionSourceEndsWithWitness(
@@ -210,7 +209,6 @@ func largestFittingCompactionRequest(
 				Context:     bundle,
 				Policy:      policy,
 				ErrorSource: errorSource,
-				Lineage:     lineage,
 			},
 		)
 		if err != nil {

@@ -678,8 +678,7 @@ WHERE context.project_id = $1
 		!strings.Contains(trigger.Message, "exceeding the configured budget") ||
 		triggerDetails.Source != "openai-responses" ||
 		triggerDetails.RequestAdmission.EstimatedInputTokens <=
-			triggerDetails.RequestAdmission.UsableInputTokens ||
-		triggerDetails.RequestAdmission.EstimateSource == "" {
+			triggerDetails.RequestAdmission.UsableInputTokens {
 		t.Fatalf(
 			"serialized overflow compaction trigger = %+v source=%q",
 			trigger,

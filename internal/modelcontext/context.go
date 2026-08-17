@@ -70,7 +70,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 			afterSequence = checkpoint.SummarizedThroughEventSequence
 			checkpointRef = &CheckpointRef{
 				ID:                             checkpoint.ID.String(),
-				PublishedEventSequence:         checkpoint.CheckpointEventSequence,
 				SummarizedThroughEventSequence: checkpoint.SummarizedThroughEventSequence,
 				Summary:                        checkpoint.Summary,
 			}

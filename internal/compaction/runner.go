@@ -204,10 +204,6 @@ func (r Runner) run(
 		boundaryWindow.atomicGroups,
 		client,
 		policy,
-		model.RequestLineage{
-			AgentConfigID:             claim.Context.AgentConfigID.String(),
-			ConfiguredModelRevisionID: claim.Context.ConfiguredModelRevisionID.String(),
-		},
 		errorSource,
 	)
 	if err != nil {
@@ -311,10 +307,6 @@ func (r Runner) run(
 					model.CapabilitiesForClient(client),
 				),
 				ErrorSource: errorSource,
-				Lineage: model.RequestLineage{
-					AgentConfigID:             claim.Context.AgentConfigID.String(),
-					ConfiguredModelRevisionID: claim.Context.ConfiguredModelRevisionID.String(),
-				},
 			},
 		)
 		if candidateErr == nil {
