@@ -2071,7 +2071,7 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 		ctx,
 		pool,
 		input,
-		"This message was posted in a Slack thread that is already attached to this agent. It may be part of the ongoing conversation even if it does not directly mention the agent.\n\n"+
+		"This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `send_integration_message` at all.\n\n"+
 			"<@U123> (Ada) in <#CDELAY> (#delayed), thread 222.333:\n"+
 			"Files for the previous Slack message.",
 		[]bool{true, true},
