@@ -154,6 +154,10 @@ func (s *Store) CreateCronTrigger(
 	if err := lockResourceCreation(ctx, qtx, resourceCronTriggers, input.ProjectID.String()); err != nil {
 		return CronTriggerRecord{}, err
 	}
+	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
 	triggerCount, err := qtx.CountActiveCronTriggersForProject(
 		ctx,
 		dbsqlc.CountActiveCronTriggersForProjectParams{ProjectID: input.ProjectID},
@@ -161,10 +165,10 @@ func (s *Store) CreateCronTrigger(
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("count active cron triggers: %w", err)
 	}
-	if triggerCount > MaxActiveCronTriggersPerProject {
+	if triggerCount > limits.MaxActiveCronTriggersPerProject {
 		return CronTriggerRecord{}, resourceLimitExceeded(
 			"active cron triggers",
-			MaxActiveCronTriggersPerProject,
+			limits.MaxActiveCronTriggersPerProject,
 		)
 	}
 	if err := tx.Commit(ctx); err != nil {

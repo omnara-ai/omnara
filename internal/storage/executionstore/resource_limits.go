@@ -17,8 +17,6 @@ const (
 	resourceMachineDaemonTokens = "machine_daemon_tokens"
 	resourceMachinePools        = "machine_pools"
 	resourceMachines            = "machines"
-
-	MaxActiveCronTriggersPerProject = 1_000
 )
 
 func lockResourceCreation(
