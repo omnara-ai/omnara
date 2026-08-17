@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -197,5 +201,216 @@ func TestRunBoundedReconcileLimitsConcurrency(t *testing.T) {
 	}
 	if got := maxSeen.Load(); got != 3 {
 		t.Fatalf("max concurrency = %d, want 3", got)
+	}
+}
+
+type provisionRetryProvider struct {
+	provision func() (providers.ProvisionMachineResult, error)
+}
+
+func (p provisionRetryProvider) ProvisionMachine(
+	context.Context,
+	storage.ID,
+	storage.ID,
+	executionstore.MachineProvisioningConfig,
+	string,
+	map[string]string,
+) (providers.ProvisionMachineResult, error) {
+	return p.provision()
+}
+
+func (provisionRetryProvider) ProvisioningTimeout() time.Duration {
+	return time.Minute
+}
+
+func (provisionRetryProvider) PrepareProvisioning(
+	context.Context,
+	executionstore.MachineProvisioningConfig,
+) (executionstore.MachineResourceFacts, error) {
+	return executionstore.MachineResourceFacts{}, errors.New("not implemented")
+}
+
+func (provisionRetryProvider) InspectMachine(
+	context.Context,
+	storage.ID,
+	storage.ID,
+	executionstore.MachineProvisioningConfig,
+	string,
+) (string, bool, error) {
+	return "", false, errors.New("not implemented")
+}
+
+func (provisionRetryProvider) DeleteMachine(
+	context.Context,
+	storage.ID,
+	storage.ID,
+	executionstore.MachineProvisioningConfig,
+	string,
+) error {
+	return errors.New("not implemented")
+}
+
+func provisionWithRetryForTest(
+	ctx context.Context,
+	provision func() (providers.ProvisionMachineResult, error),
+) (providers.ProvisionMachineResult, error) {
+	return provisionMachineWithRetry(
+		ctx,
+		provisionRetryProvider{provision: provision},
+		storage.ID{},
+		storage.ID{},
+		executionstore.MachineProvisioningConfig{},
+		"",
+		nil,
+	)
+}
+
+func stubProvisionRetryDelays(t *testing.T) {
+	t.Helper()
+	saved := providerProvisionRetryDelays
+	providerProvisionRetryDelays = [...]time.Duration{
+		time.Millisecond,
+		time.Millisecond,
+		time.Millisecond,
+	}
+	t.Cleanup(func() {
+		providerProvisionRetryDelays = saved
+	})
+}
+
+func TestProvisionMachineWithRetrySucceedsAndPreservesObservation(t *testing.T) {
+	stubProvisionRetryDelays(t)
+	providerErr := errors.New("temporary provider failure")
+	calls := 0
+	result, err := provisionWithRetryForTest(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			switch calls {
+			case 1:
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, providerErr
+			case 2:
+				return providers.ProvisionMachineResult{}, providerErr
+			default:
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-1", SandboxURL: "https://sandbox.test/"}, nil
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("provision with retry: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("provision calls = %d, want 3", calls)
+	}
+	if result.ProviderResourceID != "resource-1" || result.SandboxURL != "https://sandbox.test/" {
+		t.Fatalf("provision result = %+v", result)
+	}
+}
+
+func TestProvisionMachineWithRetryExhaustsAttempts(t *testing.T) {
+	stubProvisionRetryDelays(t)
+	providerErr := errors.New("provider unavailable")
+	calls := 0
+	result, err := provisionWithRetryForTest(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, providerErr
+		},
+	)
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("provision error = %v, want %v", err, providerErr)
+	}
+	if calls != providerProvisionRetryAttempts {
+		t.Fatalf("provision calls = %d, want %d", calls, providerProvisionRetryAttempts)
+	}
+	if result.ProviderResourceID != "resource-1" {
+		t.Fatalf("provision result = %+v, want observed resource", result)
+	}
+}
+
+func TestProvisionMachineWithRetryPreservesProviderErrorWhenWaitExpires(t *testing.T) {
+	providerErr := errors.New("provider unavailable")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	calls := 0
+	result, err := provisionWithRetryForTest(
+		ctx,
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, providerErr
+		},
+	)
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("provision error = %v, want %v", err, providerErr)
+	}
+	if calls != 1 {
+		t.Fatalf("provision calls = %d, want 1", calls)
+	}
+	if result.ProviderResourceID != "resource-1" {
+		t.Fatalf("provision result = %+v, want observed resource", result)
+	}
+}
+
+func TestProviderProvisionRetryDelayHonorsRetryAfter(t *testing.T) {
+	providerErr := providers.WithRetryAfter(
+		errors.New("rate limited"),
+		http.Header{"Retry-After": []string{"12"}},
+	)
+	if delay := providerProvisionRetryDelay(0, providerErr); delay != 12*time.Second {
+		t.Fatalf("retry delay = %s, want 12s", delay)
+	}
+	if delay := providerProvisionRetryDelay(1, errors.New("provider unavailable")); delay != 2*time.Second {
+		t.Fatalf("retry delay = %s, want 2s", delay)
+	}
+}
+
+func TestProvisionMachineWithRetryDiscardsReplacedResource(t *testing.T) {
+	stubProvisionRetryDelays(t)
+	calls := 0
+	result, err := provisionWithRetryForTest(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			switch calls {
+			case 1:
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"},
+					errors.New("delete stale sandbox: unavailable")
+			case 2:
+				return providers.ProvisionMachineResult{}, fmt.Errorf("sandbox was deleted: %w", providers.ErrResourceReplaced)
+			default:
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-2"}, nil
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("provision after replacement: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("provision calls = %d, want 3", calls)
+	}
+	if result.ProviderResourceID != "resource-2" {
+		t.Fatalf("provision result = %+v, want replaced resource", result)
+	}
+}
+
+func TestProvisionMachineWithRetryRejectsConflictingResources(t *testing.T) {
+	stubProvisionRetryDelays(t)
+	calls := 0
+	result, err := provisionWithRetryForTest(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			if calls == 1 {
+				return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"}, errors.New("ambiguous failure")
+			}
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-2"}, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "conflicting resource ids") {
+		t.Fatalf("provision error = %v, want conflicting resource ids", err)
+	}
+	if result.ProviderResourceID != "resource-1" {
+		t.Fatalf("provision result = %+v, want first observed resource", result)
 	}
 }

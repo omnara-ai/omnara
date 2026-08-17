@@ -18,7 +18,6 @@ function installName(install: IntegrationInstall) {
   return install.provider_agent_display_name || install.provider_account_ref
 }
 
-/** Integration installs bound to one agent profile, shown in its expanded row. */
 export function AgentProfileIntegrations({
   orgId,
   projectId,
@@ -38,9 +37,6 @@ export function AgentProfileIntegrations({
 
   return (
     <div className="flex flex-col gap-2">
-      <h4 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-        Integrations
-      </h4>
       {query.isPending ? (
         <Spinner className="size-4" />
       ) : query.isError ? (
@@ -57,10 +53,10 @@ export function AgentProfileIntegrations({
           </Button>
         </div>
       ) : installs.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
+        <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
           No integrations yet.
-          {canManage && ' Use “Deploy to app” to make this profile available in an external app.'}
-        </p>
+          {canManage && ' Use “Add integration” to make this profile available in an external app.'}
+        </div>
       ) : (
         <ul className="bg-background flex flex-col divide-y rounded-md border">
           {installs.map((install) => (

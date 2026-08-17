@@ -1,5 +1,6 @@
 import { useProjectModelGrants } from '@omnara/react'
 import type { ConfiguredModelSummary } from '@omnara/sdk'
+import { useEffect } from 'react'
 
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -11,9 +12,9 @@ import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
 
 const ModelCombobox = createResourceCombobox<ConfiguredModelSummary>({
   itemKey: (model) => model.id,
-  itemLabel: (model) => model.name,
+  itemLabel: (model) => `${model.name} · ${model.provider_config}`,
   renderItem: (model) => (
-    <span className="flex min-w-0 flex-col">
+    <span className="flex min-w-0 items-baseline gap-1.5">
       <span className="truncate">{model.name}</span>
       <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
     </span>
@@ -32,11 +33,13 @@ export function AgentConfigModelField({
   projectId,
   value,
   onChange,
+  onUnavailableChange,
 }: {
   orgId: string
   projectId: string
   value: ModelSelection
   onChange: (selection: ModelSelection) => void
+  onUnavailableChange?: (unavailable: boolean) => void
 }) {
   const search = useTypeaheadSearch()
   const grantsQuery = useProjectModelGrants(orgId, projectId, {
@@ -59,6 +62,10 @@ export function AgentConfigModelField({
     listedSelected ?? completeSelection.items.map((item) => item.model).find(matchesValue) ?? null
   const displayedModels =
     selected && !models.some((model) => model.id === selected.id) ? [selected, ...models] : models
+  const unavailable = lookupEnabled && completeSelection.isComplete && selected === null
+  useEffect(() => {
+    onUnavailableChange?.(unavailable)
+  }, [onUnavailableChange, unavailable])
 
   return (
     <Field>
@@ -87,9 +94,14 @@ export function AgentConfigModelField({
         }
         disabled={grantsQuery.isError || selectedQuery.isError}
       />
-      {selected && <p className="text-muted-foreground text-xs">{selected.provider_config}</p>}
       <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider name" />
       <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
+      {unavailable && (
+        <p className="text-destructive text-sm">
+          The configured model “{value.modelName}” ({value.providerConfig}) is no longer available
+          to the project. Pick another model or grant it again.
+        </p>
+      )}
       {grantsQuery.isError && (
         <p className="text-destructive text-sm">
           Could not load granted models.{' '}

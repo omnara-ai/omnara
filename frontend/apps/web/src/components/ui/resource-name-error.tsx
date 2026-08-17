@@ -5,11 +5,13 @@ export function ResourceNameFieldError({
   value,
   validate = true,
   fieldLabel,
+  showRequired = false,
 }: {
   value: string
   validate?: boolean
   fieldLabel?: string
+  showRequired?: boolean
 }) {
-  if (!validate || value === '') return null
+  if (!validate || (!showRequired && value === '')) return null
   return <FieldError>{resourceNameError(value, fieldLabel)}</FieldError>
 }

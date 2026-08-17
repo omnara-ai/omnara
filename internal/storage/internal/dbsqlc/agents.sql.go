@@ -925,6 +925,29 @@ func (q *Queries) LockAgentProfile(ctx context.Context, arg LockAgentProfilePara
 	return id, err
 }
 
+const renameAgentProfile = `-- name: RenameAgentProfile :execrows
+UPDATE agent_profiles
+SET name = $1,
+    updated_at = statement_timestamp()
+WHERE project_id = $2
+  AND id = $3
+  AND deleted_at IS NULL
+`
+
+type RenameAgentProfileParams struct {
+	Name      string
+	ProjectID uuid.UUID
+	ProfileID uuid.UUID
+}
+
+func (q *Queries) RenameAgentProfile(ctx context.Context, arg RenameAgentProfileParams) (int64, error) {
+	result, err := q.db.Exec(ctx, renameAgentProfile, arg.Name, arg.ProjectID, arg.ProfileID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const retargetAgentProfile = `-- name: RetargetAgentProfile :one
 WITH current_profile AS MATERIALIZED (
     SELECT profile.id, profile.project_id, profile.name,

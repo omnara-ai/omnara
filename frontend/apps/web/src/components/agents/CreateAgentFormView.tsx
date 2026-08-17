@@ -10,13 +10,10 @@ import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import {
-  type BasicConfigDraft,
-  createEmptyBasicConfigDraft,
-  serializeBasicConfigDraft,
-} from '@/components/agents/agentConfigBasicSerialization'
-import {
+  type AgentConfigMode,
   agentConfigModeReducer,
   initialAgentConfigModeState,
+  yamlDiverged,
 } from '@/components/agents/agentConfigModeMachine'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
@@ -27,6 +24,11 @@ import {
 } from '@/components/agents/agentTemplates'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
+import {
+  type BasicConfig,
+  createBasicConfigSession,
+  useAgentBuilderForm,
+} from '@/components/agents/useAgentBuilderForm'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -82,46 +84,57 @@ export function CreateAgentFormView({
     message: '',
     status: idle,
   }))
-  const [configDraft, setConfigDraft] = useState<BasicConfigDraft>(() =>
-    initialTemplate
-      ? {
-          ...createEmptyBasicConfigDraft(),
-          ...agentTemplateConfig(initialTemplate, catalog, defaultPool, defaultModel),
-        }
-      : createEmptyBasicConfigDraft(),
-  )
   const [appliedTemplate, setAppliedTemplate] = useState<AgentTemplate | null>(
     initialTemplate ?? null,
   )
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
   const savedProfile = useRef<SavedProfile | null>(null)
+  const [session, setSession] = useState(() => createBasicConfigSession(''))
+  const form = useAgentBuilderForm(session, initialTemplate && templateBasicConfig(initialTemplate))
+  const switchMode = (nextMode: AgentConfigMode) => {
+    if (nextMode === 'builder' && mode.editorYaml !== null) {
+      const adopted = createBasicConfigSession(mode.editorYaml)
+      if (adopted.initialDraft != null) {
+        setSession(adopted)
+        form.reset(adopted.initialDraft)
+        dispatchMode({ type: 'adopt-yaml-edits' })
+        return
+      }
+    }
+    dispatchMode({ type: 'switch-mode', mode: nextMode })
+  }
 
-  if (project == null) return null
+  function templateBasicConfig(template: AgentTemplate): BasicConfig {
+    return {
+      mcpServers: [],
+      skillIds: [],
+      ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
+    }
+  }
 
   function applyTemplate(template: AgentTemplate) {
-    setConfigDraft((prev) => {
-      const next = {
-        ...createEmptyBasicConfigDraft(),
-        ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
-      }
-      // Keep a model the user already picked; templates only fill the gap.
-      if (prev.providerConfig !== '' && prev.modelName !== '') {
-        next.providerConfig = prev.providerConfig
-        next.modelName = prev.modelName
-      }
-      return next
-    })
+    const next = templateBasicConfig(template)
+    // Keep a model the user already picked; templates only fill the gap.
+    if (form.model.providerConfig !== '' && form.model.modelName !== '') {
+      next.providerConfig = form.model.providerConfig
+      next.modelName = form.model.modelName
+    }
+    form.reset(next)
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
     setAppliedTemplate(template)
   }
 
+  if (project == null) return null
+
   const showBuilder = mode.mode === 'builder'
-  const builderYaml = serializeBasicConfigDraft(configDraft)
-  const editorYaml = mode.editorYaml ?? builderYaml
-  const yaml = showBuilder ? builderYaml : editorYaml
   const isSubmitting = draft.status.phase === 'submitting'
   const errorMessage = statusError(draft.status)
-  const canSubmit = !isSubmitting && resourceNameValid(draft.name) && yaml.trim() !== ''
+  const yaml = mode.editorYaml ?? form.yaml
+  const canSubmit =
+    !isSubmitting &&
+    resourceNameValid(draft.name) &&
+    yaml.trim() !== '' &&
+    !(form.blocked && (showBuilder || !yamlDiverged(mode)))
 
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
@@ -197,9 +210,7 @@ export function CreateAgentFormView({
           {showBuilder && <AgentTemplateMenu disabled={!templatesReady} onApply={applyTemplate} />}
           <PillTabs
             value={mode.mode}
-            onValueChange={(nextMode) => {
-              dispatchMode({ type: 'switch-mode', mode: nextMode })
-            }}
+            onValueChange={switchMode}
             tabs={[
               { value: 'builder', label: 'Builder' },
               { value: 'yaml', label: 'YAML' },
@@ -225,20 +236,15 @@ export function CreateAgentFormView({
           <ResourceNameFieldError value={draft.name} />
         </Field>
         <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
-          <AgentConfigBasicForm
-            orgId={activeOrg.id}
-            projectId={projectId}
-            value={configDraft}
-            onChange={setConfigDraft}
-          />
+          <AgentConfigBasicForm orgId={activeOrg.id} projectId={projectId} form={form} />
         </div>
         {!showBuilder && (
           <AgentConfigYamlField
             id="agent-yaml"
-            value={editorYaml}
+            value={yaml}
             className="h-[28rem]"
             onChange={(value) => {
-              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml })
+              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml: form.yaml })
             }}
           />
         )}
@@ -256,6 +262,7 @@ export function CreateAgentFormView({
           />
         </Field>
       </FieldGroup>
+      {/* -bottom-6 offsets the scroll container's p-6 so the bar sits flush with the viewport edge. */}
       <div className="bg-background sticky -bottom-6 z-10 -mb-6 flex items-center justify-between gap-4 border-t py-4">
         <Button
           type="button"

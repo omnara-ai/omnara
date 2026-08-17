@@ -20,6 +20,7 @@ var (
 	userMentionPattern      = regexp.MustCompile(`<@([^>|]+)(?:\|([^>]+))?>`)
 	channelMentionPattern   = regexp.MustCompile(`<#([^>|]+)(?:\|([^>]+))?>`)
 	broadcastMentionPattern = regexp.MustCompile(`<!((?:here|channel|everyone))(?:\|[^>]*)?>`)
+	slackTextEntityReplacer = strings.NewReplacer("&amp;", "&", "&lt;", "<", "&gt;", ">")
 )
 
 type Identity struct {
@@ -466,7 +467,7 @@ func routeThreadTS(route InboundRoute) string {
 func modelVisibleContext(event Event, route InboundRoute, newlyMapped bool) string {
 	switch {
 	case route.AppendOnly:
-		return "This message was posted in a Slack thread that is already attached to this agent. It may be part of the ongoing conversation even if it does not directly mention the agent."
+		return "This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `send_integration_message` at all."
 	case event.Type == "app_mention" && event.ThreadTS != "" && event.ThreadTS != event.TS:
 		if newlyMapped {
 			return "This message directly mentioned the agent inside an existing Slack thread."
@@ -539,13 +540,14 @@ func (labels DisplayLabels) renderText(text string, includeIDs bool) string {
 		}
 		return raw
 	})
-	return broadcastMentionPattern.ReplaceAllStringFunc(text, func(raw string) string {
+	text = broadcastMentionPattern.ReplaceAllStringFunc(text, func(raw string) string {
 		match := broadcastMentionPattern.FindStringSubmatch(raw)
 		if len(match) < 2 {
 			return raw
 		}
 		return "@" + match[1]
 	})
+	return slackTextEntityReplacer.Replace(text)
 }
 
 func userReference(userID, displayName string) string {

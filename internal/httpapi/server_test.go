@@ -1190,6 +1190,13 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 			want:   http.StatusForbidden,
 		},
 		{
+			name:   "rename agent profile route exact match",
+			method: http.MethodPatch,
+			path:   "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/agent-profiles/" + agentProfilePath,
+			body:   `{}`,
+			want:   http.StatusForbidden,
+		},
+		{
 			name:   "slack setup route exact match",
 			method: http.MethodPost,
 			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/agent-profiles/" + agentProfilePath +

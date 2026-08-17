@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -164,22 +165,6 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	}
 	if got := doc.Components.Schemas["SkillName"].MaxLength; got != 64 {
 		t.Fatalf("SkillName maxLength = %d, want 64", got)
-	}
-	organizationName := openAPIPropertySchema(
-		t,
-		doc.Components.Schemas["CreateOrganizationRequest"].Properties,
-		"name",
-	)
-	if got := organizationName["$ref"]; got != "#/components/schemas/ResourceName" {
-		t.Fatalf("CreateOrganizationRequest name schema = %v, want ResourceName", got)
-	}
-	organizationResponseName := openAPIPropertySchema(
-		t,
-		doc.Components.Schemas["Organization"].Properties,
-		"name",
-	)
-	if got := organizationResponseName["$ref"]; got != "#/components/schemas/ResourceNameResponse" {
-		t.Fatalf("Organization name schema = %v, want ResourceNameResponse", got)
 	}
 	if got := doc.Components.Schemas["ResourceNameResponse"].MaxLength; got != 0 {
 		t.Fatalf("ResourceNameResponse maxLength = %d, want no response cap", got)
@@ -366,6 +351,134 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]any `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(openapispec.YAML, &doc); err != nil {
+		t.Fatalf("parse checked-in openapi spec: %v", err)
+	}
+
+	propertiesByRef := map[string][]string{
+		"#/components/schemas/ResourceName": {
+			"ConnectBYOMachineRequest.display_name",
+			"CreateAgentProfileRequest.name",
+			"CreateConfiguredModelRequest.name",
+			"CreateMachinePoolRequestBase.name",
+			"CreateMachineRequest.display_name",
+			"CreateModelProviderConfigRequest.name",
+			"CreateOrgAPIKeyRequest.name",
+			"CreateOrganizationRequest.name",
+			"CreatePersonalAccessTokenRequest.name",
+			"CreateProjectRequest.name",
+			"CreateSecretRequest.name",
+			"MCPOAuthStartRequest.name",
+			"RenameAgentProfileRequest.name",
+			"UpdateConfiguredModelRequest.name",
+			"UpdateMachinePoolRequest.name",
+			"UpdateOrgAPIKeyRequest.name",
+			"UpdateSecretRequest.name",
+		},
+		"#/components/schemas/DefaultableResourceName": {
+			"CreateAgentRequest.name",
+			"CreateMachineDaemonTokenRequest.name",
+		},
+		"#/components/schemas/ResourceNameResponse": {
+			"Agent.name",
+			"AgentConfigModel.name",
+			"AgentConfigModel.provider_config",
+			"AgentModel.name",
+			"AgentModel.provider_config",
+			"AgentProfile.name",
+			"ConfiguredModel.name",
+			"ConfiguredModelSummary.name",
+			"ConfiguredModelSummary.provider_config",
+			"CurrentUserOrg.name",
+			"Machine.display_name",
+			"MachineDaemonToken.name",
+			"MachinePool.name",
+			"MachinePoolSummary.name",
+			"MachineSummaryFields.display_name",
+			"ModelProviderConfig.name",
+			"OrgAPIKey.name",
+			"Organization.name",
+			"OrgInvitation.org_name",
+			"PersonalAccessToken.name",
+			"ProjectFields.name",
+			"ProjectMembershipGrant.project_name",
+			"Secret.name",
+		},
+		"#/components/schemas/SkillName": {
+			"Skill.name",
+		},
+		"": {
+			"Actor.display_name",
+			"CreateMachinePoolRequestBase.provider_config",
+			"CreateSlackSetupRequest.app_name",
+			"CurrentUserIdentity.display_name",
+			"DiscoveredProviderModel.display_name",
+			"ExternalActorParams.display_name",
+			"IntegrationInstall.provider_agent_display_name",
+			"IntegrationTarget.display_name",
+			"MachinePool.provider_config",
+			"ModelOutputToolUseStreamBlock.tool_name",
+			"ModelToolCallContentBlock.name",
+			"OrgMember.display_name",
+			"ToolCall.name",
+			"ToolCatalogEntry.name",
+			"ToolPermissionMode.name",
+			"UpdateMachinePoolRequest.provider_config",
+		},
+	}
+
+	expectedRefs := make(map[string]string)
+	for ref, properties := range propertiesByRef {
+		for _, property := range properties {
+			if _, exists := expectedRefs[property]; exists {
+				t.Fatalf("duplicate name contract for %s", property)
+			}
+			expectedRefs[property] = ref
+		}
+	}
+
+	var failures []string
+	for schemaName, schema := range doc.Components.Schemas {
+		for propertyName := range schema.Properties {
+			if !openAPINameProperty(propertyName) {
+				continue
+			}
+			key := schemaName + "." + propertyName
+			expectedRef, ok := expectedRefs[key]
+			if !ok {
+				failures = append(failures, key+": name contract is not classified")
+				continue
+			}
+			property := openAPIPropertySchema(t, schema.Properties, propertyName)
+			actualRef, _ := property["$ref"].(string)
+			if actualRef != expectedRef {
+				failures = append(failures, fmt.Sprintf("%s: $ref = %q, want %q", key, actualRef, expectedRef))
+			}
+			delete(expectedRefs, key)
+		}
+	}
+	for property := range expectedRefs {
+		failures = append(failures, property+": classified name property does not exist")
+	}
+	slices.Sort(failures)
+	if len(failures) > 0 {
+		t.Fatalf("OpenAPI name contracts are incomplete:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func openAPINameProperty(property string) bool {
+	return property == "name" || property == "display_name" || property == "provider_config" ||
+		strings.HasSuffix(property, "_name")
 }
 
 func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {

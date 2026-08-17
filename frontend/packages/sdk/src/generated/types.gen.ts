@@ -817,6 +817,15 @@ export type CreateAgentConfigRequest = {
     source_format: 'yaml' | 'json';
 };
 
+/**
+ * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
+ */
+export type UpdateAgentConfigRequest = {
+    source: string;
+    source_format: 'yaml' | 'json';
+    expected_current_config_id?: AgentConfigId;
+};
+
 export type ToolPermissionSelection = {
     mode: string;
     parameters: {
@@ -909,6 +918,10 @@ export type UpdateAgentProfileRequest = {
     expected_current_config_id: AgentConfigId;
 };
 
+export type RenameAgentProfileRequest = {
+    name: ResourceName;
+};
+
 export type AgentProfile = {
     id: AgentProfileId;
     org_id: OrganizationId;
@@ -970,8 +983,30 @@ export type IntegrationTarget = {
     provider_uri?: string;
 };
 
+export type AgentMcpConnection = {
+    server_key: string;
+    endpoint_url: string;
+    state: 'initializing' | 'ready' | 'failed' | 'expired';
+    protocol_version?: string;
+    initialize_error: string;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
+export type CurrentAgentResponse = {
+    agent: Agent;
+};
+
 export type GetAgentResponse = {
     agent: Agent;
+    /**
+     * Machines currently attached to the agent, in binding creation order.
+     */
+    machine_ids: Array<MachineId>;
+    /**
+     * The agent's MCP server connections, ordered by server key.
+     */
+    mcp_connections: Array<AgentMcpConnection>;
 };
 
 export type ListAgentsResponse = {
@@ -1149,6 +1184,19 @@ export type AgentMachineBinding = {
     };
     created_at: Timestamp;
     updated_at: Timestamp;
+};
+
+/**
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ */
+export type MachineFailureReport = {
+    stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
+    exit_status?: number;
+    output_tail: string;
+    output_truncated: boolean;
+    daemon_version?: string;
+    target_version?: string;
+    reported_at: Timestamp;
 };
 
 export type LaunchAgentResponse = {
@@ -1895,7 +1943,7 @@ export type OrganizationMembership = {
 export type OrgInvitation = {
     id: OrgInvitationId;
     org_id: OrganizationId;
-    org_name: string;
+    org_name: ResourceNameResponse;
     email: string;
     org_role: string;
     created_at: Timestamp;
@@ -2182,6 +2230,7 @@ export type Machine = {
     };
     lifecycle_reason_code: string;
     lifecycle_reason_message: string;
+    failure_report?: MachineFailureReport;
     next_reconcile_after: Timestamp | null;
     provision_attempts: number;
     delete_attempts: number;
@@ -6973,6 +7022,75 @@ export type GetAgentProfileResponses = {
 
 export type GetAgentProfileResponse = GetAgentProfileResponses[keyof GetAgentProfileResponses];
 
+export type RenameAgentProfileData = {
+    body: RenameAgentProfileRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+        agentProfileID: string;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}';
+};
+
+export type RenameAgentProfileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type RenameAgentProfileError = RenameAgentProfileErrors[keyof RenameAgentProfileErrors];
+
+export type RenameAgentProfileResponses = {
+    /**
+     * Agent profile renamed.
+     */
+    200: AgentProfile;
+};
+
+export type RenameAgentProfileResponse = RenameAgentProfileResponses[keyof RenameAgentProfileResponses];
+
 export type UpdateAgentProfileData = {
     body: UpdateAgentProfileRequest;
     headers?: {
@@ -7337,7 +7455,7 @@ export type CreateAgentResponses = {
     /**
      * Current state of the previously created agent.
      */
-    200: GetAgentResponse;
+    200: CurrentAgentResponse;
     /**
      * Agent launched.
      */
@@ -7475,13 +7593,13 @@ export type ArchiveAgentResponses = {
     /**
      * The archived agent.
      */
-    200: GetAgentResponse;
+    200: CurrentAgentResponse;
 };
 
 export type ArchiveAgentResponse = ArchiveAgentResponses[keyof ArchiveAgentResponses];
 
 export type UpdateAgentConfigData = {
-    body: CreateAgentConfigRequest;
+    body: UpdateAgentConfigRequest;
     headers?: {
         /**
          * Idempotency key for replay-safe mutating requests.
