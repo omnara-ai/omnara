@@ -60,14 +60,16 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
-func TestResourceNameMigrationGrandfathersLegacyRows(t *testing.T) {
+func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	pool, _ := openPostgresMigrationTestDB(t, ctx)
-	if _, err := pool.Exec(ctx, `ALTER TABLE orgs DISABLE TRIGGER orgs_name_policy`); err != nil {
-		t.Fatalf("disable resource-name trigger: %v", err)
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 19)); err != nil {
+		t.Fatalf("apply migrations before resource-name policy: %v", err)
 	}
 	var orgID string
 	if err := pool.QueryRow(
@@ -78,21 +80,17 @@ func TestResourceNameMigrationGrandfathersLegacyRows(t *testing.T) {
 	).Scan(&orgID); err != nil {
 		t.Fatalf("insert simulated legacy organization: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE orgs ENABLE TRIGGER orgs_name_policy`); err != nil {
-		t.Fatalf("enable resource-name trigger: %v", err)
+	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err == nil {
+		t.Fatal("resource-name migration accepted invalid existing organization")
 	}
-
-	if _, err := pool.Exec(ctx, `UPDATE orgs SET updated_at = now() WHERE id = $1`, orgID); err != nil {
-		t.Fatalf("unrelated legacy-row update: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = name WHERE id = $1`, orgID); err != nil {
-		t.Fatalf("unchanged legacy name update: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = ' still invalid ' WHERE id = $1`, orgID); err == nil {
-		t.Fatal("changed invalid legacy name succeeded")
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 19 {
+		t.Fatalf("migration version after rejected resource name = %d, want 19", got)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
-		t.Fatalf("repair legacy name: %v", err)
+		t.Fatalf("repair organization name: %v", err)
+	}
+	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+		t.Fatalf("apply resource-name migration after repair: %v", err)
 	}
 	if _, err := pool.Exec(
 		ctx,
