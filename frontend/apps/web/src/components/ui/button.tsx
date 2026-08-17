@@ -47,15 +47,27 @@ function Button({
       ) : (
         <>
           {/* Translation tools may rewrite label contents, so only toggle attributes on these slots. */}
-          <span data-slot="button-loading-icon" aria-hidden="true" hidden={!loading}>
+          <span
+            data-slot="button-loading-icon"
+            className="inline-flex shrink-0 items-center justify-center"
+            aria-hidden="true"
+            hidden={!loading}
+          >
             <Spinner />
           </span>
           {icon !== undefined && (
-            <span data-slot="button-icon" aria-hidden="true" hidden={loading}>
+            <span
+              data-slot="button-icon"
+              className="inline-flex shrink-0 items-center justify-center"
+              aria-hidden="true"
+              hidden={loading}
+            >
               {icon}
             </span>
           )}
-          <span data-slot="button-label">{children}</span>
+          <span data-slot="button-label" className="empty:hidden">
+            {children}
+          </span>
         </>
       )}
     </button>
