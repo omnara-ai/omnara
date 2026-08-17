@@ -46,6 +46,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Context,
 		input.Policy.CacheRetention,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
+		input.Policy.SuppressProviderReplay,
 	)
 	if err != nil {
 		return nil, err
@@ -169,6 +170,7 @@ func buildMessages(
 	bundle modelcontext.Bundle,
 	retention model.CacheRetention,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
+	suppressProviderReplay bool,
 ) ([]message, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -197,6 +199,7 @@ func buildMessages(
 				entry.AssistantContent,
 				entry.ToolResults,
 				replayIdentity,
+				suppressProviderReplay,
 				usedIDs,
 			)
 			if buildErr != nil {
@@ -355,15 +358,18 @@ func assistantTurnForEntry(
 	content []modelcontext.AssistantContentEntry,
 	group []modelcontext.ToolResultRef,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
+	suppressProviderReplay bool,
 	usedIDs map[string]bool,
 ) ([]any, map[string]string, error) {
-	if blocks, toolUseIDs, ok := completeAnthropicReplay(
-		source,
-		content,
-		replayIdentity,
-		usedIDs,
-	); ok {
-		return blocks, toolUseIDs, nil
+	if !suppressProviderReplay {
+		if blocks, toolUseIDs, ok := completeAnthropicReplay(
+			source,
+			content,
+			replayIdentity,
+			usedIDs,
+		); ok {
+			return blocks, toolUseIDs, nil
+		}
 	}
 	blocks := make([]any, 0, len(content))
 	toolUseIDs := make(map[string]string, len(group))

@@ -867,3 +867,64 @@ func TestPrepareReplaysReasoningOnlyAssistantWithValidContentAndCanonicalRole(t 
 		t.Fatalf("reasoning-only assistant replay is invalid: %s", prepared.Body)
 	}
 }
+
+func TestPrepareSuppressesRejectedReplayAndRebuildsCanonicalToolExchange(t *testing.T) {
+	replay := testProviderReplay(
+		"gpt-test",
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIVariantDefault,
+		json.RawMessage(`{
+			"role":"assistant",
+			"reasoning_content":"private reasoning",
+			"content":"visible reply",
+			"tool_calls":[{
+				"id":"call_1",
+				"type":"function",
+				"function":{"name":"run_command","arguments":"{\"command\":\"true\"}"}
+			}]
+		}`),
+	)
+	message := withToolCallLinks(modelcontext.Message{
+		Sequence:           1,
+		Role:               modelprotocol.RoleAssistant,
+		ModelCallContextID: "mcc_1",
+		Content: json.RawMessage(`[
+			{"type":"reasoning","text":"private reasoning"},
+			{"type":"text","text":"visible reply"}
+		]`),
+		ProviderReplay:       replay.payload,
+		ProviderReplaySource: replay.source,
+	}, "tcl_1")
+	prepared, err := (Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "gpt-test",
+	}).Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{message},
+			ToolResults: []modelcontext.ToolResultRef{{
+				ToolCallID:         "tcl_1",
+				ModelCallContextID: "mcc_1",
+				ProviderCallID:     "call_1",
+				Name:               "run_command",
+				Input:              json.RawMessage(`{"command":"true"}`),
+				ContentParts:       json.RawMessage(`[{"type":"text","text":"done"}]`),
+			}},
+		},
+		Policy: model.RequestPolicy{SuppressProviderReplay: true},
+	})
+	if err != nil {
+		t.Fatalf("prepare with replay suppressed: %v", err)
+	}
+	body := string(prepared.Body)
+	if strings.Contains(body, "private reasoning") ||
+		strings.Contains(body, "reasoning_content") {
+		t.Fatalf("suppressed replay leaked provider-only reasoning: %s", body)
+	}
+	if !strings.Contains(body, "visible reply") ||
+		!strings.Contains(body, `"id":"call_1"`) ||
+		!strings.Contains(body, `"tool_call_id":"call_1"`) ||
+		!strings.Contains(body, "done") {
+		t.Fatalf("canonical tool exchange was not preserved: %s", body)
+	}
+}

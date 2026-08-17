@@ -36,6 +36,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	messages, err := buildMessages(
 		input.Context,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
+		input.Policy.SuppressProviderReplay,
 	)
 	if err != nil {
 		return nil, err
@@ -178,6 +179,7 @@ type chatFunction struct {
 func buildMessages(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
+	suppressProviderReplay bool,
 ) ([]chatMessage, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -214,6 +216,7 @@ func buildMessages(
 				entry.AssistantContent,
 				entry.ToolResults,
 				replayIdentity,
+				suppressProviderReplay,
 			)
 			if buildErr != nil {
 				return nil, buildErr
@@ -301,9 +304,12 @@ func assistantMessagesForEntry(
 	content []modelcontext.AssistantContentEntry,
 	group []modelcontext.ToolResultRef,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
+	suppressProviderReplay bool,
 ) ([]chatMessage, error) {
-	if replay, ok := completeChatReplay(source, content, replayIdentity); ok {
-		return appendToolResultMessages([]chatMessage{replay}, group), nil
+	if !suppressProviderReplay {
+		if replay, ok := completeChatReplay(source, content, replayIdentity); ok {
+			return appendToolResultMessages([]chatMessage{replay}, group), nil
+		}
 	}
 	contentParts := make([]json.RawMessage, 0, len(content))
 	for _, entry := range content {
