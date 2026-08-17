@@ -21,7 +21,7 @@ import { builtInToolsets } from './builtInTools'
 
 export interface BasicTool {
   name: string
-  permission: ToolPermissionSelection
+  permission: ToolPermissionSelection | null
 }
 
 export function AgentConfigToolsField({
@@ -146,7 +146,7 @@ export function AgentConfigToolsField({
                 <span className="min-w-0 flex-1 truncate font-mono text-sm">{tool.name}</span>
                 <PermissionModeSelect
                   entry={entry}
-                  value={tool.permission.mode}
+                  value={tool.permission?.mode ?? entry?.default_permission.mode ?? ''}
                   onChange={(mode) => {
                     onToolsChange(
                       tools.map((currentTool) =>

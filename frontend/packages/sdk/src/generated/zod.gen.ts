@@ -596,6 +596,15 @@ export const zCreateAgentConfigRequest = z.object({
     source_format: z.enum(['yaml', 'json'])
 });
 
+/**
+ * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
+ */
+export const zUpdateAgentConfigRequest = z.object({
+    source: z.string().min(1),
+    source_format: z.enum(['yaml', 'json']),
+    expected_current_config_id: zAgentConfigId.optional()
+});
+
 export const zToolPermissionSelection = z.object({
     mode: z.string(),
     parameters: z.record(z.string(), z.unknown())
@@ -669,6 +678,10 @@ export const zUpdateAgentProfileRequest = z.object({
     expected_current_config_id: zAgentConfigId
 });
 
+export const zRenameAgentProfileRequest = z.object({
+    name: z.string()
+});
+
 export const zAgentProfile = z.object({
     id: zAgentProfileId,
     org_id: zOrganizationId,
@@ -721,8 +734,29 @@ export const zAgent = z.object({
     archived_at: zTimestamp.optional()
 });
 
-export const zGetAgentResponse = z.object({
+export const zAgentMcpConnection = z.object({
+    server_key: z.string(),
+    endpoint_url: z.string(),
+    state: z.enum([
+        'initializing',
+        'ready',
+        'failed',
+        'expired'
+    ]),
+    protocol_version: z.string().optional(),
+    initialize_error: z.string(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
+export const zCurrentAgentResponse = z.object({
     agent: zAgent
+});
+
+export const zGetAgentResponse = z.object({
+    agent: zAgent,
+    machine_ids: z.array(zMachineId),
+    mcp_connections: z.array(zAgentMcpConnection)
 });
 
 export const zListAgentsResponse = z.object({
@@ -803,6 +837,25 @@ export const zAgentMachineBinding = z.object({
     secret_env_overlay: z.record(z.string(), zSecretId.nullable()),
     created_at: zTimestamp,
     updated_at: zTimestamp
+});
+
+/**
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ */
+export const zMachineFailureReport = z.object({
+    stage: z.enum([
+        'startup_script',
+        'daemon_install',
+        'daemon_update',
+        'daemon_uninstall',
+        'daemon_uninstalled'
+    ]),
+    exit_status: z.int().optional(),
+    output_tail: z.string(),
+    output_truncated: z.boolean(),
+    daemon_version: z.string().optional(),
+    target_version: z.string().optional(),
+    reported_at: zTimestamp
 });
 
 /**
@@ -1795,6 +1848,7 @@ export const zMachine = z.object({
     secret_env: z.record(z.string(), zSecretId),
     lifecycle_reason_code: z.string(),
     lifecycle_reason_message: z.string(),
+    failure_report: zMachineFailureReport.optional(),
     next_reconcile_after: zTimestamp.nullable(),
     provision_attempts: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     delete_attempts: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -2615,6 +2669,11 @@ export const zDeleteAgentProfileResponse = z.void();
 export const zGetAgentProfileResponse = zAgentProfile;
 
 /**
+ * Agent profile renamed.
+ */
+export const zRenameAgentProfileResponse = zAgentProfile;
+
+/**
  * Agent profile updated.
  */
 export const zUpdateAgentProfileResponse = zAgentProfile;
@@ -2635,7 +2694,7 @@ export const zCreateSlackSetupResponse = zSlackSetup;
 export const zListAgentsResponse2 = zListAgentsResponse;
 
 export const zCreateAgentResponse = z.union([
-    zGetAgentResponse,
+    zCurrentAgentResponse,
     zLaunchAgentResponse
 ]);
 
@@ -2647,7 +2706,7 @@ export const zGetAgentResponse2 = zGetAgentResponse;
 /**
  * The archived agent.
  */
-export const zArchiveAgentResponse = zGetAgentResponse;
+export const zArchiveAgentResponse = zCurrentAgentResponse;
 
 /**
  * Agent config updated.

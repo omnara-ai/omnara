@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -325,6 +326,14 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 	if err := json.Unmarshal(record.SecretEnv, &secretEnv); err != nil {
 		return openapi.Machine{}, err
 	}
+	var failureReport *openapi.MachineFailureReport
+	if len(record.FailureReport) > 0 && string(record.FailureReport) != "null" {
+		var report openapi.MachineFailureReport
+		if err := json.Unmarshal(record.FailureReport, &report); err != nil {
+			return openapi.Machine{}, fmt.Errorf("decode machine failure report: %w", err)
+		}
+		failureReport = &report
+	}
 	return openapi.Machine{
 		Id:                     id,
 		OrgId:                  orgID,
@@ -342,6 +351,7 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 		SecretEnv:              secretEnv,
 		LifecycleReasonCode:    record.LifecycleReasonCode,
 		LifecycleReasonMessage: record.LifecycleReasonMessage,
+		FailureReport:          failureReport,
 		NextReconcileAfter:     nullableFromPtr(record.NextReconcileAfter),
 		ProvisionAttempts:      record.ProvisionAttempts,
 		DeleteAttempts:         record.DeleteAttempts,

@@ -377,6 +377,14 @@ JOIN new_version version
  AND version.profile_id = profile.id
  AND version.id = profile.current_version_id;
 
+-- name: RenameAgentProfile :execrows
+UPDATE agent_profiles
+SET name = sqlc.arg(name),
+    updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(profile_id)
+  AND deleted_at IS NULL;
+
 -- name: DeleteAgentProfile :execrows
 UPDATE agent_profiles
 SET deleted_at = statement_timestamp(),
