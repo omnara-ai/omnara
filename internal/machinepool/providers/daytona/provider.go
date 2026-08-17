@@ -197,8 +197,9 @@ func (p *provider) ProvisionMachine(
 				return result, err
 			}
 			return providers.ProvisionMachineResult{}, fmt.Errorf(
-				"daytona sandbox %q was deleted; provisioning must be retried",
+				"daytona sandbox %q was deleted; provisioning must be retried: %w",
 				name,
+				providers.ErrResourceReplaced,
 			)
 		}
 		select {

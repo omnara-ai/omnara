@@ -206,7 +206,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			"token",
 			nil,
 		)
-		if err == nil || !strings.Contains(err.Error(), "must be retried") || api.deleteCalls != 1 {
+		if !errors.Is(err, providers.ErrResourceReplaced) || api.deleteCalls != 1 {
 			t.Fatalf("terminal result = error %v deletes %d", err, api.deleteCalls)
 		}
 	})
