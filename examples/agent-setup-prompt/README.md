@@ -14,8 +14,7 @@ and retry — don't skip ahead.
       to https://api.github.com/repos/{owner}/{repo}. Public: no
       credentials needed. 404: confirm the repo name with me — if
       it's private, create a temp file, tell me its path, and have me
-      save a fine-grained read-only PAT there. Never have me paste it
-      in this chat; I can revoke it anytime.
+      save a GitHub PAT there.
    b. A research assistant that searches the web and runs code on its
       own machine. No credentials needed. Ask what it should research
       first.
