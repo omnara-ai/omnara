@@ -96,7 +96,6 @@ func classifyProviderError(
 	code := providerErr.codeText()
 	providerStatus := providererrors.StatusCode(providerErr.Code)
 	effectiveStatus := providererrors.EffectiveStatusCode(statusCode, providerStatus)
-	classificationMessage := message
 	classificationValues := providerErr.classificationValues()
 	refineFromRaw := apiVariant == modelprotocol.APIVariantOpenRouter &&
 		genericProviderErrorMessage(message) &&
@@ -104,7 +103,6 @@ func classifyProviderError(
 	if refineFromRaw {
 		if rawError, ok := providerErr.rawError(); ok {
 			if rawMessage := strings.TrimSpace(rawError.Message); rawMessage != "" {
-				classificationMessage = rawMessage
 				message = rawMessage
 			}
 			classificationValues = append(classificationValues, rawError.classificationValues()...)
@@ -116,7 +114,7 @@ func classifyProviderError(
 	kind := providererrors.Classify(
 		statusCode,
 		providerStatus,
-		classificationMessage,
+		message,
 		classificationValues...,
 	)
 	return model.ProviderError{
