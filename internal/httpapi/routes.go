@@ -81,5 +81,6 @@ func openAPIErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	apierror.Write(w, openapi.ErrorCodeNotFound)
 }

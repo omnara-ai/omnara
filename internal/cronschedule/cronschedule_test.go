@@ -81,11 +81,86 @@ func TestRenderMessageBoundsPrintf(t *testing.T) {
 		`{{ printf "%.1000000000f" 1.0 }}`,
 		`{{ printf "%01000000000d" 1 }}`,
 		`{{ printf "%*s" 1000000000 "" }}`,
+		`{{ printf "%[2]*[1]s" "" 1000 }}`,
+		`{{ printf "%.[2]*[1]f" 1.0 1000 }}`,
+		`{{ printf "%[1]999999d" 1 }}`,
+		`{{ printf "%999999[1]d" 1 }}`,
+		`{{ printf "%[1]s" "sample" }}`,
+		`{{ printf "%[1]s%[1]s" "sample" }}`,
 	}
 	for _, messageTemplate := range rejected {
 		if _, err := RenderMessage(messageTemplate, data); err == nil {
 			t.Fatalf("expected printf bomb to be rejected: %s", messageTemplate)
 		}
+	}
+}
+
+func TestRenderMessageAllowsLiteralPrintfStarsAndBrackets(t *testing.T) {
+	rendered, err := RenderMessage(
+		`{{ printf "[%s] 2 * 3 = %d %%[1]*" .trigger.name 6 }}`,
+		MessageData("sample", time.Time{}, nil),
+	)
+	if err != nil {
+		t.Fatalf("render literals in printf format: %v", err)
+	}
+	if rendered != "[sample] 2 * 3 = 6 %[1]*" {
+		t.Fatalf("rendered = %q", rendered)
+	}
+}
+
+func TestRenderMessageBoundsCumulativePrintfWork(t *testing.T) {
+	format := strings.Repeat("%1024s", maxRenderedMessageBytes/1024+1)
+	if err := validatePrintfFormat(format); err == nil {
+		t.Fatal("expected cumulative printf widths to be rejected")
+	}
+
+	precisionFormat := strings.Repeat("%.1024f", maxRenderedMessageBytes/1024+1)
+	if err := validatePrintfFormat(precisionFormat); err == nil {
+		t.Fatal("expected cumulative printf precisions to be rejected")
+	}
+}
+
+func TestBoundedFormatFuncRejectsAmplifiedArgumentsBeforeFormatting(t *testing.T) {
+	called := false
+	bounded := boundedFormatFunc(func(...any) string {
+		called = true
+		return ""
+	})
+	_, err := bounded(strings.Repeat("a", maxRenderedMessageBytes), "b")
+	if err == nil {
+		t.Fatal("expected amplified formatting arguments to be rejected")
+	}
+	if called {
+		t.Fatal("formatter was called before its arguments were bounded")
+	}
+}
+
+func TestRenderMessageBoundsBuiltinEscapers(t *testing.T) {
+	data := MessageData("sample", time.Time{}, nil)
+	for _, function := range []string{"html", "js", "urlquery"} {
+		messageTemplate := `{{ $a := printf "%1000s" "" }}{{ ` + function + ` ` +
+			strings.Repeat("$a ", 70) + `}}`
+		if _, err := RenderMessage(messageTemplate, data); err == nil {
+			t.Fatalf("expected amplified %s output to be rejected", function)
+		}
+	}
+}
+
+func TestRenderMessageRejectsTemplateInvocations(t *testing.T) {
+	messageTemplate := `{{ define "loop" }}{{ template "loop" }}{{ end }}` +
+		`{{ template "loop" }}`
+	if _, err := RenderMessage(
+		messageTemplate,
+		MessageData("sample", time.Time{}, nil),
+	); err == nil || !strings.Contains(err.Error(), "template invocations are not supported") {
+		t.Fatal("expected recursive template invocation to be rejected")
+	}
+
+	if _, err := RenderMessage(
+		`{{ block "message" . }}hello{{ end }}`,
+		MessageData("sample", time.Time{}, nil),
+	); err == nil || !strings.Contains(err.Error(), "template invocations are not supported") {
+		t.Fatal("expected block invocation to be rejected")
 	}
 }
 

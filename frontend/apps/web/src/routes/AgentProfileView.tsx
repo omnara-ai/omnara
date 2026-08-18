@@ -8,6 +8,7 @@ import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfig
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
 import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
 import { AgentsTable } from '@/components/agents/AgentsSection'
+import { CreateCronTriggerDialog, CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
@@ -18,7 +19,7 @@ import { formatDateTime } from '@/lib/format'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
-type ProfileTab = 'configuration' | 'integrations' | 'agents'
+type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents'
 
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
@@ -38,6 +39,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
 
   const [tab, setTab] = useState<ProfileTab>('configuration')
   const [deployOpen, setDeployOpen] = useState(false)
+  const [addCronOpen, setAddCronOpen] = useState(false)
   const [configDirty, setConfigDirty] = useState(false)
 
   const createAgent = useCreateAgent(activeOrg.id, projectId)
@@ -123,6 +125,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           tabs={[
             { value: 'configuration', label: 'Configuration' },
             { value: 'integrations', label: 'Integrations' },
+            { value: 'schedules', label: 'Schedules' },
             { value: 'agents', label: 'Agents' },
           ]}
         />
@@ -161,6 +164,34 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           />
         </div>
       )}
+      {tab === 'schedules' && (
+        <div className="flex flex-col gap-4">
+          {canManage && (
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setAddCronOpen(true)
+                }}
+              >
+                Add cron schedule
+              </Button>
+            </div>
+          )}
+          <CronTriggersList
+            orgId={activeOrg.id}
+            projectId={projectId}
+            canManage={canManage}
+            filters={{ agent_profile_id: profile.id }}
+            emptyMessage={
+              canManage
+                ? 'No schedules yet. Use “Add cron schedule” to launch a new agent from this profile on a recurring cadence.'
+                : 'No schedules yet.'
+            }
+          />
+        </div>
+      )}
       {tab === 'agents' && (
         <AgentsTable
           orgId={activeOrg.id}
@@ -178,6 +209,16 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           orgId={activeOrg.id}
           projectId={projectId}
           profile={profile}
+        />
+      )}
+      {canManage && addCronOpen && (
+        <CreateCronTriggerDialog
+          open
+          onOpenChange={setAddCronOpen}
+          orgId={activeOrg.id}
+          projectId={projectId}
+          target={{ type: 'profile', agent_profile_id: profile.id }}
+          targetLabel={`a new agent launched from ${profile.name}`}
         />
       )}
       <SlackOAuthOutcomeDialog />
