@@ -324,18 +324,15 @@ jobs:
       - uses: ./.github/actions/setup-test-db
         if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
 
-      - run: make test-live-openai
+      - run: make test-live-openai-responses
         if: steps.secrets.outputs.openai == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG }}
 
       - run: make test-live-openai-chat-completions
         if: steps.secrets.outputs.openai == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG }}
-          OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG }}
 
       - run: make test-live-openrouter
         if: steps.secrets.outputs.openrouter == 'true'
@@ -346,7 +343,6 @@ jobs:
         if: steps.secrets.outputs.anthropic == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG }}
 
       - run: make test-live-api-format-switching
         if: steps.secrets.outputs.openai == 'true' && steps.secrets.outputs.openrouter == 'true' && steps.secrets.outputs.anthropic == 'true'
@@ -354,9 +350,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG }}
-          OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG }}
-          OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG: ${{ vars.OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG }}
 
       - run: make test-live-sandbox-providers
         if: steps.secrets.outputs.sandboxes == 'true'

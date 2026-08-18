@@ -17,10 +17,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/testutil/mcptest"
+	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func TestServiceE2ELiveOpenAIModelTurn(t *testing.T) {
+func TestServiceE2ELiveOpenAIResponsesModelTurn(t *testing.T) {
 	runLiveServiceProviderJourney(
 		t,
 		"openai-prod",
@@ -384,7 +385,7 @@ LIMIT 1`, projectUUID, agentUUID).Scan(&errorDetails); err != nil {
 	}
 }
 
-func TestServiceE2ELiveOpenAICompactionRecall(t *testing.T) {
+func TestServiceE2ELiveOpenAIResponsesCompactionRecall(t *testing.T) {
 	runLiveServiceProviderJourney(
 		t,
 		"openai-prod",
@@ -458,7 +459,7 @@ func liveServiceProviders() []liveServiceProvider {
 			Seed:                "openai",
 			APIKeyEnv:           "OPENAI_API_KEY",
 			ProviderConfig:      "openai-prod",
-			ConfiguredModelName: liveOpenAIConfiguredModelName(),
+			ConfiguredModelName: modeltest.LiveOpenAIProviderModelSlug,
 			BaseURL:             os.Getenv("OPENAI_BASE_URL"),
 			APIFormat:           "openai-responses",
 			APIVariant:          "default",
@@ -468,7 +469,7 @@ func liveServiceProviders() []liveServiceProvider {
 			Seed:                "openai-chat-completions",
 			APIKeyEnv:           "OPENAI_API_KEY",
 			ProviderConfig:      "openai-chat-prod",
-			ConfiguredModelName: liveOpenAIChatConfiguredModelName(),
+			ConfiguredModelName: modeltest.LiveOpenAIProviderModelSlug,
 			BaseURL:             os.Getenv("OPENAI_BASE_URL"),
 			APIFormat:           "openai-chat-completions",
 			APIVariant:          "default",
@@ -478,7 +479,7 @@ func liveServiceProviders() []liveServiceProvider {
 			Seed:                "openrouter",
 			APIKeyEnv:           "OPENROUTER_API_KEY",
 			ProviderConfig:      "openrouter-prod",
-			ConfiguredModelName: liveOpenRouterConfiguredModel,
+			ConfiguredModelName: modeltest.LiveOpenRouterProviderModelSlug,
 			BaseURL:             os.Getenv("OPENROUTER_BASE_URL"),
 			APIFormat:           "openai-chat-completions",
 			APIVariant:          "openrouter",
@@ -492,7 +493,7 @@ func liveServiceProviders() []liveServiceProvider {
 			Seed:                "anthropic",
 			APIKeyEnv:           "ANTHROPIC_API_KEY",
 			ProviderConfig:      "anthropic-prod",
-			ConfiguredModelName: liveAnthropicConfiguredModelName(),
+			ConfiguredModelName: modeltest.LiveAnthropicProviderModelSlug,
 			BaseURL:             os.Getenv("ANTHROPIC_BASE_URL"),
 			APIFormat:           "anthropic-messages",
 			APIVariant:          "default",
@@ -1083,18 +1084,4 @@ func waitForLiveAgentIdle(
 		return locks == 0 && wakeups == 0,
 			"live provider runtime lock or wakeup still present worker_logs=" + worker.logExcerpt()
 	})
-}
-
-func liveOpenAIConfiguredModelName() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "gpt-5.5"
-}
-
-func liveAnthropicConfiguredModelName() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "claude-sonnet-4-6"
 }

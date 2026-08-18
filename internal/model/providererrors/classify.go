@@ -50,8 +50,8 @@ func EffectiveStatusCode(httpStatus, providerStatus int) int {
 	return httpStatus
 }
 
-// Classify trusts specific structured codes but lets deterministic message
-// evidence override generic gateway wrappers such as provider_unavailable.
+// Classify evaluates structured codes in caller-provided priority order.
+// Specific overflow prose can override generic gateway wrappers such as provider_unavailable.
 func Classify(httpStatus, providerStatus int, message string, codes ...string) model.ErrorKind {
 	genericKind := model.ErrorKindUnknown
 	for _, value := range codes {

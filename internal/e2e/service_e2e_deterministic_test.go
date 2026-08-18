@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -1033,8 +1034,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		modelOptions,
 		"service-e2e-local",
 		"service-e2e-alt",
-		"gpt-5.5",
-		os.Getenv("OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG"),
+		modeltest.LiveOpenAIProviderModelSlug,
 	)
 	openAIChatConfig := e.requestJSON(
 		t,
@@ -1058,7 +1058,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		adminToken,
 		serviceE2EProviderConfigID(t, openAIChatConfig),
 		modelOptions,
-		liveOpenAIChatConfiguredModelName(),
+		modeltest.LiveOpenAIProviderModelSlug,
 	)
 	openRouterSecret := e.requestJSON(
 		t,
@@ -1098,7 +1098,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		serviceE2EProviderConfigID(t, openRouterConfig),
 		modelOptions,
 		"service-e2e-openrouter",
-		liveOpenRouterConfiguredModel,
+		modeltest.LiveOpenRouterProviderModelSlug,
 	)
 	anthropicSecret := e.requestJSON(
 		t,
@@ -1138,8 +1138,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		serviceE2EProviderConfigID(t, anthropicConfig),
 		modelOptions,
 		"service-e2e-claude",
-		"claude-sonnet-4-6",
-		os.Getenv("OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG"),
+		modeltest.LiveAnthropicProviderModelSlug,
 	)
 }
 
@@ -1151,18 +1150,6 @@ func serviceE2EProviderConfigID(t *testing.T, response map[string]any) string {
 	}
 	return config["id"].(string)
 }
-
-func liveOpenAIChatConfiguredModelName() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "gpt-4.1-mini"
-}
-
-const liveOpenRouterConfiguredModel = "z-ai/glm-5.2"
 
 func (e *serviceE2EEnvironment) createServiceE2EConfiguredModels(
 	t *testing.T,

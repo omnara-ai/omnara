@@ -67,7 +67,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance \
 	test-service-e2e \
 	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-check-all web-e2e run-web \
-	test-live-web test-live-openai test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
+	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
 	test-live-api-format-switching test-live-sandbox-providers test-live \
 	docs-openapi docs-openapi-check
 
@@ -439,11 +439,11 @@ test-live-web:
 	@$(LOAD_DOTENV); \
 	$(GO) test -count=1 -v -tags=live ./internal/webaccess
 
-test-live-openai:
+test-live-openai-responses:
 	@$(LOAD_DOTENV); \
-	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI tests}"; \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAI(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
-	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAICompactionCreatesCheckpoint$$'
+	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI Responses tests}"; \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIResponses(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
+	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAIResponsesCompactionCreatesCheckpoint$$'
 
 test-live-openai-chat-completions:
 	@$(LOAD_DOTENV); \
@@ -480,7 +480,7 @@ test-live-sandbox-providers:
 		./internal/machinepool/providers/unikraft \
 		-run '^Test(Blaxel|Daytona|Unikraft)ProviderLiveSmoke$$'
 
-test-live: test-live-web test-live-openai test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
+test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
 
 # Black-box API suite against a deployed control plane.
 # The -timeout must stay comfortably above the suite's worst-case waits (~9m of

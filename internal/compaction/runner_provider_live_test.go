@@ -20,9 +20,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 )
 
-func TestRunnerLiveOpenAICompactionCreatesCheckpoint(t *testing.T) {
+func TestRunnerLiveOpenAIResponsesCompactionCreatesCheckpoint(t *testing.T) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		t.Fatal("OPENAI_API_KEY is required for live OpenAI compaction test")
@@ -31,7 +32,7 @@ func TestRunnerLiveOpenAICompactionCreatesCheckpoint(t *testing.T) {
 		Auth:              route.BearerToken{Token: apiKey},
 		BaseURL:           os.Getenv("OPENAI_BASE_URL"),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIResponses),
-		ProviderModelSlug: liveOpenAICompactionProviderModelSlug(),
+		ProviderModelSlug: modeltest.LiveOpenAIProviderModelSlug,
 		ModelCapabilities: liveCompactionCapabilities(),
 	})
 }
@@ -45,7 +46,7 @@ func TestRunnerLiveOpenAIChatCompletionsCompactionCreatesCheckpoint(t *testing.T
 		Auth:              route.BearerToken{Token: apiKey},
 		BaseURL:           os.Getenv("OPENAI_BASE_URL"),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: liveOpenAIChatCompactionProviderModelSlug(),
+		ProviderModelSlug: modeltest.LiveOpenAIProviderModelSlug,
 		ModelCapabilities: liveCompactionCapabilities(),
 	})
 }
@@ -65,7 +66,7 @@ func TestRunnerLiveOpenRouterCompactionCreatesCheckpoint(t *testing.T) {
 		},
 		BaseURL:           liveOpenRouterCompactionBaseURL(),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: "z-ai/glm-5.2",
+		ProviderModelSlug: modeltest.LiveOpenRouterProviderModelSlug,
 		ModelCapabilities: liveCompactionCapabilities(),
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
 		APIVariantOptions: json.RawMessage(`{"reasoning":{"enabled":false}}`),
@@ -81,7 +82,7 @@ func TestRunnerLiveAnthropicCompactionCreatesCheckpoint(t *testing.T) {
 		Auth:              route.HeaderAuth{Header: "x-api-key", Value: apiKey},
 		BaseURL:           os.Getenv("ANTHROPIC_BASE_URL"),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatAnthropicMessages),
-		ProviderModelSlug: liveAnthropicCompactionProviderModelSlug(),
+		ProviderModelSlug: modeltest.LiveAnthropicProviderModelSlug,
 		ModelCapabilities: liveCompactionCapabilities(),
 	})
 }
@@ -201,33 +202,9 @@ func liveCompactionCapabilities() model.Capabilities {
 	}
 }
 
-func liveOpenAICompactionProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "gpt-5-mini"
-}
-
-func liveOpenAIChatCompactionProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "gpt-4.1-mini"
-}
-
 func liveOpenRouterCompactionBaseURL() string {
 	if baseURL := strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")); baseURL != "" {
 		return baseURL
 	}
 	return "https://openrouter.ai/api/v1"
-}
-
-func liveAnthropicCompactionProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "claude-sonnet-4-6"
 }

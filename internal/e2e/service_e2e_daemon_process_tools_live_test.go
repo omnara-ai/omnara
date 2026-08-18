@@ -15,7 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-func TestServiceE2ELiveOpenAIDockerDaemonProcessTools(t *testing.T) {
+func TestServiceE2ELiveOpenAIResponsesDockerDaemonProcessTools(t *testing.T) {
 	runLiveServiceProviderJourney(
 		t,
 		"openai-prod",
