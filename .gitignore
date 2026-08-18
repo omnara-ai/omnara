@@ -12,6 +12,7 @@ tmp/
 /bin/
 research/
 plans/
+dist/
 
 # Frontend (frontend/): commit source, ignore deps and build output.
 # frontend/apps/web/dist/.gitkeep is kept so //go:embed all:dist always compiles.
