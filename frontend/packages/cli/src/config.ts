@@ -27,6 +27,7 @@ export type ConfigFile = z.infer<typeof zConfigFile>
 
 export interface CliConfig {
   client: OmnaraClient
+  baseUrl: string
   defaultOrgId?: string
   defaultProjectId?: string
 }
@@ -70,7 +71,7 @@ export function readConfigFile(): ConfigFile {
   return {}
 }
 
-function readConfigFileForUpdate(): ConfigFile {
+export function readConfigFileForUpdate(): ConfigFile {
   const result = loadConfigFile()
   if (result.success) return result.data
   throw new CliInputError(
@@ -104,6 +105,7 @@ export function loadConfig(): CliConfig {
   })
   return {
     client,
+    baseUrl,
     defaultOrgId: process.env.OMNARA_ORG_ID ?? file.org_id,
     defaultProjectId: process.env.OMNARA_PROJECT_ID ?? file.project_id,
   }

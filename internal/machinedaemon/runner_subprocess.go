@@ -93,7 +93,7 @@ func (subprocessRunnerLauncher) Prepare(
 		supervisorInstanceID: supervisorInstanceID,
 		done:                 make(chan struct{}),
 	}
-	rt := &processRuntime{
+	runtime := &processRuntime{
 		processID:            assignment.ID,
 		supervisorInstanceID: supervisorInstanceID,
 		runner:               runner,
@@ -157,20 +157,30 @@ func (subprocessRunnerLauncher) Prepare(
 			)
 		}
 
-		var cleanupErr error
-		if lifetimeLock != nil {
-			cleanupErr = lifetimeLock.Release()
+		heldLock := lifetimeLock
+		if supervisorStarted {
+			heldLock = nil
 		}
-		cleanupErr = errors.Join(
-			cleanupErr,
-			c.closeRejectedPreparation(
-				cleanupCtx,
-				assignment.ID,
-				supervisorInstanceID,
-				nil,
-			),
+		cleanupPending, cleanupErr := c.closeRejectedPreparation(
+			cleanupCtx,
+			assignment.ID,
+			supervisorInstanceID,
+			nil,
+			heldLock,
 		)
 		if cleanupErr != nil {
+			runtime.cleanupOnly = cleanupPending ||
+				(!supervisorStarted && lifetimeLock == nil && isStorageExhaustion(cause))
+			if runtime.cleanupOnly {
+				return errors.Join(
+					cause,
+					fmt.Errorf(
+						"rollback ungranted process %s cleanup remains pending: %w",
+						assignment.ID,
+						cleanupErr,
+					),
+				)
+			}
 			return errors.Join(
 				errUnresolvedProcessPreparation,
 				cause,
@@ -186,11 +196,11 @@ func (subprocessRunnerLauncher) Prepare(
 
 	lockPath, err := machine.LifetimeLockPath(assignment.ID)
 	if err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	lifetimeLock, err = localstore.TryAcquireLock(lockPath)
 	if err != nil {
-		return nil, fail(
+		return runtime, fail(
 			fmt.Errorf("acquire supervisor lifetime lock: %w", err),
 		)
 	}
@@ -209,7 +219,7 @@ func (subprocessRunnerLauncher) Prepare(
 		machine.RunDir(),
 	)
 	if err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	defer func() {
 		if err := removeSupervisorIdentityBootstrap(
@@ -229,7 +239,7 @@ func (subprocessRunnerLauncher) Prepare(
 
 	executable, err := os.Executable()
 	if err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	command = exec.Command( //nolint:noctx // The supervisor intentionally survives daemon cancellation.
 		executable,
@@ -243,19 +253,19 @@ func (subprocessRunnerLauncher) Prepare(
 	)
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	defer func() { _ = devNull.Close() }()
 	command.Stdin = devNull
 	command.Stdout = devNull
 	command.Stderr = devNull
 	if err := detachRunnerCommand(command); err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	inheritedLockFD, restoreInheritance, err :=
 		lifetimeLock.PrepareChildInheritance(command)
 	if err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	command.Args = append(command.Args, strconv.Itoa(inheritedLockFD))
 	startErr := func() error {
@@ -263,10 +273,10 @@ func (subprocessRunnerLauncher) Prepare(
 		return command.Start()
 	}()
 	if startErr != nil {
-		return nil, fail(startErr)
+		return runtime, fail(startErr)
 	}
 	supervisorStarted = true
-	rt.supervisorPID = command.Process.Pid
+	runtime.supervisorPID = command.Process.Pid
 	supervisorDone = make(chan struct{})
 	go func() {
 		waitErr := command.Wait()
@@ -274,7 +284,8 @@ func (subprocessRunnerLauncher) Prepare(
 		runner.markDone()
 		wasCurrent := false
 		if current := c.processes[assignment.ID]; current != nil &&
-			current.supervisorInstanceID == supervisorInstanceID {
+			current.supervisorInstanceID == supervisorInstanceID &&
+			!current.cleanupOnly && !current.storageFailureReporting {
 			delete(c.processes, assignment.ID)
 			wasCurrent = true
 		}
@@ -292,22 +303,22 @@ func (subprocessRunnerLauncher) Prepare(
 	}()
 	if err := lifetimeLock.RelinquishInherited(); err != nil {
 		_ = command.Process.Kill()
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	if err := runner.waitReady(ctx); err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	if err := runner.prepare(ctx, assignment); err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
 	if err := stateStore.MarkPrepared(
 		ctx,
 		assignment.ID,
 		supervisorInstanceID,
 	); err != nil {
-		return nil, fail(err)
+		return runtime, fail(err)
 	}
-	return rt, nil
+	return runtime, nil
 }
 
 func (r *ipcProcessRunner) prepare(

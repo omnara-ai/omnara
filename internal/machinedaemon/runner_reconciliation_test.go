@@ -192,6 +192,13 @@ func TestRegistrationReclaimsMissingPreparedLifetimeLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	machine, err := client.machineStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localstore.EnsurePrivateDir(machine.RunDir()); err != nil {
+		t.Fatal(err)
+	}
 	const (
 		processID            = "prc_missing_prepared_lock"
 		supervisorInstanceID = "supervisor-instance-missing-prepared-lock"
@@ -222,6 +229,17 @@ func TestRegistrationReclaimsMissingPreparedLifetimeLock(t *testing.T) {
 	}
 	if startup.stoppedLocks[processID] == nil {
 		t.Fatal("missing prepared lifetime lock was not safely reacquired")
+	}
+	if err := client.recoverStoppedReleasedProcess(
+		ctx,
+		processID,
+		supervisorInstanceID,
+		startup.stoppedLocks[processID],
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := store.Process(ctx, processID); err != nil || found {
+		t.Fatalf("recovered prepared process: found=%t err=%v", found, err)
 	}
 }
 

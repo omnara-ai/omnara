@@ -27,6 +27,7 @@ const daemonSocketReadLimitBytes = daemonprotocol.MaxMessageBytes
 type pendingProcess struct {
 	runtime            *processRuntime
 	accepted           bool
+	closing            bool
 	terminationReason  string
 	terminationApplied bool
 }
@@ -171,8 +172,8 @@ func (t *daemonSocketTransport) Run(ctx context.Context) (bool, error) {
 	t.launchWorker(func() {
 		t.client.finalizeReleasedProcessesLoop(runCtx)
 	})
-
 	t.resumeStartupActions(runCtx)
+	t.reportReadyStorageFailures(runCtx)
 
 	heartbeatDelay, err := nextHeartbeatDelay(t.runtime)
 	if err != nil {
@@ -223,6 +224,7 @@ func (t *daemonSocketTransport) Run(ctx context.Context) (bool, error) {
 			if err := t.client.verifyProcessSupervisors(runCtx); err != nil {
 				return heartbeatAcknowledged, err
 			}
+			t.reportReadyStorageFailures(runCtx)
 			if !t.enqueue(daemonprotocol.Message{
 				Type:             daemonprotocol.MessageHeartbeat,
 				DaemonInstanceID: t.client.instanceID,
@@ -289,6 +291,9 @@ func (t *daemonSocketTransport) resumeStartupActions(ctx context.Context) {
 			t.startup.Actions[j].action.Seq
 	})
 	for _, action := range t.startup.Actions {
+		if processRuntimeStorageExhaustionReady(t.startup.Runners[action.processID]) {
+			continue
+		}
 		accepted := pendingAction{
 			processID: action.processID,
 			action:    action.action,
@@ -332,6 +337,27 @@ func (t *daemonSocketTransport) stopAndWait(cancel context.CancelFunc) {
 	t.workers.Wait()
 }
 
+func (t *daemonSocketTransport) reportReadyStorageFailures(ctx context.Context) {
+	for _, runtime := range t.client.storageFailureRuntimes() {
+		t.launchWorker(func() {
+			_, err := t.client.handleAcceptedStorageFailure(
+				ctx,
+				t,
+				runtime,
+				errStorageExhaustionTerminalReady,
+			)
+			if err != nil &&
+				ctx.Err() == nil {
+				t.fail(fmt.Errorf(
+					"report storage exhaustion for process %s: %w",
+					runtime.processID,
+					err,
+				))
+			}
+		})
+	}
+}
+
 // An unlocked supervisor is ambiguous until PostgreSQL authorizes cleanup;
 // afterward the same row only tracks pending local cleanup.
 func (c *Client) verifyProcessSupervisors(ctx context.Context) error {
@@ -354,6 +380,18 @@ func (c *Client) verifyProcessSupervisors(ctx context.Context) error {
 				process.SupervisorInstanceID,
 			)
 			continue
+		}
+		if runtime, found := c.localProcess(process.ProcessID); found &&
+			runtime.supervisorInstanceID == process.SupervisorInstanceID {
+			if runtime.cleanupOnly {
+				continue
+			}
+			if runtime.runner != nil {
+				probeCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+				// Status records a storage-ready sentinel on the IPC runner; other errors are ignored.
+				_ = runtime.runner.Status(probeCtx)
+				cancel()
+			}
 		}
 		switch process.Phase {
 		case statedb.ProcessPrepared,
@@ -544,33 +582,58 @@ func (t *daemonSocketTransport) closeRejectedProcessOffer(
 ) {
 	t.mu.Lock()
 	pending := t.pendingProcesses[processID]
-	if pending != nil {
-		delete(t.pendingProcesses, processID)
-	}
-	t.mu.Unlock()
-	if pending == nil {
+	switch {
+	case pending == nil:
+		t.mu.Unlock()
 		return
-	}
-	if pending.runtime == nil {
+	case pending.runtime == nil:
+		delete(t.pendingProcesses, processID)
+		t.mu.Unlock()
 		t.fail(fmt.Errorf(
 			"server rejected process %s before its local preparation completed",
 			processID,
 		))
 		return
+	case pending.closing:
+		t.mu.Unlock()
+		return
 	}
+	pending.closing = true
+	t.mu.Unlock()
 	t.launchWorker(func() {
-		if err := t.client.closeRejectedPreparation(
+		cleanupPending, err := t.client.closeRejectedPreparation(
 			ctx,
 			processID,
 			pending.runtime.supervisorInstanceID,
 			pending.runtime,
-		); err != nil {
+			nil,
+		)
+		if cleanupPending {
+			t.client.addProcess(&processRuntime{
+				processID:            processID,
+				supervisorInstanceID: pending.runtime.supervisorInstanceID,
+				cleanupOnly:          true,
+			})
+			t.client.log.Warn(
+				"rejected process preparation cleanup remains pending",
+				"process_id",
+				processID,
+				"error",
+				err,
+			)
+		} else if err != nil {
 			t.fail(fmt.Errorf(
 				"close rejected process preparation %s: %w",
 				processID,
 				err,
 			))
+			return
 		}
+		t.mu.Lock()
+		if t.pendingProcesses[processID] == pending {
+			delete(t.pendingProcesses, processID)
+		}
+		t.mu.Unlock()
 	})
 }
 
@@ -599,9 +662,6 @@ func (t *daemonSocketTransport) offerProcess(
 	ctx context.Context,
 	offer daemonprotocol.ProcessOffer,
 ) {
-	if _, exists := t.client.localProcess(offer.ProcessID); exists {
-		return
-	}
 	assignment := ProcessAssignment{
 		ID: offer.ProcessID,
 		Process: Process{
@@ -622,6 +682,10 @@ func (t *daemonSocketTransport) offerProcess(
 		t.mu.Unlock()
 		return
 	}
+	if _, exists := t.client.localProcess(offer.ProcessID); exists {
+		t.mu.Unlock()
+		return
+	}
 	pending = &pendingProcess{}
 	t.pendingProcesses[offer.ProcessID] = pending
 	t.mu.Unlock()
@@ -633,10 +697,11 @@ func (t *daemonSocketTransport) offerProcess(
 			assignment,
 		)
 		if err != nil {
-			t.mu.Lock()
-			delete(t.pendingProcesses, assignment.ID)
-			t.mu.Unlock()
-			if errors.Is(err, errUnresolvedProcessPreparation) {
+			storageFailure := isStorageExhaustion(err) &&
+				!errors.Is(err, errUnresolvedProcessPreparation)
+			if runtime != nil && runtime.cleanupOnly {
+				t.client.addProcess(runtime)
+			} else if errors.Is(err, errUnresolvedProcessPreparation) {
 				t.fail(fmt.Errorf(
 					"process preparation %s retained unresolved local state: %w",
 					assignment.ID,
@@ -650,18 +715,53 @@ func (t *daemonSocketTransport) offerProcess(
 				"error",
 				err,
 			)
+			if storageFailure {
+				if reportErr := sendStorageExhaustionReport(
+					ctx,
+					t,
+					assignment.ID,
+				); reportErr != nil && ctx.Err() == nil {
+					t.fail(fmt.Errorf(
+						"report storage exhaustion for process %s: %w",
+						assignment.ID,
+						reportErr,
+					))
+				}
+			}
+			t.mu.Lock()
+			if t.pendingProcesses[assignment.ID] == pending {
+				delete(t.pendingProcesses, assignment.ID)
+			}
+			t.mu.Unlock()
 			return
 		}
 		t.mu.Lock()
 		current := t.pendingProcesses[assignment.ID]
 		if current != pending {
 			t.mu.Unlock()
-			if err := t.client.closeRejectedPreparation(
+			cleanupPending, err := t.client.closeRejectedPreparation(
 				ctx,
 				assignment.ID,
 				runtime.supervisorInstanceID,
 				runtime,
-			); err != nil {
+				nil,
+			)
+			if cleanupPending {
+				t.client.addProcess(&processRuntime{
+					processID:            assignment.ID,
+					supervisorInstanceID: runtime.supervisorInstanceID,
+					cleanupOnly:          true,
+				})
+				t.client.log.Warn(
+					"superseded process preparation cleanup remains pending",
+					"process_id",
+					assignment.ID,
+					"error",
+					err,
+				)
+				return
+			}
+			if err != nil {
 				t.fail(fmt.Errorf(
 					"close superseded process preparation %s: %w",
 					assignment.ID,
@@ -730,6 +830,25 @@ func (t *daemonSocketTransport) startAcceptedProcess(
 				err = pending.runtime.runner.StartOnce(ctx)
 			}
 		}
+		storageFailure, err := t.client.handleAcceptedStorageFailure(
+			ctx,
+			t,
+			pending.runtime,
+			err,
+		)
+		if storageFailure {
+			if err == nil {
+				t.mu.Lock()
+				if t.pendingProcesses[processID] == pending {
+					delete(t.pendingProcesses, processID)
+				}
+				t.mu.Unlock()
+			}
+			if err != nil {
+				t.fail(fmt.Errorf("start accepted process %s: %w", processID, err))
+			}
+			return
+		}
 		if err != nil {
 			t.fail(fmt.Errorf(
 				"start accepted process %s: %w",
@@ -778,7 +897,8 @@ func (t *daemonSocketTransport) offerAction(
 	offer daemonprotocol.ActionOffer,
 ) {
 	if offer.ActionKind != daemonprotocol.ProcessActionRead {
-		if _, exists := t.client.localProcess(offer.ProcessID); !exists {
+		runtime, exists := t.client.localProcess(offer.ProcessID)
+		if !exists || runtime.cleanupOnly || runtime.runner == nil {
 			return
 		}
 	}
@@ -885,10 +1005,15 @@ func (t *daemonSocketTransport) runActionQueue(
 			processID,
 			actionID,
 		); err != nil {
-			if ctx.Err() == nil {
+			t.mu.Lock()
+			_, pending := t.pendingActions[actionID]
+			if pending && ctx.Err() == nil {
 				t.fail(err)
 			}
-			return
+			t.mu.Unlock()
+			if pending {
+				return
+			}
 		}
 	}
 }
@@ -938,7 +1063,7 @@ func (t *daemonSocketTransport) runAcceptedAction(
 		}
 	} else {
 		runtime, ok := t.client.localProcess(processID)
-		if !ok {
+		if !ok || runtime.cleanupOnly || runtime.runner == nil {
 			return fmt.Errorf(
 				"accepted action %s lost its live supervisor",
 				actionID,
@@ -952,11 +1077,20 @@ func (t *daemonSocketTransport) runAcceptedAction(
 				}
 				continue
 			}
-			if err != nil {
+			storageFailure, storageErr := t.client.handleAcceptedStorageFailure(
+				ctx,
+				t,
+				runtime,
+				err,
+			)
+			if storageFailure {
+				return storageErr
+			}
+			if storageErr != nil {
 				return fmt.Errorf(
 					"apply accepted process action %s: %w",
 					accepted.action.ID,
-					err,
+					storageErr,
 				)
 			}
 			break
@@ -973,6 +1107,19 @@ func (t *daemonSocketTransport) runAcceptedAction(
 	delete(t.pendingActions, accepted.action.ID)
 	t.mu.Unlock()
 	return nil
+}
+
+func (t *daemonSocketTransport) forgetResolvedProcessActions(processID string) {
+	t.mu.Lock()
+	for actionID, action := range t.pendingActions {
+		if action.processID == processID {
+			delete(t.pendingActions, actionID)
+		}
+	}
+	if queue := t.actionQueues[processID]; queue != nil {
+		queue.pending = nil
+	}
+	t.mu.Unlock()
 }
 
 func (t *daemonSocketTransport) runAcceptedRead(
@@ -1211,7 +1358,7 @@ func (t *daemonSocketTransport) terminateProcess(
 	}
 	runtime, ok := t.client.localProcess(processID)
 	t.mu.Unlock()
-	if !ok {
+	if !ok || runtime.cleanupOnly || runtime.runner == nil {
 		return
 	}
 	t.launchWorker(func() {

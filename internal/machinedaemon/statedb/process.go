@@ -99,6 +99,21 @@ func (s *Store) DeleteRejectedPreparationAfterArtifacts(
 	ctx context.Context,
 	processID, supervisorInstanceID string,
 ) error {
+	return s.deleteProcessAfterArtifacts(ctx, processID, supervisorInstanceID, false)
+}
+
+func (s *Store) DeleteStorageExhaustedAfterArtifacts(
+	ctx context.Context,
+	processID, supervisorInstanceID string,
+) error {
+	return s.deleteProcessAfterArtifacts(ctx, processID, supervisorInstanceID, true)
+}
+
+func (s *Store) deleteProcessAfterArtifacts(
+	ctx context.Context,
+	processID, supervisorInstanceID string,
+	accepted bool,
+) error {
 	tx, err := beginWrite(ctx, s.db)
 	if err != nil {
 		return err
@@ -106,29 +121,33 @@ func (s *Store) DeleteRejectedPreparationAfterArtifacts(
 	defer func() { _ = tx.Rollback() }()
 	qtx := s.q.WithTx(tx)
 
-	status, err := qtx.GetUngrantedProcessStatus(
-		ctx,
-		dbsqlc.GetUngrantedProcessStatusParams{
-			ProcessID:            processID,
-			SupervisorInstanceID: supervisorInstanceID,
-		},
-	)
-	if errors.Is(err, sql.ErrNoRows) {
+	process, found, err := processTx(ctx, qtx, processID)
+	if err != nil {
+		return err
+	}
+	if !found {
 		return commitWrite(tx)
 	}
-	if err != nil {
-		return dbError("read ungranted process state", err)
-	}
-	phase := ProcessPhase(status.Phase)
-	if phase != ProcessPreparing && phase != ProcessPrepared {
+	if process.SupervisorInstanceID != supervisorInstanceID {
 		return fmt.Errorf(
-			"%w: process %s is %s, not an ungranted preparation",
-			ErrStateConflict,
+			"%w: %s",
+			ErrSupervisorIdentityMismatch,
 			processID,
-			phase,
 		)
 	}
-	if status.ExecCommitted != 0 {
+	validPhase := process.Phase == ProcessPreparing || process.Phase == ProcessPrepared
+	if accepted {
+		validPhase = process.Phase == ProcessAccepted || process.Phase == ProcessTerminal
+	}
+	if !validPhase {
+		return fmt.Errorf(
+			"%w: process %s cannot be deleted in %s",
+			ErrStateConflict,
+			processID,
+			process.Phase,
+		)
+	}
+	if !accepted && process.ExecCommitted {
 		return fmt.Errorf(
 			"%w: ungranted process %s crossed the execution boundary",
 			ErrStateConflict,
@@ -142,7 +161,7 @@ func (s *Store) DeleteRejectedPreparationAfterArtifacts(
 			SupervisorInstanceID: supervisorInstanceID,
 		},
 	); err != nil {
-		return dbError("delete ungranted process state", err)
+		return dbError("delete process state", err)
 	}
 	return commitWrite(tx)
 }

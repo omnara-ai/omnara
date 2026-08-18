@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
@@ -17,6 +18,7 @@ type ipcProcessRunner struct {
 	supervisorInstanceID string
 	done                 chan struct{}
 	doneOnce             sync.Once
+	storageFailureReady  atomic.Bool
 
 	reconciliationMu sync.RWMutex
 	reconciliation   *runnerReconciliationSession
@@ -51,8 +53,12 @@ func (r *ipcProcessRunner) BeginReconciliation(
 		return err
 	}
 	if _, err := readRunnerResponse(ctx, conn); err != nil {
-		_ = conn.Close()
-		return err
+		if errors.Is(err, errStorageExhaustionTerminalReady) {
+			r.storageFailureReady.Store(true)
+		} else {
+			_ = conn.Close()
+			return err
+		}
 	}
 	r.reconciliation = &runnerReconciliationSession{conn: conn}
 	return nil
@@ -188,6 +194,11 @@ func (r *ipcProcessRunner) call(
 	ctx context.Context,
 	request runnerRequest,
 ) (response runnerResponse, err error) {
+	defer func() {
+		if errors.Is(err, errStorageExhaustionTerminalReady) {
+			r.storageFailureReady.Store(true)
+		}
+	}()
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
@@ -218,6 +229,10 @@ func (r *ipcProcessRunner) call(
 		return runnerResponse{}, err
 	}
 	return readRunnerResponse(ctx, conn)
+}
+
+func (r *ipcProcessRunner) storageExhaustionReady() bool {
+	return r.storageFailureReady.Load()
 }
 
 func (s *runnerReconciliationSession) call(

@@ -90,6 +90,26 @@ func TestRunnerProtocolPreservesActionBlockedError(t *testing.T) {
 	}
 }
 
+func TestRunnerProtocolPreservesStorageErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		code runnerErrorCode
+		want error
+	}{
+		{runnerErrorStorageExhaustion, errRunnerStorageExhaustion},
+		{runnerErrorStorageExhaustionReady, errStorageExhaustionTerminalReady},
+	} {
+		err := runnerResponseError(runnerResponse{
+			Error:     "storage failure",
+			ErrorCode: test.code,
+		})
+		if !errors.Is(err, test.want) {
+			t.Fatalf("runner error = %v, want %v", err, test.want)
+		}
+	}
+}
+
 type unexpectedRunnerRequestError string
 
 func (e unexpectedRunnerRequestError) Error() string {
