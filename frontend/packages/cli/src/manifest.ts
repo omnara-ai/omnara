@@ -645,6 +645,218 @@ export const commandGroups: CommandGroup[] = [
       }),
     ],
   },
+  {
+    name: 'grant',
+    aliases: ['grants'],
+    summary: 'Manage resource grants to projects',
+    groups: [
+      {
+        name: 'skills',
+        aliases: ['skill'],
+        summary: 'Manage skill grants',
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List a skill's project grants",
+            fn: sdk.listSkillGrants,
+            format: (response) =>
+              formatTable(['id', 'target_project', 'target_project_id', 'created_at'])({
+                data: response.data.map((item) => ({
+                  ...item.grant,
+                  target_project: item.target_project.name,
+                })),
+                next_cursor: response.next_cursor,
+              }),
+            path: schemas.zListSkillGrantsPath,
+            query: schemas.zListSkillGrantsQuery,
+          }),
+          op({
+            verb: 'add',
+            summary: 'Grant a skill to a project',
+            fn: sdk.createSkillGrant,
+            format: formatRecord(),
+            path: schemas.zCreateSkillGrantPath,
+            body: schemas.zCreateSkillGrantBody,
+          }),
+          op({
+            verb: 'delete',
+            summary: 'Remove a skill grant',
+            fn: sdk.deleteSkillGrant,
+            format: formatVoid('deleted'),
+            path: schemas.zDeleteSkillGrantPath,
+          }),
+        ],
+      },
+      {
+        name: 'secrets',
+        aliases: ['secret'],
+        summary: 'Manage secret grants',
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List a secret's project grants",
+            fn: sdk.listSecretGrants,
+            format: (response) =>
+              formatTable(['id', 'target_project', 'target_project_id', 'created_at'])({
+                data: response.data.map((item) => ({
+                  ...item.grant,
+                  target_project: item.target_project.name,
+                })),
+                next_cursor: response.next_cursor,
+              }),
+            path: schemas.zListSecretGrantsPath,
+            query: schemas.zListSecretGrantsQuery,
+          }),
+          op({
+            verb: 'add',
+            summary: 'Grant a secret to a project',
+            fn: sdk.createSecretGrant,
+            format: formatRecord(),
+            path: schemas.zCreateSecretGrantPath,
+            body: schemas.zCreateSecretGrantBody,
+          }),
+          op({
+            verb: 'delete',
+            summary: 'Remove a secret grant',
+            fn: sdk.deleteSecretGrant,
+            format: formatVoid('deleted'),
+            path: schemas.zDeleteSecretGrantPath,
+          }),
+        ],
+      },
+      {
+        name: 'machines',
+        aliases: ['machine'],
+        summary: 'Manage machine grants in a project',
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List a project's explicit machine grants",
+            fn: sdk.listProjectMachineGrants,
+            format: (response) =>
+              formatTable(['id', 'machine', 'machine_id', 'source_kind', 'created_at'])({
+                data: response.data.map((item) => ({
+                  ...item.grant,
+                  machine: item.machine.display_name,
+                })),
+                next_cursor: response.next_cursor,
+              }),
+            path: schemas.zListProjectMachineGrantsPath,
+            query: schemas.zListProjectMachineGrantsQuery,
+          }),
+          op({
+            verb: 'add',
+            summary: 'Grant a machine to a project',
+            fn: sdk.createProjectMachineGrant,
+            format: (response) => formatRecord()(response.grant),
+            path: schemas.zCreateProjectMachineGrantPath,
+            body: schemas.zCreateProjectMachineGrantBody,
+          }),
+          op({
+            verb: 'delete',
+            summary: 'Remove a machine grant',
+            fn: sdk.deleteProjectMachineGrant,
+            format: formatVoid('deleted'),
+            path: schemas.zDeleteProjectMachineGrantPath,
+          }),
+        ],
+      },
+      {
+        name: 'pools',
+        aliases: ['pool'],
+        summary: 'Manage machine pool grants in a project',
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List a project's machine pool grants",
+            fn: sdk.listProjectMachinePoolGrants,
+            format: (response) =>
+              formatTable(['id', 'machine_pool', 'machine_pool_id', 'description', 'created_at'])({
+                data: response.data.map((item) => ({
+                  ...item.grant,
+                  machine_pool: item.machine_pool.name,
+                })),
+                next_cursor: response.next_cursor,
+              }),
+            path: schemas.zListProjectMachinePoolGrantsPath,
+            query: schemas.zListProjectMachinePoolGrantsQuery,
+          }),
+          op({
+            verb: 'get',
+            summary: 'Fetch a machine pool grant',
+            fn: sdk.getProjectMachinePoolGrant,
+            format: formatRecord(),
+            path: schemas.zGetProjectMachinePoolGrantPath,
+          }),
+          op({
+            verb: 'add',
+            summary: 'Grant a machine pool to a project',
+            fn: sdk.createProjectMachinePoolGrant,
+            format: formatRecord(),
+            path: schemas.zCreateProjectMachinePoolGrantPath,
+            body: schemas.zCreateProjectMachinePoolGrantBody,
+          }),
+          op({
+            verb: 'edit',
+            summary: "Edit a machine pool grant's overrides",
+            fn: sdk.updateProjectMachinePoolGrant,
+            format: formatRecord(),
+            path: schemas.zUpdateProjectMachinePoolGrantPath,
+            body: schemas.zUpdateProjectMachinePoolGrantBody,
+          }),
+          op({
+            verb: 'delete',
+            summary: 'Remove a machine pool grant',
+            fn: sdk.deleteProjectMachinePoolGrant,
+            format: formatVoid('deleted'),
+            path: schemas.zDeleteProjectMachinePoolGrantPath,
+          }),
+        ],
+      },
+      {
+        name: 'models',
+        aliases: ['model'],
+        summary: 'Manage model grants in a project',
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List a project's model grants",
+            fn: sdk.listProjectModelGrants,
+            format: (response) =>
+              formatTable(['id', 'model', 'configured_model_id', 'created_at'])({
+                data: response.data.map((item) => ({ ...item.grant, model: item.model.name })),
+                next_cursor: response.next_cursor,
+              }),
+            path: schemas.zListProjectModelGrantsPath,
+            query: schemas.zListProjectModelGrantsQuery,
+          }),
+          op({
+            verb: 'add',
+            summary: 'Grant a configured model to a project',
+            fn: sdk.createProjectModelGrant,
+            format: (response) => formatRecord()(response.grant),
+            path: schemas.zCreateProjectModelGrantPath,
+            body: schemas.zCreateProjectModelGrantBody,
+          }),
+          op({
+            verb: 'edit',
+            summary: "Edit a model grant's overrides",
+            fn: sdk.updateProjectModelGrant,
+            format: (response) => formatRecord()(response.grant),
+            path: schemas.zUpdateProjectModelGrantPath,
+            body: schemas.zUpdateProjectModelGrantBody,
+          }),
+          op({
+            verb: 'delete',
+            summary: 'Remove a model grant',
+            fn: sdk.deleteProjectModelGrant,
+            format: formatVoid('deleted'),
+            path: schemas.zDeleteProjectModelGrantPath,
+          }),
+        ],
+      },
+    ],
+  },
 ]
 
 export const topLevelOperations: OperationSpec[] = [
