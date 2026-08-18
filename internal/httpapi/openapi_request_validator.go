@@ -160,7 +160,7 @@ func jsonHexCodeUnit(raw []byte) (uint16, bool) {
 	}
 	var value uint16
 	for _, char := range raw[:4] {
-		value <<= 4
+		value = value * 16
 		switch {
 		case char >= '0' && char <= '9':
 			value += uint16(char - '0')
