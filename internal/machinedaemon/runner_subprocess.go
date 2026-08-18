@@ -169,8 +169,9 @@ func (subprocessRunnerLauncher) Prepare(
 			heldLock,
 		)
 		if cleanupErr != nil {
-			runtime.cleanupOnly = cleanupPending
-			if cleanupPending {
+			runtime.cleanupOnly = cleanupPending ||
+				(!supervisorStarted && lifetimeLock == nil && isStorageExhaustion(cause))
+			if runtime.cleanupOnly {
 				return errors.Join(
 					cause,
 					fmt.Errorf(
@@ -284,7 +285,7 @@ func (subprocessRunnerLauncher) Prepare(
 		wasCurrent := false
 		if current := c.processes[assignment.ID]; current != nil &&
 			current.supervisorInstanceID == supervisorInstanceID &&
-			!current.cleanupOnly {
+			!current.cleanupOnly && !current.storageFailureReporting {
 			delete(c.processes, assignment.ID)
 			wasCurrent = true
 		}

@@ -216,6 +216,9 @@ func (c *Client) scanLocalProcessesForRegistrationOnce(
 		statusCtx, cancel := context.WithTimeout(ctx, time.Second)
 		statusErr := runner.Status(statusCtx)
 		cancel()
+		if errors.Is(statusErr, errStorageExhaustionTerminalReady) {
+			continue
+		}
 		if statusErr != nil {
 			return startup, fmt.Errorf(
 				"%w: supervisor %s ended during registration snapshot: %w",
@@ -453,33 +456,75 @@ func (c *Client) applyProcessDisposition(
 				claim.ProcessID,
 			)
 		}
-		if err := retryWhileStateDBBusy(ctx, func() error {
+		if processRuntimeStorageExhaustionReady(runner) {
+			return nil
+		}
+		storageErr := retryWhileStateDBBusy(ctx, func() error {
 			return stateStore.MarkAccepted(
 				ctx,
 				claim.ProcessID,
 				claim.SupervisorInstanceID,
 			)
-		}); err != nil {
-			return err
+		})
+		if storageErr != nil && !isStorageExhaustion(storageErr) {
+			return storageErr
 		}
-		if err := runner.runner.StartOnce(ctx); err != nil {
-			return fmt.Errorf(
-				"start accepted process %s: %w",
-				claim.ProcessID,
-				err,
+		if storageErr == nil {
+			if err := runner.runner.StartOnce(ctx); err != nil {
+				if errors.Is(err, errStorageExhaustionTerminalReady) {
+					return nil
+				}
+				if !isStorageExhaustion(err) {
+					return fmt.Errorf(
+						"start accepted process %s: %w",
+						claim.ProcessID,
+						err,
+					)
+				}
+				storageErr = err
+			}
+		}
+		if storageErr != nil {
+			terminateErr := runner.runner.Terminate(
+				context.WithoutCancel(ctx),
+				daemonprotocol.ProcessReasonMachineStorageExhausted,
 			)
+			if errors.Is(terminateErr, errStorageExhaustionTerminalReady) {
+				return nil
+			}
+			if terminateErr != nil {
+				return terminateErr
+			}
+			return storageErr
 		}
 	case daemonprotocol.ProcessDispositionRetain:
 
 	case daemonprotocol.ProcessDispositionRelease:
-		if err := retryWhileStateDBBusy(ctx, func() error {
+		storageCleanup := processRuntimeStorageExhaustionReady(runner)
+		markReleasedErr := retryWhileStateDBBusy(ctx, func() error {
 			return stateStore.MarkServerReleased(
 				ctx,
 				claim.ProcessID,
 				claim.SupervisorInstanceID,
 			)
-		}); err != nil {
-			return err
+		})
+		if markReleasedErr != nil &&
+			!(storageCleanup && errors.Is(markReleasedErr, statedb.ErrFull)) {
+			return markReleasedErr
+		}
+		if storageCleanup {
+			terminateCtx, cancel := context.WithTimeout(
+				context.WithoutCancel(ctx),
+				10*time.Second,
+			)
+			terminateErr := runner.runner.Terminate(terminateCtx, "server_resolved")
+			cancel()
+			if terminateErr != nil {
+				return terminateErr
+			}
+			runner.runner = nil
+			runner.cleanupOnly = true
+			return nil
 		}
 		reports, err := stateStore.ReportsForProcess(ctx, claim.ProcessID)
 		if err != nil {
@@ -551,6 +596,14 @@ func (c *Client) applyProcessDisposition(
 		}
 	}
 	return nil
+}
+
+func processRuntimeStorageExhaustionReady(runtime *processRuntime) bool {
+	if runtime == nil {
+		return false
+	}
+	runner, ok := runtime.runner.(*ipcProcessRunner)
+	return ok && runner.storageExhaustionReady()
 }
 
 func (c *Client) applyActionDisposition(
@@ -958,6 +1011,77 @@ func (c *Client) closeRejectedPreparation(
 		return true, errors.Join(closeErr, err)
 	}
 	return false, nil
+}
+
+func (c *Client) closeStorageExhaustedProcess(
+	ctx context.Context,
+	runtime *processRuntime,
+) (bool, error) {
+	if runtime.runner != nil && !runtime.runner.IsDone() {
+		terminateCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			2*time.Second,
+		)
+		err := runtime.runner.Terminate(terminateCtx, "server_resolved")
+		cancel()
+		if runner, ok := runtime.runner.(*ipcProcessRunner); ok {
+			err = errors.Join(err, runner.EndReconciliation())
+		}
+		if err != nil {
+			return true, err
+		}
+		runtime.runner = nil
+	}
+	stateStore, err := c.stateStore(ctx)
+	if err != nil {
+		return true, err
+	}
+	process, found, err := stateStore.Process(ctx, runtime.processID)
+	if err != nil {
+		return true, err
+	}
+	if found && process.SupervisorInstanceID != runtime.supervisorInstanceID {
+		return false, statedb.ErrSupervisorIdentityMismatch
+	}
+	if found && process.Phase != statedb.ProcessAccepted &&
+		process.Phase != statedb.ProcessTerminal {
+		return false, statedb.ErrStateConflict
+	}
+	machine, err := c.machineStore()
+	if err != nil {
+		return true, err
+	}
+	lockPath, err := machine.LifetimeLockPath(runtime.processID)
+	if err != nil {
+		return true, err
+	}
+	lock, err := localstore.TryAcquireExistingLock(lockPath)
+	if errors.Is(err, os.ErrNotExist) {
+		lock, err = localstore.TryAcquireLock(lockPath)
+	}
+	if err == nil {
+		defer func() { _ = lock.Release() }()
+	}
+	if err == nil {
+		err = c.removeProcessArtifacts(
+			runtime.processID,
+			runtime.supervisorInstanceID,
+			true,
+		)
+	}
+	if err == nil {
+		err = stateStore.DeleteStorageExhaustedAfterArtifacts(
+			ctx,
+			runtime.processID,
+			runtime.supervisorInstanceID,
+		)
+	}
+	if err == nil {
+		err = lock.ReleaseAndRemove()
+	}
+	permanent := errors.Is(err, statedb.ErrSupervisorIdentityMismatch) ||
+		errors.Is(err, statedb.ErrStateConflict)
+	return err != nil && !permanent, err
 }
 
 func (c *Client) removeRejectedProcessArtifacts(

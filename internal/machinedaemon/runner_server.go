@@ -206,13 +206,14 @@ type runnerServerState struct {
 
 	reconciliationMu sync.RWMutex
 
-	mu              sync.RWMutex
-	prepared        *localProcessRunner
-	assignment      ProcessAssignment
-	packageBody     []byte
-	startOutcome    processStartOutcome
-	localClosed     bool
-	ungrantedClosed bool
+	mu                     sync.RWMutex
+	prepared               *localProcessRunner
+	assignment             ProcessAssignment
+	packageBody            []byte
+	startOutcome           processStartOutcome
+	localClosed            bool
+	ungrantedClosed        bool
+	storageExhaustionReady bool
 
 	startMu          sync.Mutex
 	effectBoundaryMu sync.Mutex
@@ -337,27 +338,41 @@ func (s *runnerServerState) handle(
 	ctx context.Context,
 	request runnerRequest,
 ) runnerResponse {
+	var response runnerResponse
 	switch request.Method {
 	case runnerMethodStatus:
-		return s.status(ctx)
+		response = s.status(ctx)
 	case runnerMethodPrepare:
-		return s.prepare(ctx, request.Payload)
+		response = s.prepare(ctx, request.Payload)
 	case runnerMethodStartOnce:
-		return s.startOnce(ctx)
+		response = s.startOnce(ctx)
 	case runnerMethodApplyOnce:
-		return s.applyOnce(ctx, request.Payload)
+		response = s.applyOnce(ctx, request.Payload)
 	case runnerMethodCloseUngranted:
-		return s.closeUngranted(ctx)
+		response = s.closeUngranted(ctx)
 	case runnerMethodTerminate:
-		return s.terminate(ctx, request.Payload)
+		response = s.terminate(ctx, request.Payload)
 	default:
 		return runnerResponse{OK: false, Error: "unsupported supervisor method"}
 	}
+	if response.ErrorCode == runnerErrorStorageExhaustion &&
+		request.Method != runnerMethodStatus &&
+		request.Method != runnerMethodPrepare &&
+		request.Method != runnerMethodCloseUngranted {
+		return runnerErrorResponse(s.closeForStorageExhaustion(ctx))
+	}
+	return response
 }
 
 func (s *runnerServerState) status(ctx context.Context) runnerResponse {
+	s.mu.RLock()
+	ready := s.storageExhaustionReady
+	s.mu.RUnlock()
+	if ready {
+		return runnerErrorResponse(errStorageExhaustionTerminalReady)
+	}
 	if _, err := s.processState.Process(ctx); err != nil {
-		return runnerResponse{OK: false, Error: err.Error()}
+		return runnerErrorResponse(err)
 	}
 	return runnerResponse{OK: true}
 }
@@ -400,7 +415,7 @@ func (s *runnerServerState) prepare(
 	}
 	runner, err := prepareLocalRunner(ctx, s.bootstrap, assignment)
 	if err != nil {
-		return runnerResponse{OK: false, Error: err.Error()}
+		return runnerErrorResponse(err)
 	}
 	s.prepared = runner
 	s.assignment = assignment
@@ -413,6 +428,10 @@ func (s *runnerServerState) startOnce(ctx context.Context) runnerResponse {
 	defer s.startMu.Unlock()
 
 	s.mu.RLock()
+	if s.storageExhaustionReady {
+		s.mu.RUnlock()
+		return runnerErrorResponse(errStorageExhaustionTerminalReady)
+	}
 	if s.startOutcome != "" {
 		outcome := s.startOutcome
 		s.mu.RUnlock()
@@ -432,6 +451,9 @@ func (s *runnerServerState) startOnce(ctx context.Context) runnerResponse {
 	}
 	if prepared == nil {
 		return runnerResponse{OK: false, Error: "supervisor is not prepared"}
+	}
+	if isStorageExhaustion(prepared.startErr) {
+		return runnerErrorResponse(prepared.startErr)
 	}
 
 	startError := s.assignment.PreparationError
@@ -458,7 +480,7 @@ func (s *runnerServerState) startOnce(ctx context.Context) runnerResponse {
 
 	authorized, err := s.processState.AuthorizeSpawnOnce(ctx)
 	if err != nil {
-		return runnerResponse{OK: false, Error: err.Error()}
+		return runnerErrorResponse(err)
 	}
 	if !authorized {
 		response, exit := terminalStartResult(
@@ -478,6 +500,12 @@ func (s *runnerServerState) startOnce(ctx context.Context) runnerResponse {
 	}
 	runner, outcome, startErr := startPreparedLocalRunner(prepared)
 	if startErr != nil {
+		if isStorageExhaustion(startErr) {
+			s.mu.Lock()
+			s.prepared = runner
+			s.mu.Unlock()
+			return runnerErrorResponse(startErr)
+		}
 		state := daemonprotocol.ProcessStateFailed
 		reason := "start_failed"
 		if outcome == processAmbiguous {
@@ -509,6 +537,12 @@ func (s *runnerServerState) startOnce(ctx context.Context) runnerResponse {
 		processContainmentKind,
 		strconv.Itoa(containmentID),
 	); err != nil {
+		if isStorageExhaustion(err) {
+			s.mu.Lock()
+			s.prepared = runner
+			s.mu.Unlock()
+			return runnerErrorResponse(err)
+		}
 		response, exit := terminalStartResult(
 			processAmbiguous,
 			daemonprotocol.ProcessStateUnknown,
@@ -768,6 +802,10 @@ func (s *runnerServerState) finishTerminalRunner(
 	if containmentClosed {
 		outputErr = runner.waitOutputDrain()
 	}
+	if containmentClosed && isStorageExhaustion(outputErr) {
+		s.markStorageExhaustionReady()
+		return
+	}
 	if containmentErr != nil {
 		exit.State = daemonprotocol.ProcessStateUnknown
 		exit.ExitCode = nil
@@ -1001,8 +1039,13 @@ func (s *runnerServerState) applyOnce(
 
 func runnerErrorResponse(err error) runnerResponse {
 	response := runnerResponse{OK: false, Error: err.Error()}
-	if errors.Is(err, statedb.ErrActionBlocked) {
+	switch {
+	case errors.Is(err, statedb.ErrActionBlocked):
 		response.ErrorCode = runnerErrorActionBlocked
+	case errors.Is(err, errStorageExhaustionTerminalReady):
+		response.ErrorCode = runnerErrorStorageExhaustionReady
+	case isStorageExhaustion(err):
+		response.ErrorCode = runnerErrorStorageExhaustion
 	}
 	return response
 }
@@ -1052,6 +1095,13 @@ func (s *runnerServerState) runApplyOnce(
 	localAction := s.localAction(action)
 
 	s.effectBoundaryMu.Lock()
+	s.mu.RLock()
+	storageReady := s.storageExhaustionReady
+	s.mu.RUnlock()
+	if storageReady {
+		s.effectBoundaryMu.Unlock()
+		return errRunnerStorageExhaustion
+	}
 	decision, _, err := s.processState.ApplyOnce(ctx, localAction)
 	if err != nil {
 		s.effectBoundaryMu.Unlock()
@@ -1340,7 +1390,7 @@ func (s *runnerServerState) closeUngranted(
 	defer s.startMu.Unlock()
 	process, err := s.processState.Process(ctx)
 	if err != nil {
-		return runnerResponse{OK: false, Error: err.Error()}
+		return runnerErrorResponse(err)
 	}
 	if process.ExecCommitted ||
 		process.Phase == statedb.ProcessAccepted ||
@@ -1379,14 +1429,22 @@ func (s *runnerServerState) terminate(
 	if payload.Reason == "" {
 		payload.Reason = "machine_deleted"
 	}
+	if payload.Reason == daemonprotocol.ProcessReasonMachineStorageExhausted {
+		return runnerErrorResponse(s.closeForStorageExhaustion(ctx))
+	}
 	s.mu.RLock()
 	runner := s.prepared
 	startOutcome := s.startOutcome
+	storageReady := s.storageExhaustionReady
 	s.mu.RUnlock()
+	if storageReady {
+		s.shutdown()
+		return runnerResponse{OK: true}
+	}
 	if runner == nil || runner.cmd == nil || runner.cmd.Process == nil {
 		process, err := s.processState.Process(ctx)
 		if err != nil {
-			return runnerResponse{OK: false, Error: err.Error()}
+			return runnerErrorResponse(err)
 		}
 		if process.Phase == statedb.ProcessTerminal ||
 			(startOutcome != "" && startOutcome != processStarted) {
@@ -1426,7 +1484,7 @@ func (s *runnerServerState) terminate(
 	err := runner.terminate(terminateCtx)
 	cancel()
 	if err != nil {
-		return runnerResponse{OK: false, Error: err.Error()}
+		return runnerErrorResponse(err)
 	}
 	return runnerResponse{OK: true}
 }
@@ -1438,19 +1496,68 @@ func (s *runnerServerState) markLocallyClosed() {
 	s.shutdown()
 }
 
+func (s *runnerServerState) closeForStorageExhaustion(ctx context.Context) error {
+	s.effectBoundaryMu.Lock()
+	defer s.effectBoundaryMu.Unlock()
+
+	s.mu.RLock()
+	ready := s.storageExhaustionReady
+	runner := s.prepared
+	s.mu.RUnlock()
+	if ready {
+		return errStorageExhaustionTerminalReady
+	}
+	if runner != nil {
+		_ = runner.CloseInput()
+		if runner.cmd == nil || runner.cmd.Process == nil {
+			_ = runner.output.Close()
+		} else {
+			closeCtx, cancel := context.WithTimeout(
+				context.WithoutCancel(ctx),
+				15*time.Second,
+			)
+			closure := terminateAndReapProcessCommand(closeCtx, runner)
+			if closure.ContainmentErr == nil {
+				closure.ContainmentErr = releaseProcessCommand(closeCtx, runner)
+			}
+			cancel()
+			if closure.ContainmentErr != nil {
+				return closure.ContainmentErr
+			}
+			_ = runner.waitOutputDrain()
+		}
+	}
+	s.markStorageExhaustionReady()
+	return errStorageExhaustionTerminalReady
+}
+
+func (s *runnerServerState) markStorageExhaustionReady() {
+	s.mu.Lock()
+	s.storageExhaustionReady = true
+	s.mu.Unlock()
+}
+
 func (s *runnerServerState) autonomousStateWrite(
 	ctx context.Context,
 	write func() error,
 ) error {
 	s.reconciliationMu.RLock()
 	defer s.reconciliationMu.RUnlock()
-	return retrySupervisorStateWrite(ctx, write)
+	s.mu.RLock()
+	ready := s.storageExhaustionReady
+	s.mu.RUnlock()
+	if ready {
+		return errStorageExhaustionTerminalReady
+	}
+	err := retrySupervisorStateWrite(ctx, write)
+	if isStorageExhaustion(err) {
+		return s.closeForStorageExhaustion(ctx)
+	}
+	return err
 }
 
 func (s *runnerServerState) autonomousLocalClosure(ctx context.Context) {
-	s.reconciliationMu.RLock()
-	defer s.reconciliationMu.RUnlock()
-	if err := retrySupervisorStateWrite(ctx, func() error {
+	if err := s.autonomousStateWrite(ctx, func() error {
 		return s.processState.MarkLocalClosed(ctx)
 	}); err == nil {
 		s.markLocallyClosed()
@@ -1470,8 +1577,9 @@ func (s *runnerServerState) stopForSupervisorExit(
 	runner := s.prepared
 	locallyClosed := s.localClosed
 	ungrantedClosed := s.ungrantedClosed
+	storageReady := s.storageExhaustionReady
 	s.mu.RUnlock()
-	if locallyClosed || ungrantedClosed ||
+	if locallyClosed || ungrantedClosed || storageReady ||
 		runner == nil ||
 		runner.cmd == nil ||
 		runner.cmd.Process == nil {
@@ -1500,7 +1608,8 @@ func retrySupervisorStateWrite(
 			return nil
 		}
 		if errors.Is(err, statedb.ErrStateConflict) ||
-			errors.Is(err, statedb.ErrSupervisorIdentityMismatch) {
+			errors.Is(err, statedb.ErrSupervisorIdentityMismatch) ||
+			errors.Is(err, statedb.ErrFull) {
 			return err
 		}
 		if sleepErr := sleepContext(ctx, time.Second); sleepErr != nil {

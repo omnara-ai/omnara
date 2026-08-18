@@ -193,11 +193,12 @@ type processClosureResult struct {
 }
 
 type processRuntime struct {
-	processID            string
-	supervisorInstanceID string
-	supervisorPID        int
-	runner               processRunner
-	cleanupOnly          bool
+	processID               string
+	supervisorInstanceID    string
+	supervisorPID           int
+	runner                  processRunner
+	cleanupOnly             bool
+	storageFailureReporting bool
 }
 
 type localProcessRunner struct {

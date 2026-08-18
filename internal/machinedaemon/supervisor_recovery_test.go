@@ -230,6 +230,9 @@ func TestVerifyProcessSupervisorsUsesLifetimeLock(t *testing.T) {
 	runtime := &processRuntime{
 		processID:            "prc_supervisor_recovery",
 		supervisorInstanceID: "supervisor-instance-supervisor-recovery",
+		runner: &recordingProcessRunner{
+			statusErr: errors.New("injected transient supervisor status failure"),
+		},
 	}
 	store, err := client.stateStore(ctx)
 	if err != nil {
@@ -640,7 +643,7 @@ func TestRejectedPreparationCleanupFailureDoesNotBlockFinalization(t *testing.T)
 	if !client.daemonIdle(ctx) {
 		t.Fatal("failed cleanup prevented daemon idleness")
 	}
-	if got := logs.String(); !strings.Contains(got, "rejected process preparation cleanup failed") ||
+	if got := logs.String(); !strings.Contains(got, "process cleanup failed") ||
 		!strings.Contains(got, rejectedProcessID) {
 		t.Fatalf("cleanup failure log = %q", got)
 	}

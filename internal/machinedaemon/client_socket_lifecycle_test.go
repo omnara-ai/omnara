@@ -84,6 +84,7 @@ type recordingProcessRunner struct {
 	startCalls     chan struct{}
 	releaseStart   chan struct{}
 	releaseClose   chan struct{}
+	statusErr      error
 	terminateCalls chan string
 	terminateErr   error
 	done           chan struct{}
@@ -110,7 +111,7 @@ func (transport blockingSkillDownloadTransport) RoundTrip(
 func (runner *recordingProcessRunner) Status(
 	context.Context,
 ) error {
-	return nil
+	return runner.statusErr
 }
 
 func (runner *recordingProcessRunner) StartOnce(
