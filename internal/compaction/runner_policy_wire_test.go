@@ -228,6 +228,10 @@ func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing
 		},
 		{
 			name: "OpenRouter Chat Completions",
+			// OpenRouter owns reasoning semantics per routed model; for example,
+			// Claude 4.7 accepts reasoning.max_tokens but ignores it. Keep the
+			// passthrough value opaque even when it exceeds Omnara's output cap.
+			// https://openrouter.ai/docs/cookbook/evaluate-and-optimize/model-migrations/claude-4-7
 			client: openaichatcompletions.Client{
 				EndpointPath:      "/chat/completions",
 				ProviderModelSlug: "anthropic/claude-sonnet-4",
