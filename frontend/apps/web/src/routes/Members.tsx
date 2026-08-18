@@ -8,7 +8,6 @@ import { InviteMemberDialog } from '@/components/org/InviteMemberDialog'
 import { MemberDetailPanel } from '@/components/org/MemberDetailPanel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
 import type { PaginationControls } from '@/hooks/use-paged-query'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
@@ -110,7 +109,12 @@ export function Members() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ label: activeOrg.name, to: '/' }, { label: 'Members' }]} />
+      <PageBreadcrumb
+        items={[
+          { id: 'organization', label: activeOrg.name, to: '/' },
+          { id: 'members', label: 'Members' },
+        ]}
+      />
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
@@ -140,9 +144,9 @@ export function Members() {
               variant="outline"
               className="shrink-0"
               disabled={invitationsQuery.isFetching}
+              loading={invitationsQuery.isFetching}
               onClick={() => void invitationsQuery.refetch()}
             >
-              {invitationsQuery.isFetching && <Spinner />}
               Retry
             </Button>
           </div>
@@ -176,7 +180,9 @@ export function Members() {
               className: 'w-28',
               cell: (row) =>
                 row.kind === 'invitation' ? (
-                  <Badge variant="secondary">Invited</Badge>
+                  <Badge variant="secondary" className="capitalize">
+                    {row.invitation.org_role}
+                  </Badge>
                 ) : (
                   <Badge variant="outline" className="capitalize">
                     {row.member.role}
@@ -201,6 +207,7 @@ export function Members() {
                     variant="outline"
                     className="text-destructive hover:text-destructive shrink-0"
                     disabled={deleteInvitation.isPending}
+                    loading={deleteInvitation.isPending}
                     onClick={() => {
                       if (
                         window.confirm(`Revoke the invitation sent to ${row.invitation.email}?`)
@@ -209,7 +216,6 @@ export function Members() {
                       }
                     }}
                   >
-                    {deleteInvitation.isPending && <Spinner />}
                     Revoke invitation
                   </Button>
                 )}
@@ -232,7 +238,14 @@ export function Members() {
       </div>
 
       {canManage && (
-        <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} orgId={activeOrg.id} />
+        <InviteMemberDialog
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          onInvited={() => {
+            setPage(0)
+          }}
+          orgId={activeOrg.id}
+        />
       )}
     </div>
   )

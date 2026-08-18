@@ -1,8 +1,8 @@
 import type { ToolPermissionProfile } from '@omnara/sdk'
 import { Trash2Icon } from 'lucide-react'
 
-import type { BasicMcpServer, McpAuthType } from '@/components/agents/agentConfigBasicSerialization'
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
+import type { BasicMcpServer, McpAuthType } from '@/components/agents/useAgentBuilderForm'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,13 @@ const awsSigningFields = [
   { key: 'service', label: 'Signing service' },
   { key: 'region', label: 'Signing region' },
 ] as const
+
+const mcpAuthTypeOptions: { value: McpAuthType; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'oauth', label: 'OAuth secret' },
+  { value: 'bearer', label: 'Bearer secret' },
+  { value: 'sigv4', label: 'AWS Signature V4' },
+]
 
 function newMcpServer(permissionProfile: ToolPermissionProfile): BasicMcpServer {
   return {
@@ -124,7 +131,9 @@ export function AgentConfigMcpServersField({
                   <Field>
                     <FieldLabel>Tool permission</FieldLabel>
                     <Select
-                      value={server.permission.mode}
+                      value={
+                        server.permission?.mode ?? permissionProfile?.default_permission.mode ?? ''
+                      }
                       disabled={permissionProfile == null}
                       onValueChange={(mode) => {
                         updateServer(server.id, { permission: { mode, parameters: {} } })
@@ -132,7 +141,10 @@ export function AgentConfigMcpServersField({
                     >
                       <SelectTrigger className="w-full" aria-label="MCP tool permission">
                         <SelectValue>
-                          {permissionModeLabel(permissionProfile, server.permission.mode)}
+                          {permissionModeLabel(
+                            permissionProfile,
+                            server.permission?.mode ?? permissionProfile?.default_permission.mode,
+                          )}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
@@ -153,7 +165,9 @@ export function AgentConfigMcpServersField({
                       }}
                     >
                       <SelectTrigger className="w-full" aria-label="MCP default enable">
-                        <SelectValue />
+                        <SelectValue>
+                          {server.defaultEnabled ? 'Enabled by default' : 'Disabled by default'}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="true">Enabled by default</SelectItem>
@@ -177,13 +191,17 @@ export function AgentConfigMcpServersField({
                       }}
                     >
                       <SelectTrigger className="w-full" aria-label="MCP auth type">
-                        <SelectValue />
+                        <SelectValue>
+                          {mcpAuthTypeOptions.find((option) => option.value === server.authType)
+                            ?.label ?? server.authType}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="oauth">OAuth secret</SelectItem>
-                        <SelectItem value="bearer">Bearer secret</SelectItem>
-                        <SelectItem value="sigv4">AWS Signature V4</SelectItem>
+                        {mcpAuthTypeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </Field>
@@ -244,6 +262,6 @@ export function AgentConfigMcpServersField({
   )
 }
 
-function permissionModeLabel(profile: ToolPermissionProfile | undefined, value: string) {
-  return profile?.permission_modes.find((mode) => mode.name === value)?.label ?? value
+function permissionModeLabel(profile: ToolPermissionProfile | undefined, value?: string) {
+  return profile?.permission_modes.find((mode) => mode.name === value)?.label ?? value ?? ''
 }

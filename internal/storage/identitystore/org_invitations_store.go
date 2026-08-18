@@ -53,7 +53,10 @@ func (s *Store) CreateOrgInvitation(
 			ctx,
 			dbsqlc.GetOrgAuthorizationRoleParams{OrgID: input.OrgID, UserID: emailUser.UserID},
 		); err == nil {
-			return OrgInvitationRecord{}, storeerr.ErrIdempotencyConflict
+			return OrgInvitationRecord{}, storeerr.Tag(
+				storeerr.ErrConflict,
+				errors.New("email already belongs to an organization member"),
+			)
 		} else if !errors.Is(
 			err,
 			pgx.ErrNoRows,
@@ -70,7 +73,10 @@ func (s *Store) CreateOrgInvitation(
 	)
 	if err == nil {
 		if existing.OrgRole != input.Role {
-			return OrgInvitationRecord{}, storeerr.ErrIdempotencyConflict
+			return OrgInvitationRecord{}, storeerr.Tag(
+				storeerr.ErrConflict,
+				errors.New("pending invitation already exists with a different role"),
+			)
 		}
 		return orgInvitationRecordFromSQLC(existing), nil
 	}
@@ -88,11 +94,18 @@ func (s *Store) CreateOrgInvitation(
 	)
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
-			return OrgInvitationRecord{}, storeerr.ErrIdempotencyConflict
+			return OrgInvitationRecord{}, storeerr.Tag(
+				storeerr.ErrConflict,
+				errors.New("pending invitation already exists"),
+			)
 		}
 		return OrgInvitationRecord{}, fmt.Errorf("create org invitation: %w", err)
 	}
 	if err := resourceguard.Lock(ctx, qtx, resourceOrgInvitations, input.OrgID.String()); err != nil {
+		return OrgInvitationRecord{}, err
+	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
 		return OrgInvitationRecord{}, err
 	}
 	invitationCount, err := qtx.CountPendingOrgInvitationsForOrg(
@@ -102,10 +115,10 @@ func (s *Store) CreateOrgInvitation(
 	if err != nil {
 		return OrgInvitationRecord{}, fmt.Errorf("count pending organization invitations: %w", err)
 	}
-	if invitationCount > MaxPendingOrgInvitationsPerOrg {
+	if invitationCount > limits.MaxPendingOrgInvitationsPerOrg {
 		return OrgInvitationRecord{}, resourceLimitExceeded(
 			"pending organization invitations",
-			MaxPendingOrgInvitationsPerOrg,
+			limits.MaxPendingOrgInvitationsPerOrg,
 		)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -169,7 +182,7 @@ type ListPendingOrgInvitationsForUserInput struct {
 }
 
 type ListPendingOrgInvitationsForUserResult struct {
-	Invitations []OrgInvitationRecord
+	Invitations []OrgInvitationWithOrgNameRecord
 	HasMore     bool
 }
 
@@ -195,7 +208,7 @@ func (s *Store) ListPendingOrgInvitationsForUser(
 		emails = append(emails, email.NormalizedEmail)
 	}
 	if len(emails) == 0 {
-		return ListPendingOrgInvitationsForUserResult{Invitations: []OrgInvitationRecord{}}, nil
+		return ListPendingOrgInvitationsForUserResult{Invitations: []OrgInvitationWithOrgNameRecord{}}, nil
 	}
 	params := dbsqlc.ListPendingOrgInvitationsForEmailsParams{
 		NormalizedEmails: emails,
@@ -211,9 +224,9 @@ func (s *Store) ListPendingOrgInvitationsForUser(
 	if err != nil {
 		return ListPendingOrgInvitationsForUserResult{}, fmt.Errorf("list pending invitations: %w", err)
 	}
-	records := make([]OrgInvitationRecord, 0, len(rows))
+	records := make([]OrgInvitationWithOrgNameRecord, 0, len(rows))
 	for _, row := range rows {
-		records = append(records, orgInvitationRecordFromSQLC(row))
+		records = append(records, pendingOrgInvitationRecordFromSQLC(row))
 	}
 	result := ListPendingOrgInvitationsForUserResult{}
 	if len(records) > input.Limit {
@@ -227,14 +240,14 @@ func (s *Store) ListPendingOrgInvitationsForUser(
 func (s *Store) AcceptOrgInvitation(
 	ctx context.Context,
 	input AcceptOrgInvitationInput,
-) (OrgInvitationRecord, error) {
+) (OrgInvitationWithOrgNameRecord, error) {
 	return s.answerOrgInvitation(ctx, input.ID, input.UserID, true)
 }
 
 func (s *Store) DeclineOrgInvitation(
 	ctx context.Context,
 	input DeclineOrgInvitationInput,
-) (OrgInvitationRecord, error) {
+) (OrgInvitationWithOrgNameRecord, error) {
 	return s.answerOrgInvitation(ctx, input.ID, input.UserID, false)
 }
 
@@ -265,26 +278,26 @@ func (s *Store) answerOrgInvitation(
 	ctx context.Context,
 	id, userID ID,
 	accept bool,
-) (OrgInvitationRecord, error) {
+) (OrgInvitationWithOrgNameRecord, error) {
 	if isNilID(id) {
-		return OrgInvitationRecord{}, errors.New("invitation id is required")
+		return OrgInvitationWithOrgNameRecord{}, errors.New("invitation id is required")
 	}
 	if isNilID(userID) {
-		return OrgInvitationRecord{}, errors.New("user id is required")
+		return OrgInvitationWithOrgNameRecord{}, errors.New("user id is required")
 	}
 	emailRows, err := s.q.ListVerifiedUserEmailsByUser(
 		ctx,
 		dbsqlc.ListVerifiedUserEmailsByUserParams{UserID: userID},
 	)
 	if err != nil {
-		return OrgInvitationRecord{}, fmt.Errorf("list verified emails: %w", err)
+		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("list verified emails: %w", err)
 	}
 	if len(emailRows) == 0 {
-		return OrgInvitationRecord{}, storeerr.ErrUnauthorized
+		return OrgInvitationWithOrgNameRecord{}, storeerr.ErrUnauthorized
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return OrgInvitationRecord{}, fmt.Errorf("begin answer org invitation: %w", err)
+		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("begin answer org invitation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
@@ -293,21 +306,21 @@ func (s *Store) answerOrgInvitation(
 		dbsqlc.GetOrgInvitationForLifecycleParams{ID: id},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return OrgInvitationRecord{}, storeerr.ErrNotFound
+		return OrgInvitationWithOrgNameRecord{}, storeerr.ErrNotFound
 	}
 	if err != nil {
-		return OrgInvitationRecord{}, fmt.Errorf("load organization invitation lifecycle: %w", err)
+		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("load organization invitation lifecycle: %w", err)
 	}
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, invitation.OrgID); err != nil {
-		return OrgInvitationRecord{}, err
+		return OrgInvitationWithOrgNameRecord{}, err
 	}
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: userID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return OrgInvitationRecord{}, storeerr.ErrNotFound
+			return OrgInvitationWithOrgNameRecord{}, storeerr.ErrNotFound
 		}
-		return OrgInvitationRecord{}, fmt.Errorf("lock invited user: %w", err)
+		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("lock invited user: %w", err)
 	}
-	var answered dbsqlc.OrgInvitation
+	var answered dbsqlc.ConsumeOrgInvitationForEmailRow
 	var matched bool
 	var answerErr error
 	for _, email := range emailRows {
@@ -323,11 +336,11 @@ func (s *Store) answerOrgInvitation(
 			break
 		}
 		if !errors.Is(answerErr, pgx.ErrNoRows) {
-			return OrgInvitationRecord{}, fmt.Errorf("answer org invitation: %w", answerErr)
+			return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("answer org invitation: %w", answerErr)
 		}
 	}
 	if !matched {
-		return OrgInvitationRecord{}, storeerr.ErrNotFound
+		return OrgInvitationWithOrgNameRecord{}, storeerr.ErrNotFound
 	}
 	if accept {
 		_, membershipErr := qtx.LockUserOrgMembership(
@@ -335,7 +348,7 @@ func (s *Store) answerOrgInvitation(
 			dbsqlc.LockUserOrgMembershipParams{OrgID: answered.OrgID, UserID: userID},
 		)
 		if membershipErr != nil && !errors.Is(membershipErr, pgx.ErrNoRows) {
-			return OrgInvitationRecord{}, fmt.Errorf(
+			return OrgInvitationWithOrgNameRecord{}, fmt.Errorf(
 				"lock existing org membership: %w",
 				membershipErr,
 			)
@@ -346,10 +359,10 @@ func (s *Store) answerOrgInvitation(
 				dbsqlc.CountOrgMembershipsForUserParams{UserID: userID},
 			)
 			if err != nil {
-				return OrgInvitationRecord{}, fmt.Errorf("count user org memberships: %w", err)
+				return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("count user org memberships: %w", err)
 			}
 			if membershipCount >= MaxOrgMembershipsPerUser {
-				return OrgInvitationRecord{}, storeerr.ErrUnauthorized
+				return OrgInvitationWithOrgNameRecord{}, storeerr.ErrUnauthorized
 			}
 		}
 		if _, err := qtx.AddUserOrgMembershipIfMissing(
@@ -361,11 +374,11 @@ func (s *Store) answerOrgInvitation(
 			},
 		); err != nil &&
 			!errors.Is(err, pgx.ErrNoRows) {
-			return OrgInvitationRecord{}, fmt.Errorf("create invited org membership: %w", err)
+			return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("create invited org membership: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return OrgInvitationRecord{}, fmt.Errorf("commit answer org invitation: %w", err)
+		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("commit answer org invitation: %w", err)
 	}
-	return orgInvitationRecordFromSQLC(answered), nil
+	return consumedOrgInvitationRecordFromSQLC(answered), nil
 }

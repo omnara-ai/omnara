@@ -12,17 +12,11 @@ import (
 const (
 	resourceAgentConfigs        = "agent_configs"
 	resourceAgentProfiles       = "agent_profiles"
+	resourceCronTriggers        = "cron_triggers"
 	resourceAgents              = "agents"
 	resourceMachineDaemonTokens = "machine_daemon_tokens"
 	resourceMachinePools        = "machine_pools"
 	resourceMachines            = "machines"
-
-	MaxAgentConfigsPerProject          = 10_000
-	MaxActiveAgentProfilesPerProject   = 1_000
-	MaxActiveAgentsPerProject          = 10_000
-	MaxActiveBYODaemonTokensPerMachine = 20
-	MaxActiveTenantMachinePoolsPerOrg  = 100
-	MaxLiveMachinesPerOrg              = 10_000
 )
 
 func lockResourceCreation(
@@ -32,6 +26,14 @@ func lockResourceCreation(
 	scope string,
 ) error {
 	return resourceguard.Lock(ctx, qtx, resourceKind, scope)
+}
+
+func resolveResourceLimits(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	orgID ID,
+) (dbsqlc.EffectiveResourceLimit, error) {
+	return resourceguard.ResolveLimits(ctx, qtx, orgID)
 }
 
 func resourceLimitExceeded(resource string, limit int64) error {
@@ -50,6 +52,10 @@ func insertMachineWithResourceLimitTx(
 	if err := lockResourceCreation(ctx, qtx, resourceMachines, input.OrgID.String()); err != nil {
 		return dbsqlc.InsertMachineRow{}, err
 	}
+	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return dbsqlc.InsertMachineRow{}, err
+	}
 	machineCount, err := qtx.CountLiveMachinesForOrg(
 		ctx,
 		dbsqlc.CountLiveMachinesForOrgParams{OrgID: input.OrgID},
@@ -57,10 +63,10 @@ func insertMachineWithResourceLimitTx(
 	if err != nil {
 		return dbsqlc.InsertMachineRow{}, fmt.Errorf("count live machines: %w", err)
 	}
-	if machineCount > MaxLiveMachinesPerOrg {
+	if machineCount > limits.MaxLiveMachinesPerOrg {
 		return dbsqlc.InsertMachineRow{}, resourceLimitExceeded(
 			"live machines",
-			MaxLiveMachinesPerOrg,
+			limits.MaxLiveMachinesPerOrg,
 		)
 	}
 	return row, nil

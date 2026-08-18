@@ -1,12 +1,16 @@
-import { type ListAgentsData, sdk } from '@omnara/sdk'
+import { ApiError, type GetAgentResponse, type ListAgentsData, sdk } from '@omnara/sdk'
 import {
+  getAgentConfigOptions,
   getAgentOptions,
+  getAgentQueryKey,
+  getOrgOverviewQueryKey,
   listAgentsInfiniteOptions,
   listAgentsQueryKey,
 } from '@omnara/sdk/tanstack'
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query'
@@ -39,13 +43,56 @@ export function useAgents(orgID: string, projectID: string, options?: AgentListO
   })
 }
 
-export function useAgent(orgID: string, projectID: string, agentID: string) {
+export function useAgent(
+  orgID: string,
+  projectID: string,
+  agentID: string,
+  options?: { refetchInterval?: (data: GetAgentResponse | undefined) => number | false },
+) {
   const client = useOmnaraClient()
-  return useSuspenseQuery(getAgentOptions({ path: { orgID, projectID, agentID }, client }))
+  const refetchInterval = options?.refetchInterval
+  return useSuspenseQuery({
+    ...getAgentOptions({ path: { orgID, projectID, agentID }, client }),
+    refetchInterval:
+      refetchInterval == null ? undefined : (query) => refetchInterval(query.state.data),
+  })
 }
 
 export function useCreateAgentConfig(orgID: string, projectID: string) {
   return useScopedMutation(sdk.createAgentConfig, { orgID, projectID })
+}
+
+export function useAgentConfig(orgID: string, projectID: string, agentConfigID?: string) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getAgentConfigOptions({
+      path: { orgID, projectID, agentConfigID: agentConfigID ?? '' },
+      client,
+    }),
+    enabled: agentConfigID !== undefined,
+  })
+}
+
+export function useUpdateAgentConfig(orgID: string, projectID: string, agentID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  const invalidateAgent = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: getAgentQueryKey({ path: { orgID, projectID, agentID }, client }),
+    })
+  }
+  return useScopedMutation(
+    sdk.updateAgentConfig,
+    { orgID, projectID, agentID },
+    {
+      onSuccess: invalidateAgent,
+      onError: async (error) => {
+        if (error instanceof ApiError && error.status === 409) {
+          await invalidateAgent()
+        }
+      },
+    },
+  )
 }
 
 export function useCreateAgent(orgID: string, projectID: string) {
@@ -56,9 +103,14 @@ export function useCreateAgent(orgID: string, projectID: string) {
     { orgID, projectID },
     {
       onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
-        })
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+          }),
+        ])
       },
     },
   )
@@ -73,9 +125,14 @@ export function useArchiveAgent(orgID: string, projectID: string) {
       return data
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+        }),
+      ])
     },
   })
 }

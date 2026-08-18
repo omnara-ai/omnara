@@ -646,6 +646,72 @@ FOR UPDATE
 	}
 }
 
+func TestRenameAgentProfile(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	sourceYAML := `
+instruction: Profiles can be renamed.
+model:
+  provider_config: openai-prod
+  name: profile-rename
+`
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, "profile-rename", sourceYAML, now)
+	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+		ProjectID:       testProjectID,
+		Name:            "Rename Me",
+		CurrentConfigID: config.ID,
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	taken, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+		ProjectID:       testProjectID,
+		Name:            "Rename Taken",
+		CurrentConfigID: config.ID,
+	})
+	if err != nil {
+		t.Fatalf("create second profile: %v", err)
+	}
+
+	renamed, err := store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
+		ProjectID: testProjectID,
+		ProfileID: profile.ID,
+		Name:      "Renamed Profile",
+	})
+	if err != nil {
+		t.Fatalf("rename profile: %v", err)
+	}
+	if renamed.Name != "Renamed Profile" {
+		t.Fatalf("renamed profile name = %q, want %q", renamed.Name, "Renamed Profile")
+	}
+	if renamed.CurrentConfigID != profile.CurrentConfigID ||
+		renamed.CurrentGeneration != profile.CurrentGeneration {
+		t.Fatalf("rename changed config head: before=%+v after=%+v", profile, renamed)
+	}
+
+	if _, err := store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
+		ProjectID: testProjectID,
+		ProfileID: profile.ID,
+		Name:      taken.Name,
+	}); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("rename to taken name error = %v, want ErrConflict", err)
+	}
+
+	crossProjectID := testID("rename_other_project")
+	if _, err := store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
+		ProjectID: crossProjectID,
+		ProfileID: profile.ID,
+		Name:      "Cross Project Rename",
+	}); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("cross-project rename error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestCreateAgentProfileIdempotentReplayReturnsExistingProfile(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -944,6 +1010,111 @@ model:
 		storeerr.ErrIdempotencyConflict,
 	) {
 		t.Fatalf("expected config change idempotency conflict, got %v", err)
+	}
+}
+
+func TestChangeAgentConfigExpectedCurrentConfigGuard(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 4, 29, 17, 0, 0, 0, time.UTC)
+	user := mustCreateProjectDeveloperUser(
+		t,
+		ctx,
+		store,
+		"agent-config-expected@example.com",
+		"Agent Config Expected")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-expected", "Expected Profile", `
+instruction: Original instruction.
+model:
+  provider_config: openai-prod
+  name: config-expected
+`, now)
+	launch, err := store.Execution().LaunchAgent(
+		ctx,
+		executionstore.LaunchAgentInput{
+			ProjectID:      testProjectID,
+			ProfileID:      profile.ID,
+			AgentConfigID:  profile.CurrentConfigID,
+			LaunchedBy:     userPrincipal(user.ID),
+			IdempotencyKey: "idem-config-expected-launch",
+		},
+	)
+	if err != nil {
+		t.Fatalf("launch with config: %v", err)
+	}
+	updatedYAML := `
+instruction: Updated instruction.
+model:
+  provider_config: openai-prod
+  name: config-expected
+`
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML, now.Add(2*time.Second))
+	updatedInput := executionstore.CreateAgentConfigInput{
+		ProjectID:               testProjectID,
+		Definition:              json.RawMessage(compiled.CanonicalJSON),
+		Source:                  updatedYAML,
+		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
+		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
+		CompilerVersion:         agentconfig.CompilerVersion,
+		EffectiveDefinitionHash: compiled.Hash,
+	}
+	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput:  updatedInput,
+		AgentID:                 launch.Agent.ID,
+		ExpectedCurrentConfigID: launch.Agent.CurrentConfigID,
+		ActorType:               identitystore.PrincipalTypeUser,
+		ActorID:                 user.ID,
+		Reason:                  "user_update",
+		IdempotencyKey:          "idem-config-expected-change",
+	})
+	if err != nil {
+		t.Fatalf("change config with matching expected id: %v", err)
+	}
+	staleYAML := `
+instruction: Stale editor instruction.
+model:
+  provider_config: openai-prod
+  name: config-expected
+`
+	staleCompiled := mustCompileAgentYAMLResolved(t, ctx, store, staleYAML, now.Add(4*time.Second))
+	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
+			ProjectID:               testProjectID,
+			Definition:              json.RawMessage(staleCompiled.CanonicalJSON),
+			Source:                  staleYAML,
+			ConfiguredModelID:       parseConfiguredModelID(t, staleCompiled),
+			CompiledDefinition:      json.RawMessage(staleCompiled.CanonicalJSON),
+			CompilerVersion:         agentconfig.CompilerVersion,
+			EffectiveDefinitionHash: staleCompiled.Hash,
+		},
+		AgentID:                 launch.Agent.ID,
+		ExpectedCurrentConfigID: launch.Agent.CurrentConfigID,
+		ActorType:               identitystore.PrincipalTypeUser,
+		ActorID:                 user.ID,
+		Reason:                  "user_update",
+		IdempotencyKey:          "idem-config-expected-stale",
+	}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("stale expected id should conflict, got %v", err)
+	}
+	replayed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput:  updatedInput,
+		AgentID:                 launch.Agent.ID,
+		ExpectedCurrentConfigID: launch.Agent.CurrentConfigID,
+		ActorType:               identitystore.PrincipalTypeUser,
+		ActorID:                 user.ID,
+		Reason:                  "user_update",
+		IdempotencyKey:          "idem-config-expected-change",
+	})
+	if err != nil {
+		t.Fatalf("replay with stale expected id should pass, since its config is already active: %v", err)
+	}
+	if replayed.AgentConfig.ID != change.AgentConfig.ID ||
+		replayed.ConfigChange.Event.ID != change.ConfigChange.Event.ID {
+		t.Fatalf("unexpected replayed change: original=%+v replay=%+v", change, replayed)
 	}
 }
 

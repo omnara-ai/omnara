@@ -1,0 +1,312 @@
+import {
+  useCreateAgent,
+  useCreateAgentConfig,
+  useCreateAgentProfile,
+  useUpdateAgentProfile,
+} from '@omnara/react'
+import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
+import { useNavigate } from '@tanstack/react-router'
+import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
+
+import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import {
+  type AgentConfigMode,
+  agentConfigModeReducer,
+  initialAgentConfigModeState,
+  yamlDiverged,
+} from '@/components/agents/agentConfigModeMachine'
+import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
+import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
+import {
+  type AgentTemplate,
+  agentTemplateConfig,
+  agentTemplateName,
+} from '@/components/agents/agentTemplates'
+import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
+import { PillTabs } from '@/components/agents/PillTabs'
+import {
+  type BasicConfig,
+  createBasicConfigSession,
+  useAgentBuilderForm,
+} from '@/components/agents/useAgentBuilderForm'
+import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
+import { Button } from '@/components/ui/button'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import type { SubmitStatus } from '@/lib/submit-status'
+import { idle, settleSubmission, statusError, submitError, submitting } from '@/lib/submit-status'
+import { useProjectPage } from '@/lib/use-project-page'
+import { cn } from '@/lib/utils'
+
+type SubmitAction = 'profile' | 'launch'
+
+interface CreateAgentDraft {
+  name: string
+  message: string
+  status: SubmitStatus
+}
+
+interface SavedProfile {
+  name: string
+  yaml: string
+  profileId: string
+  configId: string
+}
+
+export function CreateAgentFormView({
+  catalog,
+  defaultPool,
+  defaultModel,
+  templatesReady,
+  initialTemplate,
+}: {
+  catalog?: ToolCatalog
+  defaultPool?: MachinePoolSummary
+  defaultModel?: ConfiguredModelSummary
+  templatesReady: boolean
+  initialTemplate?: AgentTemplate
+}) {
+  const { activeOrg, project, projectId } = useProjectPage()
+  const createAgentConfig = useCreateAgentConfig(activeOrg.id, projectId)
+  const createAgentProfile = useCreateAgentProfile(activeOrg.id, projectId)
+  const updateAgentProfile = useUpdateAgentProfile(activeOrg.id, projectId)
+  const createAgent = useCreateAgent(activeOrg.id, projectId)
+  const navigate = useNavigate()
+  const [mode, dispatchMode] = useReducer(
+    agentConfigModeReducer,
+    initialAgentConfigModeState('builder'),
+  )
+  const [draft, setDraft] = useState<CreateAgentDraft>(() => ({
+    name: initialTemplate?.name ?? '',
+    message: '',
+    status: idle,
+  }))
+  const [appliedTemplate, setAppliedTemplate] = useState<AgentTemplate | null>(
+    initialTemplate ?? null,
+  )
+  const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
+  const savedProfile = useRef<SavedProfile | null>(null)
+  const [session, setSession] = useState(() => createBasicConfigSession(''))
+  const form = useAgentBuilderForm(session, initialTemplate && templateBasicConfig(initialTemplate))
+  const switchMode = (nextMode: AgentConfigMode) => {
+    if (nextMode === 'builder' && mode.editorYaml !== null) {
+      const adopted = createBasicConfigSession(mode.editorYaml)
+      if (adopted.initialDraft != null) {
+        setSession(adopted)
+        form.reset(adopted.initialDraft)
+        dispatchMode({ type: 'adopt-yaml-edits' })
+        return
+      }
+    }
+    dispatchMode({ type: 'switch-mode', mode: nextMode })
+  }
+
+  function templateBasicConfig(template: AgentTemplate): BasicConfig {
+    return {
+      mcpServers: [],
+      skillIds: [],
+      ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
+    }
+  }
+
+  function applyTemplate(template: AgentTemplate) {
+    const next = templateBasicConfig(template)
+    // Keep a model the user already picked; templates only fill the gap.
+    if (form.model.providerConfig !== '' && form.model.modelName !== '') {
+      next.providerConfig = form.model.providerConfig
+      next.modelName = form.model.modelName
+    }
+    form.reset(next)
+    setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
+    setAppliedTemplate(template)
+  }
+
+  if (project == null) return null
+
+  const showBuilder = mode.mode === 'builder'
+  const isSubmitting = draft.status.phase === 'submitting'
+  const errorMessage = statusError(draft.status)
+  const yaml = mode.editorYaml ?? form.yaml
+  const canSubmit =
+    !isSubmitting &&
+    draft.name.trim() !== '' &&
+    yaml.trim() !== '' &&
+    !(form.blocked && (showBuilder || !yamlDiverged(mode)))
+
+  async function submit(action: SubmitAction) {
+    if (!canSubmit) return
+    setDraft((prev) => ({ ...prev, status: submitting }))
+    setPendingAction(action)
+    const name = draft.name.trim()
+    const result = await settleSubmission(async () => {
+      let profile = savedProfile.current
+      if (profile?.name !== name || profile.yaml !== yaml) {
+        const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
+        if (profile?.name === name) {
+          await updateAgentProfile.mutateAsync({
+            agentProfileID: profile.profileId,
+            config: config.id,
+            expected_current_config_id: profile.configId,
+          })
+          profile = { ...profile, yaml, configId: config.id }
+        } else {
+          const created = await createAgentProfile.mutateAsync({ name, config: config.id })
+          profile = { name, yaml, profileId: created.id, configId: config.id }
+        }
+        savedProfile.current = profile
+      }
+      if (action === 'launch') {
+        const launch = await createAgent.mutateAsync({
+          profile: profile.profileId,
+          config: profile.configId,
+          message: draft.message.trim() === '' ? undefined : draft.message,
+        })
+        await navigate({
+          to: '/projects/$projectId/agents/$agentId',
+          params: { projectId, agentId: launch.agent.id },
+        })
+      } else {
+        await navigate({
+          to: '/projects/$projectId/agent-profiles/$profileId',
+          params: { projectId, profileId: profile.profileId },
+        })
+      }
+    }).finally(() => {
+      setPendingAction(null)
+    })
+
+    if (result.ok) {
+      setDraft((prev) => ({ ...prev, status: idle }))
+    } else {
+      const status = submitError(
+        result.error,
+        action === 'launch' ? 'Could not create agent' : 'Could not create profile',
+      )
+      setDraft((prev) => ({
+        ...prev,
+        status,
+      }))
+    }
+  }
+
+  return (
+    <form
+      className="mx-auto flex w-full max-w-6xl flex-col gap-6"
+      onSubmit={(event: SyntheticEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        void submit('launch')
+      }}
+    >
+      <PageBreadcrumb
+        items={[
+          { id: 'organization', label: activeOrg.name, to: '/' },
+          { id: 'project', label: project.name },
+          {
+            id: 'agents',
+            label: 'Agents',
+            to: '/projects/$projectId/agents',
+            params: { projectId },
+          },
+          { id: 'new-agent', label: 'New agent' },
+        ]}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold tracking-tight">New agent</h1>
+        <div className="flex items-center gap-2">
+          {showBuilder && <AgentTemplateMenu disabled={!templatesReady} onApply={applyTemplate} />}
+          <PillTabs
+            value={mode.mode}
+            onValueChange={switchMode}
+            tabs={[
+              { value: 'builder', label: 'Builder' },
+              { value: 'yaml', label: 'YAML' },
+            ]}
+          />
+        </div>
+      </div>
+
+      <FieldGroup className="max-w-3xl gap-8">
+        <Field>
+          <FieldLabel htmlFor="agent-config-name">Name</FieldLabel>
+          <Input
+            id="agent-config-name"
+            required
+            value={draft.name}
+            placeholder="Demo research agent"
+            className="max-w-md"
+            onChange={(event) => {
+              setDraft((prev) => ({ ...prev, name: event.target.value }))
+            }}
+          />
+        </Field>
+        <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
+          <AgentConfigBasicForm orgId={activeOrg.id} projectId={projectId} form={form} />
+        </div>
+        {!showBuilder && (
+          <AgentConfigYamlField
+            id="agent-yaml"
+            value={yaml}
+            className="h-[28rem]"
+            onChange={(value) => {
+              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml: form.yaml })
+            }}
+          />
+        )}
+        <Field>
+          <FieldLabel htmlFor="agent-message">First message (optional)</FieldLabel>
+          <Input
+            id="agent-message"
+            value={draft.message}
+            placeholder={
+              appliedTemplate?.firstMessagePlaceholder ?? 'Kick the agent off with a message'
+            }
+            onChange={(event) => {
+              setDraft((prev) => ({ ...prev, message: event.target.value }))
+            }}
+          />
+        </Field>
+      </FieldGroup>
+      {/* -bottom-6 offsets the scroll container's p-6 so the bar sits flush with the viewport edge. */}
+      <div className="bg-background sticky -bottom-6 z-10 -mb-6 flex items-center justify-between gap-4 border-t py-4">
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={isSubmitting}
+          onClick={() => {
+            void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
+          }}
+        >
+          Cancel
+        </Button>
+        <div className="flex items-center gap-4">
+          {errorMessage && (
+            <p className="text-destructive whitespace-pre-wrap text-sm">{errorMessage}</p>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!canSubmit}
+            loading={pendingAction === 'profile'}
+            onClick={() => {
+              void submit('profile')
+            }}
+          >
+            Create profile
+          </Button>
+          <Button type="submit" disabled={!canSubmit} loading={pendingAction === 'launch'}>
+            Create & launch agent
+          </Button>
+        </div>
+      </div>
+      <ConfirmDiscardYamlDialog
+        open={mode.confirmDiscard}
+        onOpenChange={(open) => {
+          dispatchMode({ type: 'set-confirm-discard', open })
+        }}
+        onConfirm={() => {
+          dispatchMode({ type: 'discard-yaml-edits' })
+        }}
+      />
+    </form>
+  )
+}

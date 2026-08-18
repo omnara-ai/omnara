@@ -15,6 +15,7 @@ func insertLaunchInitialContentInputTx(
 	tx pgx.Tx,
 	agent AgentRecord,
 	launchedBy identitystore.PrincipalRecord,
+	messageActor *ActorParams,
 	message string,
 	launchIdempotencyKey string,
 ) (AgentInputRecord, json.RawMessage, error) {
@@ -27,9 +28,12 @@ func insertLaunchInitialContentInputTx(
 	if err != nil {
 		return AgentInputRecord{}, nil, fmt.Errorf("marshal launch initial input content: %w", err)
 	}
-	launchActor, err := OmnaraActorParams(agent.OrgID, launchedBy)
-	if err != nil {
-		return AgentInputRecord{}, nil, err
+	launchActor := messageActor
+	if launchActor == nil {
+		launchActor, err = OmnaraActorParams(agent.OrgID, launchedBy)
+		if err != nil {
+			return AgentInputRecord{}, nil, err
+		}
 	}
 	launchActorID, err := resolveActorTx(
 		ctx,

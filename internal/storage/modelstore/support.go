@@ -16,9 +16,6 @@ var NilID = uuid.Nil
 const (
 	resourceModelProviderConfigs = "model_provider_configs"
 	resourceConfiguredModels     = "configured_models"
-
-	MaxActiveTenantModelProviderConfigsPerOrg int64 = 100
-	MaxActiveConfiguredModelsPerProvider      int64 = 100
 )
 
 type Store struct {

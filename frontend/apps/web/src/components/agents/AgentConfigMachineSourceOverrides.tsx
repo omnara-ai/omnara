@@ -1,4 +1,4 @@
-import type { BasicMachineSource } from '@/components/agents/agentConfigBasicSerialization'
+import type { BasicMachineSource } from '@/components/agents/useAgentBuilderForm'
 import {
   EnvOverlayEditor,
   OverridesCollapsible,
@@ -57,14 +57,15 @@ export function SourceOverridesSection({
                 )}
                 {resources.memoryMb === 'configured' && (
                   <Field>
-                    <FieldLabel htmlFor={`${source.id}-memory`}>Machine memory (MB)</FieldLabel>
+                    <FieldLabel htmlFor={`${source.id}-memory`}>Machine memory (GB)</FieldLabel>
                     <Input
                       id={`${source.id}-memory`}
                       type="number"
-                      min={1}
-                      value={source.machineMemoryMb}
+                      min={0}
+                      step="any"
+                      value={source.machineMemoryGb}
                       onChange={(event) => {
-                        onChange({ machineMemoryMb: event.target.value })
+                        onChange({ machineMemoryGb: event.target.value })
                       }}
                     />
                   </Field>

@@ -11,7 +11,12 @@ export function ApiTokensPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ label: activeOrg.name, to: '/' }, { label: 'API Tokens' }]} />
+      <PageBreadcrumb
+        items={[
+          { id: 'organization', label: activeOrg.name, to: '/' },
+          { id: 'api-tokens', label: 'API Tokens' },
+        ]}
+      />
 
       {canManage ? (
         <Tabs defaultValue="user" className="gap-6">

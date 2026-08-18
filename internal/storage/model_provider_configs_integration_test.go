@@ -805,8 +805,8 @@ model:
 		ConfiguredModelID:      configuredModel.ID,
 		MaxOutputTokens:        intPtr(48000),
 		DefaultMaxOutputTokens: intPtr(24000),
-	}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("conflicting project model grant replay error = %v, want ErrIdempotencyConflict", err)
+	}); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("conflicting project model grant replay error = %v, want ErrConflict", err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO project_model_grants(

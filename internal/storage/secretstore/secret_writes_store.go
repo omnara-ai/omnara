@@ -58,6 +58,10 @@ func (s *Store) CreateSecret(
 	); err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
 	secretCount, err := qtx.CountActiveTenantSecretsForOwner(
 		ctx,
 		dbsqlc.CountActiveTenantSecretsForOwnerParams{
@@ -73,10 +77,10 @@ func (s *Store) CreateSecret(
 			err,
 		)
 	}
-	if secretCount > MaxActiveTenantSecretsPerOwner {
+	if secretCount > limits.MaxActiveTenantSecretsPerOwner {
 		return SecretRecord{}, SecretVersionRecord{}, resourceLimitExceeded(
 			"active secrets",
-			MaxActiveTenantSecretsPerOwner,
+			limits.MaxActiveTenantSecretsPerOwner,
 		)
 	}
 	if err := tx.Commit(ctx); err != nil {

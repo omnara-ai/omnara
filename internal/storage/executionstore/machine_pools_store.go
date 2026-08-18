@@ -63,6 +63,7 @@ type MachineRecord struct {
 	ProviderProvisionAttemptedAt *time.Time             `json:"-"`
 	ConnectionState              MachineConnectionState `json:"connection_state"`
 	ConnectionStateReason        string                 `json:"connection_state_reason,omitempty"`
+	FailureReport                json.RawMessage        `json:"failure_report,omitempty"`
 	SandboxURL                   string                 `json:"-"`
 	LastObservedAt               *time.Time             `json:"last_observed_at,omitempty"`
 	CPU                          *int                   `json:"cpu,omitempty"`
@@ -318,6 +319,10 @@ func (s *Store) CreateMachinePool(
 		if err := lockResourceCreation(ctx, qtx, resourceMachinePools, input.OrgID.String()); err != nil {
 			return MachinePoolRecord{}, err
 		}
+		limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+		if err != nil {
+			return MachinePoolRecord{}, err
+		}
 		poolCount, err := qtx.CountActiveTenantMachinePoolsForOrg(
 			ctx,
 			dbsqlc.CountActiveTenantMachinePoolsForOrgParams{OrgID: input.OrgID},
@@ -325,10 +330,10 @@ func (s *Store) CreateMachinePool(
 		if err != nil {
 			return MachinePoolRecord{}, fmt.Errorf("count active tenant machine pools: %w", err)
 		}
-		if poolCount > MaxActiveTenantMachinePoolsPerOrg {
+		if poolCount > limits.MaxActiveTenantMachinePoolsPerOrg {
 			return MachinePoolRecord{}, resourceLimitExceeded(
 				"active machine pools",
-				MaxActiveTenantMachinePoolsPerOrg,
+				limits.MaxActiveTenantMachinePoolsPerOrg,
 			)
 		}
 		if err := tx.Commit(ctx); err != nil {

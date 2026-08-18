@@ -1,10 +1,10 @@
-import { useNavigate } from '@tanstack/react-router'
-import { Check, ChevronsUpDown, Plus, UserPlus } from 'lucide-react'
+import { usePendingInvitationsQuery } from '@omnara/react'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Check, ChevronsUpDown, Mail, Plus } from 'lucide-react'
 import { useState } from 'react'
 
 import { BrandMark } from '@/components/brand/OmnaraMark'
 import { CreateOrgDialog } from '@/components/org/CreateOrgDialog'
-import { InviteMemberDialog } from '@/components/org/InviteMemberDialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,21 +13,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
-import { canManageOrg } from '@/lib/permissions'
+import {
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from '@/components/ui/sidebar'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function OrgSwitcher() {
   const navigate = useNavigate()
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { orgs, activeOrg, setActiveOrgId } = useActiveOrg()
-  const canManage = canManageOrg(activeOrg.role)
+  const { data: pendingInvitations } = usePendingInvitationsQuery()
   const [newOrgOpen, setNewOrgOpen] = useState(false)
-  const [inviteOpen, setInviteOpen] = useState(false)
+  const pendingCount = pendingInvitations?.data.length ?? 0
+  const pendingCountLabel = pendingInvitations?.next_cursor
+    ? `${pendingCount}+`
+    : String(pendingCount)
 
   async function switchOrganization(id: string) {
     if (id === activeOrg.id) return
-    await navigate({ to: '/', replace: true })
     setActiveOrgId(id)
+    await navigate({ to: '/', replace: true })
   }
 
   return (
@@ -72,16 +80,6 @@ export function OrgSwitcher() {
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
-              {canManage && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    setInviteOpen(true)
-                  }}
-                >
-                  <UserPlus />
-                  Invite members
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem
                 onClick={() => {
                   setNewOrgOpen(true)
@@ -93,12 +91,22 @@ export function OrgSwitcher() {
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>
+        {pendingCount > 0 && (
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={pathname === '/invitations'}>
+              <Link to="/invitations" aria-label={`Pending invitations, ${pendingCountLabel}`}>
+                <Mail />
+                <span>Pending invitations</span>
+              </Link>
+            </SidebarMenuButton>
+            <SidebarMenuBadge aria-hidden="true" className="bg-primary text-primary-foreground">
+              {pendingCountLabel}
+            </SidebarMenuBadge>
+          </SidebarMenuItem>
+        )}
       </SidebarMenu>
 
       <CreateOrgDialog open={newOrgOpen} onOpenChange={setNewOrgOpen} />
-      {canManage && (
-        <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} orgId={activeOrg.id} />
-      )}
     </>
   )
 }

@@ -43,6 +43,10 @@ func (s *Store) CreateModelProviderConfig(
 		); err != nil {
 			return ModelProviderConfigRecord{}, err
 		}
+		limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+		if err != nil {
+			return ModelProviderConfigRecord{}, err
+		}
 		configCount, err := qtx.CountActiveTenantModelProviderConfigsForOrg(
 			ctx,
 			dbsqlc.CountActiveTenantModelProviderConfigsForOrgParams{OrgID: input.OrgID},
@@ -53,10 +57,10 @@ func (s *Store) CreateModelProviderConfig(
 				err,
 			)
 		}
-		if configCount > MaxActiveTenantModelProviderConfigsPerOrg {
+		if configCount > limits.MaxActiveTenantModelProviderConfigsPerOrg {
 			return ModelProviderConfigRecord{}, resourceLimitExceeded(
 				"active model provider configs",
-				MaxActiveTenantModelProviderConfigsPerOrg,
+				limits.MaxActiveTenantModelProviderConfigsPerOrg,
 			)
 		}
 	}

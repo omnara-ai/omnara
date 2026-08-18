@@ -34,11 +34,12 @@ type AgentConfigChangeRecord struct {
 
 type ChangeAgentConfigInput struct {
 	CreateAgentConfigInput
-	AgentID        ID
-	ActorType      string
-	ActorID        ID
-	Reason         string
-	IdempotencyKey string
+	AgentID                 ID
+	ExpectedCurrentConfigID ID
+	ActorType               string
+	ActorID                 ID
+	Reason                  string
+	IdempotencyKey          string
 }
 
 type ChangeAgentConfigResult struct {
@@ -103,6 +104,14 @@ func (s *Store) changeAgentConfigOnce(
 	config, err := insertAgentConfigTx(ctx, qtx, configInput)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
+	}
+	if !isNilID(input.ExpectedCurrentConfigID) &&
+		agent.CurrentConfigID != input.ExpectedCurrentConfigID &&
+		agent.CurrentConfigID != config.ID {
+		return ChangeAgentConfigResult{}, fmt.Errorf(
+			"agent current config changed: %w",
+			storeerr.ErrStateTransitionConflict,
+		)
 	}
 	activationInput := ActivateAgentConfigInput{
 		ProjectID:      input.ProjectID,

@@ -23,7 +23,11 @@ export function ProjectGrantsPage() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <PageBreadcrumb
-        items={[{ label: activeOrg.name, to: '/' }, { label: project.name }, { label: 'Grants' }]}
+        items={[
+          { id: 'organization', label: activeOrg.name, to: '/' },
+          { id: 'project', label: project.name },
+          { id: 'grants', label: 'Grants' },
+        ]}
       />
       {project.access.can_manage_access ? (
         <Tabs defaultValue="models" className="gap-6">

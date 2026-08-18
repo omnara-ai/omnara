@@ -254,6 +254,35 @@ ORDER BY CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN sort_key END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN id END DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
+-- name: ListRecentAgentProfilesForProjects :many
+SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
+       version.agent_config_id AS current_config_id,
+       version.generation AS current_generation,
+       coalesce(profile.idempotency_key, '') AS idempotency_key,
+       profile.created_at, profile.updated_at,
+       config.id AS config_id, config.org_id AS config_org_id,
+       config.project_id AS config_project_id,
+       config.configured_model_id AS config_configured_model_id,
+       config.source AS config_source, config.source_format AS config_source_format,
+       config.source_hash AS config_source_hash,
+       config.compiled_definition AS config_compiled_definition,
+       config.compiler_version AS config_compiler_version,
+       config.effective_definition_hash AS config_effective_definition_hash,
+       config.created_at AS config_created_at
+FROM agent_profiles profile
+JOIN projects project ON project.id = profile.project_id
+JOIN agent_profile_versions version
+  ON version.project_id = profile.project_id
+ AND version.profile_id = profile.id
+ AND version.id = profile.current_version_id
+ AND version.deleted_at IS NULL
+JOIN agent_configs config ON config.project_id = profile.project_id
+  AND config.id = version.agent_config_id
+WHERE profile.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND profile.deleted_at IS NULL
+ORDER BY profile.updated_at DESC, profile.id DESC
+LIMIT sqlc.arg(row_limit)::bigint;
+
 -- name: LockAgentProfile :one
 SELECT profile.id
 FROM agent_profiles profile
@@ -347,6 +376,14 @@ JOIN new_version version
   ON version.project_id = profile.project_id
  AND version.profile_id = profile.id
  AND version.id = profile.current_version_id;
+
+-- name: RenameAgentProfile :execrows
+UPDATE agent_profiles
+SET name = sqlc.arg(name),
+    updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(profile_id)
+  AND deleted_at IS NULL;
 
 -- name: DeleteAgentProfile :execrows
 UPDATE agent_profiles

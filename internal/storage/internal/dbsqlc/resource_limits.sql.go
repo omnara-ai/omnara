@@ -290,6 +290,56 @@ func (q *Queries) CountPendingOrgInvitationsForOrg(ctx context.Context, arg Coun
 	return column_1, err
 }
 
+const getEffectiveResourceLimits = `-- name: GetEffectiveResourceLimits :one
+SELECT
+    org_id,
+    max_active_projects_per_org,
+    max_pending_org_invitations_per_org,
+    max_active_org_api_keys_per_org,
+    max_active_tenant_model_provider_configs_per_org,
+    max_active_configured_models_per_provider,
+    max_agent_configs_per_project,
+    max_active_agent_profiles_per_project,
+    max_active_agents_per_project,
+    max_active_tenant_secrets_per_owner,
+    max_active_skills_per_owner,
+    max_active_tenant_machine_pools_per_org,
+    max_live_machines_per_org,
+    max_active_byo_daemon_tokens_per_machine,
+    max_non_terminal_processes_per_agent,
+    max_active_cron_triggers_per_project
+FROM effective_resource_limits
+WHERE org_id = $1
+`
+
+type GetEffectiveResourceLimitsParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) GetEffectiveResourceLimits(ctx context.Context, arg GetEffectiveResourceLimitsParams) (EffectiveResourceLimit, error) {
+	row := q.db.QueryRow(ctx, getEffectiveResourceLimits, arg.OrgID)
+	var i EffectiveResourceLimit
+	err := row.Scan(
+		&i.OrgID,
+		&i.MaxActiveProjectsPerOrg,
+		&i.MaxPendingOrgInvitationsPerOrg,
+		&i.MaxActiveOrgApiKeysPerOrg,
+		&i.MaxActiveTenantModelProviderConfigsPerOrg,
+		&i.MaxActiveConfiguredModelsPerProvider,
+		&i.MaxAgentConfigsPerProject,
+		&i.MaxActiveAgentProfilesPerProject,
+		&i.MaxActiveAgentsPerProject,
+		&i.MaxActiveTenantSecretsPerOwner,
+		&i.MaxActiveSkillsPerOwner,
+		&i.MaxActiveTenantMachinePoolsPerOrg,
+		&i.MaxLiveMachinesPerOrg,
+		&i.MaxActiveByoDaemonTokensPerMachine,
+		&i.MaxNonTerminalProcessesPerAgent,
+		&i.MaxActiveCronTriggersPerProject,
+	)
+	return i, err
+}
+
 const lockResourceCreation = `-- name: LockResourceCreation :exec
 SELECT pg_advisory_xact_lock(
     hashtextextended(

@@ -30,9 +30,9 @@ export function ProjectPageFrame({
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <PageBreadcrumb
         items={[
-          { label: context.activeOrg.name, to: '/' },
-          { label: context.project.name },
-          { label: title },
+          { id: 'organization', label: context.activeOrg.name, to: '/' },
+          { id: 'project', label: context.project.name },
+          { id: 'page', label: title },
         ]}
       />
       {children(context)}

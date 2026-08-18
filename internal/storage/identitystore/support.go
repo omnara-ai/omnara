@@ -38,10 +38,8 @@ type ID = uuid.UUID
 var NilID = uuid.Nil
 
 const (
-	resourceOrgInvitations                     = "org_invitations"
-	MaxPendingOrgInvitationsPerOrg       int64 = 1_000
-	MaxActivePersonalAccessTokensPerUser       = int64(100)
-	maxActiveOrgAPIKeysPerOrg                  = int64(1_000)
+	resourceOrgInvitations               = "org_invitations"
+	MaxActivePersonalAccessTokensPerUser = int64(1_000)
 )
 
 func isNilID(id ID) bool {

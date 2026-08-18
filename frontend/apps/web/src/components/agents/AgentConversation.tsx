@@ -12,7 +12,6 @@ import {
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Spinner } from '@/components/ui/spinner'
 
 export function AgentConversation({
   chat,
@@ -61,9 +60,10 @@ export function AgentConversation({
                       variant="outline"
                       size="sm"
                       disabled={chat.isLoadingOlderMessages}
+                      loading={chat.isLoadingOlderMessages}
                       onClick={chat.loadOlderMessages}
                     >
-                      {chat.isLoadingOlderMessages ? <Spinner /> : null} Load earlier messages
+                      Load earlier messages
                     </Button>
                   </div>
                 )}

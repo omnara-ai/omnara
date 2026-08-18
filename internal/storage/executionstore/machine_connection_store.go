@@ -6,11 +6,12 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+const maxConnectBYOMachineProjectIDs = 100
 
 type ConnectBYOMachineInput struct {
 	OrgID       ID
@@ -29,7 +30,7 @@ func (s *Store) ConnectBYOMachine(
 	ctx context.Context,
 	input ConnectBYOMachineInput,
 ) (ConnectBYOMachineResult, error) {
-	if len(input.ProjectIDs) > int(identitystore.MaxActiveProjectsPerOrg) {
+	if len(input.ProjectIDs) > maxConnectBYOMachineProjectIDs {
 		return ConnectBYOMachineResult{}, storeerr.InvalidRequest(errors.New("too many project IDs"))
 	}
 	projectSet := make(map[ID]struct{}, len(input.ProjectIDs))

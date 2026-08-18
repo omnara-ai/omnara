@@ -2,7 +2,6 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
 export function ModelDiscoveryFailureStep({
@@ -51,11 +50,11 @@ export function ModelDiscoveryFailureStep({
           type="button"
           variant="outline"
           disabled={deleting}
+          loading={deleting}
           onClick={() => {
             void back()
           }}
         >
-          {deleting && <Spinner />}
           Back
         </Button>
         <Button type="button" disabled={deleting} onClick={onContinue}>

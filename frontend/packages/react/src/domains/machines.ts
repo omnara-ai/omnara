@@ -1,12 +1,18 @@
-import { type ListVisibleMachinesData, type ListVisibleProjectMachinesData, sdk } from '@omnara/sdk'
 import {
+  type ListVisibleMachinesData,
+  type ListVisibleProjectMachinesData,
+  type Machine,
+  sdk,
+} from '@omnara/sdk'
+import {
+  getMachineOptions,
   listProjectMachineGrantsQueryKey,
   listVisibleMachinesInfiniteOptions,
   listVisibleMachinesQueryKey,
   listVisibleProjectMachinesInfiniteOptions,
   listVisibleProjectMachinesQueryKey,
 } from '@omnara/sdk/tanstack'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -35,6 +41,20 @@ export function useMachines(orgID: string, options?: MachineListOptions) {
     }),
     ...cursorPagination,
     enabled: list.enabled,
+  })
+}
+
+export function useMachine(
+  orgID: string,
+  machineID: string,
+  options?: { refetchInterval?: (machine: Machine | undefined) => number | false },
+) {
+  const client = useOmnaraClient()
+  const refetchInterval = options?.refetchInterval
+  return useQuery({
+    ...getMachineOptions({ path: { orgID, machineID }, client }),
+    refetchInterval:
+      refetchInterval == null ? undefined : (query) => refetchInterval(query.state.data),
   })
 }
 

@@ -4,13 +4,18 @@ import {
   listPendingInvitationsOptions,
   listPendingInvitationsQueryKey,
 } from '@omnara/sdk/tanstack'
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 
 export function usePendingInvitations() {
   const client = useOmnaraClient()
   return useSuspenseQuery(listPendingInvitationsOptions({ client }))
+}
+
+export function usePendingInvitationsQuery() {
+  const client = useOmnaraClient()
+  return useQuery(listPendingInvitationsOptions({ client }))
 }
 
 export function useAcceptInvitation() {

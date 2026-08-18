@@ -3,7 +3,6 @@ import { useParams } from '@tanstack/react-router'
 import { Paperclip } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 function saveBlob(content: Blob, filename: string | undefined) {
@@ -51,9 +50,11 @@ export function AgentAttachment({ artifactId }: { artifactId?: string }) {
         variant="outline"
         size="sm"
         disabled={download.isPending}
+        loading={download.isPending}
+        icon={<Paperclip className="size-3.5" />}
         onClick={() => void save(artifactId).catch(() => undefined)}
       >
-        {download.isPending ? <Spinner /> : <Paperclip className="size-3.5" />} Attachment
+        Attachment
       </Button>
       {download.error != null && (
         <span className="text-destructive text-xs">Could not download the attachment.</span>

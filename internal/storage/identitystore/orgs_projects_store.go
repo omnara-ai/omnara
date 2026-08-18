@@ -16,12 +16,11 @@ import (
 )
 
 const (
-	MaxOwnedOrgsPerUser      = 100
+	MaxOwnedOrgsPerUser      = 1000
 	MaxOrgMembershipsPerUser = 1000
 	defaultProjectName       = "Default"
 	DefaultProjectKey        = "default"
 	resourceProjects         = "projects"
-	MaxActiveProjectsPerOrg  = int64(100)
 )
 
 func checkOrgCreationCapacity(
@@ -284,6 +283,10 @@ func (s *Store) CreateProjectForPrincipal(
 		if err := resourceguard.Lock(ctx, qtx, resourceProjects, input.OrgID.String()); err != nil {
 			return ProjectRecord{}, err
 		}
+		limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+		if err != nil {
+			return ProjectRecord{}, err
+		}
 		projectCount, err := qtx.CountActiveProjectsForOrg(
 			ctx,
 			dbsqlc.CountActiveProjectsForOrgParams{OrgID: input.OrgID},
@@ -291,10 +294,10 @@ func (s *Store) CreateProjectForPrincipal(
 		if err != nil {
 			return ProjectRecord{}, fmt.Errorf("count active projects: %w", err)
 		}
-		if projectCount > MaxActiveProjectsPerOrg {
+		if projectCount > limits.MaxActiveProjectsPerOrg {
 			return ProjectRecord{}, resourceLimitExceeded(
 				"active projects",
-				MaxActiveProjectsPerOrg,
+				limits.MaxActiveProjectsPerOrg,
 			)
 		}
 		if _, err := qtx.AddProjectMembership(

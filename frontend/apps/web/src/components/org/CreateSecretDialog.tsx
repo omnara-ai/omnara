@@ -21,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { savePendingMcpSecretGrants } from '@/lib/pending-mcp-secret-grants'
 
@@ -156,7 +155,10 @@ export function CreateSecretDialog({
                 }}
               >
                 <SelectTrigger id="secret-kind" className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {secretKinds.find((option) => option.value === state.secret.kind)?.label ??
+                      state.secret.kind}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {secretKinds.map((option) => (
@@ -217,8 +219,11 @@ export function CreateSecretDialog({
             />
             {state.error && <p className="text-destructive text-sm">{state.error}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={state.submitting || (!state.createdSecret && !valid)}>
-                {state.submitting && <Spinner />}
+              <Button
+                type="submit"
+                disabled={state.submitting || (!state.createdSecret && !valid)}
+                loading={state.submitting}
+              >
                 {state.createdSecret
                   ? 'Retry project grants'
                   : state.secret.kind === 'mcp_oauth' && validMcpUrl

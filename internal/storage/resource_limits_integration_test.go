@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -26,12 +27,216 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
+func setOrgResourceLimitOverrides(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	overrides map[string]int64,
+) {
+	t.Helper()
+	if len(overrides) == 0 {
+		if _, err := pool.Exec(
+			ctx,
+			`DELETE FROM org_resource_limit_overrides WHERE org_id = $1`,
+			testOrgID,
+		); err != nil {
+			t.Fatalf("clear resource limit overrides: %v", err)
+		}
+		return
+	}
+	value := func(key string) *int64 {
+		limit, ok := overrides[key]
+		if !ok {
+			return nil
+		}
+		return &limit
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO org_resource_limit_overrides (
+    org_id,
+    max_active_projects_per_org,
+    max_pending_org_invitations_per_org,
+    max_active_org_api_keys_per_org,
+    max_active_tenant_model_provider_configs_per_org,
+    max_active_configured_models_per_provider,
+    max_agent_configs_per_project,
+    max_active_agent_profiles_per_project,
+    max_active_agents_per_project,
+    max_active_tenant_secrets_per_owner,
+    max_active_skills_per_owner,
+    max_active_tenant_machine_pools_per_org,
+    max_live_machines_per_org,
+    max_active_byo_daemon_tokens_per_machine,
+    max_non_terminal_processes_per_agent,
+    max_active_cron_triggers_per_project
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+)
+ON CONFLICT (org_id) DO UPDATE SET
+    max_active_projects_per_org = EXCLUDED.max_active_projects_per_org,
+    max_pending_org_invitations_per_org = EXCLUDED.max_pending_org_invitations_per_org,
+    max_active_org_api_keys_per_org = EXCLUDED.max_active_org_api_keys_per_org,
+    max_active_tenant_model_provider_configs_per_org = EXCLUDED.max_active_tenant_model_provider_configs_per_org,
+    max_active_configured_models_per_provider = EXCLUDED.max_active_configured_models_per_provider,
+    max_agent_configs_per_project = EXCLUDED.max_agent_configs_per_project,
+    max_active_agent_profiles_per_project = EXCLUDED.max_active_agent_profiles_per_project,
+    max_active_agents_per_project = EXCLUDED.max_active_agents_per_project,
+    max_active_tenant_secrets_per_owner = EXCLUDED.max_active_tenant_secrets_per_owner,
+    max_active_skills_per_owner = EXCLUDED.max_active_skills_per_owner,
+    max_active_tenant_machine_pools_per_org = EXCLUDED.max_active_tenant_machine_pools_per_org,
+    max_live_machines_per_org = EXCLUDED.max_live_machines_per_org,
+    max_active_byo_daemon_tokens_per_machine = EXCLUDED.max_active_byo_daemon_tokens_per_machine,
+    max_non_terminal_processes_per_agent = EXCLUDED.max_non_terminal_processes_per_agent,
+    max_active_cron_triggers_per_project = EXCLUDED.max_active_cron_triggers_per_project`,
+		testOrgID,
+		value("max_active_projects_per_org"),
+		value("max_pending_org_invitations_per_org"),
+		value("max_active_org_api_keys_per_org"),
+		value("max_active_tenant_model_provider_configs_per_org"),
+		value("max_active_configured_models_per_provider"),
+		value("max_agent_configs_per_project"),
+		value("max_active_agent_profiles_per_project"),
+		value("max_active_agents_per_project"),
+		value("max_active_tenant_secrets_per_owner"),
+		value("max_active_skills_per_owner"),
+		value("max_active_tenant_machine_pools_per_org"),
+		value("max_live_machines_per_org"),
+		value("max_active_byo_daemon_tokens_per_machine"),
+		value("max_non_terminal_processes_per_agent"),
+		value("max_active_cron_triggers_per_project"),
+	); err != nil {
+		t.Fatalf("set resource limit overrides: %v", err)
+	}
+}
+
+func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	q := dbsqlc.New(pool)
+
+	limits, err := resourceguard.ResolveLimits(ctx, q, testOrgID)
+	if err != nil {
+		t.Fatalf("resolve default resource limits: %v", err)
+	}
+	wantDefaults := dbsqlc.EffectiveResourceLimit{
+		OrgID:                                     testOrgID,
+		MaxActiveProjectsPerOrg:                   1_000,
+		MaxPendingOrgInvitationsPerOrg:            10_000,
+		MaxActiveOrgApiKeysPerOrg:                 10_000,
+		MaxActiveTenantModelProviderConfigsPerOrg: 10_000,
+		MaxActiveConfiguredModelsPerProvider:      10_000,
+		MaxAgentConfigsPerProject:                 10_000,
+		MaxActiveAgentProfilesPerProject:          10_000,
+		MaxActiveAgentsPerProject:                 10_000,
+		MaxActiveTenantSecretsPerOwner:            10_000,
+		MaxActiveSkillsPerOwner:                   10_000,
+		MaxActiveTenantMachinePoolsPerOrg:         10_000,
+		MaxLiveMachinesPerOrg:                     10_000,
+		MaxActiveByoDaemonTokensPerMachine:        20,
+		MaxNonTerminalProcessesPerAgent:           32,
+		MaxActiveCronTriggersPerProject:           1_000,
+	}
+	if limits != wantDefaults {
+		t.Fatalf("default resource limits = %+v, want %+v", limits, wantDefaults)
+	}
+
+	overrides := map[string]int64{
+		"max_active_projects_per_org":                      0,
+		"max_pending_org_invitations_per_org":              2,
+		"max_active_org_api_keys_per_org":                  3,
+		"max_active_tenant_model_provider_configs_per_org": 4,
+		"max_active_configured_models_per_provider":        5,
+		"max_agent_configs_per_project":                    6,
+		"max_active_agent_profiles_per_project":            7,
+		"max_active_agents_per_project":                    8,
+		"max_active_tenant_secrets_per_owner":              9,
+		"max_active_skills_per_owner":                      10,
+		"max_active_tenant_machine_pools_per_org":          11,
+		"max_live_machines_per_org":                        12,
+		"max_active_byo_daemon_tokens_per_machine":         13,
+		"max_non_terminal_processes_per_agent":             42,
+		"max_active_cron_triggers_per_project":             14,
+	}
+	setOrgResourceLimitOverrides(t, ctx, pool, overrides)
+	limits, err = resourceguard.ResolveLimits(ctx, q, testOrgID)
+	if err != nil {
+		t.Fatalf("resolve overridden resource limits: %v", err)
+	}
+	wantOverrides := dbsqlc.EffectiveResourceLimit{
+		OrgID:                                     testOrgID,
+		MaxActiveProjectsPerOrg:                   0,
+		MaxPendingOrgInvitationsPerOrg:            2,
+		MaxActiveOrgApiKeysPerOrg:                 3,
+		MaxActiveTenantModelProviderConfigsPerOrg: 4,
+		MaxActiveConfiguredModelsPerProvider:      5,
+		MaxAgentConfigsPerProject:                 6,
+		MaxActiveAgentProfilesPerProject:          7,
+		MaxActiveAgentsPerProject:                 8,
+		MaxActiveTenantSecretsPerOwner:            9,
+		MaxActiveSkillsPerOwner:                   10,
+		MaxActiveTenantMachinePoolsPerOrg:         11,
+		MaxLiveMachinesPerOrg:                     12,
+		MaxActiveByoDaemonTokensPerMachine:        13,
+		MaxNonTerminalProcessesPerAgent:           42,
+		MaxActiveCronTriggersPerProject:           14,
+	}
+	if limits != wantOverrides {
+		t.Fatalf("overridden resource limits = %+v, want %+v", limits, wantOverrides)
+	}
+
+	setOrgResourceLimitOverrides(t, ctx, pool, map[string]int64{})
+	limits, err = resourceguard.ResolveLimits(ctx, q, testOrgID)
+	if err != nil {
+		t.Fatalf("resolve resource limits after removing overrides: %v", err)
+	}
+	if limits != wantDefaults {
+		t.Fatalf("resource limits after removing overrides = %+v, want %+v", limits, wantDefaults)
+	}
+
+	for name, value := range map[string]string{
+		"negative":  "-1",
+		"too large": "9223372036854775808",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := pool.Exec(
+				ctx,
+				`INSERT INTO org_resource_limit_overrides (
+    org_id,
+    max_active_projects_per_org
+) VALUES ($1, $2::numeric)`,
+				testOrgID,
+				value,
+			); err == nil {
+				t.Fatalf("invalid resource limit override %s was accepted", value)
+			}
+		})
+	}
+
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE orgs SET deleted_at = now() WHERE id = $1`,
+		testOrgID,
+	); err != nil {
+		t.Fatalf("soft-delete organization: %v", err)
+	}
+	if _, err := resourceguard.ResolveLimits(ctx, q, testOrgID); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("resolve deleted organization resource limits error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestProjectResourceLimitSerializesConcurrentCreation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
 	seedDefaultProject(t, ctx, store)
+	const projectLimit = int64(3)
+	setOrgResourceLimitOverrides(t, ctx, pool, map[string]int64{
+		"max_active_projects_per_org": projectLimit,
+	})
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	creator := mustCreateIdentityUser(t, ctx, store, "limited-projects@example.com", "Limited Projects")
 	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
@@ -43,7 +248,7 @@ func TestProjectResourceLimitSerializesConcurrentCreation(t *testing.T) {
 INSERT INTO projects(org_id, name, idempotency_key, created_at, updated_at)
 SELECT $1, 'Limit seed project ' || n, 'limit-seed-project-' || n, $2, $2
 FROM generate_series(1, $3::integer) AS n
-`, testOrgID, now, identitystore.MaxActiveProjectsPerOrg-2); err != nil {
+`, testOrgID, now, projectLimit-2); err != nil {
 		t.Fatalf("seed projects to limit: %v", err)
 	}
 	inputs := []identitystore.CreateProjectForPrincipalInput{
@@ -104,8 +309,8 @@ FROM generate_series(1, $3::integer) AS n
 	if err != nil {
 		t.Fatalf("count active projects: %v", err)
 	}
-	if count != identitystore.MaxActiveProjectsPerOrg {
-		t.Fatalf("active project count = %d, want %d", count, identitystore.MaxActiveProjectsPerOrg)
+	if count != projectLimit {
+		t.Fatalf("active project count = %d, want %d", count, projectLimit)
 	}
 	replayed, err := store.Identity().CreateProjectForPrincipal(ctx, inputs[created.index])
 	if err != nil {
@@ -122,6 +327,12 @@ func TestIdentityResourceLimitsRollBackAndReleaseCapacity(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
 	seedDefaultProject(t, ctx, store)
+	const invitationLimit = int64(2)
+	const orgAPIKeyLimit = int64(2)
+	setOrgResourceLimitOverrides(t, ctx, pool, map[string]int64{
+		"max_pending_org_invitations_per_org": invitationLimit,
+		"max_active_org_api_keys_per_org":     orgAPIKeyLimit,
+	})
 	now := time.Date(2026, 7, 24, 13, 0, 0, 0, time.UTC)
 
 	if _, err := pool.Exec(ctx, `
@@ -129,7 +340,7 @@ INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_a
 SELECT $1, 'limited-invite-' || n || '@example.com',
        'limited-invite-' || n || '@example.com', 'member', $2
 FROM generate_series(1, $3::integer) AS n
-`, testOrgID, now, identitystore.MaxPendingOrgInvitationsPerOrg); err != nil {
+`, testOrgID, now, invitationLimit); err != nil {
 		t.Fatalf("seed invitations to limit: %v", err)
 	}
 	if _, err := store.Identity().CreateOrgInvitation(ctx, identitystore.CreateOrgInvitationInput{
@@ -142,11 +353,11 @@ FROM generate_series(1, $3::integer) AS n
 		Scan(&invitationCount); err != nil {
 		t.Fatalf("count invitations: %v", err)
 	}
-	if invitationCount != identitystore.MaxPendingOrgInvitationsPerOrg {
+	if invitationCount != invitationLimit {
 		t.Fatalf(
 			"invitation count after rollback = %d, want %d",
 			invitationCount,
-			identitystore.MaxPendingOrgInvitationsPerOrg,
+			invitationLimit,
 		)
 	}
 
@@ -233,7 +444,6 @@ FROM generate_series(1, $3::integer) AS n
 		t.Fatalf("device auth flow after revoke = %+v, want approved token", approved)
 	}
 
-	const orgAPIKeyLimit = 1_000
 	if _, err := pool.Exec(ctx, `
 INSERT INTO org_api_keys(org_id, name, token_id, token_hash, created_by_user_id, created_at, updated_at)
 SELECT $1, 'Pre-canonical limit key ' || n, 'legacy-key-id-' || n,
@@ -282,6 +492,14 @@ func TestAgentResourceLimitsPreserveReplays(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
+	const agentConfigLimit = int64(20)
+	const agentProfileLimit = int64(2)
+	const agentLimit = int64(2)
+	setOrgResourceLimitOverrides(t, ctx, pool, map[string]int64{
+		"max_agent_configs_per_project":         agentConfigLimit,
+		"max_active_agent_profiles_per_project": agentProfileLimit,
+		"max_active_agents_per_project":         agentLimit,
+	})
 	now := time.Date(2026, 7, 24, 14, 0, 0, 0, time.UTC)
 	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "resource-limit", now)
 
@@ -313,7 +531,7 @@ func TestAgentResourceLimitsPreserveReplays(t *testing.T) {
 	)
 	SELECT current_version_id, project_id, id, 1, $2, 'create', created_at
 	FROM profiles
-	`, testProjectID, configID, now, executionstore.MaxActiveAgentProfilesPerProject-1); err != nil {
+	`, testProjectID, configID, now, agentProfileLimit-1); err != nil {
 		t.Fatalf("seed agent profiles to limit: %v", err)
 	}
 	replayedProfile, err := store.Execution().CreateAgentProfile(ctx, profileInput)
@@ -350,7 +568,7 @@ INSERT INTO agents(
 SELECT md5('resource-limit-agent-' || n)::uuid, $1, $2, 'active', $3,
        'limit-seed-agent-' || n, $4, $4
 FROM generate_series(1, $5::integer) AS n
-`, testOrgID, testProjectID, configID, now, executionstore.MaxActiveAgentsPerProject-1); err != nil {
+`, testOrgID, testProjectID, configID, now, agentLimit-1); err != nil {
 		t.Fatalf("seed agents to limit: %v", err)
 	}
 	replayedAgent, err := store.Execution().LaunchAgent(ctx, agentInput)
@@ -388,7 +606,7 @@ SELECT org_id, project_id, configured_model_id, definition,
 FROM agent_configs
 CROSS JOIN generate_series(1, $3::bigint) AS n
 WHERE id = $1
-`, configID, now, executionstore.MaxAgentConfigsPerProject-configCount); err != nil {
+`, configID, now, agentConfigLimit-configCount); err != nil {
 		t.Fatalf("seed agent configs to limit: %v", err)
 	}
 	sourceYAML := `
@@ -417,6 +635,10 @@ func TestSkillResourceLimitCountsIdentitiesNotRevisions(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	const skillLimit = int64(2)
+	setOrgResourceLimitOverrides(t, ctx, pool, map[string]int64{
+		"max_active_skills_per_owner": skillLimit,
+	})
 	now := time.Date(2026, 7, 24, 15, 0, 0, 0, time.UTC)
 	admin := createSecretTestUser(t, ctx, store, "Resource Limit Skills Admin", "admin")
 	input := skillstore.CreateSkillInput{
@@ -447,7 +669,7 @@ func TestSkillResourceLimitCountsIdentitiesNotRevisions(t *testing.T) {
 INSERT INTO skills(org_id, owner_kind, name, created_at)
 SELECT $1, 'org', 'limit-seed-skill-' || n, $2
 FROM generate_series(1, $3::bigint) AS n
-`, testOrgID, now, skillstore.MaxActiveSkillsPerOwner-skillCount); err != nil {
+`, testOrgID, now, skillLimit-skillCount); err != nil {
 		t.Fatalf("seed skills to limit: %v", err)
 	}
 	if _, err := seedTx.Exec(ctx, `
@@ -554,6 +776,12 @@ func TestMachineResourceLimitsPreserveReplaysAndReleaseTokens(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
+	const machineLimit = int64(2)
+	const daemonTokenLimit = int64(2)
+	setOrgResourceLimitOverrides(t, ctx, pool, map[string]int64{
+		"max_live_machines_per_org":                machineLimit,
+		"max_active_byo_daemon_tokens_per_machine": daemonTokenLimit,
+	})
 	now := time.Date(2026, 7, 24, 16, 0, 0, 0, time.UTC)
 	machineInput := executionstore.CreateDaemonMachineInput{
 		OrgID:          testOrgID,
@@ -571,7 +799,7 @@ INSERT INTO machines(
 )
 SELECT $1, 'byo', 'Limit seed machine ' || n, 'byo', 'active', $2, $2, $2
 FROM generate_series(1, $3::integer) AS n
-`, testOrgID, now, executionstore.MaxLiveMachinesPerOrg-1); err != nil {
+`, testOrgID, now, machineLimit-1); err != nil {
 		t.Fatalf("seed machines to limit: %v", err)
 	}
 	replayed, err := store.Execution().CreateDaemonMachine(ctx, machineInput)
@@ -603,7 +831,7 @@ SELECT $1, $2, 'Limit seed daemon token ' || n,
        'legacy-daemon-token-hash-' || n, $3
 FROM generate_series(1, $4::integer) AS n
 `, testOrgID, machine.ID, now,
-		executionstore.MaxActiveBYODaemonTokensPerMachine-1); err != nil {
+		daemonTokenLimit-1); err != nil {
 		t.Fatalf("seed daemon tokens to limit: %v", err)
 	}
 	secondTokenInput := executionstore.CreateBYOMachineDaemonTokenInput{
@@ -632,10 +860,20 @@ func TestTenantResourceLimitsUseTheirIntendedScopes(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	const secretLimit = int64(2)
+	const modelProviderLimit = int64(2)
+	const configuredModelLimit = int64(2)
+	const machinePoolLimit = int64(2)
+	setOrgResourceLimitOverrides(t, ctx, pool, map[string]int64{
+		"max_active_tenant_secrets_per_owner":              secretLimit,
+		"max_active_tenant_model_provider_configs_per_org": modelProviderLimit,
+		"max_active_configured_models_per_provider":        configuredModelLimit,
+		"max_active_tenant_machine_pools_per_org":          machinePoolLimit,
+	})
 	now := time.Date(2026, 7, 24, 17, 0, 0, 0, time.UTC)
 	admin := createSecretTestUser(t, ctx, store, "Resource Limit Tenant Admin", "admin")
 
-	for i := range secretstore.MaxActiveTenantSecretsPerOwner {
+	for i := range secretLimit {
 		if _, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerUser, OwnerUserID: admin.ID,
 			Name:     fmt.Sprintf("limit-seed-secret-%d", i),
@@ -667,7 +905,7 @@ SELECT config.org_id, config.management_kind, 'limit-seed-provider-' || n,
 FROM model_provider_configs AS config
 CROSS JOIN generate_series(1, $3::integer) AS n
 WHERE config.id = $1
-`, testDefaultProviderConfigID(), now, modelstore.MaxActiveTenantModelProviderConfigsPerOrg-1); err != nil {
+`, testDefaultProviderConfigID(), now, modelProviderLimit-1); err != nil {
 		t.Fatalf("seed model provider configs to limit: %v", err)
 	}
 	if _, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
@@ -680,7 +918,7 @@ WHERE config.id = $1
 		t.Fatalf("model provider config over limit error = %v, want ErrConflict", err)
 	}
 
-	for i := range modelstore.MaxActiveConfiguredModelsPerProvider {
+	for i := range configuredModelLimit {
 		if _, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
 			OrgID:                  testOrgID,
 			ModelProviderConfigID:  testDefaultProviderConfigID(),
@@ -734,7 +972,7 @@ SELECT $1, 'Limit seed pool ' || n, 'tenant', 'test.provider', 1,
        1024, '{"image":"test"}'::jsonb, $2, 1, 1, 1024, 1, 1024, $3, $3
 FROM generate_series(1, $4::integer) AS n
 `, testOrgID, testDefaultProviderCredentialSecretID, now,
-		executionstore.MaxActiveTenantMachinePoolsPerOrg); err != nil {
+		machinePoolLimit); err != nil {
 		t.Fatalf("seed machine pools to limit: %v", err)
 	}
 	if _, err := store.Execution().CreateMachinePool(ctx, poolInput); !errors.Is(err, storeerr.ErrConflict) {

@@ -25,7 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -168,7 +167,7 @@ export function CreateModelProviderDialog({
                       }}
                     >
                       <SelectTrigger id="mp-provider" className="w-full">
-                        <SelectValue />
+                        <SelectValue>{provider.label}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {modelProviderOptions.map((option) => (
@@ -206,7 +205,7 @@ export function CreateModelProviderDialog({
                         }}
                       >
                         <SelectTrigger id="mp-bedrock-api" className="w-full">
-                          <SelectValue />
+                          <SelectValue>{bedrockAPIOption(values.bedrockAPI).label}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {bedrockAPIOptions.map((option) => (
@@ -267,8 +266,8 @@ export function CreateModelProviderDialog({
                   <Button
                     type="submit"
                     disabled={providerPending || !createModelProviderFormValid(values)}
+                    loading={providerPending}
                   >
-                    {providerPending && <Spinner />}
                     Add provider
                   </Button>
                 </DialogFooter>

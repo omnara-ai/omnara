@@ -119,8 +119,8 @@ export function EditMachinePoolGrantDialog({
               <Button
                 type="submit"
                 disabled={isSubmitting || !pool || !poolGrantOverridesValid(draft)}
+                loading={isSubmitting}
               >
-                {isSubmitting && <Spinner />}
                 Save changes
               </Button>
             </DialogFooter>

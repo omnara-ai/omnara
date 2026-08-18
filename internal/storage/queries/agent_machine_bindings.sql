@@ -286,6 +286,21 @@ WHERE binding.project_id = sqlc.arg(project_id)
   )
 ORDER BY binding.created_at, binding.id;
 
+-- name: ListAgentMachineBindings :many
+SELECT binding.id, binding.org_id, binding.project_id, binding.agent_id,
+       binding.create_tool_call_id, binding.delete_tool_call_id, binding.machine_id,
+       binding.machine_ref, binding.binding_kind, binding.state, binding.description,
+       binding.env_overlay, binding.secret_env_overlay, binding.metadata,
+       binding.created_at, binding.updated_at,
+       coalesce(nullif(binding.cwd, ''), machine.cwd, '') AS effective_cwd
+FROM agent_machine_bindings binding
+LEFT JOIN machines machine ON machine.org_id = binding.org_id
+  AND machine.id = binding.machine_id
+  AND machine.deleted_at IS NULL
+WHERE binding.project_id = sqlc.arg(project_id)
+  AND binding.agent_id = sqlc.arg(agent_id)
+ORDER BY binding.created_at, binding.id;
+
 -- name: ListAttachedMachineBindingOverlays :many
 SELECT id, env_overlay, secret_env_overlay
 FROM agent_machine_bindings

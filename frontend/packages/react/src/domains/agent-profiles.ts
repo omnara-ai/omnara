@@ -2,6 +2,7 @@ import { type ListAgentProfilesData, sdk, type UpdateAgentProfileRequest } from 
 import {
   getAgentProfileOptions,
   getAgentProfileQueryKey,
+  getOrgOverviewQueryKey,
   listAgentProfilesInfiniteOptions,
   listAgentProfilesQueryKey,
 } from '@omnara/sdk/tanstack'
@@ -10,6 +11,7 @@ import {
   type QueryKey,
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query'
@@ -53,6 +55,17 @@ export function useAgentProfile(orgID: string, projectID: string, agentProfileID
   )
 }
 
+export function useAgentProfileQuery(orgID: string, projectID: string, agentProfileID?: string) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getAgentProfileOptions({
+      path: { orgID, projectID, agentProfileID: agentProfileID ?? '' },
+      client,
+    }),
+    enabled: agentProfileID !== undefined,
+  })
+}
+
 export function useCreateAgentProfile(orgID: string, projectID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
@@ -61,9 +74,14 @@ export function useCreateAgentProfile(orgID: string, projectID: string) {
     { orgID, projectID },
     {
       onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
-        })
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+          }),
+        ])
       },
     },
   )
@@ -88,7 +106,11 @@ export function useUpdateAgentProfile(orgID: string, projectID: string) {
       })
       return data
     },
-    onSuccess: async (_data, { agentProfileID }) => {
+    onSuccess: async (data, { agentProfileID }) => {
+      queryClient.setQueryData(
+        getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
+        data,
+      )
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
@@ -98,6 +120,41 @@ export function useUpdateAgentProfile(orgID: string, projectID: string) {
             path: { orgID, projectID, agentProfileID },
             client,
           }),
+        }),
+      ])
+    },
+  })
+}
+
+export function useRenameAgentProfile(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ agentProfileID, name }: { agentProfileID: string; name: string }) => {
+      const { data } = await sdk.renameAgentProfile({
+        path: { orgID, projectID, agentProfileID },
+        body: { name },
+        client,
+      })
+      return data
+    },
+    onSuccess: async (data, { agentProfileID }) => {
+      queryClient.setQueryData(
+        getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
+        data,
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getAgentProfileQueryKey({
+            path: { orgID, projectID, agentProfileID },
+            client,
+          }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
         }),
       ])
     },
@@ -120,9 +177,14 @@ export function useDeleteAgentProfile(orgID: string, projectID: string) {
         queryClient,
         getAgentProfileQueryKey({ path: { orgID, projectID, agentProfileID }, client }),
       )
-      await queryClient.invalidateQueries({
-        queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+        }),
+      ])
     },
   })
 }

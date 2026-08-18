@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { FieldGroup } from '@/components/ui/field'
-import { Spinner } from '@/components/ui/spinner'
 import { collectGrantFailures } from '@/lib/grant-failures'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -69,7 +68,8 @@ export function GrantToProjectDialog({
       setState((prev) => ({ ...prev, projectIds: [], status: idle }))
       onOpenChange(false)
     } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Could not grant access') }))
+      const status = submitError(err, 'Could not grant access')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 
@@ -99,8 +99,8 @@ export function GrantToProjectDialog({
               <Button
                 type="submit"
                 disabled={isSubmitting || submitDisabled || state.projectIds.length === 0}
+                loading={isSubmitting}
               >
-                {isSubmitting && <Spinner />}
                 Grant
               </Button>
             </DialogFooter>

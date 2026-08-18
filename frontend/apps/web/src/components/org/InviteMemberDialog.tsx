@@ -12,9 +12,15 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, statusError, submitError, success } from '@/lib/submit-status'
+import { idle, settleSubmission, statusError, submitError } from '@/lib/submit-status'
 
 const roles = ['member', 'admin'] as const
 
@@ -27,10 +33,12 @@ interface InviteMemberState {
 export function InviteMemberDialog({
   open,
   onOpenChange,
+  onInvited,
   orgId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onInvited?: () => void
   orgId: string
 }) {
   const inviteMember = useInviteMember(orgId)
@@ -44,11 +52,16 @@ export function InviteMemberDialog({
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setState((prev) => ({ ...prev, status: idle }))
-    try {
-      await inviteMember.mutateAsync({ email: state.email, role: state.role })
-      setState((prev) => ({ ...prev, email: '', status: success }))
-    } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Could not send invitation') }))
+    const result = await settleSubmission(() =>
+      inviteMember.mutateAsync({ email: state.email, role: state.role }),
+    )
+    if (result.ok) {
+      setState((prev) => ({ ...prev, email: '', status: idle }))
+      onInvited?.()
+      onOpenChange(false)
+    } else {
+      const status = submitError(result.error, 'Could not send invitation')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 
@@ -89,30 +102,35 @@ export function InviteMemberDialog({
               />
             </Field>
             <Field>
-              <FieldLabel>Role</FieldLabel>
-              <div className="flex gap-2">
-                {roles.map((option) => (
-                  <Button
-                    key={option}
-                    type="button"
-                    variant={state.role === option ? 'default' : 'outline'}
-                    className="flex-1 capitalize"
-                    onClick={() => {
-                      setState((prev) => ({ ...prev, role: option }))
-                    }}
-                  >
-                    {option}
-                  </Button>
-                ))}
-              </div>
+              <FieldLabel htmlFor="invite-role">Role</FieldLabel>
+              <Select
+                value={state.role}
+                onValueChange={(role) => {
+                  setState((prev) => ({
+                    ...prev,
+                    role: role as InviteMemberState['role'],
+                  }))
+                }}
+              >
+                <SelectTrigger id="invite-role" className="w-full capitalize">
+                  <SelectValue>{state.role}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role} value={role} className="capitalize">
+                      {role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
-            {state.status.phase === 'success' && (
-              <p className="text-muted-foreground text-sm">Invitation sent.</p>
-            )}
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={inviteMember.isPending || state.email.trim() === ''}>
-                {inviteMember.isPending && <Spinner />}
+              <Button
+                type="submit"
+                disabled={inviteMember.isPending || state.email.trim() === ''}
+                loading={inviteMember.isPending}
+              >
                 Send invitation
               </Button>
             </DialogFooter>

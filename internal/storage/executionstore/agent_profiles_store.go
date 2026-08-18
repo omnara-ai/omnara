@@ -64,6 +64,10 @@ func (s *Store) CreateAgentProfile(
 	if err := lockResourceCreation(ctx, qtx, resourceAgentProfiles, input.ProjectID.String()); err != nil {
 		return AgentProfileRecord{}, err
 	}
+	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return AgentProfileRecord{}, err
+	}
 	profileCount, err := qtx.CountActiveAgentProfilesForProject(
 		ctx,
 		dbsqlc.CountActiveAgentProfilesForProjectParams{ProjectID: input.ProjectID},
@@ -71,10 +75,10 @@ func (s *Store) CreateAgentProfile(
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("count active agent profiles: %w", err)
 	}
-	if profileCount > MaxActiveAgentProfilesPerProject {
+	if profileCount > limits.MaxActiveAgentProfilesPerProject {
 		return AgentProfileRecord{}, resourceLimitExceeded(
 			"active agent profiles",
-			MaxActiveAgentProfilesPerProject,
+			limits.MaxActiveAgentProfilesPerProject,
 		)
 	}
 
@@ -211,6 +215,67 @@ func (s *Store) RetargetAgentProfile(
 	return record, nil
 }
 
+type RenameAgentProfileInput struct {
+	ProjectID ID
+	ProfileID ID
+	Name      string
+}
+
+func (s *Store) RenameAgentProfile(
+	ctx context.Context,
+	input RenameAgentProfileInput,
+) (AgentProfileRecord, error) {
+	if isNilID(input.ProjectID) || isNilID(input.ProfileID) {
+		return AgentProfileRecord{}, errors.New("project and profile are required")
+	}
+	if input.Name == "" {
+		return AgentProfileRecord{}, errors.New("name is required")
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return AgentProfileRecord{}, fmt.Errorf("begin rename agent profile: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	qtx := s.q.WithTx(tx)
+	rows, err := qtx.RenameAgentProfile(
+		ctx,
+		dbsqlc.RenameAgentProfileParams{
+			ProjectID: input.ProjectID,
+			ProfileID: input.ProfileID,
+			Name:      input.Name,
+		},
+	)
+	if err != nil {
+		if isUniqueViolationOnConstraint(err, "agent_profiles_active_name_idx") {
+			return AgentProfileRecord{}, fmt.Errorf(
+				"agent profile name already exists: %w",
+				storeerr.ErrConflict,
+			)
+		}
+		return AgentProfileRecord{}, fmt.Errorf("rename agent profile: %w", err)
+	}
+	if rows == 0 {
+		return AgentProfileRecord{}, fmt.Errorf(
+			"agent profile not found: %w",
+			storeerr.ErrNotFound,
+		)
+	}
+	record, err := loadAgentProfileTx(ctx, qtx, input.ProjectID, input.ProfileID)
+	if err != nil {
+		return AgentProfileRecord{}, err
+	}
+	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, record.CurrentConfigID)
+	if err != nil {
+		return AgentProfileRecord{}, err
+	}
+	record.CurrentConfig = config
+	if err := tx.Commit(ctx); err != nil {
+		return AgentProfileRecord{}, fmt.Errorf("commit rename agent profile: %w", err)
+	}
+	return record, nil
+}
+
 func (s *Store) GetAgentProfile(ctx context.Context, projectID, id ID) (AgentProfileRecord, error) {
 	if isNilID(projectID) {
 		return AgentProfileRecord{}, errors.New("project id is required")
@@ -305,6 +370,37 @@ func (s *Store) ListAgentProfilesForProject(
 	return result, nil
 }
 
+type ListRecentAgentProfilesForProjectsInput struct {
+	ProjectIDs []ID
+	Limit      int
+}
+
+// ListRecentAgentProfilesForProjects returns the most recently updated agent
+// profiles across the given projects, newest first.
+func (s *Store) ListRecentAgentProfilesForProjects(
+	ctx context.Context,
+	input ListRecentAgentProfilesForProjectsInput,
+) ([]AgentProfileRecord, error) {
+	if input.Limit <= 0 {
+		return nil, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return []AgentProfileRecord{}, nil
+	}
+	rows, err := s.q.ListRecentAgentProfilesForProjects(ctx, dbsqlc.ListRecentAgentProfilesForProjectsParams{
+		ProjectIds: input.ProjectIDs,
+		RowLimit:   int64(input.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list recent agent profiles: %w", err)
+	}
+	records := make([]AgentProfileRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, agentProfileRecordFromListRecentForProjectsSQLC(row))
+	}
+	return records, nil
+}
+
 func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id ID) error {
 	if isNilID(projectID) || isNilID(id) {
 		return errors.New("project and agent profile are required")
@@ -341,6 +437,11 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id ID) error 
 		ProjectID: projectID, ProfileID: id,
 	}); err != nil {
 		return fmt.Errorf("delete agent profile versions: %w", err)
+	}
+	if _, err := qtx.DeleteCronTriggersForAgentProfile(ctx, dbsqlc.DeleteCronTriggersForAgentProfileParams{
+		ProjectID: projectID, AgentProfileID: &id,
+	}); err != nil {
+		return fmt.Errorf("delete agent profile cron triggers: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit delete agent profile: %w", err)

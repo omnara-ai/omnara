@@ -490,7 +490,9 @@ func (s *Store) CreateProjectMachinePoolGrant(
 					poolErr,
 				)
 			}
-			return ProjectMachinePoolGrantRecord{}, storeerr.ErrIdempotencyConflict
+			return ProjectMachinePoolGrantRecord{}, storeerr.Tag(storeerr.ErrConflict, errors.New(
+				"a grant for this machine pool already exists on this project",
+			))
 		}
 		if storeutil.IsUniqueViolation(err) {
 			return ProjectMachinePoolGrantRecord{}, storeerr.ErrIdempotencyConflict

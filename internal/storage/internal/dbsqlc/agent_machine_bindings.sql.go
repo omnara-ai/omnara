@@ -272,6 +272,85 @@ func (q *Queries) InsertAgentMachineBinding(ctx context.Context, arg InsertAgent
 	return i, err
 }
 
+const listAgentMachineBindings = `-- name: ListAgentMachineBindings :many
+SELECT binding.id, binding.org_id, binding.project_id, binding.agent_id,
+       binding.create_tool_call_id, binding.delete_tool_call_id, binding.machine_id,
+       binding.machine_ref, binding.binding_kind, binding.state, binding.description,
+       binding.env_overlay, binding.secret_env_overlay, binding.metadata,
+       binding.created_at, binding.updated_at,
+       coalesce(nullif(binding.cwd, ''), machine.cwd, '') AS effective_cwd
+FROM agent_machine_bindings binding
+LEFT JOIN machines machine ON machine.org_id = binding.org_id
+  AND machine.id = binding.machine_id
+  AND machine.deleted_at IS NULL
+WHERE binding.project_id = $1
+  AND binding.agent_id = $2
+ORDER BY binding.created_at, binding.id
+`
+
+type ListAgentMachineBindingsParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+type ListAgentMachineBindingsRow struct {
+	ID               uuid.UUID
+	OrgID            uuid.UUID
+	ProjectID        uuid.UUID
+	AgentID          uuid.UUID
+	CreateToolCallID *uuid.UUID
+	DeleteToolCallID *uuid.UUID
+	MachineID        uuid.UUID
+	MachineRef       string
+	BindingKind      string
+	State            string
+	Description      string
+	EnvOverlay       json.RawMessage
+	SecretEnvOverlay json.RawMessage
+	Metadata         json.RawMessage
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	EffectiveCwd     string
+}
+
+func (q *Queries) ListAgentMachineBindings(ctx context.Context, arg ListAgentMachineBindingsParams) ([]ListAgentMachineBindingsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentMachineBindings, arg.ProjectID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentMachineBindingsRow{}
+	for rows.Next() {
+		var i ListAgentMachineBindingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.CreateToolCallID,
+			&i.DeleteToolCallID,
+			&i.MachineID,
+			&i.MachineRef,
+			&i.BindingKind,
+			&i.State,
+			&i.Description,
+			&i.EnvOverlay,
+			&i.SecretEnvOverlay,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EffectiveCwd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAttachedAgentPoolMachineIDsForLifecycle = `-- name: ListAttachedAgentPoolMachineIDsForLifecycle :many
 SELECT machine.id
 FROM machines machine

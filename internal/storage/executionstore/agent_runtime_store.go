@@ -83,6 +83,10 @@ func insertAdmittedAgentTx(
 		if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
 			return AgentRecord{}, false, err
 		}
+		limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+		if err != nil {
+			return AgentRecord{}, false, err
+		}
 		agentCount, err := qtx.CountActiveAgentsForProject(
 			ctx,
 			dbsqlc.CountActiveAgentsForProjectParams{ProjectID: input.ProjectID},
@@ -90,10 +94,10 @@ func insertAdmittedAgentTx(
 		if err != nil {
 			return AgentRecord{}, false, fmt.Errorf("count active agents: %w", err)
 		}
-		if agentCount > MaxActiveAgentsPerProject {
+		if agentCount > limits.MaxActiveAgentsPerProject {
 			return AgentRecord{}, false, resourceLimitExceeded(
 				"active agents",
-				MaxActiveAgentsPerProject,
+				limits.MaxActiveAgentsPerProject,
 			)
 		}
 		return record, true, nil
@@ -285,6 +289,37 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 	return result, nil
 }
 
+type ListRecentAgentsForProjectsInput struct {
+	ProjectIDs []ID
+	Limit      int
+}
+
+// ListRecentAgentsForProjects returns the most recently updated active agents
+// across the given projects, newest first.
+func (s *Store) ListRecentAgentsForProjects(
+	ctx context.Context,
+	input ListRecentAgentsForProjectsInput,
+) ([]AgentRecord, error) {
+	if input.Limit <= 0 {
+		return nil, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return []AgentRecord{}, nil
+	}
+	rows, err := s.q.ListRecentAgentsForProjects(ctx, dbsqlc.ListRecentAgentsForProjectsParams{
+		ProjectIds: input.ProjectIDs,
+		RowLimit:   int64(input.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list recent agents: %w", err)
+	}
+	records := make([]AgentRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, agentRecordFromListRecentForProjectsSQLC(row))
+	}
+	return records, nil
+}
+
 func (s *Store) ArchiveAgent(
 	ctx context.Context,
 	projectID ID,
@@ -402,6 +437,12 @@ func archiveAgentTx(
 		AgentID:   agentID,
 	}); err != nil {
 		return nil, fmt.Errorf("cancel archived agent queued backlog inputs: %w", err)
+	}
+	if _, err := qtx.DeleteCronTriggersForAgent(ctx, dbsqlc.DeleteCronTriggersForAgentParams{
+		ProjectID: projectID,
+		AgentID:   &agentID,
+	}); err != nil {
+		return nil, fmt.Errorf("delete archived agent cron triggers: %w", err)
 	}
 	if err := completeExecutionRevokedProcessesTx(
 		ctx,

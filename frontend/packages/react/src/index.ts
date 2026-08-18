@@ -22,10 +22,12 @@ export {
   type AgentProfileListOptions,
   type AgentProfileListSort,
   useAgentProfile,
+  useAgentProfileQuery,
   useAgentProfiles,
   useCreateAgentProfile,
   useCreateSlackSetup,
   useDeleteAgentProfile,
+  useRenameAgentProfile,
   useUpdateAgentProfile,
 } from './domains/agent-profiles'
 export {
@@ -33,10 +35,12 @@ export {
   type AgentListOptions,
   type AgentListSort,
   useAgent,
+  useAgentConfig,
   useAgents,
   useArchiveAgent,
   useCreateAgent,
   useCreateAgentConfig,
+  useUpdateAgentConfig,
 } from './domains/agents'
 export {
   type IntegrationInstallListFilters,
@@ -49,6 +53,7 @@ export {
   useAcceptInvitation,
   useDeclineInvitation,
   usePendingInvitations,
+  usePendingInvitationsQuery,
 } from './domains/invitations'
 export {
   CREATED_RESOURCE_LIST_SORTS,
@@ -79,6 +84,7 @@ export {
   useConnectMachine,
   useDeleteMachine,
   useGrantMachineToProject,
+  useMachine,
   useMachines,
   useProjectMachines,
 } from './domains/machines'
@@ -126,6 +132,7 @@ export {
   useInviteMember,
   useOrgInvitations,
   useOrgMembers,
+  useOrgOverview,
 } from './domains/orgs'
 export { cursorPagination } from './domains/pagination'
 export {

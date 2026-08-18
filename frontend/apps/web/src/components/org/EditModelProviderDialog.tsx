@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -55,9 +54,10 @@ export function EditModelProviderDialog({
       })
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not update model provider')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not update model provider'),
+        status,
       }))
     }
   }
@@ -101,8 +101,12 @@ export function EditModelProviderDialog({
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={mutation.isPending || state.baseUrl.trim() === ''}>
-                {mutation.isPending && <Spinner />}Save changes
+              <Button
+                type="submit"
+                disabled={mutation.isPending || state.baseUrl.trim() === ''}
+                loading={mutation.isPending}
+              >
+                Save changes
               </Button>
             </DialogFooter>
           </FieldGroup>

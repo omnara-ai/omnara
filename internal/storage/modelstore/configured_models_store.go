@@ -42,6 +42,10 @@ func (s *Store) CreateConfiguredModel(
 		); err != nil {
 			return ConfiguredModelRecord{}, err
 		}
+		limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+		if err != nil {
+			return ConfiguredModelRecord{}, err
+		}
 		modelCount, err := qtx.CountActiveConfiguredModelsForProvider(
 			ctx,
 			dbsqlc.CountActiveConfiguredModelsForProviderParams{
@@ -52,10 +56,10 @@ func (s *Store) CreateConfiguredModel(
 		if err != nil {
 			return ConfiguredModelRecord{}, fmt.Errorf("count active configured models: %w", err)
 		}
-		if modelCount > MaxActiveConfiguredModelsPerProvider {
+		if modelCount > limits.MaxActiveConfiguredModelsPerProvider {
 			return ConfiguredModelRecord{}, resourceLimitExceeded(
 				"active configured models",
-				MaxActiveConfiguredModelsPerProvider,
+				limits.MaxActiveConfiguredModelsPerProvider,
 			)
 		}
 	}

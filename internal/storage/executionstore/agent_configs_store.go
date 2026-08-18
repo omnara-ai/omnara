@@ -261,6 +261,10 @@ func insertAgentConfigTx(
 		if err := lockResourceCreation(ctx, qtx, resourceAgentConfigs, input.ProjectID.String()); err != nil {
 			return AgentConfigRecord{}, err
 		}
+		limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+		if err != nil {
+			return AgentConfigRecord{}, err
+		}
 		configCount, err := qtx.CountAgentConfigsForProject(
 			ctx,
 			dbsqlc.CountAgentConfigsForProjectParams{ProjectID: input.ProjectID},
@@ -268,10 +272,10 @@ func insertAgentConfigTx(
 		if err != nil {
 			return AgentConfigRecord{}, fmt.Errorf("count agent configs: %w", err)
 		}
-		if configCount > MaxAgentConfigsPerProject {
+		if configCount > limits.MaxAgentConfigsPerProject {
 			return AgentConfigRecord{}, resourceLimitExceeded(
 				"agent configs",
-				MaxAgentConfigsPerProject,
+				limits.MaxAgentConfigsPerProject,
 			)
 		}
 	}

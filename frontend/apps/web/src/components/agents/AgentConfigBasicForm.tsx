@@ -1,87 +1,71 @@
 import { useToolCatalog } from '@omnara/react'
 
-import { type BasicConfigDraft } from '@/components/agents/agentConfigBasicSerialization'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 
 export function AgentConfigBasicForm({
   orgId,
   projectId,
-  value,
-  onChange,
+  form,
 }: {
   orgId: string
   projectId: string
-  value: BasicConfigDraft
-  onChange: (draft: BasicConfigDraft) => void
+  form: AgentBuilderForm
 }) {
   const toolCatalog = useToolCatalog()
-  const { instruction, machineSources, mcpServers, modelName, providerConfig, skillIds, tools } =
-    value
 
   return (
     <FieldGroup className="gap-8">
       <Field>
-        <FieldLabel htmlFor="agent-config-basic-instruction">Instruction</FieldLabel>
-        <FieldDescription>The system prompt that defines how this agent works.</FieldDescription>
+        <FieldLabel htmlFor="agent-config-basic-instruction">Agent Instructions</FieldLabel>
         <Textarea
           id="agent-config-basic-instruction"
-          value={instruction}
+          value={form.instruction}
           placeholder="You are a research assistant. When given a topic, gather sources and produce a short summary with citations."
           className="min-h-36 resize-y"
           onChange={(event) => {
-            onChange({ ...value, instruction: event.target.value })
+            form.setInstruction(event.target.value)
           }}
         />
       </Field>
       <AgentConfigModelField
         orgId={orgId}
         projectId={projectId}
-        value={{ providerConfig, modelName }}
-        onChange={(selection) => {
-          onChange({
-            ...value,
-            providerConfig: selection.providerConfig,
-            modelName: selection.modelName,
-          })
-        }}
+        value={form.model}
+        onChange={form.setModel}
+        onUnavailableChange={form.reportModelUnavailable}
       />
       <AgentConfigMachineSourcesField
         orgId={orgId}
         projectId={projectId}
-        sources={machineSources}
-        onSourcesChange={(sources) => {
-          onChange({ ...value, machineSources: sources })
-        }}
+        sources={form.machineSources}
+        onSourcesChange={form.setMachineSources}
+        onUnavailableIdsChange={form.reportUnavailableSourceIds}
       />
       <AgentConfigToolsField
         catalog={toolCatalog.data}
-        tools={tools}
-        onToolsChange={(nextTools) => {
-          onChange({ ...value, tools: nextTools })
-        }}
+        tools={form.tools}
+        onToolsChange={form.setTools}
       />
       <AgentConfigSkillsField
         orgId={orgId}
         projectId={projectId}
-        selectedIds={skillIds}
-        onSelectedIdsChange={(nextSkillIds) => {
-          onChange({ ...value, skillIds: nextSkillIds })
-        }}
+        selectedIds={form.skillIds}
+        onSelectedIdsChange={form.setSkillIds}
+        onUnavailableIdsChange={form.reportUnavailableSkillIds}
       />
       <AgentConfigMcpServersField
         orgId={orgId}
         projectId={projectId}
         permissionProfile={toolCatalog.data?.mcp_tool_permissions}
-        servers={mcpServers}
-        onServersChange={(servers) => {
-          onChange({ ...value, mcpServers: servers })
-        }}
+        servers={form.mcpServers}
+        onServersChange={form.setMcpServers}
       />
     </FieldGroup>
   )

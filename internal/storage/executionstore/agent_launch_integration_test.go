@@ -1521,6 +1521,14 @@ tools:
 	if !sameJSON(result.MachineBindings[0].EnvOverlay, json.RawMessage(`{"APP_MODE":"initial"}`)) {
 		t.Fatalf("initial machine binding env overlay = %s", result.MachineBindings[0].EnvOverlay)
 	}
+	listed, err := store.Execution().ListAgentMachineBindings(ctx, testProjectID, result.Agent.ID)
+	if err != nil {
+		t.Fatalf("list agent machine bindings: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != result.MachineBindings[0].ID ||
+		listed[0].MachineID != machine.ID || listed[0].Cwd != "/workspace" {
+		t.Fatalf("unexpected listed bindings: %+v", listed)
+	}
 	launchActorID := mustEnsureOmnaraActor(
 		t,
 		ctx,

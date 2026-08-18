@@ -7,7 +7,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-import { machinePoolProviders } from './CreateMachinePoolDialogState'
+import { machinePoolProviderLabel, machinePoolProviders } from './CreateMachinePoolDialogState'
 
 export function MachinePoolProviderSelect({
   value,
@@ -21,7 +21,7 @@ export function MachinePoolProviderSelect({
       <FieldLabel htmlFor="mpool-provider">Provider</FieldLabel>
       <Select value={value} onValueChange={onValueChange}>
         <SelectTrigger id="mpool-provider" className="w-full">
-          <SelectValue />
+          <SelectValue>{machinePoolProviderLabel(value)}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {machinePoolProviders.map((option) => (

@@ -79,10 +79,9 @@ func (s *Store) CreateProjectModelGrant(
 	}
 	record := projectModelGrantRecordFromUpsertSQLC(row)
 	if !sameProjectModelGrantIntent(record, input) {
-		return ProjectModelGrantRecord{}, fmt.Errorf(
-			"an active project grant for this configured model already exists with a different configuration: %w",
-			storeerr.ErrIdempotencyConflict,
-		)
+		return ProjectModelGrantRecord{}, storeerr.Tag(storeerr.ErrConflict, errors.New(
+			"an active project grant for this configured model already exists with a different configuration",
+		))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ProjectModelGrantRecord{}, fmt.Errorf("commit create project model grant: %w", err)

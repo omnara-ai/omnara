@@ -189,6 +189,10 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 UPDATE agent_profiles SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
+-- name: DeleteProjectCronTriggers :exec
+UPDATE cron_triggers SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
+
 -- name: DeleteProjectIntegrationTargets :exec
 UPDATE integration_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
@@ -1165,14 +1169,21 @@ FROM org_invitations
 WHERE id = sqlc.arg(id);
 
 -- name: ListPendingOrgInvitationsForEmails :many
-SELECT id, org_id, email, normalized_email, org_role, created_at
-FROM org_invitations
-WHERE normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
+SELECT invitation.id,
+       invitation.org_id,
+       org.name AS org_name,
+       invitation.email,
+       invitation.normalized_email,
+       invitation.org_role,
+       invitation.created_at
+FROM org_invitations invitation
+JOIN orgs org ON org.id = invitation.org_id AND org.deleted_at IS NULL
+WHERE invitation.normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
   AND (
     sqlc.narg(cursor_created_at)::timestamptz IS NULL
-    OR (created_at, id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    OR (invitation.created_at, invitation.id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
   )
-ORDER BY created_at ASC, id ASC
+ORDER BY invitation.created_at ASC, invitation.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListOrgInvitations :many
@@ -1187,10 +1198,21 @@ ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ConsumeOrgInvitationForEmail :one
-DELETE FROM org_invitations
-WHERE id = sqlc.arg(id)
-  AND normalized_email = sqlc.arg(normalized_email)
-RETURNING id, org_id, email, normalized_email, org_role, created_at;
+WITH consumed AS (
+  DELETE FROM org_invitations
+  WHERE org_invitations.id = sqlc.arg(id)
+    AND org_invitations.normalized_email = sqlc.arg(normalized_email)
+  RETURNING id, org_id, email, normalized_email, org_role, created_at
+)
+SELECT consumed.id,
+       consumed.org_id,
+       org.name AS org_name,
+       consumed.email,
+       consumed.normalized_email,
+       consumed.org_role,
+       consumed.created_at
+FROM consumed
+JOIN orgs org ON org.id = consumed.org_id AND org.deleted_at IS NULL;
 
 -- name: DeleteOrgInvitation :one
 DELETE FROM org_invitations
