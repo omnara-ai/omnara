@@ -311,3 +311,28 @@ func TestActionQueueWaitsForReconciledPredecessorReport(t *testing.T) {
 	default:
 	}
 }
+
+func TestActionQueueSkipsForgottenAction(t *testing.T) {
+	const (
+		processID = "prc_forgotten_action"
+		actionID  = "act_forgotten_action"
+	)
+	client := New(Config{}, nil, nil)
+	transport := newDaemonSocketTransport(
+		&client,
+		DaemonRuntime{},
+		localStartupState{},
+	)
+	queue := &acceptedActionQueue{pending: []string{actionID}}
+	transport.actionQueues[processID] = queue
+	transport.runActionQueue(context.Background(), processID, queue)
+
+	if !transport.idle() {
+		t.Fatal("forgotten action retained transport state")
+	}
+	select {
+	case err := <-transport.fatal:
+		t.Fatalf("forgotten action failed the transport: %v", err)
+	default:
+	}
+}

@@ -35,6 +35,7 @@ target AS MATERIALIZED (
         connection.connection_state IN ('online', 'asleep')
         AND sqlc.arg(action_kind)::text = 'read'
         AND process.state IN ('exited', 'failed', 'killed', 'unknown')
+        AND process.state_reason_code IS DISTINCT FROM 'machine_storage_exhausted'
       )
     )
     AND (

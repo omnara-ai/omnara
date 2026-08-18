@@ -227,7 +227,14 @@ RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent
 UPDATE processes process
 SET state = sqlc.arg(state),
     source_started_at = coalesce(source_started_at, sqlc.narg(source_started_at)::timestamptz),
-    source_ended_at = sqlc.narg(source_ended_at)::timestamptz,
+    source_ended_at = CASE
+      WHEN sqlc.arg(storage_exhausted)::boolean
+        AND process.source_started_at IS NOT NULL
+        AND sqlc.narg(source_ended_at)::timestamptz IS NULL
+      THEN greatest(process.source_started_at, statement_timestamp())
+      WHEN sqlc.narg(source_ended_at)::timestamptz IS NULL THEN NULL
+      ELSE greatest(process.source_started_at, sqlc.narg(source_ended_at)::timestamptz)
+    END,
     exit_code = sqlc.narg(exit_code),
     exit_signal = sqlc.arg(exit_signal),
     state_reason_code = sqlc.narg(state_reason_code),
@@ -238,7 +245,14 @@ WHERE process.project_id = sqlc.arg(project_id)
   AND process.agent_id = sqlc.arg(agent_id)
   AND process.id = sqlc.arg(id)
   AND process.machine_id = sqlc.arg(machine_id)
-  AND process.state IN ('starting', 'running')
+  AND (
+    process.state IN ('starting', 'running')
+    OR (
+      sqlc.arg(storage_exhausted)::boolean
+      AND process.state = 'queued'
+      AND process.execution_granted_at IS NULL
+    )
+  )
   AND sqlc.arg(state)::text IN ('exited', 'failed', 'killed', 'unknown')
   AND (sqlc.arg(state)::text <> 'exited' OR sqlc.narg(exit_code)::integer IS NOT NULL)
   AND (sqlc.arg(state)::text IN ('exited', 'failed') OR sqlc.narg(exit_code)::integer IS NULL)
@@ -252,6 +266,7 @@ WHERE process.project_id = sqlc.arg(project_id)
   AND (
     sqlc.narg(source_ended_at)::timestamptz IS NULL
     OR coalesce(process.source_started_at, sqlc.narg(source_started_at)::timestamptz) IS NULL
+    OR sqlc.arg(storage_exhausted)::boolean
     OR sqlc.narg(source_ended_at)::timestamptz >= coalesce(process.source_started_at, sqlc.narg(source_started_at)::timestamptz)
   )
   AND (
@@ -260,6 +275,7 @@ WHERE process.project_id = sqlc.arg(project_id)
   )
   AND (
     sqlc.arg(state)::text <> 'failed'
+    OR sqlc.arg(storage_exhausted)::boolean
     OR coalesce(process.source_started_at, sqlc.narg(source_started_at)::timestamptz) IS NULL
     OR sqlc.narg(source_ended_at)::timestamptz IS NOT NULL
   )

@@ -32,6 +32,7 @@ func TestStoppedSupervisorRecoveryPreservesDurableOutput(
 		context.Background(),
 		process.ProcessID,
 		process.SupervisorInstanceID,
+		nil,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +65,7 @@ func TestStoppedSupervisorRecoveryMakesCorruptOutputExplicit(
 		context.Background(),
 		process.ProcessID,
 		process.SupervisorInstanceID,
+		nil,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +93,7 @@ func TestStoppedSupervisorRecoveryMakesMissingOutputExplicit(
 		context.Background(),
 		process.ProcessID,
 		process.SupervisorInstanceID,
+		nil,
 	); err != nil {
 		t.Fatal(err)
 	}

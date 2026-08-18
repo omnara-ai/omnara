@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/processaction"
 )
@@ -1160,6 +1161,44 @@ func TestDetachedSupervisorRejectsWrongIPCIdentityBeforeStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture.waitDone(t, 5*time.Second)
+}
+
+func TestDetachedSupervisorCloseUngrantedRetainsLifetimeLock(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	fixture := newDetachedSupervisorTestFixture(
+		t,
+		ctx,
+		ProcessAssignment{
+			ID: "prc_close_ungranted_lock",
+			Process: Process{
+				Command:       "echo should-not-run",
+				ShellSelector: "default",
+				Cwd:           t.TempDir(),
+				IOMode:        "pipe",
+			},
+		},
+	)
+	machine, err := fixture.client.machineStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := machine.LifetimeLockPath(fixture.runtime.processID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.runtime.runner.CloseUngranted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fixture.waitDone(t, 5*time.Second)
+	lock, err := localstore.TryAcquireExistingLock(lockPath)
+	if err != nil {
+		t.Fatalf("acquire retained lifetime lock: %v", err)
+	}
+	if err := lock.Release(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestDetachedSupervisorTimeoutClosesWholeProcessTree(t *testing.T) {

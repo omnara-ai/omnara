@@ -224,41 +224,57 @@ const completeDaemonObservedProcess = `-- name: CompleteDaemonObservedProcess :o
 UPDATE processes process
 SET state = $1,
     source_started_at = coalesce(source_started_at, $2::timestamptz),
-    source_ended_at = $3::timestamptz,
-    exit_code = $4,
-    exit_signal = $5,
-    state_reason_code = $6,
-    state_reason_message = $7,
+    source_ended_at = CASE
+      WHEN $3::boolean
+        AND process.source_started_at IS NOT NULL
+        AND $4::timestamptz IS NULL
+      THEN greatest(process.source_started_at, statement_timestamp())
+      WHEN $4::timestamptz IS NULL THEN NULL
+      ELSE greatest(process.source_started_at, $4::timestamptz)
+    END,
+    exit_code = $5,
+    exit_signal = $6,
+    state_reason_code = $7,
+    state_reason_message = $8,
     state_changed_at = statement_timestamp(),
     updated_at = statement_timestamp()
-WHERE process.project_id = $8
-  AND process.agent_id = $9
-  AND process.id = $10
-  AND process.machine_id = $11
-  AND process.state IN ('starting', 'running')
+WHERE process.project_id = $9
+  AND process.agent_id = $10
+  AND process.id = $11
+  AND process.machine_id = $12
+  AND (
+    process.state IN ('starting', 'running')
+    OR (
+      $3::boolean
+      AND process.state = 'queued'
+      AND process.execution_granted_at IS NULL
+    )
+  )
   AND $1::text IN ('exited', 'failed', 'killed', 'unknown')
-  AND ($1::text <> 'exited' OR $4::integer IS NOT NULL)
-  AND ($1::text IN ('exited', 'failed') OR $4::integer IS NULL)
-  AND ($1::text <> 'failed' OR $6::text IS NOT NULL)
-  AND ($1::text <> 'unknown' OR $6::text IS NOT NULL)
+  AND ($1::text <> 'exited' OR $5::integer IS NOT NULL)
+  AND ($1::text IN ('exited', 'failed') OR $5::integer IS NULL)
+  AND ($1::text <> 'failed' OR $7::text IS NOT NULL)
+  AND ($1::text <> 'unknown' OR $7::text IS NOT NULL)
   AND (
     $2::timestamptz IS NULL
     OR process.source_started_at IS NULL
     OR process.source_started_at = $2::timestamptz
   )
   AND (
-    $3::timestamptz IS NULL
+    $4::timestamptz IS NULL
     OR coalesce(process.source_started_at, $2::timestamptz) IS NULL
-    OR $3::timestamptz >= coalesce(process.source_started_at, $2::timestamptz)
+    OR $3::boolean
+    OR $4::timestamptz >= coalesce(process.source_started_at, $2::timestamptz)
   )
   AND (
     $1::text NOT IN ('exited', 'killed')
-    OR $3::timestamptz IS NOT NULL
+    OR $4::timestamptz IS NOT NULL
   )
   AND (
     $1::text <> 'failed'
+    OR $3::boolean
     OR coalesce(process.source_started_at, $2::timestamptz) IS NULL
-    OR $3::timestamptz IS NOT NULL
+    OR $4::timestamptz IS NOT NULL
   )
 RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at
 `
@@ -266,6 +282,7 @@ RETURNING process.id, process.org_id, process.project_id, process.agent_id, proc
 type CompleteDaemonObservedProcessParams struct {
 	State              string
 	SourceStartedAt    *time.Time
+	StorageExhausted   bool
 	SourceEndedAt      *time.Time
 	ExitCode           *int32
 	ExitSignal         string
@@ -281,6 +298,7 @@ func (q *Queries) CompleteDaemonObservedProcess(ctx context.Context, arg Complet
 	row := q.db.QueryRow(ctx, completeDaemonObservedProcess,
 		arg.State,
 		arg.SourceStartedAt,
+		arg.StorageExhausted,
 		arg.SourceEndedAt,
 		arg.ExitCode,
 		arg.ExitSignal,

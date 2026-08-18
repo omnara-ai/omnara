@@ -35,9 +35,15 @@ type runnerErrorCode string
 const (
 	runnerErrorActionBlocked              runnerErrorCode = "action_blocked"
 	runnerErrorSupervisorIdentityMismatch runnerErrorCode = "supervisor_identity_mismatch"
+	runnerErrorStorageExhaustion          runnerErrorCode = "storage_exhaustion"
+	runnerErrorStorageExhaustionReady     runnerErrorCode = "storage_exhaustion_terminal_ready"
 )
 
-var errRunnerIdentityMismatch = errors.New("supervisor identity mismatch")
+var (
+	errRunnerIdentityMismatch         = errors.New("supervisor identity mismatch")
+	errRunnerStorageExhaustion        = errors.New("runner storage exhausted")
+	errStorageExhaustionTerminalReady = errors.New("storage exhaustion terminal ready")
+)
 
 type runnerRequest struct {
 	SupervisorToken      string          `json:"supervisor_token,omitempty"`
@@ -115,19 +121,23 @@ func runnerResponseError(response runnerResponse) error {
 		if response.Error == "" {
 			return errors.New("supervisor request failed")
 		}
-		if response.ErrorCode == runnerErrorActionBlocked {
+		switch response.ErrorCode {
+		case runnerErrorActionBlocked:
 			return fmt.Errorf(
 				"%w: %s",
 				statedb.ErrActionBlocked,
 				response.Error,
 			)
-		}
-		if response.ErrorCode == runnerErrorSupervisorIdentityMismatch {
+		case runnerErrorSupervisorIdentityMismatch:
 			return fmt.Errorf(
 				"%w: %s",
 				errRunnerIdentityMismatch,
 				response.Error,
 			)
+		case runnerErrorStorageExhaustion:
+			return fmt.Errorf("%w: %s", errRunnerStorageExhaustion, response.Error)
+		case runnerErrorStorageExhaustionReady:
+			return fmt.Errorf("%w: %s", errStorageExhaustionTerminalReady, response.Error)
 		}
 		return errors.New(response.Error)
 	}
