@@ -57,6 +57,12 @@ func (p *capturingStreamPublisher) envelopes(t *testing.T) []streamEnvelope {
 }
 
 func newTestStreamSink(publisher *capturingStreamPublisher) *harnessStreamSink {
+	sink := newUnstartedTestStreamSink(publisher)
+	go sink.run(context.Background())
+	return sink
+}
+
+func newUnstartedTestStreamSink(publisher *capturingStreamPublisher) *harnessStreamSink {
 	sink := &harnessStreamSink{
 		publisher:          publisher,
 		agentID:            uuid.New(),
@@ -66,7 +72,6 @@ func newTestStreamSink(publisher *capturingStreamPublisher) *harnessStreamSink {
 		events:             make(chan streamEnvelope, streamSinkBufferSize),
 		done:               make(chan struct{}),
 	}
-	go sink.run(context.Background())
 	return sink
 }
 
@@ -212,27 +217,35 @@ func TestHarnessStreamSinkPreMintsPublicToolCallIDs(t *testing.T) {
 	}
 }
 
-func TestHarnessStreamSinkEmitNeverBlocksAndDropsWithSeqGaps(t *testing.T) {
-	publisher := &capturingStreamPublisher{block: make(chan struct{})}
-	sink := newTestStreamSink(publisher)
+func TestHarnessStreamSinkEmitNeverBlocksAndDropsWhenQueueIsFull(t *testing.T) {
+	publisher := &capturingStreamPublisher{}
+	sink := newUnstartedTestStreamSink(publisher)
 	ctx := context.Background()
 	emitted := streamSinkBufferSize * 3
-	start := time.Now()
-	for i := range emitted {
-		sink.Emit(ctx, model.StreamEvent{
-			Kind:       model.StreamEventBlockStart,
-			BlockIndex: i,
-			Block:      &model.StreamBlock{Kind: model.StreamBlockText},
-		})
+	emitDone := make(chan struct{})
+	go func() {
+		defer close(emitDone)
+		for i := range emitted {
+			sink.Emit(ctx, model.StreamEvent{
+				Kind:       model.StreamEventBlockStart,
+				BlockIndex: i,
+				Block:      &model.StreamBlock{Kind: model.StreamBlockText},
+			})
+		}
+	}()
+	select {
+	case <-emitDone:
+	case <-time.After(5 * time.Second):
+		go sink.run(context.Background())
+		<-emitDone
+		sink.Close()
+		t.Fatal("emit blocked while the stream queue was full")
 	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("emit blocked for %v with a stalled publisher", elapsed)
-	}
-	close(publisher.block)
+	go sink.run(context.Background())
 	sink.Close()
 	envelopes := publisher.envelopes(t)
-	if len(envelopes) == 0 {
-		t.Fatal("expected some envelopes to be published")
+	if len(envelopes) != streamSinkBufferSize {
+		t.Fatalf("published envelopes = %d, want queue capacity %d", len(envelopes), streamSinkBufferSize)
 	}
 	lastSeq := uint64(0)
 	lastSourceSeqEnd := uint64(0)
@@ -246,8 +259,8 @@ func TestHarnessStreamSinkEmitNeverBlocksAndDropsWithSeqGaps(t *testing.T) {
 		}
 		lastSourceSeqEnd = envelope.SourceSeqEnd
 	}
-	if lastSourceSeqEnd >= uint64(emitted) {
-		t.Fatalf("expected dropped tail (last source seq < %d), got %d", emitted, lastSourceSeqEnd)
+	if lastSourceSeqEnd != uint64(streamSinkBufferSize) {
+		t.Fatalf("last published source sequence = %d, want %d", lastSourceSeqEnd, streamSinkBufferSize)
 	}
 }
 
