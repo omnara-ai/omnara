@@ -16,7 +16,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { FieldGroup } from '@/components/ui/field'
-import { Spinner } from '@/components/ui/spinner'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -287,8 +286,8 @@ export function CreateMachinePoolDialog({
                   <Button
                     type="submit"
                     disabled={isSubmitting || (phase.kind === 'form' && !valid)}
+                    loading={isSubmitting}
                   >
-                    {isSubmitting && <Spinner />}
                     {phase.kind === 'retry-grants' ? 'Retry project grants' : 'Create pool'}
                   </Button>
                 )}

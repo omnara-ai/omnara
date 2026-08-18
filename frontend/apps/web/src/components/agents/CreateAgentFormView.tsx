@@ -33,9 +33,8 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
+import { idle, settleSubmission, statusError, submitError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
@@ -139,7 +138,7 @@ export function CreateAgentFormView({
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
     const name = draft.name.trim()
-    try {
+    const result = await settleSubmission(async () => {
       let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
         const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
@@ -172,17 +171,21 @@ export function CreateAgentFormView({
           params: { projectId, profileId: profile.profileId },
         })
       }
+    }).finally(() => {
+      setPendingAction(null)
+    })
+
+    if (result.ok) {
       setDraft((prev) => ({ ...prev, status: idle }))
-    } catch (err) {
+    } else {
+      const status = submitError(
+        result.error,
+        action === 'launch' ? 'Could not create agent' : 'Could not create profile',
+      )
       setDraft((prev) => ({
         ...prev,
-        status: submitError(
-          err,
-          action === 'launch' ? 'Could not create agent' : 'Could not create profile',
-        ),
+        status,
       }))
-    } finally {
-      setPendingAction(null)
     }
   }
 
@@ -196,10 +199,15 @@ export function CreateAgentFormView({
     >
       <PageBreadcrumb
         items={[
-          { label: activeOrg.name, to: '/' },
-          { label: project.name },
-          { label: 'Agents', to: '/projects/$projectId/agents', params: { projectId } },
-          { label: 'New agent' },
+          { id: 'organization', label: activeOrg.name, to: '/' },
+          { id: 'project', label: project.name },
+          {
+            id: 'agents',
+            label: 'Agents',
+            to: '/projects/$projectId/agents',
+            params: { projectId },
+          },
+          { id: 'new-agent', label: 'New agent' },
         ]}
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -278,15 +286,14 @@ export function CreateAgentFormView({
             type="button"
             variant="outline"
             disabled={!canSubmit}
+            loading={pendingAction === 'profile'}
             onClick={() => {
               void submit('profile')
             }}
           >
-            {pendingAction === 'profile' && <Spinner />}
             Create profile
           </Button>
-          <Button type="submit" disabled={!canSubmit}>
-            {pendingAction === 'launch' && <Spinner />}
+          <Button type="submit" disabled={!canSubmit} loading={pendingAction === 'launch'}>
             Create & launch agent
           </Button>
         </div>

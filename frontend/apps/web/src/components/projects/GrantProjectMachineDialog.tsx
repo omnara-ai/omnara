@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
-import { Spinner } from '@/components/ui/spinner'
 import { useBatchGrantSubmit } from '@/hooks/use-batch-grant-submit'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
@@ -128,8 +127,9 @@ export function GrantProjectMachineDialog({
                   queryError ||
                   !completeGrants.isComplete
                 }
+                loading={batch.isSubmitting}
               >
-                {batch.isSubmitting && <Spinner />}Grant machines
+                Grant machines
               </Button>
             </DialogFooter>
           </FieldGroup>

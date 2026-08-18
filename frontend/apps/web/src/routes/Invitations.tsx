@@ -77,7 +77,7 @@ function InvitationsContent({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
-      {hasOrganizations && <PageBreadcrumb items={[{ label: 'Invitations' }]} />}
+      {hasOrganizations && <PageBreadcrumb items={[{ id: 'invitations', label: 'Invitations' }]} />}
 
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Pending invitations</h1>

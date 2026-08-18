@@ -5,7 +5,6 @@ import { type SyntheticEvent, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 
 export function AgentProfileNameHeading({
   orgId,
@@ -70,9 +69,9 @@ export function AgentProfileNameHeading({
             variant="ghost"
             aria-label="Save name"
             disabled={renameProfile.isPending}
-          >
-            {renameProfile.isPending ? <Spinner /> : <CheckIcon />}
-          </Button>
+            loading={renameProfile.isPending}
+            icon={<CheckIcon />}
+          />
           <Button
             size="icon"
             type="button"

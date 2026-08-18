@@ -12,6 +12,7 @@ import (
 const (
 	resourceAgentConfigs        = "agent_configs"
 	resourceAgentProfiles       = "agent_profiles"
+	resourceCronTriggers        = "cron_triggers"
 	resourceAgents              = "agents"
 	resourceMachineDaemonTokens = "machine_daemon_tokens"
 	resourceMachinePools        = "machine_pools"

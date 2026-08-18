@@ -38,7 +38,9 @@ export function OAuthTokenFields({
               }}
             >
               <SelectTrigger className="w-2/5">
-                <SelectValue />
+                <SelectValue>
+                  {oauthKeys.find((option) => option.value === entry.key)?.label ?? entry.key}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {oauthKeys.map((option) =>

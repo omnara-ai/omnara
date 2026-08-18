@@ -4,7 +4,6 @@ import type { OrgMember } from '@omnara/sdk'
 import { MemberProjectAccessSection } from '@/components/org/MemberProjectAccessSection'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { Spinner } from '@/components/ui/spinner'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { errorMessage } from '@/lib/submit-status'
@@ -73,6 +72,7 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
                       variant="outline"
                       className="text-destructive hover:text-destructive shrink-0"
                       disabled={removeMember.isPending}
+                      loading={removeMember.isPending}
                       onClick={() => {
                         if (
                           window.confirm(`Remove ${memberName(member)} from this organization?`)
@@ -81,7 +81,6 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
                         }
                       }}
                     >
-                      {removeMember.isPending && <Spinner />}
                       Remove from organization
                     </Button>
                   </div>

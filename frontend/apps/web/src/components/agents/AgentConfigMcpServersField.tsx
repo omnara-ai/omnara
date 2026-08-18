@@ -19,6 +19,13 @@ const awsSigningFields = [
   { key: 'region', label: 'Signing region' },
 ] as const
 
+const mcpAuthTypeOptions: { value: McpAuthType; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'oauth', label: 'OAuth secret' },
+  { value: 'bearer', label: 'Bearer secret' },
+  { value: 'sigv4', label: 'AWS Signature V4' },
+]
+
 function newMcpServer(permissionProfile: ToolPermissionProfile): BasicMcpServer {
   return {
     id: crypto.randomUUID(),
@@ -158,7 +165,9 @@ export function AgentConfigMcpServersField({
                       }}
                     >
                       <SelectTrigger className="w-full" aria-label="MCP default enable">
-                        <SelectValue />
+                        <SelectValue>
+                          {server.defaultEnabled ? 'Enabled by default' : 'Disabled by default'}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="true">Enabled by default</SelectItem>
@@ -182,13 +191,17 @@ export function AgentConfigMcpServersField({
                       }}
                     >
                       <SelectTrigger className="w-full" aria-label="MCP auth type">
-                        <SelectValue />
+                        <SelectValue>
+                          {mcpAuthTypeOptions.find((option) => option.value === server.authType)
+                            ?.label ?? server.authType}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="oauth">OAuth secret</SelectItem>
-                        <SelectItem value="bearer">Bearer secret</SelectItem>
-                        <SelectItem value="sigv4">AWS Signature V4</SelectItem>
+                        {mcpAuthTypeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </Field>

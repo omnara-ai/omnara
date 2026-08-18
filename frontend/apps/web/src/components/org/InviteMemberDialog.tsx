@@ -19,9 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, statusError, submitError } from '@/lib/submit-status'
+import { idle, settleSubmission, statusError, submitError } from '@/lib/submit-status'
 
 const roles = ['member', 'admin'] as const
 
@@ -53,13 +52,16 @@ export function InviteMemberDialog({
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setState((prev) => ({ ...prev, status: idle }))
-    try {
-      await inviteMember.mutateAsync({ email: state.email, role: state.role })
-      setState((prev) => ({ ...prev, email: '' }))
+    const result = await settleSubmission(() =>
+      inviteMember.mutateAsync({ email: state.email, role: state.role }),
+    )
+    if (result.ok) {
+      setState((prev) => ({ ...prev, email: '', status: idle }))
       onInvited?.()
-      handleOpenChange(false)
-    } catch (err) {
-      setState((prev) => ({ ...prev, status: submitError(err, 'Could not send invitation') }))
+      onOpenChange(false)
+    } else {
+      const status = submitError(result.error, 'Could not send invitation')
+      setState((prev) => ({ ...prev, status }))
     }
   }
 
@@ -111,7 +113,7 @@ export function InviteMemberDialog({
                 }}
               >
                 <SelectTrigger id="invite-role" className="w-full capitalize">
-                  <SelectValue />
+                  <SelectValue>{state.role}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {roles.map((role) => (
@@ -124,8 +126,11 @@ export function InviteMemberDialog({
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={inviteMember.isPending || state.email.trim() === ''}>
-                {inviteMember.isPending && <Spinner />}
+              <Button
+                type="submit"
+                disabled={inviteMember.isPending || state.email.trim() === ''}
+                loading={inviteMember.isPending}
+              >
                 Send invitation
               </Button>
             </DialogFooter>

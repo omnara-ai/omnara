@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -42,9 +41,10 @@ export function NewProjectDialog({
       setState((prev) => ({ ...prev, name: '' }))
       onOpenChange(false)
     } catch (err) {
+      const status = submitError(err, 'Could not create project')
       setState((prev) => ({
         ...prev,
-        status: submitError(err, 'Could not create project'),
+        status,
       }))
     }
   }
@@ -76,8 +76,11 @@ export function NewProjectDialog({
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
-              <Button type="submit" disabled={createProject.isPending || state.name.trim() === ''}>
-                {createProject.isPending && <Spinner />}
+              <Button
+                type="submit"
+                disabled={createProject.isPending || state.name.trim() === ''}
+                loading={createProject.isPending}
+              >
                 Create project
               </Button>
             </DialogFooter>

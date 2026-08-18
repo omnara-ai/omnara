@@ -72,12 +72,12 @@ export function ProjectAccessEditor({
           variant="outline"
           className="mt-3"
           disabled={accessQuery.isFetching || projectsQuery.isFetching}
+          loading={accessQuery.isFetching || projectsQuery.isFetching}
           onClick={() => {
             if (accessQuery.isError) void accessQuery.refetch()
             if (projectsQuery.isError) void projectsQuery.refetch()
           }}
         >
-          {(accessQuery.isFetching || projectsQuery.isFetching) && <Spinner />}
           Retry
         </Button>
       </div>
@@ -131,7 +131,7 @@ export function ProjectAccessEditor({
                 }}
               >
                 <SelectTrigger className="h-8 w-full capitalize">
-                  <SelectValue />
+                  <SelectValue>{grant.role}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {PROJECT_ROLES.map((role) => (
@@ -178,7 +178,7 @@ export function ProjectAccessEditor({
               }}
             >
               <SelectTrigger className="h-8 w-full capitalize">
-                <SelectValue />
+                <SelectValue>{selectedRole}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {PROJECT_ROLES.map((role) => (
@@ -196,9 +196,9 @@ export function ProjectAccessEditor({
               variant="default"
               className="disabled:bg-muted disabled:text-muted-foreground disabled:opacity-60 disabled:shadow-none"
               disabled={!selectedProject || setAccess.isPending}
+              loading={setAccess.isPending}
               onClick={addAccess}
             >
-              {setAccess.isPending && <Spinner />}
               Add
             </Button>
           </TableCell>

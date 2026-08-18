@@ -19,15 +19,14 @@ export function ConfiguredModelProviderField({
   value: string
   onChange: (providerId: string) => void
 }) {
+  const selectedProvider = providers.find((item) => item.id === value) ?? providers[0]
+
   return (
     <Field>
       <FieldLabel htmlFor="cm-provider">Model provider</FieldLabel>
-      <Select
-        value={(providers.find((item) => item.id === value) ?? providers[0])?.id ?? ''}
-        onValueChange={onChange}
-      >
+      <Select value={selectedProvider?.id ?? ''} onValueChange={onChange}>
         <SelectTrigger id="cm-provider" className="w-full">
-          <SelectValue placeholder="Select a provider" />
+          <SelectValue placeholder="Select a provider">{selectedProvider?.name ?? ''}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {providers.map((option) => (

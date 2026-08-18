@@ -14,12 +14,16 @@ import (
 )
 
 type LaunchAgentInput struct {
-	ProjectID      ID
-	ProfileID      ID
-	AgentConfigID  ID
-	LaunchedBy     identitystore.PrincipalRecord
-	Name           string
-	Message        string
+	ProjectID     ID
+	ProfileID     ID
+	AgentConfigID ID
+	LaunchedBy    identitystore.PrincipalRecord
+	Name          string
+	Message       string
+	// MessageActor attributes the initial Message input. When nil, the actor
+	// is derived from LaunchedBy, which must then be a user or org API key
+	// principal.
+	MessageActor   *ActorParams
 	IdempotencyKey string
 }
 
@@ -225,6 +229,7 @@ func (s *Store) LaunchAgent(
 			tx,
 			agent,
 			input.LaunchedBy,
+			input.MessageActor,
 			input.Message,
 			input.IdempotencyKey,
 		)

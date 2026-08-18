@@ -21,7 +21,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/kaptinlin/jsonschema v0.9.4
+	github.com/kaptinlin/jsonschema v0.9.8
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/oapi-codegen/nethttp-middleware v1.2.0
 	github.com/oapi-codegen/nullable v1.2.0
@@ -72,7 +72,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/kaptinlin/jsonpointer v0.4.27 // indirect
+	github.com/kaptinlin/jsonpointer v0.4.28 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
@@ -83,6 +83,7 @@ require (
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sethvargo/go-retry v0.4.0 // indirect

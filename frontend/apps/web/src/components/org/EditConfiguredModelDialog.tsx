@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
 function optionalNumber(value: string) {
@@ -156,8 +155,9 @@ export function EditConfiguredModelDialog({
                   <Button
                     type="submit"
                     disabled={mutation.isPending || name.trim() === '' || slug.trim() === ''}
+                    loading={mutation.isPending}
                   >
-                    {mutation.isPending && <Spinner />}Save changes
+                    Save changes
                   </Button>
                 )}
               </form.Subscribe>
