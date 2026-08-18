@@ -210,6 +210,24 @@ func waitForLiveAssistantText(
 		if messages == 1 {
 			return true, ""
 		}
+		latestFailure, err := latestTerminalLiveModelFailure(
+			ctx,
+			env,
+			projectUUID,
+			agentUUID,
+			0,
+		)
+		if err != nil {
+			return false, err.Error()
+		}
+		if latestFailure != "" {
+			t.Fatalf(
+				"terminal live model failure: %s worker_logs=%s daemon_logs=%s",
+				latestFailure,
+				worker.logExcerpt(),
+				daemon.logExcerpt(),
+			)
+		}
 		var locks, wakeups, toolCalls, openInteractions, processActions int
 		_ = env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).
 			Scan(&locks)

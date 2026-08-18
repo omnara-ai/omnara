@@ -1006,6 +1006,19 @@ func waitForLiveModelOutputText(
 		if strings.Contains(latestOutput, contains) {
 			return true, ""
 		}
+		latestFailure, err := latestTerminalLiveModelFailure(
+			ctx,
+			env,
+			projectUUID,
+			agentUUID,
+			0,
+		)
+		if err != nil {
+			return false, err.Error()
+		}
+		if latestFailure != "" {
+			t.Fatalf("terminal live model failure: %s worker_logs=%s", latestFailure, worker.logExcerpt())
+		}
 		return false, "latest live model output=" + strconv.Quote(latestOutput) +
 			" missing=" + contains + " worker_logs=" + worker.logExcerpt()
 	})
@@ -1037,17 +1050,16 @@ func waitForLiveModelOutputContaining(
 		}
 		for _, value := range expected {
 			if !strings.Contains(latestOutput, value) {
-				var latestFailure string
-				_ = env.db.QueryRow(ctx, `
-SELECT concat_ws(' ', error_code, error_message, error_details::text)
-FROM model_call_contexts
-WHERE project_id = $1
-  AND agent_id = $2
-  AND input_event_sequence > $3
-  AND state = 'failed'
-  AND coalesce(recovery_kind, '') = ''
-ORDER BY input_event_sequence DESC, attempt_number DESC
-LIMIT 1`, projectUUID, agentUUID, afterSequence).Scan(&latestFailure)
+				latestFailure, failureErr := latestTerminalLiveModelFailure(
+					ctx,
+					env,
+					projectUUID,
+					agentUUID,
+					afterSequence,
+				)
+				if failureErr != nil {
+					return false, failureErr.Error()
+				}
 				if latestFailure != "" {
 					t.Fatalf("terminal live model failure: %s worker_logs=%s", latestFailure, worker.logExcerpt())
 				}
@@ -1059,6 +1071,28 @@ LIMIT 1`, projectUUID, agentUUID, afterSequence).Scan(&latestFailure)
 		return true, ""
 	})
 	return matchedOutput
+}
+
+func latestTerminalLiveModelFailure(
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectID, agentID string,
+	afterSequence int64,
+) (string, error) {
+	var failure string
+	err := env.db.QueryRow(ctx, `
+SELECT coalesce((
+  SELECT concat_ws(' ', error_code, error_message, error_details::text)
+  FROM model_call_contexts
+  WHERE project_id = $1
+    AND agent_id = $2
+    AND input_event_sequence > $3
+    AND state = 'failed'
+    AND coalesce(recovery_kind, '') = ''
+  ORDER BY input_event_sequence DESC, attempt_number DESC
+  LIMIT 1
+), '')`, projectID, agentID, afterSequence).Scan(&failure)
+	return failure, err
 }
 
 func waitForLiveAgentIdle(
