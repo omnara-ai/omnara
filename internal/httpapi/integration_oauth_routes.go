@@ -270,6 +270,68 @@ func agentConfigHasIntegrationSendTool(config executionstore.AgentConfigRecord) 
 	return false
 }
 
+func (s strictOpenAPIServer) ensureAgentProfileIntegrationSendTool(
+	ctx context.Context,
+	project identitystore.ProjectRecord,
+	profile executionstore.AgentProfileRecord,
+) error {
+	for attempt := range 2 {
+		if agentConfigHasIntegrationSendTool(profile.CurrentConfig) {
+			return nil
+		}
+		format, err := agentConfigSourceFormatFromString(profile.CurrentConfig.SourceFormat)
+		if err != nil {
+			return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		}
+		result, err := agentconfig.EnableBuiltInTool(
+			format,
+			[]byte(profile.CurrentConfig.Source),
+			profile.CurrentConfig.CompiledDefinition,
+			profile.CurrentConfig.CompilerVersion,
+			profile.CurrentConfig.EffectiveDefinitionHash,
+			toolcatalog.ToolNameSendIntegrationMessage,
+		)
+		if err != nil {
+			return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		}
+		configuredModelID, err := storage.ParseID(result.Compiled.Model.ConfiguredModelID)
+		if err != nil || configuredModelID == storage.NilID {
+			return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent profile config model is invalid")
+		}
+		config, err := s.server.store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+			ProjectID:               project.ID,
+			Definition:              json.RawMessage(result.CanonicalJSON),
+			Source:                  result.Source,
+			SourceFormat:            string(result.SourceFormat),
+			ConfiguredModelID:       configuredModelID,
+			CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
+			CompilerVersion:         result.CompilerVersion,
+			EffectiveDefinitionHash: result.Hash,
+		})
+		if err != nil {
+			return apierror.ProjectScoped(err)
+		}
+		_, err = s.server.store.Execution().RetargetAgentProfile(ctx, executionstore.RetargetAgentProfileInput{
+			ProjectID:               project.ID,
+			ProfileID:               profile.ID,
+			ExpectedCurrentConfigID: profile.CurrentConfigID,
+			ConfigID:                config.ID,
+			Reason:                  "slack_setup",
+		})
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, storeerr.ErrStateTransitionConflict) || attempt == 1 {
+			return apierror.ProjectScoped(err)
+		}
+		profile, err = s.server.store.Execution().GetAgentProfile(ctx, project.ID, profile.ID)
+		if err != nil {
+			return apierror.ProjectScoped(err)
+		}
+	}
+	return apierror.ProjectScoped(storeerr.ErrStateTransitionConflict)
+}
+
 func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) error {
 	if !supportedIntegrationOAuthProvider(state.Provider) || state.ClientID == "" || state.ClientSecret == "" ||
 		state.SigningSecret == "" ||

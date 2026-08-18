@@ -18,12 +18,7 @@ graph LR
 
 ## Before you start
 
-The profile's current config must enable **`send_integration_message`**:
-
-```yaml
-tools:
-  send_integration_message: {}
-```
+When you connect Slack, Omnara automatically enables **`send_integration_message`** in the profile's current config.
 
 <Note>
   **Self-hosting?** Set `OMNARA_PUBLIC_URL` to a public HTTPS origin so Slack can deliver webhooks. Hosted Omnara is already configured.

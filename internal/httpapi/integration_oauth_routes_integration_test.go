@@ -67,7 +67,7 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 		),
 	)
 	project := bootstrapPublicHTTPProject(t, handler, "slack-oauth")
-	profile := createSlackReadyHTTPProfile(
+	profile := createHTTPProfileWithoutIntegrationSendTool(
 		t,
 		handler,
 		project,
@@ -75,6 +75,12 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 		project.AdminToken,
 	)
 	profileID := profile["id"].(string)
+	profileUUID := mustPublicHTTPID(t, publicid.KindAgentProfile, profileID)
+	initialConfigID := mustPublicHTTPID(
+		t,
+		publicid.KindAgentConfig,
+		profile["current_config_id"].(string),
+	)
 
 	setup := requestJSONWithHeaders(
 		t,
@@ -90,6 +96,14 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	if setup["events_url"] != "https://app.omnara.test"+integrationEventsPath ||
 		setup["actions_url"] != "https://app.omnara.test"+integrationActionsPath {
 		t.Fatalf("unexpected setup callback urls: %v", setup)
+	}
+	updatedProfile, err := project.Store.Execution().GetAgentProfile(ctx, project.ProjectUUID, profileUUID)
+	if err != nil {
+		t.Fatalf("get updated agent profile: %v", err)
+	}
+	if updatedProfile.CurrentConfigID == initialConfigID ||
+		!agentConfigHasIntegrationSendTool(updatedProfile.CurrentConfig) {
+		t.Fatalf("agent profile config was not updated: %+v", updatedProfile)
 	}
 	if got := countSlackOAuthCredentialSecrets(t, ctx, project.Store, project); got != 0 {
 		t.Fatalf("Slack OAuth credential secret count = %d want 0", got)
@@ -195,7 +209,6 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	if err != nil {
 		t.Fatalf("get integration install: %v", err)
 	}
-	profileUUID := mustPublicHTTPID(t, publicid.KindAgentProfile, profileID)
 	identity, err := slack.ParseInstallIdentity(install.ProviderIdentity)
 	if err != nil {
 		t.Fatalf("parse install identity: %v", err)
@@ -478,6 +491,12 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 		"slack-manifest-setup",
 		project.AdminToken,
 	)
+	profileUUID := mustPublicHTTPID(t, publicid.KindAgentProfile, profile["id"].(string))
+	initialConfigID := mustPublicHTTPID(
+		t,
+		publicid.KindAgentConfig,
+		profile["current_config_id"].(string),
+	)
 	response := requestJSONWithHeaders(
 		t,
 		handler,
@@ -490,6 +509,17 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 	)
 	if manifestToken != "xoxe-config-token" {
 		t.Fatalf("manifest token = %q", manifestToken)
+	}
+	unchangedProfile, err := project.Store.Execution().GetAgentProfile(ctx, project.ProjectUUID, profileUUID)
+	if err != nil {
+		t.Fatalf("get unchanged agent profile: %v", err)
+	}
+	if unchangedProfile.CurrentConfigID != initialConfigID {
+		t.Fatalf(
+			"ready agent profile config changed from %s to %s",
+			initialConfigID,
+			unchangedProfile.CurrentConfigID,
+		)
 	}
 	defaultIcon := slack.DefaultAppIcon()
 	if iconToken != "xoxe-config-token" || iconAppID != "A_MANIFEST" {
@@ -820,20 +850,35 @@ func TestIntegrationOAuthSetupRejectsNonPublicSlackPublicURL(t *testing.T) {
 	}
 }
 
-func TestSlackSetupRejectsProfileWithoutIntegrationSendTool(t *testing.T) {
+func TestSlackSetupEnablesIntegrationSendTool(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 
-	var manifestCalled bool
+	var manifestCalls int
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			manifestCalled = true
-			writeJSON(
-				w,
-				http.StatusInternalServerError,
-				map[string]string{"error": "unexpected slack call"},
-			)
+			switch r.URL.Path {
+			case "/apps.manifest.create":
+				manifestCalls++
+				if manifestCalls == 1 {
+					writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "temporary_failure"})
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok":     true,
+					"app_id": "A_MISSING_TOOL",
+					"credentials": map[string]string{
+						"client_id":      "missing-tool-client",
+						"client_secret":  "missing-tool-secret",
+						"signing_secret": "missing-tool-signing",
+					},
+				})
+			case "/apps.icon.set":
+				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+			default:
+				t.Fatalf("unexpected slack path %s", r.URL.Path)
+			}
 		}),
 	)
 	defer slackServer.Close()
@@ -854,29 +899,18 @@ func TestSlackSetupRejectsProfileWithoutIntegrationSendTool(t *testing.T) {
 		handler,
 		"slack-manifest-missing-tool",
 	)
-	sourceYAML := "instruction: Help the user make progress.\n" +
-		"model:\n" +
-		"  provider_config: openai-prod\n" +
-		"  name: gpt-test\n"
-	config := createPublicHTTPAgentConfig(
+	profile := createHTTPProfileWithoutIntegrationSendTool(
 		t,
 		handler,
 		project,
 		"slack-manifest-missing-tool",
-		"yaml",
-		sourceYAML,
 		project.AdminToken,
-		http.StatusCreated,
 	)
-	profile := createPublicHTTPAgentProfile(
+	profileUUID := mustPublicHTTPID(t, publicid.KindAgentProfile, profile["id"].(string))
+	initialConfigID := mustPublicHTTPID(
 		t,
-		handler,
-		project,
-		"slack-manifest-missing-tool",
-		"Missing Integration Send",
-		config["id"].(string),
-		project.AdminToken,
-		http.StatusCreated,
+		publicid.KindAgentConfig,
+		profile["current_config_id"].(string),
 	)
 	requestJSONWithHeaders(
 		t,
@@ -884,13 +918,43 @@ func TestSlackSetupRejectsProfileWithoutIntegrationSendTool(t *testing.T) {
 		http.MethodPost,
 		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
 		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token"}`,
-		"",
+		"temporary_failure",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if manifestCalled {
-		t.Fatal(
-			"slack manifest creation was called for profile without send_integration_message",
+	if manifestCalls != 1 {
+		t.Fatalf("slack manifest creation calls = %d want 1", manifestCalls)
+	}
+	updatedProfile, err := project.Store.Execution().GetAgentProfile(ctx, project.ProjectUUID, profileUUID)
+	if err != nil {
+		t.Fatalf("get updated agent profile: %v", err)
+	}
+	if updatedProfile.CurrentConfigID == initialConfigID ||
+		!agentConfigHasIntegrationSendTool(updatedProfile.CurrentConfig) {
+		t.Fatalf("agent profile config was not updated: %+v", updatedProfile)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
+		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token"}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	if manifestCalls != 2 {
+		t.Fatalf("slack manifest creation calls = %d want 2", manifestCalls)
+	}
+	retriedProfile, err := project.Store.Execution().GetAgentProfile(ctx, project.ProjectUUID, profileUUID)
+	if err != nil {
+		t.Fatalf("get retried agent profile: %v", err)
+	}
+	if retriedProfile.CurrentConfigID != updatedProfile.CurrentConfigID {
+		t.Fatalf(
+			"retry changed agent profile config from %s to %s",
+			updatedProfile.CurrentConfigID,
+			retriedProfile.CurrentConfigID,
 		)
 	}
 }
@@ -1028,6 +1092,40 @@ func createSlackReadyHTTPProfile(
 		handler,
 		project,
 		seed+"-slack-ready",
+		"yaml",
+		sourceYAML,
+		token,
+		http.StatusCreated,
+	)
+	return createPublicHTTPAgentProfile(
+		t,
+		handler,
+		project,
+		seed,
+		seed+" Agent",
+		config["id"].(string),
+		token,
+		http.StatusCreated,
+	)
+}
+
+func createHTTPProfileWithoutIntegrationSendTool(
+	t *testing.T,
+	handler http.Handler,
+	project publicHTTPProject,
+	seed string,
+	token string,
+) map[string]any {
+	t.Helper()
+	sourceYAML := "instruction: Help the user make progress.\n" +
+		"model:\n" +
+		"  provider_config: openai-prod\n" +
+		"  name: gpt-test\n"
+	config := createPublicHTTPAgentConfig(
+		t,
+		handler,
+		project,
+		seed+"-missing-integration-send",
 		"yaml",
 		sourceYAML,
 		token,
