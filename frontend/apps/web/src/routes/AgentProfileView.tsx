@@ -186,7 +186,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
             filters={{ agent_profile_id: profile.id }}
             emptyMessage={
               canManage
-                ? 'No schedules yet. Use “Add cron schedule” to message this profile on a recurring cadence.'
+                ? 'No schedules yet. Use “Add cron schedule” to launch a new agent from this profile on a recurring cadence.'
                 : 'No schedules yet.'
             }
           />

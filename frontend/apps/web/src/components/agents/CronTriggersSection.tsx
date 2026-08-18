@@ -175,7 +175,10 @@ export function CronTriggersList({
 
 const browserTimezone = new Intl.DateTimeFormat().resolvedOptions().timeZone
 
-type TimezoneItem = { zone: string; label: string }
+interface TimezoneItem {
+  zone: string
+  label: string
+}
 
 function timezoneItemLabel(zone: string) {
   const offset = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' })
@@ -189,8 +192,8 @@ let timezoneItemsCache: TimezoneItem[] | undefined
 
 function timezoneItems(): TimezoneItem[] {
   if (!timezoneItemsCache) {
-    const pinned = browserTimezone === 'UTC' ? ['UTC'] : [browserTimezone, 'UTC']
-    const rest = Intl.supportedValuesOf('timeZone').filter((zone) => !pinned.includes(zone))
+    const pinned = new Set(browserTimezone === 'UTC' ? ['UTC'] : [browserTimezone, 'UTC'])
+    const rest = Intl.supportedValuesOf('timeZone').filter((zone) => !pinned.has(zone))
     timezoneItemsCache = [...pinned, ...rest].map((zone) => ({
       zone,
       label: timezoneItemLabel(zone),
