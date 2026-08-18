@@ -37,6 +37,8 @@ BEGIN
         UNION ALL
         SELECT 'cron_triggers', 'name', id::text FROM cron_triggers WHERE NOT resource_name_is_valid(name, false)
         UNION ALL
+        SELECT 'agent_configs', 'source', id::text FROM agent_configs WHERE source = ''
+        UNION ALL
         SELECT 'skills', 'name', id::text FROM skills WHERE NOT skill_name_is_valid(name)
     ),
     ranked AS (

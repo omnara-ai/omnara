@@ -1,5 +1,17 @@
 -- +goose Up
 
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF current_setting('server_encoding') <> 'UTF8' THEN
+        RAISE EXCEPTION 'PostgreSQL UTF8 database encoding is required (server_encoding=%)',
+            current_setting('server_encoding')
+            USING ERRCODE = 'feature_not_supported';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
+
 -- Unicode Cc, Cf, Other_Default_Ignorable_Code_Point, Variation_Selector, U+2800,
 -- and White_Space except U+0020, kept in sync with Go's unicode tables.
 -- +goose StatementBegin

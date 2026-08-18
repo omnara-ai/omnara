@@ -86,7 +86,7 @@ func ApplyPostgres(
 	db *sql.DB,
 	migrations fs.FS,
 ) error {
-	if err := requirePostgresVersion(ctx, db); err != nil {
+	if err := requirePostgresCapabilities(ctx, db); err != nil {
 		return err
 	}
 	locker, err := lock.NewPostgresSessionLocker(
@@ -244,15 +244,21 @@ func (locker deadlineSessionLocker) SessionUnlock(ctx context.Context, conn *sql
 	return locker.delegate.SessionUnlock(unlockCtx, conn)
 }
 
-func requirePostgresVersion(ctx context.Context, db *sql.DB) error {
+func requirePostgresCapabilities(ctx context.Context, db *sql.DB) error {
 	var version int
+	var encoding string
 	if err := db.QueryRowContext(
 		ctx,
-		`SELECT current_setting('server_version_num')::integer`,
-	).Scan(&version); err != nil {
-		return fmt.Errorf("read PostgreSQL server version: %w", err)
+		`SELECT
+			current_setting('server_version_num')::integer,
+			current_setting('server_encoding')`,
+	).Scan(&version, &encoding); err != nil {
+		return fmt.Errorf("read PostgreSQL capabilities: %w", err)
 	}
-	return validatePostgresVersion(version)
+	if err := validatePostgresVersion(version); err != nil {
+		return err
+	}
+	return validatePostgresEncoding(encoding)
 }
 
 func validatePostgresVersion(version int) error {
@@ -260,6 +266,16 @@ func validatePostgresVersion(version int) error {
 		return fmt.Errorf(
 			"PostgreSQL 18 or newer is required (server_version_num=%d)",
 			version,
+		)
+	}
+	return nil
+}
+
+func validatePostgresEncoding(encoding string) error {
+	if encoding != "UTF8" {
+		return fmt.Errorf(
+			"PostgreSQL UTF8 database encoding is required (server_encoding=%q)",
+			encoding,
 		)
 	}
 	return nil

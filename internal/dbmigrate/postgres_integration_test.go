@@ -120,30 +120,47 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
 		t.Fatalf("apply migrations before resource-name policy: %v", err)
 	}
-	var orgID string
-	if err := pool.QueryRow(
-		ctx,
-		`INSERT INTO orgs(name, created_at, updated_at)
-		 VALUES ($1, now(), now())
-		 RETURNING id`,
-		"\u00a0legacy",
-	).Scan(&orgID); err != nil {
-		t.Fatalf("insert simulated legacy organization: %v", err)
+	orgIDs := make([]string, 0, 22)
+	for index := range 22 {
+		var orgID string
+		if err := pool.QueryRow(
+			ctx,
+			`INSERT INTO orgs(name, created_at, updated_at)
+			 VALUES ($1, now(), now())
+			 RETURNING id`,
+			fmt.Sprintf("\u00a0legacy-%02d", index),
+		).Scan(&orgID); err != nil {
+			t.Fatalf("insert simulated legacy organization %d: %v", index, err)
+		}
+		orgIDs = append(orgIDs, orgID)
 	}
+	slices.Sort(orgIDs)
 	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
 	for _, want := range []string{
-		"resource-name migration blocked; migrate these invalid stored values (1)",
-		"orgs/" + orgID + ".name",
+		"resource-name migration blocked; migrate these invalid stored values (22)",
+		"orgs/" + orgIDs[0] + ".name",
+		"orgs/" + orgIDs[19] + ".name",
+		"and 2 more",
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("resource-name migration error = %v, want %q", err, want)
 		}
 	}
+	if got := strings.Count(err.Error(), "orgs/"); got != 20 {
+		t.Fatalf("reported organization IDs = %d, want 20: %v", got, err)
+	}
+	for _, omittedID := range orgIDs[20:] {
+		if strings.Contains(err.Error(), omittedID) {
+			t.Fatalf("resource-name migration error included truncated ID %s: %v", omittedID, err)
+		}
+	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 21 {
 		t.Fatalf("migration version after rejected resource name = %d, want 21", got)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
-		t.Fatalf("repair organization name: %v", err)
+	for _, orgID := range orgIDs {
+		if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
+			t.Fatalf("repair organization %s name: %v", orgID, err)
+		}
 	}
 	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
 		t.Fatalf("apply resource-name migration after repair: %v", err)
@@ -185,9 +202,9 @@ model:
 machine_sources:
   - machine_pool_name: " Build Pool"
 `
-	var invalidSourceConfigID string
-	if err := pool.QueryRow(ctx, `
+	const insertInvalidSourceConfig = `
 INSERT INTO agent_configs(
+    id,
     org_id,
     project_id,
     configured_model_id,
@@ -200,20 +217,29 @@ INSERT INTO agent_configs(
     effective_definition_hash,
     created_at
 ) VALUES (
+    $1::uuid,
     uuidv7(),
     uuidv7(),
     uuidv7(),
     '{}'::jsonb,
-    $1,
+    $2,
     'yaml',
-    'invalid-resource-name-source',
+    $3,
     '{}'::jsonb,
     '',
-    'invalid-resource-name-source',
+    $3,
     now()
 )
-RETURNING id::text
-`, invalidSource).Scan(&invalidSourceConfigID); err != nil {
+`
+	const invalidSourceConfigID = "00000000-0000-0000-0000-000000000001"
+	configIDs := []string{invalidSourceConfigID}
+	if _, err := pool.Exec(
+		ctx,
+		insertInvalidSourceConfig,
+		invalidSourceConfigID,
+		invalidSource,
+		"invalid-resource-name-source",
+	); err != nil {
 		t.Fatalf("insert stored agent config with invalid resource reference: %v", err)
 	}
 	const validSource = `
@@ -224,9 +250,11 @@ model:
 `
 	const legacyCompiledDefinition = `{"name":"legacy-agent-name"}`
 	legacyDefinitionHash := fmt.Sprintf("%x", sha256.Sum256([]byte(legacyCompiledDefinition)))
-	var legacyCompiledConfigID string
-	if err := pool.QueryRow(ctx, `
+	const legacyCompiledConfigID = "00000000-0000-0000-0000-000000000002"
+	configIDs = append(configIDs, legacyCompiledConfigID)
+	if _, err := pool.Exec(ctx, `
 INSERT INTO agent_configs(
+    id,
     org_id,
     project_id,
     configured_model_id,
@@ -239,21 +267,34 @@ INSERT INTO agent_configs(
     effective_definition_hash,
     created_at
 ) VALUES (
+    $1::uuid,
     uuidv7(),
     uuidv7(),
     uuidv7(),
     '{}'::jsonb,
-    $1,
+    $2,
     'yaml',
     'legacy-compiled-name',
-    $2::jsonb,
+    $3::jsonb,
     '',
-    $3,
+    $4,
     now()
 )
-RETURNING id::text
-`, validSource, legacyCompiledDefinition, legacyDefinitionHash).Scan(&legacyCompiledConfigID); err != nil {
+`, legacyCompiledConfigID, validSource, legacyCompiledDefinition, legacyDefinitionHash); err != nil {
 		t.Fatalf("insert stored agent config with legacy compiled name: %v", err)
+	}
+	for index := 3; index <= 22; index++ {
+		configID := fmt.Sprintf("00000000-0000-0000-0000-%012d", index)
+		configIDs = append(configIDs, configID)
+		if _, err := pool.Exec(
+			ctx,
+			insertInvalidSourceConfig,
+			configID,
+			invalidSource,
+			fmt.Sprintf("invalid-resource-name-source-%02d", index),
+		); err != nil {
+			t.Fatalf("insert extra invalid stored agent config %d: %v", index, err)
+		}
 	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
 		t.Fatalf("enable agent config triggers: %v", err)
@@ -262,14 +303,24 @@ RETURNING id::text
 
 	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
 	for _, want := range []string{
-		"2 agent configs must be migrated",
+		"22 agent configs must be migrated",
 		invalidSourceConfigID,
 		"machine_pool_name",
 		legacyCompiledConfigID,
 		`unknown field "name"`,
+		configIDs[19],
+		"and 2 more",
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("resource-name migration error = %v, want %q", err, want)
+		}
+	}
+	if got := strings.Count(err.Error(), "00000000-0000-0000-0000-"); got != 20 {
+		t.Fatalf("reported agent config IDs = %d, want 20: %v", got, err)
+	}
+	for _, omittedID := range configIDs[20:] {
+		if strings.Contains(err.Error(), omittedID) {
+			t.Fatalf("agent config migration error included truncated ID %s: %v", omittedID, err)
 		}
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
@@ -283,7 +334,8 @@ RETURNING id::text
 	if _, err := pool.Exec(
 		ctx,
 		`DELETE FROM agent_configs
-		 WHERE source_hash IN ('invalid-resource-name-source', 'legacy-compiled-name')`,
+		 WHERE source_hash = 'legacy-compiled-name'
+		    OR source_hash LIKE 'invalid-resource-name-source%'`,
 	); err != nil {
 		t.Fatalf("remove invalid stored agent configs: %v", err)
 	}
