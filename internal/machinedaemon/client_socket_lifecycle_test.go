@@ -651,6 +651,85 @@ func TestRejectedProcessAcceptanceClosesPreparedState(
 	}
 }
 
+func TestRejectedProcessAcceptanceLockTimeoutRetainsCleanup(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	const (
+		processID            = "prc_rejected_accept_lock_timeout"
+		supervisorInstanceID = "supervisor-instance-rejected-accept-lock-timeout"
+	)
+	client := New(Config{OmnaraHome: t.TempDir()}, nil, nil)
+	client.bootstrap = daemonBootstrap{
+		InstallationID: "ins_rejected_accept_lock_timeout",
+		MachineID:      "mch_rejected_accept_lock_timeout",
+	}
+	machine, err := client.machineStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := machine.LifetimeLockPath(processID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := localstore.TryAcquireLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Release() }()
+	releaseClose := make(chan struct{})
+	close(releaseClose)
+	runner := &recordingProcessRunner{
+		closeCalls:   make(chan struct{}, 1),
+		releaseClose: releaseClose,
+		done:         make(chan struct{}),
+	}
+	transport := newDaemonSocketTransport(
+		&client,
+		DaemonRuntime{},
+		localStartupState{},
+	)
+	defer transport.stopAndWait(func() {})
+	transport.pendingProcesses[processID] = &pendingProcess{
+		runtime: &processRuntime{
+			processID:            processID,
+			supervisorInstanceID: supervisorInstanceID,
+			runner:               runner,
+		},
+	}
+
+	transport.handleServerError(ctx, daemonprotocol.Message{
+		Type:      "error",
+		ErrorCode: daemonprotocol.ErrorCodeProcessOfferUnavailable,
+		ProcessID: processID,
+	})
+	for {
+		runtime, found := client.localProcess(processID)
+		transport.mu.Lock()
+		pending := transport.pendingProcesses[processID]
+		transport.mu.Unlock()
+		if found && runtime.cleanupOnly && runtime.runner == nil && pending == nil {
+			break
+		}
+		if err := sleepContext(ctx, time.Millisecond); err != nil {
+			t.Fatal("lock timeout did not retain rejected preparation cleanup")
+		}
+	}
+	select {
+	case <-runner.closeCalls:
+	default:
+		t.Fatal("rejected process supervisor was not closed")
+	}
+	select {
+	case fatalErr := <-transport.fatal:
+		t.Fatalf("lock timeout forced reconnect: %v", fatalErr)
+	default:
+	}
+}
+
 func TestRejectedProcessOfferWhilePreparationFinishesClosesState(
 	t *testing.T,
 ) {

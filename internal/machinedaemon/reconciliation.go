@@ -946,10 +946,10 @@ func (c *Client) closeRejectedPreparation(
 				break
 			}
 			if !errors.Is(err, localstore.ErrLockHeld) {
-				return false, errors.Join(closeErr, err)
+				return closeErr == nil && isStorageExhaustion(err), errors.Join(closeErr, err)
 			}
 			if err := sleepContext(cleanupCtx, 25*time.Millisecond); err != nil {
-				return false, errors.Join(
+				return closeErr == nil, errors.Join(
 					closeErr,
 					fmt.Errorf(
 						"wait for ungranted supervisor %s to stop: %w",
