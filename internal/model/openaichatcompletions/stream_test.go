@@ -592,6 +592,63 @@ func TestChatCompletionsConsumeStreamClassifiesOpenRouterWrappedContextOverflow(
 	}
 }
 
+func TestChatCompletionsConsumeStreamClassifiesOpenRouterRawReplayError(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		raw         any
+		wantCode    string
+		wantMessage string
+	}{
+		{
+			name: "wrapped error",
+			raw: json.RawMessage(`{"type":"error","error":{"type":"invalid_request_error",` +
+				"\"message\":\"Invalid `signature` in `thinking` block\"}}"),
+			wantCode:    "invalid_request_error",
+			wantMessage: "Invalid `signature` in `thinking` block",
+		},
+		{
+			name:     "flat error",
+			raw:      openRouterFlatImmutableThinkingError,
+			wantCode: "400",
+			wantMessage: "messages.1.content.1: `thinking` or `redacted_thinking` blocks in the latest " +
+				"assistant message cannot be modified. These blocks must remain as they were in the original response.",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			event, err := json.Marshal(map[string]any{
+				"id":    "chatcmpl_replay",
+				"model": "anthropic/claude-sonnet-4",
+				"error": map[string]any{
+					"code":     400,
+					"message":  "Provider returned error",
+					"metadata": map[string]any{"raw": test.raw},
+				},
+				"choices": []map[string]any{{
+					"index":         0,
+					"delta":         map[string]any{},
+					"finish_reason": "error",
+				}},
+			})
+			if err != nil {
+				t.Fatalf("marshal raw stream error: %v", err)
+			}
+			_, err = consumeChatCompletionsStream(
+				t,
+				chatCompletionsSSE(string(event)),
+				&chatRecordingSink{},
+				modelprotocol.APIVariantOpenRouter,
+			)
+			providerErr, ok := model.ClassifyError(err)
+			if !ok || providerErr.Kind != model.ErrorKindReplayRejected ||
+				providerErr.StatusCode != http.StatusBadRequest ||
+				providerErr.Code != test.wantCode || providerErr.Message != test.wantMessage ||
+				model.IsAmbiguousProviderOutcome(err) {
+				t.Fatalf("raw streamed replay rejection = %+v ok=%v err=%v", providerErr, ok, err)
+			}
+		})
+	}
+}
+
 func TestChatCompletionsConsumeStreamClassifiesOpenRouterWrappedPayloadOverflow(t *testing.T) {
 	stream := chatCompletionsSSE(
 		`{"id":"chatcmpl_payload","object":"chat.completion.chunk","created":123,` +

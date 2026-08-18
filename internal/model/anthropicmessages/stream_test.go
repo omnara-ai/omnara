@@ -389,6 +389,21 @@ func TestAnthropicConsumeStreamClassifiesWrappedContextOverflow(t *testing.T) {
 	}
 }
 
+func TestAnthropicConsumeStreamClassifiesReplayRejection(t *testing.T) {
+	stream := anthropicSSE([2]string{
+		"error",
+		`{"error":{"type":"invalid_request_error",` +
+			"\"message\":\"Invalid `signature` in `thinking` block\"}}",
+	})
+	_, err := consumeAnthropicStream(t, stream, &recordingSink{})
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindReplayRejected ||
+		providerErr.Code != "invalid_request_error" ||
+		model.IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("streamed replay rejection = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
 func TestAnthropicConsumeStreamClassifiesWrappedPayloadOverflow(t *testing.T) {
 	stream := anthropicSSE([2]string{
 		"error",

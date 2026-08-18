@@ -299,7 +299,15 @@ func (e AgentExecutor) executeModelStep(
 		if _, classified := model.ClassifyError(err); !classified {
 			return modelStep{}, err
 		}
-		return e.recordNormalFailure(ctx, input, claim, resolved, err, true, response)
+		return e.recordNormalProviderFailure(
+			ctx,
+			input,
+			claim,
+			resolved,
+			policy,
+			err,
+			response,
+		)
 	}
 	response = model.WithoutToolCallsOnMaxTokens(response)
 	if err := model.ValidateProviderResponse(response); err != nil {
@@ -507,6 +515,53 @@ func (e AgentExecutor) recordNormalFailure(
 	providerRequestStarted bool,
 	response model.Response,
 ) (modelStep, error) {
+	return e.recordNormalFailureForAttempt(
+		ctx,
+		input,
+		claim,
+		resolved,
+		cause,
+		providerRequestStarted,
+		response,
+		modelretry.Attempt{Number: claim.Context.AttemptNumber},
+	)
+}
+
+func (e AgentExecutor) recordNormalProviderFailure(
+	ctx context.Context,
+	input ModelWorkExecution,
+	claim executionstore.ModelCallClaim,
+	resolved model.ResolvedClient,
+	policy model.RequestPolicy,
+	cause error,
+	response model.Response,
+) (modelStep, error) {
+	return e.recordNormalFailureForAttempt(
+		ctx,
+		input,
+		claim,
+		resolved,
+		cause,
+		true,
+		response,
+		modelretry.Attempt{
+			Number: claim.Context.AttemptNumber,
+			ProviderReplayCutoffCanAdvance: policy.ProviderReplayCutoffEventSequence <
+				claim.Context.InputEventSequence,
+		},
+	)
+}
+
+func (e AgentExecutor) recordNormalFailureForAttempt(
+	ctx context.Context,
+	input ModelWorkExecution,
+	claim executionstore.ModelCallClaim,
+	resolved model.ResolvedClient,
+	cause error,
+	providerRequestStarted bool,
+	response model.Response,
+	attempt modelretry.Attempt,
+) (modelStep, error) {
 	if trigger, ok := providerInputFailureTrigger(cause); ok {
 		return e.enterContextMaintenance(
 			ctx,
@@ -521,7 +576,7 @@ func (e AgentExecutor) recordNormalFailure(
 	now := e.now()
 	evidence, decision := modelretry.Decide(
 		cause,
-		modelretry.Attempt{Number: claim.Context.AttemptNumber},
+		attempt,
 		claim.Context.ID.String(),
 		now,
 	)

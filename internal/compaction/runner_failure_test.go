@@ -736,6 +736,34 @@ func TestRunnerStopsAuthFailureWithoutRetry(t *testing.T) {
 	}
 }
 
+func TestRunnerStopsReplayRejectionWithoutReplayRecovery(t *testing.T) {
+	retry := true
+	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+		textCompactionEvent(1, strings.Repeat("canonical source ", 50)),
+	}}
+	client := &summaryModel{results: []summaryResult{{err: model.ProviderError{
+		Kind:      model.ErrorKindReplayRejected,
+		Code:      "invalid_encrypted_content",
+		Message:   "provider labeled the canonical summary request as rejected replay",
+		Retryable: &retry,
+	}}}}
+	result, err := testRunner(store, client).
+		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	if err != nil {
+		t.Fatalf("run replay-rejected compaction: %v", err)
+	}
+	if result.State != RunTerminal || len(store.retryFailures) != 0 ||
+		len(store.terminalFailures) != 1 ||
+		store.terminalFailures[0].ErrorKind != model.ErrorKindReplayRejected {
+		t.Fatalf(
+			"replay-rejected compaction result=%+v retries=%+v terminal=%+v",
+			result,
+			store.retryFailures,
+			store.terminalFailures,
+		)
+	}
+}
+
 func TestRunnerReplacesTruncatedSummaryWithStrictlySmallerSafeSource(t *testing.T) {
 	store := &fakeStore{
 		events: []executionstore.CompactionSourceEventRecord{

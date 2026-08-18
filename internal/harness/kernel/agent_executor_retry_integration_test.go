@@ -467,6 +467,123 @@ WHERE project_id = $1
 	}
 }
 
+func TestAgentExecutorStopsRepeatedReplayRejectionAtSameFrontier(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	agentID, userID := fixture.createAgent(t, ctx, "openai/repeated-replay-rejection-model", now)
+	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "continue", now.Add(time.Millisecond))
+	retry := true
+	doNotRetry := false
+	modelClient := &sequenceKernelModel{
+		providerModelSlug: "repeated-replay-rejection-model",
+		errs: []error{
+			model.ProviderError{
+				Kind:      model.ErrorKindReplayRejected,
+				Source:    "test-provider",
+				Code:      "invalid_replay_first",
+				Message:   "provider replay could not be decrypted",
+				Retryable: &doNotRetry,
+			},
+			model.ProviderError{
+				Kind:      model.ErrorKindReplayRejected,
+				Source:    "test-provider",
+				Code:      "invalid_replay_canonical",
+				Message:   "canonical request was also labeled as rejected replay",
+				Retryable: &retry,
+			},
+		},
+	}
+	currentNow := now.Add(2 * time.Millisecond)
+	executor := AgentExecutor{
+		Store:           fixture.Store,
+		ModelResolver:   liveTestModelResolver(fixture.Store, modelClient),
+		ToolExecutor:    tools.Executor{Store: fixture.Store},
+		Now:             func() time.Time { return currentNow },
+		ModelRetryDelay: immediateKernelModelRetryDelay,
+	}
+	if err := executor.ExecuteModelWork(ctx, work); err != nil {
+		t.Fatalf("execute initial replay-rejected attempt: %v", err)
+	}
+	currentNow = now.Add(time.Minute)
+	canonical := continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, currentNow)
+	if err := executor.ExecuteModelWork(ctx, canonical); err != nil {
+		t.Fatalf("execute canonical retry: %v", err)
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		canonical.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release canonical retry: %v", err)
+	}
+	if modelClient.respondedCount() != 2 || modelClient.preparedCount() != 2 {
+		t.Fatalf(
+			"prepared/responded requests = %d/%d, want exactly 2/2",
+			modelClient.preparedCount(),
+			modelClient.respondedCount(),
+		)
+	}
+	if modelClient.prepared[0].Policy.ProviderReplayCutoffEventSequence != 0 ||
+		modelClient.prepared[1].Policy.ProviderReplayCutoffEventSequence != work.OpeningEventSequence {
+		t.Fatalf(
+			"provider replay cutoffs = %d/%d, want 0/%d",
+			modelClient.prepared[0].Policy.ProviderReplayCutoffEventSequence,
+			modelClient.prepared[1].Policy.ProviderReplayCutoffEventSequence,
+			work.OpeningEventSequence,
+		)
+	}
+	assertDurableModelErrorForKernelTest(
+		t,
+		ctx,
+		fixture,
+		agentID,
+		work.TurnID,
+		string(modelprotocol.ErrorKindReplayRejected),
+		"invalid_replay_canonical",
+	)
+
+	var contexts, retrying, stopped, frontiers, wakeups, locks int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)::integer,
+       count(*) FILTER (WHERE state = 'failed' AND recovery_kind = 'retry')::integer,
+       count(*) FILTER (WHERE state = 'failed' AND recovery_kind IS NULL)::integer,
+       count(DISTINCT input_event_sequence)::integer,
+       (SELECT count(*)::integer FROM agent_wakeups wake
+        JOIN agents agent ON agent.id = wake.agent_id
+        WHERE agent.project_id = $1 AND wake.agent_id = $2),
+       (SELECT count(*)::integer FROM agent_runtime_locks runtime_lock
+        JOIN agents agent ON agent.id = runtime_lock.agent_id
+        WHERE agent.project_id = $1 AND runtime_lock.agent_id = $2)
+FROM model_call_contexts
+WHERE project_id = $1
+  AND agent_id = $2
+  AND operation_kind = 'normal'
+  AND input_event_sequence = $3
+`, kernelTestProjectID, agentID, work.OpeningEventSequence).Scan(
+		&contexts,
+		&retrying,
+		&stopped,
+		&frontiers,
+		&wakeups,
+		&locks,
+	); err != nil {
+		t.Fatalf("load bounded replay recovery: %v", err)
+	}
+	if contexts != 2 || retrying != 1 || stopped != 1 || frontiers != 1 || wakeups != 0 || locks != 0 {
+		t.Fatalf(
+			"bounded recovery contexts/retry/stop/frontiers/wakeups/locks = %d/%d/%d/%d/%d/%d, want 2/1/1/1/0/0",
+			contexts,
+			retrying,
+			stopped,
+			frontiers,
+			wakeups,
+			locks,
+		)
+	}
+}
+
 func TestAgentExecutorBoundsProviderEvidenceAttachedToError(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)

@@ -225,6 +225,22 @@ func TestClassifyReplayRejection(t *testing.T) {
 		},
 		{name: "decryption marker", message: "Encrypted content could not be decrypted or parsed."},
 		{name: "decoding marker", message: "Encrypted function output content could not be decrypted or decoded."},
+		{
+			name: "Anthropic immutable thinking",
+			message: "messages.1.content.0: `thinking` or `redacted_thinking` blocks in the latest " +
+				"assistant message cannot be modified. These blocks must remain as they were in the original response.",
+			codes: []string{"invalid_request_error"},
+		},
+		{
+			name:    "Anthropic invalid thinking signature",
+			message: "Invalid `signature` in `thinking` block",
+			codes:   []string{"invalid_request_error"},
+		},
+		{
+			name:    "Anthropic-compatible invalid thinking signature",
+			message: "messages.1.content.0: Invalid signature in thinking",
+			codes:   []string{"invalid_request_error"},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := Classify(http.StatusBadRequest, 0, test.message, test.codes...); got != model.ErrorKindReplayRejected {
@@ -232,14 +248,66 @@ func TestClassifyReplayRejection(t *testing.T) {
 			}
 		})
 	}
-	got := Classify(
-		http.StatusBadRequest,
-		0,
+	for _, message := range []string{
 		"The credential could not be decrypted.",
-		"invalid_request_error",
+		"The request signature is invalid.",
+		"The assistant message cannot be modified.",
+		"The thinking setting in the latest assistant message cannot be modified.",
+	} {
+		got := Classify(http.StatusBadRequest, 0, message, "invalid_request_error")
+		if got != model.ErrorKindInvalidRequest {
+			t.Fatalf("unrelated message %q = %q, want %q", message, got, model.ErrorKindInvalidRequest)
+		}
+	}
+	got := Classify(
+		http.StatusUnauthorized,
+		0,
+		"Invalid signature in thinking block",
+		"invalid_api_key",
 	)
-	if got != model.ErrorKindInvalidRequest {
-		t.Fatalf("unrelated decryption error = %q, want %q", got, model.ErrorKindInvalidRequest)
+	if got != model.ErrorKindAuth {
+		t.Fatalf("auth evidence with replay prose = %q, want %q", got, model.ErrorKindAuth)
+	}
+	for _, test := range []struct {
+		name       string
+		httpStatus int
+		codes      []string
+		want       model.ErrorKind
+	}{
+		{
+			name:       "not found status",
+			httpStatus: http.StatusNotFound,
+			want:       model.ErrorKindInvalidRequest,
+		},
+		{
+			name:       "permission evidence",
+			httpStatus: http.StatusBadRequest,
+			codes:      []string{"permission_denied"},
+			want:       model.ErrorKindAuth,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := Classify(test.httpStatus, 0, "Invalid signature in thinking block", test.codes...)
+			if got != test.want {
+				t.Fatalf("conflicting replay prose = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestStructuredEvidenceCanBeRefined(t *testing.T) {
+	if !StructuredEvidenceCanBeRefined("400", "provider_error", "invalid_request_error") {
+		t.Fatal("generic gateway evidence must be refinable")
+	}
+	for _, values := range [][]string{
+		{"400", "invalid_api_key"},
+		{"permission_denied"},
+		{"context_length_exceeded"},
+		{"provider_specific_code"},
+	} {
+		if StructuredEvidenceCanBeRefined(values...) {
+			t.Fatalf("specific evidence %q must remain authoritative", values)
+		}
 	}
 }
 

@@ -32,7 +32,8 @@ type Decision struct {
 }
 
 type Attempt struct {
-	Number int
+	Number                         int
+	ProviderReplayCutoffCanAdvance bool
 }
 
 type Evidence struct {
@@ -54,7 +55,7 @@ func Decide(
 	evidence := EvidenceFor(err)
 	now = now.UTC()
 	decision := Decision{}
-	if !retryable(evidence) {
+	if !retryable(evidence, attempt) {
 		decision.Action = ActionStop
 		return evidence, decision
 	}
@@ -224,7 +225,10 @@ func providerMetadataForStorage(raw json.RawMessage) (json.RawMessage, bool) {
 	return metadata, true
 }
 
-func retryable(evidence Evidence) bool {
+func retryable(evidence Evidence, attempt Attempt) bool {
+	if evidence.Provider.Kind == model.ErrorKindReplayRejected {
+		return attempt.ProviderReplayCutoffCanAdvance
+	}
 	if deterministicInputFailure(evidence.Provider.Kind) {
 		return false
 	}
@@ -238,7 +242,6 @@ func retryable(evidence Evidence) bool {
 	case model.ErrorKindTransient,
 		model.ErrorKindRateLimit,
 		model.ErrorKindProviderUnavailable,
-		model.ErrorKindReplayRejected,
 		model.ErrorKindUnknown:
 		return true
 	case model.ErrorKindAuth,

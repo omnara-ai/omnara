@@ -88,7 +88,7 @@ func Classify(httpStatus, providerStatus int, message string, codes ...string) m
 		return model.ErrorKindAuth
 	}
 
-	if hasReplayRejectionMarker(lower) {
+	if hasReplayRejectionMarker(lower) && deterministicProseCanOverride(status, genericKind) {
 		return model.ErrorKindReplayRejected
 	}
 	if hasContextWindowMarker(lower) && deterministicProseCanOverride(status, genericKind) {
@@ -147,14 +147,32 @@ func classifyStructuredCode(value string) (model.ErrorKind, bool) {
 	}
 }
 
+func StructuredEvidenceCanBeRefined(values ...string) bool {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || StatusCode(value) != 0 {
+			continue
+		}
+		kind, generic := classifyStructuredCode(value)
+		if kind == model.ErrorKindUnknown || !generic || !deterministicKindCanBeOverridden(kind) {
+			return false
+		}
+	}
+	return true
+}
+
 func deterministicProseCanOverride(status int, genericKind model.ErrorKind) bool {
-	if genericKind != model.ErrorKindUnknown &&
-		genericKind != model.ErrorKindProviderUnavailable &&
-		genericKind != model.ErrorKindInvalidRequest {
+	if !deterministicKindCanBeOverridden(genericKind) {
 		return false
 	}
 	return status == 0 || (status >= http.StatusOK && status < http.StatusMultipleChoices) ||
 		status == http.StatusBadRequest || status >= http.StatusInternalServerError
+}
+
+func deterministicKindCanBeOverridden(kind model.ErrorKind) bool {
+	return kind == model.ErrorKindUnknown ||
+		kind == model.ErrorKindProviderUnavailable ||
+		kind == model.ErrorKindInvalidRequest
 }
 
 func hasPayloadTooLargeMarker(message string) bool {
@@ -173,10 +191,20 @@ func normalizeMessage(message string) string {
 func hasReplayRejectionMarker(message string) bool {
 	encryptedContent := strings.Contains(message, "encrypted content") ||
 		strings.Contains(message, "encrypted function output content")
-	return encryptedContent &&
+	if encryptedContent &&
 		(strings.Contains(message, "could not be verified") ||
 			strings.Contains(message, "could not be decrypted") ||
-			strings.Contains(message, "could not be decoded"))
+			strings.Contains(message, "could not be decoded")) {
+		return true
+	}
+	if strings.Contains(message, "invalid signature in thinking") {
+		return true
+	}
+	// https://platform.claude.com/docs/en/api/errors#thinking-blocks-cannot-be-modified
+	return strings.Contains(message, "thinking or redacted_thinking blocks") &&
+		strings.Contains(message, "latest assistant message") &&
+		(strings.Contains(message, "cannot be modified") ||
+			strings.Contains(message, "must remain as they were"))
 }
 
 func hasContextWindowMarker(message string) bool {

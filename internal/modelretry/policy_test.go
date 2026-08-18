@@ -69,7 +69,11 @@ func TestDecideRetryBuckets(t *testing.T) {
 		{name: "transient", err: model.ProviderError{Kind: model.ErrorKindTransient}, want: ActionRetry},
 		{name: "rate limit", err: model.ProviderError{Kind: model.ErrorKindRateLimit}, want: ActionRetry},
 		{name: "provider unavailable", err: model.ProviderError{Kind: model.ErrorKindProviderUnavailable}, want: ActionRetry},
-		{name: "provider replay rejected", err: model.ProviderError{Kind: model.ErrorKindReplayRejected}, want: ActionRetry},
+		{
+			name: "provider replay rejected without recovery",
+			err:  model.ProviderError{Kind: model.ErrorKindReplayRejected},
+			want: ActionStop,
+		},
 		{name: "unknown classified", err: model.ProviderError{Kind: model.ErrorKindUnknown}, want: ActionRetry},
 		{name: "unknown unclassified", err: errors.New("connection reset"), want: ActionRetry},
 		{name: "auth", err: model.ProviderError{Kind: model.ErrorKindAuth}, want: ActionStop},
@@ -108,6 +112,77 @@ func TestDecideRetryBuckets(t *testing.T) {
 				t.Fatalf("retry delay = %s, want positive delay", decision.RetryDelay)
 			}
 		})
+	}
+}
+
+func TestDecideRetriesReplayRejectionOnlyWhenRecoveryIsAvailable(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC)
+	retry := true
+	doNotRetry := false
+	for _, test := range []struct {
+		name      string
+		err       error
+		available bool
+		want      Action
+	}{
+		{
+			name:      "first rejection",
+			err:       model.ProviderError{Kind: model.ErrorKindReplayRejected},
+			available: true,
+			want:      ActionRetry,
+		},
+		{
+			name: "provider retry false cannot block changed request",
+			err: model.ProviderError{
+				Kind:      model.ErrorKindReplayRejected,
+				Retryable: &doNotRetry,
+			},
+			available: true,
+			want:      ActionRetry,
+		},
+		{
+			name: "same frontier stops despite provider retry true",
+			err: model.ProviderError{
+				Kind:      model.ErrorKindReplayRejected,
+				Retryable: &retry,
+			},
+			want: ActionStop,
+		},
+		{
+			name: "same frontier stops despite ambiguous wrapper",
+			err: model.AmbiguousProviderOutcome(model.ProviderError{
+				Kind: model.ErrorKindReplayRejected,
+			}),
+			want: ActionStop,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, decision := Decide(
+				test.err,
+				Attempt{Number: 1, ProviderReplayCutoffCanAdvance: test.available},
+				"context-replay-recovery",
+				now,
+			)
+			if decision.Action != test.want {
+				t.Fatalf("action = %q, want %q", decision.Action, test.want)
+			}
+		})
+	}
+
+	_, decision := Decide(
+		model.ProviderError{Kind: model.ErrorKindReplayRejected},
+		Attempt{
+			Number:                         MaxModelCallRetriesPerOperation + 1,
+			ProviderReplayCutoffCanAdvance: true,
+		},
+		"context-replay-recovery-exhausted",
+		now,
+	)
+	if decision.Action != ActionStop {
+		t.Fatalf("exhausted replay recovery action = %q, want %q", decision.Action, ActionStop)
 	}
 }
 

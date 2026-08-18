@@ -72,6 +72,22 @@ func TestRespondClassifiesAnthropicErrorsByEvidencePrecedence(t *testing.T) {
 			want: model.ErrorKindContextWindow,
 		},
 		{
+			name:       "immutable thinking replay is recoverable",
+			statusCode: http.StatusBadRequest,
+			body: `{"type":"error","error":{"type":"invalid_request_error",` +
+				"\"message\":\"messages.1.content.0: `thinking` or `redacted_thinking` blocks " +
+				"in the latest assistant message cannot be modified. These blocks must remain as " +
+				"they were in the original response.\"}}",
+			want: model.ErrorKindReplayRejected,
+		},
+		{
+			name:       "invalid thinking signature is recoverable",
+			statusCode: http.StatusBadRequest,
+			body: `{"type":"error","error":{"type":"invalid_request_error",` +
+				"\"message\":\"Invalid `signature` in `thinking` block\"}}",
+			want: model.ErrorKindReplayRejected,
+		},
+		{
 			name:       "request too large type",
 			statusCode: http.StatusRequestEntityTooLarge,
 			body: `{"type":"error","error":{"type":"request_too_large",` +
