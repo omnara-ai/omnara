@@ -58,7 +58,7 @@ export function EditSecretDialog({
                   setName(event.target.value)
                 }}
               />
-              <ResourceNameFieldError value={name} validate={name !== secret.name} />
+              <ResourceNameFieldError value={name} />
             </Field>
             {error && <p className="text-destructive text-sm">{error}</p>}
             <DialogFooter>

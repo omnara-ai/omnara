@@ -84,7 +84,7 @@ export function EditMachinePoolDialog({
                   setState((prev) => ({ ...prev, name: event.target.value }))
                 }}
               />
-              <ResourceNameFieldError value={state.name} validate={state.name !== pool.name} />
+              <ResourceNameFieldError value={state.name} />
             </Field>
             <CheckboxField
               label="Runtime protection"
@@ -121,9 +121,7 @@ export function EditMachinePoolDialog({
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={
-                  mutation.isPending || (state.name !== pool.name && !resourceNameValid(state.name))
-                }
+                disabled={mutation.isPending || !resourceNameValid(state.name)}
                 loading={mutation.isPending}
               >
                 Save changes

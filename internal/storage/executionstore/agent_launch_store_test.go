@@ -1,6 +1,7 @@
 package executionstore
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -9,8 +10,19 @@ import (
 
 func TestLaunchAgentNamePreservesValidProfileName(t *testing.T) {
 	profile := &AgentProfileRecord{ID: uuid.New(), Name: "Research profile"}
-	if got := launchAgentName("", profile); got != profile.Name {
+	got, err := launchAgentName("", profile)
+	if err != nil {
+		t.Fatalf("launchAgentName: %v", err)
+	}
+	if got != profile.Name {
 		t.Fatalf("launch agent name = %q, want %q", got, profile.Name)
+	}
+}
+
+func TestLaunchAgentNameRejectsInvalidProfileName(t *testing.T) {
+	profile := &AgentProfileRecord{ID: uuid.New(), Name: " legacy profile "}
+	if _, err := launchAgentName("", profile); err == nil || !strings.Contains(err.Error(), "whitespace") {
+		t.Fatalf("launchAgentName error = %v, want whitespace rejection", err)
 	}
 }
 

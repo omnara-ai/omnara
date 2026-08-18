@@ -86,10 +86,7 @@ export function EditConfiguredModelDialog({
                       field.handleChange(event.target.value)
                     }}
                   />
-                  <ResourceNameFieldError
-                    value={field.state.value}
-                    validate={field.state.value !== model.name}
-                  />
+                  <ResourceNameFieldError value={field.state.value} />
                 </Field>
               )}
             </form.Field>
@@ -161,11 +158,7 @@ export function EditConfiguredModelDialog({
                 {([name, slug]) => (
                   <Button
                     type="submit"
-                    disabled={
-                      mutation.isPending ||
-                      (name !== model.name && !resourceNameValid(name)) ||
-                      slug.trim() === ''
-                    }
+                    disabled={mutation.isPending || !resourceNameValid(name) || slug.trim() === ''}
                     loading={mutation.isPending}
                   >
                     Save changes

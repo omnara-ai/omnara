@@ -74,10 +74,7 @@ export function AgentProfileNameHeading({
               type="submit"
               variant="ghost"
               aria-label="Save name"
-              disabled={
-                renameProfile.isPending ||
-                (nameDraft !== profile.name && !resourceNameValid(nameDraft))
-              }
+              disabled={renameProfile.isPending || !resourceNameValid(nameDraft)}
               loading={renameProfile.isPending}
               icon={<CheckIcon />}
             />
@@ -92,12 +89,7 @@ export function AgentProfileNameHeading({
               <XIcon />
             </Button>
           </form>
-          <ResourceNameFieldError
-            value={nameDraft}
-            validate={nameDraft !== profile.name}
-            fieldLabel="Profile name"
-            showRequired
-          />
+          <ResourceNameFieldError value={nameDraft} fieldLabel="Profile name" showRequired />
         </div>
       ) : (
         <div className="flex items-center gap-1">

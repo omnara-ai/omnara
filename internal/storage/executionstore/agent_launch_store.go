@@ -93,6 +93,10 @@ func (s *Store) LaunchAgent(
 		}
 		profile = &record
 	}
+	agentName, err := launchAgentName(input.Name, profile)
+	if err != nil {
+		return LaunchAgentResult{}, storeerr.InvalidRequest(err)
+	}
 	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, input.AgentConfigID)
 	if err != nil {
 		return LaunchAgentResult{}, err
@@ -105,7 +109,7 @@ func (s *Store) LaunchAgent(
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
 		AgentProfileID:  input.ProfileID,
-		Name:            launchAgentName(input.Name, profile),
+		Name:            agentName,
 		CurrentConfigID: config.ID,
 		IdempotencyKey:  input.IdempotencyKey,
 	})
@@ -330,14 +334,14 @@ func launchConfigTx(
 	return config, contract, nil
 }
 
-func launchAgentName(name string, profile *AgentProfileRecord) string {
-	if name != "" {
-		return name
+func launchAgentName(name string, profile *AgentProfileRecord) (string, error) {
+	if name == "" && profile != nil {
+		name = profile.Name
 	}
-	if profile != nil {
-		return profile.Name
+	if err := resourcename.Validate("agent name", name); err != nil {
+		return "", err
 	}
-	return ""
+	return name, nil
 }
 
 func createAgentMCPConnectionsTx(
