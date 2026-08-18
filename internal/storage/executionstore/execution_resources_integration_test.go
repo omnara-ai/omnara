@@ -238,6 +238,13 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	); err != nil {
 		t.Fatalf("revoke BYO machine grant: %v", err)
 	}
+	observations, err = store.Execution().ListAgentMachineObservations(ctx, testProjectID, agentID)
+	if err != nil {
+		t.Fatalf("list BYO observations after grant revoke: %v", err)
+	}
+	if len(observations) != 1 || !observations[0].ProjectGrantMissing {
+		t.Fatalf("revoked BYO observations = %+v, want one grant-missing binding", observations)
+	}
 	revoked, err := executionstore.IntegrationGetAgentMachineObservationByRef(
 		ctx,
 		store.q,
@@ -248,7 +255,8 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	if err != nil {
 		t.Fatalf("inspect BYO observation after grant revoke: %v", err)
 	}
-	if revoked.BindingState != executionstore.AgentMachineBindingStateAttached || revoked.Executable {
+	if revoked.BindingState != executionstore.AgentMachineBindingStateAttached ||
+		!revoked.ProjectGrantMissing || revoked.Executable {
 		t.Fatalf("revoked BYO observation = %+v", revoked)
 	}
 
@@ -273,7 +281,7 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	if err != nil {
 		t.Fatalf("inspect BYO observation after regrant: %v", err)
 	}
-	if !regranted.Executable {
+	if regranted.ProjectGrantMissing || !regranted.Executable {
 		t.Fatalf("regranted BYO observation = %+v, want executable", regranted)
 	}
 

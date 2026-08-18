@@ -155,11 +155,21 @@ func TestSelectOnlyMachine(t *testing.T) {
 func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 	machineCwd := "/pool"
 	record := executionstore.PoolMachineRecord{
-		Binding:         executionstore.AgentMachineBindingRecord{MachineRef: "mchr-pool01"},
-		Machine:         executionstore.MachineRecord{Cwd: machineCwd},
+		Binding: executionstore.AgentMachineBindingRecord{
+			MachineRef:  "mchr-pool01",
+			BindingKind: executionstore.MachineBindingKindPool,
+		},
+		Machine: executionstore.MachineRecord{
+			SourceKind:  executionstore.MachineSourceKindPool,
+			DisplayName: "Build machine",
+			Cwd:         machineCwd,
+		},
 		MachinePoolName: "Build Pool",
 	}
 	got := machineObservation(record)
+	if got.SourceKind != "pool" || got.BindingKind != "pool" || got.DisplayName != "Build machine" {
+		t.Fatalf("pool observation identity = %+v", got)
+	}
 	if got.MachinePoolName != "Build Pool" {
 		t.Fatalf("machine_pool_name = %q, want Build Pool", got.MachinePoolName)
 	}
@@ -189,6 +199,59 @@ func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "machine_pool_name") {
 		t.Fatalf("BYO observation = %s, want machine_pool_name omitted", encoded)
+	}
+}
+
+func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) {
+	record := executionstore.AgentMachineObservationRecord{
+		MachineRef:             "mchr-byo001",
+		SourceKind:             executionstore.MachineSourceKindBYO,
+		BindingKind:            executionstore.MachineBindingKindExplicit,
+		BindingState:           executionstore.AgentMachineBindingStateAttached,
+		DisplayName:            "Developer laptop",
+		MachinePoolName:        "Private pool",
+		LifecycleState:         executionstore.MachineLifecycleStateActive,
+		ConnectionState:        executionstore.MachineConnectionStateOnline,
+		ConnectionStateReason:  "connected",
+		Description:            "developer machine",
+		Cwd:                    "/workspace",
+		ProjectGrantMissing:    true,
+		LifecycleReasonCode:    "healthy",
+		LifecycleReasonMessage: "ready",
+		FailureReport:          json.RawMessage(`{"stage":"daemon_install"}`),
+	}
+	encoded, err := json.Marshal(agentMachineInspection(record))
+	if err != nil {
+		t.Fatalf("marshal ungranted machine observation: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatalf("decode ungranted machine observation: %v", err)
+	}
+	if got["project_grant_missing"] != true || got["executable"] != false {
+		t.Fatalf("ungranted machine observation = %s", encoded)
+	}
+	for _, field := range []string{
+		"source_kind",
+		"display_name",
+		"machine_pool_name",
+		"connection_state_reason",
+		"failure_report",
+	} {
+		if _, ok := got[field]; ok {
+			t.Fatalf("ungranted machine observation exposed %s: %s", field, encoded)
+		}
+	}
+	for _, field := range []string{
+		"lifecycle_state",
+		"connection_state",
+		"cwd",
+		"lifecycle_reason_code",
+		"lifecycle_reason_message",
+	} {
+		if got[field] != "" {
+			t.Fatalf("ungranted machine observation exposed %s: %s", field, encoded)
+		}
 	}
 }
 

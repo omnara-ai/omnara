@@ -405,18 +405,12 @@ JOIN machines machine ON machine.org_id = binding.org_id
   AND machine.id = binding.machine_id
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state = 'active'
+JOIN machine_connection_states connection ON connection.org_id = machine.org_id
+  AND connection.machine_id = machine.id
 WHERE binding.project_id = $1
   AND binding.agent_id = $2
   AND binding.state = 'attached'
-  AND (
-    EXISTS (
-      SELECT 1
-      FROM online_daemon_runtimes runtime
-      WHERE runtime.org_id = binding.org_id
-        AND runtime.machine_id = binding.machine_id
-    )
-    OR machine.asleep_since IS NOT NULL
-  )
+  AND connection.connection_state IN ('online', 'asleep')
 ORDER BY binding.created_at, binding.id
 `
 
@@ -908,14 +902,10 @@ SELECT binding.machine_ref,
        coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code,
        machine.lifecycle_reason_message,
        coalesce(pool.name, '') AS machine_pool_name,
+       (binding.state = 'attached' AND pmgrant.id IS NULL)::boolean AS project_grant_missing,
        coalesce((
          binding.state = 'attached'
-         AND EXISTS (
-           SELECT 1
-           FROM project_machine_grants pmgrant
-           WHERE pmgrant.project_id = binding.project_id
-             AND pmgrant.machine_id = binding.machine_id
-         )
+         AND pmgrant.id IS NOT NULL
          AND machine.deleted_at IS NULL
          AND machine.lifecycle_state = 'active'
          AND connection.connection_state IN ('online', 'asleep')
@@ -923,6 +913,9 @@ SELECT binding.machine_ref,
 FROM agent_machine_bindings binding
 JOIN machines machine ON machine.org_id = binding.org_id
   AND machine.id = binding.machine_id
+LEFT JOIN project_machine_grants pmgrant ON pmgrant.org_id = binding.org_id
+  AND pmgrant.project_id = binding.project_id
+  AND pmgrant.machine_id = binding.machine_id
 JOIN machine_connection_states connection ON connection.org_id = machine.org_id
   AND connection.machine_id = machine.id
 LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
@@ -969,6 +962,7 @@ type SelectAgentMachineObservationsRow struct {
 	LifecycleReasonCode    string
 	LifecycleReasonMessage string
 	MachinePoolName        string
+	ProjectGrantMissing    bool
 	Executable             bool
 }
 
@@ -1003,6 +997,7 @@ func (q *Queries) SelectAgentMachineObservations(ctx context.Context, arg Select
 			&i.LifecycleReasonCode,
 			&i.LifecycleReasonMessage,
 			&i.MachinePoolName,
+			&i.ProjectGrantMissing,
 			&i.Executable,
 		); err != nil {
 			return nil, err

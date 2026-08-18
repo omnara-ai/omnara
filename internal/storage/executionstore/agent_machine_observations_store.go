@@ -24,11 +24,12 @@ type AgentMachineObservationRecord struct {
 	Description            string                   `json:"description"`
 	Cwd                    string                   `json:"cwd"`
 	Executable             bool                     `json:"executable"`
+	ProjectGrantMissing    bool                     `json:"project_grant_missing,omitempty"`
 	LifecycleReasonCode    string                   `json:"lifecycle_reason_code"`
 	LifecycleReasonMessage string                   `json:"lifecycle_reason_message"`
 	FailureReport          json.RawMessage          `json:"failure_report,omitempty"`
-	CreatedAt              time.Time                `json:"created_at"`
-	UpdatedAt              time.Time                `json:"updated_at"`
+	BindingCreatedAt       time.Time                `json:"binding_created_at"`
+	BindingUpdatedAt       time.Time                `json:"binding_updated_at"`
 }
 
 func (s *Store) ListAgentMachineObservations(
@@ -127,11 +128,12 @@ func selectAgentMachineObservations(
 			Description:            row.Description,
 			Cwd:                    row.EffectiveCwd,
 			Executable:             row.Executable,
+			ProjectGrantMissing:    row.ProjectGrantMissing,
 			LifecycleReasonCode:    row.LifecycleReasonCode,
 			LifecycleReasonMessage: row.LifecycleReasonMessage,
 			FailureReport:          rawMessageFromSQLCPtr(row.FailureReport),
-			CreatedAt:              row.CreatedAt,
-			UpdatedAt:              row.UpdatedAt,
+			BindingCreatedAt:       row.CreatedAt,
+			BindingUpdatedAt:       row.UpdatedAt,
 		})
 	}
 	return records, nil
