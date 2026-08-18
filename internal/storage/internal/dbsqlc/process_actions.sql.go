@@ -1249,7 +1249,7 @@ func (q *Queries) ResolveQueuedTerminateActionsForTerminalProcess(ctx context.Co
 
 const touchProcessActivity = `-- name: TouchProcessActivity :exec
 UPDATE processes
-SET updated_at = statement_timestamp()
+SET last_activity_at = statement_timestamp()
 WHERE project_id = $1
   AND agent_id = $2
   AND id = $3

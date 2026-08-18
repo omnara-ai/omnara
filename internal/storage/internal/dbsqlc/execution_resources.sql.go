@@ -15,77 +15,10 @@ import (
 
 const claimExpiredIdlePoolMachineDeletion = `-- name: ClaimExpiredIdlePoolMachineDeletion :one
 WITH candidate AS MATERIALIZED (
-  SELECT candidate_machine.id
-  FROM machines candidate_machine
-  JOIN machine_pools pool ON pool.org_id = candidate_machine.org_id
-    AND pool.id = candidate_machine.machine_pool_id
-    AND pool.deleted_at IS NULL
-  JOIN project_machine_grants machine_grant ON machine_grant.org_id = candidate_machine.org_id
-    AND machine_grant.machine_id = candidate_machine.id
-    AND machine_grant.source_kind = 'pool'
-  JOIN project_machine_pool_grants pool_grant ON pool_grant.org_id = machine_grant.org_id
-    AND pool_grant.project_id = machine_grant.project_id
-    AND pool_grant.id = machine_grant.project_machine_pool_grant_id
-    AND pool_grant.machine_pool_id = pool.id
-  JOIN LATERAL (
-    SELECT agent_binding.delete_after_idle_minutes
-    FROM agent_machine_bindings agent_binding
-    WHERE agent_binding.org_id = candidate_machine.org_id
-      AND agent_binding.project_id = machine_grant.project_id
-      AND agent_binding.machine_id = candidate_machine.id
-      AND agent_binding.binding_kind = 'pool'
-      AND agent_binding.state = 'attached'
-    LIMIT 1
-  ) binding ON true
-  LEFT JOIN LATERAL (
-    SELECT process.updated_at
-    FROM processes process
-    WHERE process.org_id = candidate_machine.org_id
-      AND process.machine_id = candidate_machine.id
-    ORDER BY process.updated_at DESC
-    LIMIT 1
-  ) activity ON true
-  WHERE candidate_machine.org_id = $2
-    AND candidate_machine.id = $3
-    AND candidate_machine.source_kind = 'pool'
-    AND candidate_machine.lifecycle_state = 'active'
-    AND candidate_machine.deleted_at IS NULL
-    AND candidate_machine.last_observed_at IS NOT NULL
-    AND coalesce(binding.delete_after_idle_minutes, pool_grant.delete_after_idle_minutes, pool.delete_after_idle_minutes)
-        IS NOT NULL
-    AND greatest(
-      candidate_machine.lifecycle_changed_at,
-      coalesce(activity.updated_at, candidate_machine.lifecycle_changed_at)
-    ) <= statement_timestamp() - make_interval(mins => coalesce(
-      binding.delete_after_idle_minutes,
-      pool_grant.delete_after_idle_minutes,
-      pool.delete_after_idle_minutes
-    ))
-    AND NOT EXISTS (
-      SELECT 1
-      FROM processes process
-      WHERE process.org_id = candidate_machine.org_id
-        AND process.machine_id = candidate_machine.id
-        AND process.state = 'queued'
-    )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM processes process
-      WHERE process.org_id = candidate_machine.org_id
-        AND process.machine_id = candidate_machine.id
-        AND process.state IN ('starting', 'running')
-    )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM processes process
-      JOIN process_actions action ON action.org_id = process.org_id
-        AND action.project_id = process.project_id
-        AND action.agent_id = process.agent_id
-        AND action.process_id = process.id
-        AND action.state IN ('queued', 'accepted')
-      WHERE process.org_id = candidate_machine.org_id
-        AND process.machine_id = candidate_machine.id
-    )
+  SELECT machine_id AS id
+  FROM expired_idle_pool_machine_candidates
+  WHERE org_id = $2
+    AND machine_id = $3
 )
 UPDATE machines machine
 SET lifecycle_state = 'deleting',
@@ -1832,79 +1765,9 @@ func (q *Queries) ListClusterManagedMachinePoolsByName(ctx context.Context, arg 
 }
 
 const listExpiredIdlePoolMachines = `-- name: ListExpiredIdlePoolMachines :many
-SELECT machine.org_id, machine.id AS machine_id
-FROM machines machine
-JOIN machine_pools pool ON pool.org_id = machine.org_id
-  AND pool.id = machine.machine_pool_id
-  AND pool.deleted_at IS NULL
-JOIN project_machine_grants machine_grant ON machine_grant.org_id = machine.org_id
-  AND machine_grant.machine_id = machine.id
-  AND machine_grant.source_kind = 'pool'
-JOIN project_machine_pool_grants pool_grant ON pool_grant.org_id = machine_grant.org_id
-  AND pool_grant.project_id = machine_grant.project_id
-  AND pool_grant.id = machine_grant.project_machine_pool_grant_id
-  AND pool_grant.machine_pool_id = pool.id
-JOIN LATERAL (
-  SELECT binding.delete_after_idle_minutes
-  FROM agent_machine_bindings binding
-  WHERE binding.org_id = machine.org_id
-    AND binding.project_id = machine_grant.project_id
-    AND binding.machine_id = machine.id
-    AND binding.binding_kind = 'pool'
-    AND binding.state = 'attached'
-  LIMIT 1
-) binding ON true
-LEFT JOIN LATERAL (
-  SELECT process.updated_at
-  FROM processes process
-  WHERE process.org_id = machine.org_id
-    AND process.machine_id = machine.id
-  ORDER BY process.updated_at DESC
-  LIMIT 1
-) activity ON true
-WHERE machine.source_kind = 'pool'
-  AND machine.lifecycle_state = 'active'
-  AND machine.deleted_at IS NULL
-  AND machine.last_observed_at IS NOT NULL
-  AND coalesce(binding.delete_after_idle_minutes, pool_grant.delete_after_idle_minutes, pool.delete_after_idle_minutes)
-      IS NOT NULL
-  AND machine.lifecycle_changed_at <= statement_timestamp() - make_interval(mins => coalesce(
-    binding.delete_after_idle_minutes,
-    pool_grant.delete_after_idle_minutes,
-    pool.delete_after_idle_minutes
-  ))
-  AND greatest(machine.lifecycle_changed_at, coalesce(activity.updated_at, machine.lifecycle_changed_at))
-      <= statement_timestamp() - make_interval(mins => coalesce(
-        binding.delete_after_idle_minutes,
-        pool_grant.delete_after_idle_minutes,
-        pool.delete_after_idle_minutes
-      ))
-  AND NOT EXISTS (
-    SELECT 1
-    FROM processes process
-    WHERE process.org_id = machine.org_id
-      AND process.machine_id = machine.id
-      AND process.state = 'queued'
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM processes process
-    WHERE process.org_id = machine.org_id
-      AND process.machine_id = machine.id
-      AND process.state IN ('starting', 'running')
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM processes process
-    JOIN process_actions action ON action.org_id = process.org_id
-      AND action.project_id = process.project_id
-      AND action.agent_id = process.agent_id
-      AND action.process_id = process.id
-      AND action.state IN ('queued', 'accepted')
-    WHERE process.org_id = machine.org_id
-      AND process.machine_id = machine.id
-  )
-ORDER BY machine.org_id, machine.id
+SELECT org_id, machine_id
+FROM expired_idle_pool_machine_candidates
+ORDER BY org_id, machine_id
 LIMIT $1::integer
 `
 
@@ -1912,20 +1775,15 @@ type ListExpiredIdlePoolMachinesParams struct {
 	LimitCount int32
 }
 
-type ListExpiredIdlePoolMachinesRow struct {
-	OrgID     uuid.UUID
-	MachineID uuid.UUID
-}
-
-func (q *Queries) ListExpiredIdlePoolMachines(ctx context.Context, arg ListExpiredIdlePoolMachinesParams) ([]ListExpiredIdlePoolMachinesRow, error) {
+func (q *Queries) ListExpiredIdlePoolMachines(ctx context.Context, arg ListExpiredIdlePoolMachinesParams) ([]ExpiredIdlePoolMachineCandidate, error) {
 	rows, err := q.db.Query(ctx, listExpiredIdlePoolMachines, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListExpiredIdlePoolMachinesRow{}
+	items := []ExpiredIdlePoolMachineCandidate{}
 	for rows.Next() {
-		var i ListExpiredIdlePoolMachinesRow
+		var i ExpiredIdlePoolMachineCandidate
 		if err := rows.Scan(&i.OrgID, &i.MachineID); err != nil {
 			return nil, err
 		}

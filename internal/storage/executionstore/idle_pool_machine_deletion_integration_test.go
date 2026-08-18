@@ -5,14 +5,13 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
-	"os"
+	"errors"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
-	"github.com/pressly/goose/v3"
 )
 
 type idlePoolMachineFixture struct {
@@ -295,6 +294,34 @@ func createQueuedProcessActionForIdleTest(
 	return process, action
 }
 
+func TestAttachedPoolMachineBindingIsExclusive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newIdlePoolMachineFixture(t, ctx, "binding-exclusive")
+	secondAgentID := mustCreateAgent(t, ctx, fixture.Store, fixture.Now.Add(time.Millisecond))
+	var machineGrantID ID
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT id
+FROM project_machine_grants
+WHERE org_id = $1 AND machine_id = $2 AND source_kind = 'pool'
+`, fixture.OrgID, fixture.MachineID).Scan(&machineGrantID); err != nil {
+		t.Fatalf("load pool machine grant: %v", err)
+	}
+	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
+		ctx,
+		fixture.Store.q,
+		executionstore.IntegrationInsertAgentMachineBindingInput{
+			ProjectID:             testProjectID,
+			AgentID:               secondAgentID,
+			ProjectMachineGrantID: machineGrantID,
+			MachineRef:            "mchr-idl002",
+			BindingKind:           executionstore.MachineBindingKindPool,
+		},
+	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+		t.Fatalf("second attached pool binding error = %v, want ErrIdempotencyConflict", err)
+	}
+}
+
 func TestExpiredIdlePoolMachinePolicyResolution(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -343,7 +370,7 @@ UPDATE processes
 SET state = 'unknown',
     state_reason_code = 'test_unknown',
     state_changed_at = statement_timestamp() - interval '20 minutes',
-    updated_at = statement_timestamp() - interval '20 minutes'
+    last_activity_at = statement_timestamp() - interval '20 minutes'
 WHERE id = $1
 `, process.ID); err != nil {
 		t.Fatalf("make process nonblocking: %v", err)
@@ -386,7 +413,7 @@ SET state = $2,
     state_reason_message = '',
     exit_code = NULL,
     state_changed_at = statement_timestamp() - interval '20 minutes',
-    updated_at = statement_timestamp() - interval '20 minutes'
+    last_activity_at = statement_timestamp() - interval '20 minutes'
 WHERE id = $1
 `, process.ID, state); err != nil {
 			t.Fatalf("make process %s: %v", state, err)
@@ -417,12 +444,14 @@ func TestAppliedProcessActionRestartsIdleWindow(t *testing.T) {
 		t.Fatalf("accept idle test action found=%v err=%v", found, err)
 	}
 	if _, err := fixture.Store.pool.Exec(ctx, `
-UPDATE processes SET updated_at = statement_timestamp() - interval '20 minutes' WHERE id = $1
+UPDATE processes SET last_activity_at = statement_timestamp() - interval '20 minutes' WHERE id = $1
 `, process.ID); err != nil {
 		t.Fatalf("backdate process activity: %v", err)
 	}
-	var before time.Time
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT updated_at FROM processes WHERE id = $1`, process.ID).Scan(&before); err != nil {
+	var before, updatedAtBefore time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_activity_at, updated_at FROM processes WHERE id = $1
+`, process.ID).Scan(&before, &updatedAtBefore); err != nil {
 		t.Fatalf("load process activity before action: %v", err)
 	}
 	if _, err := fixture.Store.Execution().ApplyDaemonProcessAction(
@@ -437,12 +466,17 @@ UPDATE processes SET updated_at = statement_timestamp() - interval '20 minutes' 
 	); err != nil {
 		t.Fatalf("apply idle test action: %v", err)
 	}
-	var after time.Time
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT updated_at FROM processes WHERE id = $1`, process.ID).Scan(&after); err != nil {
+	var after, updatedAtAfter time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_activity_at, updated_at FROM processes WHERE id = $1
+`, process.ID).Scan(&after, &updatedAtAfter); err != nil {
 		t.Fatalf("load process activity after action: %v", err)
 	}
 	if !after.After(before) {
 		t.Fatalf("process activity after applied action = %s, want after %s", after, before)
+	}
+	if !updatedAtAfter.Equal(updatedAtBefore) {
+		t.Fatalf("process updated_at after applied action = %s, want unchanged at %s", updatedAtAfter, updatedAtBefore)
 	}
 	if _, err := fixture.Store.pool.Exec(ctx, `
 UPDATE processes
@@ -455,7 +489,7 @@ WHERE id = $1
 		t.Fatal("recent applied action did not restart idle window")
 	}
 	if _, err := fixture.Store.pool.Exec(ctx, `
-UPDATE processes SET updated_at = statement_timestamp() - interval '20 minutes' WHERE id = $1
+UPDATE processes SET last_activity_at = statement_timestamp() - interval '20 minutes' WHERE id = $1
 `, process.ID); err != nil {
 		t.Fatalf("expire process activity: %v", err)
 	}
@@ -558,64 +592,5 @@ UPDATE machines SET last_observed_at = statement_timestamp() WHERE org_id = $1 A
 	}
 	if claim.Machine.LifecycleState != "deleting" || claim.Machine.LifecycleReasonCode != "idle_timeout" {
 		t.Fatalf("claimed idle machine = %+v, want deleting/idle_timeout", claim.Machine)
-	}
-}
-
-func TestIdleDeletionMigrationBackfillsAppliedPoolActions(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newIdlePoolMachineFixture(t, ctx, "migration-backfill")
-	process, action := createQueuedProcessActionForIdleTest(t, ctx, fixture, "idle-migration-backfill")
-	if _, err := fixture.Store.pool.Exec(ctx, `
-UPDATE processes
-SET state = 'unknown',
-    state_reason_code = 'test_unknown',
-    state_changed_at = statement_timestamp() - interval '30 minutes',
-    updated_at = statement_timestamp() - interval '30 minutes'
-WHERE id = $1;
-`, process.ID); err != nil {
-		t.Fatalf("prepare idle migration process: %v", err)
-	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-UPDATE process_actions
-SET state = 'applied', updated_at = statement_timestamp() - interval '10 minutes'
-WHERE id = $1
-`, action.ID); err != nil {
-		t.Fatalf("prepare idle migration action: %v", err)
-	}
-	db := stdlib.OpenDB(*fixture.Store.pool.Config().ConnConfig.Copy())
-	t.Cleanup(func() { _ = db.Close() })
-	migrator, err := goose.NewProvider(
-		goose.DialectPostgres,
-		db,
-		os.DirFS("../../../migrations"),
-		goose.WithDisableGlobalRegistry(true),
-	)
-	if err != nil {
-		t.Fatalf("create idle deletion migration provider: %v", err)
-	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-DROP INDEX processes_machine_updated_idx;
-ALTER TABLE agent_machine_bindings DROP COLUMN delete_after_idle_minutes;
-ALTER TABLE project_machine_pool_grants DROP COLUMN delete_after_idle_minutes;
-ALTER TABLE machine_pools DROP COLUMN delete_after_idle_minutes;
-DELETE FROM goose_db_version WHERE version_id = 21;
-`); err != nil {
-		t.Fatalf("restore pre-idle-deletion schema: %v", err)
-	}
-	if _, err := migrator.UpTo(ctx, 21); err != nil {
-		t.Fatalf("apply idle deletion migration: %v", err)
-	}
-	var processUpdatedAt, actionUpdatedAt time.Time
-	if err := fixture.Store.pool.QueryRow(ctx, `
-SELECT process.updated_at, action.updated_at
-FROM processes process
-JOIN process_actions action ON action.process_id = process.id
-WHERE process.id = $1 AND action.id = $2
-`, process.ID, action.ID).Scan(&processUpdatedAt, &actionUpdatedAt); err != nil {
-		t.Fatalf("load idle migration backfill result: %v", err)
-	}
-	if !processUpdatedAt.Equal(actionUpdatedAt) {
-		t.Fatalf("backfilled process activity = %s, want applied action activity %s", processUpdatedAt, actionUpdatedAt)
 	}
 }

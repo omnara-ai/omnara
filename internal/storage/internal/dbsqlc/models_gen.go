@@ -230,6 +230,11 @@ type EffectiveResourceLimit struct {
 	MaxActiveCronTriggersPerProject           int64
 }
 
+type ExpiredIdlePoolMachineCandidate struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+}
+
 type IntegrationInstall struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
@@ -393,6 +398,7 @@ type Process struct {
 	ExitSignal            string
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	LastActivityAt        time.Time
 }
 
 type ProcessAction struct {

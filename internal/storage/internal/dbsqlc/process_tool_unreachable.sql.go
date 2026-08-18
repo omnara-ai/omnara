@@ -143,7 +143,7 @@ func (q *Queries) ListMachineUnreachableAcceptedProcessActionToolCallsForMachine
 }
 
 const listMachineUnreachableAcceptedProcessToolCallsForMachine = `-- name: ListMachineUnreachableAcceptedProcessToolCallsForMachine :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
@@ -227,6 +227,7 @@ func (q *Queries) ListMachineUnreachableAcceptedProcessToolCallsForMachine(ctx c
 			&i.ExitSignal,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LastActivityAt,
 		); err != nil {
 			return nil, err
 		}
@@ -482,7 +483,7 @@ func (q *Queries) ListMachineUnreachableQueuedProcessActionToolCallsForMachine(c
 }
 
 const listMachineUnreachableQueuedProcessToolCallsForMachine = `-- name: ListMachineUnreachableQueuedProcessToolCallsForMachine :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
@@ -566,6 +567,7 @@ func (q *Queries) ListMachineUnreachableQueuedProcessToolCallsForMachine(ctx con
 			&i.ExitSignal,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LastActivityAt,
 		); err != nil {
 			return nil, err
 		}
@@ -578,7 +580,7 @@ func (q *Queries) ListMachineUnreachableQueuedProcessToolCallsForMachine(ctx con
 }
 
 const listQueuedProcessToolCallsForMachineDeletion = `-- name: ListQueuedProcessToolCallsForMachineDeletion :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
@@ -636,6 +638,7 @@ func (q *Queries) ListQueuedProcessToolCallsForMachineDeletion(ctx context.Conte
 			&i.ExitSignal,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LastActivityAt,
 		); err != nil {
 			return nil, err
 		}
@@ -668,7 +671,7 @@ WHERE process.project_id = $2
       AND tool_call.type = 'built_in'
       AND tool_call.state = 'waiting'
   )
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
 `
 
 type MarkQueuedProcessFailedByMachineParams struct {
@@ -719,6 +722,7 @@ func (q *Queries) MarkQueuedProcessFailedByMachine(ctx context.Context, arg Mark
 		&i.ExitSignal,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastActivityAt,
 	)
 	return i, err
 }

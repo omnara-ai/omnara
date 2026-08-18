@@ -356,7 +356,7 @@ RETURNING action.id, action.org_id, action.project_id, action.agent_id, action.p
 
 -- name: TouchProcessActivity :exec
 UPDATE processes
-SET updated_at = statement_timestamp()
+SET last_activity_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
   AND id = sqlc.arg(process_id);
