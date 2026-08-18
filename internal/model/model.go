@@ -53,7 +53,10 @@ type Client interface {
 }
 
 // OutputTokenLimitValidator exposes provider-owned constraints on the total
-// output limit without allowing an adapter to rewrite request policy.
+// output limit without allowing an adapter to rewrite request policy. An error
+// wrapping ErrOutputTokenLimitIncompatible means the policy is otherwise valid
+// but conflicts with a fixed provider option, so a caller may try another
+// policy. Any other error means the provider option configuration is invalid.
 type OutputTokenLimitValidator interface {
 	ValidateOutputTokenLimit(RequestPolicy) error
 }
