@@ -11,13 +11,13 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	"github.com/omnara-ai/omnara/internal/httpapi/httpjson"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 )
@@ -103,7 +103,7 @@ func rejectTrailingJSONRequestBody(r *http.Request) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
 	}
-	if err := validateJSONUnicode(raw); err != nil {
+	if err := httpjson.ValidateUnicode(raw); err != nil {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -111,68 +111,6 @@ func rejectTrailingJSONRequestBody(r *http.Request) error {
 		return errors.New("request body must contain a single JSON value")
 	}
 	return nil
-}
-
-func validateJSONUnicode(raw []byte) error {
-	if !utf8.Valid(raw) {
-		return errors.New("request body must be valid UTF-8")
-	}
-	inString := false
-	for index := 0; index < len(raw); index++ {
-		switch raw[index] {
-		case '"':
-			inString = !inString
-		case '\\':
-			if !inString || index+1 >= len(raw) {
-				continue
-			}
-			if raw[index+1] != 'u' {
-				index++
-				continue
-			}
-			codeUnit, ok := jsonHexCodeUnit(raw[index+2:])
-			if !ok {
-				continue
-			}
-			switch {
-			case codeUnit >= 0xd800 && codeUnit <= 0xdbff:
-				if index+12 > len(raw) || raw[index+6] != '\\' || raw[index+7] != 'u' {
-					return errors.New("request body must use valid Unicode scalar values")
-				}
-				low, ok := jsonHexCodeUnit(raw[index+8:])
-				if !ok || low < 0xdc00 || low > 0xdfff {
-					return errors.New("request body must use valid Unicode scalar values")
-				}
-				index += 11
-			case codeUnit >= 0xdc00 && codeUnit <= 0xdfff:
-				return errors.New("request body must use valid Unicode scalar values")
-			default:
-				index += 5
-			}
-		}
-	}
-	return nil
-}
-
-func jsonHexCodeUnit(raw []byte) (uint16, bool) {
-	if len(raw) < 4 {
-		return 0, false
-	}
-	var value uint16
-	for _, char := range raw[:4] {
-		value = value * 16
-		switch {
-		case char >= '0' && char <= '9':
-			value += uint16(char - '0')
-		case char >= 'a' && char <= 'f':
-			value += uint16(char-'a') + 10
-		case char >= 'A' && char <= 'F':
-			value += uint16(char-'A') + 10
-		default:
-			return 0, false
-		}
-	}
-	return value, true
 }
 
 func isJSONContentType(value string) bool {
