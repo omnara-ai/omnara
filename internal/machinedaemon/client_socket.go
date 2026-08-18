@@ -1005,10 +1005,15 @@ func (t *daemonSocketTransport) runActionQueue(
 			processID,
 			actionID,
 		); err != nil {
-			if ctx.Err() == nil {
+			t.mu.Lock()
+			_, pending := t.pendingActions[actionID]
+			if pending && ctx.Err() == nil {
 				t.fail(err)
 			}
-			return
+			t.mu.Unlock()
+			if pending {
+				return
+			}
 		}
 	}
 }

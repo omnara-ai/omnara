@@ -114,6 +114,11 @@ func (c *Client) handleAcceptedStorageFailure(
 		err = runner.Terminate(terminateCtx, "server_resolved")
 		cancel()
 	}
+	if err == nil {
+		if socket, ok := transport.(*daemonSocketTransport); ok {
+			socket.forgetResolvedProcessActions(runtime.processID)
+		}
+	}
 	c.processMu.Lock()
 	if err != nil {
 		runtime.storageFailureReporting = false
@@ -125,11 +130,6 @@ func (c *Client) handleAcceptedStorageFailure(
 		}
 	}
 	c.processMu.Unlock()
-	if err == nil {
-		if socket, ok := transport.(*daemonSocketTransport); ok {
-			socket.forgetResolvedProcessActions(runtime.processID)
-		}
-	}
 	return true, err
 }
 
