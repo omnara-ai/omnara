@@ -353,6 +353,7 @@ export const zConfiguredModel = z.object({
     id: zConfiguredModelId,
     org_id: zOrganizationId,
     model_provider_config_id: zModelProviderConfigId,
+    management_kind: zManagementKind,
     name: z.string(),
     current_revision_id: zConfiguredModelRevisionId,
     provider_model_slug: z.string(),

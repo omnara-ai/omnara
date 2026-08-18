@@ -2559,7 +2559,7 @@ export const createConfiguredModel = <ThrowOnError extends boolean = true>(optio
 /**
  * Delete configured model
  *
- * Deletes only the configured model. Deletion is blocked while it has active project grants. Models belonging to a cluster-managed provider config cannot be deleted through this route.
+ * Deletes only the configured model. Deletion is blocked while it has active project grants. Cluster-managed configured models cannot be deleted through this route.
  */
 export const deleteConfiguredModel = <ThrowOnError extends boolean = true>(options: Options<DeleteConfiguredModelData, ThrowOnError>): RequestResult<DeleteConfiguredModelResponses, DeleteConfiguredModelErrors, ThrowOnError> => (options.client ?? client).delete<DeleteConfiguredModelResponses, DeleteConfiguredModelErrors, ThrowOnError>({
     responseValidator: async (data) => await zDeleteConfiguredModelResponse.parseAsync(data),
