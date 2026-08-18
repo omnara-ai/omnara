@@ -109,7 +109,118 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
-func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
+func TestResourceNameMigrationRepairsExistingBoundaryWhitespaceAndLength(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
+		t.Fatalf("apply migrations before resource-name policy: %v", err)
+	}
+	type repairTest struct {
+		input string
+		want  string
+	}
+	tests := make([]repairTest, 0)
+	for codepoint := rune(0); codepoint <= unicode.MaxRune; codepoint++ {
+		if !unicode.IsSpace(codepoint) {
+			continue
+		}
+		name := fmt.Sprintf("space-%X", codepoint)
+		tests = append(tests, repairTest{input: string(codepoint) + name + string(codepoint), want: name})
+	}
+	tests = append(tests,
+		repairTest{input: strings.Repeat("界", 70), want: strings.Repeat("界", 64)},
+		repairTest{input: strings.Repeat("x", 63) + " " + strings.Repeat("y", 5), want: strings.Repeat("x", 63)},
+		repairTest{input: strings.Repeat("x", 63) + "\u00a0" + strings.Repeat("y", 5), want: strings.Repeat("x", 63)},
+	)
+	orgIDs := make([]string, len(tests))
+	for index, test := range tests {
+		if err := pool.QueryRow(
+			ctx,
+			`INSERT INTO orgs(name, created_at, updated_at)
+			 VALUES ($1, now(), now())
+			 RETURNING id`,
+			test.input,
+		).Scan(&orgIDs[index]); err != nil {
+			t.Fatalf("insert simulated legacy organization %d: %v", index, err)
+		}
+	}
+	clientName := "\u00a0" + strings.Repeat("c", 127)
+	tokenName := strings.Repeat("t", 100)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO auth_device_flows(
+    device_code_hash,
+    user_code_hash,
+    client_name,
+    token_name,
+    created_at,
+    expires_at
+) VALUES ('repair-device', 'repair-user', $1, $2, now(), now() + interval '1 hour')
+`, clientName, tokenName); err != nil {
+		t.Fatalf("insert simulated legacy device flow: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE agents DISABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("disable agent triggers: %v", err)
+	}
+	var agentID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO agents(
+    org_id,
+    project_id,
+    state,
+    name,
+    current_config_id,
+    created_at,
+    updated_at
+) VALUES (uuidv7(), uuidv7(), 'active', '  ', uuidv7(), now(), now())
+RETURNING id
+`).Scan(&agentID); err != nil {
+		t.Fatalf("insert simulated legacy unnamed agent: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE agents ENABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("enable agent triggers: %v", err)
+	}
+	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+		t.Fatalf("apply resource-name migration: %v", err)
+	}
+	for index, test := range tests {
+		var got string
+		if err := pool.QueryRow(ctx, `SELECT name FROM orgs WHERE id = $1`, orgIDs[index]).Scan(&got); err != nil {
+			t.Fatalf("load repaired organization %d: %v", index, err)
+		}
+		if got != test.want {
+			t.Fatalf("repaired organization %d name = %q, want %q", index, got, test.want)
+		}
+	}
+	var gotClientName, gotTokenName string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT client_name, token_name
+		 FROM auth_device_flows
+		 WHERE device_code_hash = 'repair-device'`,
+	).Scan(&gotClientName, &gotTokenName); err != nil {
+		t.Fatalf("load repaired device flow: %v", err)
+	}
+	if want := strings.Repeat("c", 127); gotClientName != want {
+		t.Fatalf("repaired device client name = %q, want %q", gotClientName, want)
+	}
+	if want := strings.Repeat("t", 64); gotTokenName != want {
+		t.Fatalf("repaired device token name = %q, want %q", gotTokenName, want)
+	}
+	var gotAgentName string
+	if err := pool.QueryRow(ctx, `SELECT name FROM agents WHERE id = $1`, agentID).Scan(&gotAgentName); err != nil {
+		t.Fatalf("load repaired agent: %v", err)
+	}
+	if gotAgentName != "" {
+		t.Fatalf("repaired agent name = %q, want empty", gotAgentName)
+	}
+}
+
+func TestResourceNameMigrationRequiresUnrepairableExistingRowsToBeValid(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -128,7 +239,7 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 			`INSERT INTO orgs(name, created_at, updated_at)
 			 VALUES ($1, now(), now())
 			 RETURNING id`,
-			fmt.Sprintf("\u00a0legacy-%02d", index),
+			fmt.Sprintf("legacy-%02d\u00a0name", index),
 		).Scan(&orgID); err != nil {
 			t.Fatalf("insert simulated legacy organization %d: %v", index, err)
 		}
@@ -171,6 +282,57 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 		strings.Repeat("x", 65),
 	); err == nil {
 		t.Fatal("oversized new organization name succeeded")
+	}
+}
+
+func TestResourceNameMigrationRejectsRepairCollisions(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
+		t.Fatalf("apply migrations before resource-name policy: %v", err)
+	}
+	var orgID string
+	if err := pool.QueryRow(
+		ctx,
+		`INSERT INTO orgs(name, created_at, updated_at)
+		 VALUES ('Collision Org', now(), now())
+		 RETURNING id`,
+	).Scan(&orgID); err != nil {
+		t.Fatalf("insert collision organization: %v", err)
+	}
+	for _, name := range []string{"Project", " Project"} {
+		if _, err := pool.Exec(
+			ctx,
+			`INSERT INTO projects(org_id, name, created_at, updated_at)
+			 VALUES ($1, $2, now(), now())`,
+			orgID,
+			name,
+		); err != nil {
+			t.Fatalf("insert collision project %q: %v", name, err)
+		}
+	}
+	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
+	if err == nil || !strings.Contains(err.Error(), "projects_active_name_idx") {
+		t.Fatalf("resource-name collision error = %v", err)
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
+		t.Fatalf("migration version after repair collision = %d, want 20", got)
+	}
+	var legacyNameCount int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM projects WHERE org_id = $1 AND name = ' Project'`,
+		orgID,
+	).Scan(&legacyNameCount); err != nil {
+		t.Fatalf("count legacy collision name: %v", err)
+	}
+	if legacyNameCount != 1 {
+		t.Fatalf("legacy collision names after rollback = %d, want 1", legacyNameCount)
 	}
 }
 
@@ -523,6 +685,22 @@ ORDER BY codepoint
 				want,
 			)
 		}
+	}
+	var maxValid, overMaxValid bool
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT resource_name_is_valid($1, false), resource_name_is_valid($2, false)`,
+		strings.Repeat("x", resourcename.MaxCodePoints),
+		strings.Repeat("x", resourcename.MaxCodePoints+1),
+	).Scan(&maxValid, &overMaxValid); err != nil {
+		t.Fatalf("validate default PostgreSQL resource-name maximum: %v", err)
+	}
+	if !maxValid || overMaxValid {
+		t.Fatalf(
+			"default PostgreSQL resource-name maximum accepted max=%t over-max=%t",
+			maxValid,
+			overMaxValid,
+		)
 	}
 }
 
@@ -1297,6 +1475,21 @@ func TestPostgresMigrationsInstallPgTrgmInProductSchema(t *testing.T) {
 	}
 	if extensionSchema != "agents" {
 		t.Fatalf("pg_trgm schema = %q, want agents", extensionSchema)
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("open empty-search-path connection: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, `SET search_path TO ''`); err != nil {
+		t.Fatalf("clear search path: %v", err)
+	}
+	if _, err := conn.ExecContext(
+		ctx,
+		`INSERT INTO agents.orgs(name, created_at, updated_at)
+		 VALUES ('Qualified Organization', now(), now())`,
+	); err != nil {
+		t.Fatalf("insert through qualified table with empty search path: %v", err)
 	}
 }
 
