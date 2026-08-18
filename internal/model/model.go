@@ -52,11 +52,9 @@ type Client interface {
 	Respond(ctx context.Context, input Request) (Response, error)
 }
 
-// OutputTokenLimitValidator exposes provider-owned constraints on the total
-// output limit without allowing an adapter to rewrite request policy. An error
-// wrapping ErrOutputTokenLimitIncompatible means the policy is otherwise valid
-// but conflicts with a fixed provider option, so a caller may try another
-// policy. Any other error means the provider option configuration is invalid.
+// OutputTokenLimitValidator checks provider-owned output constraints.
+// ErrOutputTokenLimitIncompatible permits another policy; any other error means
+// the provider option configuration is invalid.
 type OutputTokenLimitValidator interface {
 	ValidateOutputTokenLimit(RequestPolicy) error
 }
@@ -149,9 +147,6 @@ type PrepareForSendInput struct {
 	ErrorSource string
 }
 
-// InputBudgetAssessment is the admission result for the exact prepared body.
-// Exceeding the configured budget is ordinary control flow, not a provider or
-// request-preparation error.
 type InputBudgetAssessment struct {
 	EstimatedInputTokens int `json:"estimated_input_tokens"`
 	UsableInputTokens    int `json:"usable_input_tokens"`
@@ -209,8 +204,6 @@ func PrepareForSend(
 	return prepared, nil
 }
 
-// ValidateOutputTokenLimit checks only constraints declared by the concrete
-// provider adapter. Callers remain responsible for choosing the policy.
 func ValidateOutputTokenLimit(client Client, policy RequestPolicy, errorSource string) error {
 	validator, ok := client.(OutputTokenLimitValidator)
 	if !ok {

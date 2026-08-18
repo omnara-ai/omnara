@@ -263,11 +263,7 @@ func compactionRequestPolicy(client model.Client, errorSource string) (model.Req
 	capabilities := model.CapabilitiesForClient(client)
 	normalPolicy := model.RequestPolicyFromCapabilities(capabilities)
 	policy := normalPolicy
-	// Keep summary cost and admission reservation bounded independently of the
-	// model's context size; a smaller model output limit still wins. A provider
-	// may require a larger total only to preserve an inherited fixed reasoning
-	// budget, in which case the already-effective normal allowance is the sole
-	// fallback rather than an invented compaction setting.
+	// A smaller summary cap must not invalidate inherited provider options.
 	const maxSummaryOutputTokens = 16_384
 	policy.MaxOutputTokens = capabilities.MaxOutputTokens
 	if policy.MaxOutputTokens <= 0 {

@@ -50,10 +50,8 @@ func EffectiveStatusCode(httpStatus, providerStatus int) int {
 	return httpStatus
 }
 
-// Classify resolves provider error evidence in the authority order documented by
-// the package. Specific structured codes are authoritative. Generic gateway or
-// request wrappers remain fallback evidence so narrow deterministic prose can
-// recover an upstream context overflow that the wrapper obscured.
+// Classify trusts specific structured codes but lets deterministic message
+// evidence override generic gateway wrappers such as provider_unavailable.
 func Classify(httpStatus, providerStatus int, message string, codes ...string) model.ErrorKind {
 	genericKind := model.ErrorKindUnknown
 	for _, value := range codes {

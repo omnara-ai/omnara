@@ -482,7 +482,6 @@ func liveServiceProviders() []liveServiceProvider {
 			BaseURL:             os.Getenv("OPENROUTER_BASE_URL"),
 			APIFormat:           "openai-chat-completions",
 			APIVariant:          "openrouter",
-			// Keep live summaries bounded and match the direct OpenRouter runner.
 			APIVariantOptions: map[string]any{
 				"reasoning": map[string]any{"enabled": false},
 			},

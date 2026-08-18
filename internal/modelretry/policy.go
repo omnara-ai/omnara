@@ -225,8 +225,6 @@ func providerMetadataForStorage(raw json.RawMessage) (json.RawMessage, bool) {
 }
 
 func retryable(evidence Evidence) bool {
-	// A deterministic input-size rejection cannot succeed when resent unchanged.
-	// Recovery belongs to the caller's compaction policy, not to retry policy.
 	if deterministicInputFailure(evidence.Provider.Kind) {
 		return false
 	}

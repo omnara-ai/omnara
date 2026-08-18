@@ -1,7 +1,5 @@
-// Package providererrors normalizes error evidence shared by model protocol
-// adapters. Each adapter remains responsible for decoding its provider-specific
-// HTTP and streaming envelopes, then passes the ordered structured codes,
-// statuses, and message extracted from that wire format to this package.
+// Package providererrors classifies evidence extracted by protocol adapters
+// from provider-specific error envelopes.
 //
 // Provider error contracts used by the adapters:
 //
