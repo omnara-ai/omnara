@@ -196,13 +196,11 @@ func insertAgentConfigTx(
 ) (AgentConfigRecord, error) {
 	input.Definition = normalizedJSON(input.Definition)
 	input = withDefaultAgentConfigCompilation(input)
-	if input.Source != "" {
-		if _, err := agentconfig.ParseSource(
-			agentconfig.SourceFormat(input.SourceFormat),
-			[]byte(input.Source),
-		); err != nil {
-			return AgentConfigRecord{}, storeerr.InvalidRequest(err)
-		}
+	if _, err := agentconfig.ParseSource(
+		agentconfig.SourceFormat(input.SourceFormat),
+		[]byte(input.Source),
+	); err != nil {
+		return AgentConfigRecord{}, storeerr.InvalidRequest(err)
 	}
 	if isNilID(input.ConfiguredModelID) {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")

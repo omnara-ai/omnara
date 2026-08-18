@@ -1,0 +1,19 @@
+-- +goose Up
+
+ALTER TABLE orgs VALIDATE CONSTRAINT orgs_name_policy;
+ALTER TABLE projects VALIDATE CONSTRAINT projects_name_policy;
+ALTER TABLE personal_access_tokens VALIDATE CONSTRAINT personal_access_tokens_name_policy;
+ALTER TABLE auth_device_flows VALIDATE CONSTRAINT auth_device_flows_client_name_policy;
+ALTER TABLE auth_device_flows VALIDATE CONSTRAINT auth_device_flows_token_name_policy;
+ALTER TABLE org_api_keys VALIDATE CONSTRAINT org_api_keys_name_policy;
+ALTER TABLE secrets VALIDATE CONSTRAINT secrets_name_policy;
+ALTER TABLE model_provider_configs VALIDATE CONSTRAINT model_provider_configs_name_policy;
+ALTER TABLE configured_models VALIDATE CONSTRAINT configured_models_name_policy;
+ALTER TABLE agent_profiles VALIDATE CONSTRAINT agent_profiles_name_policy;
+ALTER TABLE agents VALIDATE CONSTRAINT agents_name_policy;
+ALTER TABLE machine_pools VALIDATE CONSTRAINT machine_pools_name_policy;
+ALTER TABLE machines VALIDATE CONSTRAINT machines_display_name_policy;
+ALTER TABLE machine_daemon_tokens VALIDATE CONSTRAINT machine_daemon_tokens_name_policy;
+ALTER TABLE cron_triggers VALIDATE CONSTRAINT cron_triggers_name_policy;
+ALTER TABLE agent_configs VALIDATE CONSTRAINT agent_configs_source_required;
+ALTER TABLE skills VALIDATE CONSTRAINT skills_name_policy;

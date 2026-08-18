@@ -62,6 +62,37 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 			len(migrationFiles),
 		)
 	}
+	for _, constraint := range []string{
+		"orgs_name_policy",
+		"projects_name_policy",
+		"personal_access_tokens_name_policy",
+		"auth_device_flows_client_name_policy",
+		"auth_device_flows_token_name_policy",
+		"org_api_keys_name_policy",
+		"secrets_name_policy",
+		"model_provider_configs_name_policy",
+		"configured_models_name_policy",
+		"agent_profiles_name_policy",
+		"agents_name_policy",
+		"machine_pools_name_policy",
+		"machines_display_name_policy",
+		"machine_daemon_tokens_name_policy",
+		"cron_triggers_name_policy",
+		"agent_configs_source_required",
+		"skills_name_policy",
+	} {
+		var validated bool
+		if err := db.QueryRowContext(
+			ctx,
+			`SELECT convalidated FROM pg_constraint WHERE conname = $1`,
+			constraint,
+		).Scan(&validated); err != nil {
+			t.Fatalf("load %s validation state: %v", constraint, err)
+		}
+		if !validated {
+			t.Fatalf("constraint %s was not validated", constraint)
+		}
+	}
 }
 
 func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
@@ -88,8 +119,8 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err == nil {
 		t.Fatal("resource-name migration accepted invalid existing organization")
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
-		t.Fatalf("migration version after rejected resource name = %d, want 20", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 21 {
+		t.Fatalf("migration version after rejected resource name = %d, want 21", got)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
 		t.Fatalf("repair organization name: %v", err)

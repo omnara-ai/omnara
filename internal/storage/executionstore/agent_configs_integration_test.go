@@ -35,6 +35,7 @@ model:
   provider_config: openai-prod
   name: test
 `,
+		"empty":           "",
 		"whitespace only": " \n\t",
 	} {
 		t.Run(name, func(t *testing.T) {

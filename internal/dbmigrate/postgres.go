@@ -19,7 +19,7 @@ import (
 const (
 	postgresMigrationLockID      int64 = 0x4f4d4e415241
 	minimumPostgresVersion       int   = 180000
-	resourceNameMigrationVersion int64 = 21
+	resourceNameMigrationVersion int64 = 22
 
 	defaultLockTimeout      = "30s"
 	defaultStatementTimeout = "15min"
@@ -180,13 +180,11 @@ func validateStoredAgentConfigResourceNames(ctx context.Context, db *sql.DB) err
 		); err != nil {
 			return fmt.Errorf("scan stored agent config: %w", err)
 		}
-		if source != "" {
-			if _, err := agentconfig.ParseSource(
-				agentconfig.SourceFormat(format),
-				[]byte(source),
-			); err != nil {
-				return fmt.Errorf("agent config %s source must be migrated: %w", id, err)
-			}
+		if _, err := agentconfig.ParseSource(
+			agentconfig.SourceFormat(format),
+			[]byte(source),
+		); err != nil {
+			return fmt.Errorf("agent config %s source must be migrated: %w", id, err)
 		}
 		if _, err := agentconfig.RuntimeContractFromCompiled(
 			json.RawMessage(compiledDefinition),
