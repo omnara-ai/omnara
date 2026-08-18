@@ -5,6 +5,7 @@ import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpSe
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
+import { addMissingMachineTools, hasMissingMachineTools } from '@/components/agents/builtInTools'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
@@ -19,6 +20,9 @@ export function AgentConfigBasicForm({
   form: AgentBuilderForm
 }) {
   const toolCatalog = useToolCatalog()
+  const showMissingMachineTools =
+    form.machineSources.some((source) => source.name.trim() !== '') &&
+    hasMissingMachineTools(form.tools)
 
   return (
     <FieldGroup className="gap-8">
@@ -47,6 +51,10 @@ export function AgentConfigBasicForm({
         sources={form.machineSources}
         onSourcesChange={form.setMachineSources}
         onUnavailableIdsChange={form.reportUnavailableSourceIds}
+        showMissingToolsWarning={showMissingMachineTools}
+        onAddMissingTools={() => {
+          form.setTools(addMissingMachineTools(form.tools))
+        }}
       />
       <AgentConfigToolsField
         catalog={toolCatalog.data}

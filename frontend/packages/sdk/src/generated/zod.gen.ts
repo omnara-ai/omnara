@@ -668,6 +668,7 @@ export const zAgentConfig = z.object({
     effective_definition_hash: z.string(),
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),
+    warnings: z.array(z.string()).min(1).optional(),
     created_at: zTimestamp
 });
 

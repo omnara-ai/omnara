@@ -888,6 +888,10 @@ export type AgentConfig = {
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
+    /**
+     * Non-blocking diagnostics about the agent config.
+     */
+    warnings?: Array<string>;
     created_at: Timestamp;
 };
 

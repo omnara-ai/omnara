@@ -5,6 +5,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -79,6 +80,10 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
+	warnings := config["warnings"].([]any)
+	if len(warnings) != 1 || !strings.Contains(warnings[0].(string), "write_process") {
+		t.Fatalf("config warnings = %v, want missing machine tools warning", warnings)
+	}
 	profile := createPublicHTTPAgentProfile(
 		t,
 		handler,
@@ -89,6 +94,10 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
+	profileWarnings := profile["current_config"].(map[string]any)["warnings"]
+	if !reflect.DeepEqual(profileWarnings, warnings) {
+		t.Fatalf("profile config warnings = %v, want %v", profileWarnings, warnings)
+	}
 	profileID := profile["id"].(string)
 	configID := profile["current_config"].(map[string]any)["id"].(string)
 	retargetYAML := "instruction: Updated default.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /workspace\ntools:\n  run_command: {}\n"
@@ -244,6 +253,10 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 	if retargetedLaunch["agent_config"].(map[string]any)["model"] == nil ||
 		retargetedLaunch["agent_config"].(map[string]any)["instruction_hash"] == "" {
 		t.Fatalf("launch config projection missing model/instruction evidence: %+v", retargetedLaunch["agent_config"])
+	}
+	launchWarnings := retargetedLaunch["agent_config"].(map[string]any)["warnings"]
+	if !reflect.DeepEqual(launchWarnings, warnings) {
+		t.Fatalf("launch config warnings = %v, want %v", launchWarnings, warnings)
 	}
 	retargetedAgentID := retargetedLaunch["agent"].(map[string]any)["id"].(string)
 	archivedResponse := requestJSONWithHeaders(

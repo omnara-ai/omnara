@@ -7873,6 +7873,13 @@ components:
           $ref: '#/components/schemas/AgentConfigModel'
         instruction_hash:
           type: string
+        warnings:
+          type: array
+          minItems: 1
+          x-go-type-skip-optional-pointer: true
+          description: Non-blocking diagnostics about the agent config.
+          items:
+            type: string
         created_at:
           $ref: '#/components/schemas/Timestamp'
     CreateAgentProfileRequest:

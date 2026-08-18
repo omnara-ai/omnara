@@ -5,6 +5,7 @@ import { Document, isMap, isNode, parseDocument } from 'yaml'
 import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agentConfigBasicExtract'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
+import { addMachineToolsForNewSourceSelection } from '@/components/agents/builtInTools'
 import {
   emptyProviderOptions,
   envOverlayFromRows,
@@ -145,7 +146,15 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
       patch({ providerConfig: model.providerConfig, modelName: model.modelName })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
-      patch({ machineSources })
+      setDraft((prev) => ({
+        ...prev,
+        machineSources,
+        tools: addMachineToolsForNewSourceSelection(
+          prev.machineSources,
+          machineSources,
+          prev.tools,
+        ),
+      }))
     },
     setTools: (tools: BasicTool[]) => {
       patch({ tools })

@@ -24,12 +24,16 @@ export function AgentConfigMachineSourcesField({
   sources,
   onSourcesChange,
   onUnavailableIdsChange,
+  showMissingToolsWarning,
+  onAddMissingTools,
 }: {
   orgId: string
   projectId: string
   sources: BasicMachineSource[]
   onSourcesChange: (sources: BasicMachineSource[]) => void
   onUnavailableIdsChange: (ids: string[]) => void
+  showMissingToolsWarning: boolean
+  onAddMissingTools: () => void
 }) {
   function updateSource(id: string, patch: Partial<BasicMachineSource>) {
     onSourcesChange(sources.map((source) => (source.id === id ? { ...source, ...patch } : source)))
@@ -87,6 +91,17 @@ export function AgentConfigMachineSourcesField({
           </DropdownMenu>
         </div>
       </div>
+      {showMissingToolsWarning && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2"
+        >
+          <p className="text-sm">Some machine tools are missing.</p>
+          <Button type="button" size="sm" variant="outline" onClick={onAddMissingTools}>
+            Add missing tools
+          </Button>
+        </div>
+      )}
       <div className="space-y-3">
         {sources.length === 0 ? (
           <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
