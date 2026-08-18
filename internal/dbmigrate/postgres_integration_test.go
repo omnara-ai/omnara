@@ -422,7 +422,7 @@ INSERT INTO agent_configs(
 	triggersDisabled = false
 
 	migrationConfig := pool.Config().ConnConfig.Copy()
-	migrationConfig.RuntimeParams["search_path"] = "extensions,agents"
+	migrationConfig.RuntimeParams["search_path"] = "agents,extensions"
 	migrationDB := stdlib.OpenDB(*migrationConfig)
 	t.Cleanup(func() { _ = migrationDB.Close() })
 	err := dbmigrate.ApplyPostgres(ctx, migrationDB, os.DirFS("../../migrations"))
