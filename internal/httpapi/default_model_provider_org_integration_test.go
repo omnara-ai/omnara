@@ -363,6 +363,9 @@ func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t
 	if err != nil || len(models.Models) != 1 {
 		t.Fatalf("list cluster configured models: models=%+v err=%v", models.Models, err)
 	}
+	if models.Models[0].ManagementKind != management.Cluster {
+		t.Fatalf("default configured model management kind = %q, want cluster", models.Models[0].ManagementKind)
+	}
 	if _, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
 		ctx,
 		orgID,
@@ -402,14 +405,38 @@ func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t
 		http.StatusConflict,
 		authHeaders(token),
 	)
-	requestJSONWithHeaders(
+	tenantModel := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+publicOrgID+"/model-provider-configs/"+publicProviderID+"/models",
 		`{"name":"tenant-added","provider_model_slug":"example/tenant-added","context_window_tokens":8192,"max_output_tokens":4096}`,
 		"",
-		http.StatusConflict,
+		http.StatusCreated,
+		authHeaders(token),
+	)
+	if tenantModel["management_kind"] != string(management.Tenant) {
+		t.Fatalf("tenant configured model response = %+v", tenantModel)
+	}
+	tenantModelID := tenantModel["id"].(string)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/orgs/"+publicOrgID+"/model-provider-configs/"+publicProviderID+"/models/"+tenantModelID,
+		`{"name":"tenant-updated"}`,
+		"",
+		http.StatusOK,
+		authHeaders(token),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodDelete,
+		"/api/v1/orgs/"+publicOrgID+"/model-provider-configs/"+publicProviderID+"/models/"+tenantModelID,
+		"",
+		"",
+		http.StatusNoContent,
 		authHeaders(token),
 	)
 	requestJSONWithHeaders(
@@ -481,6 +508,16 @@ func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t
 		http.MethodPut,
 		"/api/v1/orgs/"+publicOrgID+"/model-provider-configs/"+publicProviderID+"/models/"+publicModelID,
 		`{"name":"tenant-renamed"}`,
+		"",
+		http.StatusConflict,
+		authHeaders(token),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodDelete,
+		"/api/v1/orgs/"+publicOrgID+"/model-provider-configs/"+publicProviderID+"/models/"+publicModelID,
+		"",
 		"",
 		http.StatusConflict,
 		authHeaders(token),

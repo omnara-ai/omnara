@@ -140,6 +140,14 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 				}
 				continue
 			}
+			if model.ManagementKind != management.Cluster {
+				warnings = append(warnings, fmt.Sprintf(
+					"org %s: cannot add configured model %q because a tenant-managed model already uses that name",
+					current.OrgID,
+					modelTemplate.Name,
+				))
+				continue
+			}
 			if apply {
 				locked, err := lockConfiguredModelCurrentRevisionForMutationTx(ctx, qtx, current.OrgID, model.ID)
 				if err != nil {
@@ -169,6 +177,9 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 		for _, modelRow := range modelRows {
 			model := configuredModelRecordFromListSQLC(modelRow)
 			name := model.Name
+			if model.ManagementKind != management.Cluster {
+				continue
+			}
 			if _, desired := desiredNames[name]; desired {
 				continue
 			}
@@ -179,39 +190,16 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 				}
 				model = locked
 			}
-			var state dbsqlc.GetDefaultConfiguredModelRemovalStateRow
-			if isNilID(defaultProjectID) {
-				state.GrantedToOtherProject, err = qtx.ConfiguredModelHasActiveGrants(
-					ctx,
-					dbsqlc.ConfiguredModelHasActiveGrantsParams{OrgID: current.OrgID, ID: model.ID},
-				)
-			} else {
-				state, err = qtx.GetDefaultConfiguredModelRemovalState(
-					ctx,
-					dbsqlc.GetDefaultConfiguredModelRemovalStateParams{
-						TargetConfiguredModelID: model.ID,
-						DefaultProjectID:        defaultProjectID,
-					},
-				)
-			}
+			state, err := qtx.GetConfiguredModelReferenceState(
+				ctx,
+				dbsqlc.GetConfiguredModelReferenceStateParams{OrgID: current.OrgID, ID: model.ID},
+			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("check removed configured model %q: %w", name, err)
 			}
-			if state.GrantedToOtherProject {
-				if state.GrantedToDefaultProject {
-					changes = append(changes, fmt.Sprintf(
-						"org %s: remove configured model %q from the default project",
-						current.OrgID,
-						name,
-					))
-					if apply {
-						if err := deleteDefaultProjectModelGrantTx(ctx, qtx, current.OrgID, defaultProjectID, model.ID); err != nil {
-							return nil, nil, fmt.Errorf("remove default grant for configured model %q: %w", name, err)
-						}
-					}
-				}
+			if state.UsedByActiveAgent || state.UsedByAgentProfile {
 				warnings = append(warnings, fmt.Sprintf(
-					"org %s: keep configured model %q because another project grants it",
+					"org %s: cannot remove configured model %q because an active agent or current agent profile still references it",
 					current.OrgID,
 					name,
 				))
@@ -223,10 +211,11 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 				name,
 			))
 			if apply {
-				if state.GrantedToDefaultProject {
-					if err := deleteDefaultProjectModelGrantTx(ctx, qtx, current.OrgID, defaultProjectID, model.ID); err != nil {
-						return nil, nil, fmt.Errorf("remove default grant for configured model %q: %w", name, err)
-					}
+				if _, err := qtx.DeleteProjectModelGrantsForConfiguredModel(
+					ctx,
+					dbsqlc.DeleteProjectModelGrantsForConfiguredModelParams{OrgID: current.OrgID, ID: model.ID},
+				); err != nil {
+					return nil, nil, fmt.Errorf("remove grants for configured model %q: %w", name, err)
 				}
 				if _, err := qtx.DeleteConfiguredModel(ctx, dbsqlc.DeleteConfiguredModelParams{
 					OrgID: current.OrgID, ID: model.ID, ManagementKind: string(management.Cluster),
@@ -258,24 +247,4 @@ func configuredModelUpdateFromDefault(id ID, input CreateConfiguredModelInput) c
 		OutputModalities:          input.OutputModalities,
 		APIVariantOptions:         input.APIVariantOptions,
 	}
-}
-
-func deleteDefaultProjectModelGrantTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	orgID, projectID, configuredModelID ID,
-) error {
-	grant, err := qtx.GetActiveProjectModelGrantForConfiguredModel(
-		ctx,
-		dbsqlc.GetActiveProjectModelGrantForConfiguredModelParams{
-			OrgID: orgID, ProjectID: projectID, ConfiguredModelID: configuredModelID,
-		},
-	)
-	if err != nil {
-		return err
-	}
-	_, err = qtx.DeleteProjectModelGrant(ctx, dbsqlc.DeleteProjectModelGrantParams{
-		OrgID: orgID, ProjectID: projectID, ID: grant.ID,
-	})
-	return err
 }

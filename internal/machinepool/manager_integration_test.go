@@ -1955,8 +1955,8 @@ VALUES ($1, $2, 'tenant', 'manager-cleanup-provider', 'openai-responses', 'defau
 
 	exec("insert cleanup configured model", `
 WITH configured_model AS (
-INSERT INTO configured_models(id, org_id, model_provider_config_id, name, current_revision_id, created_at, updated_at)
-VALUES ($1, $2, $3, 'manager-cleanup-model', $4, $5, $5)
+INSERT INTO configured_models(id, org_id, model_provider_config_id, management_kind, name, current_revision_id, created_at, updated_at)
+VALUES ($1, $2, $3, 'tenant', 'manager-cleanup-model', $4, $5, $5)
 RETURNING id, org_id, model_provider_config_id, current_revision_id
 )
 INSERT INTO configured_model_revisions(id, org_id, configured_model_id, model_provider_config_id, provider_model_slug, context_window_tokens, max_output_tokens, created_at)

@@ -49,14 +49,6 @@ WHERE org_id = sqlc.arg(org_id)
   AND name = sqlc.arg(name)
   AND deleted_at IS NULL;
 
--- name: GetModelProviderManagementKindForLifecycle :one
--- @sqlc-vet-disable model-provider-configs-deleted-at
--- Lifecycle flows read soft-deleted configs.
-SELECT management_kind
-FROM model_provider_configs
-WHERE org_id = sqlc.arg(org_id)
-  AND id = sqlc.arg(id);
-
 -- name: LockModelProviderConfigForMutation :one
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
@@ -177,15 +169,16 @@ parent_config AS (
 ),
 configured_model AS (
   INSERT INTO configured_models(
-    id, org_id, model_provider_config_id, name, current_revision_id,
+    id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
     created_at, updated_at
   )
-  SELECT ids.configured_model_id, config.org_id, config.id, sqlc.arg(name),
+  SELECT ids.configured_model_id, config.org_id, config.id,
+         sqlc.arg(management_kind)::text, sqlc.arg(name),
          ids.revision_id, statement_timestamp(), statement_timestamp()
   FROM ids
   JOIN parent_config config ON true
   ON CONFLICT (model_provider_config_id, name) WHERE deleted_at IS NULL DO NOTHING
-  RETURNING id, org_id, model_provider_config_id, name, current_revision_id,
+  RETURNING id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
             deleted_at, created_at, updated_at
 ),
 revision AS (
@@ -213,7 +206,8 @@ revision AS (
                 default_reasoning_effort, supported_reasoning_efforts,
                 input_modalities, output_modalities, api_variant_options, created_at
 )
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -226,7 +220,8 @@ FROM configured_model
 JOIN revision ON revision.configured_model_id = configured_model.id;
 
 -- name: GetConfiguredModel :one
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -247,7 +242,8 @@ WHERE configured_model.org_id = sqlc.arg(org_id)
   AND configured_model.deleted_at IS NULL;
 
 -- name: GetConfiguredModelDisplay :one
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -266,7 +262,8 @@ WHERE configured_model.org_id = sqlc.arg(org_id)
   AND configured_model.id = sqlc.arg(id);
 
 -- name: GetConfiguredModelByName :one
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -288,7 +285,8 @@ WHERE configured_model.org_id = sqlc.arg(org_id)
   AND configured_model.deleted_at IS NULL;
 
 -- name: ListConfiguredModels :many
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -315,7 +313,8 @@ ORDER BY configured_model.created_at DESC, configured_model.id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: LockConfiguredModelForUse :one
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -339,7 +338,7 @@ FOR SHARE OF configured_model;
 -- name: LockConfiguredModelForMutation :one
 SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
        configured_model.name, configured_model.current_revision_id, configured_model.deleted_at,
-       configured_model.created_at, configured_model.updated_at
+       configured_model.created_at, configured_model.updated_at, configured_model.management_kind
 FROM configured_models configured_model
 JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
   AND provider_config.id = configured_model.model_provider_config_id
@@ -352,7 +351,7 @@ FOR UPDATE OF configured_model;
 -- name: LockConfiguredModelForDelete :one
 SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
        configured_model.name, configured_model.current_revision_id, configured_model.deleted_at,
-       configured_model.created_at, configured_model.updated_at
+       configured_model.created_at, configured_model.updated_at, configured_model.management_kind
 FROM configured_models configured_model
 WHERE configured_model.org_id = sqlc.arg(org_id)
   AND configured_model.id = sqlc.arg(id)
@@ -365,11 +364,11 @@ WITH target_configured_model AS (
   FROM configured_models configured_model
   JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
     AND provider_config.id = configured_model.model_provider_config_id
-    AND provider_config.management_kind = sqlc.arg(management_kind)
     AND provider_config.deleted_at IS NULL
   WHERE configured_model.org_id = sqlc.arg(org_id)
     AND configured_model.model_provider_config_id = sqlc.arg(model_provider_config_id)
     AND configured_model.id = sqlc.arg(id)
+    AND configured_model.management_kind = sqlc.arg(management_kind)
     AND configured_model.deleted_at IS NULL
 ),
 revision AS (
@@ -406,11 +405,13 @@ configured_model AS (
   WHERE configured_models.org_id = revision.org_id
     AND configured_models.id = revision.configured_model_id
   RETURNING configured_models.id, configured_models.org_id,
-            configured_models.model_provider_config_id, configured_models.name,
+            configured_models.model_provider_config_id, configured_models.management_kind,
+            configured_models.name,
             configured_models.current_revision_id, configured_models.deleted_at,
             configured_models.created_at, configured_models.updated_at
 )
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -434,13 +435,15 @@ WITH configured_model AS (
     AND configured_model.deleted_at IS NULL
     AND provider_config.org_id = configured_model.org_id
     AND provider_config.id = configured_model.model_provider_config_id
-    AND provider_config.management_kind = 'tenant'
     AND provider_config.deleted_at IS NULL
+    AND configured_model.management_kind = 'tenant'
   RETURNING configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
-            configured_model.name, configured_model.current_revision_id, configured_model.deleted_at,
+            configured_model.management_kind, configured_model.name,
+            configured_model.current_revision_id, configured_model.deleted_at,
             configured_model.created_at, configured_model.updated_at
 )
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -461,27 +464,40 @@ SET deleted_at = statement_timestamp(),
 WHERE configured_models.org_id = sqlc.arg(org_id)
   AND configured_models.id = sqlc.arg(id)
   AND configured_models.deleted_at IS NULL
-  AND EXISTS (
-    SELECT 1
-    FROM model_provider_configs provider_config
-    WHERE provider_config.org_id = configured_models.org_id
-      AND provider_config.id = configured_models.model_provider_config_id
-      AND provider_config.management_kind = sqlc.arg(management_kind)
-  )
-RETURNING id, org_id, model_provider_config_id, name, current_revision_id,
+  AND configured_models.management_kind = sqlc.arg(management_kind)
+RETURNING id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
           deleted_at, created_at, updated_at;
 
--- name: GetDefaultConfiguredModelRemovalState :one
+-- name: GetConfiguredModelReferenceState :one
 SELECT EXISTS (
-         SELECT 1 FROM project_model_grants model_grant
-         WHERE model_grant.configured_model_id = sqlc.arg(target_configured_model_id)
-           AND model_grant.project_id = sqlc.arg(default_project_id)
-       ) AS granted_to_default_project,
+         SELECT 1
+         FROM projects project
+         JOIN agents agent ON agent.project_id = project.id
+         JOIN agent_configs config ON config.project_id = agent.project_id
+           AND config.id = agent.current_config_id
+         WHERE project.org_id = sqlc.arg(org_id)
+           AND agent.state = 'active'
+           AND config.configured_model_id = sqlc.arg(id)
+       ) AS used_by_active_agent,
        EXISTS (
-         SELECT 1 FROM project_model_grants model_grant
-         WHERE model_grant.configured_model_id = sqlc.arg(target_configured_model_id)
-           AND model_grant.project_id <> sqlc.arg(default_project_id)
-       ) AS granted_to_other_project;
+         SELECT 1
+         FROM projects project
+         JOIN agent_profiles profile ON profile.project_id = project.id
+         JOIN agent_profile_versions version ON version.project_id = profile.project_id
+           AND version.profile_id = profile.id
+           AND version.id = profile.current_version_id
+           AND version.deleted_at IS NULL
+         JOIN agent_configs config ON config.project_id = version.project_id
+           AND config.id = version.agent_config_id
+         WHERE project.org_id = sqlc.arg(org_id)
+           AND profile.deleted_at IS NULL
+           AND config.configured_model_id = sqlc.arg(id)
+       ) AS used_by_agent_profile;
+
+-- name: DeleteProjectModelGrantsForConfiguredModel :execrows
+DELETE FROM project_model_grants
+WHERE org_id = sqlc.arg(org_id)
+  AND configured_model_id = sqlc.arg(id);
 
 -- name: ConfiguredModelHasActiveGrants :one
 SELECT EXISTS (

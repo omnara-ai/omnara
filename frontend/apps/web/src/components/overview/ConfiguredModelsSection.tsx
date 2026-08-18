@@ -55,7 +55,6 @@ export function ConfiguredModelsSection() {
 
   const providersPending = providersQuery.isPending || (hasNextProviderPage && !providersError)
   const providers = providersPending || providersError ? [] : loadedProviders
-  const tenantProviders = providers.filter((provider) => provider.management_kind === 'tenant')
   const modelsQuery = useConfiguredModelOptions(activeOrg.id, providers)
   const deleteModel = useDeleteConfiguredModel(activeOrg.id)
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
@@ -67,7 +66,7 @@ export function ConfiguredModelsSection() {
   })
 
   const newModelButton = () =>
-    canManage && tenantProviders.length > 0 ? (
+    canManage && providers.length > 0 ? (
       <Button
         size="sm"
         onClick={() => {
@@ -112,7 +111,7 @@ export function ConfiguredModelsSection() {
               cell: (option) => (
                 <span className="inline-flex max-w-full items-center gap-2">
                   <span className="truncate font-medium">{option.model.name}</span>
-                  {option.provider.management_kind === 'cluster' && (
+                  {option.model.management_kind === 'cluster' && (
                     <Badge variant="secondary">cluster</Badge>
                   )}
                 </span>
@@ -135,7 +134,7 @@ export function ConfiguredModelsSection() {
                 canManage ? (
                   <ResourceRowActions
                     onEdit={
-                      option.provider.management_kind === 'tenant'
+                      option.model.management_kind === 'tenant'
                         ? () => {
                             setActiveDialog({ kind: 'edit', model: option.model })
                           }
@@ -145,7 +144,7 @@ export function ConfiguredModelsSection() {
                       setActiveDialog({ kind: 'grant', model: option.model })
                     }}
                     onDelete={
-                      option.provider.management_kind === 'tenant'
+                      option.model.management_kind === 'tenant'
                         ? () => {
                             if (!window.confirm(`Delete configured model ${option.model.name}?`))
                               return
@@ -214,14 +213,14 @@ export function ConfiguredModelsSection() {
           }
         />
       </div>
-      {canManage && tenantProviders.length > 0 && (
+      {canManage && providers.length > 0 && (
         <CreateConfiguredModelDialog
           open={activeDialog?.kind === 'create'}
           onOpenChange={(open) => {
             if (!open) setActiveDialog(null)
           }}
           orgId={activeOrg.id}
-          providers={tenantProviders}
+          providers={providers}
         />
       )}
       {canManage && activeDialog?.kind === 'grant' && (
