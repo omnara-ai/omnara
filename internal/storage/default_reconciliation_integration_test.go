@@ -143,44 +143,49 @@ func TestReconcileDefaults(t *testing.T) {
 	); err != nil {
 		t.Fatalf("delete update model default grant: %v", err)
 	}
+	createAgentConfig := func(model modelstore.ConfiguredModelRecord) executionstore.AgentConfigRecord {
+		t.Helper()
+		source := `
+instruction: test
+model:
+  provider_config: ` + initialProvider.Name + `
+  name: ` + model.Name + `
+`
+		supportsTools := model.SupportsTools
+		compiled, err := agentconfig.Compile(
+			agentconfig.SourceFormatYAML,
+			[]byte(source),
+			agentconfig.CompileOptions{
+				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+					return agentconfig.ResolvedModelSelection{
+						ConfiguredModelID: model.ID.String(),
+						SupportsTools:     &supportsTools,
+					}, nil
+				},
+			},
+		)
+		if err != nil {
+			t.Fatalf("compile %s agent config: %v", model.Name, err)
+		}
+		config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+			ProjectID:               created.Project.ID,
+			Definition:              json.RawMessage(compiled.CanonicalJSON),
+			Source:                  source,
+			ConfiguredModelID:       model.ID,
+			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
+			CompilerVersion:         agentconfig.CompilerVersion,
+			EffectiveDefinitionHash: compiled.Hash,
+		})
+		if err != nil {
+			t.Fatalf("create %s agent config: %v", model.Name, err)
+		}
+		return config
+	}
 	removeModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "remove-model")
 	if err != nil {
 		t.Fatalf("get remove model: %v", err)
 	}
-	historicalSource := `
-instruction: historical
-model:
-  provider_config: omnara-openrouter
-  name: remove-model
-`
-	supportsTools := removeModel.SupportsTools
-	historicalCompiled, err := agentconfig.Compile(
-		agentconfig.SourceFormatYAML,
-		[]byte(historicalSource),
-		agentconfig.CompileOptions{
-			ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-				return agentconfig.ResolvedModelSelection{
-					ConfiguredModelID: removeModel.ID.String(),
-					SupportsTools:     &supportsTools,
-				}, nil
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("compile historical agent config: %v", err)
-	}
-	historicalConfig, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               created.Project.ID,
-		Definition:              json.RawMessage(historicalCompiled.CanonicalJSON),
-		Source:                  historicalSource,
-		ConfiguredModelID:       removeModel.ID,
-		CompiledDefinition:      json.RawMessage(historicalCompiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: historicalCompiled.Hash,
-	})
-	if err != nil {
-		t.Fatalf("create historical agent config: %v", err)
-	}
+	historicalConfig := createAgentConfig(removeModel)
 	retainedModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "retained-model")
 	if err != nil {
 		t.Fatalf("get retained model: %v", err)
@@ -207,29 +212,15 @@ model:
 	if err != nil {
 		t.Fatalf("create tenant model under default provider: %v", err)
 	}
-	createAgentConfig := func(name string, modelID ID) ID {
-		t.Helper()
-		var configID ID
-		if err := pool.QueryRow(ctx, `
-			INSERT INTO agent_configs(
-				org_id, project_id, configured_model_id, definition,
-				source_hash, effective_definition_hash, created_at
-			) VALUES ($1, $2, $3, '{}'::jsonb, $4, $4, statement_timestamp())
-			RETURNING id
-		`, created.Org.ID, created.Project.ID, modelID, name).Scan(&configID); err != nil {
-			t.Fatalf("create %s agent config: %v", name, err)
-		}
-		return configID
-	}
 	activeAgentModel, err := store.Models().GetConfiguredModelByName(
 		ctx, created.Org.ID, provider.ID, "active-agent-model",
 	)
 	if err != nil {
 		t.Fatalf("get active agent model: %v", err)
 	}
-	activeAgentConfigID := createAgentConfig("active-agent-model", activeAgentModel.ID)
+	activeAgentConfig := createAgentConfig(activeAgentModel)
 	if _, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
-		ProjectID: created.Project.ID, CurrentConfigID: activeAgentConfigID,
+		ProjectID: created.Project.ID, CurrentConfigID: activeAgentConfig.ID,
 	}); err != nil {
 		t.Fatalf("create active agent using removed model: %v", err)
 	}
@@ -239,12 +230,12 @@ model:
 	if err != nil {
 		t.Fatalf("get profile model: %v", err)
 	}
-	profileConfigID := createAgentConfig("profile-model", profileModel.ID)
+	profileConfig := createAgentConfig(profileModel)
 	preservedProfile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		OrgID:           created.Org.ID,
 		ProjectID:       created.Project.ID,
 		Name:            "Profile using removed model",
-		CurrentConfigID: profileConfigID,
+		CurrentConfigID: profileConfig.ID,
 		IdempotencyKey:  "profile-using-removed-model",
 	})
 	if err != nil {
