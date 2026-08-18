@@ -86,6 +86,7 @@ ALTER TABLE machines ALTER COLUMN display_name DROP DEFAULT;
 ALTER TABLE machine_daemon_tokens ADD CONSTRAINT machine_daemon_tokens_name_policy CHECK (resource_name_is_valid(name, false)) NOT VALID;
 ALTER TABLE cron_triggers ADD CONSTRAINT cron_triggers_name_policy CHECK (resource_name_is_valid(name, false)) NOT VALID;
 ALTER TABLE agent_configs ADD CONSTRAINT agent_configs_source_required CHECK (source <> '') NOT VALID;
+ALTER TABLE agent_configs ALTER COLUMN source DROP DEFAULT;
 
 -- +goose StatementBegin
 CREATE FUNCTION skill_name_is_valid(candidate text) RETURNS boolean AS $$

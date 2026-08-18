@@ -93,6 +93,20 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 			t.Fatalf("constraint %s was not validated", constraint)
 		}
 	}
+	var agentConfigSourceDefaultDropped bool
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT column_default IS NULL
+		 FROM information_schema.columns
+		 WHERE table_schema = current_schema()
+		   AND table_name = 'agent_configs'
+		   AND column_name = 'source'`,
+	).Scan(&agentConfigSourceDefaultDropped); err != nil {
+		t.Fatalf("load agent_configs.source default: %v", err)
+	}
+	if !agentConfigSourceDefaultDropped {
+		t.Fatal("agent_configs.source retained an invalid empty default")
+	}
 }
 
 func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
@@ -116,8 +130,14 @@ func TestResourceNameMigrationRequiresExistingRowsToBeValid(t *testing.T) {
 	).Scan(&orgID); err != nil {
 		t.Fatalf("insert simulated legacy organization: %v", err)
 	}
-	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err == nil {
-		t.Fatal("resource-name migration accepted invalid existing organization")
+	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
+	for _, want := range []string{
+		"resource-name migration blocked; migrate these invalid stored values (1)",
+		"orgs/" + orgID + ".name",
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("resource-name migration error = %v, want %q", err, want)
+		}
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 21 {
 		t.Fatalf("migration version after rejected resource name = %d, want 21", got)
