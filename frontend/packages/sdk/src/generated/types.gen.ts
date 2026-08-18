@@ -2204,7 +2204,7 @@ export type CreateMachinePoolRequestBase = {
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
     /**
-     * Delete machines from this pool after this many idle minutes. Omit to leave the pool-level policy disabled; a grant or agent source may still enable it.
+     * Idle minutes before deleting a machine from this pool. Omit to leave the pool default unset; a grant or agent source may still override it.
      */
     delete_after_idle_minutes?: number;
     metadata?: MachineMetadata;
@@ -2247,7 +2247,7 @@ export type UpdateMachinePoolRequest = {
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
     /**
-     * Delete machines from this pool after this many idle minutes. Null disables the pool-level policy.
+     * Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
      */
     delete_after_idle_minutes?: number | null;
     metadata?: MachineMetadata;
@@ -2294,7 +2294,7 @@ export type MachinePool = {
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
     /**
-     * Pool-level idle deletion policy in minutes, or null when disabled at this level.
+     * Idle minutes before deleting a machine from this pool, or null when the pool default is unset.
      */
     delete_after_idle_minutes: number | null;
     metadata: Metadata;
@@ -2503,7 +2503,7 @@ export type ProjectMachinePoolGrant = {
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
     /**
-     * Idle deletion override in minutes, or null to inherit from the machine pool.
+     * Idle minutes before deleting a machine created through this grant, or null to inherit the pool default.
      */
     delete_after_idle_minutes: number | null;
     metadata: Metadata;
@@ -2540,7 +2540,7 @@ export type CreateProjectMachinePoolGrantRequest = {
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
     /**
-     * Idle deletion override in minutes. Omit to inherit from the machine pool.
+     * Idle minutes before deleting a machine created through this grant. Omit to inherit the pool default.
      */
     delete_after_idle_minutes?: number;
     metadata?: Metadata;
@@ -2571,7 +2571,7 @@ export type UpdateProjectMachinePoolGrantRequest = {
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
     /**
-     * Idle deletion override in minutes. Null restores inheritance from the machine pool.
+     * Idle minutes before deleting a machine created through this grant. Null restores inheritance from the pool; omitted leaves it unchanged.
      */
     delete_after_idle_minutes?: number | null;
     metadata?: Metadata;

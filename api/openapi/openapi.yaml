@@ -10273,7 +10273,7 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Delete machines from this pool after this many idle minutes. Omit to leave the pool-level policy disabled; a grant or agent source may still enable it.
+          description: Idle minutes before deleting a machine from this pool. Omit to leave the pool default unset; a grant or agent source may still override it.
           type: integer
           format: int32
           minimum: 1
@@ -10358,7 +10358,7 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Delete machines from this pool after this many idle minutes. Null disables the pool-level policy.
+          description: Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
           type: [integer, "null"]
           format: int32
           minimum: 1
@@ -10451,7 +10451,7 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Pool-level idle deletion policy in minutes, or null when disabled at this level.
+          description: Idle minutes before deleting a machine from this pool, or null when the pool default is unset.
           type: [integer, "null"]
           format: int32
           minimum: 1
@@ -10888,7 +10888,7 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Idle deletion override in minutes, or null to inherit from the machine pool.
+          description: Idle minutes before deleting a machine created through this grant, or null to inherit the pool default.
           type: [integer, "null"]
           format: int32
           minimum: 1
@@ -10970,7 +10970,7 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Idle deletion override in minutes. Omit to inherit from the machine pool.
+          description: Idle minutes before deleting a machine created through this grant. Omit to inherit the pool default.
           type: integer
           format: int32
           minimum: 1
@@ -11048,7 +11048,7 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Idle deletion override in minutes. Null restores inheritance from the machine pool.
+          description: Idle minutes before deleting a machine created through this grant. Null restores inheritance from the pool; omitted leaves it unchanged.
           type: [integer, "null"]
           format: int32
           minimum: 1
