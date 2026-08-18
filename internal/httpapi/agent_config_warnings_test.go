@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -16,7 +17,7 @@ func TestAgentConfigWarnings(t *testing.T) {
 	tests := []struct {
 		name     string
 		contract agentconfig.RuntimeContract
-		want     []string
+		want     []openapi.Warning
 	}{
 		{name: "no machine sources"},
 		{
@@ -34,9 +35,12 @@ func TestAgentConfigWarnings(t *testing.T) {
 					{Name: toolcatalog.ToolNameRunCommand},
 				},
 			},
-			want: []string{
-				"Machine sources are configured, but some recommended machine tools are not enabled: write_process, read_process, stop_process, list_processes, list_machines, inspect_machine. Add or enable them under tools so the agent can fully use its attached machines.",
-			},
+			want: []openapi.Warning{{
+				Code: openapi.MissingRecommendedMachineTools,
+				Message: "Machine sources are configured, but some recommended machine tools are not enabled: " +
+					"write_process, read_process, stop_process, list_processes, list_machines, inspect_machine. " +
+					"Add or enable them under tools so the agent can fully use its attached machines.",
+			}},
 		},
 	}
 	for _, test := range tests {

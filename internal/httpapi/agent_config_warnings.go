@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -18,7 +19,7 @@ var recommendedMachineTools = [...]string{
 	toolcatalog.ToolNameInspectMachine,
 }
 
-func agentConfigWarnings(contract agentconfig.RuntimeContract) []string {
+func agentConfigWarnings(contract agentconfig.RuntimeContract) []openapi.Warning {
 	if len(contract.MachineSources) == 0 {
 		return nil
 	}
@@ -35,8 +36,11 @@ func agentConfigWarnings(contract agentconfig.RuntimeContract) []string {
 	if len(missing) == 0 {
 		return nil
 	}
-	return []string{fmt.Sprintf(
-		"Machine sources are configured, but some recommended machine tools are not enabled: %s. Add or enable them under tools so the agent can fully use its attached machines.",
-		strings.Join(missing, ", "),
-	)}
+	return []openapi.Warning{{
+		Code: openapi.MissingRecommendedMachineTools,
+		Message: fmt.Sprintf(
+			"Machine sources are configured, but some recommended machine tools are not enabled: %s. Add or enable them under tools so the agent can fully use its attached machines.",
+			strings.Join(missing, ", "),
+		),
+	}}
 }
