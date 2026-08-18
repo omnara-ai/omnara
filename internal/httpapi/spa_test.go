@@ -118,6 +118,9 @@ func TestServerServesSPA(t *testing.T) {
 		if strings.Contains(rec.Body.String(), `id="root"`) {
 			t.Fatalf("GET %s returned the HTML shell", path)
 		}
+		if rec.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("GET %s Cache-Control = %q, want no-store", path, rec.Header().Get("Cache-Control"))
+		}
 	}
 }
 
