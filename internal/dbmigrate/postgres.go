@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -168,6 +169,9 @@ func validateStoredAgentConfigResourceNames(ctx context.Context, db *sql.DB) err
 		return fmt.Errorf("list stored agent configs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
+	const reportedViolationLimit = 20
+	violationCount := 0
+	violations := make([]string, 0, reportedViolationLimit)
 	for rows.Next() {
 		var id, format, source, compiledDefinition, compilerVersion, definitionHash string
 		if err := rows.Scan(
@@ -180,22 +184,45 @@ func validateStoredAgentConfigResourceNames(ctx context.Context, db *sql.DB) err
 		); err != nil {
 			return fmt.Errorf("scan stored agent config: %w", err)
 		}
+		var sourceErr error
 		if _, err := agentconfig.ParseSource(
 			agentconfig.SourceFormat(format),
 			[]byte(source),
 		); err != nil {
-			return fmt.Errorf("agent config %s source must be migrated: %w", id, err)
+			sourceErr = err
 		}
+		var compiledErr error
 		if _, err := agentconfig.RuntimeContractFromCompiled(
 			json.RawMessage(compiledDefinition),
 			compilerVersion,
 			definitionHash,
 		); err != nil {
-			return fmt.Errorf("agent config %s compiled definition must be migrated: %w", id, err)
+			compiledErr = err
+		}
+		if sourceErr == nil && compiledErr == nil {
+			continue
+		}
+		violationCount++
+		if len(violations) < reportedViolationLimit {
+			reasons := make([]string, 0, 2)
+			if sourceErr != nil {
+				reasons = append(reasons, "source: "+sourceErr.Error())
+			}
+			if compiledErr != nil {
+				reasons = append(reasons, "compiled definition: "+compiledErr.Error())
+			}
+			violations = append(violations, id+" ("+strings.Join(reasons, "; ")+")")
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate stored agent configs: %w", err)
+	}
+	if violationCount > 0 {
+		detail := strings.Join(violations, ", ")
+		if omitted := violationCount - len(violations); omitted > 0 {
+			detail += fmt.Sprintf(", and %d more", omitted)
+		}
+		return fmt.Errorf("%d agent configs must be migrated: %s", violationCount, detail)
 	}
 	return nil
 }

@@ -165,7 +165,8 @@ model:
 machine_sources:
   - machine_pool_name: " Build Pool"
 `
-	if _, err := pool.Exec(ctx, `
+	var invalidSourceConfigID string
+	if err := pool.QueryRow(ctx, `
 INSERT INTO agent_configs(
     org_id,
     project_id,
@@ -191,31 +192,9 @@ INSERT INTO agent_configs(
     'invalid-resource-name-source',
     now()
 )
-`, invalidSource); err != nil {
+RETURNING id::text
+`, invalidSource).Scan(&invalidSourceConfigID); err != nil {
 		t.Fatalf("insert stored agent config with invalid resource reference: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
-		t.Fatalf("enable agent config triggers: %v", err)
-	}
-	triggersDisabled = false
-
-	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
-	if err == nil || !strings.Contains(err.Error(), "machine_pool_name") {
-		t.Fatalf("resource-name migration error = %v, want invalid machine_pool_name reference", err)
-	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
-		t.Fatalf("migration version after rejected agent config source = %d, want 20", got)
-	}
-
-	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER ALL`); err != nil {
-		t.Fatalf("disable agent config triggers for repair: %v", err)
-	}
-	triggersDisabled = true
-	if _, err := pool.Exec(
-		ctx,
-		`DELETE FROM agent_configs WHERE source_hash = 'invalid-resource-name-source'`,
-	); err != nil {
-		t.Fatalf("remove invalid stored agent config: %v", err)
 	}
 	const validSource = `
 instruction: Test migration preflight.
@@ -225,7 +204,8 @@ model:
 `
 	const legacyCompiledDefinition = `{"name":"legacy-agent-name"}`
 	legacyDefinitionHash := fmt.Sprintf("%x", sha256.Sum256([]byte(legacyCompiledDefinition)))
-	if _, err := pool.Exec(ctx, `
+	var legacyCompiledConfigID string
+	if err := pool.QueryRow(ctx, `
 INSERT INTO agent_configs(
     org_id,
     project_id,
@@ -251,31 +231,41 @@ INSERT INTO agent_configs(
     $3,
     now()
 )
-`, validSource, legacyCompiledDefinition, legacyDefinitionHash); err != nil {
+RETURNING id::text
+`, validSource, legacyCompiledDefinition, legacyDefinitionHash).Scan(&legacyCompiledConfigID); err != nil {
 		t.Fatalf("insert stored agent config with legacy compiled name: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
-		t.Fatalf("enable agent config triggers after inserting legacy compiled name: %v", err)
+		t.Fatalf("enable agent config triggers: %v", err)
 	}
 	triggersDisabled = false
 
-	err = dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
-	if err == nil || !strings.Contains(err.Error(), `unknown field "name"`) {
-		t.Fatalf("resource-name migration error = %v, want legacy compiled name rejection", err)
+	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
+	for _, want := range []string{
+		"2 agent configs must be migrated",
+		invalidSourceConfigID,
+		"machine_pool_name",
+		legacyCompiledConfigID,
+		`unknown field "name"`,
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("resource-name migration error = %v, want %q", err, want)
+		}
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
-		t.Fatalf("migration version after rejected compiled name = %d, want 20", got)
+		t.Fatalf("migration version after rejected agent config source = %d, want 20", got)
 	}
 
 	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER ALL`); err != nil {
-		t.Fatalf("disable agent config triggers for compiled name repair: %v", err)
+		t.Fatalf("disable agent config triggers for repair: %v", err)
 	}
 	triggersDisabled = true
 	if _, err := pool.Exec(
 		ctx,
-		`DELETE FROM agent_configs WHERE source_hash = 'legacy-compiled-name'`,
+		`DELETE FROM agent_configs
+		 WHERE source_hash IN ('invalid-resource-name-source', 'legacy-compiled-name')`,
 	); err != nil {
-		t.Fatalf("remove stored agent config with legacy compiled name: %v", err)
+		t.Fatalf("remove invalid stored agent configs: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
 		t.Fatalf("enable agent config triggers after repair: %v", err)
