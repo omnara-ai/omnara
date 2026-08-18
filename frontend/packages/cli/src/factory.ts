@@ -52,7 +52,7 @@ interface ConfigParam {
   optionKey: string
   configKey: 'org_id' | 'project_id'
   describe: string
-  resolve: (config: CliConfig) => string | undefined
+  resolve: (config: CliConfig, path: Record<string, unknown>) => string | undefined
   prompt: (client: OmnaraClient, path: Record<string, unknown>) => Promise<string>
 }
 
@@ -72,7 +72,10 @@ const CONFIG_PARAMS: ConfigParam[] = [
     optionKey: 'project',
     configKey: 'project_id',
     describe: 'pass --project or set OMNARA_PROJECT_ID',
-    resolve: (config) => config.defaultProjectId,
+    resolve: (config, path) =>
+      path.orgID === undefined || path.orgID === config.defaultOrgId
+        ? config.defaultProjectId
+        : undefined,
     prompt: (client, path) => {
       const orgId = path.orgID
       if (typeof orgId !== 'string') {
@@ -180,9 +183,25 @@ async function callOperation(spec: OperationSpec, input: CallInput): Promise<unk
 
 const zBodyObject = z.looseObject({})
 
+function deepMerge(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...base }
+  for (const [key, value] of Object.entries(patch)) {
+    const existing = zBodyObject.safeParse(merged[key])
+    const incoming = zBodyObject.safeParse(value)
+    merged[key] =
+      existing.success && incoming.success ? deepMerge(existing.data, incoming.data) : value
+  }
+  return merged
+}
+
 function saveConfigDefault(configKey: 'org_id' | 'project_id', value: string): void {
   try {
-    updateConfigFile({ [configKey]: value })
+    updateConfigFile(
+      configKey === 'org_id' ? { org_id: value, project_id: undefined } : { [configKey]: value },
+    )
     console.error(`saved ${configKey}=${value} as your default (change with omnara config)`)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
@@ -228,7 +247,7 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
           const explicitOption = options[param.optionKey]
           const explicit = typeof explicitOption === 'string' ? explicitOption : undefined
           usedExplicitOverride = usedExplicitOverride || explicit !== undefined
-          let value = explicit ?? param.resolve(config)
+          let value = explicit ?? param.resolve(config, path)
           if (value === undefined && canPromptInteractively()) {
             value = await param.prompt(config.client, path)
             if (!usedExplicitOverride) saveConfigDefault(param.configKey, value)
@@ -247,7 +266,7 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
       if (spec.body) {
         const base =
           options.body === undefined ? {} : parseWithSchema(zBodyObject, options.body, '--body')
-        const body = { ...base, ...collectFlagValues(bodyFlags, options) }
+        const body = deepMerge(base, collectFlagValues(bodyFlags, options))
         const parsed = parseWithSchema(spec.body, body, 'request body')
         input.body = spec.transformBody ? await spec.transformBody(parsed as never) : parsed
       }
