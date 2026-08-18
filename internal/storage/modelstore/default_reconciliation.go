@@ -198,6 +198,11 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 				return nil, nil, fmt.Errorf("check removed configured model %q: %w", name, err)
 			}
 			if state.UsedByActiveAgent || state.UsedByAgentProfile {
+				warnings = append(warnings, fmt.Sprintf(
+					"org %s: cannot remove configured model %q because an active agent or current agent profile still references it",
+					current.OrgID,
+					name,
+				))
 				continue
 			}
 			changes = append(changes, fmt.Sprintf(

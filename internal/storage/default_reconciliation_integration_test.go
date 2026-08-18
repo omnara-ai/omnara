@@ -306,6 +306,20 @@ model:
 		DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{desiredPool},
 		DefaultModelProvider: &desiredProvider,
 	}
+	assertRetainedModelWarnings := func(label string, result orglifecycle.ReconcileDefaultsResult) {
+		t.Helper()
+		if len(result.Warnings) != 3 {
+			t.Fatalf("%s warnings = %v, want tenant collision and two retained-model warnings", label, result.Warnings)
+		}
+		warnings := strings.Join(result.Warnings, "\n")
+		for _, modelName := range []string{activeAgentModel.Name, profileModel.Name} {
+			expected := "cannot remove configured model \"" + modelName +
+				"\" because an active agent or current agent profile still references it"
+			if !strings.Contains(warnings, expected) {
+				t.Fatalf("%s warnings = %v, want warning containing %q", label, result.Warnings, expected)
+			}
+		}
+	}
 	result, err := store.Organizations().ReconcileDefaults(ctx, input)
 	if err != nil {
 		t.Fatalf("plan defaults: %v", err)
@@ -313,11 +327,14 @@ model:
 	if len(result.Changes) == 0 {
 		t.Fatal("plan reported no changes")
 	}
+	assertRetainedModelWarnings("plan", result)
 
 	input.Apply = true
-	if _, err := store.Organizations().ReconcileDefaults(ctx, input); err != nil {
+	result, err = store.Organizations().ReconcileDefaults(ctx, input)
+	if err != nil {
 		t.Fatalf("apply defaults: %v", err)
 	}
+	assertRetainedModelWarnings("apply", result)
 	poolRecord, err := testQueries(store).GetMachinePoolByName(ctx, dbsqlc.GetMachinePoolByNameParams{
 		OrgID: created.Org.ID, Name: desiredPool.Name,
 	})
@@ -441,9 +458,10 @@ model:
 	if err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
-	if len(result.Changes) != 0 || len(result.Warnings) != 1 {
-		t.Fatalf("second apply result = %+v, want only tenant-model collision warning", result)
+	if len(result.Changes) != 0 {
+		t.Fatalf("second apply changes = %v, want none", result.Changes)
 	}
+	assertRetainedModelWarnings("second apply", result)
 	if _, err := store.Organizations().DeleteProject(
 		ctx,
 		created.Org.ID,
