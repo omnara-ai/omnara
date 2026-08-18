@@ -7,11 +7,20 @@ import {
 } from '@omnara/react'
 import { type CronTrigger, type CronTriggerTarget } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
+import cronstrue from 'cronstrue'
 import { Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from '@/components/ui/combobox'
 import {
   Dialog,
   DialogContent,
@@ -27,6 +36,21 @@ import { Textarea } from '@/components/ui/textarea'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { formatDateTime } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
+
+const nextFireFormatter = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZoneName: 'short',
+})
+
+function nextFireLabel(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return ` · next ${nextFireFormatter.format(date)}`
+}
 
 export function CronTriggersList({
   orgId,
@@ -60,8 +84,15 @@ export function CronTriggersList({
                 </div>
                 <p className="text-muted-foreground truncate text-xs">
                   <span className="font-mono">{trigger.cron}</span> · {trigger.timezone}
-                  {trigger.next_fire_at && ` · next ${formatDateTime(trigger.next_fire_at)}`}
+                  {trigger.next_fire_at && nextFireLabel(trigger.next_fire_at)}
                 </p>
+                {trigger.failure_report && (
+                  <p className="text-destructive break-words text-xs">
+                    Failed {formatDateTime(trigger.failure_report.failed_at)}:{' '}
+                    {trigger.failure_report.message} ·{' '}
+                    {trigger.failure_report.will_retry ? 'will retry' : 'will not retry'}
+                  </p>
+                )}
               </div>
               {canManage && (
                 <div className="flex shrink-0 items-center gap-1">
@@ -142,6 +173,41 @@ export function CronTriggersList({
   )
 }
 
+const browserTimezone = new Intl.DateTimeFormat().resolvedOptions().timeZone
+
+type TimezoneItem = { zone: string; label: string }
+
+function timezoneItemLabel(zone: string) {
+  const offset = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' })
+    .formatToParts(new Date())
+    .find((part) => part.type === 'timeZoneName')?.value
+  if (!offset) return zone
+  return `${zone} (${offset === 'GMT' ? 'GMT+00:00' : offset})`
+}
+
+let timezoneItemsCache: TimezoneItem[] | undefined
+
+function timezoneItems(): TimezoneItem[] {
+  if (!timezoneItemsCache) {
+    const pinned = browserTimezone === 'UTC' ? ['UTC'] : [browserTimezone, 'UTC']
+    const rest = Intl.supportedValuesOf('timeZone').filter((zone) => !pinned.includes(zone))
+    timezoneItemsCache = [...pinned, ...rest].map((zone) => ({
+      zone,
+      label: timezoneItemLabel(zone),
+    }))
+  }
+  return timezoneItemsCache
+}
+
+function cronDescription(expression: string) {
+  if (expression.trim().split(/\s+/).length !== 5) return undefined
+  try {
+    return cronstrue.toString(expression)
+  } catch {
+    return undefined
+  }
+}
+
 function createCronTriggerFormValid(value: {
   name: string
   cron: string
@@ -179,7 +245,7 @@ export function CreateCronTriggerDialog({
     defaultValues: {
       name: '',
       cron: '',
-      timezone: 'UTC',
+      timezone: browserTimezone,
       messageTemplate: '',
     },
     onSubmit: async ({ value }) => {
@@ -253,7 +319,8 @@ export function CreateCronTriggerDialog({
                     }}
                   />
                   <FieldDescription>
-                    Five fields: minute, hour, day of month, month, day of week.
+                    {cronDescription(field.state.value) ??
+                      'Five fields: minute, hour, day of month, month, day of week.'}
                   </FieldDescription>
                 </Field>
               )}
@@ -262,18 +329,31 @@ export function CreateCronTriggerDialog({
               {(field) => (
                 <Field>
                   <FieldLabel htmlFor="cron-trigger-timezone">Timezone</FieldLabel>
-                  <Input
-                    id="cron-trigger-timezone"
-                    required
-                    placeholder="UTC"
-                    value={field.state.value}
-                    onChange={(event) => {
-                      field.handleChange(event.target.value)
+                  <Combobox
+                    items={timezoneItems()}
+                    value={timezoneItems().find((item) => item.zone === field.state.value) ?? null}
+                    onValueChange={(item: TimezoneItem | null) => {
+                      field.handleChange(item?.zone ?? '')
                     }}
-                  />
-                  <FieldDescription>
-                    IANA time zone the schedule is evaluated in, such as America/New_York.
-                  </FieldDescription>
+                    itemToStringLabel={(item: TimezoneItem) => item.label}
+                    itemToStringValue={(item: TimezoneItem) => item.zone}
+                    isItemEqualToValue={(item: TimezoneItem, other: TimezoneItem) =>
+                      item.zone === other.zone
+                    }
+                  >
+                    <ComboboxInput id="cron-trigger-timezone" required />
+                    <ComboboxContent>
+                      <ComboboxEmpty>No timezones match.</ComboboxEmpty>
+                      <ComboboxList>
+                        {(item: TimezoneItem) => (
+                          <ComboboxItem key={item.zone} value={item}>
+                            {item.label}
+                          </ComboboxItem>
+                        )}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
+                  <FieldDescription>The schedule is evaluated in this timezone.</FieldDescription>
                 </Field>
               )}
             </form.Field>
