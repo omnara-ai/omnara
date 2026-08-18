@@ -3,6 +3,7 @@ import { Command } from 'commander'
 
 import { loadConfig, registerConfigCommand } from './config.ts'
 import { registerGroup, registerOperation } from './factory.ts'
+import { registerLoginCommand } from './login.ts'
 import { commandGroups, topLevelOperations } from './manifest.ts'
 
 process.stdout.on('error', (error: NodeJS.ErrnoException) => {
@@ -28,5 +29,6 @@ program.configureHelp({
 const config = loadConfig()
 for (const group of commandGroups) registerGroup(program, config, group)
 for (const operation of topLevelOperations) registerOperation(program, config, operation)
+registerLoginCommand(program, config)
 registerConfigCommand(program, config)
 await program.parseAsync()
