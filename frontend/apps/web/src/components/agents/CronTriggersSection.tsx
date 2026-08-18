@@ -5,7 +5,7 @@ import {
   useDeleteCronTrigger,
   useUpdateCronTrigger,
 } from '@omnara/react'
-import { ApiError, type CronTrigger, type CronTriggerTarget } from '@omnara/sdk'
+import { type CronTrigger, type CronTriggerTarget } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 import { Trash2 } from 'lucide-react'
 import { useState } from 'react'
@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { formatDateTime } from '@/lib/format'
@@ -47,24 +48,7 @@ export function CronTriggersList({
 
   return (
     <div className="flex flex-col gap-2">
-      {query.isPending ? null : query.isError ? (
-        <div className="flex items-center gap-3">
-          <p className="text-muted-foreground text-sm">Couldn&rsquo;t load schedules.</p>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              void query.refetch()
-            }}
-          >
-            Retry
-          </Button>
-        </div>
-      ) : triggers.length === 0 ? (
-        <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
-          {emptyMessage}
-        </div>
-      ) : (
+      {triggers.length > 0 ? (
         <ul className="bg-background flex flex-col divide-y rounded-md border">
           {triggers.map((trigger) => (
             <li key={trigger.id} className="flex items-center justify-between gap-3 px-3 py-2">
@@ -84,17 +68,16 @@ export function CronTriggersList({
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={updateTrigger.isPending}
+                    disabled={
+                      updateTrigger.isPending &&
+                      updateTrigger.variables.cronTriggerID === trigger.id
+                    }
                     onClick={() => {
                       updateTrigger.mutate(
                         { cronTriggerID: trigger.id, enabled: !trigger.enabled },
                         {
                           onError: (error) => {
-                            window.alert(
-                              error instanceof ApiError
-                                ? error.message
-                                : 'Could not update schedule',
-                            )
+                            window.alert(errorMessage(error, 'Could not update schedule'))
                           },
                         },
                       )
@@ -105,14 +88,12 @@ export function CronTriggersList({
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={deleteTrigger.isPending}
+                    disabled={deleteTrigger.isPending && deleteTrigger.variables === trigger.id}
                     onClick={() => {
                       if (!window.confirm(`Delete schedule ${trigger.name}?`)) return
                       deleteTrigger.mutate(trigger.id, {
                         onError: (error) => {
-                          window.alert(
-                            error instanceof ApiError ? error.message : 'Could not delete schedule',
-                          )
+                          window.alert(errorMessage(error, 'Could not delete schedule'))
                         },
                       })
                     }}
@@ -124,6 +105,25 @@ export function CronTriggersList({
             </li>
           ))}
         </ul>
+      ) : query.isPending ? (
+        <Spinner className="text-muted-foreground size-4" />
+      ) : query.isError ? (
+        <div className="flex items-center gap-3">
+          <p className="text-muted-foreground text-sm">Couldn&rsquo;t load schedules.</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void query.refetch()
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : (
+        <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
+          {emptyMessage}
+        </div>
       )}
       {query.hasNextPage && (
         <Button
@@ -202,7 +202,13 @@ export function CreateCronTriggerDialog({
   })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && createTrigger.isPending) return
+        onOpenChange(next)
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add cron schedule</DialogTitle>
