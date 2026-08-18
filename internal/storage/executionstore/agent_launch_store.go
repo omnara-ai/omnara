@@ -131,30 +131,6 @@ func (s *Store) launchAgentOnce(
 		MCPServers:  contract.MCPServers,
 		Created:     true,
 	}
-	configChange, err := activateInitialAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
-		ProjectID:      input.ProjectID,
-		AgentID:        agent.ID,
-		AgentConfigID:  config.ID,
-		ActorType:      input.LaunchedBy.Type,
-		ActorID:        input.LaunchedBy.ID,
-		Reason:         "launch",
-		IdempotencyKey: "launch:" + agent.ID.String(),
-	})
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
-	result.Agent = agent
-	result.ConfigChange = configChange
-	result.MCPConnections, err = createAgentMCPConnectionsTx(
-		ctx,
-		qtx,
-		input.ProjectID,
-		agent.ID,
-		contract.MCPServers,
-	)
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
 	if err := s.resolveLaunchMachineSourcesTx(
 		ctx,
 		tx,
@@ -180,6 +156,30 @@ func (s *Store) launchAgentOnce(
 		); err != nil {
 			return LaunchAgentResult{}, err
 		}
+	}
+	configChange, err := activateNewAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
+		ProjectID:      input.ProjectID,
+		AgentID:        agent.ID,
+		AgentConfigID:  config.ID,
+		ActorType:      input.LaunchedBy.Type,
+		ActorID:        input.LaunchedBy.ID,
+		Reason:         "launch",
+		IdempotencyKey: "launch:" + agent.ID.String(),
+	})
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
+	result.Agent = agent
+	result.ConfigChange = configChange
+	result.MCPConnections, err = createAgentMCPConnectionsTx(
+		ctx,
+		qtx,
+		input.ProjectID,
+		agent.ID,
+		contract.MCPServers,
+	)
+	if err != nil {
+		return LaunchAgentResult{}, err
 	}
 
 	bindingRequests, err := expandLaunchMachineBindingRequests(machineSources)

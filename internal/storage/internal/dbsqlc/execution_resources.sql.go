@@ -1234,6 +1234,7 @@ type GetPoolMachinePoolIDForLifecycleParams struct {
 }
 
 // @sqlc-vet-disable machines-deleted-at
+// Lifecycle lookup includes soft-deleted machines during teardown.
 func (q *Queries) GetPoolMachinePoolIDForLifecycle(ctx context.Context, arg GetPoolMachinePoolIDForLifecycleParams) (*uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, getPoolMachinePoolIDForLifecycle, arg.OrgID, arg.ID)
 	var machine_pool_id *uuid.UUID
@@ -2185,6 +2186,7 @@ type LockMachinePoolForLifecycleParams struct {
 }
 
 // @sqlc-vet-disable machine-pools-deleted-at
+// Lifecycle locking includes soft-deleted pools during teardown.
 func (q *Queries) LockMachinePoolForLifecycle(ctx context.Context, arg LockMachinePoolForLifecycleParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lockMachinePoolForLifecycle, arg.OrgID, arg.ID)
 	var id uuid.UUID

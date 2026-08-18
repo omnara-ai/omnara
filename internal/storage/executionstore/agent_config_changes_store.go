@@ -88,6 +88,27 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("load agent for config change: %w", err)
 	}
+	idempotentReplay := false
+	if input.IdempotencyKey != "" {
+		_, replayErr := qtx.GetAgentInputByIdempotency(
+			ctx,
+			dbsqlc.GetAgentInputByIdempotencyParams{
+				ProjectID:           input.ProjectID,
+				AgentID:             input.AgentID,
+				IdempotencyScope:    "agent_config_change",
+				InputIdempotencyKey: input.IdempotencyKey,
+			},
+		)
+		switch {
+		case replayErr == nil:
+			idempotentReplay = true
+		case !errors.Is(replayErr, pgx.ErrNoRows):
+			return ChangeAgentConfigResult{}, fmt.Errorf("load idempotent config change: %w", replayErr)
+		}
+	}
+	if !idempotentReplay && AgentState(agent.State) != AgentStateActive {
+		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
+	}
 	configInput := input.CreateAgentConfigInput
 	configInput.OrgID = project.OrgID
 	configInput.ProjectID = input.ProjectID
@@ -121,24 +142,6 @@ func (s *Store) changeAgentConfigOnce(
 		ActorID:        input.ActorID,
 		Reason:         input.Reason,
 		IdempotencyKey: input.IdempotencyKey,
-	}
-	idempotentReplay := false
-	if input.IdempotencyKey != "" {
-		_, replayErr := qtx.GetAgentInputByIdempotency(
-			ctx,
-			dbsqlc.GetAgentInputByIdempotencyParams{
-				ProjectID:           input.ProjectID,
-				AgentID:             input.AgentID,
-				IdempotencyScope:    "agent_config_change",
-				InputIdempotencyKey: input.IdempotencyKey,
-			},
-		)
-		switch {
-		case replayErr == nil:
-			idempotentReplay = true
-		case !errors.Is(replayErr, pgx.ErrNoRows):
-			return ChangeAgentConfigResult{}, fmt.Errorf("load idempotent config change: %w", replayErr)
-		}
 	}
 	var nextSources []launchMachineSource
 	if !idempotentReplay && !reflect.DeepEqual(currentContract.MachineSources, nextContract.MachineSources) {
@@ -293,15 +296,15 @@ func validateLiveAgentConfigChangeTx(
 	return currentContract, nextContract, nil
 }
 
-func activateInitialAgentConfigTx(
+func activateNewAgentConfigTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) (AgentConfigChangeRecord, error) {
-	if err := lockAgentForConfigActivationTx(ctx, qtx, input); err != nil {
-		return AgentConfigChangeRecord{}, err
+	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.AgentConfigID) {
+		return AgentConfigChangeRecord{}, errors.New("project, agent, and config are required")
 	}
 	return activateLockedAuthorizedAgentConfigTx(ctx, txNotifications, tx, qtx, input)
 }

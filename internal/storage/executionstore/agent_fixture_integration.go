@@ -55,7 +55,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if err != nil {
 		return AgentRecord{}, err
 	}
-	if _, err := activateInitialAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
+	if _, err := activateNewAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
 		ProjectID:      input.ProjectID,
 		AgentID:        record.ID,
 		AgentConfigID:  input.CurrentConfigID,

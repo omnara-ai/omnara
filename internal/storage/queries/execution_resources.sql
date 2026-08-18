@@ -143,6 +143,7 @@ WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id);
 
 -- name: LockMachinePoolForLifecycle :one
 -- @sqlc-vet-disable machine-pools-deleted-at
+-- Lifecycle locking includes soft-deleted pools during teardown.
 SELECT id
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id)
@@ -652,6 +653,7 @@ FOR UPDATE;
 
 -- name: GetPoolMachinePoolIDForLifecycle :one
 -- @sqlc-vet-disable machines-deleted-at
+-- Lifecycle lookup includes soft-deleted machines during teardown.
 SELECT machine_pool_id
 FROM machines
 WHERE org_id = sqlc.arg(org_id)

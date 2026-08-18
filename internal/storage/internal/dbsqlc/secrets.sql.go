@@ -236,6 +236,7 @@ type GetMachinePoolDeletionCredentialVersionRow struct {
 
 // @sqlc-vet-disable machine-pools-deleted-at
 // @sqlc-vet-disable secrets-deleted-at
+// Provider teardown reads the retained credential after pool and secret tombstoning.
 func (q *Queries) GetMachinePoolDeletionCredentialVersion(ctx context.Context, arg GetMachinePoolDeletionCredentialVersionParams) (GetMachinePoolDeletionCredentialVersionRow, error) {
 	row := q.db.QueryRow(ctx, getMachinePoolDeletionCredentialVersion, arg.OrgID, arg.MachinePoolID)
 	var i GetMachinePoolDeletionCredentialVersionRow

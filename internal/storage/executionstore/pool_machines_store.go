@@ -130,6 +130,9 @@ func (t *toolCallTransaction) createPoolMachine(
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
+	if agent.State != AgentStateActive {
+		return CreatePoolMachineResult{}, storeerr.ErrStateTransitionConflict
+	}
 	agentConfigID, err := t.q.GetToolCallAgentConfigID(
 		ctx,
 		dbsqlc.GetToolCallAgentConfigIDParams{
@@ -198,6 +201,9 @@ func (t *toolCallTransaction) createPoolMachine(
 	agent, err = loadAgentInProjectTx(ctx, t.tx, projectID, agentID)
 	if err != nil {
 		return CreatePoolMachineResult{}, err
+	}
+	if agent.State != AgentStateActive {
+		return CreatePoolMachineResult{}, storeerr.ErrStateTransitionConflict
 	}
 	currentSource, err = currentAgentPoolMachineSourceTx(
 		ctx,

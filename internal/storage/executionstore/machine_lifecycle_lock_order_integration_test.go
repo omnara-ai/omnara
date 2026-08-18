@@ -1680,6 +1680,193 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 	}
 }
 
+func TestConfigChangeWaitingBehindAgentArchiveRejectsNewAdmission(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "config-archive")
+	config := mustCreateAgentConfigFromYAML(
+		t,
+		ctx,
+		fixture.store,
+		"config-archive",
+		`
+instruction: Verify archived agents reject new config changes.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+`,
+		fixture.now.Add(6*time.Second),
+	)
+	acceptedInput := executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: changeInputFromRecord(config),
+		AgentID:                fixture.agent.ID,
+		ActorType:              identitystore.PrincipalTypeUser,
+		ActorID:                fixture.userID,
+		IdempotencyKey:         "config-before-archive",
+	}
+	accepted, err := fixture.store.Execution().ChangeAgentConfig(ctx, acceptedInput)
+	if err != nil {
+		t.Fatalf("change config before archive: %v", err)
+	}
+
+	releaseArchive := startAgentArchiveBlockedAfterSourceLock(t, ctx, fixture)
+
+	rejectedInput := acceptedInput
+	rejectedInput.IdempotencyKey = "config-after-archive"
+	changeDone := make(chan error, 1)
+	go func() {
+		_, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(ctx, rejectedInput)
+		changeDone <- changeErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+
+	releaseArchive()
+	select {
+	case err := <-changeDone:
+		if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+			t.Fatalf("new config change after archive error = %v, want state transition conflict", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for rejected config change")
+	}
+
+	replayed, err := fixture.store.Execution().ChangeAgentConfig(ctx, acceptedInput)
+	if err != nil {
+		t.Fatalf("replay config change after archive: %v", err)
+	}
+	if replayed.ConfigChange.AgentInput.ID != accepted.ConfigChange.AgentInput.ID ||
+		replayed.ConfigChange.Event.ID != accepted.ConfigChange.Event.ID {
+		t.Fatalf("archived config replay = %+v, want %+v", replayed.ConfigChange, accepted.ConfigChange)
+	}
+	var state string
+	var currentConfigID ID
+	var rejectedInputs int
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT agent.state,
+		        agent.current_config_id,
+		        count(input.id)::integer
+		 FROM agents agent
+		 LEFT JOIN agent_inputs input ON input.agent_id = agent.id
+		   AND input.idempotency_scope = 'agent_config_change'
+		   AND input.input_idempotency_key = $2
+		 WHERE agent.id = $1
+		 GROUP BY agent.id`,
+		fixture.agent.ID,
+		rejectedInput.IdempotencyKey,
+	).Scan(&state, &currentConfigID, &rejectedInputs); err != nil {
+		t.Fatalf("load config archive outcome: %v", err)
+	}
+	if state != string(executionstore.AgentStateArchived) || currentConfigID != config.ID || rejectedInputs != 0 {
+		t.Fatalf(
+			"config archive outcome: state=%q current_config=%s rejected_inputs=%d",
+			state,
+			currentConfigID,
+			rejectedInputs,
+		)
+	}
+}
+
+func TestPoolMachineCreationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "pool-machine-archive")
+
+	releaseArchive := startAgentArchiveBlockedAfterSourceLock(t, ctx, fixture)
+
+	createDone := make(chan error, 1)
+	go func() {
+		_, createErr := fixture.createMachineOnce(ctx)
+		createDone <- createErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+
+	releaseArchive()
+	select {
+	case err := <-createDone:
+		if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+			t.Fatalf("pool-machine creation after archive error = %v, want state transition conflict", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for rejected pool-machine creation")
+	}
+
+	var machineCount, bindingCount int
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT
+		   (SELECT count(*)::integer FROM machines WHERE machine_pool_id = $1),
+		   (SELECT count(*)::integer FROM agent_machine_bindings
+		    WHERE agent_id = $2 AND create_tool_call_id = $3)`,
+		fixture.machinePool.ID,
+		fixture.agent.ID,
+		fixture.createToolCallID,
+	).Scan(&machineCount, &bindingCount); err != nil {
+		t.Fatalf("load pool-machine archive outcome: %v", err)
+	}
+	if machineCount != 0 || bindingCount != 0 {
+		t.Fatalf("pool-machine archive outcome: machines=%d bindings=%d", machineCount, bindingCount)
+	}
+	toolCall, err := fixture.store.Execution().GetToolCall(
+		ctx,
+		testProjectID,
+		fixture.agent.ID,
+		fixture.createToolCallID,
+	)
+	if err != nil {
+		t.Fatalf("load archived create-machine tool call: %v", err)
+	}
+	if toolCall.State != executionstore.ToolCallStateCompleted {
+		t.Fatalf("archived create-machine tool call state = %q, want completed", toolCall.State)
+	}
+}
+
+func startAgentArchiveBlockedAfterSourceLock(
+	t *testing.T,
+	ctx context.Context,
+	fixture machineLifecycleLockOrderFixture,
+) func() {
+	t.Helper()
+	controlTx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin agent archive control transaction: %v", err)
+	}
+	t.Cleanup(func() { _ = controlTx.Rollback(context.Background()) })
+	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
+		ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
+	); err != nil {
+		t.Fatalf("lock agent before archive: %v", err)
+	}
+	archiveDone := make(chan error, 1)
+	go func() {
+		_, _, archiveErr := fixture.store.Execution().ArchiveAgent(
+			ctx,
+			testProjectID,
+			fixture.agent.ID,
+			identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
+		)
+		archiveDone <- archiveErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
+	return func() {
+		t.Helper()
+		if err := controlTx.Commit(ctx); err != nil {
+			t.Fatalf("release agent archive control transaction: %v", err)
+		}
+		select {
+		case err := <-archiveDone:
+			if err != nil {
+				t.Fatalf("archive agent after source lock: %v", err)
+			}
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for agent archive")
+		}
+	}
+}
+
 func runScopeDeletionAfterConcurrentAgentArchive(
 	t *testing.T,
 	ctx context.Context,

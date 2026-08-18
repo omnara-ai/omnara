@@ -96,6 +96,7 @@ WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id) AND id = sql
 -- name: GetMachinePoolDeletionCredentialVersion :one
 -- @sqlc-vet-disable machine-pools-deleted-at
 -- @sqlc-vet-disable secrets-deleted-at
+-- Provider teardown reads the retained credential after pool and secret tombstoning.
 SELECT version.id, version.org_id, version.secret_id, version.version_number,
        version.payload_keys, version.encryption_scheme, version.key_id,
        version.dek_wrapped_by, version.encrypted_dek, version.encrypted_dek_nonce,
