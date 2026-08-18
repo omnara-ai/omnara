@@ -876,10 +876,12 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSource(
 }
 
 type serviceE2EConfiguredModelOptions struct {
-	ContextWindowTokens    int
-	MaxOutputTokens        int
-	DefaultMaxOutputTokens int
-	APIVariantOptions      map[string]any
+	ContextWindowTokens       int
+	MaxOutputTokens           int
+	DefaultMaxOutputTokens    int
+	DefaultReasoningEffort    string
+	SupportedReasoningEfforts []string
+	APIVariantOptions         map[string]any
 }
 
 func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
@@ -1202,6 +1204,15 @@ func (e *serviceE2EEnvironment) createServiceE2EConfiguredModel(
 	}
 	if options.APIVariantOptions != nil {
 		body["api_variant_options"] = options.APIVariantOptions
+	}
+	if options.DefaultReasoningEffort != "" || len(options.SupportedReasoningEfforts) > 0 {
+		body["supports_reasoning"] = true
+	}
+	if options.DefaultReasoningEffort != "" {
+		body["default_reasoning_effort"] = options.DefaultReasoningEffort
+	}
+	if len(options.SupportedReasoningEfforts) > 0 {
+		body["supported_reasoning_efforts"] = options.SupportedReasoningEfforts
 	}
 	configuredModel := e.requestJSON(
 		t,

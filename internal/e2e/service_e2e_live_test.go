@@ -156,11 +156,15 @@ func TestServiceE2ELiveAPIFormatSwitchingPreservesHistory(t *testing.T) {
 		},
 	}
 
-	project := env.bootstrapProjectViaAPIWithSource(
+	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(
 		t,
 		ctx,
 		"live-api-format-switching",
 		liveAPIFormatSwitchConfig(stages[0], mcpServer.URL),
+		map[string]serviceE2EConfiguredModelOptions{
+			openAIChat.ConfiguredModelName: openAIChat.ModelOptions,
+			openRouter.ConfiguredModelName: openRouter.ModelOptions,
+		},
 	)
 	agentID := project.createAgent(t, ctx)
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
@@ -448,7 +452,7 @@ type liveServiceProvider struct {
 	BaseURL                     string
 	APIFormat                   string
 	APIVariant                  string
-	APIVariantOptions           map[string]any
+	ModelOptions                serviceE2EConfiguredModelOptions
 	RequireProviderReportedCost bool
 }
 
@@ -473,6 +477,10 @@ func liveServiceProviders() []liveServiceProvider {
 			BaseURL:             os.Getenv("OPENAI_BASE_URL"),
 			APIFormat:           "openai-chat-completions",
 			APIVariant:          "default",
+			ModelOptions: serviceE2EConfiguredModelOptions{
+				DefaultReasoningEffort:    "none",
+				SupportedReasoningEfforts: []string{"none"},
+			},
 		},
 		{
 			Name:                "OpenRouter",
@@ -483,8 +491,10 @@ func liveServiceProviders() []liveServiceProvider {
 			BaseURL:             os.Getenv("OPENROUTER_BASE_URL"),
 			APIFormat:           "openai-chat-completions",
 			APIVariant:          "openrouter",
-			APIVariantOptions: map[string]any{
-				"reasoning": map[string]any{"enabled": false},
+			ModelOptions: serviceE2EConfiguredModelOptions{
+				APIVariantOptions: map[string]any{
+					"reasoning": map[string]any{"enabled": false},
+				},
 			},
 			RequireProviderReportedCost: true,
 		},
@@ -525,7 +535,7 @@ func (provider liveServiceProvider) journeyOptions(journey string) liveServiceJo
 		ProviderConfig:              provider.ProviderConfig,
 		ConfiguredModelName:         provider.ConfiguredModelName,
 		BaseURL:                     provider.BaseURL,
-		APIVariantOptions:           provider.APIVariantOptions,
+		ModelOptions:                provider.ModelOptions,
 		RequireProviderReportedCost: provider.RequireProviderReportedCost,
 	}
 }
@@ -535,7 +545,7 @@ type liveServiceJourneyOptions struct {
 	ProviderConfig              string
 	ConfiguredModelName         string
 	BaseURL                     string
-	APIVariantOptions           map[string]any
+	ModelOptions                serviceE2EConfiguredModelOptions
 	RequireProviderReportedCost bool
 }
 
@@ -570,7 +580,16 @@ func runLiveServiceModelTurn(t *testing.T, ctx context.Context, opts liveService
 	t.Helper()
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, opts.Seed)
 	env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPI(t, ctx, opts.Seed, opts.ProviderConfig, opts.ConfiguredModelName)
+	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(
+		t,
+		ctx,
+		opts.Seed,
+		opts.ProviderConfig,
+		opts.ConfiguredModelName,
+		map[string]serviceE2EConfiguredModelOptions{
+			opts.ConfiguredModelName: opts.ModelOptions,
+		},
+	)
 	agentID := project.createAgent(t, ctx)
 	nonce := strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	project.createInput(t, ctx, agentID, "Reply with exactly this token and no extra words: "+nonce)
@@ -751,18 +770,17 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		"      mode: always_allow",
 		"",
 	}, "\n")
+	modelOptions := opts.ModelOptions
+	modelOptions.ContextWindowTokens = 16000
+	modelOptions.MaxOutputTokens = 8192
+	modelOptions.DefaultMaxOutputTokens = 4096
 	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(
 		t,
 		ctx,
 		opts.Seed,
 		sourceYAML,
 		map[string]serviceE2EConfiguredModelOptions{
-			opts.ConfiguredModelName: {
-				ContextWindowTokens:    16000,
-				MaxOutputTokens:        8192,
-				DefaultMaxOutputTokens: 4096,
-				APIVariantOptions:      opts.APIVariantOptions,
-			},
+			opts.ConfiguredModelName: modelOptions,
 		},
 	)
 	config := env.requestJSON(

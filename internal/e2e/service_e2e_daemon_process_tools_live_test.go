@@ -59,12 +59,15 @@ func runLiveDockerDaemonProcessTools(t *testing.T, ctx context.Context, opts liv
 	t.Helper()
 	env := newServiceE2EEnvironment(t, ctx, opts.Seed)
 	env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPIWithTools(
+	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(
 		t,
 		ctx,
 		opts.Seed,
 		opts.ProviderConfig,
 		opts.ConfiguredModelName,
+		map[string]serviceE2EConfiguredModelOptions{
+			opts.ConfiguredModelName: opts.ModelOptions,
+		},
 		processToolNames...)
 	nonce := strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	machine := project.bootstrapDockerMachine(t, ctx, opts.Seed+"-byo-machine")
