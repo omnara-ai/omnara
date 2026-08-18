@@ -230,6 +230,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 func sameMachineBindingConfig(left, right agentconfig.RuntimeMachine) bool {
 	return left.Cwd == right.Cwd &&
 		left.Description == right.Description &&
+		sameIntPtr(left.DeleteAfterIdleMinutes, right.DeleteAfterIdleMinutes) &&
 		reflect.DeepEqual(left.EnvOverlay, right.EnvOverlay) &&
 		reflect.DeepEqual(left.SecretEnvOverlay, right.SecretEnvOverlay)
 }
@@ -249,13 +250,14 @@ func updateAgentMachineBindingConfigTx(
 	updated, err := qtx.UpdateAttachedAgentMachineBindingConfig(
 		ctx,
 		dbsqlc.UpdateAttachedAgentMachineBindingConfigParams{
-			Description:      source.Contract.Description,
-			Cwd:              source.BindingConfig.Cwd,
-			EnvOverlay:       envOverlay,
-			SecretEnvOverlay: secretEnvOverlay,
-			ProjectID:        projectID,
-			AgentID:          agentID,
-			ID:               bindingID,
+			Description:            source.Contract.Description,
+			Cwd:                    source.BindingConfig.Cwd,
+			EnvOverlay:             envOverlay,
+			SecretEnvOverlay:       secretEnvOverlay,
+			DeleteAfterIdleMinutes: sqlcInt32Ptr(source.BindingConfig.DeleteAfterIdleMinutes),
+			ProjectID:              projectID,
+			AgentID:                agentID,
+			ID:                     bindingID,
 		},
 	)
 	if err != nil {

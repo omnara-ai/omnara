@@ -63,6 +63,11 @@ func TestValidateClusterMachinePoolUpdate(t *testing.T) {
 			field: "MaxMachineMemoryMB",
 			input: UpdateMachinePoolInput{MaxMachineMemoryMB: patch.NullableInt{Set: true, Value: &value}},
 		},
+		{
+			field:     "DeleteAfterIdleMinutes",
+			input:     UpdateMachinePoolInput{DeleteAfterIdleMinutes: patch.NullableInt{Set: true, Value: &value}},
+			protected: true,
+		},
 		{field: "Metadata", input: UpdateMachinePoolInput{Metadata: resourcemeta.Metadata{}}, protected: true},
 	}
 	classified := make(map[string]struct{}, len(tests))

@@ -58,6 +58,7 @@ export interface MachinePoolFormValues {
   minMachineMemoryGb: string
   maxMachineCpu: string
   maxMachineMemoryGb: string
+  deleteAfterIdleMinutes: string
   /** Secret id; '' until one is selected. */
   secretId: string
   projectGrantIds: string[]
@@ -86,6 +87,7 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   minMachineMemoryGb: '',
   maxMachineCpu: '',
   maxMachineMemoryGb: '',
+  deleteAfterIdleMinutes: '',
   secretId: '',
   projectGrantIds: [],
   runtimeProtectionEnabled: false,
@@ -192,6 +194,7 @@ export function machinePoolFormValid(
     envOverlayRowsValid(values.envRows) &&
     secretEnvOverlayRowsValid(values.secretEnvRows) &&
     optionalPositiveInt32Valid(values.maxMachineCpu) &&
+    optionalPositiveInt32Valid(values.deleteAfterIdleMinutes) &&
     memoryGbDraftValid(values.maxMachineMemoryGb, { optional: true }) &&
     (clusterEdit || optionalNonNegativeInt32Valid(values.maxTotalCpu)) &&
     optionalNonNegativeInt32Valid(values.minMachineCpu) &&
@@ -214,6 +217,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows),
     default_cwd: stringOrUndefined(values.cwd),
     runtime_protection_enabled: values.runtimeProtectionEnabled,
+    delete_after_idle_minutes: optionalInt(values.deleteAfterIdleMinutes),
   }
   const startupScript =
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
@@ -307,6 +311,7 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
       definition.resources.memoryMb === 'provider-resolved'
         ? ''
         : memoryGbDraft(pool.max_machine_memory_mb),
+    deleteAfterIdleMinutes: numberDraft(pool.delete_after_idle_minutes),
     secretId: pool.provider_auth_secret_id ?? '',
     projectGrantIds: [],
     runtimeProtectionEnabled: pool.runtime_protection_enabled,
@@ -352,6 +357,7 @@ export function machinePoolUpdateRequest(
     provider_auth_secret_id: values.secretId,
     runtime_protection_enabled: values.runtimeProtectionEnabled,
     max_total_machines: maxMachines,
+    delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
   }
   switch (values.provider) {
     case 'unikraft':

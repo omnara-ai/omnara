@@ -28,6 +28,7 @@ const (
 	runtimeLockReapBatchSize         int32 = 100
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
+	idleMachineReconcileInterval           = time.Minute
 )
 
 func main() {
@@ -386,8 +387,23 @@ func runMachinePoolMaintenanceLoop(
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var nextIdleReconcileAt time.Time
 	for {
 		runMachinePoolMaintenanceTick(ctx, log, machinePoolManager)
+		if now := time.Now(); !now.Before(nextIdleReconcileAt) {
+			candidateCount, err := machinePoolManager.ReconcileIdleDeletion(
+				ctx,
+				machinepool.DefaultReconcileBatchSize,
+			)
+			if err != nil {
+				log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", err)
+			} else if candidateCount > 0 {
+				log.Info("reconciled idle machine deletion", "candidate_count", candidateCount)
+			}
+			if candidateCount < machinepool.DefaultReconcileBatchSize {
+				nextIdleReconcileAt = now.Add(idleMachineReconcileInterval)
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return

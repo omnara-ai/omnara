@@ -54,6 +54,7 @@ export interface PoolGrantOverrideDraft {
   minMachineMemoryGb: string
   maxMachineCpu: string
   maxMachineMemoryGb: string
+  deleteAfterIdleMinutes: string
 }
 
 /**
@@ -76,6 +77,7 @@ export function emptyPoolGrantDraft(): PoolGrantOverrideDraft {
     minMachineMemoryGb: '',
     maxMachineCpu: '',
     maxMachineMemoryGb: '',
+    deleteAfterIdleMinutes: '',
   }
 }
 
@@ -84,6 +86,7 @@ export function poolGrantOverridesValid(draft: PoolGrantOverrideDraft) {
     envOverlayRowsValid(draft.envRows) &&
     secretEnvOverlayRowsValid(draft.secretEnvRows) &&
     [draft.cpu, draft.maxMachineCpu].every(optionalPositiveInt32Valid) &&
+    optionalPositiveInt32Valid(draft.deleteAfterIdleMinutes) &&
     memoryGbDraftValid(draft.memoryGb, { optional: true }) &&
     memoryGbDraftValid(draft.maxMachineMemoryGb, { optional: true }) &&
     [draft.maxTotalMachines, draft.maxTotalCpu, draft.minMachineCpu].every(
@@ -161,6 +164,7 @@ export function poolGrantDraftFromGrant(
     minMachineMemoryGb: memoryGbDraft(grant.min_machine_memory_mb),
     maxMachineCpu: numberDraft(grant.max_machine_cpu),
     maxMachineMemoryGb: memoryGbDraft(grant.max_machine_memory_mb),
+    deleteAfterIdleMinutes: numberDraft(grant.delete_after_idle_minutes),
   }
 }
 
@@ -214,6 +218,7 @@ export function poolGrantUpdateRequest(
       draft.maxMachineMemoryGb,
       grant.max_machine_memory_mb,
     ),
+    delete_after_idle_minutes: optionalIntOrNull(draft.deleteAfterIdleMinutes),
   }
 }
 
@@ -243,6 +248,7 @@ export function poolGrantCreateRequest(
     min_machine_memory_mb: optionalMemoryMb(draft.minMachineMemoryGb),
     max_machine_cpu: optionalInt(draft.maxMachineCpu),
     max_machine_memory_mb: optionalMemoryMb(draft.maxMachineMemoryGb),
+    delete_after_idle_minutes: optionalInt(draft.deleteAfterIdleMinutes),
   }
 }
 

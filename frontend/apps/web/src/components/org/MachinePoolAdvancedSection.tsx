@@ -42,15 +42,28 @@ export function MachinePoolAdvancedSection({
           />
         )}
         {!clusterManaged && (
-          <MachinePoolInputField
-            id="mpool-cwd"
-            label="Working directory"
-            value={values.cwd}
-            placeholder="/workspace"
-            onValueChange={(value) => {
-              setValue('cwd', value)
-            }}
-          />
+          <>
+            <MachinePoolInputField
+              id="mpool-delete-after-idle"
+              label="Delete after idle minutes"
+              type="number"
+              min="1"
+              step="1"
+              value={values.deleteAfterIdleMinutes}
+              onValueChange={(value) => {
+                setValue('deleteAfterIdleMinutes', value)
+              }}
+            />
+            <MachinePoolInputField
+              id="mpool-cwd"
+              label="Working directory"
+              value={values.cwd}
+              placeholder="/workspace"
+              onValueChange={(value) => {
+                setValue('cwd', value)
+              }}
+            />
+          </>
         )}
         <EnvOverlayEditor
           label="Environment variables"

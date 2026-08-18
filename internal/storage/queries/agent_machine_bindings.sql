@@ -1,6 +1,6 @@
 -- name: InsertAgentMachineBinding :one
-INSERT INTO agent_machine_bindings(org_id, project_id, agent_id, create_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at)
-SELECT agent.org_id, agent.project_id, agent.id, sqlc.narg(create_tool_call_id)::uuid, pmgrant.machine_id, sqlc.arg(machine_ref), sqlc.arg(binding_kind), 'attached', sqlc.arg(description), sqlc.arg(cwd), sqlc.arg(env_overlay)::jsonb, sqlc.arg(secret_env_overlay)::jsonb, sqlc.arg(metadata), statement_timestamp(), statement_timestamp()
+INSERT INTO agent_machine_bindings(org_id, project_id, agent_id, create_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, delete_after_idle_minutes, metadata, created_at, updated_at)
+SELECT agent.org_id, agent.project_id, agent.id, sqlc.narg(create_tool_call_id)::uuid, pmgrant.machine_id, sqlc.arg(machine_ref), sqlc.arg(binding_kind), 'attached', sqlc.arg(description), sqlc.arg(cwd), sqlc.arg(env_overlay)::jsonb, sqlc.arg(secret_env_overlay)::jsonb, sqlc.narg(delete_after_idle_minutes)::integer, sqlc.arg(metadata), statement_timestamp(), statement_timestamp()
 FROM agents agent
 JOIN project_machine_grants pmgrant ON pmgrant.project_id = agent.project_id
   AND pmgrant.id = sqlc.arg(project_machine_grant_id)
@@ -21,17 +21,17 @@ WHERE agent.project_id = sqlc.arg(project_id) AND agent.id = sqlc.arg(agent_id)
     )
   )
 ON CONFLICT (project_id, agent_id, machine_id) WHERE state = 'attached' DO NOTHING
-RETURNING id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at;
+RETURNING id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes;
 
 -- name: GetAgentMachineBindingByCreateToolCall :one
-SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at
+SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 FROM agent_machine_bindings
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
   AND create_tool_call_id = sqlc.arg(create_tool_call_id)::uuid;
 
 -- name: GetAgentMachineBindingByDeleteToolCall :one
-SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at
+SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 FROM agent_machine_bindings
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -48,7 +48,7 @@ WHERE tool_call.project_id = sqlc.arg(project_id)
   AND tool_call.id = sqlc.arg(tool_call_id);
 
 -- name: GetAgentMachineBindingByMachine :one
-SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at
+SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 FROM agent_machine_bindings
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -88,6 +88,7 @@ SELECT binding.id,
        binding.cwd,
        binding.env_overlay,
        binding.secret_env_overlay,
+       binding.delete_after_idle_minutes,
        binding.metadata,
        binding.created_at,
        binding.updated_at,
@@ -148,7 +149,7 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND state = 'attached'
   AND delete_tool_call_id IS NULL
-RETURNING id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at;
+RETURNING id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes;
 
 -- name: UpdateAttachedAgentMachineBindingConfig :execrows
 UPDATE agent_machine_bindings
@@ -156,6 +157,7 @@ SET description = sqlc.arg(description),
     cwd = sqlc.arg(cwd),
     env_overlay = sqlc.arg(env_overlay)::jsonb,
     secret_env_overlay = sqlc.arg(secret_env_overlay)::jsonb,
+    delete_after_idle_minutes = sqlc.narg(delete_after_idle_minutes)::integer,
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)

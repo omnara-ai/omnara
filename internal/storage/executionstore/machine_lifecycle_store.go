@@ -88,6 +88,11 @@ type PoolMachineCleanupCandidate struct {
 	ReasonMessage string
 }
 
+type ExpiredIdlePoolMachine struct {
+	OrgID     ID
+	MachineID ID
+}
+
 type PoolMachineDeletionClaim struct {
 	Machine                            MachineRecord
 	CanFinalizeMissingProviderResource bool
@@ -608,6 +613,79 @@ func (s *Store) ListPoolMachinesForCleanup(
 		out = append(out, poolMachineCleanupCandidateFromSQLC(row))
 	}
 	return out, nil
+}
+
+func (s *Store) ListExpiredIdlePoolMachines(
+	ctx context.Context,
+	limit int32,
+) ([]ExpiredIdlePoolMachine, error) {
+	if limit <= 0 {
+		limit = defaultMachineLifecycleListLimit
+	}
+	rows, err := s.q.ListExpiredIdlePoolMachines(
+		ctx,
+		dbsqlc.ListExpiredIdlePoolMachinesParams{LimitCount: limit},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list expired idle pool machines: %w", err)
+	}
+	out := make([]ExpiredIdlePoolMachine, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ExpiredIdlePoolMachine{OrgID: row.OrgID, MachineID: row.MachineID})
+	}
+	return out, nil
+}
+
+func (s *Store) ClaimExpiredIdlePoolMachineDeletion(
+	ctx context.Context,
+	orgID, machineID ID,
+) (PoolMachineDeletionClaim, bool, error) {
+	if isNilID(orgID) || isNilID(machineID) {
+		return PoolMachineDeletionClaim{}, false, errors.New("org and machine are required")
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return PoolMachineDeletionClaim{}, false, fmt.Errorf("begin claim expired idle pool machine deletion: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	txNotifications := s.newTxNotifications()
+	qtx := dbsqlc.New(tx)
+	if _, err := qtx.LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: orgID, ID: machineID},
+	); errors.Is(err, pgx.ErrNoRows) {
+		return PoolMachineDeletionClaim{}, false, nil
+	} else if err != nil {
+		return PoolMachineDeletionClaim{}, false, fmt.Errorf("lock expired idle pool machine deletion: %w", err)
+	}
+	row, err := qtx.ClaimExpiredIdlePoolMachineDeletion(
+		ctx,
+		dbsqlc.ClaimExpiredIdlePoolMachineDeletionParams{
+			OrgID:               orgID,
+			ID:                  machineID,
+			ClaimTimeoutSeconds: int64(poolMachineDeletionLeaseDuration / time.Second),
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PoolMachineDeletionClaim{}, false, nil
+	}
+	if err != nil {
+		return PoolMachineDeletionClaim{}, false, fmt.Errorf("claim expired idle pool machine deletion: %w", err)
+	}
+	claim := expiredIdlePoolMachineDeletionClaimFromSQLC(row)
+	claim, err = s.finalizePoolMachineDeletionClaimTx(
+		ctx,
+		tx,
+		qtx,
+		txNotifications,
+		claim,
+		"claim expired idle pool machine deletion",
+		machineDeletingReason,
+	)
+	if err != nil {
+		return PoolMachineDeletionClaim{}, false, err
+	}
+	return claim, true, nil
 }
 
 func (s *Store) ClaimPoolMachineDeletion(

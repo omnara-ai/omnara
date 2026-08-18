@@ -64,6 +64,7 @@ func (s *Server) machinePoolResponse(record executionstore.MachinePoolRecord) (o
 		MinMachineMemoryMb:            nullableInt32FromIntPtr(record.MinMachineMemoryMB),
 		MaxMachineCpu:                 nullableInt32FromIntPtr(record.MaxMachineCPU),
 		MaxMachineMemoryMb:            nullableInt32FromIntPtr(record.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        nullableInt32FromIntPtr(record.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 		CreatedAt:                     record.CreatedAt,
 		UpdatedAt:                     record.UpdatedAt,
@@ -211,6 +212,7 @@ func (s strictOpenAPIServer) createMachinePool(
 		MinMachineMemoryMB:            intPtrFromInt32(request.Body.MinMachineMemoryMb),
 		MaxMachineCPU:                 intPtrFromInt32(request.Body.MaxMachineCpu),
 		MaxMachineMemoryMB:            intPtrFromInt32(request.Body.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        intPtrFromInt32(request.Body.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -326,6 +328,7 @@ func (s strictOpenAPIServer) updateMachinePool(
 		MinMachineMemoryMB:            nullableIntPatchFromInt32(request.Body.MinMachineMemoryMb),
 		MaxMachineCPU:                 nullableIntPatchFromInt32(request.Body.MaxMachineCpu),
 		MaxMachineMemoryMB:            nullableIntPatchFromInt32(request.Body.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        nullableIntPatchFromInt32(request.Body.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {

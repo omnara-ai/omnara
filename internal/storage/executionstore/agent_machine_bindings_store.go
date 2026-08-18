@@ -89,37 +89,39 @@ func listExecutableAgentMachineBindings(
 }
 
 type AgentMachineBindingRecord struct {
-	ID               ID                       `json:"id"`
-	OrgID            ID                       `json:"org_id"`
-	ProjectID        ID                       `json:"project_id"`
-	AgentID          ID                       `json:"agent_id"`
-	CreateToolCallID ID                       `json:"create_tool_call_id,omitempty"`
-	DeleteToolCallID ID                       `json:"delete_tool_call_id,omitempty"`
-	MachineID        ID                       `json:"machine_id"`
-	MachineRef       string                   `json:"machine_ref"`
-	BindingKind      AgentMachineBindingKind  `json:"binding_kind"`
-	State            AgentMachineBindingState `json:"state"`
-	Description      string                   `json:"description,omitempty"`
-	Cwd              string                   `json:"cwd,omitempty"`
-	EnvOverlay       json.RawMessage          `json:"env_overlay"`
-	SecretEnvOverlay json.RawMessage          `json:"secret_env_overlay"`
-	Metadata         json.RawMessage          `json:"metadata"`
-	CreatedAt        time.Time                `json:"created_at"`
-	UpdatedAt        time.Time                `json:"updated_at"`
+	ID                     ID                       `json:"id"`
+	OrgID                  ID                       `json:"org_id"`
+	ProjectID              ID                       `json:"project_id"`
+	AgentID                ID                       `json:"agent_id"`
+	CreateToolCallID       ID                       `json:"create_tool_call_id,omitempty"`
+	DeleteToolCallID       ID                       `json:"delete_tool_call_id,omitempty"`
+	MachineID              ID                       `json:"machine_id"`
+	MachineRef             string                   `json:"machine_ref"`
+	BindingKind            AgentMachineBindingKind  `json:"binding_kind"`
+	State                  AgentMachineBindingState `json:"state"`
+	Description            string                   `json:"description,omitempty"`
+	Cwd                    string                   `json:"cwd,omitempty"`
+	EnvOverlay             json.RawMessage          `json:"env_overlay"`
+	SecretEnvOverlay       json.RawMessage          `json:"secret_env_overlay"`
+	DeleteAfterIdleMinutes *int                     `json:"delete_after_idle_minutes,omitempty"`
+	Metadata               json.RawMessage          `json:"metadata"`
+	CreatedAt              time.Time                `json:"created_at"`
+	UpdatedAt              time.Time                `json:"updated_at"`
 }
 
 type insertAgentMachineBindingInput struct {
-	ProjectID             ID
-	AgentID               ID
-	CreateToolCallID      ID
-	ProjectMachineGrantID ID
-	MachineRef            string
-	BindingKind           AgentMachineBindingKind
-	Description           string
-	Cwd                   string
-	EnvOverlay            json.RawMessage
-	SecretEnvOverlay      json.RawMessage
-	Metadata              json.RawMessage
+	ProjectID              ID
+	AgentID                ID
+	CreateToolCallID       ID
+	ProjectMachineGrantID  ID
+	MachineRef             string
+	BindingKind            AgentMachineBindingKind
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	DeleteAfterIdleMinutes *int
+	Metadata               json.RawMessage
 }
 
 const shortRefAlphabet = "abcdefghijklmnpqrstvwxyz23456789"

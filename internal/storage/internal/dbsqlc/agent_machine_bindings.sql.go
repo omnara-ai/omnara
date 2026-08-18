@@ -43,7 +43,7 @@ func (q *Queries) CountActiveAgentPoolMachines(ctx context.Context, arg CountAct
 }
 
 const getAgentMachineBindingByCreateToolCall = `-- name: GetAgentMachineBindingByCreateToolCall :one
-SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at
+SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 FROM agent_machine_bindings
 WHERE project_id = $1
   AND agent_id = $2
@@ -77,12 +77,13 @@ func (q *Queries) GetAgentMachineBindingByCreateToolCall(ctx context.Context, ar
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeleteAfterIdleMinutes,
 	)
 	return i, err
 }
 
 const getAgentMachineBindingByDeleteToolCall = `-- name: GetAgentMachineBindingByDeleteToolCall :one
-SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at
+SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 FROM agent_machine_bindings
 WHERE project_id = $1
   AND agent_id = $2
@@ -116,12 +117,13 @@ func (q *Queries) GetAgentMachineBindingByDeleteToolCall(ctx context.Context, ar
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeleteAfterIdleMinutes,
 	)
 	return i, err
 }
 
 const getAgentMachineBindingByMachine = `-- name: GetAgentMachineBindingByMachine :one
-SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at
+SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 FROM agent_machine_bindings
 WHERE project_id = $1
   AND agent_id = $2
@@ -167,6 +169,7 @@ func (q *Queries) GetAgentMachineBindingByMachine(ctx context.Context, arg GetAg
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeleteAfterIdleMinutes,
 	)
 	return i, err
 }
@@ -196,11 +199,11 @@ func (q *Queries) GetToolCallAgentConfigID(ctx context.Context, arg GetToolCallA
 }
 
 const insertAgentMachineBinding = `-- name: InsertAgentMachineBinding :one
-INSERT INTO agent_machine_bindings(org_id, project_id, agent_id, create_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at)
-SELECT agent.org_id, agent.project_id, agent.id, $1::uuid, pmgrant.machine_id, $2, $3, 'attached', $4, $5, $6::jsonb, $7::jsonb, $8, statement_timestamp(), statement_timestamp()
+INSERT INTO agent_machine_bindings(org_id, project_id, agent_id, create_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, delete_after_idle_minutes, metadata, created_at, updated_at)
+SELECT agent.org_id, agent.project_id, agent.id, $1::uuid, pmgrant.machine_id, $2, $3, 'attached', $4, $5, $6::jsonb, $7::jsonb, $8::integer, $9, statement_timestamp(), statement_timestamp()
 FROM agents agent
 JOIN project_machine_grants pmgrant ON pmgrant.project_id = agent.project_id
-  AND pmgrant.id = $9
+  AND pmgrant.id = $10
 JOIN machines machine ON machine.org_id = agent.org_id
   AND machine.id = pmgrant.machine_id
   AND machine.deleted_at IS NULL
@@ -208,7 +211,7 @@ JOIN machines machine ON machine.org_id = agent.org_id
     machine.lifecycle_state = 'active'
     OR (pmgrant.source_kind = 'pool' AND machine.source_kind = 'pool')
   )
-WHERE agent.project_id = $10 AND agent.id = $11
+WHERE agent.project_id = $11 AND agent.id = $12
   AND (
     $3::text = 'explicit'
     OR (
@@ -218,21 +221,22 @@ WHERE agent.project_id = $10 AND agent.id = $11
     )
   )
 ON CONFLICT (project_id, agent_id, machine_id) WHERE state = 'attached' DO NOTHING
-RETURNING id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at
+RETURNING id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 `
 
 type InsertAgentMachineBindingParams struct {
-	CreateToolCallID      *uuid.UUID
-	MachineRef            string
-	BindingKind           string
-	Description           string
-	Cwd                   string
-	EnvOverlay            json.RawMessage
-	SecretEnvOverlay      json.RawMessage
-	Metadata              json.RawMessage
-	ProjectMachineGrantID uuid.UUID
-	ProjectID             uuid.UUID
-	AgentID               uuid.UUID
+	CreateToolCallID       *uuid.UUID
+	MachineRef             string
+	BindingKind            string
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	DeleteAfterIdleMinutes *int32
+	Metadata               json.RawMessage
+	ProjectMachineGrantID  uuid.UUID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
 }
 
 func (q *Queries) InsertAgentMachineBinding(ctx context.Context, arg InsertAgentMachineBindingParams) (AgentMachineBinding, error) {
@@ -244,6 +248,7 @@ func (q *Queries) InsertAgentMachineBinding(ctx context.Context, arg InsertAgent
 		arg.Cwd,
 		arg.EnvOverlay,
 		arg.SecretEnvOverlay,
+		arg.DeleteAfterIdleMinutes,
 		arg.Metadata,
 		arg.ProjectMachineGrantID,
 		arg.ProjectID,
@@ -268,6 +273,7 @@ func (q *Queries) InsertAgentMachineBinding(ctx context.Context, arg InsertAgent
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeleteAfterIdleMinutes,
 	)
 	return i, err
 }
@@ -527,7 +533,7 @@ WHERE project_id = $2
   AND id = $4
   AND state = 'attached'
   AND delete_tool_call_id IS NULL
-RETURNING id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at
+RETURNING id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 `
 
 type MarkAgentMachineBindingDeleteRequestedParams struct {
@@ -563,6 +569,7 @@ func (q *Queries) MarkAgentMachineBindingDeleteRequested(ctx context.Context, ar
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeleteAfterIdleMinutes,
 	)
 	return i, err
 }
@@ -1025,6 +1032,7 @@ SELECT binding.id,
        binding.cwd,
        binding.env_overlay,
        binding.secret_env_overlay,
+       binding.delete_after_idle_minutes,
        binding.metadata,
        binding.created_at,
        binding.updated_at,
@@ -1100,6 +1108,7 @@ type SelectPoolMachinesRow struct {
 	Cwd                          string
 	EnvOverlay                   json.RawMessage
 	SecretEnvOverlay             json.RawMessage
+	DeleteAfterIdleMinutes       *int32
 	Metadata                     json.RawMessage
 	CreatedAt                    time.Time
 	UpdatedAt                    time.Time
@@ -1166,6 +1175,7 @@ func (q *Queries) SelectPoolMachines(ctx context.Context, arg SelectPoolMachines
 			&i.Cwd,
 			&i.EnvOverlay,
 			&i.SecretEnvOverlay,
+			&i.DeleteAfterIdleMinutes,
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -1217,21 +1227,23 @@ SET description = $1,
     cwd = $2,
     env_overlay = $3::jsonb,
     secret_env_overlay = $4::jsonb,
+    delete_after_idle_minutes = $5::integer,
     updated_at = statement_timestamp()
-WHERE project_id = $5
-  AND agent_id = $6
-  AND id = $7
+WHERE project_id = $6
+  AND agent_id = $7
+  AND id = $8
   AND state = 'attached'
 `
 
 type UpdateAttachedAgentMachineBindingConfigParams struct {
-	Description      string
-	Cwd              string
-	EnvOverlay       json.RawMessage
-	SecretEnvOverlay json.RawMessage
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	ID               uuid.UUID
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	DeleteAfterIdleMinutes *int32
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	ID                     uuid.UUID
 }
 
 func (q *Queries) UpdateAttachedAgentMachineBindingConfig(ctx context.Context, arg UpdateAttachedAgentMachineBindingConfigParams) (int64, error) {
@@ -1240,6 +1252,7 @@ func (q *Queries) UpdateAttachedAgentMachineBindingConfig(ctx context.Context, a
 		arg.Cwd,
 		arg.EnvOverlay,
 		arg.SecretEnvOverlay,
+		arg.DeleteAfterIdleMinutes,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.ID,

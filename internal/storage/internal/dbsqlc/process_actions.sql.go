@@ -1246,3 +1246,22 @@ func (q *Queries) ResolveQueuedTerminateActionsForTerminalProcess(ctx context.Co
 	}
 	return items, nil
 }
+
+const touchProcessActivity = `-- name: TouchProcessActivity :exec
+UPDATE processes
+SET updated_at = statement_timestamp()
+WHERE project_id = $1
+  AND agent_id = $2
+  AND id = $3
+`
+
+type TouchProcessActivityParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ProcessID uuid.UUID
+}
+
+func (q *Queries) TouchProcessActivity(ctx context.Context, arg TouchProcessActivityParams) error {
+	_, err := q.db.Exec(ctx, touchProcessActivity, arg.ProjectID, arg.AgentID, arg.ProcessID)
+	return err
+}

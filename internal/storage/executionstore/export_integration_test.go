@@ -199,17 +199,18 @@ type IntegrationCreateAgentContentInputTxResult struct {
 }
 
 type IntegrationInsertAgentMachineBindingInput struct {
-	ProjectID             ID
-	AgentID               ID
-	CreateToolCallID      ID
-	ProjectMachineGrantID ID
-	MachineRef            string
-	BindingKind           AgentMachineBindingKind
-	Description           string
-	Cwd                   string
-	EnvOverlay            json.RawMessage
-	SecretEnvOverlay      json.RawMessage
-	Metadata              json.RawMessage
+	ProjectID              ID
+	AgentID                ID
+	CreateToolCallID       ID
+	ProjectMachineGrantID  ID
+	MachineRef             string
+	BindingKind            AgentMachineBindingKind
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	DeleteAfterIdleMinutes *int
+	Metadata               json.RawMessage
 }
 
 type IntegrationLaunchMachineSource struct {

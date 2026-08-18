@@ -60,6 +60,7 @@ function NumberField({
   label,
   value,
   placeholder,
+  min = 0,
   step = '1',
   onValueChange,
 }: {
@@ -67,6 +68,7 @@ function NumberField({
   label: string
   value: string
   placeholder?: string
+  min?: number
   step?: string
   onValueChange: (value: string) => void
 }) {
@@ -76,7 +78,7 @@ function NumberField({
       <Input
         id={id}
         type="number"
-        min={0}
+        min={min}
         step={step}
         value={value}
         placeholder={placeholder}
@@ -180,6 +182,16 @@ export function PoolGrantOverrideFields({
       <Field>
         <FieldLabel>Limits</FieldLabel>
         <div className="grid gap-4 sm:grid-cols-3">
+          <NumberField
+            id={`${idPrefix}-delete-after-idle`}
+            label="Delete after idle minutes"
+            value={values.deleteAfterIdleMinutes}
+            placeholder={numberPlaceholder(pool.delete_after_idle_minutes)}
+            min={1}
+            onValueChange={(deleteAfterIdleMinutes) => {
+              onChange({ ...values, deleteAfterIdleMinutes })
+            }}
+          />
           <NumberField
             id={`${idPrefix}-max-machines`}
             label="Max machines"

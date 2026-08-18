@@ -108,6 +108,11 @@
         "cwd": {
           "type": "string"
         },
+        "delete_after_idle_minutes": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
         "description": {
           "type": "string"
         },

@@ -155,6 +155,7 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 			)
 
 			runToolCallID := fixture.toolCallID(t, ctx, runCall.ID)
+			var processUpdatedAtBefore time.Time
 			if test.processState == "exited" {
 				if _, err := fixture.Pool.Exec(
 					ctx,
@@ -182,6 +183,16 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 					fixture.Now.Add(14*time.Second),
 				); err != nil {
 					t.Fatalf("seed exited process: %v", err)
+				}
+				if err := fixture.Pool.QueryRow(
+					ctx,
+					`UPDATE processes
+					 SET updated_at = statement_timestamp() - interval '20 minutes'
+					 WHERE id = $1
+					 RETURNING updated_at`,
+					processID,
+				).Scan(&processUpdatedAtBefore); err != nil {
+					t.Fatalf("backdate stopped process activity: %v", err)
 				}
 			} else {
 				if _, err := fixture.Pool.Exec(
@@ -237,6 +248,23 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 			}
 			if actionCount != 0 {
 				t.Fatalf("stop actions = %d, want 0", actionCount)
+			}
+			if test.processState == "exited" {
+				var processUpdatedAtAfter time.Time
+				if err := fixture.Pool.QueryRow(
+					ctx,
+					`SELECT updated_at FROM processes WHERE id = $1`,
+					processID,
+				).Scan(&processUpdatedAtAfter); err != nil {
+					t.Fatalf("load stopped process activity: %v", err)
+				}
+				if !processUpdatedAtAfter.After(processUpdatedAtBefore) {
+					t.Fatalf(
+						"stopped process activity = %s, want after %s",
+						processUpdatedAtAfter,
+						processUpdatedAtBefore,
+					)
+				}
 			}
 		})
 	}

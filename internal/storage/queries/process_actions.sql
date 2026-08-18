@@ -354,6 +354,13 @@ WHERE action.project_id = sqlc.arg(project_id)
   )
 RETURNING action.id, action.org_id, action.project_id, action.agent_id, action.process_id, action.tool_call_id, action.runtime_lock_id, action.action_kind, action.seq, action.payload, action.state, action.created_at, action.updated_at, action.state_reason_code, action.state_reason_message;
 
+-- name: TouchProcessActivity :exec
+UPDATE processes
+SET updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND id = sqlc.arg(process_id);
+
 -- name: MarkProcessActionFailed :one
 UPDATE process_actions action
 SET state = 'failed',

@@ -46,6 +46,7 @@ export interface BasicMachineSource {
   defaultCwd: string
   initialNumMachines: string
   maxMachines: string
+  deleteAfterIdleMinutes: string
   machineCpu: string
   machineMemoryGb: string
   providerOptions: ProviderOptionsDraft
@@ -73,6 +74,7 @@ export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
     defaultCwd: '',
     initialNumMachines: '',
     maxMachines: '',
+    deleteAfterIdleMinutes: '',
     machineCpu: '',
     machineMemoryGb: '',
     providerOptions: emptyProviderOptions,
@@ -196,6 +198,7 @@ function machineSourceValid(source: BasicMachineSource) {
     (source.kind === 'machine' ||
       (machineCountValid(source.initialNumMachines) &&
         machineCountValid(source.maxMachines) &&
+        optionalPositiveInt32Valid(source.deleteAfterIdleMinutes) &&
         optionalPositiveInt32Valid(source.machineCpu) &&
         memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )
@@ -346,6 +349,7 @@ function machineSourceComparable(source: BasicMachineSource) {
     cwd: source.defaultCwd.trim(),
     initialNumMachines: source.initialNumMachines,
     maxMachines: source.maxMachines,
+    deleteAfterIdleMinutes: source.deleteAfterIdleMinutes,
     machineCpu: source.machineCpu,
     machineMemoryGb: source.machineMemoryGb,
     providerOptions: source.providerOptions,
@@ -379,6 +383,9 @@ function machineSourceWire(source: BasicMachineSource): Record<string, unknown> 
       wire.initial_num_machines = Number(source.initialNumMachines)
     }
     if (source.maxMachines !== '') wire.max_machines = Number(source.maxMachines)
+    if (source.deleteAfterIdleMinutes !== '') {
+      wire.delete_after_idle_minutes = Number(source.deleteAfterIdleMinutes)
+    }
     if (source.machineCpu !== '') wire.machine_cpu = Number(source.machineCpu)
     if (source.machineMemoryGb !== '') wire.machine_memory_mb = memoryGbToMb(source.machineMemoryGb)
     const optionsOverlay = isMachinePoolProvider(source.provider)
