@@ -27,10 +27,13 @@ export function AgentConfigBasicForm({
   return (
     <FieldGroup className="gap-8">
       <Field>
-        <FieldLabel htmlFor="agent-config-basic-instruction">Instruction</FieldLabel>
+        <FieldLabel htmlFor="agent-config-basic-instruction" required>
+          Instruction
+        </FieldLabel>
         <FieldDescription>The system prompt that defines how this agent works.</FieldDescription>
         <Textarea
           id="agent-config-basic-instruction"
+          aria-required
           value={instruction}
           placeholder="You are a research assistant. When given a topic, gather sources and produce a short summary with citations."
           className="min-h-36 resize-y"

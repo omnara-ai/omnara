@@ -62,7 +62,7 @@ export function AgentConfigModelField({
   return (
     <Field>
       <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Model</FieldLabel>
+        <FieldLabel required>Model</FieldLabel>
         <GrantModelButton />
       </div>
       <p className="text-muted-foreground text-sm">

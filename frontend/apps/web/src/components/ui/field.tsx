@@ -114,13 +114,26 @@ function FieldContent({ className, ...props }: ComponentProps<'div'>) {
   )
 }
 
-function FieldLabel({ className, ...props }: ComponentProps<typeof Label>) {
+function FieldLabel({
+  className,
+  required,
+  children,
+  ...props
+}: ComponentProps<typeof Label> & { required?: boolean }) {
   return (
     <Label
       data-slot="field-label"
       className={cn('group-data-[disabled=true]/field:opacity-50', className)}
       {...props}
-    />
+    >
+      {children}
+      {required && (
+        // -ml-1.5 tightens the parent label's gap-2 so the marker hugs the text.
+        <span aria-hidden="true" className="text-muted-foreground -ml-1.5">
+          *
+        </span>
+      )}
+    </Label>
   )
 }
 

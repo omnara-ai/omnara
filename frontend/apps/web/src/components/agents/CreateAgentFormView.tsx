@@ -208,7 +208,9 @@ export function CreateAgentFormView({
 
       <FieldGroup className="max-w-3xl gap-8">
         <Field>
-          <FieldLabel htmlFor="agent-config-name">Name</FieldLabel>
+          <FieldLabel htmlFor="agent-config-name" required>
+            Name
+          </FieldLabel>
           <Input
             id="agent-config-name"
             required
@@ -239,7 +241,7 @@ export function CreateAgentFormView({
           />
         )}
         <Field>
-          <FieldLabel htmlFor="agent-message">First message (optional)</FieldLabel>
+          <FieldLabel htmlFor="agent-message">First message</FieldLabel>
           <Input
             id="agent-message"
             value={draft.message}
