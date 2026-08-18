@@ -348,6 +348,94 @@ INSERT INTO agent_configs(
 	}
 }
 
+func TestResourceNameMigrationPreflightUsesConfiguredSearchPath(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	for _, statement := range []string{
+		`DROP EXTENSION IF EXISTS pg_trgm`,
+		`CREATE SCHEMA extensions`,
+		`CREATE EXTENSION pg_trgm WITH SCHEMA extensions`,
+		`CREATE SCHEMA agents`,
+	} {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	productConfig := pool.Config().ConnConfig.Copy()
+	productConfig.RuntimeParams["search_path"] = "agents,extensions"
+	productDB := stdlib.OpenDB(*productConfig)
+	t.Cleanup(func() { _ = productDB.Close() })
+	if err := dbmigrate.ApplyPostgres(ctx, productDB, migrationFilesThrough(t, 20)); err != nil {
+		t.Fatalf("apply migrations in product schema: %v", err)
+	}
+
+	if _, err := productDB.ExecContext(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("disable agent config triggers: %v", err)
+	}
+	triggersDisabled := true
+	t.Cleanup(func() {
+		if triggersDisabled {
+			_, _ = productDB.ExecContext(
+				context.Background(),
+				`ALTER TABLE agent_configs ENABLE TRIGGER ALL`,
+			)
+		}
+	})
+	const configID = "00000000-0000-0000-0000-000000000001"
+	if _, err := productDB.ExecContext(ctx, `
+INSERT INTO agent_configs(
+    id,
+    org_id,
+    project_id,
+    configured_model_id,
+    definition,
+    source,
+    source_format,
+    source_hash,
+    compiled_definition,
+    compiler_version,
+    effective_definition_hash,
+    created_at
+) VALUES (
+    $1::uuid,
+    uuidv7(),
+    uuidv7(),
+    uuidv7(),
+    '{}'::jsonb,
+    '',
+    'yaml',
+    'search-path-invalid',
+    '{}'::jsonb,
+    '',
+    'search-path-invalid',
+    now()
+)
+`, configID); err != nil {
+		t.Fatalf("insert invalid stored agent config: %v", err)
+	}
+	if _, err := productDB.ExecContext(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("enable agent config triggers: %v", err)
+	}
+	triggersDisabled = false
+
+	migrationConfig := pool.Config().ConnConfig.Copy()
+	migrationConfig.RuntimeParams["search_path"] = "extensions,agents"
+	migrationDB := stdlib.OpenDB(*migrationConfig)
+	t.Cleanup(func() { _ = migrationDB.Close() })
+	err := dbmigrate.ApplyPostgres(ctx, migrationDB, os.DirFS("../../migrations"))
+	for _, want := range []string{"1 agent config must be migrated", configID, "source"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("resource-name migration error = %v, want %q", err, want)
+		}
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, migrationDB); got != 20 {
+		t.Fatalf("migration version after search-path preflight = %d, want 20", got)
+	}
+}
+
 func TestPostgresResourceNamePolicyMatchesGo(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

@@ -146,7 +146,7 @@ func validateStoredAgentConfigResourceNames(ctx context.Context, db *sql.DB) err
 	var tableExists bool
 	if err := db.QueryRowContext(
 		ctx,
-		`SELECT to_regclass(current_schema() || '.agent_configs') IS NOT NULL`,
+		`SELECT to_regclass('agent_configs') IS NOT NULL`,
 	).Scan(&tableExists); err != nil {
 		return fmt.Errorf("locate stored agent configs: %w", err)
 	}
@@ -222,7 +222,11 @@ func validateStoredAgentConfigResourceNames(ctx context.Context, db *sql.DB) err
 		if omitted := violationCount - len(violations); omitted > 0 {
 			detail += fmt.Sprintf(", and %d more", omitted)
 		}
-		return fmt.Errorf("%d agent configs must be migrated: %s", violationCount, detail)
+		resource := "agent configs"
+		if violationCount == 1 {
+			resource = "agent config"
+		}
+		return fmt.Errorf("%d %s must be migrated: %s", violationCount, resource, detail)
 	}
 	return nil
 }
