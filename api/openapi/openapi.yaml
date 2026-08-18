@@ -5296,7 +5296,7 @@ paths:
       summary: Delete configured model
       description: >-
         Deletes only the configured model. Deletion is blocked while it has active project grants.
-        Models belonging to a cluster-managed provider config cannot be deleted through this route.
+        Cluster-managed configured models cannot be deleted through this route.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6983,7 +6983,7 @@ components:
     ConfiguredModel:
       type: object
       additionalProperties: false
-      required: [id, org_id, model_provider_config_id, name, current_revision_id, provider_model_slug, context_window_tokens, max_output_tokens, default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities, api_variant_options, created_at, updated_at, revision_created_at]
+      required: [id, org_id, model_provider_config_id, management_kind, name, current_revision_id, provider_model_slug, context_window_tokens, max_output_tokens, default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities, api_variant_options, created_at, updated_at, revision_created_at]
       properties:
         id:
           $ref: '#/components/schemas/ConfiguredModelID'
@@ -6991,6 +6991,8 @@ components:
           $ref: '#/components/schemas/OrganizationID'
         model_provider_config_id:
           $ref: '#/components/schemas/ModelProviderConfigID'
+        management_kind:
+          $ref: '#/components/schemas/ManagementKind'
         name:
           type: string
           description: Admin-facing configured model name used by agent YAML as model.name.

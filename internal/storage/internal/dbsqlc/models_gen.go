@@ -187,6 +187,7 @@ type ConfiguredModel struct {
 	DeletedAt             *time.Time
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	ManagementKind        string
 }
 
 type ConfiguredModelRevision struct {

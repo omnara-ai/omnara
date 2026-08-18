@@ -111,21 +111,21 @@ func (s *Service) reconcileOrgDefaults(
 		return ReconcileDefaultsResult{}, fmt.Errorf("begin default reconciliation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	changes, err := s.execution.ReconcileDefaultMachinePoolsTx(
-		ctx,
-		tx,
-		input.DefaultMachinePools,
-		pools,
-		input.Apply,
-	)
-	if err != nil {
-		return ReconcileDefaultsResult{}, err
-	}
 	modelChanges, warnings, err := s.models.ReconcileDefaultModelProviderTx(
 		ctx,
 		tx,
 		input.DefaultModelProvider,
 		providers,
+		input.Apply,
+	)
+	if err != nil {
+		return ReconcileDefaultsResult{}, err
+	}
+	changes, err := s.execution.ReconcileDefaultMachinePoolsTx(
+		ctx,
+		tx,
+		input.DefaultMachinePools,
+		pools,
 		input.Apply,
 	)
 	if err != nil {

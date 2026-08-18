@@ -267,11 +267,6 @@ func runDefaultReconciliation(
 		DefaultMachinePools:  cfg.DefaultMachinePools,
 		DefaultModelProvider: cfg.DefaultModelProvider,
 	})
-	for _, change := range result.Changes {
-		if _, err := fmt.Fprintf(output, "%s: %s\n", mode, change); err != nil {
-			return err
-		}
-	}
 	for _, warning := range result.Warnings {
 		if _, err := fmt.Fprintf(output, "%s: warning: %s\n", mode, warning); err != nil {
 			return err
@@ -279,10 +274,6 @@ func runDefaultReconciliation(
 	}
 	if reconcileErr != nil {
 		return reconcileErr
-	}
-	if len(result.Changes) == 0 {
-		_, err = fmt.Fprintf(output, "%s: no changes\n", mode)
-		return err
 	}
 	return nil
 }
