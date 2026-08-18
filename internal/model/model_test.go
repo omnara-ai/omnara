@@ -123,6 +123,70 @@ func TestPrepareForSendRejectsEmptyProviderRequest(t *testing.T) {
 	}
 }
 
+func TestPrepareForSendRejectsProviderOutputLimitConflictBeforePreparation(t *testing.T) {
+	client := &outputLimitPrepareClient{
+		prepareForSendClient: prepareForSendClient{
+			prepared: PreparedRequest{
+				Body:               json.RawMessage(`{"request":true}`),
+				InputTokenEstimate: 10,
+			},
+			capabilities: Capabilities{ContextWindowTokens: 100_000},
+		},
+		validationErr: ErrOutputTokenLimitIncompatible,
+	}
+	_, err := PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
+			ErrorSource: "test_api",
+		},
+	)
+	var providerErr ProviderError
+	if !errors.Is(err, ErrOutputTokenLimitIncompatible) ||
+		!errors.As(err, &providerErr) ||
+		providerErr.Kind != ErrorKindInvalidRequest ||
+		providerErr.Code != OutputTokenLimitIncompatibleCode {
+		t.Fatalf("output-limit conflict = %v, want classified incompatible error", err)
+	}
+	if client.prepareCalls != 0 {
+		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
+	}
+
+	client.validationErr = errors.New("malformed output options")
+	_, err = PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
+			ErrorSource: "test_api",
+		},
+	)
+	if !errors.As(err, &providerErr) ||
+		providerErr.Kind != ErrorKindInvalidRequest ||
+		providerErr.Code != InvalidOutputTokenConfigurationCode {
+		t.Fatalf("invalid output configuration = %v, want classified invalid request", err)
+	}
+	if client.prepareCalls != 0 {
+		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
+	}
+
+	client.validationErr = nil
+	if _, err := PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Policy:      RequestPolicy{MaxOutputTokens: 32_768},
+			ErrorSource: "test_api",
+		},
+	); err != nil {
+		t.Fatalf("prepare compatible output limit: %v", err)
+	}
+	if client.prepareCalls != 1 {
+		t.Fatalf("provider preparation calls = %d, want one", client.prepareCalls)
+	}
+}
+
 func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 	bundle := modelcontext.Bundle{
 		RenderedMedia: []modelcontext.RenderedMedia{{
@@ -273,6 +337,24 @@ func (prepareForSendClient) Respond(context.Context, Request) (Response, error) 
 }
 
 func (c prepareForSendClient) Capabilities() Capabilities { return c.capabilities }
+
+type outputLimitPrepareClient struct {
+	prepareForSendClient
+	validationErr error
+	prepareCalls  int
+}
+
+func (c *outputLimitPrepareClient) ValidateOutputTokenLimit(RequestPolicy) error {
+	return c.validationErr
+}
+
+func (c *outputLimitPrepareClient) Prepare(
+	ctx context.Context,
+	input PrepareInput,
+) (PreparedRequest, error) {
+	c.prepareCalls++
+	return c.prepareForSendClient.Prepare(ctx, input)
+}
 
 func TestToolCallsFromEnvelopePreservesContentOrder(t *testing.T) {
 	envelope := modelenvelope.ResponseEnvelope{

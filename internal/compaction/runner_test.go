@@ -124,7 +124,7 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 	sawSummaryRequest := false
 	sawCandidateRequest := false
 	for index, policy := range client.preparedPolicies {
-		if policy.DefaultReasoningEffort != reasoningEffort {
+		if policy.ReasoningEffort != reasoningEffort {
 			t.Fatalf("prepared policy %d = %+v, want inherited reasoning", index, policy)
 		}
 		if client.preparedBundles[index].ContextCheckpoint == nil {

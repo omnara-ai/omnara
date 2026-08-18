@@ -259,11 +259,15 @@ func irreducibleCompactionError(detail string) error {
 	})
 }
 
-func compactionRequestPolicy(client model.Client) model.RequestPolicy {
+func compactionRequestPolicy(client model.Client, errorSource string) (model.RequestPolicy, error) {
 	capabilities := model.CapabilitiesForClient(client)
-	policy := model.RequestPolicyFromCapabilities(capabilities)
+	normalPolicy := model.RequestPolicyFromCapabilities(capabilities)
+	policy := normalPolicy
 	// Keep summary cost and admission reservation bounded independently of the
-	// model's context size; a smaller model output limit still wins.
+	// model's context size; a smaller model output limit still wins. A provider
+	// may require a larger total only to preserve an inherited fixed reasoning
+	// budget, in which case the already-effective normal allowance is the sole
+	// fallback rather than an invented compaction setting.
 	const maxSummaryOutputTokens = 16_384
 	policy.MaxOutputTokens = capabilities.MaxOutputTokens
 	if policy.MaxOutputTokens <= 0 {
@@ -272,7 +276,18 @@ func compactionRequestPolicy(client model.Client) model.RequestPolicy {
 	if policy.MaxOutputTokens > maxSummaryOutputTokens {
 		policy.MaxOutputTokens = maxSummaryOutputTokens
 	}
-	return policy
+	err := model.ValidateOutputTokenLimit(client, policy, errorSource)
+	if err == nil {
+		return policy, nil
+	}
+	if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) {
+		return model.RequestPolicy{}, err
+	}
+	policy.MaxOutputTokens = normalPolicy.MaxOutputTokens
+	if err := model.ValidateOutputTokenLimit(client, policy, errorSource); err != nil {
+		return model.RequestPolicy{}, err
+	}
+	return policy, nil
 }
 
 func validateCompactionResponse(errorSource string, response model.Response) (string, error) {

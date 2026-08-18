@@ -3,6 +3,7 @@ package compaction
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
@@ -152,11 +153,15 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			compactionPolicy, err := compactionRequestPolicy(test.client, "test")
+			if err != nil {
+				t.Fatalf("compaction request policy: %v", err)
+			}
 			compactionBody := preparePolicyWireBody(
 				t,
 				test.client,
 				bundle,
-				compactionRequestPolicy(test.client),
+				compactionPolicy,
 			)
 			normalBody := preparePolicyWireBody(
 				t,
@@ -190,6 +195,105 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 				if _, found := compactionBody[field]; found {
 					t.Fatalf("unexpected %s in compaction request: %s", field, compactionBody[field])
 				}
+			}
+		})
+	}
+}
+
+func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing.T) {
+	capabilities := model.Capabilities{
+		ContextWindowTokens:    200_000,
+		MaxOutputTokens:        64_000,
+		DefaultMaxOutputTokens: 32_768,
+	}
+	tests := []struct {
+		name        string
+		client      model.Client
+		outputField string
+		absentField string
+		optionField string
+		wantOutput  int
+	}{
+		{
+			name: "Anthropic Messages",
+			client: anthropicmessages.Client{
+				EndpointPath:      "/messages",
+				ProviderModelSlug: "claude-sonnet-4",
+				ModelCapabilities: capabilities,
+				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
+			},
+			outputField: "max_tokens",
+			optionField: "thinking",
+			wantOutput:  32_768,
+		},
+		{
+			name: "OpenRouter Chat Completions",
+			client: openaichatcompletions.Client{
+				EndpointPath:      "/chat/completions",
+				ProviderModelSlug: "anthropic/claude-sonnet-4",
+				ModelCapabilities: capabilities,
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+				APIVariantOptions: json.RawMessage(
+					`{"models":["~anthropic/claude-opus-4"],"max_tokens":10000,` +
+						`"max_completion_tokens":11000,"reasoning":{"max_tokens":24576}}`,
+				),
+			},
+			outputField: "max_completion_tokens",
+			absentField: "max_tokens",
+			optionField: "reasoning",
+			wantOutput:  16_384,
+		},
+	}
+	bundle := modelcontext.Bundle{Messages: []modelcontext.Message{{
+		Role:     modelprotocol.RoleUser,
+		Sequence: 1,
+		Content:  json.RawMessage(`[{"type":"text","text":"summarize this history"}]`),
+	}}}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policy, err := compactionRequestPolicy(test.client, "test")
+			if err != nil {
+				t.Fatalf("compaction request policy: %v", err)
+			}
+			if policy.MaxOutputTokens != test.wantOutput {
+				t.Fatalf("max output = %d, want %d", policy.MaxOutputTokens, test.wantOutput)
+			}
+			prepared, err := model.PrepareForSend(
+				context.Background(),
+				test.client,
+				model.PrepareForSendInput{
+					Context:     bundle,
+					Policy:      policy,
+					ErrorSource: "test",
+				},
+			)
+			if err != nil {
+				t.Fatalf("prepare reconciled request: %v", err)
+			}
+			var body map[string]json.RawMessage
+			if err := json.Unmarshal(prepared.Body, &body); err != nil {
+				t.Fatalf("decode provider request: %v", err)
+			}
+			wantOutput := fmt.Sprintf("%d", test.wantOutput)
+			if got := string(body[test.outputField]); got != wantOutput {
+				t.Fatalf("wire %s = %s, want %s", test.outputField, got, wantOutput)
+			}
+			if test.absentField != "" {
+				if _, found := body[test.absentField]; found {
+					t.Fatalf("alternate output field %s remained on wire: %s", test.absentField, prepared.Body)
+				}
+			}
+			if _, found := body[test.optionField]; !found {
+				t.Fatalf("provider-owned %s option was removed: %s", test.optionField, prepared.Body)
+			}
+			wantUsable := model.UsableInputTokensForRequest(capabilities, policy)
+			if prepared.InputBudget.UsableInputTokens != wantUsable ||
+				prepared.InputBudget.EstimatedInputTokens <= 0 {
+				t.Fatalf(
+					"admission = %+v, want exact wire policy usable input %d",
+					prepared.InputBudget,
+					wantUsable,
+				)
 			}
 		})
 	}

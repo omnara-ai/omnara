@@ -165,7 +165,17 @@ func (r Runner) run(
 	}
 	providerAttempt := providerAttemptEvidence{APIFormat: apiFormat, APIVariant: apiVariant}
 	errorSource := modelErrorSourceForAPIFormat(apiFormat)
-	policy := compactionRequestPolicy(client)
+	policy, err := compactionRequestPolicy(client, errorSource)
+	if err != nil {
+		return r.recordPreSendFailure(
+			ctx, input, claim, err,
+			modelretry.PreSendFailure{
+				Code:    compactionErrorCodePrepareRequestFailed,
+				Message: "Omnara could not prepare a valid compaction request policy.",
+			},
+			providerAttempt,
+		)
+	}
 	policy.SuppressProviderReplay, err = r.Store.ModelCallOperationHasFailedWithErrorKind(
 		ctx,
 		input.Plan.ProjectID,

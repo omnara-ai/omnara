@@ -342,6 +342,98 @@ LIMIT 1
 	}
 }
 
+func TestAgentExecutorRecordsOutputLimitConflictBeforeProviderPreparation(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	agentID, userID := fixture.createAgent(t, ctx, "openai/output-limit-conflict", now)
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"exercise deterministic output policy validation",
+		now.Add(time.Millisecond),
+	)
+	baseClient := &sequenceKernelModel{providerModelSlug: "output-limit-conflict"}
+	modelClient := &outputLimitKernelModel{sequenceKernelModel: baseClient}
+	executor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
+		ToolExecutor:  tools.Executor{Store: fixture.Store},
+		Now:           func() time.Time { return now.Add(2 * time.Millisecond) },
+	}
+	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
+		t.Fatalf("execute turn with output-limit conflict: %v", err)
+	}
+
+	var contextState executionstore.ModelCallState
+	var recoveryKind executionstore.ModelCallRecoveryKind
+	var errorKind, errorCode, outputStopReason, blockKind, blockText string
+	var outputCount, blockCount int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT context.state, COALESCE(context.recovery_kind::text, ''), context.error_kind, context.error_code,
+       output.stop_reason, count(DISTINCT output.id)::integer,
+       count(block.id)::integer, min(block.block_kind), min(block.text_content)
+FROM model_call_contexts context
+JOIN model_outputs output ON output.agent_id = context.agent_id
+  AND output.model_call_context_id = context.id
+JOIN content_blocks block ON block.agent_id = output.agent_id
+  AND block.owner_model_output_id = output.id
+WHERE context.project_id = $1
+  AND context.agent_id = $2
+  AND context.input_event_sequence = $3
+GROUP BY context.id, output.stop_reason
+ORDER BY context.attempt_number DESC
+LIMIT 1
+`, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(
+		&contextState,
+		&recoveryKind,
+		&errorKind,
+		&errorCode,
+		&outputStopReason,
+		&outputCount,
+		&blockCount,
+		&blockKind,
+		&blockText,
+	); err != nil {
+		t.Fatalf("inspect output-limit conflict: %v", err)
+	}
+	if contextState != executionstore.ModelCallContextFailed || recoveryKind != "" ||
+		errorKind != string(model.ErrorKindInvalidRequest) ||
+		errorCode != model.OutputTokenLimitIncompatibleCode || outputStopReason != "error" ||
+		outputCount != 1 || blockCount != 1 || blockKind != "error" ||
+		blockText != model.ErrOutputTokenLimitIncompatible.Error() ||
+		modelClient.validationCalls != 1 || baseClient.preparedCount() != 0 ||
+		baseClient.respondedCount() != 0 {
+		t.Fatalf(
+			"output-limit state=%q recovery=%q error=%s/%s output=%s/%d block=%s/%q/%d validation=%d prepare=%d respond=%d",
+			contextState,
+			recoveryKind,
+			errorKind,
+			errorCode,
+			outputStopReason,
+			outputCount,
+			blockKind,
+			blockText,
+			blockCount,
+			modelClient.validationCalls,
+			baseClient.preparedCount(),
+			baseClient.respondedCount(),
+		)
+	}
+}
+
+type outputLimitKernelModel struct {
+	*sequenceKernelModel
+	validationCalls int
+}
+
+func (m *outputLimitKernelModel) ValidateOutputTokenLimit(model.RequestPolicy) error {
+	m.validationCalls++
+	return model.ErrOutputTokenLimitIncompatible
+}
+
 func TestAgentExecutorAppliesAgentModelOptionsToRequestPolicy(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)

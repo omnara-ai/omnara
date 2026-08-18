@@ -282,7 +282,7 @@ func TestPrepareRequestsEncryptedReasoningForReasoningModel(t *testing.T) {
 				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
 			},
 		},
-		Policy: model.RequestPolicy{SupportsReasoning: &supportsReasoning, DefaultReasoningEffort: "high"},
+		Policy: model.RequestPolicy{SupportsReasoning: &supportsReasoning, ReasoningEffort: "high"},
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -404,7 +404,7 @@ func TestPrepareKeepsResponsesReasoningIncludeOwned(t *testing.T) {
 				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
 			},
 		},
-		Policy: model.RequestPolicy{SupportsReasoning: &supportsReasoning, DefaultReasoningEffort: "high"},
+		Policy: model.RequestPolicy{SupportsReasoning: &supportsReasoning, ReasoningEffort: "high"},
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)

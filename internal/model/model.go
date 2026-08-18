@@ -52,6 +52,19 @@ type Client interface {
 	Respond(ctx context.Context, input Request) (Response, error)
 }
 
+// OutputTokenLimitValidator exposes provider-owned constraints on the total
+// output limit without allowing an adapter to rewrite request policy.
+type OutputTokenLimitValidator interface {
+	ValidateOutputTokenLimit(RequestPolicy) error
+}
+
+var ErrOutputTokenLimitIncompatible = errors.New("output token limit is incompatible with provider options")
+
+const (
+	OutputTokenLimitIncompatibleCode    = "output_token_limit_incompatible"
+	InvalidOutputTokenConfigurationCode = "invalid_output_token_configuration"
+)
+
 func APIFormatForClient(client Client) modelprotocol.APIFormat {
 	if client == nil {
 		return ""
@@ -158,6 +171,9 @@ func PrepareForSend(
 	if client == nil {
 		return PreparedRequest{}, errors.New("model client is required")
 	}
+	if err := ValidateOutputTokenLimit(client, input.Policy, input.ErrorSource); err != nil {
+		return PreparedRequest{}, err
+	}
 	if err := validateRequestModalities(
 		input.Context,
 		CapabilitiesForClient(client),
@@ -188,6 +204,38 @@ func PrepareForSend(
 		UsableInputTokens:    window.UsableInputTokens(),
 	}
 	return prepared, nil
+}
+
+// ValidateOutputTokenLimit checks only constraints declared by the concrete
+// provider adapter. Callers remain responsible for choosing the policy.
+func ValidateOutputTokenLimit(client Client, policy RequestPolicy, errorSource string) error {
+	validator, ok := client.(OutputTokenLimitValidator)
+	if !ok {
+		return nil
+	}
+	err := validator.ValidateOutputTokenLimit(policy)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrOutputTokenLimitIncompatible) {
+		return ProviderError{
+			Kind:    ErrorKindInvalidRequest,
+			Source:  errorSource,
+			Code:    OutputTokenLimitIncompatibleCode,
+			Message: err.Error(),
+			Cause:   err,
+		}
+	}
+	if _, classified := ClassifyError(err); classified {
+		return err
+	}
+	return ProviderError{
+		Kind:    ErrorKindInvalidRequest,
+		Source:  errorSource,
+		Code:    InvalidOutputTokenConfigurationCode,
+		Message: err.Error(),
+		Cause:   err,
+	}
 }
 
 func validateRequestModalities(bundle modelcontext.Bundle, capabilities Capabilities, errorSource string) error {
@@ -256,7 +304,7 @@ type RequestPolicy struct {
 	CacheRetention         CacheRetention `json:"cache_retention,omitempty"`
 	SupportsTools          *bool          `json:"supports_tools,omitempty"`
 	SupportsReasoning      *bool          `json:"supports_reasoning,omitempty"`
-	DefaultReasoningEffort string         `json:"default_reasoning_effort,omitempty"`
+	ReasoningEffort        string         `json:"reasoning_effort,omitempty"`
 	SuppressProviderReplay bool           `json:"suppress_provider_replay,omitempty"`
 }
 
@@ -267,11 +315,11 @@ func RequestPolicyFromCapabilities(capabilities Capabilities) RequestPolicy {
 		maxOutputTokens = capabilities.MaxOutputTokens
 	}
 	return RequestPolicy{
-		MaxOutputTokens:        maxOutputTokens,
-		CacheRetention:         capabilities.DefaultCacheRetention,
-		SupportsTools:          capabilities.SupportsTools,
-		SupportsReasoning:      &supportsReasoning,
-		DefaultReasoningEffort: capabilities.DefaultReasoningEffort,
+		MaxOutputTokens:   maxOutputTokens,
+		CacheRetention:    capabilities.DefaultCacheRetention,
+		SupportsTools:     capabilities.SupportsTools,
+		SupportsReasoning: &supportsReasoning,
+		ReasoningEffort:   capabilities.DefaultReasoningEffort,
 	}
 }
 

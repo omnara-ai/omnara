@@ -58,9 +58,9 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 			}},
 		},
 		Policy: model.RequestPolicy{
-			MaxOutputTokens:        1234,
-			CacheRetention:         model.CacheRetentionLong,
-			DefaultReasoningEffort: "medium",
+			MaxOutputTokens: 1234,
+			CacheRetention:  model.CacheRetentionLong,
+			ReasoningEffort: "medium",
 		},
 	})
 	if err != nil {
@@ -274,9 +274,9 @@ func TestPrepareBuildsOpenRouterPayload(t *testing.T) {
 			}},
 		},
 		Policy: model.RequestPolicy{
-			MaxOutputTokens:        2048,
-			CacheRetention:         model.CacheRetentionLong,
-			DefaultReasoningEffort: "high",
+			MaxOutputTokens: 2048,
+			CacheRetention:  model.CacheRetentionLong,
+			ReasoningEffort: "high",
 		},
 	})
 	if err != nil {
@@ -366,7 +366,7 @@ func TestAPIVariantOptionsReachProviderRequest(t *testing.T) {
 		APIVariantOptions: json.RawMessage(
 			`{"temperature":0.2,"top_k":40,"repetition_penalty":1.1,` +
 				`"stream":true,"stream_options":{"include_usage":true},"n":1,` +
-				`"max_tokens":12,"response_format":{"type":"json_object"}}`,
+				`"response_format":{"type":"json_object"}}`,
 		),
 	}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
@@ -386,7 +386,6 @@ func TestAPIVariantOptionsReachProviderRequest(t *testing.T) {
 		"repetition_penalty": "1.1",
 		"stream":             "true",
 		"n":                  "1",
-		"max_tokens":         "12",
 	} {
 		if string(sent[key]) != want {
 			t.Fatalf("api_variant_options.%s = %s, want %s in provider request %v", key, sent[key], want, sent)
@@ -406,13 +405,15 @@ func TestAPIVariantOptionsDoNotOverrideAdapterFields(t *testing.T) {
 		ProviderModelSlug: "gpt-test",
 		APIVariantOptions: json.RawMessage(
 			`{"model":"override-model","messages":[],"tools":[{"type":"function"}],` +
-				`"tool_choice":"required","n":2,"temperature":0.2}`,
+				`"tool_choice":"required","n":2,"max_tokens":12,"max_completion_tokens":13,` +
+				`"temperature":0.2}`,
 		),
 	}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
 			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
 		}}},
+		Policy: model.RequestPolicy{MaxOutputTokens: 64},
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -421,6 +422,8 @@ func TestAPIVariantOptionsDoNotOverrideAdapterFields(t *testing.T) {
 		Model       string            `json:"model"`
 		Messages    []json.RawMessage `json:"messages"`
 		N           int               `json:"n"`
+		MaxTokens   *int              `json:"max_tokens"`
+		MaxOutput   int               `json:"max_completion_tokens"`
 		Temperature float64           `json:"temperature"`
 	}
 	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
@@ -434,6 +437,13 @@ func TestAPIVariantOptionsDoNotOverrideAdapterFields(t *testing.T) {
 	}
 	if payload.N != 1 {
 		t.Fatalf("n = %d, want adapter-owned single choice", payload.N)
+	}
+	if payload.MaxTokens != nil || payload.MaxOutput != 64 {
+		t.Fatalf(
+			"output limits = max_tokens:%v max_completion_tokens:%d, want nil/64",
+			payload.MaxTokens,
+			payload.MaxOutput,
+		)
 	}
 	if payload.Temperature != 0.2 {
 		t.Fatalf("temperature = %v, want provider-specific api_variant_options value", payload.Temperature)
@@ -525,7 +535,7 @@ func TestAPIVariantOptionsRespectChatReasoningOwnership(t *testing.T) {
 				Context: modelcontext.Bundle{Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
 					Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
 				}}},
-				Policy: model.RequestPolicy{DefaultReasoningEffort: effort},
+				Policy: model.RequestPolicy{ReasoningEffort: effort},
 			})
 			if err != nil {
 				t.Fatalf("prepare: %v", err)
@@ -586,7 +596,7 @@ func TestPreparePreservesExplicitOpenRouterRequireParametersFalse(t *testing.T) 
 				Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
 			}},
 		},
-		Policy: model.RequestPolicy{DefaultReasoningEffort: "high"},
+		Policy: model.RequestPolicy{ReasoningEffort: "high"},
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)

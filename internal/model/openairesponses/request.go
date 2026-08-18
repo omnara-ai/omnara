@@ -52,8 +52,8 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	}
 	if supportsReasoning {
 		payload.Include = []string{"reasoning.encrypted_content"}
-		if input.Policy.DefaultReasoningEffort != "" {
-			payload.Reasoning = &responsesReasoning{Effort: input.Policy.DefaultReasoningEffort}
+		if input.Policy.ReasoningEffort != "" {
+			payload.Reasoning = &responsesReasoning{Effort: input.Policy.ReasoningEffort}
 		}
 	}
 	if input.Policy.MaxOutputTokens > 0 {
@@ -65,7 +65,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
-		responsesOwnedFields(supportsReasoning, input.Policy.DefaultReasoningEffort)...,
+		responsesOwnedFields(supportsReasoning, input.Policy.ReasoningEffort)...,
 	)
 }
 
