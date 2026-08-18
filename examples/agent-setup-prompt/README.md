@@ -9,7 +9,7 @@ and retry — don't skip ahead.
    agent be connected to Slack so my team can use it too? (The
    connection happens at the end.) Second: which agent should I set
    up? This will be a real agent I keep using, not a throwaway.
-   a. A coding agent for one of my GitHub repos. Ask which repo,
+   a. A coding agent. Ask which GitHub repo it should start with,
       then check its visibility yourself with an unauthenticated GET
       to https://api.github.com/repos/{owner}/{repo}. Public: no
       credentials needed. 404: confirm the repo name with me — if
@@ -34,10 +34,9 @@ and retry — don't skip ahead.
    pool is missing, stop and tell me. Then create an agent profile
    named for my choice ("Coding Agent" / "Research Assistant"):
    - instruction, per my choice:
-     a. "You are the coding agent for {repo}. Keep a clone of
-        the repo on your machine. Answer questions about the code and
-        its history, investigate issues, summarize changes, and run
-        read-only commands freely." If a PAT was collected, add that
+     a. "You are a coding agent with your own machine. Start with
+        {repo}: keep a clone of it, answer questions and work with 
+        other repos when asked." If a PAT was collected, add that
         it has authenticated GitHub access via the GITHUB_TOKEN and
         GH_TOKEN environment variables on its machine.
      b. "You are a research assistant. Search the web, fetch sources,
@@ -53,12 +52,11 @@ and retry — don't skip ahead.
      file, and inject the secret as GITHUB_TOKEN and GH_TOKEN on the
      pool machine_source. Public repos need none of this.
 
-4. Launch an agent from the profile with its first task: for the
-   coding agent, clone the repo using git (not the GitHub API) and give
-   an orientation summary — recent activity, most active areas, how
-   the code is organized; for the research assistant, the topic I
-   gave. Stream its events, narrate what it's doing, and show me the
-   final reply. Then give me the link to my agent:
+4. Launch an agent from the profile with a simple first task — the
+   goal is a quick, clear first reply, not a comprehensive report:
+   for the coding agent, clone the repo using git (not the GitHub
+   API) and tell me the latest commit and who made it; for the research assistant, the topic I gave, answered concisely. Stream
+   its events, narrate what it's doing, and show me the final reply. Then give me the link to my agent:
    https://app.omnara.com/projects/{project_id}/agents/{agent_id}
    — the conversation lives there; I can keep using it in the browser
    anytime.
@@ -67,4 +65,5 @@ and retry — don't skip ahead.
    https://api.slack.com/apps (under "Your App Configuration
    Tokens"), call the profile's slack-setup endpoint, and open the
    returned oauth_url in my browser for me to approve within 10
-   minutes. Then tell me to @-mention the bot in any channel.
+   minutes. Once approved, tell me to open Slack and @-mention the
+   bot in any channel to start a conversation, or DM it for a persistent one-on-one agent.
