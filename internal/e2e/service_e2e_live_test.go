@@ -161,9 +161,15 @@ func TestServiceE2ELiveAPIFormatSwitchingPreservesHistory(t *testing.T) {
 		ctx,
 		"live-api-format-switching",
 		liveAPIFormatSwitchConfig(stages[0], mcpServer.URL),
-		map[string]serviceE2EConfiguredModelOptions{
-			openAIChat.ConfiguredModelName: openAIChat.ModelOptions,
-			openRouter.ConfiguredModelName: openRouter.ModelOptions,
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{
+				ProviderConfigName:  openAIChat.ProviderConfig,
+				ConfiguredModelName: openAIChat.ConfiguredModelName,
+			}: openAIChat.ModelOptions,
+			{
+				ProviderConfigName:  openRouter.ProviderConfig,
+				ConfiguredModelName: openRouter.ConfiguredModelName,
+			}: openRouter.ModelOptions,
 		},
 	)
 	agentID := project.createAgent(t, ctx)
@@ -586,8 +592,11 @@ func runLiveServiceModelTurn(t *testing.T, ctx context.Context, opts liveService
 		opts.Seed,
 		opts.ProviderConfig,
 		opts.ConfiguredModelName,
-		map[string]serviceE2EConfiguredModelOptions{
-			opts.ConfiguredModelName: opts.ModelOptions,
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{
+				ProviderConfigName:  opts.ProviderConfig,
+				ConfiguredModelName: opts.ConfiguredModelName,
+			}: opts.ModelOptions,
 		},
 	)
 	agentID := project.createAgent(t, ctx)
@@ -779,8 +788,11 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		ctx,
 		opts.Seed,
 		sourceYAML,
-		map[string]serviceE2EConfiguredModelOptions{
-			opts.ConfiguredModelName: modelOptions,
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{
+				ProviderConfigName:  opts.ProviderConfig,
+				ConfiguredModelName: opts.ConfiguredModelName,
+			}: modelOptions,
 		},
 	)
 	config := env.requestJSON(

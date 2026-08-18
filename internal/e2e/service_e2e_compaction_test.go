@@ -113,8 +113,8 @@ func TestServiceE2EOpenRouterWrappedContextOverflowCompactsAndContinuesTurn(t *t
 		"openrouter-wrapped-context-overflow",
 		"openrouter-prod",
 		configuredModelName,
-		map[string]serviceE2EConfiguredModelOptions{
-			configuredModelName: {
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{ProviderConfigName: "openrouter-prod", ConfiguredModelName: configuredModelName}: {
 				ContextWindowTokens:    128000,
 				MaxOutputTokens:        8192,
 				DefaultMaxOutputTokens: 64,
@@ -400,8 +400,8 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 		"deterministic-compaction-tool-group",
 		"openai-prod",
 		"service-e2e-local",
-		map[string]serviceE2EConfiguredModelOptions{
-			"service-e2e-local": {
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{ProviderConfigName: "openai-prod", ConfiguredModelName: "service-e2e-local"}: {
 				ContextWindowTokens:    1500,
 				MaxOutputTokens:        512,
 				DefaultMaxOutputTokens: 64,

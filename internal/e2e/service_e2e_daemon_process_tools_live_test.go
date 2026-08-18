@@ -65,8 +65,11 @@ func runLiveDockerDaemonProcessTools(t *testing.T, ctx context.Context, opts liv
 		opts.Seed,
 		opts.ProviderConfig,
 		opts.ConfiguredModelName,
-		map[string]serviceE2EConfiguredModelOptions{
-			opts.ConfiguredModelName: opts.ModelOptions,
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{
+				ProviderConfigName:  opts.ProviderConfig,
+				ConfiguredModelName: opts.ConfiguredModelName,
+			}: opts.ModelOptions,
 		},
 		processToolNames...)
 	nonce := strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
