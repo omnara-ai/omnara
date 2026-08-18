@@ -1,10 +1,9 @@
 #!/usr/bin/env tsx
 import { Command } from 'commander'
 
-import { loadContext, registerContextCommand } from './context.ts'
-import { registerGroup } from './factory.ts'
-import { commandGroups } from './manifest.ts'
-import { registerWhoami } from './whoami.ts'
+import { loadConfig, registerConfigCommand } from './config.ts'
+import { registerGroup, registerOperation } from './factory.ts'
+import { commandGroups, topLevelOperations } from './manifest.ts'
 
 process.stdout.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EPIPE') process.exit(0)
@@ -26,8 +25,8 @@ program.configureHelp({
       .join(' ')
   },
 })
-const ctx = loadContext()
-for (const group of commandGroups) registerGroup(program, ctx, group)
-registerWhoami(program, ctx)
-registerContextCommand(program, ctx)
+const config = loadConfig()
+for (const group of commandGroups) registerGroup(program, config, group)
+for (const operation of topLevelOperations) registerOperation(program, config, operation)
+registerConfigCommand(program, config)
 await program.parseAsync()

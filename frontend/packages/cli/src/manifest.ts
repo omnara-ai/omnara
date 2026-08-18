@@ -1,7 +1,7 @@
 import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 
-import { type CommandGroup, op } from './factory.ts'
+import { type CommandGroup, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
 
@@ -533,9 +533,9 @@ export const commandGroups: CommandGroup[] = [
         format: formatRecord(),
         path: schemas.zCreateSkillPath,
         body: zCreateSkillCliBody,
-        transformBody: (body) => ({
+        transformBody: async (body) => ({
           ...body,
-          archive: loadSkillArchive(body.archive),
+          archive: await loadSkillArchive(body.archive),
         }),
       }),
       op({
@@ -645,4 +645,13 @@ export const commandGroups: CommandGroup[] = [
       }),
     ],
   },
+]
+
+export const topLevelOperations: OperationSpec[] = [
+  op({
+    verb: 'whoami',
+    summary: 'Show the authenticated user and their organizations',
+    fn: sdk.getCurrentUser,
+    format: formatRecord(),
+  }),
 ]

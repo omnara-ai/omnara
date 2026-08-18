@@ -25,7 +25,7 @@ const zConfigFile = z.looseObject({
 
 export type ConfigFile = z.infer<typeof zConfigFile>
 
-export interface CliContext {
+export interface CliConfig {
   client: OmnaraClient
   defaultOrgId?: string
   defaultProjectId?: string
@@ -94,7 +94,7 @@ export function updateConfigFile(patch: Partial<ConfigFile>): ConfigFile {
   return result.data
 }
 
-export function loadContext(): CliContext {
+export function loadConfig(): CliConfig {
   const file = readConfigFile()
   const baseUrl = process.env.OMNARA_BASE_URL ?? file.base_url ?? DEFAULT_BASE_URL
   const token = process.env.OMNARA_API_KEY ?? file.token
@@ -109,7 +109,7 @@ export function loadContext(): CliContext {
   }
 }
 
-interface ContextOptions {
+interface ConfigOptions {
   org?: string
   project?: string
   baseUrl?: string
@@ -130,7 +130,7 @@ function describeValue(
   return '(not set)'
 }
 
-function printContext(): void {
+function printConfig(): void {
   const file = readConfigFile()
   console.log(`config file  ${configFilePath()}`)
   console.log(`org_id       ${describeValue('OMNARA_ORG_ID', file.org_id)}`)
@@ -138,14 +138,14 @@ function printContext(): void {
   console.log(`base_url     ${describeValue('OMNARA_BASE_URL', file.base_url, DEFAULT_BASE_URL)}`)
 }
 
-export function registerContextCommand(program: Command, ctx: CliContext): void {
-  const context = program
-    .command('context')
+export function registerConfigCommand(program: Command, cli: CliConfig): void {
+  const config = program
+    .command('config')
     .description('Show or set the default organization and project')
     .option('--org <org-id>', 'save this organization ID as the default')
     .option('--project <project-id>', 'save this project ID as the default')
     .option('--base-url <url>', 'save this API base URL as the default')
-    .action(async (options: ContextOptions) => {
+    .action(async (options: ConfigOptions) => {
       await runCliAction(() => {
         if (
           options.org !== undefined ||
@@ -163,10 +163,10 @@ export function registerContextCommand(program: Command, ctx: CliContext): void 
             ...(options.baseUrl !== undefined ? { base_url: options.baseUrl } : {}),
           })
         }
-        printContext()
+        printConfig()
       })
     })
-  context
+  config
     .command('select')
     .description('Interactively choose the default organization and project')
     .action(async () => {
@@ -174,10 +174,10 @@ export function registerContextCommand(program: Command, ctx: CliContext): void 
         if (!canPromptInteractively()) {
           throw new CliInputError('interactive selection needs a terminal')
         }
-        const orgId = await promptOrgSelection(ctx.client)
-        const projectId = await promptProjectSelection(ctx.client, orgId)
+        const orgId = await promptOrgSelection(cli.client)
+        const projectId = await promptProjectSelection(cli.client, orgId)
         updateConfigFile({ org_id: orgId, project_id: projectId })
-        printContext()
+        printConfig()
       })
     })
 }

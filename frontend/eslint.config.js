@@ -44,6 +44,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/cli/src/manifest.ts'],
+    rules: {
+      'max-lines': 'off',
+    },
+  },
+  {
     files: ['apps/web/**/*.{ts,tsx}'],
     ignores: ['apps/web/src/components/ui/**', 'apps/web/src/router.tsx'],
     plugins: { 'react-refresh': reactRefresh },
