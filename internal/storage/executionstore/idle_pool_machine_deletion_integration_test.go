@@ -6,24 +6,32 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 type idlePoolMachineFixture struct {
 	processDaemonFixture
-	PoolID      ID
-	PoolGrantID ID
+	PoolID ID
+}
+
+type idlePoolMachinePolicy struct {
+	PoolMinutes    *int
+	GrantMinutes   *int
+	BindingMinutes *int
 }
 
 func newIdlePoolMachineFixture(
 	t *testing.T,
 	ctx context.Context,
 	testName string,
+	policy idlePoolMachinePolicy,
 ) idlePoolMachineFixture {
 	t.Helper()
 	pool := openIntegrationDB(t, ctx)
@@ -47,17 +55,41 @@ func newIdlePoolMachineFixture(
 		1,
 		now,
 	)
+	if policy.PoolMinutes != nil {
+		updatedPool, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+			OrgID: testOrgID,
+			ID:    machinePool.ID,
+			DeleteAfterIdleMinutes: patch.NullableInt{
+				Set: true, Value: policy.PoolMinutes,
+			},
+		})
+		if err != nil {
+			t.Fatalf("set idle pool policy: %v", err)
+		}
+		machinePool = updatedPool
+	}
+	if !sameIntPtr(machinePool.DeleteAfterIdleMinutes, policy.PoolMinutes) {
+		t.Fatalf("idle pool policy = %v, want %v", machinePool.DeleteAfterIdleMinutes, policy.PoolMinutes)
+	}
 	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
 		ctx,
 		executionstore.CreateProjectMachinePoolGrantInput{
-			OrgID:          testOrgID,
-			ProjectID:      testProjectID,
-			MachinePoolID:  machinePool.ID,
-			IdempotencyKey: "idle-pool-grant-" + testName,
+			OrgID:                  testOrgID,
+			ProjectID:              testProjectID,
+			MachinePoolID:          machinePool.ID,
+			DeleteAfterIdleMinutes: policy.GrantMinutes,
+			IdempotencyKey:         "idle-pool-grant-" + testName,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create idle pool grant: %v", err)
+	}
+	if !sameIntPtr(poolGrant.DeleteAfterIdleMinutes, policy.GrantMinutes) {
+		t.Fatalf("idle pool grant policy = %v, want %v", poolGrant.DeleteAfterIdleMinutes, policy.GrantMinutes)
+	}
+	machineSource := "  - machine_pool_name: " + machinePool.Name + "\n"
+	if policy.BindingMinutes != nil {
+		machineSource += fmt.Sprintf("    delete_after_idle_minutes: %d\n", *policy.BindingMinutes)
 	}
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "idle-"+testName, "Idle "+testName, `
 instruction: Run idle deletion tests.
@@ -65,8 +97,7 @@ model:
   provider_config: openai-prod
   name: gpt-test
 machine_sources:
-  - machine_pool_name: `+machinePool.Name+`
-tools:
+`+machineSource+`tools:
   run_command: {}
   write_process: {}
 `, now)
@@ -81,6 +112,9 @@ tools:
 		t.Fatalf("launch idle pool agent: %v", err)
 	}
 	binding := launch.MachineBindings[0]
+	if !sameIntPtr(binding.DeleteAfterIdleMinutes, policy.BindingMinutes) {
+		t.Fatalf("idle machine binding policy = %v, want %v", binding.DeleteAfterIdleMinutes, policy.BindingMinutes)
+	}
 	claim, claimed, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
 		testOrgID,
@@ -162,32 +196,7 @@ tools:
 			Lock:      lock,
 			Now:       now,
 		},
-		PoolID:      machinePool.ID,
-		PoolGrantID: poolGrant.ID,
-	}
-}
-
-func setIdlePolicyForTest(
-	t *testing.T,
-	ctx context.Context,
-	fixture idlePoolMachineFixture,
-	poolMinutes, grantMinutes, bindingMinutes *int32,
-) {
-	t.Helper()
-	if _, err := fixture.Store.pool.Exec(ctx, `
-UPDATE machine_pools SET delete_after_idle_minutes = $2 WHERE id = $1
-`, fixture.PoolID, poolMinutes); err != nil {
-		t.Fatalf("set pool idle policy: %v", err)
-	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-	UPDATE project_machine_pool_grants SET delete_after_idle_minutes = $2 WHERE id = $1
-`, fixture.PoolGrantID, grantMinutes); err != nil {
-		t.Fatalf("set grant idle policy: %v", err)
-	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-UPDATE agent_machine_bindings SET delete_after_idle_minutes = $2 WHERE id = $1
-`, fixture.BindingID, bindingMinutes); err != nil {
-		t.Fatalf("set binding idle policy: %v", err)
+		PoolID: machinePool.ID,
 	}
 }
 
@@ -297,7 +306,7 @@ func createQueuedProcessActionForIdleTest(
 func TestAttachedPoolMachineBindingIsExclusive(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newIdlePoolMachineFixture(t, ctx, "binding-exclusive")
+	fixture := newIdlePoolMachineFixture(t, ctx, "binding-exclusive", idlePoolMachinePolicy{})
 	secondAgentID := mustCreateAgent(t, ctx, fixture.Store, fixture.Now.Add(time.Millisecond))
 	var machineGrantID ID
 	if err := fixture.Store.pool.QueryRow(ctx, `
@@ -325,31 +334,22 @@ WHERE org_id = $1 AND machine_id = $2 AND source_kind = 'pool'
 func TestExpiredIdlePoolMachinePolicyResolution(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newIdlePoolMachineFixture(t, ctx, "policy-resolution")
-	backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
-	five := int32(5)
-	twenty := int32(20)
+	five := 5
+	twenty := 20
 	tests := []struct {
-		name                      string
-		poolMinutes, grantMinutes *int32
-		bindingMinutes            *int32
-		want                      bool
+		name   string
+		policy idlePoolMachinePolicy
+		want   bool
 	}{
 		{name: "disabled", want: false},
-		{name: "pool", poolMinutes: &five, want: true},
-		{name: "grant override", poolMinutes: &five, grantMinutes: &twenty, want: false},
-		{name: "binding override", poolMinutes: &twenty, grantMinutes: &twenty, bindingMinutes: &five, want: true},
+		{name: "pool", policy: idlePoolMachinePolicy{PoolMinutes: &five}, want: true},
+		{name: "grant_override", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &twenty}, want: false},
+		{name: "binding_override", policy: idlePoolMachinePolicy{PoolMinutes: &twenty, GrantMinutes: &twenty, BindingMinutes: &five}, want: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			setIdlePolicyForTest(
-				t,
-				ctx,
-				fixture,
-				test.poolMinutes,
-				test.grantMinutes,
-				test.bindingMinutes,
-			)
+			fixture := newIdlePoolMachineFixture(t, ctx, "policy-resolution-"+test.name, test.policy)
+			backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
 			if got := idleMachineListedForTest(t, ctx, fixture); got != test.want {
 				t.Fatalf("idle machine listed = %v, want %v", got, test.want)
 			}
@@ -360,9 +360,13 @@ func TestExpiredIdlePoolMachinePolicyResolution(t *testing.T) {
 func TestExpiredIdlePoolMachineProcessAndActionActivity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newIdlePoolMachineFixture(t, ctx, "process-activity")
-	five := int32(5)
-	setIdlePolicyForTest(t, ctx, fixture, &five, nil, nil)
+	five := 5
+	fixture := newIdlePoolMachineFixture(
+		t,
+		ctx,
+		"process-activity",
+		idlePoolMachinePolicy{PoolMinutes: &five},
+	)
 	backdateIdleMachineForTest(t, ctx, fixture, 20*time.Minute)
 	process, action := createQueuedProcessActionForIdleTest(t, ctx, fixture, "idle-process-activity")
 	if _, err := fixture.Store.pool.Exec(ctx, `
@@ -427,9 +431,13 @@ WHERE id = $1
 func TestAppliedProcessActionRestartsIdleWindow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newIdlePoolMachineFixture(t, ctx, "applied-action")
-	five := int32(5)
-	setIdlePolicyForTest(t, ctx, fixture, &five, nil, nil)
+	five := 5
+	fixture := newIdlePoolMachineFixture(
+		t,
+		ctx,
+		"applied-action",
+		idlePoolMachinePolicy{PoolMinutes: &five},
+	)
 	backdateIdleMachineForTest(t, ctx, fixture, 20*time.Minute)
 	process, action := createQueuedProcessActionForIdleTest(t, ctx, fixture, "idle-applied-action")
 	if _, found, err := acceptDaemonProcessActionForTest(
@@ -501,9 +509,13 @@ UPDATE processes SET last_activity_at = statement_timestamp() - interval '20 min
 func TestExpiredIdlePoolMachineClaimRechecksPolicyAfterLockWait(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newIdlePoolMachineFixture(t, ctx, "claim-policy-recheck")
-	five := int32(5)
-	setIdlePolicyForTest(t, ctx, fixture, &five, nil, nil)
+	five := 5
+	fixture := newIdlePoolMachineFixture(
+		t,
+		ctx,
+		"claim-policy-recheck",
+		idlePoolMachinePolicy{PoolMinutes: &five},
+	)
 	backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
 	if !idleMachineListedForTest(t, ctx, fixture) {
 		t.Fatal("idle machine was not initially eligible")
@@ -540,10 +552,14 @@ func TestExpiredIdlePoolMachineClaimRechecksPolicyAfterLockWait(t *testing.T) {
 		"-- name: LockMachineForLifecycle",
 		blockingPID,
 	)
-	thirty := int32(30)
-	if _, err := blockingTx.Exec(ctx, `
-UPDATE agent_machine_bindings SET delete_after_idle_minutes = $2 WHERE id = $1
-`, fixture.BindingID, thirty); err != nil {
+	thirty := 30
+	if _, err := fixture.Store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID: fixture.OrgID,
+		ID:    fixture.PoolID,
+		DeleteAfterIdleMinutes: patch.NullableInt{
+			Set: true, Value: &thirty,
+		},
+	}); err != nil {
 		t.Fatalf("change idle policy while claim waits: %v", err)
 	}
 	if err := blockingTx.Commit(ctx); err != nil {
@@ -558,9 +574,13 @@ UPDATE agent_machine_bindings SET delete_after_idle_minutes = $2 WHERE id = $1
 func TestExpiredIdlePoolMachineClaimRequiresObservation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newIdlePoolMachineFixture(t, ctx, "claim-requires-observation")
-	five := int32(5)
-	setIdlePolicyForTest(t, ctx, fixture, &five, nil, nil)
+	five := 5
+	fixture := newIdlePoolMachineFixture(
+		t,
+		ctx,
+		"claim-requires-observation",
+		idlePoolMachinePolicy{PoolMinutes: &five},
+	)
 	backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
 	if _, err := fixture.Store.pool.Exec(ctx, `
 UPDATE machines SET last_observed_at = NULL WHERE org_id = $1 AND id = $2

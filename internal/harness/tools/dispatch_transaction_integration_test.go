@@ -157,7 +157,7 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 			runToolCallID := fixture.toolCallID(t, ctx, runCall.ID)
 			var processLastActivityAtBefore time.Time
 			if test.processState == "exited" {
-				if _, err := fixture.Pool.Exec(
+				if err := fixture.Pool.QueryRow(
 					ctx,
 					`INSERT INTO processes(
 					   id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id,
@@ -166,11 +166,12 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 					   state, source_started_at, source_ended_at, state_changed_at,
 					   exit_code, created_at, updated_at
 					 )
-					 VALUES (
-					   $1, $2, $3, $4, $5, $6, $7, $8, $9,
-					   'pipe', 'true', 'sh', '/',
-					   'exited', $9, $10, $10, 0, $9, $10
-					 )`,
+						 VALUES (
+						   $1, $2, $3, $4, $5, $6, $7, $8, $9,
+						   'pipe', 'true', 'sh', '/',
+						   'exited', $9, $10, $10, 0, $9, $10
+						 )
+						 RETURNING last_activity_at`,
 					processID,
 					toolsTestOrgID,
 					toolsTestProjectID,
@@ -181,18 +182,8 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 					binding.MachineID,
 					fixture.Now.Add(13*time.Second),
 					fixture.Now.Add(14*time.Second),
-				); err != nil {
-					t.Fatalf("seed exited process: %v", err)
-				}
-				if err := fixture.Pool.QueryRow(
-					ctx,
-					`UPDATE processes
-					 SET last_activity_at = statement_timestamp() - interval '20 minutes'
-					 WHERE id = $1
-					 RETURNING last_activity_at`,
-					processID,
 				).Scan(&processLastActivityAtBefore); err != nil {
-					t.Fatalf("backdate stopped process activity: %v", err)
+					t.Fatalf("seed exited process: %v", err)
 				}
 			} else {
 				if _, err := fixture.Pool.Exec(
