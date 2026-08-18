@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -1652,6 +1651,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 		"explicit",
 		[]poolMachineToolCallSpec{
 			{Label: "create", Name: "create_machine", Input: json.RawMessage(`{}`)},
+			{Label: "delete", Name: "delete_machine", Input: json.RawMessage(`{}`)},
 		},
 	)
 	created, err := createPoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
@@ -1692,15 +1692,6 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	); err != nil {
 		t.Fatalf("complete generated machine provisioning: %v", err)
 	}
-	if err := store.q.ReleaseAgentMachineBindingsForMachine(
-		ctx,
-		dbsqlc.ReleaseAgentMachineBindingsForMachineParams{
-			OrgID:     testOrgID,
-			MachineID: created.Machine.Machine.ID,
-		},
-	); err != nil {
-		t.Fatalf("release generated pool binding: %v", err)
-	}
 	generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID)
 	explicitAgent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1723,18 +1714,25 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create explicit-kind pool-backed binding: %v", err)
 	}
+	explicitObservations, err := store.Execution().ListAgentMachineObservations(
+		ctx,
+		testProjectID,
+		explicitAgent.ID,
+	)
+	if err != nil {
+		t.Fatalf("list explicit pool-backed machine observations: %v", err)
+	}
+	if len(explicitObservations) != 1 || explicitObservations[0].MachineRef != explicitBinding.MachineRef ||
+		explicitObservations[0].SourceKind != executionstore.MachineSourceKindPool ||
+		explicitObservations[0].BindingKind != executionstore.MachineBindingKindExplicit {
+		t.Fatalf("explicit pool-backed machine observations = %+v", explicitObservations)
+	}
 	listed, err := executionstore.IntegrationListPoolMachinesTx(ctx, store.q, testProjectID, explicitAgent.ID)
 	if err != nil {
 		t.Fatalf("list pool machines for explicit agent: %v", err)
 	}
 	if len(listed) != 0 {
 		t.Fatalf("explicit pool-backed machine source should not list as pool tool machine: %+v", listed)
-	}
-	if _, err := executionstore.IntegrationGetPoolMachineByRef(ctx, store.q, testProjectID, explicitAgent.ID, explicitBinding.MachineRef); !errors.Is(
-		err,
-		storeerr.ErrNotFound,
-	) {
-		t.Fatalf("get explicit pool-backed machine as pool machine error = %v, want not found", err)
 	}
 	explicitLock, err := store.Execution().AcquireAgentRuntimeLock(
 		ctx,
@@ -1788,21 +1786,88 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	if afterArchive.LifecycleState != "active" {
 		t.Fatalf("explicit pool-backed machine after archive = %+v", afterArchive)
 	}
-	if _, err := store.pool.Exec(
-		ctx,
-		`UPDATE machines SET lifecycle_changed_at = statement_timestamp() - interval '6 minutes' WHERE org_id = $1 AND id = $2`,
-		testOrgID,
-		created.Machine.Machine.ID,
-	); err != nil {
-		t.Fatalf("age pool-backed machine lifecycle: %v", err)
+	if _, err := deletePoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       poolAgent.ID,
+		ToolCallID:    toolCalls["delete"],
+		RuntimeLockID: lock.ID,
+	}, executionstore.DeletePoolMachineInput{
+		MachineRef: created.Machine.Binding.MachineRef,
+	}); err != nil {
+		t.Fatalf("delete generated pool machine: %v", err)
 	}
 	cleanup, err := store.Execution().ListPoolMachinesForCleanup(ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10)
 	if err != nil {
-		t.Fatalf("list cleanup after explicit agent archived: %v", err)
+		t.Fatalf("list generated pool machine cleanup: %v", err)
 	}
 	if len(cleanup) != 1 || cleanup[0].Machine.ID != created.Machine.Machine.ID ||
-		cleanup[0].ReasonCode != "startup_or_daemon_bootstrap_failed" {
+		cleanup[0].ReasonCode != "deleting_retry" {
 		t.Fatalf("pool-backed machine cleanup = %+v", cleanup)
+	}
+	deleting, ok, err := store.Execution().ClaimPoolMachineDeletion(ctx, executionstore.MachineDeletingInput{
+		OrgID:                    testOrgID,
+		MachineID:                created.Machine.Machine.ID,
+		LifecycleReasonCode:      cleanup[0].ReasonCode,
+		LifecycleReasonMessage:   cleanup[0].ReasonMessage,
+		ExpectedLifecycleVersion: cleanup[0].Machine.LifecycleVersion,
+	})
+	if err != nil || !ok {
+		t.Fatalf("claim generated pool machine deletion: ok=%v err=%v", ok, err)
+	}
+	if err := store.Execution().CompletePoolMachineDeletion(
+		ctx,
+		testOrgID,
+		created.Machine.Machine.ID,
+		deleting.Machine.DeleteAttempts,
+	); err != nil {
+		t.Fatalf("complete generated pool machine deletion: %v", err)
+	}
+	deletedMachine, err := store.Execution().GetMachine(ctx, testOrgID, created.Machine.Machine.ID)
+	if err != nil {
+		t.Fatalf("load deleted pool-backed machine: %v", err)
+	}
+	if deletedMachine.LifecycleState != executionstore.MachineLifecycleStateDeleted || deletedMachine.DeletedAt == nil {
+		t.Fatalf("deleted pool-backed machine = %+v", deletedMachine)
+	}
+	if count := countProjectMachineGrantsForMachineForTest(
+		t,
+		ctx,
+		store,
+		testOrgID,
+		testProjectID,
+		created.Machine.Machine.ID,
+	); count != 0 {
+		t.Fatalf("deleted pool-backed machine grants = %d, want 0", count)
+	}
+	poolObservations, err := store.Execution().ListAgentMachineObservations(
+		ctx,
+		testProjectID,
+		poolAgent.ID,
+	)
+	if err != nil {
+		t.Fatalf("list released pool machine observations: %v", err)
+	}
+	if len(poolObservations) != 0 {
+		t.Fatalf("released pool machine observations = %+v, want none", poolObservations)
+	}
+	releasedPoolObservation, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+		ctx,
+		store.q,
+		testProjectID,
+		poolAgent.ID,
+		created.Machine.Binding.MachineRef,
+	)
+	if err != nil {
+		t.Fatalf("inspect released pool machine: %v", err)
+	}
+	if releasedPoolObservation.SourceKind != executionstore.MachineSourceKindPool ||
+		releasedPoolObservation.BindingKind != executionstore.MachineBindingKindPool ||
+		releasedPoolObservation.BindingState != executionstore.AgentMachineBindingStateReleased ||
+		releasedPoolObservation.ProjectGrantMissing ||
+		releasedPoolObservation.MachinePoolName != machinePool.Name ||
+		releasedPoolObservation.LifecycleState != executionstore.MachineLifecycleStateDeleted ||
+		releasedPoolObservation.Executable {
+		t.Fatalf("released pool machine observation = %+v", releasedPoolObservation)
 	}
 }
 
