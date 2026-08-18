@@ -35,6 +35,22 @@ describe('resource names', () => {
   ])('rejects %s', (_case, name, message) => {
     expect(resourceNameError(name)).toContain(message)
   })
+
+  it.each([
+    '',
+    'Studio 54',
+    '研究開発 شركة برمجيات',
+    '😀'.repeat(resourceNameMaxCodePoints),
+    '界'.repeat(resourceNameMaxCodePoints + 1),
+    ' Acme',
+    'Acme ',
+    'Acme\u00a0Labs',
+    'Acme\tLabs',
+    'Acme\u200dLabs',
+    'Acme\ud800Labs',
+  ])('keeps field errors aligned with the OpenAPI schema for %j', (name) => {
+    expect(resourceNameError(name) === undefined).toBe(resourceNameValid(name))
+  })
 })
 
 describe('resourceNameSuggestion', () => {

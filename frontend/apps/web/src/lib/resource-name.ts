@@ -1,3 +1,5 @@
+import { zResourceName } from '@omnara/sdk/zod'
+
 export const resourceNameMaxCodePoints = 64
 export const resourceNameMaxUtf8Bytes = 4 * resourceNameMaxCodePoints
 
@@ -34,7 +36,7 @@ export function resourceNameError(value: string, fieldLabel = 'Name'): string | 
 }
 
 export function resourceNameValid(value: string) {
-  return resourceNameError(value) === undefined
+  return zResourceName.safeParse(value).success
 }
 
 export function resourceNameSuggestion(preferredValues: readonly string[], fallback: string) {

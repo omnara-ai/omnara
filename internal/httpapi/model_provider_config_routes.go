@@ -155,8 +155,11 @@ func createConfiguredModelInputFromOpenAPI(
 }
 
 func validateCreateModelProviderConfigRequest(body openapigen.CreateModelProviderConfigRequest) error {
-	if strings.TrimSpace(body.Name) == "" {
+	if body.Name == "" {
 		return errors.New("name is required")
+	}
+	if err := resourcename.Validate("model provider config name", body.Name); err != nil {
+		return err
 	}
 	if body.Preset == nil && body.ApiFormat == nil {
 		return errors.New("api_format is required unless preset is provided")
