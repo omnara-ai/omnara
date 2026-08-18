@@ -1106,6 +1106,44 @@ func TestOpenAPIRequestValidatorRejectsTrailingJSON(t *testing.T) {
 	}
 }
 
+func TestOpenAPIRequestValidatorRejectsInvalidJSONUnicode(t *testing.T) {
+	handler := newOpenAPIValidatorTestHandler(t)
+	invalidUTF8 := append([]byte(`{"name":"Acme`), 0xff)
+	invalidUTF8 = append(invalidUTF8, []byte(`Labs"}`)...)
+	for name, body := range map[string][]byte{
+		"invalid UTF-8":        invalidUTF8,
+		"unpaired high escape": []byte(`{"name":"Acme\ud800Labs"}`),
+		"unpaired low escape":  []byte(`{"name":"Acme\udc00Labs"}`),
+		"mismatched pair":      []byte(`{"name":"Acme\ud800\u0041Labs"}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/orgs", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusBadRequest)
+			}
+		})
+	}
+
+	for name, body := range map[string][]byte{
+		"surrogate pair":      []byte(`{"name":"Acme\ud83d\ude80Labs"}`),
+		"replacement rune":    []byte(`{"name":"Acme�Labs"}`),
+		"literal escape text": []byte(`{"name":"Acme\\ud800Labs"}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/orgs", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
+			}
+		})
+	}
+}
+
 func TestOpenAPIResourceNameLengthCountsUnicodeCodePoints(t *testing.T) {
 	handler := newOpenAPIValidatorTestHandler(t)
 	for _, test := range []struct {
