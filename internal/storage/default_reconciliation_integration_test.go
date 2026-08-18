@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -140,13 +141,35 @@ func TestReconcileDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get remove model: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO agent_configs(
-			org_id, project_id, configured_model_id, definition,
-			source_hash, effective_definition_hash, created_at
-		) VALUES ($1, $2, $3, '{}'::jsonb, 'historical-remove-model', 'historical-remove-model', statement_timestamp())
-	`, created.Org.ID, created.Project.ID, removeModel.ID); err != nil {
-		t.Fatalf("create historical agent config: %v", err)
+	removeModelSource := `
+instruction: Keep the configured model referenced.
+model:
+  provider_config: omnara-openrouter
+  name: remove-model
+`
+	removeModelCompiled, err := agentconfig.Compile(
+		agentconfig.SourceFormatYAML,
+		[]byte(removeModelSource),
+		agentconfig.CompileOptions{
+			ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+				return resolvedTestModelSelection(removeModel), nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("compile referenced remove model config: %v", err)
+	}
+	if _, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+		ProjectID:               created.Project.ID,
+		Definition:              json.RawMessage(removeModelCompiled.CanonicalJSON),
+		Source:                  removeModelSource,
+		SourceFormat:            string(agentconfig.SourceFormatYAML),
+		ConfiguredModelID:       removeModel.ID,
+		CompiledDefinition:      json.RawMessage(removeModelCompiled.CanonicalJSON),
+		CompilerVersion:         agentconfig.CompilerVersion,
+		EffectiveDefinitionHash: removeModelCompiled.Hash,
+	}); err != nil {
+		t.Fatalf("create referenced remove model config: %v", err)
 	}
 	retainedModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "retained-model")
 	if err != nil {
