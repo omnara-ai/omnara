@@ -1,8 +1,10 @@
 import { useMachine } from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { InfoIcon } from 'lucide-react'
+import { InfoIcon, PlusIcon } from 'lucide-react'
+import { useState } from 'react'
 
+import { CreateCronTriggerDialog, CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DetailList } from '@/components/data-table/DetailList'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -44,6 +46,7 @@ export function AgentSidebar({
   machineIds,
   mcpConnections,
   profile,
+  canManage,
 }: {
   orgId: string
   projectId: string
@@ -51,42 +54,65 @@ export function AgentSidebar({
   machineIds: string[]
   mcpConnections: AgentMcpConnection[]
   profile?: AgentProfile
+  canManage: boolean
 }) {
+  const [addCronOpen, setAddCronOpen] = useState(false)
   return (
-    <Sidebar side="right" collapsible="offcanvas">
-      <SidebarContent className="px-3 pt-4">
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <DetailList
-              items={[
-                {
-                  label: 'Model',
-                  value: agent.model
-                    ? `${agent.model.name} · ${agent.model.provider_config}`
-                    : undefined,
-                },
-                {
-                  label: 'Profile',
-                  value: profile ? (
-                    <Link
-                      to="/projects/$projectId/agent-profiles/$profileId"
-                      params={{ projectId, profileId: profile.id }}
-                      className="hover:underline"
-                    >
-                      {profile.name}
-                    </Link>
-                  ) : undefined,
-                },
-                { label: 'Config', value: agent.current_config_id, mono: true },
-                { label: 'Created', value: formatDateTime(agent.created_at) },
-              ]}
-            />
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <AgentMachinesGroup orgId={orgId} machineIds={machineIds} />
-        <AgentMcpGroup connections={mcpConnections} />
-      </SidebarContent>
-    </Sidebar>
+    <>
+      <Sidebar side="right" collapsible="offcanvas">
+        <SidebarContent className="px-3 pt-4">
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <DetailList
+                items={[
+                  {
+                    label: 'Model',
+                    value: agent.model
+                      ? `${agent.model.name} · ${agent.model.provider_config}`
+                      : undefined,
+                  },
+                  {
+                    label: 'Profile',
+                    value: profile ? (
+                      <Link
+                        to="/projects/$projectId/agent-profiles/$profileId"
+                        params={{ projectId, profileId: profile.id }}
+                        className="hover:underline"
+                      >
+                        {profile.name}
+                      </Link>
+                    ) : undefined,
+                  },
+                  { label: 'Config', value: agent.current_config_id, mono: true },
+                  { label: 'Created', value: formatDateTime(agent.created_at) },
+                ]}
+              />
+            </SidebarGroupContent>
+          </SidebarGroup>
+          <AgentMachinesGroup orgId={orgId} machineIds={machineIds} />
+          <AgentMcpGroup connections={mcpConnections} />
+          <AgentCronGroup
+            orgId={orgId}
+            projectId={projectId}
+            agentId={agent.id}
+            canManage={canManage}
+            onAdd={() => {
+              setAddCronOpen(true)
+            }}
+          />
+        </SidebarContent>
+      </Sidebar>
+      {canManage && addCronOpen && (
+        <CreateCronTriggerDialog
+          open
+          onOpenChange={setAddCronOpen}
+          orgId={orgId}
+          projectId={projectId}
+          target={{ type: 'agent', agent_id: agent.id }}
+          targetLabel={agent.name || 'this agent'}
+        />
+      )}
+    </>
   )
 }
 
@@ -126,6 +152,48 @@ function AgentMachineRow({ orgId, machineId }: { orgId: string; machineId: strin
         </Badge>
       )}
     </SidebarMenuItem>
+  )
+}
+
+function AgentCronGroup({
+  orgId,
+  projectId,
+  agentId,
+  canManage,
+  onAdd,
+}: {
+  orgId: string
+  projectId: string
+  agentId: string
+  canManage: boolean
+  onAdd: () => void
+}) {
+  return (
+    <SidebarGroup>
+      <div className="flex items-center justify-between">
+        <SidebarGroupLabel className="px-0 text-sm">Schedules</SidebarGroupLabel>
+        {canManage && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground h-7 px-2"
+            onClick={onAdd}
+          >
+            <PlusIcon />
+            Add
+          </Button>
+        )}
+      </div>
+      <SidebarGroupContent>
+        <CronTriggersList
+          orgId={orgId}
+          projectId={projectId}
+          canManage={canManage}
+          filters={{ agent_id: agentId }}
+          emptyMessage="No schedules attached."
+        />
+      </SidebarGroupContent>
+    </SidebarGroup>
   )
 }
 
