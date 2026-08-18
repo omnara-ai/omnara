@@ -26,12 +26,15 @@ describe('resource names', () => {
     ['leading space', ' Acme', 'start or end'],
     ['trailing space', 'Acme ', 'start or end'],
     ['non-ASCII space', 'Acme\u00a0Labs', 'ordinary spaces'],
-    ['tab', 'Acme\tLabs', 'control or format'],
-    ['newline', 'Acme\nLabs', 'control or format'],
-    ['NUL', 'Acme\x00Labs', 'control or format'],
-    ['zero-width joiner', 'Acme\u200dLabs', 'control or format'],
-    ['bidi override', 'Acme\u202eLabs', 'control or format'],
-    ['unpaired surrogate', 'Acme\ud800Labs', 'control or format'],
+    ['tab', 'Acme\tLabs', 'invisible, control, or format'],
+    ['newline', 'Acme\nLabs', 'invisible, control, or format'],
+    ['NUL', 'Acme\x00Labs', 'invisible, control, or format'],
+    ['zero-width joiner', 'Acme\u200dLabs', 'invisible, control, or format'],
+    ['bidi override', 'Acme\u202eLabs', 'invisible, control, or format'],
+    ['Hangul filler', 'Acme\u3164Labs', 'invisible, control, or format'],
+    ['variation selector', 'Acme\ufe0fLabs', 'invisible, control, or format'],
+    ['braille blank', 'Acme\u2800Labs', 'invisible, control, or format'],
+    ['unpaired surrogate', 'Acme\ud800Labs', 'invisible, control, or format'],
   ])('rejects %s', (_case, name, message) => {
     expect(resourceNameError(name)).toContain(message)
   })
@@ -47,6 +50,9 @@ describe('resource names', () => {
     'Acme\u00a0Labs',
     'Acme\tLabs',
     'Acme\u200dLabs',
+    'Acme\u3164Labs',
+    'Acme\ufe0fLabs',
+    'Acme\u2800Labs',
     'Acme\ud800Labs',
   ])('keeps field errors aligned with the OpenAPI schema for %j', (name) => {
     expect(resourceNameError(name) === undefined).toBe(resourceNameValid(name))

@@ -7,7 +7,7 @@ export const resourceNameMaxUtf8Bytes = 4 * resourceNameMaxCodePoints
 export const resourceNameInputMaxLength = 2 * resourceNameMaxCodePoints
 
 const whitespacePattern = /\p{White_Space}/u
-const unsupportedCharacterPattern = /[\p{Cc}\p{Cf}\p{Cs}]/u
+const unsupportedCharacterPattern = /[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800]/u
 
 export function resourceNameError(value: string, fieldLabel = 'Name'): string | undefined {
   if (value === '') return `${fieldLabel} is required.`
@@ -26,7 +26,7 @@ export function resourceNameError(value: string, fieldLabel = 'Name'): string | 
     return `${fieldLabel} cannot exceed ${resourceNameMaxUtf8Bytes} UTF-8 bytes.`
   }
   if (unsupportedCharacterPattern.test(value)) {
-    return `${fieldLabel} contains an unsupported control or format character.`
+    return `${fieldLabel} contains an unsupported invisible, control, or format character.`
   }
   if (codePoints.some((character) => character !== ' ' && whitespacePattern.test(character))) {
     return `${fieldLabel} may only use ordinary spaces.`

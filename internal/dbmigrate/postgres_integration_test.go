@@ -284,7 +284,12 @@ func TestPostgresResourceNamePolicyMatchesGo(t *testing.T) {
 	pool, _ := openPostgresMigrationTestDB(t, ctx)
 	wantForbidden := make([]int, 0)
 	for codepoint := rune(0); codepoint <= unicode.MaxRune; codepoint++ {
-		if unicode.IsControl(codepoint) || unicode.In(codepoint, unicode.Cf) ||
+		if unicode.IsControl(codepoint) || unicode.In(
+			codepoint,
+			unicode.Cf,
+			unicode.Other_Default_Ignorable_Code_Point,
+			unicode.Variation_Selector,
+		) || codepoint == '\u2800' ||
 			(unicode.IsSpace(codepoint) && codepoint != ' ') {
 			wantForbidden = append(wantForbidden, int(codepoint))
 		}

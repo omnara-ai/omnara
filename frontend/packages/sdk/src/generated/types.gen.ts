@@ -5,7 +5,7 @@ export type ClientOptions = {
 };
 
 /**
- * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode control or format characters.
+ * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode invisible, control, or format characters.
  */
 export type ResourceName = string;
 

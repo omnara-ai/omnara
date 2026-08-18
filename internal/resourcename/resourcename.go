@@ -36,8 +36,13 @@ func ValidateWithMax(field, value string, maxCodePoints int) error {
 	}
 
 	for _, r := range value {
-		if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
-			return fmt.Errorf("%s contains an unsupported control or format character", field)
+		if unicode.IsControl(r) || unicode.In(
+			r,
+			unicode.Cf,
+			unicode.Other_Default_Ignorable_Code_Point,
+			unicode.Variation_Selector,
+		) || r == '\u2800' {
+			return fmt.Errorf("%s contains an unsupported invisible, control, or format character", field)
 		}
 		if unicode.IsSpace(r) && r != ' ' {
 			return fmt.Errorf("%s may only use ordinary spaces", field)

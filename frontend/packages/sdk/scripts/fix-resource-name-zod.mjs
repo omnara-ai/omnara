@@ -20,8 +20,8 @@ const replacement = `export const zResourceName = z
     .refine((value) => !/^\\p{White_Space}|\\p{White_Space}$/u.test(value), {
         message: 'Resource name must not start or end with whitespace'
     })
-    .refine((value) => !/[\\p{Cc}\\p{Cf}\\p{Cs}]/u.test(value), {
-        message: 'Resource name contains an unsupported control or format character'
+    .refine((value) => !/[\\p{Cc}\\p{Cf}\\p{Cs}\\p{Default_Ignorable_Code_Point}\\u2800]/u.test(value), {
+        message: 'Resource name contains an unsupported invisible, control, or format character'
     })
     .refine((value) => !Array.from(value).some(
         (character) => character !== ' ' && /\\p{White_Space}/u.test(character)

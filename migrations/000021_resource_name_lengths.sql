@@ -1,33 +1,39 @@
 -- +goose Up
 
--- Unicode Cc, Cf, and White_Space except U+0020, kept in sync with Go's unicode tables.
+-- Unicode Cc, Cf, Other_Default_Ignorable_Code_Point, Variation_Selector, U+2800,
+-- and White_Space except U+0020, kept in sync with Go's unicode tables.
 -- +goose StatementBegin
 CREATE FUNCTION resource_name_codepoint_is_forbidden(codepoint integer) RETURNS boolean AS $$
     SELECT codepoint BETWEEN 0 AND 31
         OR codepoint BETWEEN 127 AND 160
         OR codepoint = 173
+        OR codepoint = 847
         OR codepoint BETWEEN 1536 AND 1541
         OR codepoint = 1564
         OR codepoint = 1757
         OR codepoint = 1807
         OR codepoint BETWEEN 2192 AND 2193
         OR codepoint = 2274
+        OR codepoint BETWEEN 4447 AND 4448
         OR codepoint = 5760
-        OR codepoint = 6158
+        OR codepoint BETWEEN 6068 AND 6069
+        OR codepoint BETWEEN 6155 AND 6159
         OR codepoint BETWEEN 8192 AND 8207
         OR codepoint BETWEEN 8232 AND 8239
-        OR codepoint BETWEEN 8287 AND 8292
-        OR codepoint BETWEEN 8294 AND 8303
+        OR codepoint BETWEEN 8287 AND 8303
+        OR codepoint = 10240
         OR codepoint = 12288
+        OR codepoint = 12644
+        OR codepoint BETWEEN 65024 AND 65039
         OR codepoint = 65279
-        OR codepoint BETWEEN 65529 AND 65531
+        OR codepoint = 65440
+        OR codepoint BETWEEN 65520 AND 65531
         OR codepoint = 69821
         OR codepoint = 69837
         OR codepoint BETWEEN 78896 AND 78911
         OR codepoint BETWEEN 113824 AND 113827
         OR codepoint BETWEEN 119155 AND 119162
-        OR codepoint = 917505
-        OR codepoint BETWEEN 917536 AND 917631;
+        OR codepoint BETWEEN 917504 AND 921599;
 $$ LANGUAGE sql IMMUTABLE;
 -- +goose StatementEnd
 
