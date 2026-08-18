@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
       intervalSeconds: 5,
     }),
   ),
+  readConfigFileForUpdate: vi.fn(() => ({})),
   updateConfigFile: vi.fn((patch: Record<string, unknown>) => patch),
 }))
 
@@ -44,6 +45,7 @@ vi.mock('@omnara/sdk', () => ({
 vi.mock('./config.ts', () => ({
   configFilePath: () => '/tmp/omnara-config.json',
   readConfigFile: mocks.readConfigFile,
+  readConfigFileForUpdate: mocks.readConfigFileForUpdate,
   updateConfigFile: mocks.updateConfigFile,
 }))
 
@@ -84,6 +86,25 @@ describe('login', () => {
       token: 'omnara_pat_v1_test',
       base_url: baseUrl,
     })
+  })
+
+  it('validates the config before starting the device flow', async () => {
+    const program = new Command()
+    const cli: CliConfig = {
+      client: {} as CliConfig['client'],
+      baseUrl: 'https://self-hosted.example',
+    }
+    mocks.readConfigFileForUpdate.mockImplementationOnce(() => {
+      throw new Error('invalid config')
+    })
+    registerLoginCommand(program, cli)
+
+    await expect(program.parseAsync(['node', 'omnara', 'login', '--no-browser'])).rejects.toThrow(
+      'invalid config',
+    )
+
+    expect(mocks.startDeviceAuth).not.toHaveBeenCalled()
+    expect(mocks.pollDeviceAuthToken).not.toHaveBeenCalled()
   })
 
   it('keeps the login successful when account validation fails', async () => {

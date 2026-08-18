@@ -12,7 +12,13 @@ import {
 } from '@omnara/sdk'
 import type { Command } from 'commander'
 
-import { type CliConfig, configFilePath, readConfigFile, updateConfigFile } from './config.ts'
+import {
+  type CliConfig,
+  configFilePath,
+  readConfigFile,
+  readConfigFileForUpdate,
+  updateConfigFile,
+} from './config.ts'
 import { canPromptInteractively } from './interactive.ts'
 import { runCliAction } from './output.ts'
 
@@ -131,6 +137,7 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
     .option('--token-name <name>', 'name for the created API token')
     .action(async (options: LoginOptions) => {
       await runCliAction(async () => {
+        readConfigFileForUpdate()
         const report = canPromptInteractively() ? interactiveReporter(cli.baseUrl) : plainReporter()
         const start = await startDeviceAuth({
           baseUrl: cli.baseUrl,

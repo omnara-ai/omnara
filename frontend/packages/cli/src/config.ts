@@ -71,7 +71,7 @@ export function readConfigFile(): ConfigFile {
   return {}
 }
 
-function readConfigFileForUpdate(): ConfigFile {
+export function readConfigFileForUpdate(): ConfigFile {
   const result = loadConfigFile()
   if (result.success) return result.data
   throw new CliInputError(
