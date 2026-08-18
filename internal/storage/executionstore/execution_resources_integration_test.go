@@ -135,6 +135,185 @@ func TestInsertAgentMachineBindingRejectsDuplicateBinding(t *testing.T) {
 	}
 }
 
+func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	user, err := store.Identity().CreateVerifiedUser(ctx, CreateVerifiedUserInput{
+		Email:       "agent-machine-observation@example.com",
+		DisplayName: "Agent Machine Observation Tester",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	agentID := mustCreateAgent(t, ctx, store, now)
+	machine := createContextMachine(
+		t,
+		ctx,
+		store,
+		testID("agent_machine_observation"),
+		user.ID,
+		now,
+	)
+	binding, err := executionstore.IntegrationInsertAgentMachineBindingTx(
+		ctx,
+		store.q,
+		executionstore.IntegrationInsertAgentMachineBindingInput{
+			ProjectID:             testProjectID,
+			AgentID:               agentID,
+			ProjectMachineGrantID: machine.GrantID,
+			MachineRef:            "mchr-obsv01",
+			BindingKind:           executionstore.MachineBindingKindExplicit,
+			Description:           "developer machine",
+			Cwd:                   "/workspace",
+		},
+	)
+	if err != nil {
+		t.Fatalf("bind BYO machine: %v", err)
+	}
+
+	observations, err := store.Execution().ListAgentMachineObservations(ctx, testProjectID, agentID)
+	if err != nil {
+		t.Fatalf("list offline BYO observation: %v", err)
+	}
+	if len(observations) != 1 {
+		t.Fatalf("offline BYO observations = %+v, want one", observations)
+	}
+	offline := observations[0]
+	if offline.MachineRef != binding.MachineRef || offline.SourceKind != executionstore.MachineSourceKindBYO ||
+		offline.BindingKind != executionstore.MachineBindingKindExplicit ||
+		offline.BindingState != executionstore.AgentMachineBindingStateAttached ||
+		offline.DisplayName != machine.Machine.DisplayName || offline.MachinePoolName != "" ||
+		offline.ConnectionState != executionstore.MachineConnectionStateOffline || offline.Executable ||
+		offline.Description != "developer machine" || offline.Cwd != "/workspace" {
+		t.Fatalf("offline BYO observation = %+v", offline)
+	}
+
+	token, err := store.Execution().CreateBYOMachineDaemonToken(
+		ctx,
+		executionstore.CreateBYOMachineDaemonTokenInput{
+			OrgID:     testOrgID,
+			MachineID: machine.Machine.ID,
+			Name:      "observation daemon",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create BYO daemon token: %v", err)
+	}
+	if _, err := store.Execution().RegisterDaemonRuntime(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            testOrgID,
+			MachineID:        machine.Machine.ID,
+			DaemonTokenID:    token.Record.ID,
+			DaemonInstanceID: testID("daemon_agent_machine_observation"),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
+		},
+	); err != nil {
+		t.Fatalf("register BYO daemon runtime: %v", err)
+	}
+	online, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+		ctx,
+		store.q,
+		testProjectID,
+		agentID,
+		binding.MachineRef,
+	)
+	if err != nil {
+		t.Fatalf("inspect online BYO observation: %v", err)
+	}
+	if online.ConnectionState != executionstore.MachineConnectionStateOnline || !online.Executable {
+		t.Fatalf("online BYO observation = %+v", online)
+	}
+
+	if _, err := store.Execution().DeleteProjectMachineGrant(
+		ctx,
+		testOrgID,
+		testProjectID,
+		machine.GrantID,
+	); err != nil {
+		t.Fatalf("revoke BYO machine grant: %v", err)
+	}
+	observations, err = store.Execution().ListAgentMachineObservations(ctx, testProjectID, agentID)
+	if err != nil {
+		t.Fatalf("list BYO observations after grant revoke: %v", err)
+	}
+	if len(observations) != 1 || !observations[0].ProjectGrantMissing {
+		t.Fatalf("revoked BYO observations = %+v, want one grant-missing binding", observations)
+	}
+	revoked, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+		ctx,
+		store.q,
+		testProjectID,
+		agentID,
+		binding.MachineRef,
+	)
+	if err != nil {
+		t.Fatalf("inspect BYO observation after grant revoke: %v", err)
+	}
+	if revoked.BindingState != executionstore.AgentMachineBindingStateAttached ||
+		!revoked.ProjectGrantMissing || revoked.Executable {
+		t.Fatalf("revoked BYO observation = %+v", revoked)
+	}
+
+	if _, _, err := store.Execution().CreateProjectMachineGrant(
+		ctx,
+		executionstore.CreateProjectMachineGrantInput{
+			OrgID:          testOrgID,
+			ProjectID:      testProjectID,
+			MachineID:      machine.Machine.ID,
+			IdempotencyKey: "idem-agent-machine-observation-regrant",
+		},
+	); err != nil {
+		t.Fatalf("regrant BYO machine: %v", err)
+	}
+	regranted, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+		ctx,
+		store.q,
+		testProjectID,
+		agentID,
+		binding.MachineRef,
+	)
+	if err != nil {
+		t.Fatalf("inspect BYO observation after regrant: %v", err)
+	}
+	if regranted.ProjectGrantMissing || !regranted.Executable {
+		t.Fatalf("regranted BYO observation = %+v, want executable", regranted)
+	}
+
+	released, err := store.q.ReleaseExplicitAgentMachineBinding(
+		ctx,
+		dbsqlc.ReleaseExplicitAgentMachineBindingParams{
+			ProjectID: testProjectID,
+			AgentID:   agentID,
+			MachineID: machine.Machine.ID,
+		},
+	)
+	if err != nil || released != 1 {
+		t.Fatalf("release explicit binding: rows=%d err=%v", released, err)
+	}
+	observations, err = store.Execution().ListAgentMachineObservations(ctx, testProjectID, agentID)
+	if err != nil {
+		t.Fatalf("list BYO observations after release: %v", err)
+	}
+	if len(observations) != 0 {
+		t.Fatalf("released BYO observations = %+v, want none", observations)
+	}
+	if _, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+		ctx,
+		store.q,
+		testProjectID,
+		agentID,
+		binding.MachineRef,
+	); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("inspect released BYO observation error = %v, want not found", err)
+	}
+}
+
 func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

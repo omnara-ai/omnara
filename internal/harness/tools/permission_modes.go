@@ -310,7 +310,7 @@ func inspectMachinePermissionChallenge(
 		if executor.Store == nil {
 			return toolpermission.Request{}, fmt.Errorf("tool executor store is required")
 		}
-		machines, err := executor.Store.Execution().ListPoolMachines(
+		machines, err := executor.Store.Execution().ListAgentMachineObservations(
 			ctx,
 			turn.ProjectID,
 			turn.AgentID,
@@ -322,7 +322,7 @@ func inspectMachinePermissionChallenge(
 		if err != nil {
 			return toolpermission.Request{}, executor.machinePreparationError(err)
 		}
-		machineRef = machine.Binding.MachineRef
+		machineRef = machine.MachineRef
 	}
 	authorizationInput, err := machineObservationAuthorizationInput(
 		machineObservationInspect,

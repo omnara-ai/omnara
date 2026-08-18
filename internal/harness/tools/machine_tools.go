@@ -185,13 +185,13 @@ func listMachines(
 	); err != nil {
 		return nil, err
 	}
-	machines, err := call.Reader.ListPoolMachines(ctx)
+	machines, err := call.Reader.ListAgentMachineObservations(ctx)
 	if err != nil {
 		return nil, err
 	}
 	machineResults := make([]machineObservationPayload, 0, len(machines))
 	for _, machine := range machines {
-		machineResults = append(machineResults, machineObservation(machine))
+		machineResults = append(machineResults, agentMachineObservation(machine))
 	}
 	content, err := structuredToolResultContent(
 		machineListResult{Machines: machineResults},
@@ -210,27 +210,33 @@ func inspectMachine(
 	if err != nil {
 		return nil, err
 	}
-	var record executionstore.PoolMachineRecord
+	var record executionstore.AgentMachineObservationRecord
 	if input.MachineRef != "" {
-		record, err = call.Reader.GetPoolMachineByRef(ctx, input.MachineRef)
+		record, err = call.Reader.GetAgentMachineObservationByRef(ctx, input.MachineRef)
 	} else {
-		var machines []executionstore.PoolMachineRecord
-		machines, err = call.Reader.ListPoolMachines(ctx)
+		var machines []executionstore.AgentMachineObservationRecord
+		machines, err = call.Reader.ListAgentMachineObservations(ctx)
 		if err == nil {
 			record, err = selectOnlyMachine(machines)
 		}
 	}
 	if err != nil {
+		if errors.Is(err, ErrMachineSelectionRequired) {
+			unavailable, resultErr := machineUnavailableToolResult(err)
+			if resultErr != nil {
+				return nil, resultErr
+			}
+			return failInTransaction(unavailable.Content, unavailable.Cause), nil
+		}
 		if !errors.Is(err, storeerr.ErrNotFound) &&
-			!errors.Is(err, ErrNoMachine) &&
-			!errors.Is(err, ErrMachineSelectionRequired) {
+			!errors.Is(err, ErrNoMachine) {
 			return nil, err
 		}
 		return failMachineTransaction("inspect_machine_failed", err, false)
 	}
 	authorizationInput, err := machineObservationAuthorizationInput(
 		machineObservationInspect,
-		record.Binding.MachineRef,
+		record.MachineRef,
 	)
 	if err != nil {
 		return nil, err
@@ -244,7 +250,7 @@ func inspectMachine(
 	); err != nil {
 		return nil, err
 	}
-	content, err := structuredToolResultContent(machineInspection(record))
+	content, err := structuredToolResultContent(agentMachineInspection(record))
 	if err != nil {
 		return nil, err
 	}
@@ -424,27 +430,32 @@ func resolveMachineRefRequest(raw json.RawMessage, optional bool) (machineRefReq
 	return input, nil
 }
 
-func selectOnlyMachine(machines []executionstore.PoolMachineRecord) (executionstore.PoolMachineRecord, error) {
+func selectOnlyMachine[T any](machines []T) (T, error) {
+	var zero T
 	switch len(machines) {
 	case 0:
-		return executionstore.PoolMachineRecord{}, ErrNoMachine
+		return zero, ErrNoMachine
 	case 1:
 		return machines[0], nil
 	default:
-		return executionstore.PoolMachineRecord{}, ErrMachineSelectionRequired
+		return zero, ErrMachineSelectionRequired
 	}
 }
 
 type machineObservationPayload struct {
 	MachineRef             string    `json:"machine_ref"`
-	MachinePoolName        string    `json:"machine_pool_name"`
+	SourceKind             string    `json:"source_kind,omitempty"`
+	BindingKind            string    `json:"binding_kind,omitempty"`
 	BindingState           string    `json:"binding_state"`
+	DisplayName            string    `json:"display_name,omitempty"`
+	MachinePoolName        string    `json:"machine_pool_name,omitempty"`
 	LifecycleState         string    `json:"lifecycle_state"`
 	ConnectionState        string    `json:"connection_state"`
 	ConnectionStateReason  string    `json:"connection_state_reason,omitempty"`
 	Description            string    `json:"description"`
 	Cwd                    string    `json:"cwd"`
 	Executable             bool      `json:"executable"`
+	ProjectGrantMissing    bool      `json:"project_grant_missing,omitempty"`
 	LifecycleReasonCode    string    `json:"lifecycle_reason_code"`
 	LifecycleReasonMessage string    `json:"lifecycle_reason_message"`
 	CreatedAt              time.Time `json:"created_at"`
@@ -499,8 +510,11 @@ func machineObservation(record executionstore.PoolMachineRecord) machineObservat
 	}
 	return machineObservationPayload{
 		MachineRef:             record.Binding.MachineRef,
-		MachinePoolName:        record.MachinePoolName,
+		SourceKind:             string(record.Machine.SourceKind),
+		BindingKind:            string(record.Binding.BindingKind),
 		BindingState:           string(record.Binding.State),
+		DisplayName:            record.Machine.DisplayName,
+		MachinePoolName:        record.MachinePoolName,
 		LifecycleState:         string(record.Machine.LifecycleState),
 		ConnectionState:        string(record.Machine.ConnectionState),
 		ConnectionStateReason:  record.Machine.ConnectionStateReason,
@@ -514,11 +528,44 @@ func machineObservation(record executionstore.PoolMachineRecord) machineObservat
 	}
 }
 
-func machineInspection(record executionstore.PoolMachineRecord) machineInspectionPayload {
-	return machineInspectionPayload{
-		machineObservationPayload: machineObservation(record),
-		FailureReport:             record.FailureReport,
+func agentMachineObservation(
+	record executionstore.AgentMachineObservationRecord,
+) machineObservationPayload {
+	payload := machineObservationPayload{
+		MachineRef:          record.MachineRef,
+		BindingKind:         string(record.BindingKind),
+		BindingState:        string(record.BindingState),
+		Description:         record.Description,
+		Executable:          record.Executable,
+		ProjectGrantMissing: record.ProjectGrantMissing,
+		CreatedAt:           record.BindingCreatedAt,
+		UpdatedAt:           record.BindingUpdatedAt,
 	}
+	if record.ProjectGrantMissing {
+		return payload
+	}
+	payload.SourceKind = string(record.SourceKind)
+	payload.DisplayName = record.DisplayName
+	payload.MachinePoolName = record.MachinePoolName
+	payload.LifecycleState = string(record.LifecycleState)
+	payload.ConnectionState = string(record.ConnectionState)
+	payload.ConnectionStateReason = record.ConnectionStateReason
+	payload.Cwd = record.Cwd
+	payload.LifecycleReasonCode = record.LifecycleReasonCode
+	payload.LifecycleReasonMessage = record.LifecycleReasonMessage
+	return payload
+}
+
+func agentMachineInspection(
+	record executionstore.AgentMachineObservationRecord,
+) machineInspectionPayload {
+	payload := machineInspectionPayload{
+		machineObservationPayload: agentMachineObservation(record),
+	}
+	if !record.ProjectGrantMissing {
+		payload.FailureReport = record.FailureReport
+	}
+	return payload
 }
 
 func machineExecutable(record executionstore.PoolMachineRecord) bool {
