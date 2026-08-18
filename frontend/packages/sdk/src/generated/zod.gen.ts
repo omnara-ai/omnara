@@ -3,7 +3,7 @@
 import * as z from 'zod';
 
 /**
- * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode invisible, control, or format characters.
+ * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character.
  */
 export const zResourceName = z
     .string()
@@ -19,6 +19,9 @@ export const zResourceName = z
     })
     .refine((value) => !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800]/u.test(value), {
         message: 'Resource name contains an unsupported invisible, control, or format character'
+    })
+    .refine((value) => !value.includes('\ufffd'), {
+        message: 'Resource name contains the Unicode replacement character'
     })
     .refine((value) => !Array.from(value).some(
         (character) => character !== ' ' && /\p{White_Space}/u.test(character)
@@ -42,6 +45,9 @@ export const zDefaultableResourceName = z
     })
     .refine((value) => value === '' || !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800]/u.test(value), {
         message: 'Resource name contains an unsupported invisible, control, or format character'
+    })
+    .refine((value) => value === '' || !value.includes('\ufffd'), {
+        message: 'Resource name contains the Unicode replacement character'
     })
     .refine((value) => value === '' || !Array.from(value).some(
         (character) => character !== ' ' && /\p{White_Space}/u.test(character)

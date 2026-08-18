@@ -449,7 +449,7 @@ func TestPostgresResourceNamePolicyMatchesGo(t *testing.T) {
 			unicode.Cf,
 			unicode.Other_Default_Ignorable_Code_Point,
 			unicode.Variation_Selector,
-		) || codepoint == '\u2800' ||
+		) || codepoint == '\u2800' || codepoint == '\ufffd' ||
 			(unicode.IsSpace(codepoint) && codepoint != ' ') {
 			wantForbidden = append(wantForbidden, int(codepoint))
 		}

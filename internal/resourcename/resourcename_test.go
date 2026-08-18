@@ -37,6 +37,7 @@ func TestValidate(t *testing.T) {
 		{name: "Hangul filler", value: "Acme\u3164Labs", wantErr: "unsupported invisible, control, or format character"},
 		{name: "variation selector", value: "Acme\ufe0fLabs", wantErr: "unsupported invisible, control, or format character"},
 		{name: "braille blank", value: "Acme\u2800Labs", wantErr: "unsupported invisible, control, or format character"},
+		{name: "replacement character", value: "Acme\ufffdLabs", wantErr: "Unicode replacement character"},
 		{name: "invalid UTF-8", value: string([]byte{0xff}), wantErr: "must be valid UTF-8"},
 	}
 

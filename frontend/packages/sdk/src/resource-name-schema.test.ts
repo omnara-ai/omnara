@@ -21,6 +21,7 @@ describe('generated ResourceName schema', () => {
     'Acme\ufe0fLabs',
     'Acme\u2800Labs',
     'Acme\ud800Labs',
+    'Acme\ufffdLabs',
   ])('rejects unsafe presentation characters in %j', (name) => {
     expect(zResourceName.safeParse(name).success).toBe(false)
   })

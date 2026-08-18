@@ -35,6 +35,7 @@ describe('resource names', () => {
     ['variation selector', 'Acme\ufe0fLabs', 'invisible, control, or format'],
     ['braille blank', 'Acme\u2800Labs', 'invisible, control, or format'],
     ['unpaired surrogate', 'Acme\ud800Labs', 'invisible, control, or format'],
+    ['replacement character', 'Acme\ufffdLabs', 'Unicode replacement character'],
   ])('rejects %s', (_case, name, message) => {
     expect(resourceNameError(name)).toContain(message)
   })
@@ -54,6 +55,7 @@ describe('resource names', () => {
     'Acme\ufe0fLabs',
     'Acme\u2800Labs',
     'Acme\ud800Labs',
+    'Acme\ufffdLabs',
   ])('keeps field errors aligned with the OpenAPI schema for %j', (name) => {
     expect(resourceNameError(name) === undefined).toBe(resourceNameValid(name))
   })

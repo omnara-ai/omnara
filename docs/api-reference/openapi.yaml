@@ -6508,7 +6508,7 @@ components:
       minLength: 1
       maxLength: 64
       x-utf8-max-bytes: 256
-      description: Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace and Unicode invisible, control, or format characters.
+      description: Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character.
     DefaultableResourceName:
       type: string
       maxLength: 64

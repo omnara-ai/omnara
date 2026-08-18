@@ -17,7 +17,6 @@ import (
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
-	"github.com/omnara-ai/omnara/internal/httpapi/httpjson"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 )
@@ -102,9 +101,6 @@ func rejectTrailingJSONRequestBody(r *http.Request) error {
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
-	}
-	if err := httpjson.ValidateUnicode(raw); err != nil {
-		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	if decoder.Decode(new(json.RawMessage)) == nil && !errors.Is(decoder.Decode(new(json.RawMessage)), io.EOF) {

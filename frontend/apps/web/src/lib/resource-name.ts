@@ -28,6 +28,9 @@ export function resourceNameError(value: string, fieldLabel = 'Name'): string | 
   if (unsupportedCharacterPattern.test(value)) {
     return `${fieldLabel} contains an unsupported invisible, control, or format character.`
   }
+  if (value.includes('\ufffd')) {
+    return `${fieldLabel} contains the Unicode replacement character.`
+  }
   if (codePoints.some((character) => character !== ' ' && whitespacePattern.test(character))) {
     return `${fieldLabel} may only use ordinary spaces.`
   }

@@ -36,6 +36,9 @@ func ValidateWithMax(field, value string, maxCodePoints int) error {
 	}
 
 	for _, r := range value {
+		if r == '\ufffd' {
+			return fmt.Errorf("%s contains the Unicode replacement character", field)
+		}
 		if unicode.IsControl(r) || unicode.In(
 			r,
 			unicode.Cf,

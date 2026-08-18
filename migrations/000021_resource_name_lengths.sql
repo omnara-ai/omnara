@@ -12,7 +12,7 @@ END;
 $$;
 -- +goose StatementEnd
 
--- Unicode Cc, Cf, Other_Default_Ignorable_Code_Point, Variation_Selector, U+2800,
+-- Unicode Cc, Cf, Other_Default_Ignorable_Code_Point, Variation_Selector, U+2800, U+FFFD,
 -- and White_Space except U+0020, kept in sync with Go's unicode tables.
 -- +goose StatementBegin
 CREATE FUNCTION resource_name_codepoint_is_forbidden(codepoint integer) RETURNS boolean AS $$
@@ -40,6 +40,7 @@ CREATE FUNCTION resource_name_codepoint_is_forbidden(codepoint integer) RETURNS 
         OR codepoint = 65279
         OR codepoint = 65440
         OR codepoint BETWEEN 65520 AND 65531
+        OR codepoint = 65533
         OR codepoint = 69821
         OR codepoint = 69837
         OR codepoint BETWEEN 78896 AND 78911
