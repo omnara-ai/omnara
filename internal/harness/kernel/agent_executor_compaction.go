@@ -8,6 +8,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -137,7 +138,17 @@ func (e AgentExecutor) planCompactionForContext(
 		return compaction.Plan{}, false, nil
 	}
 	capabilities := model.CapabilitiesForClient(client)
-	requestPolicy := model.RequestPolicyFromCapabilities(capabilities)
+	requestPolicy, err := modelretry.RequestPolicyForModelCall(
+		ctx,
+		e.Store.Execution(),
+		contextRow.ProjectID,
+		contextRow.AgentID,
+		contextRow.ID,
+		model.RequestPolicyFromCapabilities(capabilities),
+	)
+	if err != nil {
+		return compaction.Plan{}, false, err
+	}
 	recentTailTargetTokens := compaction.RecentTailTargetTokens(
 		model.UsableInputTokensForRequest(capabilities, requestPolicy),
 	)
@@ -177,6 +188,7 @@ func (e AgentExecutor) planCompactionForContext(
 		input,
 		boundaryInput,
 		projectionSummary,
+		requestPolicy,
 	)
 	if err != nil || !ok {
 		return compaction.Plan{}, false, err
@@ -199,6 +211,7 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 	input ModelWorkExecution,
 	boundaryInput compaction.RetainBoundaryInput,
 	projectionSummary string,
+	requestPolicy model.RequestPolicy,
 ) (int64, bool, error) {
 	candidates, err := compaction.RetainFromEventSequenceCandidates(boundaryInput)
 	if err != nil {
@@ -237,10 +250,8 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 				ctx,
 				client,
 				model.PrepareForSendInput{
-					Context: bundle,
-					Policy: model.RequestPolicyFromCapabilities(
-						model.CapabilitiesForClient(client),
-					),
+					Context:     bundle,
+					Policy:      requestPolicy,
 					ErrorSource: modelErrorSourceForClient(client),
 				},
 			)

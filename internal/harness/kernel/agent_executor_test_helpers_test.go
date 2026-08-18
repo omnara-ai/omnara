@@ -956,33 +956,35 @@ func assertDurableModelErrorForKernelTest(
 }
 
 type sequenceKernelModel struct {
-	providerModelSlug           string
-	apiFormat                   modelprotocol.APIFormat
-	capabilities                model.Capabilities
-	preparedInputTokenEstimate  int
-	preparedInputTokenEstimates []int
-	preparedInputTokenEstimator func(modelcontext.Bundle) int
-	prepareErr                  error
-	afterPrepare                func()
-	mu                          sync.Mutex
-	prepared                    []modelcontextSnapshot
-	responded                   []modelcontextSnapshot
-	respondHadSink              []bool
-	responses                   []model.Response
-	errorResponses              []model.Response
-	errs                        []error
-	afterRespond                func(model.Response)
-	streamEvents                []model.StreamEvent
+	providerModelSlug                    string
+	apiFormat                            modelprotocol.APIFormat
+	capabilities                         model.Capabilities
+	preparedInputTokenEstimate           int
+	preparedInputTokenEstimates          []int
+	preparedInputTokenEstimator          func(modelcontext.Bundle) int
+	preparedInputTokenEstimatorForPolicy func(modelcontext.Bundle, model.RequestPolicy) int
+	prepareErr                           error
+	afterPrepare                         func()
+	mu                                   sync.Mutex
+	prepared                             []modelcontextSnapshot
+	responded                            []modelcontextSnapshot
+	respondHadSink                       []bool
+	responses                            []model.Response
+	errorResponses                       []model.Response
+	errs                                 []error
+	afterRespond                         func(model.Response)
+	streamEvents                         []model.StreamEvent
 }
 
 type modelcontextSnapshot struct {
-	Messages           int
-	ToolResults        int
-	ContextCheckpoints int
-	ToolSpecs          []modelcontext.ToolSpec
-	ProviderReplays    []json.RawMessage
-	Policy             model.RequestPolicy
-	ProviderRequest    json.RawMessage
+	Messages                int
+	ToolResults             int
+	ContextCheckpoints      int
+	ToolSpecs               []modelcontext.ToolSpec
+	ProviderReplays         []json.RawMessage
+	ProviderReplaySequences []int64
+	Policy                  model.RequestPolicy
+	ProviderRequest         json.RawMessage
 }
 
 func (m *sequenceKernelModel) RequestedProviderModelSlug() string {
@@ -1027,26 +1029,31 @@ func (m *sequenceKernelModel) Prepare(_ context.Context, input model.PrepareInpu
 		"context_checkpoint": input.Context.ContextCheckpoint,
 	})
 	providerReplays := make([]json.RawMessage, 0, len(input.Context.Messages))
+	providerReplaySequences := make([]int64, 0, len(input.Context.Messages))
 	for _, message := range input.Context.Messages {
 		if len(message.ProviderReplay) > 0 {
 			providerReplays = append(providerReplays, append(json.RawMessage(nil), message.ProviderReplay...))
+			providerReplaySequences = append(providerReplaySequences, message.Sequence)
 		}
 	}
 	m.mu.Lock()
 	m.prepared = append(
 		m.prepared,
 		modelcontextSnapshot{
-			Messages:           len(input.Context.Messages),
-			ToolResults:        len(input.Context.ToolResults),
-			ContextCheckpoints: checkpointCount,
-			ToolSpecs:          append([]modelcontext.ToolSpec(nil), input.Context.ToolSpecs...),
-			ProviderReplays:    providerReplays,
-			Policy:             input.Policy,
-			ProviderRequest:    body,
+			Messages:                len(input.Context.Messages),
+			ToolResults:             len(input.Context.ToolResults),
+			ContextCheckpoints:      checkpointCount,
+			ToolSpecs:               append([]modelcontext.ToolSpec(nil), input.Context.ToolSpecs...),
+			ProviderReplays:         providerReplays,
+			ProviderReplaySequences: providerReplaySequences,
+			Policy:                  input.Policy,
+			ProviderRequest:         body,
 		},
 	)
 	estimate := m.preparedInputTokenEstimate
-	if m.preparedInputTokenEstimator != nil {
+	if m.preparedInputTokenEstimatorForPolicy != nil {
+		estimate = m.preparedInputTokenEstimatorForPolicy(input.Context, input.Policy)
+	} else if m.preparedInputTokenEstimator != nil {
 		estimate = m.preparedInputTokenEstimator(input.Context)
 	} else if len(m.preparedInputTokenEstimates) > 0 {
 		estimate = m.preparedInputTokenEstimates[0]

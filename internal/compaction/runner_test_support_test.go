@@ -111,14 +111,13 @@ func (s *fakeStore) CountConsecutiveContextCheckpointLineage(
 	return s.consecutiveCheckpointCount, nil
 }
 
-func (s *fakeStore) ModelCallOperationHasFailedWithErrorKind(
+func (s *fakeStore) GetProviderReplaySuppressionCutoff(
 	context.Context,
 	storage.ID,
 	storage.ID,
 	storage.ID,
-	modelprotocol.ErrorKind,
-) (bool, error) {
-	return false, nil
+) (int64, error) {
+	return 0, nil
 }
 
 func (s *fakeStore) ClaimCompactionModelCall(

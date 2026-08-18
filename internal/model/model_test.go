@@ -68,6 +68,19 @@ func TestRequestPolicyFromCapabilitiesFallsBackToOutputCeiling(t *testing.T) {
 	}
 }
 
+func TestRequestPolicyAllowsProviderReplayAfterCutoff(t *testing.T) {
+	policy := RequestPolicy{ProviderReplayCutoffEventSequence: 41}
+	if policy.AllowsProviderReplay(41) {
+		t.Fatal("replay at the rejected frontier was allowed")
+	}
+	if !policy.AllowsProviderReplay(42) {
+		t.Fatal("replay created after the rejected frontier was suppressed")
+	}
+	if !(RequestPolicy{}).AllowsProviderReplay(1) {
+		t.Fatal("zero cutoff did not allow replay")
+	}
+}
+
 func TestPrepareForSendAssessesSerializedRequestEstimate(t *testing.T) {
 	bundle := modelcontext.Bundle{}
 	client := prepareForSendClient{prepared: PreparedRequest{

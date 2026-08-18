@@ -222,13 +222,13 @@ func (e AgentExecutor) executeModelStep(
 		)
 	}
 
-	policy := model.RequestPolicyFromCapabilities(capabilities)
-	policy.SuppressProviderReplay, err = e.Store.Execution().ModelCallOperationHasFailedWithErrorKind(
+	policy, err := modelretry.RequestPolicyForModelCall(
 		ctx,
+		e.Store.Execution(),
 		input.ProjectID,
 		input.AgentID,
 		claim.Context.ID,
-		model.ErrorKindReplayRejected,
+		model.RequestPolicyFromCapabilities(capabilities),
 	)
 	if err != nil {
 		return e.recordNormalPreSendFailure(

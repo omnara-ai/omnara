@@ -176,12 +176,13 @@ func (r Runner) run(
 			providerAttempt,
 		)
 	}
-	policy.SuppressProviderReplay, err = r.Store.ModelCallOperationHasFailedWithErrorKind(
+	continuationPolicy, err := modelretry.RequestPolicyForModelCall(
 		ctx,
+		r.Store,
 		input.Plan.ProjectID,
 		input.Plan.AgentID,
 		claim.Context.ID,
-		model.ErrorKindReplayRejected,
+		model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
 	)
 	if err != nil {
 		return r.recordPreSendFailure(
@@ -189,7 +190,7 @@ func (r Runner) run(
 			modelretry.PreSendFailure{
 				Code: compactionErrorCodeLoadReplayPolicyFailed,
 				Message: "Omnara could not determine whether provider replay is safe " +
-					"for compaction.",
+					"for the projected continuation.",
 			},
 			providerAttempt,
 		)
@@ -312,10 +313,8 @@ func (r Runner) run(
 			ctx,
 			client,
 			model.PrepareForSendInput{
-				Context: candidateBundle,
-				Policy: model.RequestPolicyFromCapabilities(
-					model.CapabilitiesForClient(client),
-				),
+				Context:     candidateBundle,
+				Policy:      continuationPolicy,
 				ErrorSource: errorSource,
 			},
 		)

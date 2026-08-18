@@ -921,7 +921,7 @@ func TestPrepareSuppressesRejectedReplayAndRebuildsCanonicalToolExchange(t *test
 				ContentParts:       json.RawMessage(`[{"type":"text","text":"done"}]`),
 			}},
 		},
-		Policy: model.RequestPolicy{SuppressProviderReplay: true},
+		Policy: model.RequestPolicy{ProviderReplayCutoffEventSequence: message.Sequence},
 	})
 	if err != nil {
 		t.Fatalf("prepare with replay suppressed: %v", err)
@@ -936,5 +936,52 @@ func TestPrepareSuppressesRejectedReplayAndRebuildsCanonicalToolExchange(t *test
 		!strings.Contains(body, `"tool_call_id":"call_1"`) ||
 		!strings.Contains(body, "done") {
 		t.Fatalf("canonical tool exchange was not preserved: %s", body)
+	}
+}
+
+func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
+	oldReplay := testProviderReplay(
+		"gpt-test",
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIVariantOpenRouter,
+		json.RawMessage(`{
+			"role":"assistant",
+			"content":"old answer",
+			"reasoning_details":[{"type":"opaque","data":"old-reasoning-replay"}]
+		}`),
+	)
+	newReplay := testProviderReplay(
+		"gpt-test",
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIVariantOpenRouter,
+		json.RawMessage(`{
+			"role":"assistant",
+			"content":"new answer",
+			"reasoning_details":[{"type":"opaque","data":"new-reasoning-replay"}]
+		}`),
+	)
+	oldMessage := chatReplayMessage("mcc_old", oldReplay)
+	oldMessage.Content = json.RawMessage(`[{"type":"text","text":"old answer"}]`)
+	newMessage := chatReplayMessage("mcc_new", newReplay)
+	newMessage.Sequence = 2
+	newMessage.Content = json.RawMessage(`[{"type":"text","text":"new answer"}]`)
+
+	prepared, err := (Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "gpt-test",
+		APIVariant:            modelprotocol.APIVariantOpenRouter,
+	}).Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{Messages: []modelcontext.Message{oldMessage, newMessage}},
+		Policy:  model.RequestPolicy{ProviderReplayCutoffEventSequence: 1},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	body := string(prepared.Body)
+	if strings.Contains(body, "old-reasoning-replay") ||
+		!strings.Contains(body, "old answer") ||
+		!strings.Contains(body, "new-reasoning-replay") {
+		t.Fatalf("provider replay cutoff was not applied per message: %s", body)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -22,7 +23,7 @@ const (
 func buildInput(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
-	suppressProviderReplay bool,
+	policy model.RequestPolicy,
 ) ([]any, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -60,7 +61,7 @@ func buildInput(
 				entry.Message,
 				entry.AssistantContent,
 				replayIdentity,
-				suppressProviderReplay,
+				policy,
 			)
 			if err != nil {
 				return nil, err
@@ -122,9 +123,9 @@ func appendAssistantResponseEntry(
 	source modelcontext.Message,
 	content []modelcontext.AssistantContentEntry,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
-	suppressProviderReplay bool,
+	policy model.RequestPolicy,
 ) ([]any, error) {
-	if !suppressProviderReplay {
+	if policy.AllowsProviderReplay(source.Sequence) {
 		if replayItems, ok := completeResponseReplay(source, content, replayIdentity); ok {
 			for _, replayItem := range replayItems {
 				items = append(items, replayItem)

@@ -296,12 +296,18 @@ const (
 )
 
 type RequestPolicy struct {
-	MaxOutputTokens        int            `json:"max_output_tokens,omitempty"`
-	CacheRetention         CacheRetention `json:"cache_retention,omitempty"`
-	SupportsTools          *bool          `json:"supports_tools,omitempty"`
-	SupportsReasoning      *bool          `json:"supports_reasoning,omitempty"`
-	ReasoningEffort        string         `json:"reasoning_effort,omitempty"`
-	SuppressProviderReplay bool           `json:"suppress_provider_replay,omitempty"`
+	MaxOutputTokens                   int            `json:"max_output_tokens,omitempty"`
+	CacheRetention                    CacheRetention `json:"cache_retention,omitempty"`
+	SupportsTools                     *bool          `json:"supports_tools,omitempty"`
+	SupportsReasoning                 *bool          `json:"supports_reasoning,omitempty"`
+	ReasoningEffort                   string         `json:"reasoning_effort,omitempty"`
+	ProviderReplayCutoffEventSequence int64          `json:"provider_replay_cutoff_event_sequence,omitempty"`
+}
+
+// AllowsProviderReplay reports whether replay is newer than the inclusive cutoff.
+func (p RequestPolicy) AllowsProviderReplay(eventSequence int64) bool {
+	return p.ProviderReplayCutoffEventSequence <= 0 ||
+		eventSequence > p.ProviderReplayCutoffEventSequence
 }
 
 func RequestPolicyFromCapabilities(capabilities Capabilities) RequestPolicy {

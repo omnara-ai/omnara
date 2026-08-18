@@ -30,7 +30,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	requestInput, err := buildInput(
 		input.Context,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
-		input.Policy.SuppressProviderReplay,
+		input.Policy,
 	)
 	if err != nil {
 		return nil, err

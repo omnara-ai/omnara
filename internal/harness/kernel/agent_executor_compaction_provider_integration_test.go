@@ -4,6 +4,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -13,12 +14,281 @@ import (
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
+
+func TestAgentExecutorCarriesReplayRejectionThroughCompaction(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	agentID, userID := fixture.createAgent(t, ctx, "openai/replay-compaction-model", now)
+
+	seedModel := &sequenceKernelModel{
+		providerModelSlug: "replay-compaction-model",
+		responses: []model.Response{
+			{
+				ID:         "resp-replay-compaction-padding",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "disposable old history accepted"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+			{
+				ID:         "resp-replay-compaction-seed",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "recent history that must remain exact"}},
+				StopReason: model.StopReasonEndTurn,
+				ProviderReplay: json.RawMessage(
+					`[{"type":"reasoning","id":"rs_replay_compaction","encrypted_content":"large opaque replay"},` +
+						`{"type":"message","id":"msg_replay_compaction","role":"assistant","content":` +
+						`[{"type":"output_text","text":"recent history that must remain exact"}]}]`,
+				),
+			},
+		},
+	}
+	seedNow := now.Add(2 * time.Second)
+	seedExecutor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, seedModel),
+		ToolExecutor:  tools.Executor{Store: fixture.Store},
+		Now:           func() time.Time { return seedNow },
+	}
+	paddingTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		strings.Repeat("disposable padding ", 6_000),
+		now.Add(time.Second),
+	)
+	if err := seedExecutor.ExecuteModelWork(ctx, paddingTurn); err != nil {
+		t.Fatalf("execute disposable padding turn: %v", err)
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		paddingTurn.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release disposable padding turn: %v", err)
+	}
+
+	seedTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"seed replay-backed history",
+		now.Add(3*time.Second),
+	)
+	seedNow = now.Add(4 * time.Second)
+	if err := seedExecutor.ExecuteModelWork(ctx, seedTurn); err != nil {
+		t.Fatalf("execute replay-backed seed turn: %v", err)
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		seedTurn.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release replay-backed seed turn: %v", err)
+	}
+
+	capabilities := model.Capabilities{
+		ContextWindowTokens: 128_000,
+		MaxOutputTokens:     128,
+	}
+	modelClient := &sequenceKernelModel{
+		providerModelSlug: "replay-compaction-model",
+		capabilities:      capabilities,
+		preparedInputTokenEstimatorForPolicy: func(
+			bundle modelcontext.Bundle,
+			policy model.RequestPolicy,
+		) int {
+			if bundle.ContextCheckpoint != nil {
+				for _, message := range bundle.Messages {
+					if strings.Contains(string(message.ProviderReplay), "rs_replay_compaction") &&
+						policy.AllowsProviderReplay(message.Sequence) {
+						return capabilities.ContextWindowTokens * 2
+					}
+				}
+			}
+			return 500
+		},
+		errs: []error{model.ProviderError{
+			Kind:    model.ErrorKindReplayRejected,
+			Source:  "test-provider",
+			Code:    "invalid_encrypted_content",
+			Message: "provider replay could not be decrypted",
+		}},
+		responses: []model.Response{
+			{
+				ID:         "resp-replay-compaction-overflow",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "context window exceeded"}},
+				StopReason: model.StopReasonContextWindow,
+			},
+			{
+				ID:         "resp-replay-compaction-summary",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "The earlier replay-backed history was preserved."}},
+				StopReason: model.StopReasonEndTurn,
+			},
+			{
+				ID:         "resp-replay-compaction-final",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "continued after replay-aware compaction"}},
+				StopReason: model.StopReasonEndTurn,
+				ProviderReplay: json.RawMessage(
+					`[{"type":"reasoning","id":"rs_after_compaction","encrypted_content":"new opaque replay"},` +
+						`{"type":"message","id":"msg_after_compaction","role":"assistant","content":` +
+						`[{"type":"output_text","text":"continued after replay-aware compaction"}]}]`,
+				),
+			},
+			{
+				ID:         "resp-replay-compaction-later",
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "new replay remained eligible"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
+	}
+	currentNow := now.Add(6 * time.Second)
+	executor := AgentExecutor{
+		Store:           fixture.Store,
+		ModelResolver:   liveTestModelResolver(fixture.Store, modelClient),
+		ToolExecutor:    tools.Executor{Store: fixture.Store},
+		Now:             func() time.Time { return currentNow },
+		ModelRetryDelay: immediateKernelModelRetryDelay,
+	}
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"trigger replay rejection before compaction",
+		now.Add(5*time.Second),
+	)
+	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
+		t.Fatalf("execute replay-rejected attempt: %v", err)
+	}
+
+	currentNow = now.Add(7 * time.Second)
+	retry := continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, turn, currentNow)
+	if err := executor.ExecuteModelWork(ctx, retry); err != nil {
+		t.Fatalf("execute context overflow and compaction: %v", err)
+	}
+
+	currentNow = now.Add(8 * time.Second)
+	continuation := continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, retry, currentNow)
+	if err := executor.ExecuteModelWork(ctx, continuation); err != nil {
+		t.Fatalf("execute post-compaction continuation: %v", err)
+	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx,
+		kernelTestProjectID,
+		agentID,
+		continuation.RuntimeLockID,
+	); err != nil {
+		t.Fatalf("release post-compaction continuation: %v", err)
+	}
+
+	laterTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"continue with replay created after the rejection",
+		now.Add(9*time.Second),
+	)
+	currentNow = now.Add(10 * time.Second)
+	if err := executor.ExecuteModelWork(ctx, laterTurn); err != nil {
+		t.Fatalf("execute later turn: %v", err)
+	}
+
+	if modelClient.respondedCount() != 5 {
+		t.Fatalf(
+			"provider requests = %d, want rejection, overflow, summary, continuation, and later turn",
+			modelClient.respondedCount(),
+		)
+	}
+	rejectedFrontier := turn.OpeningEventSequence
+	if modelClient.responded[0].Policy.ProviderReplayCutoffEventSequence != 0 {
+		t.Fatal("initial normal request did not begin with provider replay enabled")
+	}
+	if len(modelClient.responded[0].ProviderReplays) == 0 {
+		t.Fatal("initial normal request did not contain the replay needed by the test")
+	}
+	if modelClient.responded[1].Policy.ProviderReplayCutoffEventSequence != rejectedFrontier {
+		t.Fatalf(
+			"normal retry replay cutoff = %d, want rejected frontier %d",
+			modelClient.responded[1].Policy.ProviderReplayCutoffEventSequence,
+			rejectedFrontier,
+		)
+	}
+	if modelClient.responded[3].Policy.ProviderReplayCutoffEventSequence != rejectedFrontier {
+		t.Fatalf(
+			"post-compaction replay cutoff = %d, want rejected frontier %d",
+			modelClient.responded[3].Policy.ProviderReplayCutoffEventSequence,
+			rejectedFrontier,
+		)
+	}
+	postCompactionRequest := string(modelClient.responded[3].ProviderRequest)
+	if strings.Contains(postCompactionRequest, "disposable padding") ||
+		!strings.Contains(postCompactionRequest, "recent history that must remain exact") ||
+		!strings.Contains(postCompactionRequest, "earlier replay-backed history was preserved") {
+		t.Fatalf("post-compaction request did not preserve the intended context: %s", postCompactionRequest)
+	}
+
+	checkpointProjections := 0
+	for _, prepared := range modelClient.prepared {
+		if prepared.ContextCheckpoints == 0 {
+			continue
+		}
+		checkpointProjections++
+		for index, replay := range prepared.ProviderReplays {
+			if strings.Contains(string(replay), "rs_replay_compaction") &&
+				prepared.Policy.AllowsProviderReplay(prepared.ProviderReplaySequences[index]) {
+				t.Fatalf("checkpoint projection allowed replay from the rejected history")
+			}
+		}
+	}
+	if checkpointProjections < 3 {
+		t.Fatalf("checkpoint projections = %d, want planner, validator, and continuation", checkpointProjections)
+	}
+
+	var checkpoints int
+	if err := fixture.Pool.QueryRow(ctx, `
+SELECT count(*)
+FROM context_checkpoints checkpoint
+JOIN agents agent ON agent.id = checkpoint.agent_id
+WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
+`, kernelTestProjectID, agentID).Scan(&checkpoints); err != nil {
+		t.Fatalf("count replay-aware checkpoints: %v", err)
+	}
+	if checkpoints != 1 {
+		t.Fatalf("replay-aware checkpoints = %d, want 1", checkpoints)
+	}
+
+	laterRequest := modelClient.responded[4]
+	var oldReplaySequence, newReplaySequence int64
+	for index, replay := range laterRequest.ProviderReplays {
+		switch {
+		case strings.Contains(string(replay), "rs_replay_compaction"):
+			oldReplaySequence = laterRequest.ProviderReplaySequences[index]
+		case strings.Contains(string(replay), "rs_after_compaction"):
+			newReplaySequence = laterRequest.ProviderReplaySequences[index]
+		}
+	}
+	if oldReplaySequence == 0 || newReplaySequence == 0 ||
+		laterRequest.Policy.AllowsProviderReplay(oldReplaySequence) ||
+		!laterRequest.Policy.AllowsProviderReplay(newReplaySequence) {
+		t.Fatalf(
+			"later request cutoff=%d old replay=%d new replay=%d",
+			laterRequest.Policy.ProviderReplayCutoffEventSequence,
+			oldReplaySequence,
+			newReplaySequence,
+		)
+	}
+}
 
 func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T) {
 	ctx := context.Background()

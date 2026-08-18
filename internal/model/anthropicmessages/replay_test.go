@@ -197,8 +197,8 @@ func TestPrepareSuppressesRejectedReplayAndRebuildsCanonicalToolExchange(t *test
 			}},
 		},
 		Policy: model.RequestPolicy{
-			MaxOutputTokens:        64,
-			SuppressProviderReplay: true,
+			MaxOutputTokens:                   64,
+			ProviderReplayCutoffEventSequence: message.Sequence,
 		},
 	})
 	if err != nil {
@@ -247,6 +247,51 @@ func TestPrepareSuppressesRejectedReplayAndRebuildsCanonicalToolExchange(t *test
 			resultToolUseID,
 			body,
 		)
+	}
+}
+
+func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
+	oldReplay := testProviderReplay(
+		"claude-test",
+		modelprotocol.APIFormatAnthropicMessages,
+		json.RawMessage(`[
+			{"type":"redacted_thinking","data":"old-redacted-replay"},
+			{"type":"text","text":"old answer"}
+		]`),
+	)
+	newReplay := testProviderReplay(
+		"claude-test",
+		modelprotocol.APIFormatAnthropicMessages,
+		json.RawMessage(`[
+			{"type":"redacted_thinking","data":"new-redacted-replay"},
+			{"type":"text","text":"new answer"}
+		]`),
+	)
+	oldMessage := anthropicReplayMessage("mcc_old", oldReplay)
+	oldMessage.Content = json.RawMessage(`[{"type":"text","text":"old answer"}]`)
+	newMessage := anthropicReplayMessage("mcc_new", newReplay)
+	newMessage.Sequence = 2
+	newMessage.Content = json.RawMessage(`[{"type":"text","text":"new answer"}]`)
+
+	prepared, err := (Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "claude-test",
+	}).Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{Messages: []modelcontext.Message{oldMessage, newMessage}},
+		Policy: model.RequestPolicy{
+			MaxOutputTokens:                   64,
+			ProviderReplayCutoffEventSequence: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	body := string(prepared.Body)
+	if strings.Contains(body, "old-redacted-replay") ||
+		!strings.Contains(body, "old answer") ||
+		!strings.Contains(body, "new-redacted-replay") {
+		t.Fatalf("provider replay cutoff was not applied per message: %s", body)
 	}
 }
 

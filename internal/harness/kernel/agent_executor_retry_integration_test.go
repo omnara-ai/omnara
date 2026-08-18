@@ -434,9 +434,13 @@ func TestAgentExecutorRetriesWithoutProviderReplayAfterReplayRejection(t *testin
 		t.Fatalf("execute canonical retry: %v", err)
 	}
 	if len(modelClient.prepared) != 2 ||
-		modelClient.prepared[0].Policy.SuppressProviderReplay ||
-		!modelClient.prepared[1].Policy.SuppressProviderReplay {
-		t.Fatalf("provider replay policies = %+v, want enabled then suppressed", modelClient.prepared)
+		modelClient.prepared[0].Policy.ProviderReplayCutoffEventSequence != 0 ||
+		modelClient.prepared[1].Policy.ProviderReplayCutoffEventSequence != work.OpeningEventSequence {
+		t.Fatalf(
+			"provider replay cutoffs = %+v, want 0 then %d",
+			modelClient.prepared,
+			work.OpeningEventSequence,
+		)
 	}
 
 	var replayFailures, successes int
