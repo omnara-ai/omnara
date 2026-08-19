@@ -218,7 +218,7 @@ export async function runSlackIntegration(
     })
   } catch (error) {
     report.fail('Slack authorization failed')
-    if (providerAccountRef !== undefined) {
+    if (typeof providerAccountRef === 'string') {
       report.warn(
         `Slack app ${providerAccountRef} was created, but the integration was not completed`,
       )

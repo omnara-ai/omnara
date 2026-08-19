@@ -1022,14 +1022,20 @@ WHERE s.org_id = $7
 	AND (COALESCE(cardinality($10::text[]), 0) = 0 OR s.kind = ANY($10::text[]))
   AND ($11::text = '' OR s.owner_kind = $11::text)
   AND ($12::uuid IS NULL OR s.owner_project_id = $12::uuid)
+  AND ($13::uuid IS NULL OR EXISTS (
+    SELECT 1
+    FROM secret_versions fv
+    WHERE fv.secret_id = s.id
+      AND fv.mcp_oauth_flow_id = $13::uuid
+  ))
   AND (
     (s.owner_kind = 'org' AND EXISTS (
       SELECT 1
       FROM org_memberships om
       WHERE om.org_id = s.org_id
         AND (
-          ($13::uuid IS NOT NULL AND om.user_id = $13::uuid)
-          OR ($14::uuid IS NOT NULL AND om.org_api_key_id = $14::uuid)
+          ($14::uuid IS NOT NULL AND om.user_id = $14::uuid)
+          OR ($15::uuid IS NOT NULL AND om.org_api_key_id = $15::uuid)
         )
         AND om.role IN ('owner', 'admin')
     ))
@@ -1039,16 +1045,16 @@ WHERE s.org_id = $7
       WHERE roles.org_id = s.org_id
         AND roles.project_id = s.owner_project_id
         AND (
-          ($13::uuid IS NOT NULL AND roles.user_id = $13::uuid)
-          OR ($14::uuid IS NOT NULL AND roles.org_api_key_id = $14::uuid)
+          ($14::uuid IS NOT NULL AND roles.user_id = $14::uuid)
+          OR ($15::uuid IS NOT NULL AND roles.org_api_key_id = $15::uuid)
         )
         AND roles.role IN ('admin', 'developer')
     ))
-    OR (s.owner_kind = 'user' AND s.owner_user_id = $13::uuid AND EXISTS (
+    OR (s.owner_kind = 'user' AND s.owner_user_id = $14::uuid AND EXISTS (
       SELECT 1
       FROM org_memberships om
       WHERE om.org_id = s.org_id
-        AND om.user_id = $13::uuid
+        AND om.user_id = $14::uuid
     ))
   )
 )
@@ -1077,6 +1083,7 @@ type ListVisibleOwnedSecretsParams struct {
 	Kinds          []string
 	OwnerKind      string
 	OwnerProjectID *uuid.UUID
+	McpOauthFlowID *uuid.UUID
 	UserID         *uuid.UUID
 	OrgApiKeyID    *uuid.UUID
 }
@@ -1114,6 +1121,7 @@ func (q *Queries) ListVisibleOwnedSecrets(ctx context.Context, arg ListVisibleOw
 		arg.Kinds,
 		arg.OwnerKind,
 		arg.OwnerProjectID,
+		arg.McpOauthFlowID,
 		arg.UserID,
 		arg.OrgApiKeyID,
 	)

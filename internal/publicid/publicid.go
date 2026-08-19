@@ -52,6 +52,7 @@ const (
 	KindSkillRevision           Kind = "skill_revision"
 	KindSkillGrant              Kind = "skill_grant"
 	KindOrgAPIKey               Kind = "org_api_key"
+	KindMCPOAuthFlow            Kind = "mcp_oauth_flow"
 )
 
 var kindPrefixes = map[Kind]string{
@@ -95,6 +96,7 @@ var kindPrefixes = map[Kind]string{
 	KindSkillRevision:           "skr",
 	KindSkillGrant:              "skg",
 	KindOrgAPIKey:               "oak",
+	KindMCPOAuthFlow:            "moaf",
 }
 
 var encoding = base32.StdEncoding.WithPadding(base32.NoPadding)

@@ -105,6 +105,8 @@ export const zOrgApiKeyId = z.string().regex(/^oak_[a-z2-7]{26}$/);
 
 export const zProjectId = z.string().regex(/^proj_[a-z2-7]{26}$/);
 
+export const zMcpoAuthFlowId = z.string().regex(/^moaf_[a-z2-7]{26}$/);
+
 export const zActorId = z.string().regex(/^actr_[a-z2-7]{26}$/);
 
 export const zAgentId = z.string().regex(/^agt_[a-z2-7]{26}$/);
@@ -531,6 +533,7 @@ export const zSkillGrant = z.object({
 export const zMcpoAuthStartMetadata = z.record(z.string(), z.string().max(512));
 
 export const zMcpoAuthStartResponse = z.object({
+    flow_id: zMcpoAuthFlowId,
     authorization_url: z.url(),
     expires_at: zTimestamp
 });
@@ -2443,6 +2446,11 @@ export const zSecretOwnerKindFilter = z.enum([
 export const zSecretOwnerProjectIdFilter = zProjectId;
 
 /**
+ * Filter to secrets that have a version created by this MCP OAuth flow.
+ */
+export const zSecretMcpoAuthFlowIdFilter = zMcpoAuthFlowId;
+
+/**
  * Only return integration installs bound to this agent profile.
  */
 export const zIntegrationInstallAgentProfileFilter = zAgentProfileId;
@@ -2937,6 +2945,7 @@ export const zListSecretsQuery = z.object({
         'user'
     ]).optional(),
     owner_project_id: zProjectId.optional(),
+    mcp_oauth_flow_id: zMcpoAuthFlowId.optional(),
     metadata: z.record(z.string(), z.string()).optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),

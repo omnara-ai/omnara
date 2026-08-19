@@ -57,14 +57,18 @@ function plainReporter(): FlowReporter {
     stop(message) {
       console.log(`${message}.`)
     },
-    fail() {},
+    fail(message) {
+      console.error(message)
+    },
     warn(message) {
       console.error(`warning: ${message}`)
     },
     info(message) {
       console.log(message)
     },
-    done() {},
+    done() {
+      console.log('Done')
+    },
   }
 }
 

@@ -102,6 +102,7 @@ export function loadConfig(): CliConfig {
   const client = createOmnaraClient({
     baseUrl,
     auth: token ? bearerToken(token) : undefined,
+    headers: { 'User-Agent': 'omnara-cli' },
   })
   return {
     client,

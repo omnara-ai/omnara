@@ -61,6 +61,8 @@ export type OrgApiKeyId = string;
 
 export type ProjectId = string;
 
+export type McpoAuthFlowId = string;
+
 export type ActorId = string;
 
 export type AgentId = string;
@@ -735,6 +737,7 @@ export type McpoAuthStartMetadata = {
 };
 
 export type McpoAuthStartResponse = {
+    flow_id: McpoAuthFlowId;
     authorization_url: string;
     expires_at: Timestamp;
 };
@@ -2864,6 +2867,11 @@ export type SecretOwnerKindFilter = 'org' | 'project' | 'user';
  * Required with owner_kind=project and invalid with other owner kinds.
  */
 export type SecretOwnerProjectIdFilter = ProjectId;
+
+/**
+ * Filter to secrets that have a version created by this MCP OAuth flow.
+ */
+export type SecretMcpoAuthFlowIdFilter = McpoAuthFlowId;
 
 /**
  * Only return integration installs bound to this agent profile.
@@ -5739,6 +5747,10 @@ export type ListSecretsData = {
          * Required with owner_kind=project and invalid with other owner kinds.
          */
         owner_project_id?: ProjectId;
+        /**
+         * Filter to secrets that have a version created by this MCP OAuth flow.
+         */
+        mcp_oauth_flow_id?: McpoAuthFlowId;
         /**
          * Metadata key/value filters, encoded as metadata[key]=value.
          */
