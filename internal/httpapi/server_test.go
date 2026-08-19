@@ -123,9 +123,27 @@ func TestNewRejectsIncompleteDaemonNotificationConfiguration(t *testing.T) {
 	}
 }
 
-func TestAppHandlerDoesNotServeHealthz(t *testing.T) {
+func TestAppHandlerServesHealthz(t *testing.T) {
 	server := mustNewUnitServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"status":"ok"}` {
+		t.Fatalf("healthz body = %q", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("healthz Cache-Control = %q", got)
+	}
+}
+
+func TestAppHandlerHealthzSubpathIsNotFound(t *testing.T) {
+	server := mustNewUnitServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/healthz/db", nil)
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, req)
