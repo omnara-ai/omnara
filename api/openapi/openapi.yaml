@@ -5642,6 +5642,10 @@ paths:
       operationId: updateMachinePool
       tags: [Machine Pools]
       summary: Update machine pool
+      description: >-
+        Tenant-managed pools support every request field. Cluster-managed pools only allow changes to
+        default CPU and memory, environment and secret environment variables, and provider-supported
+        per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6606,7 +6610,10 @@ components:
         - authentication_unavailable
     ManagementKind:
       type: string
-      description: Lifecycle owner. Tenant-managed resources can be changed through tenant APIs; cluster-managed resources are installed by the control plane and are read-only through tenant lifecycle APIs.
+      description: >-
+        Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed
+        resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly
+        expose tenant-editable settings.
       enum: [tenant, cluster]
     OrganizationID:
       type: string
@@ -10437,6 +10444,26 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+        usage:
+          description: Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+          $ref: '#/components/schemas/MachinePoolUsage'
+    MachinePoolUsage:
+      type: object
+      additionalProperties: false
+      required: [machines, cpu, memory_mb]
+      properties:
+        machines:
+          type: integer
+          format: int32
+          minimum: 0
+        cpu:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_mb:
+          type: integer
+          format: int64
+          minimum: 0
     ListMachinePoolsResponse:
       type: object
       additionalProperties: false

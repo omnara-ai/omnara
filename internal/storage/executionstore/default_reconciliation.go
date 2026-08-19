@@ -41,11 +41,15 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 					name,
 				)
 			}
+			preserveClusterMachinePoolEditableFields(current, &desired)
 			poolDefaults, err := prepareMachinePoolCreateInput(&desired)
 			if err != nil {
 				return nil, fmt.Errorf("default machine pool %q: %w", name, err)
 			}
-			if err := s.validatePoolDefaultsTx(ctx, qtx, desired, poolDefaults); err != nil {
+			// Preserved organization-owned secret references may outlive the secret and must not block reconciliation.
+			validationDefaults := poolDefaults
+			validationDefaults.Environment.SecretEnv = nil
+			if err := s.validatePoolDefaultsTx(ctx, qtx, desired, validationDefaults); err != nil {
 				return nil, fmt.Errorf("default machine pool %q: %w", name, err)
 			}
 			if sameMachinePoolIntent(current, desired) {
@@ -70,4 +74,18 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 		}
 	}
 	return changes, nil
+}
+
+func preserveClusterMachinePoolEditableFields(
+	current MachinePoolRecord,
+	desired *CreateMachinePoolInput,
+) {
+	desired.DefaultMachineCPU = current.DefaultMachineCPU
+	desired.DefaultMachineMemoryMB = current.DefaultMachineMemoryMB
+	desired.DefaultMachineEnv = current.DefaultMachineEnv
+	desired.DefaultMachineSecretEnv = current.DefaultMachineSecretEnv
+	desired.MinMachineCPU = current.MinMachineCPU
+	desired.MinMachineMemoryMB = current.MinMachineMemoryMB
+	desired.MaxMachineCPU = current.MaxMachineCPU
+	desired.MaxMachineMemoryMB = current.MaxMachineMemoryMB
 }

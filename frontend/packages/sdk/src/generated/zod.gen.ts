@@ -91,7 +91,7 @@ export const zServerErrorCode = z.enum([
 ]);
 
 /**
- * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs; cluster-managed resources are installed by the control plane and are read-only through tenant lifecycle APIs.
+ * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
  */
 export const zManagementKind = z.enum(['tenant', 'cluster']);
 
@@ -1868,6 +1868,12 @@ export const zUpdateMachinePoolRequest = z.object({
     metadata: zMachineMetadata.optional()
 });
 
+export const zMachinePoolUsage = z.object({
+    machines: z.int().gte(0).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    cpu: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    memory_mb: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
 export const zMachinePool = z.object({
     id: zMachinePoolId,
     org_id: zOrganizationId,
@@ -1893,7 +1899,8 @@ export const zMachinePool = z.object({
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
     metadata: zMetadata,
     created_at: zTimestamp,
-    updated_at: zTimestamp
+    updated_at: zTimestamp,
+    usage: zMachinePoolUsage.optional()
 });
 
 export const zListMachinePoolsResponse = z.object({

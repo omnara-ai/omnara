@@ -3,12 +3,16 @@ import { ApiError, type MachinePool } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
-import { DetailList } from '@/components/data-table/DetailList'
+import { type DetailItem, DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { CreateMachinePoolDialog } from '@/components/org/CreateMachinePoolDialog'
 import { EditMachinePoolDialog } from '@/components/org/EditMachinePoolDialog'
 import { GrantPoolToProjectDialog } from '@/components/org/GrantPoolToProjectDialog'
+import {
+  isMachinePoolProvider,
+  machinePoolProviderDefinitions,
+} from '@/components/org/machinePoolProviders'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -78,16 +82,17 @@ export function MachinePoolsSection() {
             },
             { id: 'provider', header: 'Provider', cell: (pool) => pool.provider },
             {
-              id: 'max-total-machines',
-              header: 'Machine quota',
+              id: 'machines-in-use',
+              header: 'Machines in use',
               className: 'w-44',
-              cell: (pool) => pool.max_total_machines,
+              cell: (pool) =>
+                pool.usage ? `${pool.usage.machines} / ${pool.max_total_machines}` : '—',
             },
             {
-              id: 'max-total-memory',
-              header: 'Memory quota',
+              id: 'resources-in-use',
+              header: 'Resources in use',
               className: 'w-44',
-              cell: (pool) => formatMemoryGb(pool.max_total_memory_mb) ?? '—',
+              cell: formatResourceUsage,
             },
             {
               id: 'actions',
@@ -97,13 +102,9 @@ export function MachinePoolsSection() {
               cell: (pool) =>
                 canManage ? (
                   <ResourceRowActions
-                    onEdit={
-                      pool.management_kind === 'tenant'
-                        ? () => {
-                            setActiveDialog({ kind: 'edit', pool })
-                          }
-                        : undefined
-                    }
+                    onEdit={() => {
+                      setActiveDialog({ kind: 'edit', pool })
+                    }}
                     onGrant={() => {
                       setActiveDialog({ kind: 'grant', pool })
                     }}
@@ -136,15 +137,40 @@ export function MachinePoolsSection() {
               items={[
                 { label: 'ID', value: pool.id, mono: true },
                 { label: 'Description', value: pool.description },
+                ...providerDetails(pool),
+                ...(pool.provider_auth_secret_id
+                  ? [
+                      {
+                        label: 'Provider credential',
+                        value: pool.provider_auth_secret_id,
+                        mono: true,
+                      },
+                    ]
+                  : []),
                 {
-                  label: 'Managed by',
-                  value: pool.management_kind === 'cluster' ? 'Cluster' : 'Organization',
+                  label: 'Startup script',
+                  value: (
+                    <span className="whitespace-pre-wrap">
+                      {stringValue(pool.default_machine_provider_options.startup_script) ?? 'None'}
+                    </span>
+                  ),
+                  mono: true,
                 },
                 {
                   label: 'Runtime protection',
                   value: pool.runtime_protection_enabled ? 'Enabled' : 'Disabled',
                 },
                 { label: 'Working directory', value: pool.default_cwd, mono: true },
+                {
+                  label: 'Environment variables',
+                  value: formatEntries(pool.default_machine_env),
+                  mono: true,
+                },
+                {
+                  label: 'Secret variables',
+                  value: formatEntries(pool.default_machine_secret_env),
+                  mono: true,
+                },
                 { label: 'Machine quota', value: pool.max_total_machines },
                 {
                   label: 'CPU quota',
@@ -202,6 +228,7 @@ export function MachinePoolsSection() {
       )}
       {canManage && activeDialog?.kind === 'edit' && (
         <EditMachinePoolDialog
+          key={activeDialog.pool.id}
           open
           onOpenChange={(nextOpen) => {
             if (!nextOpen) setActiveDialog(null)
@@ -227,4 +254,62 @@ export function MachinePoolsSection() {
 
 function formatCPU(value: number | null) {
   return value === null ? undefined : `${value} vCPU`
+}
+
+function formatResourceUsage(pool: MachinePool) {
+  const values: string[] = []
+  if (pool.max_total_cpu !== null) {
+    values.push(`${pool.usage?.cpu ?? '—'} / ${pool.max_total_cpu} vCPU`)
+  }
+  if (pool.max_total_memory_mb !== null) {
+    values.push(
+      `${formatMemoryGb(pool.usage?.memory_mb) ?? '—'} / ${formatMemoryGb(pool.max_total_memory_mb)}`,
+    )
+  }
+  if (values.length === 0) return '—'
+  return (
+    <span className="flex flex-col whitespace-nowrap">
+      {values.map((value) => (
+        <span key={value}>{value}</span>
+      ))}
+    </span>
+  )
+}
+
+function providerDetails(pool: MachinePool): DetailItem[] {
+  if (!isMachinePoolProvider(pool.provider)) return []
+  const definition = machinePoolProviderDefinitions[pool.provider]
+  const options = pool.default_machine_provider_options
+  const details: DetailItem[] = [
+    {
+      label: `${definition.label} ${definition.resource.label.toLowerCase()}`,
+      value: stringValue(options[definition.resource.key]),
+      mono: true,
+    },
+    {
+      label: `${definition.label} ${definition.location.label.toLowerCase()}`,
+      value: stringValue(options[definition.location.key]),
+    },
+  ]
+  if (definition.requiresWorkspace) {
+    details.push({
+      label: `${definition.label} workspace`,
+      value: stringValue(pool.provider_config.workspace),
+    })
+  }
+  return details
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value : undefined
+}
+
+function formatEntries(values: Record<string, string>) {
+  const entries = Object.entries(values).sort(([left], [right]) => left.localeCompare(right))
+  if (entries.length === 0) return 'None'
+  return (
+    <span className="whitespace-pre-wrap break-all">
+      {entries.map(([key, value]) => `${key}=${value}`).join('\n')}
+    </span>
+  )
 }

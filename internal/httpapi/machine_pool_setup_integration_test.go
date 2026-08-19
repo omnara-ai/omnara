@@ -1382,6 +1382,10 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 	}
 	defaultPoolResponse := poolData[0].(map[string]any)
 	defaultPoolID := defaultPoolResponse["id"].(string)
+	usage := defaultPoolResponse["usage"].(map[string]any)
+	if usage["machines"] != float64(0) || usage["cpu"] != float64(0) || usage["memory_mb"] != float64(0) {
+		t.Fatalf("default pool usage = %+v, want zero usage", usage)
+	}
 	if defaultPoolResponse["management_kind"] != string(management.Cluster) {
 		t.Fatalf("default pool management_kind = %v, want cluster", defaultPoolResponse["management_kind"])
 	}
@@ -1395,6 +1399,16 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		http.MethodPut,
 		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+defaultPoolID,
 		`{"description":"not allowed"}`,
+		"",
+		http.StatusConflict,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+defaultPoolID,
+		`{"default_machine_provider_options":{"image":"registry.example/daemon:latest","metro":"sfo","startup_script":"echo ready"}}`,
 		"",
 		http.StatusConflict,
 		authHeaders(project.AdminToken),

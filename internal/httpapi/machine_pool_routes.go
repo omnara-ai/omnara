@@ -117,9 +117,14 @@ func (s strictOpenAPIServer) listMachinePools(
 	}
 	out := make([]openapi.MachinePool, 0, len(page.Pools))
 	for _, record := range page.Pools {
-		response, err := s.server.machinePoolResponse(record)
+		response, err := s.server.machinePoolResponse(record.MachinePoolRecord)
 		if err != nil {
 			return nil, err
+		}
+		response.Usage = &openapi.MachinePoolUsage{
+			Machines: record.Usage.Machines,
+			Cpu:      record.Usage.CPU,
+			MemoryMb: record.Usage.MemoryMB,
 		}
 		out = append(out, response)
 	}
