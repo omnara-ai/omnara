@@ -15,16 +15,40 @@ import (
 )
 
 type RuntimeContract struct {
-	Instruction    string
-	Model          ModelCompiled
-	MachineSources []RuntimeMachine
-	Tools          []RuntimeTool
-	MCPServers     []RuntimeMCPServer
-	Skills         []SkillCompiled
+	Instruction     string
+	Model           ModelCompiled
+	MachineSources  []RuntimeMachine
+	Tools           []RuntimeTool
+	MCPServers      []RuntimeMCPServer
+	Skills          []SkillCompiled
+	configuredTools map[string]struct{}
 }
 
 func (contract RuntimeContract) RequiresModelToolSupport() bool {
 	return len(contract.Tools) > 0 || len(contract.MCPServers) > 0
+}
+
+func (contract RuntimeContract) WithImplicitBuiltInTool(name string) (RuntimeContract, error) {
+	if _, configured := contract.configuredTools[name]; configured {
+		return contract, nil
+	}
+	for _, tool := range contract.Tools {
+		if tool.Name == name {
+			return contract, nil
+		}
+	}
+	catalog, err := toolcatalog.Default()
+	if err != nil {
+		return RuntimeContract{}, err
+	}
+	entry, ok := catalog.Lookup(name)
+	if !ok {
+		return RuntimeContract{}, fmt.Errorf("built-in tool %q is not registered", name)
+	}
+	contract.Tools = append([]RuntimeTool(nil), contract.Tools...)
+	contract.Tools = append(contract.Tools, runtimeBuiltInTool(entry, entry.DefaultPermission))
+	sort.Slice(contract.Tools, func(i, j int) bool { return contract.Tools[i].Name < contract.Tools[j].Name })
+	return contract, nil
 }
 
 type RuntimeTool struct {
@@ -90,26 +114,23 @@ func RuntimeContractFromCompiled(
 	if err != nil {
 		return RuntimeContract{}, err
 	}
-	if implicitlyEnablesSkillTool(compiled) {
-		catalog, err := toolcatalog.Default()
-		if err != nil {
-			return RuntimeContract{}, err
-		}
-		entry, ok := catalog.Lookup(toolcatalog.ToolNameSkill)
-		if !ok {
-			return RuntimeContract{}, errors.New("skill tool is not registered")
-		}
-		tools = append(tools, runtimeBuiltInTool(entry, entry.DefaultPermission))
-		sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+	configuredTools := make(map[string]struct{}, len(compiled.Tools))
+	for name := range compiled.Tools {
+		configuredTools[name] = struct{}{}
 	}
-	return RuntimeContract{
-		Instruction:    compiled.Instruction,
-		Model:          compiled.Model,
-		MachineSources: runtimeMachineSources(compiled.MachineSources),
-		Tools:          tools,
-		MCPServers:     mcpServers,
-		Skills:         compiled.Skills,
-	}, nil
+	contract := RuntimeContract{
+		Instruction:     compiled.Instruction,
+		Model:           compiled.Model,
+		MachineSources:  runtimeMachineSources(compiled.MachineSources),
+		Tools:           tools,
+		MCPServers:      mcpServers,
+		Skills:          compiled.Skills,
+		configuredTools: configuredTools,
+	}
+	if len(compiled.Skills) > 0 {
+		return contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
+	}
+	return contract, nil
 }
 
 func runtimeMachineSources(compiled []MachineSourceCompiled) []RuntimeMachine {

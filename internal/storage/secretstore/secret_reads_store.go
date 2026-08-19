@@ -169,7 +169,8 @@ func (s *Store) ListSecrets(ctx context.Context, input ListSecretsInput) (ListSe
 	params := dbsqlc.ListVisibleOwnedSecretsParams{
 		OrgID: input.OrgID, UserID: actorUserID, OrgApiKeyID: actorOrgAPIKeyID,
 		OwnerKind:      input.Filters.OwnerKind,
-		OwnerProjectID: sqlcIDFromNil(input.Filters.OwnerProjectID), MetadataFilter: metadataFilter,
+		OwnerProjectID: sqlcIDFromNil(input.Filters.OwnerProjectID),
+		McpOauthFlowID: sqlcIDFromNil(input.Filters.MCPOAuthFlowID), MetadataFilter: metadataFilter,
 		RowLimit:  int64(input.Limit) + 1,
 		SortField: input.List.SortField, SortDesc: input.List.SortDesc,
 		NamePattern: input.List.NamePattern, Kinds: input.Filters.Kinds,

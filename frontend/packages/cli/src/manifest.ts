@@ -1,9 +1,13 @@
 import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
+import * as z from 'zod'
 
-import { type CommandGroup, op, type OperationSpec } from './factory.ts'
+import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
+import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
+import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
+import { runSlackIntegration, zSlackBody } from './slack-integration.ts'
 
 export const commandGroups: CommandGroup[] = [
   {
@@ -52,6 +56,17 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.archiveAgent,
         format: formatRecord(),
         path: schemas.zArchiveAgentPath,
+      }),
+      flowOp({
+        verb: 'mcp-add',
+        summary: 'Create an OAuth secret and add an MCP server to an agent',
+        path: z.object({
+          orgID: schemas.zOrganizationId,
+          projectID: schemas.zProjectId,
+          agentID: schemas.zAgentId,
+        }),
+        body: zMcpAddBody,
+        run: runAgentMcpAdd,
       }),
     ],
   },
@@ -504,6 +519,13 @@ export const commandGroups: CommandGroup[] = [
         format: formatVoid('deleted'),
         path: schemas.zDeleteSecretPath,
       }),
+      flowOp({
+        verb: 'mcp-oauth',
+        summary: 'Create a secret through an MCP server OAuth flow',
+        path: z.object({ orgID: schemas.zOrganizationId }),
+        body: zMcpOAuthBody,
+        run: runMcpOAuth,
+      }),
     ],
   },
   {
@@ -589,6 +611,29 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.deleteAgentProfile,
         format: formatVoid('deleted'),
         path: schemas.zDeleteAgentProfilePath,
+      }),
+      flowOp({
+        verb: 'mcp-add',
+        summary: 'Create an OAuth secret and add an MCP server to an agent profile',
+        path: z.object({
+          orgID: schemas.zOrganizationId,
+          projectID: schemas.zProjectId,
+          agentProfileID: schemas.zAgentProfileId,
+        }),
+        body: zMcpAddBody,
+        run: runProfileMcpAdd,
+      }),
+      flowOp({
+        verb: 'slack',
+        aliases: ['slack-setup'],
+        summary: 'Connect Slack to an agent profile through OAuth',
+        path: z.object({
+          orgID: schemas.zOrganizationId,
+          projectID: schemas.zProjectId,
+          agentProfileID: schemas.zAgentProfileId,
+        }),
+        body: zSlackBody,
+        run: runSlackIntegration,
       }),
     ],
   },

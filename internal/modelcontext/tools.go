@@ -10,8 +10,19 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
+
+func WithImplicitIntegrationMessageTool(
+	contract agentconfig.RuntimeContract,
+	targets []integrationstore.IntegrationTargetSummary,
+) (agentconfig.RuntimeContract, error) {
+	if len(targets) == 0 {
+		return contract, nil
+	}
+	return contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
+}
 
 func RuntimeContractToolSpecs(
 	ctx context.Context,

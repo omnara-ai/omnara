@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
 
 import { intro, log, note, outro, spinner } from '@clack/prompts'
@@ -14,6 +13,7 @@ import { zResourceName } from '@omnara/sdk/zod'
 import type { Command } from 'commander'
 import * as z from 'zod'
 
+import { openInBrowser } from './browser.ts'
 import {
   type CliConfig,
   configFilePath,
@@ -23,21 +23,6 @@ import {
 } from './config.ts'
 import { canPromptInteractively } from './interactive.ts'
 import { CliInputError, runCliAction } from './output.ts'
-
-function browserCommand(url: string): { command: string; args: string[] } {
-  if (process.platform === 'darwin') return { command: 'open', args: [url] }
-  if (process.platform === 'win32') return { command: 'cmd', args: ['/c', 'start', '', url] }
-  return { command: 'xdg-open', args: [url] }
-}
-
-function openInBrowser(url: string, onError: (message: string) => void): void {
-  const { command, args } = browserCommand(url)
-  const child = spawn(command, args, { stdio: 'ignore', detached: true })
-  child.once('error', () => {
-    onError('could not open a browser; use the approval page URL above')
-  })
-  child.unref()
-}
 
 async function isProjectVisible(
   client: OmnaraClient,

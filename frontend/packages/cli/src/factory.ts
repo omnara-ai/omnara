@@ -11,6 +11,7 @@ import {
   promptProjectSelection,
 } from './interactive.ts'
 import { CliInputError, renderResult, runCliAction } from './output.ts'
+import { createFlowReporter, type FlowReporter } from './reporter.ts'
 
 type SdkOperation = (options: never) => Promise<{ data?: unknown }>
 
@@ -21,6 +22,7 @@ type ResponseOf<F extends SdkOperation> = F extends (options: never) => PromiseL
   : never
 
 export interface OperationSpec<Response = never, ParsedBody = never> {
+  type: 'op'
   verb: string
   summary: string
   fn: SdkOperation
@@ -32,18 +34,68 @@ export interface OperationSpec<Response = never, ParsedBody = never> {
   format: OutputFormat<Response>
 }
 
+export interface FlowContext<Path, Body> {
+  client: OmnaraClient
+  path: Path
+  body: Body
+  report: FlowReporter
+}
+
+interface FlowInput {
+  client: OmnaraClient
+  path: Record<string, unknown>
+  body: unknown
+}
+
+export interface FlowSpec {
+  type: 'flow'
+  verb: string
+  summary: string
+  aliases?: string[]
+  path: z.ZodObject<z.ZodRawShape>
+  body: z.ZodType
+  execute: (input: FlowInput) => Promise<void>
+}
+
+export type CommandSpec = OperationSpec | FlowSpec
+
 export interface CommandGroup {
   name: string
   summary: string
   aliases?: string[]
-  operations?: OperationSpec[]
+  operations?: CommandSpec[]
   groups?: CommandGroup[]
 }
 
 export function op<F extends SdkOperation, B extends z.ZodType = z.ZodNever>(
-  spec: Omit<OperationSpec<ResponseOf<F>, z.output<B>>, 'fn' | 'body'> & { fn: F; body?: B },
+  spec: Omit<OperationSpec<ResponseOf<F>, z.output<B>>, 'type' | 'fn' | 'body'> & {
+    fn: F
+    body?: B
+  },
 ): OperationSpec {
-  return spec
+  return { ...spec, type: 'op' }
+}
+
+export function flowOp<P extends z.ZodObject<z.ZodRawShape>, B extends z.ZodType>(spec: {
+  verb: string
+  summary: string
+  aliases?: string[]
+  path: P
+  body: B
+  run: (context: FlowContext<z.output<P>, z.output<B>>) => Promise<void>
+}): FlowSpec {
+  const { run, ...base } = spec
+  return {
+    ...base,
+    type: 'flow',
+    execute: (input) =>
+      run({
+        client: input.client,
+        path: parseWithSchema(spec.path, input.path, 'arguments'),
+        body: parseWithSchema(spec.body, input.body, 'flags'),
+        report: createFlowReporter(spec.summary),
+      }),
+  }
 }
 
 interface ConfigParam {
@@ -209,19 +261,66 @@ function saveConfigDefault(configKey: 'org_id' | 'project_id', value: string): v
   }
 }
 
-export function registerOperation(parent: Command, config: CliConfig, spec: OperationSpec): void {
-  const command = parent.command(spec.verb).description(spec.summary)
-  const pathParams = spec.path ? Object.keys(spec.path.shape) : []
+interface PathPlan {
+  positionalParams: string[]
+  configParams: ConfigParam[]
+}
+
+function planPathParams(
+  path: z.ZodObject<z.ZodRawShape> | undefined,
+  positional: string[],
+): PathPlan {
+  const pathParams = path ? Object.keys(path.shape) : []
   const configParams = CONFIG_PARAMS.filter(
-    (param) => pathParams.includes(param.key) && !(spec.positional ?? []).includes(param.key),
+    (param) => pathParams.includes(param.key) && !positional.includes(param.key),
   )
-  const positionalParams = pathParams.filter(
-    (name) => !configParams.some((param) => param.key === name),
-  )
-  for (const param of positionalParams) command.argument(`<${kebabCase(param)}>`)
-  for (const param of configParams) {
+  return {
+    positionalParams: pathParams.filter(
+      (name) => !configParams.some((param) => param.key === name),
+    ),
+    configParams,
+  }
+}
+
+function registerPathParams(command: Command, plan: PathPlan): void {
+  for (const param of plan.positionalParams) command.argument(`<${kebabCase(param)}>`)
+  for (const param of plan.configParams) {
     command.option(param.option, `defaults from config (${param.describe})`)
   }
+}
+
+async function resolvePathValues(
+  plan: PathPlan,
+  args: string[],
+  options: Record<string, unknown>,
+  config: CliConfig,
+): Promise<Record<string, unknown>> {
+  const path: Record<string, unknown> = {}
+  plan.positionalParams.forEach((param, index) => {
+    path[param] = args[index]
+  })
+  let usedExplicitOverride = false
+  for (const param of plan.configParams) {
+    const explicitOption = options[param.optionKey]
+    const explicit = typeof explicitOption === 'string' ? explicitOption : undefined
+    usedExplicitOverride = usedExplicitOverride || explicit !== undefined
+    let value = explicit ?? param.resolve(config, path)
+    if (value === undefined && canPromptInteractively()) {
+      value = await param.prompt(config.client, path)
+      if (!usedExplicitOverride) saveConfigDefault(param.configKey, value)
+    }
+    if (value === undefined) {
+      throw new CliInputError(`missing ${param.optionKey}: ${param.describe}`)
+    }
+    path[param.key] = value
+  }
+  return path
+}
+
+export function registerOperation(parent: Command, config: CliConfig, spec: OperationSpec): void {
+  const command = parent.command(spec.verb).description(spec.summary)
+  const plan = planPathParams(spec.path, spec.positional ?? [])
+  registerPathParams(command, plan)
   const queryFlags = spec.query ? deriveFlags(spec.query) : []
   const bodyFlags = spec.body ? deriveFlags(spec.body) : []
   for (const flag of [...queryFlags, ...bodyFlags]) registerFlag(command, flag)
@@ -238,25 +337,7 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
       const options = command.opts<Record<string, unknown>>()
       const input: CallInput = { client: config.client }
       if (spec.path) {
-        const path: Record<string, unknown> = {}
-        positionalParams.forEach((param, index) => {
-          path[param] = args[index]
-        })
-        let usedExplicitOverride = false
-        for (const param of configParams) {
-          const explicitOption = options[param.optionKey]
-          const explicit = typeof explicitOption === 'string' ? explicitOption : undefined
-          usedExplicitOverride = usedExplicitOverride || explicit !== undefined
-          let value = explicit ?? param.resolve(config, path)
-          if (value === undefined && canPromptInteractively()) {
-            value = await param.prompt(config.client, path)
-            if (!usedExplicitOverride) saveConfigDefault(param.configKey, value)
-          }
-          if (value === undefined) {
-            throw new CliInputError(`missing ${param.optionKey}: ${param.describe}`)
-          }
-          path[param.key] = value
-        }
+        const path = await resolvePathValues(plan, args, options, config)
         input.path = parseWithSchema(spec.path, path, 'arguments')
       }
       if (spec.query) {
@@ -281,11 +362,35 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
   })
 }
 
+function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void {
+  const command = parent
+    .command(spec.verb)
+    .aliases(spec.aliases ?? [])
+    .description(spec.summary)
+  const plan = planPathParams(spec.path, [])
+  registerPathParams(command, plan)
+  const bodyFlags = deriveFlags(spec.body)
+  for (const flag of bodyFlags) registerFlag(command, flag)
+  command.action(async (...args: string[]) => {
+    await runCliAction(async () => {
+      const options = command.opts<Record<string, unknown>>()
+      await spec.execute({
+        client: config.client,
+        path: await resolvePathValues(plan, args, options, config),
+        body: collectFlagValues(bodyFlags, options),
+      })
+    })
+  })
+}
+
 export function registerGroup(program: Command, config: CliConfig, group: CommandGroup): void {
   const groupCommand = program
     .command(group.name)
     .aliases(group.aliases ?? [])
     .description(group.summary)
-  for (const operation of group.operations ?? []) registerOperation(groupCommand, config, operation)
+  for (const spec of group.operations ?? []) {
+    if (spec.type === 'op') registerOperation(groupCommand, config, spec)
+    else registerFlow(groupCommand, config, spec)
+  }
   for (const subgroup of group.groups ?? []) registerGroup(groupCommand, config, subgroup)
 }

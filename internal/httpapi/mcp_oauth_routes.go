@@ -231,7 +231,17 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		apiErr := apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
 	}
-	return openapi.MCPOAuthStartResponse{AuthorizationUrl: authURL, ExpiresAt: expiresAt}, nil, nil
+	publicFlowID, err := publicID(publicid.KindMCPOAuthFlow, flowID)
+	if err != nil {
+		logpkg.Error(ctx, err)
+		apiErr := apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
+		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
+	}
+	return openapi.MCPOAuthStartResponse{
+		FlowId:           publicFlowID,
+		AuthorizationUrl: authURL,
+		ExpiresAt:        expiresAt,
+	}, nil, nil
 }
 
 func (s *Server) resolveMCPOAuthClientForAPI(

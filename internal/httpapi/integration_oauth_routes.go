@@ -253,12 +253,16 @@ func (s *Server) cleanupIntegrationOAuthSecret(
 	}
 }
 
-func agentConfigHasIntegrationSendTool(config executionstore.AgentConfigRecord) bool {
+func agentConfigCanUseIntegrationSendTool(config executionstore.AgentConfigRecord) bool {
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		config.CompiledDefinition,
 		config.CompilerVersion,
 		config.EffectiveDefinitionHash,
 	)
+	if err != nil {
+		return false
+	}
+	contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
 	if err != nil {
 		return false
 	}
@@ -268,6 +272,38 @@ func agentConfigHasIntegrationSendTool(config executionstore.AgentConfigRecord) 
 		}
 	}
 	return false
+}
+
+func (s *Server) validateIntegrationSendSetupConfig(
+	ctx context.Context,
+	config executionstore.AgentConfigRecord,
+) error {
+	if !agentConfigCanUseIntegrationSendTool(config) {
+		return apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"agent profile config does not allow send_integration_message",
+		)
+	}
+	configuredModel, err := s.store.Models().GetConfiguredModel(ctx, config.OrgID, config.ConfiguredModelID)
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	grant, err := s.store.Models().GetActiveProjectModelGrantForConfiguredModel(
+		ctx,
+		config.OrgID,
+		config.ProjectID,
+		config.ConfiguredModelID,
+	)
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	if !configuredModel.SupportsTools || (grant.SupportsTools != nil && !*grant.SupportsTools) {
+		return apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"agent profile model does not support tools",
+		)
+	}
+	return nil
 }
 
 func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) error {
