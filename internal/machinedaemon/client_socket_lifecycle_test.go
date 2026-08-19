@@ -30,6 +30,11 @@ type successfulPrepareLauncher struct {
 	runtime *processRuntime
 }
 
+type cleanupPendingPrepareLauncher struct {
+	runtime *processRuntime
+	calls   chan<- struct{}
+}
+
 func (launcher blockingPrepareLauncher) Prepare(
 	context.Context,
 	*Client,
@@ -62,11 +67,24 @@ func (launcher successfulPrepareLauncher) Prepare(
 	return launcher.runtime, nil
 }
 
+func (launcher cleanupPendingPrepareLauncher) Prepare(
+	context.Context,
+	*Client,
+	ProcessAssignment,
+) (*processRuntime, error) {
+	if launcher.calls != nil {
+		launcher.calls <- struct{}{}
+	}
+	return launcher.runtime, errors.New("test cleanup remains pending")
+}
+
 type recordingProcessRunner struct {
 	applied        chan ProcessAction
 	closeCalls     chan struct{}
 	startCalls     chan struct{}
 	releaseStart   chan struct{}
+	releaseClose   chan struct{}
+	statusErr      error
 	terminateCalls chan string
 	terminateErr   error
 	done           chan struct{}
@@ -93,7 +111,7 @@ func (transport blockingSkillDownloadTransport) RoundTrip(
 func (runner *recordingProcessRunner) Status(
 	context.Context,
 ) error {
-	return nil
+	return runner.statusErr
 }
 
 func (runner *recordingProcessRunner) StartOnce(
@@ -117,9 +135,16 @@ func (runner *recordingProcessRunner) ApplyOnce(
 	return nil
 }
 
-func (runner *recordingProcessRunner) CloseUngranted(context.Context) error {
+func (runner *recordingProcessRunner) CloseUngranted(ctx context.Context) error {
 	if runner.closeCalls != nil {
 		runner.closeCalls <- struct{}{}
+		if runner.releaseClose != nil {
+			select {
+			case <-runner.releaseClose:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
 		return nil
 	}
 	return errors.New("unexpected close")
@@ -200,6 +225,67 @@ func TestTransportShutdownWaitsForInFlightProcessPreparation(
 	transport.mu.Unlock()
 	if pending != nil {
 		t.Fatal("settled preparation remained in the old transport")
+	}
+}
+
+func TestCleanupPendingPreparationDoesNotForceReconnect(t *testing.T) {
+	t.Parallel()
+
+	const processID = "prc_cleanup_pending_prepare"
+	done := make(chan struct{})
+	close(done)
+	runtime := &processRuntime{
+		processID:            processID,
+		supervisorInstanceID: "supervisor-instance-cleanup-pending-prepare",
+		runner:               &recordingProcessRunner{done: done},
+		cleanupOnly:          true,
+	}
+	prepareCalls := make(chan struct{}, 2)
+	client := New(Config{}, nil, nil)
+	client.runnerLauncher = cleanupPendingPrepareLauncher{
+		runtime: runtime,
+		calls:   prepareCalls,
+	}
+	transport := newDaemonSocketTransport(
+		&client,
+		DaemonRuntime{},
+		localStartupState{},
+	)
+	defer transport.stopAndWait(func() {})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	transport.offerProcess(ctx, daemonprotocol.ProcessOffer{ProcessID: processID})
+	select {
+	case <-prepareCalls:
+	case <-ctx.Done():
+		t.Fatal("process preparation was not attempted")
+	}
+	for {
+		cached, found := client.localProcess(processID)
+		transport.mu.Lock()
+		pending := transport.pendingProcesses[processID]
+		transport.mu.Unlock()
+		if found && pending == nil {
+			if cached != runtime {
+				t.Fatal("cleanup runtime identity changed")
+			}
+			break
+		}
+		if err := sleepContext(ctx, time.Millisecond); err != nil {
+			t.Fatal("cleanup-pending preparation was not retained")
+		}
+	}
+	select {
+	case err := <-transport.fatal:
+		t.Fatalf("cleanup-pending preparation forced reconnect: %v", err)
+	default:
+	}
+	transport.offerProcess(ctx, daemonprotocol.ProcessOffer{ProcessID: processID})
+	transport.workers.Wait()
+	select {
+	case <-prepareCalls:
+		t.Fatal("duplicate offer restarted pending cleanup preparation")
+	default:
 	}
 }
 
@@ -503,8 +589,9 @@ func TestRejectedProcessAcceptanceClosesPreparedState(
 		t.Fatal(err)
 	}
 	runner := &recordingProcessRunner{
-		closeCalls: make(chan struct{}, 1),
-		done:       make(chan struct{}),
+		closeCalls:   make(chan struct{}, 1),
+		releaseClose: make(chan struct{}),
+		done:         make(chan struct{}),
 	}
 	transport := newDaemonSocketTransport(
 		&client,
@@ -530,6 +617,10 @@ func TestRejectedProcessAcceptanceClosesPreparedState(
 	case <-ctx.Done():
 		t.Fatal("rejected process offer did not close its supervisor")
 	}
+	if transport.idle() {
+		t.Fatal("rejected process became idle before its supervisor stopped")
+	}
+	close(runner.releaseClose)
 	for {
 		_, found, err := store.Process(ctx, processID)
 		if err != nil {
@@ -542,15 +633,99 @@ func TestRejectedProcessAcceptanceClosesPreparedState(
 			t.Fatal("rejected process state was not deleted")
 		}
 	}
-	transport.mu.Lock()
-	pending := transport.pendingProcesses[processID]
-	transport.mu.Unlock()
-	if pending != nil {
-		t.Fatal("rejected process remained pending")
+	for {
+		transport.mu.Lock()
+		pending := transport.pendingProcesses[processID]
+		transport.mu.Unlock()
+		if pending == nil {
+			break
+		}
+		if err := sleepContext(ctx, time.Millisecond); err != nil {
+			t.Fatal("rejected process remained pending")
+		}
 	}
 	select {
 	case fatalErr := <-transport.fatal:
 		t.Fatalf("conclusive rejection forced reconnect: %v", fatalErr)
+	default:
+	}
+}
+
+func TestRejectedProcessAcceptanceLockTimeoutRetainsCleanup(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	const (
+		processID            = "prc_rejected_accept_lock_timeout"
+		supervisorInstanceID = "supervisor-instance-rejected-accept-lock-timeout"
+	)
+	client := New(Config{OmnaraHome: t.TempDir()}, nil, nil)
+	client.bootstrap = daemonBootstrap{
+		InstallationID: "ins_rejected_accept_lock_timeout",
+		MachineID:      "mch_rejected_accept_lock_timeout",
+	}
+	machine, err := client.machineStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath, err := machine.LifetimeLockPath(processID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := localstore.TryAcquireLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Release() }()
+	releaseClose := make(chan struct{})
+	close(releaseClose)
+	runner := &recordingProcessRunner{
+		closeCalls:   make(chan struct{}, 1),
+		releaseClose: releaseClose,
+		done:         make(chan struct{}),
+	}
+	transport := newDaemonSocketTransport(
+		&client,
+		DaemonRuntime{},
+		localStartupState{},
+	)
+	defer transport.stopAndWait(func() {})
+	transport.pendingProcesses[processID] = &pendingProcess{
+		runtime: &processRuntime{
+			processID:            processID,
+			supervisorInstanceID: supervisorInstanceID,
+			runner:               runner,
+		},
+	}
+
+	transport.handleServerError(ctx, daemonprotocol.Message{
+		Type:      "error",
+		ErrorCode: daemonprotocol.ErrorCodeProcessOfferUnavailable,
+		ProcessID: processID,
+	})
+	for {
+		runtime, found := client.localProcess(processID)
+		transport.mu.Lock()
+		pending := transport.pendingProcesses[processID]
+		transport.mu.Unlock()
+		if found && runtime.cleanupOnly && runtime.runner == nil && pending == nil {
+			break
+		}
+		if err := sleepContext(ctx, time.Millisecond); err != nil {
+			t.Fatal("lock timeout did not retain rejected preparation cleanup")
+		}
+	}
+	select {
+	case <-runner.closeCalls:
+	default:
+		t.Fatal("rejected process supervisor was not closed")
+	}
+	select {
+	case fatalErr := <-transport.fatal:
+		t.Fatalf("lock timeout forced reconnect: %v", fatalErr)
 	default:
 	}
 }

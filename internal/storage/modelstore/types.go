@@ -138,6 +138,7 @@ type ConfiguredModelRecord struct {
 	ID                        ID              `json:"id"`
 	OrgID                     ID              `json:"org_id"`
 	ModelProviderConfigID     ID              `json:"model_provider_config_id"`
+	ManagementKind            management.Kind `json:"management_kind"`
 	Name                      string          `json:"name"`
 	CurrentRevisionID         ID              `json:"current_revision_id"`
 	ProviderModelSlug         string          `json:"provider_model_slug"`

@@ -164,6 +164,7 @@ export function AgentView() {
         machineIds={data.machine_ids}
         mcpConnections={data.mcp_connections}
         profile={profile}
+        canManage={project?.access.can_manage ?? false}
       />
     </SidebarProvider>
   )

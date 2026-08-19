@@ -19,7 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 )
 
-func TestAgentExecutorReloadsAgentModelOptionsFromModelContext(t *testing.T) {
+func TestAgentExecutorReloadsCompiledModelOverridesFromModelContext(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
@@ -85,10 +85,7 @@ model:
 	if err != nil {
 		t.Fatalf("load model contract for context: %v", err)
 	}
-	selection, err := modelSelectionForContext(modelClaim.Context, contract.Model)
-	if err != nil {
-		t.Fatalf("build model selection for context: %v", err)
-	}
+	selection := modelSelectionForContext(modelClaim.Context, contract.Model)
 	if _, err := resolver.Resolve(ctx, selection); err != nil {
 		t.Fatalf("resolve model client for context: %v", err)
 	}
@@ -96,10 +93,10 @@ model:
 		t.Fatalf("resolver selections = %d, want 1", len(resolver.selections))
 	}
 	resolvedSelection := resolver.selections[0]
-	if resolvedSelection.Options.DefaultMaxOutputTokens == nil ||
-		*resolvedSelection.Options.DefaultMaxOutputTokens != 2345 ||
-		resolvedSelection.Options.CacheRetention != model.CacheRetentionLong {
-		t.Fatalf("selection options from context = %+v", resolvedSelection.Options)
+	if resolvedSelection.Overrides.DefaultMaxOutputTokens == nil ||
+		*resolvedSelection.Overrides.DefaultMaxOutputTokens != 2345 ||
+		resolvedSelection.Overrides.CacheRetention != string(model.CacheRetentionLong) {
+		t.Fatalf("selection overrides from context = %+v", resolvedSelection.Overrides)
 	}
 }
 

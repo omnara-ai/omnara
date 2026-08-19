@@ -41,14 +41,8 @@ SET deleted_at = statement_timestamp(),
 WHERE configured_models.org_id = $1
   AND configured_models.id = $2
   AND configured_models.deleted_at IS NULL
-  AND EXISTS (
-    SELECT 1
-    FROM model_provider_configs provider_config
-    WHERE provider_config.org_id = configured_models.org_id
-      AND provider_config.id = configured_models.model_provider_config_id
-      AND provider_config.management_kind = $3
-  )
-RETURNING id, org_id, model_provider_config_id, name, current_revision_id,
+  AND configured_models.management_kind = $3
+RETURNING id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
           deleted_at, created_at, updated_at
 `
 
@@ -58,13 +52,26 @@ type DeleteConfiguredModelParams struct {
 	ManagementKind string
 }
 
-func (q *Queries) DeleteConfiguredModel(ctx context.Context, arg DeleteConfiguredModelParams) (ConfiguredModel, error) {
+type DeleteConfiguredModelRow struct {
+	ID                    uuid.UUID
+	OrgID                 uuid.UUID
+	ModelProviderConfigID uuid.UUID
+	ManagementKind        string
+	Name                  string
+	CurrentRevisionID     uuid.UUID
+	DeletedAt             *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+func (q *Queries) DeleteConfiguredModel(ctx context.Context, arg DeleteConfiguredModelParams) (DeleteConfiguredModelRow, error) {
 	row := q.db.QueryRow(ctx, deleteConfiguredModel, arg.OrgID, arg.ID, arg.ManagementKind)
-	var i ConfiguredModel
+	var i DeleteConfiguredModelRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ModelProviderConfigID,
+		&i.ManagementKind,
 		&i.Name,
 		&i.CurrentRevisionID,
 		&i.DeletedAt,
@@ -167,6 +174,25 @@ func (q *Queries) DeleteProjectModelGrant(ctx context.Context, arg DeleteProject
 	return i, err
 }
 
+const deleteProjectModelGrantsForConfiguredModel = `-- name: DeleteProjectModelGrantsForConfiguredModel :execrows
+DELETE FROM project_model_grants
+WHERE org_id = $1
+  AND configured_model_id = $2
+`
+
+type DeleteProjectModelGrantsForConfiguredModelParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+func (q *Queries) DeleteProjectModelGrantsForConfiguredModel(ctx context.Context, arg DeleteProjectModelGrantsForConfiguredModelParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteProjectModelGrantsForConfiguredModel, arg.OrgID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getActiveProjectModelGrantForConfiguredModel = `-- name: GetActiveProjectModelGrantForConfiguredModel :one
 SELECT grant_row.id, grant_row.org_id, grant_row.project_id,
        grant_row.configured_model_id,
@@ -220,7 +246,8 @@ func (q *Queries) GetActiveProjectModelGrantForConfiguredModel(ctx context.Conte
 }
 
 const getConfiguredModel = `-- name: GetConfiguredModel :one
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -250,6 +277,7 @@ type GetConfiguredModelRow struct {
 	ID                        uuid.UUID
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
@@ -277,6 +305,7 @@ func (q *Queries) GetConfiguredModel(ctx context.Context, arg GetConfiguredModel
 		&i.ID,
 		&i.OrgID,
 		&i.ModelProviderConfigID,
+		&i.ManagementKind,
 		&i.Name,
 		&i.CurrentRevisionID,
 		&i.ProviderModelSlug,
@@ -300,7 +329,8 @@ func (q *Queries) GetConfiguredModel(ctx context.Context, arg GetConfiguredModel
 }
 
 const getConfiguredModelByName = `-- name: GetConfiguredModelByName :one
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -332,6 +362,7 @@ type GetConfiguredModelByNameRow struct {
 	ID                        uuid.UUID
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
@@ -359,6 +390,7 @@ func (q *Queries) GetConfiguredModelByName(ctx context.Context, arg GetConfigure
 		&i.ID,
 		&i.OrgID,
 		&i.ModelProviderConfigID,
+		&i.ManagementKind,
 		&i.Name,
 		&i.CurrentRevisionID,
 		&i.ProviderModelSlug,
@@ -382,7 +414,8 @@ func (q *Queries) GetConfiguredModelByName(ctx context.Context, arg GetConfigure
 }
 
 const getConfiguredModelDisplay = `-- name: GetConfiguredModelDisplay :one
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -410,6 +443,7 @@ type GetConfiguredModelDisplayRow struct {
 	ID                        uuid.UUID
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
@@ -437,6 +471,7 @@ func (q *Queries) GetConfiguredModelDisplay(ctx context.Context, arg GetConfigur
 		&i.ID,
 		&i.OrgID,
 		&i.ModelProviderConfigID,
+		&i.ManagementKind,
 		&i.Name,
 		&i.CurrentRevisionID,
 		&i.ProviderModelSlug,
@@ -456,6 +491,50 @@ func (q *Queries) GetConfiguredModelDisplay(ctx context.Context, arg GetConfigur
 		&i.UpdatedAt,
 		&i.RevisionCreatedAt,
 	)
+	return i, err
+}
+
+const getConfiguredModelReferenceState = `-- name: GetConfiguredModelReferenceState :one
+SELECT EXISTS (
+         SELECT 1
+         FROM projects project
+         JOIN agents agent ON agent.project_id = project.id
+         JOIN agent_configs config ON config.project_id = agent.project_id
+           AND config.id = agent.current_config_id
+         WHERE project.org_id = $1
+           AND agent.state = 'active'
+           AND config.configured_model_id = $2
+       ) AS used_by_active_agent,
+       EXISTS (
+         SELECT 1
+         FROM projects project
+         JOIN agent_profiles profile ON profile.project_id = project.id
+         JOIN agent_profile_versions version ON version.project_id = profile.project_id
+           AND version.profile_id = profile.id
+           AND version.id = profile.current_version_id
+           AND version.deleted_at IS NULL
+         JOIN agent_configs config ON config.project_id = version.project_id
+           AND config.id = version.agent_config_id
+         WHERE project.org_id = $1
+           AND profile.deleted_at IS NULL
+           AND config.configured_model_id = $2
+       ) AS used_by_agent_profile
+`
+
+type GetConfiguredModelReferenceStateParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+type GetConfiguredModelReferenceStateRow struct {
+	UsedByActiveAgent  bool
+	UsedByAgentProfile bool
+}
+
+func (q *Queries) GetConfiguredModelReferenceState(ctx context.Context, arg GetConfiguredModelReferenceStateParams) (GetConfiguredModelReferenceStateRow, error) {
+	row := q.db.QueryRow(ctx, getConfiguredModelReferenceState, arg.OrgID, arg.ID)
+	var i GetConfiguredModelReferenceStateRow
+	err := row.Scan(&i.UsedByActiveAgent, &i.UsedByAgentProfile)
 	return i, err
 }
 
@@ -595,36 +674,6 @@ func (q *Queries) GetConfiguredModelRevisionForUse(ctx context.Context, arg GetC
 	return i, err
 }
 
-const getDefaultConfiguredModelRemovalState = `-- name: GetDefaultConfiguredModelRemovalState :one
-SELECT EXISTS (
-         SELECT 1 FROM project_model_grants model_grant
-         WHERE model_grant.configured_model_id = $1
-           AND model_grant.project_id = $2
-       ) AS granted_to_default_project,
-       EXISTS (
-         SELECT 1 FROM project_model_grants model_grant
-         WHERE model_grant.configured_model_id = $1
-           AND model_grant.project_id <> $2
-       ) AS granted_to_other_project
-`
-
-type GetDefaultConfiguredModelRemovalStateParams struct {
-	TargetConfiguredModelID uuid.UUID
-	DefaultProjectID        uuid.UUID
-}
-
-type GetDefaultConfiguredModelRemovalStateRow struct {
-	GrantedToDefaultProject bool
-	GrantedToOtherProject   bool
-}
-
-func (q *Queries) GetDefaultConfiguredModelRemovalState(ctx context.Context, arg GetDefaultConfiguredModelRemovalStateParams) (GetDefaultConfiguredModelRemovalStateRow, error) {
-	row := q.db.QueryRow(ctx, getDefaultConfiguredModelRemovalState, arg.TargetConfiguredModelID, arg.DefaultProjectID)
-	var i GetDefaultConfiguredModelRemovalStateRow
-	err := row.Scan(&i.GrantedToDefaultProject, &i.GrantedToOtherProject)
-	return i, err
-}
-
 const getModelProviderConfig = `-- name: GetModelProviderConfig :one
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
@@ -703,27 +752,6 @@ func (q *Queries) GetModelProviderConfigByName(ctx context.Context, arg GetModel
 	return i, err
 }
 
-const getModelProviderManagementKindForLifecycle = `-- name: GetModelProviderManagementKindForLifecycle :one
-SELECT management_kind
-FROM model_provider_configs
-WHERE org_id = $1
-  AND id = $2
-`
-
-type GetModelProviderManagementKindForLifecycleParams struct {
-	OrgID uuid.UUID
-	ID    uuid.UUID
-}
-
-// @sqlc-vet-disable model-provider-configs-deleted-at
-// Lifecycle flows read soft-deleted configs.
-func (q *Queries) GetModelProviderManagementKindForLifecycle(ctx context.Context, arg GetModelProviderManagementKindForLifecycleParams) (string, error) {
-	row := q.db.QueryRow(ctx, getModelProviderManagementKindForLifecycle, arg.OrgID, arg.ID)
-	var management_kind string
-	err := row.Scan(&management_kind)
-	return management_kind, err
-}
-
 const getProjectModelGrant = `-- name: GetProjectModelGrant :one
 SELECT id, org_id, project_id, configured_model_id,
        context_window_tokens, max_output_tokens, default_max_output_tokens,
@@ -780,15 +808,16 @@ parent_config AS (
 ),
 configured_model AS (
   INSERT INTO configured_models(
-    id, org_id, model_provider_config_id, name, current_revision_id,
+    id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
     created_at, updated_at
   )
-  SELECT ids.configured_model_id, config.org_id, config.id, $3,
+  SELECT ids.configured_model_id, config.org_id, config.id,
+         $3::text, $4,
          ids.revision_id, statement_timestamp(), statement_timestamp()
   FROM ids
   JOIN parent_config config ON true
   ON CONFLICT (model_provider_config_id, name) WHERE deleted_at IS NULL DO NOTHING
-  RETURNING id, org_id, model_provider_config_id, name, current_revision_id,
+  RETURNING id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
             deleted_at, created_at, updated_at
 ),
 revision AS (
@@ -800,14 +829,14 @@ revision AS (
         api_variant_options, created_at
   )
   SELECT configured_model.current_revision_id, configured_model.org_id, configured_model.id,
-         configured_model.model_provider_config_id, $4,
-         $5, $6,
-         $7,
-         $8, $9::bool,
-         $10::bool, $11::text,
-             $12::text[],
-             $13::text[], $14::text[],
-             $15, statement_timestamp()
+         configured_model.model_provider_config_id, $5,
+         $6, $7,
+         $8,
+         $9, $10::bool,
+         $11::bool, $12::text,
+             $13::text[],
+             $14::text[], $15::text[],
+             $16, statement_timestamp()
   FROM configured_model
   RETURNING id, org_id, configured_model_id, model_provider_config_id,
             provider_model_slug, context_window_tokens, max_output_tokens,
@@ -816,7 +845,8 @@ revision AS (
                 default_reasoning_effort, supported_reasoning_efforts,
                 input_modalities, output_modalities, api_variant_options, created_at
 )
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -832,6 +862,7 @@ JOIN revision ON revision.configured_model_id = configured_model.id
 type InsertConfiguredModelParams struct {
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
@@ -851,6 +882,7 @@ type InsertConfiguredModelRow struct {
 	ID                        uuid.UUID
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
@@ -875,6 +907,7 @@ func (q *Queries) InsertConfiguredModel(ctx context.Context, arg InsertConfigure
 	row := q.db.QueryRow(ctx, insertConfiguredModel,
 		arg.OrgID,
 		arg.ModelProviderConfigID,
+		arg.ManagementKind,
 		arg.Name,
 		arg.ProviderModelSlug,
 		arg.ContextWindowTokens,
@@ -894,6 +927,7 @@ func (q *Queries) InsertConfiguredModel(ctx context.Context, arg InsertConfigure
 		&i.ID,
 		&i.OrgID,
 		&i.ModelProviderConfigID,
+		&i.ManagementKind,
 		&i.Name,
 		&i.CurrentRevisionID,
 		&i.ProviderModelSlug,
@@ -1041,7 +1075,8 @@ func (q *Queries) ListClusterManagedModelProviderConfigsByName(ctx context.Conte
 }
 
 const listConfiguredModels = `-- name: ListConfiguredModels :many
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -1080,6 +1115,7 @@ type ListConfiguredModelsRow struct {
 	ID                        uuid.UUID
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
@@ -1119,6 +1155,7 @@ func (q *Queries) ListConfiguredModels(ctx context.Context, arg ListConfiguredMo
 			&i.ID,
 			&i.OrgID,
 			&i.ModelProviderConfigID,
+			&i.ManagementKind,
 			&i.Name,
 			&i.CurrentRevisionID,
 			&i.ProviderModelSlug,
@@ -1391,7 +1428,7 @@ func (q *Queries) ListProjectModelGrants(ctx context.Context, arg ListProjectMod
 const lockConfiguredModelForDelete = `-- name: LockConfiguredModelForDelete :one
 SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
        configured_model.name, configured_model.current_revision_id, configured_model.deleted_at,
-       configured_model.created_at, configured_model.updated_at
+       configured_model.created_at, configured_model.updated_at, configured_model.management_kind
 FROM configured_models configured_model
 WHERE configured_model.org_id = $1
   AND configured_model.id = $2
@@ -1416,6 +1453,7 @@ func (q *Queries) LockConfiguredModelForDelete(ctx context.Context, arg LockConf
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ManagementKind,
 	)
 	return i, err
 }
@@ -1423,7 +1461,7 @@ func (q *Queries) LockConfiguredModelForDelete(ctx context.Context, arg LockConf
 const lockConfiguredModelForMutation = `-- name: LockConfiguredModelForMutation :one
 SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
        configured_model.name, configured_model.current_revision_id, configured_model.deleted_at,
-       configured_model.created_at, configured_model.updated_at
+       configured_model.created_at, configured_model.updated_at, configured_model.management_kind
 FROM configured_models configured_model
 JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
   AND provider_config.id = configured_model.model_provider_config_id
@@ -1451,12 +1489,14 @@ func (q *Queries) LockConfiguredModelForMutation(ctx context.Context, arg LockCo
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ManagementKind,
 	)
 	return i, err
 }
 
 const lockConfiguredModelForUse = `-- name: LockConfiguredModelForUse :one
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -1487,6 +1527,7 @@ type LockConfiguredModelForUseRow struct {
 	ID                        uuid.UUID
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
@@ -1514,6 +1555,7 @@ func (q *Queries) LockConfiguredModelForUse(ctx context.Context, arg LockConfigu
 		&i.ID,
 		&i.OrgID,
 		&i.ModelProviderConfigID,
+		&i.ManagementKind,
 		&i.Name,
 		&i.CurrentRevisionID,
 		&i.ProviderModelSlug,
@@ -1637,13 +1679,15 @@ WITH configured_model AS (
     AND configured_model.deleted_at IS NULL
     AND provider_config.org_id = configured_model.org_id
     AND provider_config.id = configured_model.model_provider_config_id
-    AND provider_config.management_kind = 'tenant'
     AND provider_config.deleted_at IS NULL
+    AND configured_model.management_kind = 'tenant'
   RETURNING configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
-            configured_model.name, configured_model.current_revision_id, configured_model.deleted_at,
+            configured_model.management_kind, configured_model.name,
+            configured_model.current_revision_id, configured_model.deleted_at,
             configured_model.created_at, configured_model.updated_at
 )
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -1669,6 +1713,7 @@ type RenameConfiguredModelRow struct {
 	ID                        uuid.UUID
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
@@ -1701,6 +1746,7 @@ func (q *Queries) RenameConfiguredModel(ctx context.Context, arg RenameConfigure
 		&i.ID,
 		&i.OrgID,
 		&i.ModelProviderConfigID,
+		&i.ManagementKind,
 		&i.Name,
 		&i.CurrentRevisionID,
 		&i.ProviderModelSlug,
@@ -1729,11 +1775,11 @@ WITH target_configured_model AS (
   FROM configured_models configured_model
   JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
     AND provider_config.id = configured_model.model_provider_config_id
-    AND provider_config.management_kind = $1
     AND provider_config.deleted_at IS NULL
-  WHERE configured_model.org_id = $2
-    AND configured_model.model_provider_config_id = $3
-    AND configured_model.id = $4
+  WHERE configured_model.org_id = $1
+    AND configured_model.model_provider_config_id = $2
+    AND configured_model.id = $3
+    AND configured_model.management_kind = $4
     AND configured_model.deleted_at IS NULL
 ),
 revision AS (
@@ -1770,11 +1816,13 @@ configured_model AS (
   WHERE configured_models.org_id = revision.org_id
     AND configured_models.id = revision.configured_model_id
   RETURNING configured_models.id, configured_models.org_id,
-            configured_models.model_provider_config_id, configured_models.name,
+            configured_models.model_provider_config_id, configured_models.management_kind,
+            configured_models.name,
             configured_models.current_revision_id, configured_models.deleted_at,
             configured_models.created_at, configured_models.updated_at
 )
-SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id, configured_model.name,
+SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
+       configured_model.management_kind, configured_model.name,
        configured_model.current_revision_id, revision.provider_model_slug,
        revision.context_window_tokens, revision.max_output_tokens,
        revision.default_max_output_tokens,
@@ -1788,10 +1836,10 @@ JOIN revision ON revision.configured_model_id = configured_model.id
 `
 
 type UpdateConfiguredModelParams struct {
-	ManagementKind            string
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
 	ID                        uuid.UUID
+	ManagementKind            string
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
 	MaxOutputTokens           int32
@@ -1811,6 +1859,7 @@ type UpdateConfiguredModelRow struct {
 	ID                        uuid.UUID
 	OrgID                     uuid.UUID
 	ModelProviderConfigID     uuid.UUID
+	ManagementKind            string
 	Name                      string
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
@@ -1833,10 +1882,10 @@ type UpdateConfiguredModelRow struct {
 
 func (q *Queries) UpdateConfiguredModel(ctx context.Context, arg UpdateConfiguredModelParams) (UpdateConfiguredModelRow, error) {
 	row := q.db.QueryRow(ctx, updateConfiguredModel,
-		arg.ManagementKind,
 		arg.OrgID,
 		arg.ModelProviderConfigID,
 		arg.ID,
+		arg.ManagementKind,
 		arg.ProviderModelSlug,
 		arg.ContextWindowTokens,
 		arg.MaxOutputTokens,
@@ -1856,6 +1905,7 @@ func (q *Queries) UpdateConfiguredModel(ctx context.Context, arg UpdateConfigure
 		&i.ID,
 		&i.OrgID,
 		&i.ModelProviderConfigID,
+		&i.ManagementKind,
 		&i.Name,
 		&i.CurrentRevisionID,
 		&i.ProviderModelSlug,

@@ -46,9 +46,11 @@ func TestPrepareForSendIgnoresProviderNeutralBundleSize(t *testing.T) {
 	prepared, err := PrepareForSend(
 		context.Background(),
 		client,
-		bundle,
-		RequestPolicy{MaxOutputTokens: 100},
-		"test_api",
+		PrepareForSendInput{
+			Context:     bundle,
+			Policy:      RequestPolicy{MaxOutputTokens: 100},
+			ErrorSource: "test_api",
+		},
 	)
 	if err != nil {
 		t.Fatalf("prepare small provider request from large neutral bundle: %v", err)
@@ -66,37 +68,57 @@ func TestRequestPolicyFromCapabilitiesFallsBackToOutputCeiling(t *testing.T) {
 	}
 }
 
-func TestPrepareForSendUsesSerializedRequestEstimate(t *testing.T) {
+func TestRequestPolicyAllowsProviderReplayAfterCutoff(t *testing.T) {
+	policy := RequestPolicy{ProviderReplayCutoffEventSequence: 41}
+	if policy.AllowsProviderReplay(41) {
+		t.Fatal("replay at the rejected frontier was allowed")
+	}
+	if !policy.AllowsProviderReplay(42) {
+		t.Fatal("replay created after the rejected frontier was suppressed")
+	}
+	if !(RequestPolicy{}).AllowsProviderReplay(1) {
+		t.Fatal("zero cutoff did not allow replay")
+	}
+}
+
+func TestPrepareForSendAssessesSerializedRequestEstimate(t *testing.T) {
 	bundle := modelcontext.Bundle{}
 	client := prepareForSendClient{prepared: PreparedRequest{
 		Body:               json.RawMessage(`{"request":true}`),
 		InputTokenEstimate: 900,
 	}, capabilities: Capabilities{ContextWindowTokens: 1_000}}
-	_, err := PrepareForSend(
-		context.Background(),
-		client,
-		bundle,
-		RequestPolicy{MaxOutputTokens: 200},
-		"test_api",
-	)
-	var providerErr ProviderError
-	if !errors.As(err, &providerErr) || providerErr.Kind != ErrorKindContextWindow ||
-		providerErr.Code != "prepared_request_budget_overflow" {
-		t.Fatalf("serialized request overflow = %v, want context-window provider error", err)
-	}
-	client.prepared.InputTokenEstimate = 700
 	prepared, err := PrepareForSend(
 		context.Background(),
 		client,
-		bundle,
-		RequestPolicy{MaxOutputTokens: 200},
-		"test_api",
+		PrepareForSendInput{
+			Context:     bundle,
+			Policy:      RequestPolicy{MaxOutputTokens: 200},
+			ErrorSource: "test_api",
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepare over-budget request: %v", err)
+	}
+	if prepared.InputBudget.Fits() || prepared.InputBudget.EstimatedInputTokens != 900 ||
+		prepared.InputBudget.UsableInputTokens != 750 {
+		t.Fatalf("serialized request assessment = %+v, want 900 > 750", prepared.InputBudget)
+	}
+	client.prepared.InputTokenEstimate = 750
+	prepared, err = PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Context:     bundle,
+			Policy:      RequestPolicy{MaxOutputTokens: 200},
+			ErrorSource: "test_api",
+		},
 	)
 	if err != nil {
 		t.Fatalf("prepare fitting serialized request: %v", err)
 	}
-	if prepared.InputTokenEstimate != 700 || string(prepared.Body) != `{"request":true}` {
-		t.Fatalf("prepared request / estimate = %s/%d", prepared.Body, prepared.InputTokenEstimate)
+	if prepared.InputTokenEstimate != 750 || !prepared.InputBudget.Fits() ||
+		string(prepared.Body) != `{"request":true}` {
+		t.Fatalf("exact-boundary prepared request / assessment = %s/%+v", prepared.Body, prepared.InputBudget)
 	}
 }
 
@@ -105,14 +127,95 @@ func TestPrepareForSendRejectsEmptyProviderRequest(t *testing.T) {
 	_, err := PrepareForSend(
 		context.Background(),
 		prepareForSendClient{},
-		bundle,
-		RequestPolicy{},
-		"test_api",
+		PrepareForSendInput{Context: bundle, ErrorSource: "test_api"},
 	)
 	var providerErr ProviderError
 	if !errors.As(err, &providerErr) || providerErr.Kind != ErrorKindInvalidRequest ||
 		providerErr.Code != "empty_prepared_request" {
 		t.Fatalf("empty prepared request = %v, want invalid-request provider error", err)
+	}
+}
+
+func TestPrepareForSendRejectsProviderOutputLimitConflictBeforePreparation(t *testing.T) {
+	client := &outputLimitPrepareClient{
+		prepareForSendClient: prepareForSendClient{
+			prepared: PreparedRequest{
+				Body:               json.RawMessage(`{"request":true}`),
+				InputTokenEstimate: 10,
+			},
+			capabilities: Capabilities{ContextWindowTokens: 100_000},
+		},
+		limits: OutputTokenLimits{Minimum: 16_385},
+	}
+	_, err := PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
+			ErrorSource: "test_api",
+		},
+	)
+	var providerErr ProviderError
+	if !errors.Is(err, ErrOutputTokenLimitIncompatible) ||
+		!errors.As(err, &providerErr) ||
+		providerErr.Kind != ErrorKindInvalidRequest ||
+		providerErr.Code != OutputTokenLimitIncompatibleCode {
+		t.Fatalf("output-limit conflict = %v, want classified incompatible error", err)
+	}
+	if client.prepareCalls != 0 {
+		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
+	}
+
+	client.limitsErr = errors.New("malformed output options")
+	_, err = PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
+			ErrorSource: "test_api",
+		},
+	)
+	if !errors.As(err, &providerErr) ||
+		providerErr.Kind != ErrorKindInvalidRequest ||
+		providerErr.Code != InvalidOutputTokenConfigurationCode {
+		t.Fatalf("invalid output configuration = %v, want classified invalid request", err)
+	}
+	if client.prepareCalls != 0 {
+		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
+	}
+
+	client.limitsErr = nil
+	client.limits = OutputTokenLimits{Minimum: -1}
+	_, err = PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
+			ErrorSource: "test_api",
+		},
+	)
+	if !errors.As(err, &providerErr) ||
+		providerErr.Kind != ErrorKindInvalidRequest ||
+		providerErr.Code != InvalidOutputTokenConfigurationCode {
+		t.Fatalf("negative output limit = %v, want classified invalid request", err)
+	}
+	if client.prepareCalls != 0 {
+		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
+	}
+
+	client.limits = OutputTokenLimits{}
+	if _, err := PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Policy:      RequestPolicy{MaxOutputTokens: 32_768},
+			ErrorSource: "test_api",
+		},
+	); err != nil {
+		t.Fatalf("prepare compatible output limit: %v", err)
+	}
+	if client.prepareCalls != 1 {
+		t.Fatalf("provider preparation calls = %d, want one", client.prepareCalls)
 	}
 }
 
@@ -130,7 +233,8 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 			OutputModalities:    []string{"text"},
 		},
 	}
-	_, err := PrepareForSend(context.Background(), client, bundle, RequestPolicy{}, "test_api")
+	prepareInput := PrepareForSendInput{Context: bundle, ErrorSource: "test_api"}
+	_, err := PrepareForSend(context.Background(), client, prepareInput)
 	var providerErr ProviderError
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" {
 		t.Fatalf("image modality error = %v, want unsupported input modality", err)
@@ -138,7 +242,8 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 
 	client.capabilities.InputModalities = []string{"text", "image"}
 	bundle.RenderedMedia[0].Media.Kind = modelcontext.AttachmentKindDocument
-	_, err = PrepareForSend(context.Background(), client, bundle, RequestPolicy{}, "test_api")
+	prepareInput.Context = bundle
+	_, err = PrepareForSend(context.Background(), client, prepareInput)
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" ||
 		!strings.Contains(providerErr.Message, "file input") {
 		t.Fatalf("file modality error = %v, want unsupported file input modality", err)
@@ -146,13 +251,13 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 
 	client.capabilities.InputModalities = []string{"text", "image", "file"}
 	client.capabilities.OutputModalities = []string{"audio"}
-	_, err = PrepareForSend(context.Background(), client, bundle, RequestPolicy{}, "test_api")
+	_, err = PrepareForSend(context.Background(), client, prepareInput)
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_output_modality" {
 		t.Fatalf("output modality error = %v, want unsupported output modality", err)
 	}
 
 	client.capabilities.OutputModalities = []string{"text"}
-	if _, err := PrepareForSend(context.Background(), client, bundle, RequestPolicy{}, "test_api"); err != nil {
+	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
 		t.Fatalf("compatible modalities: %v", err)
 	}
 }
@@ -264,6 +369,25 @@ func (prepareForSendClient) Respond(context.Context, Request) (Response, error) 
 }
 
 func (c prepareForSendClient) Capabilities() Capabilities { return c.capabilities }
+
+type outputLimitPrepareClient struct {
+	prepareForSendClient
+	limits       OutputTokenLimits
+	limitsErr    error
+	prepareCalls int
+}
+
+func (c *outputLimitPrepareClient) OutputTokenLimits() (OutputTokenLimits, error) {
+	return c.limits, c.limitsErr
+}
+
+func (c *outputLimitPrepareClient) Prepare(
+	ctx context.Context,
+	input PrepareInput,
+) (PreparedRequest, error) {
+	c.prepareCalls++
+	return c.prepareForSendClient.Prepare(ctx, input)
+}
 
 func TestToolCallsFromEnvelopePreservesContentOrder(t *testing.T) {
 	envelope := modelenvelope.ResponseEnvelope{

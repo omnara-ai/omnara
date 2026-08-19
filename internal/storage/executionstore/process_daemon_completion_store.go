@@ -68,6 +68,7 @@ func (s *Store) MarkProcessStarted(
 			input.AgentID,
 			input.Authority,
 			input.ID,
+			false,
 		)
 		if err != nil {
 			return DaemonProcessReportApplication{}, err
@@ -260,6 +261,7 @@ func (s *Store) CompleteDaemonProcess(
 			ExitSignal:         input.ExitSignal,
 			StateReasonCode:    sqlcTextFromEmpty(input.StateReasonCode),
 			StateReasonMessage: input.StateReasonMessage,
+			StorageExhausted:   input.StorageExhausted,
 		},
 	)
 	processUpdated := err == nil
@@ -272,6 +274,7 @@ func (s *Store) CompleteDaemonProcess(
 			input.AgentID,
 			input.Authority,
 			input.ID,
+			input.StorageExhausted,
 		)
 		if err != nil {
 			return DaemonProcessReportApplication{}, err
@@ -399,7 +402,19 @@ func (s *Store) CompleteDaemonProcess(
 			)
 		}
 	}
-	if processUpdated {
+	if input.StorageExhausted {
+		if err := completeUnresolvedProcessActionsForClosedProcessTx(
+			ctx,
+			txNotifications,
+			tx,
+			qtx,
+			record.OrgID,
+			record.ID,
+			daemonprotocol.ProcessReasonMachineStorageExhausted,
+		); err != nil {
+			return DaemonProcessReportApplication{}, err
+		}
+	} else if processUpdated {
 		if err := completeQueuedProcessActionsForTerminalProcessTx(
 			ctx,
 			txNotifications,
@@ -425,6 +440,7 @@ func daemonProcessForReportTx(
 	projectID, agentID ID,
 	authority DaemonRuntimeAuthority,
 	processID ID,
+	allowUngranted bool,
 ) (ProcessRecord, error) {
 	row, err := qtx.GetDaemonProcessForProjectReport(
 		ctx,
@@ -444,7 +460,7 @@ func daemonProcessForReportTx(
 	if record.AgentID != agentID {
 		return ProcessRecord{}, storeerr.ErrDaemonRuntimeUnregistered
 	}
-	if record.ExecutionGrantedAt == nil {
+	if record.ExecutionGrantedAt == nil && !allowUngranted {
 		return ProcessRecord{}, storeerr.ErrProcessExecutionNotGranted
 	}
 	return record, nil
@@ -460,7 +476,8 @@ func daemonTerminalReportMatchesRecord(
 		record.StateReasonCode == input.StateReasonCode &&
 		record.StateReasonMessage == input.StateReasonMessage &&
 		matchesProvidedSourceTime(record.SourceStartedAt, input.SourceStartedAt) &&
-		matchesTerminalSourceTime(record.SourceEndedAt, input.SourceEndedAt)
+		(input.StorageExhausted ||
+			matchesTerminalSourceTime(record.SourceEndedAt, input.SourceEndedAt))
 }
 
 func matchesProvidedSourceTime(stored *time.Time, provided time.Time) bool {

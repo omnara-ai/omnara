@@ -25,6 +25,17 @@ export type Error = {
     code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
+export type Warning = {
+    /**
+     * Human-readable warning message. Do not match on it programmatically.
+     */
+    message: string;
+    /**
+     * Stable warning code for programmatic handling.
+     */
+    code: 'missing_recommended_machine_tools';
+};
+
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
@@ -97,7 +108,7 @@ export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 export type ModelProviderApiVariantResponse = string;
 
 /**
- * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, and selected reasoning policy. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters.
+ * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters.
  */
 export type ModelApiVariantOptions = {
     [key: string]: unknown;
@@ -335,6 +346,7 @@ export type ConfiguredModel = {
     id: ConfiguredModelId;
     org_id: OrganizationId;
     model_provider_config_id: ModelProviderConfigId;
+    management_kind: ManagementKind;
     /**
      * Admin-facing configured model name used by agent YAML as model.name.
      */
@@ -887,6 +899,10 @@ export type AgentConfig = {
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
+    /**
+     * Non-blocking diagnostics about the agent config.
+     */
+    warnings?: Array<Warning>;
     created_at: Timestamp;
 };
 

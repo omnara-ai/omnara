@@ -111,14 +111,13 @@ func (s *fakeStore) CountConsecutiveContextCheckpointLineage(
 	return s.consecutiveCheckpointCount, nil
 }
 
-func (s *fakeStore) ModelCallOperationHasFailedWithErrorKind(
+func (s *fakeStore) GetProviderReplaySuppressionCutoff(
 	context.Context,
 	storage.ID,
 	storage.ID,
 	storage.ID,
-	modelprotocol.ErrorKind,
-) (bool, error) {
-	return false, nil
+) (int64, error) {
+	return 0, nil
 }
 
 func (s *fakeStore) ClaimCompactionModelCall(
@@ -350,11 +349,13 @@ type summaryModel struct {
 	caps                        model.Capabilities
 	preparedBundles             []modelcontext.Bundle
 	preparedPolicies            []model.RequestPolicy
-	preparedEstimates           []int
+	preparedEstimate            func(model.PrepareInput, []byte) int
+	sourceInputTokens           int
 	checkpointPreparedEstimates []int
 	prepareErrs                 []error
 	requests                    []model.Request
 	results                     []summaryResult
+	outputTokenMinimum          int
 }
 
 func (m *summaryModel) RequestedProviderModelSlug() string {
@@ -386,6 +387,10 @@ func (m *summaryModel) Capabilities() model.Capabilities {
 	return caps
 }
 
+func (m *summaryModel) OutputTokenLimits() (model.OutputTokenLimits, error) {
+	return model.OutputTokenLimits{Minimum: m.outputTokenMinimum}, nil
+}
+
 func (m *summaryModel) Prepare(
 	_ context.Context,
 	input model.PrepareInput,
@@ -399,17 +404,21 @@ func (m *summaryModel) Prepare(
 	}
 	m.preparedBundles = append(m.preparedBundles, input.Context)
 	m.preparedPolicies = append(m.preparedPolicies, input.Policy)
-	body, err := json.Marshal(map[string]any{"messages": input.Context.Messages})
+	body, err := json.Marshal(map[string]any{
+		"max_output_tokens": input.Policy.MaxOutputTokens,
+		"messages":          input.Context.Messages,
+	})
 	if err != nil {
 		return model.PreparedRequest{}, err
 	}
 	estimate := modelcontext.EstimatePreparedRequest(body, nil)
-	if input.Context.ContextCheckpoint != nil && len(m.checkpointPreparedEstimates) > 0 {
+	if m.preparedEstimate != nil {
+		estimate = m.preparedEstimate(input, body)
+	} else if input.Context.ContextCheckpoint != nil && len(m.checkpointPreparedEstimates) > 0 {
 		estimate = m.checkpointPreparedEstimates[0]
 		m.checkpointPreparedEstimates = m.checkpointPreparedEstimates[1:]
-	} else if len(m.preparedEstimates) > 0 {
-		estimate = m.preparedEstimates[0]
-		m.preparedEstimates = m.preparedEstimates[1:]
+	} else if input.Context.ContextCheckpoint == nil && m.sourceInputTokens > 0 {
+		estimate = m.sourceInputTokens
 	}
 	return model.PreparedRequest{Body: body, InputTokenEstimate: estimate}, nil
 }
@@ -428,14 +437,22 @@ func (m *summaryModel) Respond(_ context.Context, input model.Request) (model.Re
 }
 
 func defaultCompactionAgentConfig() executionstore.AgentConfigRecord {
-	compiled, err := agentconfig.Compile(
-		agentconfig.SourceFormatYAML,
-		[]byte(`
+	return compactionAgentConfigWithReasoning("")
+}
+
+func compactionAgentConfigWithReasoning(reasoningEffort string) executionstore.AgentConfigRecord {
+	source := `
 instruction: Continue the task.
 model:
   provider_config: openai-prod
   name: summary
-`),
+`
+	if reasoningEffort != "" {
+		source += "  reasoning:\n    effort: " + reasoningEffort + "\n"
+	}
+	compiled, err := agentconfig.Compile(
+		agentconfig.SourceFormatYAML,
+		[]byte(source),
 		agentconfig.CompileOptions{
 			ResolveModelSelection: func(_, _ string) (agentconfig.ResolvedModelSelection, error) {
 				return agentconfig.ResolvedModelSelection{ConfiguredModelID: testIDN(600).String()}, nil

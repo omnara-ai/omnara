@@ -20,6 +20,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	sqlite3 "modernc.org/sqlite"
 )
 
 const (
@@ -63,6 +64,92 @@ func TestEmptyCollectionsAreNil(t *testing.T) {
 	}
 	if reports != nil {
 		t.Fatalf("process reports = %#v, want nil", reports)
+	}
+}
+
+func TestDatabaseFullHasTypedCause(t *testing.T) {
+	t.Parallel()
+
+	store, _ := openTestStore(t)
+	ctx := context.Background()
+	if _, err := store.db.ExecContext(ctx, "CREATE TABLE storage_fill (body BLOB NOT NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	var pages int
+	if err := store.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, "PRAGMA max_page_count = "+strconv.Itoa(pages)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.db.ExecContext(ctx, "INSERT INTO storage_fill(body) VALUES (zeroblob(10485760))")
+	classified := dbError("fill state database", err)
+	if err == nil || !errors.Is(classified, ErrFull) {
+		t.Fatalf("database full error = %v", classified)
+	}
+	var sqliteErr *sqlite3.Error
+	if !errors.As(classified, &sqliteErr) {
+		t.Fatalf("database full error lost SQLite cause: %v", classified)
+	}
+}
+
+func TestDeleteRejectedPreparationRequiresExactUngrantedIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _ := openTestStore(t)
+	if err := store.DeleteRejectedPreparationAfterArtifacts(
+		ctx,
+		"prc_missing_rejected_cleanup",
+		"supervisor-instance-missing-rejected-cleanup",
+	); err != nil {
+		t.Fatalf("idempotent missing cleanup: %v", err)
+	}
+	process := Process{
+		ProcessID:            "prc_rejected_cleanup_identity",
+		SupervisorInstanceID: "supervisor-instance-rejected-cleanup",
+		SupervisorToken:      "supervisor-token-rejected-cleanup",
+	}
+	if err := store.ReserveProcess(ctx, process); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkPrepared(
+		ctx,
+		process.ProcessID,
+		process.SupervisorInstanceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteRejectedPreparationAfterArtifacts(
+		ctx,
+		process.ProcessID,
+		"supervisor-instance-replacement",
+	); !errors.Is(err, ErrSupervisorIdentityMismatch) {
+		t.Fatalf("replacement cleanup error = %v, want identity mismatch", err)
+	}
+	if err := store.MarkAccepted(
+		ctx,
+		process.ProcessID,
+		process.SupervisorInstanceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteRejectedPreparationAfterArtifacts(
+		ctx,
+		process.ProcessID,
+		process.SupervisorInstanceID,
+	); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("accepted cleanup error = %v, want state conflict", err)
+	}
+	if err := store.DeleteStorageExhaustedAfterArtifacts(
+		ctx,
+		process.ProcessID,
+		process.SupervisorInstanceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := store.Process(ctx, process.ProcessID); err != nil || found {
+		t.Fatalf("process after accepted cleanup: found=%t err=%v", found, err)
 	}
 }
 

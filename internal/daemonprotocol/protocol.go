@@ -474,6 +474,8 @@ const (
 )
 
 const (
+	ProcessReasonMachineStorageExhausted      = "machine_storage_exhausted"
+	ProcessMessageMachineStorageExhausted     = "the machine ran out of writable storage"
 	ProcessActionReasonAlreadyStopped         = "already_stopped"
 	ProcessActionReasonOutcomeUnknown         = "action_outcome_unknown"
 	ProcessActionReasonRunnerUnavailable      = "runner_unavailable"

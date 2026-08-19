@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -97,6 +98,102 @@ func TestServiceE2EDeterministicWorkerRunsModelTurn(t *testing.T) {
 	})
 }
 
+func TestServiceE2EConfiguredModelOptionsAreScopedByProviderConfig(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "configured-model-options-identity")
+	env.startAPI(t, ctx)
+	const modelName = modeltest.LiveOpenAIProviderModelSlug
+	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(
+		t,
+		ctx,
+		"configured-model-options-identity",
+		"openai-prod",
+		modelName,
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{ProviderConfigName: "openai-prod", ConfiguredModelName: modelName}: {
+				ContextWindowTokens:    91000,
+				MaxOutputTokens:        9000,
+				DefaultMaxOutputTokens: 4000,
+			},
+			{ProviderConfigName: "openai-chat-prod", ConfiguredModelName: modelName}: {
+				ContextWindowTokens:       92000,
+				MaxOutputTokens:           10000,
+				DefaultMaxOutputTokens:    5000,
+				DefaultReasoningEffort:    "none",
+				SupportedReasoningEfforts: []string{"none"},
+			},
+		},
+	)
+	projectID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
+	for _, test := range []struct {
+		providerConfig         string
+		contextWindowTokens    int
+		maxOutputTokens        int
+		defaultMaxOutputTokens int
+		supportsReasoning      bool
+		defaultReasoningEffort string
+	}{
+		{
+			providerConfig:         "openai-prod",
+			contextWindowTokens:    91000,
+			maxOutputTokens:        9000,
+			defaultMaxOutputTokens: 4000,
+		},
+		{
+			providerConfig:         "openai-chat-prod",
+			contextWindowTokens:    92000,
+			maxOutputTokens:        10000,
+			defaultMaxOutputTokens: 5000,
+			supportsReasoning:      true,
+			defaultReasoningEffort: "none",
+		},
+	} {
+		var contextWindowTokens, maxOutputTokens, defaultMaxOutputTokens int
+		var supportsReasoning bool
+		var defaultReasoningEffort string
+		err := env.db.QueryRow(ctx, `
+SELECT revision.context_window_tokens, revision.max_output_tokens,
+       revision.default_max_output_tokens, revision.supports_reasoning,
+       revision.default_reasoning_effort
+FROM projects project
+JOIN model_provider_configs provider ON provider.org_id = project.org_id
+JOIN configured_models configured_model
+  ON configured_model.org_id = provider.org_id
+  AND configured_model.model_provider_config_id = provider.id
+JOIN configured_model_revisions revision
+  ON revision.org_id = configured_model.org_id
+  AND revision.id = configured_model.current_revision_id
+WHERE project.id = $1
+  AND provider.name = $2
+  AND configured_model.name = $3`, projectID, test.providerConfig, modelName).Scan(
+			&contextWindowTokens,
+			&maxOutputTokens,
+			&defaultMaxOutputTokens,
+			&supportsReasoning,
+			&defaultReasoningEffort,
+		)
+		if err != nil {
+			t.Fatalf("query %s configured model: %v", test.providerConfig, err)
+		}
+		if contextWindowTokens != test.contextWindowTokens ||
+			maxOutputTokens != test.maxOutputTokens ||
+			defaultMaxOutputTokens != test.defaultMaxOutputTokens ||
+			supportsReasoning != test.supportsReasoning ||
+			defaultReasoningEffort != test.defaultReasoningEffort {
+			t.Fatalf(
+				"%s options = context:%d max:%d default:%d reasoning:%t/%q",
+				test.providerConfig,
+				contextWindowTokens,
+				maxOutputTokens,
+				defaultMaxOutputTokens,
+				supportsReasoning,
+				defaultReasoningEffort,
+			)
+		}
+	}
+}
+
 func TestServiceE2EDeterministicOpenRouterRunsChatCompletionsModelTurn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -160,8 +257,8 @@ func TestServiceE2EDeterministicOpenRouterRunsChatCompletionsModelTurn(t *testin
 		"deterministic-openrouter",
 		"openrouter-prod",
 		configuredModelName,
-		map[string]serviceE2EConfiguredModelOptions{
-			configuredModelName: {
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{ProviderConfigName: "openrouter-prod", ConfiguredModelName: configuredModelName}: {
 				APIVariantOptions: map[string]any{
 					"provider": map[string]any{
 						"only":            []string{"openai"},
@@ -845,7 +942,7 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithToolsAndModelOptions(
 	seed string,
 	providerConfig string,
 	configuredModelName string,
-	modelOptions map[string]serviceE2EConfiguredModelOptions,
+	modelOptions serviceE2EConfiguredModelOptionsByIdentity,
 	tools ...string,
 ) deterministicProject {
 	t.Helper()
@@ -875,18 +972,27 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSource(
 }
 
 type serviceE2EConfiguredModelOptions struct {
-	ContextWindowTokens    int
-	MaxOutputTokens        int
-	DefaultMaxOutputTokens int
-	APIVariantOptions      map[string]any
+	ContextWindowTokens       int
+	MaxOutputTokens           int
+	DefaultMaxOutputTokens    int
+	DefaultReasoningEffort    string
+	SupportedReasoningEfforts []string
+	APIVariantOptions         map[string]any
 }
+
+type serviceE2EConfiguredModelIdentity struct {
+	ProviderConfigName  string
+	ConfiguredModelName string
+}
+
+type serviceE2EConfiguredModelOptionsByIdentity map[serviceE2EConfiguredModelIdentity]serviceE2EConfiguredModelOptions
 
 func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 	t *testing.T,
 	ctx context.Context,
 	seed string,
 	sourceYAML string,
-	modelOptions map[string]serviceE2EConfiguredModelOptions,
+	modelOptions serviceE2EConfiguredModelOptionsByIdentity,
 ) deterministicProject {
 	t.Helper()
 	db, err := storage.Open(ctx, e.databaseURL)
@@ -982,7 +1088,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 	t *testing.T,
 	ctx context.Context,
 	orgID, projectPath, adminToken string,
-	modelOptions map[string]serviceE2EConfiguredModelOptions,
+	modelOptions serviceE2EConfiguredModelOptionsByIdentity,
 ) {
 	t.Helper()
 	openAIKey := os.Getenv("OPENAI_API_KEY")
@@ -1029,12 +1135,12 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		ctx,
 		projectPath,
 		adminToken,
+		"openai-prod",
 		serviceE2EProviderConfigID(t, openAIConfig),
 		modelOptions,
 		"service-e2e-local",
 		"service-e2e-alt",
-		"gpt-5.5",
-		os.Getenv("OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG"),
+		modeltest.LiveOpenAIProviderModelSlug,
 	)
 	openAIChatConfig := e.requestJSON(
 		t,
@@ -1056,9 +1162,10 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		ctx,
 		projectPath,
 		adminToken,
+		"openai-chat-prod",
 		serviceE2EProviderConfigID(t, openAIChatConfig),
 		modelOptions,
-		liveOpenAIChatConfiguredModelName(),
+		modeltest.LiveOpenAIProviderModelSlug,
 	)
 	openRouterSecret := e.requestJSON(
 		t,
@@ -1095,10 +1202,11 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		ctx,
 		projectPath,
 		adminToken,
+		"openrouter-prod",
 		serviceE2EProviderConfigID(t, openRouterConfig),
 		modelOptions,
 		"service-e2e-openrouter",
-		liveOpenRouterConfiguredModel,
+		modeltest.LiveOpenRouterProviderModelSlug,
 	)
 	anthropicSecret := e.requestJSON(
 		t,
@@ -1135,11 +1243,11 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		ctx,
 		projectPath,
 		adminToken,
+		"anthropic-prod",
 		serviceE2EProviderConfigID(t, anthropicConfig),
 		modelOptions,
 		"service-e2e-claude",
-		"claude-sonnet-4-6",
-		os.Getenv("OMNARA_E2E_ANTHROPIC_PROVIDER_MODEL_SLUG"),
+		modeltest.LiveAnthropicProviderModelSlug,
 	)
 }
 
@@ -1152,23 +1260,11 @@ func serviceE2EProviderConfigID(t *testing.T, response map[string]any) string {
 	return config["id"].(string)
 }
 
-func liveOpenAIChatConfiguredModelName() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "gpt-4.1-mini"
-}
-
-const liveOpenRouterConfiguredModel = "z-ai/glm-5.2"
-
 func (e *serviceE2EEnvironment) createServiceE2EConfiguredModels(
 	t *testing.T,
 	ctx context.Context,
-	projectPath, adminToken, providerConfigID string,
-	modelOptions map[string]serviceE2EConfiguredModelOptions,
+	projectPath, adminToken, providerConfigName, providerConfigID string,
+	modelOptions serviceE2EConfiguredModelOptionsByIdentity,
 	configuredModelNames ...string,
 ) {
 	t.Helper()
@@ -1185,7 +1281,10 @@ func (e *serviceE2EEnvironment) createServiceE2EConfiguredModels(
 			adminToken,
 			providerConfigID,
 			configuredModelName,
-			modelOptions[configuredModelName],
+			modelOptions[serviceE2EConfiguredModelIdentity{
+				ProviderConfigName:  providerConfigName,
+				ConfiguredModelName: configuredModelName,
+			}],
 		)
 	}
 }
@@ -1215,6 +1314,15 @@ func (e *serviceE2EEnvironment) createServiceE2EConfiguredModel(
 	}
 	if options.APIVariantOptions != nil {
 		body["api_variant_options"] = options.APIVariantOptions
+	}
+	if options.DefaultReasoningEffort != "" || len(options.SupportedReasoningEfforts) > 0 {
+		body["supports_reasoning"] = true
+	}
+	if options.DefaultReasoningEffort != "" {
+		body["default_reasoning_effort"] = options.DefaultReasoningEffort
+	}
+	if len(options.SupportedReasoningEfforts) > 0 {
+		body["supported_reasoning_efforts"] = options.SupportedReasoningEfforts
 	}
 	configuredModel := e.requestJSON(
 		t,

@@ -60,6 +60,26 @@ type ModelReasoningCompiled struct {
 	Effort string `json:"effort"`
 }
 
+type ModelOverrides struct {
+	ContextWindowTokens    *int
+	DefaultMaxOutputTokens *int
+	CacheRetention         string
+	ReasoningEffort        string
+}
+
+func (m ModelCompiled) Overrides() ModelOverrides {
+	reasoningEffort := ""
+	if m.Reasoning != nil {
+		reasoningEffort = m.Reasoning.Effort
+	}
+	return ModelOverrides{
+		ContextWindowTokens:    m.ContextWindowTokens,
+		DefaultMaxOutputTokens: m.DefaultMaxOutputTokens,
+		CacheRetention:         m.CacheRetention,
+		ReasoningEffort:        reasoningEffort,
+	}
+}
+
 type compiledModelResult struct {
 	configuredModelID    string
 	model                ModelCompiled

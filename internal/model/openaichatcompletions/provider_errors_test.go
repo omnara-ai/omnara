@@ -6,10 +6,55 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
+
+// https://github.com/OpenRouterTeam/ai-sdk-provider/issues/339
+const openRouterFlatImmutableThinkingError = "{\"message\":\"messages.1.content.1: " +
+	"`thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. " +
+	"These blocks must remain as they were in the original response.\"}"
+
+type openRouterRawReplayErrorCase struct {
+	name        string
+	raw         any
+	wantCode    string
+	wantMessage string
+}
+
+func openRouterRawReplayErrorCases() []openRouterRawReplayErrorCase {
+	return []openRouterRawReplayErrorCase{
+		{
+			name: "wrapped error",
+			raw: json.RawMessage(`{"type":"error","error":{"type":"invalid_request_error",` +
+				"\"message\":\"Invalid `signature` in `thinking` block\"}}"),
+			wantCode:    "invalid_request_error",
+			wantMessage: "Invalid `signature` in `thinking` block",
+		},
+		{
+			name:     "flat error",
+			raw:      openRouterFlatImmutableThinkingError,
+			wantCode: "400",
+			wantMessage: "messages.1.content.1: `thinking` or `redacted_thinking` blocks in the latest " +
+				"assistant message cannot be modified. These blocks must remain as they were in the original response.",
+		},
+		{
+			name:        "plain string",
+			raw:         "Invalid signature in thinking block",
+			wantCode:    "400",
+			wantMessage: "Invalid signature in thinking block",
+		},
+		{
+			name:        "detail field",
+			raw:         map[string]any{"detail": "Invalid signature in thinking block"},
+			wantCode:    "400",
+			wantMessage: "Invalid signature in thinking block",
+		},
+	}
+}
 
 func TestRespondClassifiesProviderErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -147,6 +192,285 @@ func TestRespondClassifiesCompleteMid200OpenRouterError(t *testing.T) {
 	}
 	if model.IsAmbiguousProviderOutcome(err) {
 		t.Fatalf("complete mid-200 provider error must be explicit: %T %v", err, err)
+	}
+}
+
+func TestRespondClassifiesOpenRouterWrappedContextOverflow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(
+			`{"error":{"code":502,"message":"Your input exceeds the context window of this model.",` +
+				`"metadata":{"error_type":"provider_unavailable"}}}`,
+		))
+	}))
+	defer server.Close()
+	_, err := testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindContextWindow ||
+		providerErr.StatusCode != http.StatusBadGateway ||
+		providerErr.Code != "provider_unavailable" {
+		t.Fatalf("wrapped context overflow = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestRespondClassifiesOpenRouterWrappedPayloadOverflow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(
+			`{"error":{"code":502,"message":"Request entity too large for the upstream provider.",` +
+				`"metadata":{"error_type":"provider_unavailable"}}}`,
+		))
+	}))
+	defer server.Close()
+	_, err := testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindPayloadTooLarge ||
+		providerErr.StatusCode != http.StatusBadGateway ||
+		providerErr.Code != "provider_unavailable" {
+		t.Fatalf("wrapped payload overflow = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestRespondClassifiesOpenRouterWrappedImmutableThinkingError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(
+			`{"error":{"code":400,"message":"messages.1.content.0: ` +
+				"`thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. " +
+				`These blocks must remain as they were in the original response.",` +
+				`"metadata":{"error_type":"invalid_request_error"}}}`,
+		))
+	}))
+	defer server.Close()
+	_, err := testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindReplayRejected ||
+		providerErr.StatusCode != http.StatusBadRequest ||
+		providerErr.Code != "invalid_request_error" {
+		t.Fatalf("wrapped immutable thinking error = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestRespondClassifiesOpenRouterRawReplayError(t *testing.T) {
+	for _, test := range openRouterRawReplayErrorCases() {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{
+				"error": map[string]any{
+					"code":    400,
+					"message": "Provider returned error",
+					"metadata": map[string]any{
+						"provider_name": "Anthropic",
+						"raw":           test.raw,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal raw provider error: %v", err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write(body)
+			}))
+			defer server.Close()
+			client := testRespondClient(server)
+			client.APIVariant = modelprotocol.APIVariantOpenRouter
+			_, err = client.Respond(
+				context.Background(),
+				model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+			)
+			providerErr, ok := model.ClassifyError(err)
+			if !ok || providerErr.Kind != model.ErrorKindReplayRejected ||
+				providerErr.StatusCode != http.StatusBadRequest ||
+				providerErr.Code != test.wantCode || providerErr.Message != test.wantMessage {
+				t.Fatalf("raw replay error = %+v ok=%v err=%v", providerErr, ok, err)
+			}
+		})
+	}
+}
+
+func TestOpenRouterRawErrorMessageShapes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{name: "plain string", raw: json.RawMessage(`"plain failure"`), want: "plain failure"},
+		{name: "malformed-looking string", raw: json.RawMessage(`"{"`), want: "{"},
+		{name: "JSON string", raw: json.RawMessage(`"{\"msg\":\"encoded failure\"}"`), want: "encoded failure"},
+		{name: "message", raw: json.RawMessage(`{"message":"message failure"}`), want: "message failure"},
+		{name: "error string", raw: json.RawMessage(`{"error":"error failure"}`), want: "error failure"},
+		{name: "detail", raw: json.RawMessage(`{"detail":"detail failure"}`), want: "detail failure"},
+		{name: "details", raw: json.RawMessage(`{"details":"details failure"}`), want: "details failure"},
+		{name: "msg", raw: json.RawMessage(`{"msg":"msg failure"}`), want: "msg failure"},
+		{name: "nested", raw: json.RawMessage(`{"error":{"detail":"nested failure"}}`), want: "nested failure"},
+		{name: "unrecognized", raw: json.RawMessage(`{"status":"failed"}`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := openRouterRawErrorMessage(test.raw); got != test.want {
+				t.Fatalf("raw provider message = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRespondOnlyUsesRawProviderErrorsForOpenRouter(t *testing.T) {
+	body, err := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"code":    400,
+			"message": "Provider returned error",
+			"metadata": map[string]any{
+				"raw": `{"type":"error","error":{"type":"invalid_request_error",` +
+					"\"message\":\"Invalid `signature` in `thinking` block\"}}",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal nested provider error: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	_, err = testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindInvalidRequest ||
+		providerErr.Code != "400" || providerErr.Message != "Provider returned error" {
+		t.Fatalf("default-variant provider error = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
+	nested, err := json.Marshal(`{"type":"error","error":{"type":"invalid_request_error",` +
+		"\"message\":\"Invalid `signature` in `thinking` block\"}}")
+	if err != nil {
+		t.Fatalf("marshal nested error: %v", err)
+	}
+	oversized, err := json.Marshal(strings.Repeat("x", maxNestedProviderErrorBytes+1))
+	if err != nil {
+		t.Fatalf("marshal oversized nested error: %v", err)
+	}
+	for _, test := range []struct {
+		name        string
+		httpStatus  int
+		providerErr chatProviderError
+		wantKind    model.ErrorKind
+		wantCode    string
+		wantMessage string
+	}{
+		{
+			name: "specific outer error",
+			providerErr: chatProviderError{
+				Message:  "API key is invalid",
+				Type:     "invalid_api_key",
+				Metadata: chatProviderErrorMetadata{Raw: nested},
+			},
+			wantKind:    model.ErrorKindAuth,
+			wantCode:    "invalid_api_key",
+			wantMessage: "API key is invalid",
+		},
+		{
+			name: "specific outer code with generic message",
+			providerErr: chatProviderError{
+				Message:  "Provider returned error",
+				Type:     "invalid_api_key",
+				Metadata: chatProviderErrorMetadata{Raw: nested},
+			},
+			wantKind:    model.ErrorKindAuth,
+			wantCode:    "invalid_api_key",
+			wantMessage: "Provider returned error",
+		},
+		{
+			name: "specific outer type with numeric code",
+			providerErr: chatProviderError{
+				Message:  "Provider returned error",
+				Type:     "invalid_api_key",
+				Code:     400,
+				Metadata: chatProviderErrorMetadata{Raw: nested},
+			},
+			wantKind:    model.ErrorKindAuth,
+			wantCode:    "400",
+			wantMessage: "Provider returned error",
+		},
+		{
+			name: "permission outer type with numeric code",
+			providerErr: chatProviderError{
+				Message:  "Provider returned error",
+				Type:     "permission_denied",
+				Code:     400,
+				Metadata: chatProviderErrorMetadata{Raw: nested},
+			},
+			wantKind:    model.ErrorKindAuth,
+			wantCode:    "400",
+			wantMessage: "Provider returned error",
+		},
+		{
+			name:       "masked server error",
+			httpStatus: http.StatusBadGateway,
+			providerErr: chatProviderError{
+				Message:  "Provider returned error",
+				Code:     502,
+				Metadata: chatProviderErrorMetadata{Raw: nested},
+			},
+			wantKind:    model.ErrorKindProviderUnavailable,
+			wantCode:    "502",
+			wantMessage: "Provider returned error",
+		},
+		{
+			name: "invalid raw JSON",
+			providerErr: chatProviderError{
+				Message:  "Provider returned error",
+				Type:     "provider_error",
+				Metadata: chatProviderErrorMetadata{Raw: json.RawMessage(`{`)},
+			},
+			wantKind:    model.ErrorKindProviderUnavailable,
+			wantMessage: "Provider returned error",
+		},
+		{
+			name: "oversized nested error",
+			providerErr: chatProviderError{
+				Message:  "Provider returned error",
+				Type:     "provider_error",
+				Metadata: chatProviderErrorMetadata{Raw: oversized},
+			},
+			wantKind:    model.ErrorKindProviderUnavailable,
+			wantMessage: "Provider returned error",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			statusCode := test.httpStatus
+			if statusCode == 0 {
+				statusCode = http.StatusBadRequest
+			}
+			got := classifyProviderError(
+				"test-provider",
+				modelprotocol.APIVariantOpenRouter,
+				statusCode,
+				nil,
+				test.providerErr,
+				"",
+			)
+			if got.Kind != test.wantKind || (test.wantCode != "" && got.Code != test.wantCode) ||
+				got.Message != test.wantMessage {
+				t.Fatalf(
+					"provider error = %+v, want kind %q code %q message %q",
+					got, test.wantKind, test.wantCode, test.wantMessage,
+				)
+			}
+		})
 	}
 }
 

@@ -235,7 +235,8 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	configuredModelID := configuredModel["id"].(string)
-	if configuredModel["name"] != "gpt-test" || configuredModel["provider_model_slug"] != "gpt-test" ||
+	if configuredModel["management_kind"] != string(management.Tenant) ||
+		configuredModel["name"] != "gpt-test" || configuredModel["provider_model_slug"] != "gpt-test" ||
 		configuredModel["supports_tools"] != true ||
 		configuredModel["supports_reasoning"] != true ||
 		configuredModel["default_reasoning_effort"] != "high" ||

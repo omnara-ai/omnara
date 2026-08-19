@@ -223,6 +223,58 @@ func TestOpenAIConsumeStreamFailedIsClassified(t *testing.T) {
 	}
 }
 
+func TestOpenAIConsumeStreamFailedUsesTopLevelErrorType(t *testing.T) {
+	tests := []struct {
+		name      string
+		errorType string
+		code      string
+		message   string
+		want      model.ErrorKind
+	}{
+		{
+			name:      "context behind lossy invalid prompt",
+			errorType: "provider_unavailable",
+			code:      "invalid_prompt",
+			message:   "Your input exceeds the context window of this model.",
+			want:      model.ErrorKindContextWindow,
+		},
+		{
+			name:      "payload behind lossy invalid prompt",
+			errorType: "provider_unavailable",
+			code:      "invalid_prompt",
+			message:   "Request body too large for the upstream provider.",
+			want:      model.ErrorKindPayloadTooLarge,
+		},
+		{
+			name:      "authentication behind lossy server error",
+			errorType: "authentication",
+			code:      "server_error",
+			message:   "Invalid credentials",
+			want:      model.ErrorKindAuth,
+		},
+		{
+			name:      "content policy behind lossy server error",
+			errorType: "content_policy_violation",
+			code:      "server_error",
+			message:   "Output blocked",
+			want:      model.ErrorKindInvalidRequest,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			failed := `{"id":"resp_failed","model":"gpt-test","status":"failed",` +
+				`"error_type":"` + test.errorType + `",` +
+				`"error":{"code":"` + test.code + `","message":"` + test.message + `"}}`
+			stream := openAISSE([2]string{"response.failed", `{"response":` + failed + `}`})
+			_, err := consumeOpenAIStream(t, stream, &recordingSink{})
+			providerErr, ok := model.ClassifyError(err)
+			if !ok || providerErr.Kind != test.want || providerErr.Code != test.errorType {
+				t.Fatalf("top-level failed error type = %+v ok=%v err=%v", providerErr, ok, err)
+			}
+		})
+	}
+}
+
 func TestOpenAIConsumeStreamTruncatedIsError(t *testing.T) {
 	stream := openAISSE(
 		[2]string{
@@ -335,6 +387,34 @@ func TestOpenAIConsumeStreamStandaloneErrorEventIsExplicit(t *testing.T) {
 	if len(got) < 2 || got[len(got)-2].Kind != model.StreamEventBlockStop ||
 		got[len(got)-1].Kind != model.StreamEventError {
 		t.Fatalf("open block must close before stream error: %+v", got)
+	}
+}
+
+func TestOpenAIConsumeStreamStandaloneErrorUsesTopLevelErrorType(t *testing.T) {
+	stream := openAISSE([2]string{
+		"response.error",
+		`{"type":"response.error","error_type":"provider_unavailable",` +
+			`"code":502,"message":"Your input exceeds the context window of this model."}`,
+	})
+	_, err := consumeOpenAIStream(t, stream, &recordingSink{})
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindContextWindow ||
+		providerErr.Code != "provider_unavailable" {
+		t.Fatalf("standalone top-level error type = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestOpenAIConsumeStreamStandalonePayloadErrorUsesTopLevelErrorType(t *testing.T) {
+	stream := openAISSE([2]string{
+		"response.error",
+		`{"type":"response.error","error_type":"provider_unavailable",` +
+			`"code":502,"message":"Request entity too large for the upstream provider."}`,
+	})
+	_, err := consumeOpenAIStream(t, stream, &recordingSink{})
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindPayloadTooLarge ||
+		providerErr.Code != "provider_unavailable" {
+		t.Fatalf("standalone top-level payload error = %+v ok=%v err=%v", providerErr, ok, err)
 	}
 }
 

@@ -22,16 +22,8 @@ const (
 type Action string
 
 const (
-	ActionRetry   Action = "retry"
-	ActionCompact Action = "compact"
-	ActionStop    Action = "stop"
-)
-
-type InputOverflowPolicy uint8
-
-const (
-	StopOnInputOverflow InputOverflowPolicy = iota
-	CompactOnInputOverflow
+	ActionRetry Action = "retry"
+	ActionStop  Action = "stop"
 )
 
 type Decision struct {
@@ -40,7 +32,8 @@ type Decision struct {
 }
 
 type Attempt struct {
-	Number int
+	Number                         int
+	ProviderReplayCutoffCanAdvance bool
 }
 
 type Evidence struct {
@@ -58,20 +51,11 @@ func Decide(
 	attempt Attempt,
 	contextID string,
 	now time.Time,
-	inputOverflowPolicy InputOverflowPolicy,
 ) (Evidence, Decision) {
 	evidence := EvidenceFor(err)
 	now = now.UTC()
 	decision := Decision{}
-	if compactableInputFailure(evidence.Provider.Kind) {
-		if inputOverflowPolicy == CompactOnInputOverflow {
-			decision.Action = ActionCompact
-		} else {
-			decision.Action = ActionStop
-		}
-		return evidence, decision
-	}
-	if !retryable(evidence) {
+	if !retryable(evidence, attempt) {
 		decision.Action = ActionStop
 		return evidence, decision
 	}
@@ -241,7 +225,13 @@ func providerMetadataForStorage(raw json.RawMessage) (json.RawMessage, bool) {
 	return metadata, true
 }
 
-func retryable(evidence Evidence) bool {
+func retryable(evidence Evidence, attempt Attempt) bool {
+	if evidence.Provider.Kind == model.ErrorKindReplayRejected {
+		return attempt.ProviderReplayCutoffCanAdvance
+	}
+	if deterministicInputFailure(evidence.Provider.Kind) {
+		return false
+	}
 	if evidence.Ambiguous {
 		return true
 	}
@@ -252,9 +242,6 @@ func retryable(evidence Evidence) bool {
 	case model.ErrorKindTransient,
 		model.ErrorKindRateLimit,
 		model.ErrorKindProviderUnavailable,
-		model.ErrorKindContextWindow,
-		model.ErrorKindPayloadTooLarge,
-		model.ErrorKindReplayRejected,
 		model.ErrorKindUnknown:
 		return true
 	case model.ErrorKindAuth,
@@ -266,7 +253,7 @@ func retryable(evidence Evidence) bool {
 	}
 }
 
-func compactableInputFailure(kind model.ErrorKind) bool {
+func deterministicInputFailure(kind model.ErrorKind) bool {
 	return kind == model.ErrorKindContextWindow || kind == model.ErrorKindPayloadTooLarge
 }
 

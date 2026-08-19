@@ -267,30 +267,6 @@ func (q *Queries) GetProcessSupervisorIdentity(ctx context.Context, arg GetProce
 	return i, err
 }
 
-const getUngrantedProcessStatus = `-- name: GetUngrantedProcessStatus :one
-SELECT phase, exec_committed
-FROM processes
-WHERE process_id = ?1
-  AND supervisor_instance_id = ?2
-`
-
-type GetUngrantedProcessStatusParams struct {
-	ProcessID            string
-	SupervisorInstanceID string
-}
-
-type GetUngrantedProcessStatusRow struct {
-	Phase         string
-	ExecCommitted int64
-}
-
-func (q *Queries) GetUngrantedProcessStatus(ctx context.Context, arg GetUngrantedProcessStatusParams) (GetUngrantedProcessStatusRow, error) {
-	row := q.db.QueryRowContext(ctx, getUngrantedProcessStatus, arg.ProcessID, arg.SupervisorInstanceID)
-	var i GetUngrantedProcessStatusRow
-	err := row.Scan(&i.Phase, &i.ExecCommitted)
-	return i, err
-}
-
 const insertProcess = `-- name: InsertProcess :exec
 INSERT INTO processes(
     process_id,

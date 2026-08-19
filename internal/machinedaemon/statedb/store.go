@@ -49,6 +49,7 @@ const (
 
 var (
 	ErrBusy                       = errors.New("state database is busy")
+	ErrFull                       = errors.New("state database is full")
 	ErrProcessExists              = errors.New("local state already exists for process")
 	ErrSupervisorIdentityMismatch = errors.New("supervisor identity mismatch")
 	ErrStateConflict              = errors.New("local state conflict")
@@ -487,6 +488,9 @@ func dbError(operation string, err error) error {
 	var sqliteErr *sqlite3.Error
 	if errors.As(err, &sqliteErr) {
 		code := sqliteErr.Code() & 0xff
+		if code == sqlite3lib.SQLITE_FULL {
+			return fmt.Errorf("%s: %w: %w", operation, ErrFull, err)
+		}
 		if code == sqlite3lib.SQLITE_BUSY || code == sqlite3lib.SQLITE_LOCKED {
 			return fmt.Errorf("%s: %w: %w", operation, ErrBusy, err)
 		}

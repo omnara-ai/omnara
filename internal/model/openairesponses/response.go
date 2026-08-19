@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/openaierrors"
+	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
@@ -216,6 +216,7 @@ type responsesResponse struct {
 	ID                string                     `json:"id"`
 	Model             string                     `json:"model"`
 	Status            string                     `json:"status"`
+	ErrorType         string                     `json:"error_type"`
 	Error             responsesError             `json:"error"`
 	IncompleteDetails responsesIncompleteDetails `json:"incomplete_details"`
 	Output            []json.RawMessage          `json:"output"`
@@ -233,7 +234,7 @@ func (e responsesError) present() bool {
 }
 
 func (e responsesError) codeText() string {
-	return openaierrors.CodeText(e.Code)
+	return providererrors.CodeText(e.Code)
 }
 
 type responsesIncompleteDetails struct {
