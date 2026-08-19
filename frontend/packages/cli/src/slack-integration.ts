@@ -2,8 +2,9 @@ import {
   type CreateIntegrationOAuthSetupRequest,
   type CreateSlackSetupRequest,
   type IntegrationInstall,
-  type OmnaraClient,
+  type IntegrationOAuthSetup,
   sdk,
+  type SlackSetup,
 } from '@omnara/sdk'
 import { zCreateIntegrationOAuthSetupRequest, zCreateSlackSetupRequest } from '@omnara/sdk/zod'
 import * as z from 'zod'
@@ -11,10 +12,7 @@ import * as z from 'zod'
 import type { FlowContext } from './factory.ts'
 import { openAuthorizationUrl, zBrowserFlag } from './mcp-oauth.ts'
 import { CliInputError } from './output.ts'
-
-const POLL_INTERVAL_SECONDS = 2
-
-type InstallSnapshot = Map<string, { state: string; updatedAt: string }>
+import { pollUntilDeadline } from './poll.ts'
 
 export const zSlackBody = z.object({
   app_name: z.string().optional().describe('name for a new Slack app'),
@@ -93,90 +91,6 @@ function parseRequest(body: SlackBody): SlackSetupRequest {
   return { kind: 'create-app', body: result.data }
 }
 
-async function profileSlackIntegrations(
-  client: OmnaraClient,
-  orgId: string,
-  projectId: string,
-  profileId: string,
-): Promise<IntegrationInstall[]> {
-  const { data } = await sdk.listIntegrationInstalls({
-    client,
-    path: { orgID: orgId, projectID: projectId },
-    query: { agent_profile_id: profileId, limit: 100 },
-  })
-  return data.data.filter(
-    (install) => install.provider === 'slack' && install.agent_profile_id === profileId,
-  )
-}
-
-async function snapshotIntegrations(
-  client: OmnaraClient,
-  orgId: string,
-  projectId: string,
-  profileId: string,
-): Promise<InstallSnapshot> {
-  return new Map(
-    (await profileSlackIntegrations(client, orgId, projectId, profileId)).map((install) => [
-      install.id,
-      { state: install.state, updatedAt: install.updated_at },
-    ]),
-  )
-}
-
-function changedIntegration(
-  integrations: IntegrationInstall[],
-  before: InstallSnapshot,
-  expectedProviderAccountRef?: string,
-): IntegrationInstall | undefined {
-  return integrations.find((integration) => {
-    if (integration.state !== 'active') return false
-    if (
-      expectedProviderAccountRef !== undefined &&
-      integration.provider_account_ref !== expectedProviderAccountRef
-    ) {
-      return false
-    }
-    const previous = before.get(integration.id)
-    if (previous === undefined) return true
-    return integration.state !== previous.state || integration.updated_at !== previous.updatedAt
-  })
-}
-
-function defaultSleep(seconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
-}
-
-async function pollForSlackIntegration(options: {
-  client: OmnaraClient
-  orgId: string
-  projectId: string
-  profileId: string
-  before: InstallSnapshot
-  expiresAt: string
-  expectedProviderAccountRef?: string
-  sleep?: (seconds: number) => Promise<void>
-  now?: () => number
-}): Promise<IntegrationInstall> {
-  const sleep = options.sleep ?? defaultSleep
-  const now = options.now ?? Date.now
-  const deadline = Date.parse(options.expiresAt)
-  while (now() < deadline) {
-    const created = changedIntegration(
-      await profileSlackIntegrations(
-        options.client,
-        options.orgId,
-        options.projectId,
-        options.profileId,
-      ),
-      options.before,
-      options.expectedProviderAccountRef,
-    )
-    if (created !== undefined) return created
-    await sleep(Math.min(POLL_INTERVAL_SECONDS, Math.max(0, (deadline - now()) / 1000)))
-  }
-  throw new CliInputError('Slack authorization expired before the integration was created')
-}
-
 export async function runSlackIntegration(
   context: FlowContext<
     { orgID: string; projectID: string; agentProfileID: string },
@@ -185,43 +99,50 @@ export async function runSlackIntegration(
 ): Promise<void> {
   const { client, path, body, report } = context
   const request = parseRequest(body)
-  const before = await snapshotIntegrations(client, path.orgID, path.projectID, path.agentProfileID)
   const setupPath = {
     orgID: path.orgID,
     projectID: path.projectID,
     agentProfileID: path.agentProfileID,
   }
-  const start =
-    request.kind === 'create-app'
-      ? await sdk.createSlackSetup({ client, path: setupPath, body: request.body })
-      : await sdk.createIntegrationOAuthSetup({ client, path: setupPath, body: request.body })
-  const providerAccountRef = 'slack_app_id' in start.data ? start.data.slack_app_id : undefined
+  let start: IntegrationOAuthSetup | SlackSetup
+  let slackAppId: string | undefined
+  if (request.kind === 'create-app') {
+    const { data } = await sdk.createSlackSetup({ client, path: setupPath, body: request.body })
+    start = data
+    slackAppId = data.slack_app_id
+  } else {
+    const { data } = await sdk.createIntegrationOAuthSetup({
+      client,
+      path: setupPath,
+      body: request.body,
+    })
+    start = data
+  }
   openAuthorizationUrl(
     report,
     'Approve the Slack integration in your browser',
-    start.data.oauth_url,
+    start.oauth_url,
     body.browser,
   )
   report.start('Waiting for the Slack integration to be created')
   let integration: IntegrationInstall
   try {
-    integration = await pollForSlackIntegration({
-      client,
-      orgId: path.orgID,
-      projectId: path.projectID,
-      profileId: path.agentProfileID,
-      before,
-      expiresAt: start.data.expires_at,
-      ...(typeof providerAccountRef === 'string'
-        ? { expectedProviderAccountRef: providerAccountRef }
-        : {}),
+    integration = await pollUntilDeadline({
+      expiresAt: start.expires_at,
+      expiredMessage: 'Slack authorization expired before the integration was created',
+      async fetchOnce() {
+        const { data } = await sdk.listIntegrationInstalls({
+          client,
+          path: { orgID: path.orgID, projectID: path.projectID },
+          query: { oauth_flow_id: start.flow_id, limit: 1 },
+        })
+        return data.data[0]
+      },
     })
   } catch (error) {
     report.fail('Slack authorization failed')
-    if (typeof providerAccountRef === 'string') {
-      report.warn(
-        `Slack app ${providerAccountRef} was created, but the integration was not completed`,
-      )
+    if (slackAppId !== undefined) {
+      report.warn(`Slack app ${slackAppId} was created, but the integration was not completed`)
     }
     throw error
   }

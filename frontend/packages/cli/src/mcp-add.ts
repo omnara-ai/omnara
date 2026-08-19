@@ -6,6 +6,7 @@ import {
   type Secret,
 } from '@omnara/sdk'
 import { zMcpoAuthStartRequest } from '@omnara/sdk/zod'
+import { isMap, isScalar, parseDocument } from 'yaml'
 import * as z from 'zod'
 
 import type { FlowContext } from './factory.ts'
@@ -53,40 +54,40 @@ function targetLabel(target: McpAddTarget): string {
   return target === 'agent' ? 'agent' : 'agent profile'
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function serverEntry(url: string, secretId: string): Record<string, unknown> {
+function serverEntry(url: string, secretId: string) {
   return { url, auth: { type: 'oauth', secret_id: secretId } }
 }
+
+const zJsonRecord = z.record(z.string(), z.json())
 
 function prepareJsonConfig(
   config: AgentConfig,
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
-  let parsed: unknown
+  let parsedJson: unknown
   try {
-    parsed = JSON.parse(config.source ?? '')
+    parsedJson = JSON.parse(config.source ?? '')
   } catch {
     throw new CliInputError('the current agent config contains invalid JSON')
   }
-  if (!isRecord(parsed)) throw new CliInputError('the current agent config must be an object')
-  const existingMcp = parsed.mcp
-  if (existingMcp !== undefined && !isRecord(existingMcp)) {
+  const parsed = zJsonRecord.safeParse(parsedJson)
+  if (!parsed.success) throw new CliInputError('the current agent config must be an object')
+  const mcp = zJsonRecord.optional().safeParse(parsed.data.mcp)
+  if (!mcp.success) {
     throw new CliInputError('the current agent config has an invalid mcp section')
   }
-  if (existingMcp !== undefined && Object.hasOwn(existingMcp, serverName)) {
+  if (mcp.data !== undefined && Object.hasOwn(mcp.data, serverName)) {
     throw new CliInputError(`MCP server ${serverName} already exists in the current config`)
   }
   return {
     currentConfigId: config.id,
     render(secretId) {
-      const mcp = existingMcp ?? {}
-      mcp[serverName] = serverEntry(mcpUrl, secretId)
-      parsed.mcp = mcp
-      return { source: `${JSON.stringify(parsed, null, 2)}\n`, sourceFormat: 'json' }
+      const updated = {
+        ...parsed.data,
+        mcp: { ...mcp.data, [serverName]: serverEntry(mcpUrl, secretId) },
+      }
+      return { source: `${JSON.stringify(updated, null, 2)}\n`, sourceFormat: 'json' }
     },
   }
 }
@@ -96,66 +97,30 @@ function prepareYamlConfig(
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
-  const source = config.source ?? ''
-  const lines = source.split(/\r?\n/)
-  const mcpIndex = lines.findIndex((line) => /^mcp\s*:/.test(line))
-  const quotedServerName = serverName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const entry = (indent: number, secretId: string): string[] => {
-    const outer = ' '.repeat(indent)
-    const inner = ' '.repeat(indent + 2)
-    const auth = ' '.repeat(indent + 4)
-    return [
-      `${outer}${serverName}:`,
-      `${inner}url: ${JSON.stringify(mcpUrl)}`,
-      `${inner}auth:`,
-      `${auth}type: oauth`,
-      `${auth}secret_id: ${JSON.stringify(secretId)}`,
-    ]
+  const doc = parseDocument(config.source ?? '')
+  if (doc.errors.length > 0) {
+    throw new CliInputError('the current agent config contains invalid YAML')
   }
-
-  let sectionEnd = lines.length
-  let childIndent = 2
-  if (mcpIndex !== -1) {
-    const declaration = lines[mcpIndex] ?? ''
-    const remainder = declaration.replace(/^mcp\s*:\s*/, '')
-    if (!/^(?:#.*)?$/.test(remainder) && !/^\{\s*\}(?:\s*#.*)?$/.test(remainder)) {
-      throw new CliInputError('mcp-add cannot edit an inline YAML mcp mapping')
-    }
-    for (let index = mcpIndex + 1; index < lines.length; index += 1) {
-      const line = lines[index] ?? ''
-      if (/^[^\s#]/.test(line)) {
-        sectionEnd = index
-        break
-      }
-    }
-    const firstEntry = lines
-      .slice(mcpIndex + 1, sectionEnd)
-      .find((line) => /^\s+\S/.test(line) && !/^\s*#/.test(line))
-    const indent = firstEntry?.match(/^(\s+)/)?.[1]?.length
-    if (indent !== undefined) childIndent = indent
-    const existingPattern = new RegExp(`^\\s{${childIndent}}["']?${quotedServerName}["']?\\s*:`)
-    if (lines.slice(mcpIndex + 1, sectionEnd).some((line) => existingPattern.test(line))) {
-      throw new CliInputError(`MCP server ${serverName} already exists in the current config`)
-    }
+  if (doc.contents !== null && !isMap(doc.contents)) {
+    throw new CliInputError('the current agent config must be an object')
   }
-
+  const mcp = doc.get('mcp', true)
+  const emptyMcp = isScalar(mcp) && mcp.value === null
+  if (mcp !== undefined && !emptyMcp && !isMap(mcp)) {
+    throw new CliInputError('the current agent config has an invalid mcp section')
+  }
+  if (isMap(mcp) && doc.hasIn(['mcp', serverName])) {
+    throw new CliInputError(`MCP server ${serverName} already exists in the current config`)
+  }
   return {
     currentConfigId: config.id,
     render(secretId) {
-      if (mcpIndex === -1) {
-        const base = source.trimEnd()
-        const separator = base === '' ? '' : '\n\n'
-        return {
-          source: `${base}${separator}mcp:\n${entry(2, secretId).join('\n')}\n`,
-          sourceFormat: 'yaml',
-        }
+      if (isMap(mcp)) {
+        doc.setIn(['mcp', serverName], serverEntry(mcpUrl, secretId))
+      } else {
+        doc.set('mcp', { [serverName]: serverEntry(mcpUrl, secretId) })
       }
-      const updated = [...lines]
-      if (/^\{\s*\}/.test((updated[mcpIndex] ?? '').replace(/^mcp\s*:\s*/, ''))) {
-        updated[mcpIndex] = 'mcp:'
-      }
-      updated.splice(sectionEnd, 0, ...entry(childIndent, secretId))
-      return { source: `${updated.join('\n').trimEnd()}\n`, sourceFormat: 'yaml' }
+      return { source: doc.toString(), sourceFormat: 'yaml' }
     },
   }
 }
@@ -188,19 +153,6 @@ async function loadConfig(
   const configId = data.agent.current_config_id
   if (configId === undefined) throw new CliInputError('the agent has no current config')
   return (await sdk.getAgentConfig({ client, path: { ...path, agentConfigID: configId } })).data
-}
-
-function oauthRequest(body: McpAddBody, projectId: string): McpoAuthStartRequest {
-  return {
-    owner: { kind: 'project', project_id: projectId },
-    name: body.secret_name ?? `${body.server_name}-mcp`,
-    mcp_url: body.mcp_url,
-    ...(body.return_to !== undefined ? { return_to: body.return_to } : {}),
-    ...(body.client_id !== undefined ? { client_id: body.client_id } : {}),
-    ...(body.client_secret !== undefined ? { client_secret: body.client_secret } : {}),
-    ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
-    ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
-  }
 }
 
 async function applyConfig(
@@ -259,9 +211,14 @@ async function runMcpAdd(
     orgId: context.path.orgID,
     projectId: context.path.projectID,
   }
-  const request = oauthRequest(body, scope.projectId)
+  const { server_name, secret_name, browser, ...oauthFields } = body
+  const request: McpoAuthStartRequest = {
+    ...oauthFields,
+    owner: { kind: 'project', project_id: scope.projectId },
+    name: secret_name ?? `${server_name}-mcp`,
+  }
   const currentConfig = await loadConfig(client, scope, target, targetId)
-  const prepared = prepareConfig(currentConfig, body.server_name, request.mcp_url)
+  const prepared = prepareConfig(currentConfig, server_name, request.mcp_url)
   let secret: Secret
   try {
     secret = await authorizeMcpOAuthSecret({
@@ -269,7 +226,7 @@ async function runMcpAdd(
       orgId: scope.orgId,
       request,
       onAuthorization(url) {
-        openAuthorizationUrl(report, 'Authorize this MCP server in your browser', url, body.browser)
+        openAuthorizationUrl(report, 'Authorize this MCP server in your browser', url, browser)
         report.start('Waiting for the MCP OAuth secret to be created')
       },
     })
@@ -284,7 +241,9 @@ async function runMcpAdd(
     configId = await applyConfig(client, scope, target, targetId, prepared, secret, report)
   } catch (error) {
     report.fail('Config update failed')
-    report.warn(`OAuth secret ${secret.id} was created, but the config was not updated`)
+    report.warn(
+      `OAuth secret ${secret.id} was created, but the ${targetLabel(target)} was not updated`,
+    )
     throw error
   }
   report.stop('Config updated')

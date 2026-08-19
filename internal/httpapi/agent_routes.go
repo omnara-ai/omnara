@@ -445,8 +445,14 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 		logpkg.Error(ctx, fmt.Errorf("build integration oauth authorization URL: %w", err))
 		return nil, fmt.Errorf("internal server error")
 	}
+	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
+	if err != nil {
+		logpkg.Error(ctx, err)
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
+	}
 	return openapi.CreateIntegrationOAuthSetup201JSONResponse(openapi.IntegrationOAuthSetup{
 		Provider:    provider,
+		FlowId:      publicFlowID,
 		OauthUrl:    installURL,
 		RedirectUri: redirectURI,
 		EventsUrl:   eventsURL,
@@ -585,8 +591,14 @@ func (s strictOpenAPIServer) createSlackSetup(
 		logpkg.Error(ctx, fmt.Errorf("build slack oauth authorization URL: %w", err))
 		return nil, fmt.Errorf("internal server error")
 	}
+	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
+	if err != nil {
+		logpkg.Error(ctx, err)
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
+	}
 	return openapi.CreateSlackSetup201JSONResponse(openapi.SlackSetup{
 		Provider:    integrationstore.IntegrationProviderSlack,
+		FlowId:      publicFlowID,
 		SlackAppId:  app.AppID,
 		OauthUrl:    installURL,
 		RedirectUri: redirectURI,

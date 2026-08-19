@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@omnara/sdk": "workspace:*",
+    "yaml": "^2.9.0",
     "@types/node": "^22.10.0",
     "esbuild": "^0.28.2",
     "tsx": "^4.19.0",

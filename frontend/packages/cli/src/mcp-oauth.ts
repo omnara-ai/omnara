@@ -4,38 +4,8 @@ import * as z from 'zod'
 
 import { openInBrowser } from './browser.ts'
 import type { FlowContext } from './factory.ts'
-import { CliInputError } from './output.ts'
+import { pollUntilDeadline } from './poll.ts'
 import type { FlowReporter } from './reporter.ts'
-
-const POLL_INTERVAL_SECONDS = 2
-
-function defaultSleep(seconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
-}
-
-async function pollForMcpOAuthSecret(options: {
-  client: OmnaraClient
-  orgId: string
-  flowId: string
-  expiresAt: string
-  sleep?: (seconds: number) => Promise<void>
-  now?: () => number
-}): Promise<Secret> {
-  const sleep = options.sleep ?? defaultSleep
-  const now = options.now ?? Date.now
-  const deadline = Date.parse(options.expiresAt)
-  while (now() < deadline) {
-    const { data } = await sdk.listSecrets({
-      client: options.client,
-      path: { orgID: options.orgId },
-      query: { mcp_oauth_flow_id: options.flowId, limit: 1 },
-    })
-    const [created] = data.data
-    if (created !== undefined) return created
-    await sleep(Math.min(POLL_INTERVAL_SECONDS, Math.max(0, (deadline - now()) / 1000)))
-  }
-  throw new CliInputError('MCP OAuth authorization expired before the secret was created')
-}
 
 export async function authorizeMcpOAuthSecret(options: {
   client: OmnaraClient
@@ -49,11 +19,17 @@ export async function authorizeMcpOAuthSecret(options: {
     body: options.request,
   })
   options.onAuthorization(start.authorization_url)
-  return pollForMcpOAuthSecret({
-    client: options.client,
-    orgId: options.orgId,
-    flowId: start.flow_id,
+  return pollUntilDeadline({
     expiresAt: start.expires_at,
+    expiredMessage: 'MCP OAuth authorization expired before the secret was created',
+    async fetchOnce() {
+      const { data } = await sdk.listSecrets({
+        client: options.client,
+        path: { orgID: options.orgId },
+        query: { mcp_oauth_flow_id: start.flow_id, limit: 1 },
+      })
+      return data.data[0]
+    },
   })
 }
 

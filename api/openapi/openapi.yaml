@@ -2120,6 +2120,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/IntegrationInstallAgentProfileFilter'
+        - $ref: '#/components/parameters/IntegrationInstallOAuthFlowIDFilter'
         - name: sort
           in: query
           schema:
@@ -6412,6 +6413,13 @@ components:
       schema:
         $ref: '#/components/schemas/AgentProfileID'
       description: Only return integration installs bound to this agent profile.
+    IntegrationInstallOAuthFlowIDFilter:
+      name: oauth_flow_id
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/IntegrationOAuthFlowID'
+      description: Only return the integration install completed by this OAuth setup flow.
     SecretAvailabilitySourceFilter:
       name: availability_source
       in: query
@@ -6618,6 +6626,9 @@ components:
     MCPOAuthFlowID:
       type: string
       pattern: '^moaf_[a-z2-7]{26}$'
+    IntegrationOAuthFlowID:
+      type: string
+      pattern: '^ioaf_[a-z2-7]{26}$'
     ActorID:
       type: string
       pattern: '^actr_[a-z2-7]{26}$'
@@ -7667,10 +7678,12 @@ components:
     IntegrationOAuthSetup:
       type: object
       additionalProperties: false
-      required: [provider, oauth_url, redirect_uri, events_url, actions_url, expires_at]
+      required: [provider, flow_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
       properties:
         provider:
           type: string
+        flow_id:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
         oauth_url:
           type: string
           format: uri
@@ -7714,10 +7727,12 @@ components:
     SlackSetup:
       type: object
       additionalProperties: false
-      required: [provider, slack_app_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
+      required: [provider, flow_id, slack_app_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
       properties:
         provider:
           type: string
+        flow_id:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
         slack_app_id:
           type: string
         oauth_url:
