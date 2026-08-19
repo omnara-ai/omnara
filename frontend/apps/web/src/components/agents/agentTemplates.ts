@@ -8,8 +8,9 @@ export interface AgentTemplate {
   name: string
   description: string
   instruction: string
-  firstMessagePlaceholder: string
 }
+
+const defaultAgentToolNames = ['web_search', 'web_fetch'] as const
 
 const templateToolNames = [
   'run_command',
@@ -30,7 +31,6 @@ const generalAgent: AgentTemplate = {
   description: 'Researches, writes code, runs commands, and uses tools to finish tasks end to end.',
   instruction:
     "You are a general-purpose agent that can research, write code, run commands, and use connected tools to complete the user's task end to end.",
-  firstMessagePlaceholder: 'Research the top 3 CI providers and summarize the trade-offs',
 }
 
 const deepResearcher: AgentTemplate = {
@@ -45,8 +45,6 @@ const deepResearcher: AgentTemplate = {
 4. Synthesize a report that answers the original question. Structure it by sub-question, cite every non-obvious claim inline, and close with a "confidence & gaps" section noting where sources disagreed or where you couldn't find good coverage.
 
 Be skeptical. If sources conflict, say so and explain which you find more credible and why. Don't paper over uncertainty with confident-sounding prose.`,
-  firstMessagePlaceholder:
-    'How do the major vector databases compare on cost, latency, and recall?',
 }
 
 const structuredExtractor: AgentTemplate = {
@@ -61,7 +59,6 @@ const structuredExtractor: AgentTemplate = {
 4. Emit a single JSON object (or array, if the schema is a list) that validates against the schema. No prose, no markdown fences — just the JSON.
 
 When the input is ambiguous, pick the most conservative interpretation and note the ambiguity in a top-level "_extraction_notes" field only if the schema allows additionalProperties.`,
-  firstMessagePlaceholder: 'Paste raw text plus the JSON schema you want extracted',
 }
 
 export const agentTemplates = [generalAgent, deepResearcher, structuredExtractor]
@@ -78,7 +75,7 @@ export function agentTemplateConfig(
     instruction: template.instruction,
     providerConfig: defaultModel?.provider_config ?? '',
     modelName: defaultModel?.name ?? '',
-    tools: catalog ? agentTemplateTools(catalog) : [],
+    tools: catalogTools(catalog, templateToolNames),
     machineSources: defaultPool
       ? [
           {
@@ -98,10 +95,15 @@ export function agentTemplateName(currentName: string, template: AgentTemplate) 
   return trimmed === '' || isTemplateName ? template.name : currentName
 }
 
-function agentTemplateTools(catalog: ToolCatalog): BasicTool[] {
+export function defaultAgentTools(catalog?: ToolCatalog): BasicTool[] {
+  return catalogTools(catalog, defaultAgentToolNames)
+}
+
+function catalogTools(catalog: ToolCatalog | undefined, names: readonly string[]): BasicTool[] {
+  if (!catalog) return []
   const entries = new Map(catalog.built_in_tools.map((entry) => [entry.name, entry]))
   const tools: BasicTool[] = []
-  for (const name of templateToolNames) {
+  for (const name of names) {
     const entry = entries.get(name)
     if (entry == null) continue
     tools.push({ name, permission: structuredClone(entry.default_permission) })

@@ -13,11 +13,15 @@ const SecretCombobox = createResourceCombobox<Secret>({
 })
 
 export function AgentConfigMcpSecretCombobox({
+  id,
+  required,
   orgId,
   projectId,
   server,
   onChange,
 }: {
+  id?: string
+  required?: boolean
   orgId: string
   projectId: string
   server: BasicMcpServer
@@ -52,6 +56,8 @@ export function AgentConfigMcpSecretCombobox({
 
   return (
     <SecretCombobox
+      id={id}
+      required={required}
       items={secrets}
       value={selectedSecret}
       onValueChange={(secret) => {

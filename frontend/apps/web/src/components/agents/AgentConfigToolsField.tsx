@@ -1,5 +1,5 @@
 import type { ToolCatalog, ToolCatalogEntry, ToolPermissionSelection } from '@omnara/sdk'
-import { ChevronDownIcon, Trash2Icon } from 'lucide-react'
+import { InfoIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldLabel } from '@/components/ui/field'
 import {
   Select,
   SelectContent,
@@ -16,13 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-
-import { builtInToolsets } from './builtInTools'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface BasicTool {
   name: string
   permission: ToolPermissionSelection | null
 }
+
+const hiddenToolNames = new Set(['skill', 'send_integration_message', 'set_integration_target'])
 
 export function AgentConfigToolsField({
   catalog,
@@ -33,80 +34,31 @@ export function AgentConfigToolsField({
   tools: BasicTool[]
   onToolsChange: (tools: BasicTool[]) => void
 }) {
-  const catalogTools = (catalog?.built_in_tools ?? []).filter((entry) => entry.name !== 'skill')
+  const catalogTools = (catalog?.built_in_tools ?? []).filter(
+    (entry) => !hiddenToolNames.has(entry.name),
+  )
+  const visibleTools = tools.filter((tool) => !hiddenToolNames.has(tool.name))
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
   const availableTools = catalogTools.filter((entry) =>
     tools.every((tool) => tool.name !== entry.name),
   )
-  const selectedToolNames = new Set(tools.map((tool) => tool.name))
-  const hasAvailableToolsets = builtInToolsets.some(
-    (toolset) =>
-      toolset.tools.every((toolName) => catalogByName.has(toolName)) &&
-      toolset.tools.some((toolName) => !selectedToolNames.has(toolName)),
-  )
-
-  function addToolset(toolNames: readonly string[]) {
-    const additions: BasicTool[] = []
-    for (const name of toolNames) {
-      if (selectedToolNames.has(name)) {
-        continue
-      }
-      const entry = catalogByName.get(name)
-      if (entry == null) {
-        return
-      }
-      additions.push({
-        name,
-        permission: structuredClone(entry.default_permission),
-      })
-    }
-    onToolsChange([...tools, ...additions])
-  }
 
   return (
-    <Field>
+    <Field className="gap-5">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <FieldLabel>Tools</FieldLabel>
-          <FieldDescription>Built-in tools the agent can call.</FieldDescription>
-        </div>
+        <FieldLabel>Tools</FieldLabel>
         <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" size="sm" variant="outline" disabled={!hasAvailableToolsets}>
-                Toolsets
-                <ChevronDownIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {builtInToolsets.map((toolset) => {
-                const isAvailable = toolset.tools.every((toolName) => catalogByName.has(toolName))
-                const isComplete = toolset.tools.every((toolName) =>
-                  selectedToolNames.has(toolName),
-                )
-                return (
-                  <DropdownMenuItem
-                    key={toolset.name}
-                    disabled={!isAvailable || isComplete}
-                    onSelect={() => {
-                      addToolset(toolset.tools)
-                    }}
-                  >
-                    {toolset.name}
-                  </DropdownMenuItem>
-                )
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
-                size="sm"
+                size="icon"
                 variant="outline"
+                className="bg-muted/40 size-8"
                 disabled={availableTools.length === 0}
+                aria-label="Add tools"
               >
-                Add tools
+                <PlusIcon />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
@@ -130,20 +82,33 @@ export function AgentConfigToolsField({
           </DropdownMenu>
         </div>
       </div>
-      <div className="space-y-2">
-        {tools.length === 0 ? (
-          <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
-            No tools
-          </div>
-        ) : (
-          tools.map((tool) => {
+      {visibleTools.length > 0 && (
+        <div className="border-border bg-muted/40 divide-y overflow-hidden rounded-xl border">
+          {visibleTools.map((tool) => {
             const entry = catalogByName.get(tool.name)
             return (
-              <div
-                key={tool.name}
-                className="border-border bg-background flex items-center gap-3 rounded-md border px-3 py-2"
-              >
-                <span className="min-w-0 flex-1 truncate font-mono text-sm">{tool.name}</span>
+              <div key={tool.name} className="flex items-center gap-3 px-3 py-2">
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <span className="truncate font-mono text-sm">{tool.name}</span>
+                  {entry?.description && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="text-muted-foreground size-7 shrink-0"
+                          aria-label={`About ${tool.name}`}
+                        >
+                          <InfoIcon className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-sm">
+                        {entry.description}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
                 <PermissionModeSelect
                   entry={entry}
                   value={tool.permission?.mode ?? entry?.default_permission.mode ?? ''}
@@ -170,9 +135,9 @@ export function AgentConfigToolsField({
                 </Button>
               </div>
             )
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </Field>
   )
 }

@@ -59,6 +59,7 @@ export function AgentProfileConfigEditor({
 
   return (
     <form
+      noValidate
       onSubmit={(event) => {
         void submit(event)
       }}
