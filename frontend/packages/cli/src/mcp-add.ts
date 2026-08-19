@@ -15,6 +15,7 @@ import {
   zBrowserFlag,
 } from './mcp-oauth.ts'
 import { CliInputError } from './output.ts'
+import type { FlowReporter } from './reporter.ts'
 
 type McpAddTarget = 'agent' | 'profile'
 
@@ -209,6 +210,7 @@ async function applyConfig(
   targetId: string,
   prepared: PreparedConfig,
   secret: Secret,
+  report: FlowReporter,
 ): Promise<string> {
   const rendered = prepared.render(secret.id)
   const path = { orgID: scope.orgId, projectID: scope.projectId }
@@ -229,11 +231,16 @@ async function applyConfig(
     path,
     body: { source: rendered.source, source_format: rendered.sourceFormat },
   })
-  await sdk.updateAgentProfile({
-    client,
-    path: { ...path, agentProfileID: targetId },
-    body: { config: config.id, expected_current_config_id: prepared.currentConfigId },
-  })
+  try {
+    await sdk.updateAgentProfile({
+      client,
+      path: { ...path, agentProfileID: targetId },
+      body: { config: config.id, expected_current_config_id: prepared.currentConfigId },
+    })
+  } catch (error) {
+    report.warn(`agent config ${config.id} was created, but the agent profile was not updated`)
+    throw error
+  }
   return config.id
 }
 
@@ -274,7 +281,7 @@ async function runMcpAdd(
   report.start(`Updating the ${targetLabel(target)} config`)
   let configId: string
   try {
-    configId = await applyConfig(client, scope, target, targetId, prepared, secret)
+    configId = await applyConfig(client, scope, target, targetId, prepared, secret, report)
   } catch (error) {
     report.fail('Config update failed')
     report.warn(`OAuth secret ${secret.id} was created, but the config was not updated`)

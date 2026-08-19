@@ -45,7 +45,6 @@ interface FlowInput {
   client: OmnaraClient
   path: Record<string, unknown>
   body: unknown
-  report: FlowReporter
 }
 
 export interface FlowSpec {
@@ -94,7 +93,7 @@ export function flowOp<P extends z.ZodObject<z.ZodRawShape>, B extends z.ZodType
         client: input.client,
         path: parseWithSchema(spec.path, input.path, 'arguments'),
         body: parseWithSchema(spec.body, input.body, 'flags'),
-        report: input.report,
+        report: createFlowReporter(spec.summary),
       }),
   }
 }
@@ -377,7 +376,6 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
         client: config.client,
         path: await resolvePathValues(plan, args, options, config),
         body: collectFlagValues(bodyFlags, options),
-        report: createFlowReporter(spec.summary),
       })
     })
   })

@@ -129,6 +129,7 @@ function changedIntegration(
   expectedProviderAccountRef?: string,
 ): IntegrationInstall | undefined {
   return integrations.find((integration) => {
+    if (integration.state !== 'active') return false
     if (
       expectedProviderAccountRef !== undefined &&
       integration.provider_account_ref !== expectedProviderAccountRef
@@ -217,6 +218,11 @@ export async function runSlackIntegration(
     })
   } catch (error) {
     report.fail('Slack authorization failed')
+    if (providerAccountRef !== undefined) {
+      report.warn(
+        `Slack app ${providerAccountRef} was created, but the integration was not completed`,
+      )
+    }
     throw error
   }
   report.stop('Slack integration created')
