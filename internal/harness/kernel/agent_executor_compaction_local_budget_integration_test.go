@@ -19,7 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 )
 
-func TestAgentExecutorCompactsAndRetriesAfterLocalBudgetOverflow(t *testing.T) {
+func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	agentID, userID := fixture.createAgentWithModelOptions(
@@ -28,25 +28,41 @@ func TestAgentExecutorCompactsAndRetriesAfterLocalBudgetOverflow(t *testing.T) {
 		"openai/kernel-test",
 		fixture.Now,
 		kernelConfiguredModelOptions{
-			ContextWindowTokens: intPtrForKernelCompactionTest(1600),
-			MaxOutputTokens:     intPtrForKernelCompactionTest(64),
+			ContextWindowTokens: intPtrForKernelCompactionTest(10_000),
+			MaxOutputTokens:     intPtrForKernelCompactionTest(6_000),
 		},
 	)
 
+	const replayMarker = "reasoning-replay-that-max-tokens-must-clear"
 	firstModel := &sequenceKernelModel{
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
-			ContextWindowTokens: 10000,
-			MaxOutputTokens:     64,
+			ContextWindowTokens: 10_000,
+			MaxOutputTokens:     6_000,
 		},
 		responses: []model.Response{{
-			ID:         "resp_large_history",
-			Content:    []model.ResponsePart{{Type: "text", Text: "large history accepted"}},
-			StopReason: model.StopReasonEndTurn,
+			ID:                      "resp_large_hidden_reasoning",
+			ServedProviderModelSlug: "router/fallback-model",
+			ProviderReplay: json.RawMessage(
+				`[{"type":"reasoning","encrypted_content":"` + replayMarker + `"}]`,
+			),
+			Content:    []model.ResponsePart{{Type: "text", Text: "short visible truncated response"}},
+			StopReason: model.StopReasonMaxTokens,
+			Usage: model.Usage{
+				InputTokens:     1_450,
+				OutputTokens:    5_000,
+				ReasoningTokens: 4_990,
+			},
 		}},
 	}
-	largeText := "large history " + strings.Repeat("context payload ", 100)
-	firstTurn := fixture.admitContentInputTurn(t, ctx, agentID, userID, largeText, fixture.Now.Add(time.Second))
+	firstTurn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"seed a response with provider usage that is much larger than its visible content",
+		fixture.Now.Add(time.Second),
+	)
 	firstExecutor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, firstModel),
@@ -65,120 +81,110 @@ func TestAgentExecutorCompactsAndRetriesAfterLocalBudgetOverflow(t *testing.T) {
 		t.Fatalf("release first runtime lock: %v", err)
 	}
 
-	retryModel := &sequenceKernelModel{
-		providerModelSlug: "kernel-test",
-		preparedInputTokenEstimator: func(bundle modelcontext.Bundle) int {
-			if bundle.ContextCheckpoint != nil || isCompactionRequestBundle(bundle) {
-				return 500
-			}
-			return 2_000
-		},
+	currentModel := &sequenceKernelModel{
+		providerModelSlug:           "kernel-test",
+		preparedInputTokenEstimator: func(modelcontext.Bundle) int { return 500 },
 		capabilities: model.Capabilities{
-			ContextWindowTokens: 1600,
-			MaxOutputTokens:     64,
+			ContextWindowTokens: 10_000,
+			MaxOutputTokens:     6_000,
 		},
-		responses: []model.Response{
-			{
-				ID:         "resp_budget_summary",
-				Content:    []model.ResponsePart{{Type: "text", Text: "The earlier oversized history has been compacted."}},
-				StopReason: model.StopReasonEndTurn,
-			},
-			{
-				ID:         "resp_after_budget_compaction",
-				Content:    []model.ResponsePart{{Type: "text", Text: "continued after budget compaction"}},
-				StopReason: model.StopReasonEndTurn,
-			},
-		},
+		responses: []model.Response{{
+			ID:         "resp_current_request",
+			Content:    []model.ResponsePart{{Type: "text", Text: "current fitting request was sent"}},
+			StopReason: model.StopReasonEndTurn,
+		}},
 	}
-	retryTurn := fixture.admitContentInputTurn(
+	currentTurn := fixture.admitContentInputTurn(
 		t,
 		ctx,
 		agentID,
 		userID,
-		"continue after large history",
+		"continue with the current fitting request",
 		fixture.Now.Add(3*time.Second),
 	)
 	executor := AgentExecutor{
 		Store:         fixture.Store,
-		ModelResolver: liveTestModelResolver(fixture.Store, retryModel),
+		ModelResolver: liveTestModelResolver(fixture.Store, currentModel),
 		ToolExecutor:  tools.Executor{Store: fixture.Store},
 		Now:           func() time.Time { return fixture.Now.Add(4 * time.Second) },
 	}
-	if err := executor.ExecuteModelWork(ctx, retryTurn); err != nil {
-		t.Fatalf("execute budget retry turn: %v", err)
+	if err := executor.ExecuteModelWork(ctx, currentTurn); err != nil {
+		t.Fatalf("execute current fitting turn: %v", err)
 	}
-	if retryModel.respondedCount() != 1 {
-		t.Fatalf("budget retry prepared %d requests on first lease, want compaction summary", retryModel.respondedCount())
+	if currentModel.respondedCount() != 1 {
+		t.Fatalf("current turn sent %d requests, want one normal provider call", currentModel.respondedCount())
 	}
-	finalTurn := continueTurnOnNewLeaseForKernelTest(
-		t,
-		ctx,
-		fixture,
-		retryTurn,
-		fixture.Now.Add(5*time.Second),
-	)
-	if err := executor.ExecuteModelWork(ctx, finalTurn); err != nil {
-		t.Fatalf("execute post-budget-compaction turn: %v", err)
+	request := currentModel.responded[0]
+	if len(request.ProviderReplays) != 0 {
+		t.Fatalf("max-token replay reached current request: %s", request.ProviderReplays[0])
 	}
-	if retryModel.respondedCount() != 2 {
-		var contexts string
-		_ = fixture.Pool.QueryRow(ctx, `
-			SELECT coalesce(string_agg(
-				context.operation_kind || ':' || context.state || ':' ||
-				coalesce(context.error_code, '') || ':' || coalesce(context.recovery_kind, ''),
-				', ' ORDER BY context.created_at, context.attempt_number
-			), '')
-			FROM model_call_contexts context
-			WHERE context.project_id = $1 AND context.agent_id = $2`, kernelTestProjectID, agentID).Scan(&contexts)
-		t.Fatalf(
-			"budget retry prepared %d requests across leases, want compaction summary and final retry (contexts=%q)",
-			retryModel.respondedCount(),
-			contexts,
-		)
-	}
-	if summaryRequest := string(
-		retryModel.responded[0].ProviderRequest,
-	); !strings.Contains(summaryRequest, "large history accepted") ||
-		!strings.Contains(summaryRequest, "context payload") {
-		t.Fatalf("budget compaction request did not include oversized semantic history: %s", summaryRequest)
-	}
-	if retryRequest := string(
-		retryModel.responded[1].ProviderRequest,
-	); !strings.Contains(
-		retryRequest,
-		"The earlier oversized history has been compacted.",
-	) {
-		t.Fatalf("budget retry request did not include checkpoint summary: %s", retryRequest)
+	if body := string(request.ProviderRequest); !strings.Contains(body, "short visible truncated response") ||
+		!strings.Contains(body, "continue with the current fitting request") ||
+		strings.Contains(body, replayMarker) {
+		t.Fatalf("current prepared request contains the wrong prior surface: %s", body)
 	}
 
-	var failedBudgetContexts, finalOutputs int
+	var priorInput, priorOutput, priorReasoning int
+	var priorReplayCleared bool
+	var servedModel string
+	if err := fixture.Pool.QueryRow(ctx, `
+		SELECT context.input_tokens_total,
+		       context.output_tokens_total,
+		       context.reasoning_output_tokens,
+		       output.provider_replay IS NULL,
+		       output.served_provider_model_slug
+		FROM model_call_contexts context
+		JOIN model_outputs output
+		  ON output.agent_id = context.agent_id
+		 AND output.model_call_context_id = context.id
+		WHERE context.project_id = $1
+		  AND context.agent_id = $2
+		  AND context.input_event_sequence = $3`,
+		kernelTestProjectID,
+		agentID,
+		firstTurn.OpeningEventSequence,
+	).Scan(&priorInput, &priorOutput, &priorReasoning, &priorReplayCleared, &servedModel); err != nil {
+		t.Fatalf("load prior provider evidence: %v", err)
+	}
+	if priorInput != 1_450 || priorOutput != 5_000 || priorReasoning != 4_990 ||
+		!priorReplayCleared || servedModel != "router/fallback-model" {
+		t.Fatalf(
+			"prior evidence = input:%d output:%d reasoning:%d replay_cleared:%v served:%q",
+			priorInput,
+			priorOutput,
+			priorReasoning,
+			priorReplayCleared,
+			servedModel,
+		)
+	}
+
+	var compactionContexts, checkpoints, finalOutputs int
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT count(*)
-		FROM model_call_contexts mcc
-		JOIN LATERAL (
-			  SELECT opening.turn_id
-			  FROM agent_events opening
-			  WHERE opening.agent_id = mcc.agent_id
-		    AND opening.is_opening_event
-		    AND opening.sequence <= mcc.input_event_sequence
-		  ORDER BY opening.sequence DESC, opening.id DESC
-		  LIMIT 1
-		) context_turn ON true
-		WHERE mcc.project_id = $1
-		  AND mcc.agent_id = $2
-		  AND context_turn.turn_id = $3
-		  AND mcc.state = 'failed'
-		  AND mcc.recovery_kind = 'compact'
-		  AND mcc.error_kind = 'context_window'
-		  AND mcc.error_code = 'prepared_request_budget_overflow'`, kernelTestProjectID, agentID, retryTurn.TurnID).Scan(&failedBudgetContexts); err != nil {
-		t.Fatalf("count failed budget contexts: %v", err)
+		FROM model_call_contexts context
+		WHERE context.project_id = $1
+		  AND context.agent_id = $2
+		  AND context.operation_kind = 'compaction'`, kernelTestProjectID, agentID).Scan(&compactionContexts); err != nil {
+		t.Fatalf("count unexpected compaction contexts: %v", err)
 	}
-	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after budget compaction'`, kernelTestProjectID, agentID, retryTurn.TurnID).
+	if err := fixture.Pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM context_checkpoints checkpoint
+		JOIN agents agent ON agent.id = checkpoint.agent_id
+		WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(&checkpoints); err != nil {
+		t.Fatalf("count unexpected checkpoints: %v", err)
+	}
+	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'current fitting request was sent'`, kernelTestProjectID, agentID, currentTurn.TurnID).
 		Scan(&finalOutputs); err != nil {
-		t.Fatalf("count final budget output: %v", err)
+		t.Fatalf("count current output: %v", err)
 	}
-	if failedBudgetContexts != 1 || finalOutputs != 1 {
-		t.Fatalf("budget retry state failed_contexts=%d final_outputs=%d, want 1/1", failedBudgetContexts, finalOutputs)
+	if compactionContexts != 0 || checkpoints != 0 || finalOutputs != 1 {
+		t.Fatalf(
+			"current request state compactions=%d checkpoints=%d outputs=%d, want 0/0/1",
+			compactionContexts,
+			checkpoints,
+			finalOutputs,
+		)
 	}
 }
 

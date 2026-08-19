@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/openaierrors"
+	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
@@ -45,12 +45,13 @@ func responseFailureError(
 	if message == "" {
 		message = "openai-responses request failed"
 	}
-	code := firstNonEmpty(response.Error.codeText(), response.Error.Type)
+	code := firstNonEmpty(response.ErrorType, response.Error.codeText(), response.Error.Type)
 	return model.ProviderError{
 		Kind: classifyResponsesError(
 			statusCode,
 			0,
 			message,
+			response.ErrorType,
 			response.Error.codeText(),
 			response.Error.Type,
 		),
@@ -66,7 +67,8 @@ func responseFailureError(
 func classifyHTTPError(source string, statusCode int, header http.Header, body []byte) model.ProviderError {
 	message := strings.TrimSpace(string(body))
 	var envelope struct {
-		Error responsesError `json:"error"`
+		ErrorType string         `json:"error_type"`
+		Error     responsesError `json:"error"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return model.ProviderError{
@@ -81,12 +83,13 @@ func classifyHTTPError(source string, statusCode int, header http.Header, body [
 	if envelope.Error.Message != "" {
 		message = envelope.Error.Message
 	}
-	code := firstNonEmpty(envelope.Error.codeText(), envelope.Error.Type)
+	code := firstNonEmpty(envelope.ErrorType, envelope.Error.codeText(), envelope.Error.Type)
 	return model.ProviderError{
 		Kind: classifyResponsesError(
 			statusCode,
 			0,
 			message,
+			envelope.ErrorType,
 			envelope.Error.codeText(),
 			envelope.Error.Type,
 		),
@@ -100,7 +103,7 @@ func classifyHTTPError(source string, statusCode int, header http.Header, body [
 }
 
 func classifyResponsesError(statusCode, providerStatus int, message string, codes ...string) model.ErrorKind {
-	return openaierrors.Classify(statusCode, providerStatus, message, codes...)
+	return providererrors.Classify(statusCode, providerStatus, message, codes...)
 }
 
 func firstNonEmpty(values ...string) string {

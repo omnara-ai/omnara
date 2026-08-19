@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/openaichatcompletions"
@@ -318,10 +319,10 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		OrgID:                     created.Org.ID.String(),
 		ProjectID:                 created.Project.ID.String(),
 		ConfiguredModelRevisionID: configuredModel.CurrentRevisionID.String(),
-		Options: model.SelectionOptions{
+		Overrides: agentconfig.ModelOverrides{
 			ContextWindowTokens:    &agentContextWindow,
 			DefaultMaxOutputTokens: &agentMaxOutput,
-			CacheRetention:         model.CacheRetentionShort,
+			CacheRetention:         string(model.CacheRetentionShort),
 			ReasoningEffort:        "high",
 		},
 	})

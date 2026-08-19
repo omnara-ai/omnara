@@ -4,27 +4,180 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
+	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func TestCompactionRequestPolicyUsesLiveMaximumAsSafetyCeiling(t *testing.T) {
-	client := &summaryModel{caps: model.Capabilities{
-		MaxOutputTokens:        4_096,
-		DefaultMaxOutputTokens: 2_048,
-		DefaultCacheRetention:  model.CacheRetentionShort,
-		DefaultReasoningEffort: "high",
-	}}
-	got := compactionRequestPolicy(client)
-	if got.MaxOutputTokens != 4_096 || got.CacheRetention != model.CacheRetentionShort ||
-		got.DefaultReasoningEffort != "high" {
-		t.Fatalf("compaction request policy = %+v", got)
+func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T) {
+	supportsTools := false
+	tests := []struct {
+		name       string
+		caps       model.Capabilities
+		wantOutput int
+		wantFloor  int
+	}{
+		{
+			name: "summary cap changes only output policy",
+			caps: model.Capabilities{
+				MaxOutputTokens:           64_000,
+				DefaultMaxOutputTokens:    2_048,
+				DefaultCacheRetention:     model.CacheRetentionShort,
+				SupportsTools:             &supportsTools,
+				SupportsReasoning:         true,
+				DefaultReasoningEffort:    "high",
+				SupportedReasoningEfforts: []string{"low", "medium", "high"},
+			},
+			wantOutput: preferredSummaryOutputTokens,
+			wantFloor:  2_048,
+		},
+		{
+			name: "model output limit below summary cap is retained",
+			caps: model.Capabilities{
+				MaxOutputTokens:           8_192,
+				DefaultMaxOutputTokens:    2_048,
+				SupportsReasoning:         true,
+				DefaultReasoningEffort:    "low",
+				SupportedReasoningEfforts: []string{"low", "high"},
+			},
+			wantOutput: 8_192,
+			wantFloor:  2_048,
+		},
+		{
+			name: "default output limit is used when model maximum is unavailable",
+			caps: model.Capabilities{
+				DefaultMaxOutputTokens:    2_048,
+				SupportsReasoning:         true,
+				DefaultReasoningEffort:    "vendor-deep",
+				SupportedReasoningEfforts: []string{"vendor-deep"},
+			},
+			wantOutput: 2_048,
+			wantFloor:  2_048,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := openairesponses.Client{
+				ProviderModelSlug: "policy-test",
+				ModelCapabilities: test.caps,
+			}
+			got, floor, err := compactionRequestPolicy(client, "test")
+			if err != nil {
+				t.Fatalf("compaction request policy: %v", err)
+			}
+			want := model.RequestPolicyFromCapabilities(test.caps)
+			want.MaxOutputTokens = test.wantOutput
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("compaction policy = %+v, want %+v", got, want)
+			}
+			if floor != test.wantFloor {
+				t.Fatalf("compaction output floor = %d, want %d", floor, test.wantFloor)
+			}
+		})
+	}
+}
+
+func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testing.T) {
+	supportsTools := false
+	baseCapabilities := model.Capabilities{
+		ContextWindowTokens:       200_000,
+		MaxOutputTokens:           64_000,
+		DefaultMaxOutputTokens:    32_768,
+		DefaultCacheRetention:     model.CacheRetentionShort,
+		SupportsTools:             &supportsTools,
+		SupportsReasoning:         false,
+		DefaultReasoningEffort:    "",
+		SupportedReasoningEfforts: nil,
+	}
+	tests := []struct {
+		name       string
+		client     model.Client
+		wantOutput int
+		wantFloor  int
+	}{
+		{
+			name: "Anthropic preferred total already valid",
+			client: anthropicmessages.Client{
+				ProviderModelSlug: "claude-sonnet-4",
+				ModelCapabilities: baseCapabilities,
+				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":8192}}`),
+			},
+			wantOutput: preferredSummaryOutputTokens,
+			wantFloor:  preferredSummaryOutputTokens,
+		},
+		{
+			name: "Anthropic falls back to normal allowance",
+			client: anthropicmessages.Client{
+				ProviderModelSlug: "claude-sonnet-4",
+				ModelCapabilities: baseCapabilities,
+				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
+			},
+			wantOutput: 32_768,
+			wantFloor:  32_768,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, floor, err := compactionRequestPolicy(test.client, "test")
+			if err != nil {
+				t.Fatalf("compaction request policy: %v", err)
+			}
+			want := model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(test.client))
+			want.MaxOutputTokens = test.wantOutput
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("compaction policy = %+v, want only output changed in %+v", got, want)
+			}
+			if floor != test.wantFloor {
+				t.Fatalf("compaction output floor = %d, want %d", floor, test.wantFloor)
+			}
+		})
+	}
+}
+
+func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T) {
+	tests := []struct {
+		name         string
+		normalOutput int
+		options      json.RawMessage
+	}{
+		{
+			name:         "preferred and normal allowances conflict",
+			normalOutput: 16_384,
+			options:      json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
+		},
+		{
+			name:         "normal allowance conflicts even though preferred fits",
+			normalOutput: 8_192,
+			options:      json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":9999}}`),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := anthropicmessages.Client{
+				ProviderModelSlug: "claude-sonnet-4",
+				ModelCapabilities: model.Capabilities{
+					ContextWindowTokens:    200_000,
+					MaxOutputTokens:        64_000,
+					DefaultMaxOutputTokens: test.normalOutput,
+				},
+				APIVariantOptions: test.options,
+			}
+			_, _, err := compactionRequestPolicy(client, "anthropic_messages")
+			var providerErr model.ProviderError
+			if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) ||
+				!errors.As(err, &providerErr) ||
+				providerErr.Code != model.OutputTokenLimitIncompatibleCode {
+				t.Fatalf("compaction policy error = %v, want terminal output-limit conflict", err)
+			}
+		})
 	}
 }
 
@@ -448,6 +601,83 @@ func TestRunnerRecordsClassifiedPrepareFailureBeforeProviderSend(t *testing.T) {
 	}
 }
 
+func TestRunnerTerminatesInvalidCompactionOutputPolicyBeforeProviderPreparation(t *testing.T) {
+	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+		textCompactionEvent(1, "closed source"),
+	}}
+	providerClient := anthropicmessages.Client{
+		ProviderModelSlug: "claude-sonnet-4",
+		ModelCapabilities: model.Capabilities{
+			ContextWindowTokens:    200_000,
+			MaxOutputTokens:        64_000,
+			DefaultMaxOutputTokens: 16_384,
+		},
+		APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
+	}
+	client := &trackedOutputLimitClient{
+		Client:   providerClient,
+		provider: providerClient,
+	}
+	result, err := testRunner(store, client).Run(
+		context.Background(),
+		runInput(testPlan(1, 1, 1)),
+	)
+	if err != nil {
+		t.Fatalf("run invalid compaction output policy: %v", err)
+	}
+	if result.State != RunTerminal || len(store.terminalFailures) != 1 ||
+		store.terminalFailures[0].ErrorKind != model.ErrorKindInvalidRequest ||
+		store.terminalFailures[0].ErrorCode != model.OutputTokenLimitIncompatibleCode ||
+		len(store.retryFailures) != 0 || len(store.replacements) != 0 ||
+		len(store.publishInputs) != 0 {
+		t.Fatalf(
+			"invalid output policy result=%+v retry=%+v terminal=%+v replacements=%+v publications=%+v",
+			result,
+			store.retryFailures,
+			store.terminalFailures,
+			store.replacements,
+			store.publishInputs,
+		)
+	}
+	if client.prepareCalls != 0 || client.respondCalls != 0 || client.validationCalls < 1 {
+		t.Fatalf(
+			"provider boundary calls: validate=%d prepare=%d respond=%d, want validation and no provider work",
+			client.validationCalls,
+			client.prepareCalls,
+			client.respondCalls,
+		)
+	}
+}
+
+type trackedOutputLimitClient struct {
+	model.Client
+	provider        model.OutputTokenLimitProvider
+	validationCalls int
+	prepareCalls    int
+	respondCalls    int
+}
+
+func (c *trackedOutputLimitClient) OutputTokenLimits() (model.OutputTokenLimits, error) {
+	c.validationCalls++
+	return c.provider.OutputTokenLimits()
+}
+
+func (c *trackedOutputLimitClient) Prepare(
+	ctx context.Context,
+	input model.PrepareInput,
+) (model.PreparedRequest, error) {
+	c.prepareCalls++
+	return c.Client.Prepare(ctx, input)
+}
+
+func (c *trackedOutputLimitClient) Respond(
+	ctx context.Context,
+	input model.Request,
+) (model.Response, error) {
+	c.respondCalls++
+	return c.Client.Respond(ctx, input)
+}
+
 func TestRunnerClassifiesMissingLiveGrantAsAuthFailure(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
 		textCompactionEvent(1, "closed source"),
@@ -536,6 +766,34 @@ func TestRunnerStopsAuthFailureWithoutRetry(t *testing.T) {
 		len(store.terminalFailures) != 1 || store.terminalFailures[0].ErrorKind != model.ErrorKindAuth ||
 		!strings.Contains(string(store.terminalFailures[0].ErrorDetails), "retry_after") {
 		t.Fatalf("auth failure result=%+v retries=%+v terminal=%+v", result, store.retryFailures, store.terminalFailures)
+	}
+}
+
+func TestRunnerStopsReplayRejectionWithoutReplayRecovery(t *testing.T) {
+	retry := true
+	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+		textCompactionEvent(1, strings.Repeat("canonical source ", 50)),
+	}}
+	client := &summaryModel{results: []summaryResult{{err: model.ProviderError{
+		Kind:      model.ErrorKindReplayRejected,
+		Code:      "invalid_encrypted_content",
+		Message:   "provider labeled the canonical summary request as rejected replay",
+		Retryable: &retry,
+	}}}}
+	result, err := testRunner(store, client).
+		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	if err != nil {
+		t.Fatalf("run replay-rejected compaction: %v", err)
+	}
+	if result.State != RunTerminal || len(store.retryFailures) != 0 ||
+		len(store.terminalFailures) != 1 ||
+		store.terminalFailures[0].ErrorKind != model.ErrorKindReplayRejected {
+		t.Fatalf(
+			"replay-rejected compaction result=%+v retries=%+v terminal=%+v",
+			result,
+			store.retryFailures,
+			store.terminalFailures,
+		)
 	}
 }
 

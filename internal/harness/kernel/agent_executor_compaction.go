@@ -8,10 +8,24 @@ import (
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+func (e AgentExecutor) compactionRunner(
+	resolver model.Resolver,
+	builder modelcontext.Builder,
+) compaction.Runner {
+	return compaction.Runner{
+		Store:           compaction.NewStore(e.Store.Execution()),
+		Resolver:        resolver,
+		ContextBuilder:  builder,
+		Now:             e.Now,
+		ModelRetryDelay: e.ModelRetryDelay,
+	}
+}
 
 func (e AgentExecutor) resumeCompactionContext(
 	ctx context.Context,
@@ -48,13 +62,7 @@ func (e AgentExecutor) resumeCompactionContext(
 	if !found {
 		return fmt.Errorf("active compaction context has no parent normal call: %w", storeerr.ErrStateTransitionConflict)
 	}
-	_, err = (compaction.Runner{
-		Store:           compaction.NewStore(e.Store.Execution()),
-		Resolver:        resolver,
-		ContextBuilder:  builder,
-		Now:             e.Now,
-		ModelRetryDelay: e.ModelRetryDelay,
-	}).Run(
+	_, err = e.compactionRunner(resolver, builder).Run(
 		ctx,
 		compaction.RunInput{
 			Plan: compaction.Plan{
@@ -130,7 +138,17 @@ func (e AgentExecutor) planCompactionForContext(
 		return compaction.Plan{}, false, nil
 	}
 	capabilities := model.CapabilitiesForClient(client)
-	requestPolicy := model.RequestPolicyFromCapabilities(capabilities)
+	requestPolicy, err := modelretry.RequestPolicyForModelCall(
+		ctx,
+		e.Store.Execution(),
+		contextRow.ProjectID,
+		contextRow.AgentID,
+		contextRow.ID,
+		model.RequestPolicyFromCapabilities(capabilities),
+	)
+	if err != nil {
+		return compaction.Plan{}, false, err
+	}
 	recentTailTargetTokens := compaction.RecentTailTargetTokens(
 		model.UsableInputTokensForRequest(capabilities, requestPolicy),
 	)
@@ -170,6 +188,7 @@ func (e AgentExecutor) planCompactionForContext(
 		input,
 		boundaryInput,
 		projectionSummary,
+		requestPolicy,
 	)
 	if err != nil || !ok {
 		return compaction.Plan{}, false, err
@@ -192,6 +211,7 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 	input ModelWorkExecution,
 	boundaryInput compaction.RetainBoundaryInput,
 	projectionSummary string,
+	requestPolicy model.RequestPolicy,
 ) (int64, bool, error) {
 	candidates, err := compaction.RetainFromEventSequenceCandidates(boundaryInput)
 	if err != nil {
@@ -226,25 +246,19 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 			if buildErr != nil {
 				return false, buildErr
 			}
-			_, prepareErr := model.PrepareForSend(
+			prepared, prepareErr := model.PrepareForSend(
 				ctx,
 				client,
-				bundle,
-				model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
-				modelErrorSourceForClient(client),
+				model.PrepareForSendInput{
+					Context:     bundle,
+					Policy:      requestPolicy,
+					ErrorSource: modelErrorSourceForClient(client),
+				},
 			)
-			if prepareErr == nil {
-				return true, nil
+			if prepareErr != nil {
+				return false, prepareErr
 			}
-			providerErr, classified := model.ClassifyError(prepareErr)
-			if classified && (providerErr.Kind == model.ErrorKindContextWindow ||
-				providerErr.Kind == model.ErrorKindPayloadTooLarge) {
-				return false, nil
-			}
-			if classified {
-				return true, nil
-			}
-			return false, prepareErr
+			return prepared.InputBudget.Fits(), nil
 		},
 	)
 }

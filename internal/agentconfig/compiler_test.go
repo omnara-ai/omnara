@@ -19,6 +19,23 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
+func TestModelCompiledOverridesPreserveConfiguredValues(t *testing.T) {
+	contextWindow := 64_000
+	defaultOutput := 4_096
+	overrides := (ModelCompiled{
+		ContextWindowTokens:    &contextWindow,
+		DefaultMaxOutputTokens: &defaultOutput,
+		CacheRetention:         "long",
+		Reasoning:              &ModelReasoningCompiled{Effort: "provider-defined"},
+	}).Overrides()
+
+	if overrides.ContextWindowTokens == nil || *overrides.ContextWindowTokens != contextWindow ||
+		overrides.DefaultMaxOutputTokens == nil || *overrides.DefaultMaxOutputTokens != defaultOutput ||
+		overrides.CacheRetention != "long" || overrides.ReasoningEffort != "provider-defined" {
+		t.Fatalf("model overrides = %+v", overrides)
+	}
+}
+
 func TestCompileYAMLCanonicalizesConfigRuntimeContract(t *testing.T) {
 	sourceA := validAgentSource(`
 tools:

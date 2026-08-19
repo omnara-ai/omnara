@@ -35,6 +35,9 @@ const (
 	compactionErrorCodeSourceIrreducible         = "compaction_source_irreducible"
 )
 
+// Reserve up to this much output so summaries can preserve long-running agent state.
+const preferredSummaryOutputTokens = 16_384
+
 type compactionFailureError struct {
 	reason compactionFailureReason
 	cause  error
@@ -79,7 +82,6 @@ func (r Runner) recordFailure(
 	cause error,
 	providerAttempt providerAttemptEvidence,
 ) (RunResult, error) {
-	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
 	if shrinkableCompactionFailure(cause) {
 		nextEnd, err := r.nextSmallerSourceEnd(ctx, input.Plan)
 		if err != nil {
@@ -97,12 +99,14 @@ func (r Runner) recordFailure(
 		}
 		cause = irreducibleCompactionError(irreducibleCompactionFailureDetail(cause))
 	}
+	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
 	now := r.now()
 	evidence, decision := modelretry.Decide(
 		cause,
 		modelretry.Attempt{Number: claim.Context.AttemptNumber},
 		claim.Context.ID.String(),
-		now, modelretry.StopOnInputOverflow)
+		now,
+	)
 	if decision.Action == modelretry.ActionRetry {
 		decision.RetryDelay = r.modelRetryDelay(decision.RetryDelay)
 	}
@@ -258,12 +262,32 @@ func irreducibleCompactionError(detail string) error {
 	})
 }
 
-func compactionRequestPolicy(client model.Client) model.RequestPolicy {
+func compactionRequestPolicy(
+	client model.Client,
+	errorSource string,
+) (model.RequestPolicy, int, error) {
 	capabilities := model.CapabilitiesForClient(client)
-	policy := model.RequestPolicyFromCapabilities(capabilities)
-	// The prompt controls summary length; this ceiling prevents truncation.
+	normalPolicy := model.RequestPolicyFromCapabilities(capabilities)
+	limits, err := model.OutputTokenLimitsForClient(client, errorSource)
+	if err != nil {
+		return model.RequestPolicy{}, 0, err
+	}
+	if err := limits.Validate(normalPolicy.MaxOutputTokens, errorSource); err != nil {
+		return model.RequestPolicy{}, 0, err
+	}
+	policy := normalPolicy
 	policy.MaxOutputTokens = capabilities.MaxOutputTokens
-	return policy
+	if policy.MaxOutputTokens <= 0 {
+		policy.MaxOutputTokens = capabilities.DefaultMaxOutputTokens
+	}
+	if policy.MaxOutputTokens > preferredSummaryOutputTokens {
+		policy.MaxOutputTokens = preferredSummaryOutputTokens
+	}
+	if policy.MaxOutputTokens < limits.Minimum {
+		policy.MaxOutputTokens = normalPolicy.MaxOutputTokens
+	}
+	summaryOutputFloorTokens := min(policy.MaxOutputTokens, normalPolicy.MaxOutputTokens)
+	return policy, summaryOutputFloorTokens, nil
 }
 
 func validateCompactionResponse(errorSource string, response model.Response) (string, error) {
@@ -384,20 +408,11 @@ func compactionModelSelection(
 	if err != nil {
 		return model.Selection{}, err
 	}
-	reasoningEffort := ""
-	if contract.Model.Reasoning != nil {
-		reasoningEffort = contract.Model.Reasoning.Effort
-	}
 	return model.Selection{
 		OrgID:                     contextRow.OrgID.String(),
 		ProjectID:                 contextRow.ProjectID.String(),
 		ConfiguredModelRevisionID: contextRow.ConfiguredModelRevisionID.String(),
-		Options: model.SelectionOptions{
-			ContextWindowTokens:    contract.Model.ContextWindowTokens,
-			DefaultMaxOutputTokens: contract.Model.DefaultMaxOutputTokens,
-			CacheRetention:         model.CacheRetention(contract.Model.CacheRetention),
-			ReasoningEffort:        reasoningEffort,
-		},
+		Overrides:                 contract.Model.Overrides(),
 	}, nil
 }
 

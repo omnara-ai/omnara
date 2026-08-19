@@ -10,7 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const maxRecentTailTargetTokens = 8_000
+const maxRecentTailTargetTokens = 20_000
 
 func RecentTailTargetTokens(usableInputTokens int) int {
 	if usableInputTokens <= 0 {
