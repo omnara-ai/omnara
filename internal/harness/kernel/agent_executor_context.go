@@ -26,7 +26,6 @@ const (
 	preSendErrorCodeCaptureAgentConfigFailed  = "capture_agent_config_failed"
 	preSendErrorCodeCompileAgentConfigFailed  = "compile_agent_config_failed"
 	preSendErrorCodeInitializeMCPFailed       = "initialize_mcp_connections_failed"
-	preSendErrorCodeBuildModelSelectionFailed = "build_model_selection_failed"
 	preSendErrorCodeResolveModelFailed        = "resolve_model_failed"
 	preSendErrorCodeBuildModelContextFailed   = "build_model_context_failed"
 	preSendErrorCodeLoadReplayPolicyFailed    = "load_provider_replay_policy_failed"
@@ -146,16 +145,7 @@ func (e AgentExecutor) executeModelStep(
 			)
 		}
 	}
-	selection, err := modelSelectionForContext(claim.Context, contract.Model)
-	if err != nil {
-		return e.recordNormalPreSendFailure(
-			ctx, input, claim, model.ResolvedClient{}, err,
-			modelretry.PreSendFailure{
-				Code:    preSendErrorCodeBuildModelSelectionFailed,
-				Message: "Omnara could not construct the configured model selection.",
-			},
-		)
-	}
+	selection := modelSelectionForContext(claim.Context, contract.Model)
 	resolved, err := resolver.Resolve(ctx, selection)
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {

@@ -158,10 +158,9 @@ func (r Runner) hasRemainingSemanticSource(
 }
 
 type preparedCompactionRequest struct {
-	prepared        model.PreparedRequest
-	sourceEnd       int64
-	sourceText      string
-	adjustmentCause error
+	prepared   model.PreparedRequest
+	sourceEnd  int64
+	sourceText string
 }
 
 func largestFittingCompactionRequest(
@@ -173,6 +172,7 @@ func largestFittingCompactionRequest(
 	groups []executionstore.CompactionAtomicGroupRecord,
 	client model.Client,
 	policy model.RequestPolicy,
+	minimumOutputTokens int,
 	errorSource string,
 ) (preparedCompactionRequest, error) {
 	candidates := safeCompactionSourceEndsWithWitness(
@@ -183,13 +183,7 @@ func largestFittingCompactionRequest(
 	if len(candidates) == 0 {
 		return preparedCompactionRequest{}, nil
 	}
-	low, high := 0, len(candidates)-1
-	best := -1
-	var bestRequest preparedCompactionRequest
-	localOverBudget := false
-	for low <= high {
-		mid := low + (high-low)/2
-		end := candidates[mid]
+	prepareCandidate := func(end int64, candidatePolicy model.RequestPolicy) (preparedCompactionRequest, error) {
 		count := int(end-input.Plan.EventSequenceStart) + 1
 		if count <= 0 || count > len(events) {
 			return preparedCompactionRequest{}, errors.New("compaction source candidates do not match loaded events")
@@ -207,38 +201,65 @@ func largestFittingCompactionRequest(
 			client,
 			model.PrepareForSendInput{
 				Context:     bundle,
-				Policy:      policy,
+				Policy:      candidatePolicy,
 				ErrorSource: errorSource,
 			},
 		)
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}
-		if prepared.InputBudget.OverBudget() {
-			localOverBudget = true
-			high = mid - 1
-			continue
-		}
-		best = mid
-		bestRequest = preparedCompactionRequest{
+		return preparedCompactionRequest{
 			prepared:   prepared,
 			sourceEnd:  end,
 			sourceText: sourceText,
+		}, nil
+	}
+	findLargest := func(candidatePolicy model.RequestPolicy) (preparedCompactionRequest, error) {
+		low, high := 0, len(candidates)-1
+		var bestRequest preparedCompactionRequest
+		for low <= high {
+			mid := low + (high-low)/2
+			candidate, err := prepareCandidate(candidates[mid], candidatePolicy)
+			if err != nil {
+				return preparedCompactionRequest{}, err
+			}
+			if candidate.prepared.InputBudget.OverBudget() {
+				high = mid - 1
+				continue
+			}
+			bestRequest = candidate
+			low = mid + 1
 		}
-		low = mid + 1
+		return bestRequest, nil
 	}
-	if best < 0 {
-		return preparedCompactionRequest{}, nil
+	bestRequest, err := findLargest(policy)
+	if err != nil || bestRequest.sourceEnd != 0 {
+		return bestRequest, err
 	}
-	if localOverBudget {
-		bestRequest.adjustmentCause = compactionSourceAdjustmentError(
-			events,
-			witnessEvents,
-			groups,
-			input.Plan.EventSequenceEnd,
-		)
+
+	adjustedPolicy := policy
+	for {
+		smallest, err := prepareCandidate(candidates[0], adjustedPolicy)
+		if err != nil {
+			return preparedCompactionRequest{}, err
+		}
+		if smallest.prepared.InputBudget.Fits() {
+			return findLargest(adjustedPolicy)
+		}
+		if adjustedPolicy.MaxOutputTokens <= minimumOutputTokens {
+			return preparedCompactionRequest{}, nil
+		}
+		excess := smallest.prepared.InputBudget.EstimatedInputTokens -
+			smallest.prepared.InputBudget.UsableInputTokens
+		nextOutput := adjustedPolicy.MaxOutputTokens - excess
+		if nextOutput < minimumOutputTokens {
+			nextOutput = minimumOutputTokens
+		}
+		if nextOutput >= adjustedPolicy.MaxOutputTokens {
+			return preparedCompactionRequest{}, nil
+		}
+		adjustedPolicy.MaxOutputTokens = nextOutput
 	}
-	return bestRequest, nil
 }
 
 func compactionRequestBundle(

@@ -21,7 +21,7 @@ func (r *reasoningSelectionResolver) Resolve(
 ) (model.ResolvedClient, error) {
 	r.selections = append(r.selections, selection)
 	caps := r.client.caps
-	caps.DefaultReasoningEffort = selection.Options.ReasoningEffort
+	caps.DefaultReasoningEffort = selection.Overrides.ReasoningEffort
 	r.client.caps = caps
 	return model.ResolvedClient{
 		Client:                    r.client,
@@ -110,7 +110,7 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 	}
 	selection := resolver.selections[0]
 	if selection.ConfiguredModelRevisionID != testIDN(601).String() ||
-		selection.Options.ReasoningEffort != reasoningEffort {
+		selection.Overrides.ReasoningEffort != reasoningEffort {
 		t.Fatalf("compaction model selection = %+v", selection)
 	}
 	if len(client.preparedPolicies) != len(client.preparedBundles) ||
@@ -129,8 +129,13 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 		}
 		if client.preparedBundles[index].ContextCheckpoint == nil {
 			sawSummaryRequest = true
-			if policy.MaxOutputTokens != 16_384 {
-				t.Fatalf("summary policy %d output = %d, want 16384", index, policy.MaxOutputTokens)
+			if policy.MaxOutputTokens != preferredSummaryOutputTokens {
+				t.Fatalf(
+					"summary policy %d output = %d, want %d",
+					index,
+					policy.MaxOutputTokens,
+					preferredSummaryOutputTokens,
+				)
 			}
 			continue
 		}

@@ -403,7 +403,8 @@ LIMIT 1
 		errorKind != string(model.ErrorKindInvalidRequest) ||
 		errorCode != model.OutputTokenLimitIncompatibleCode || outputStopReason != "error" ||
 		outputCount != 1 || blockCount != 1 || blockKind != "error" ||
-		blockText != model.ErrOutputTokenLimitIncompatible.Error() ||
+		!strings.Contains(blockText, model.ErrOutputTokenLimitIncompatible.Error()) ||
+		!strings.Contains(blockText, "must be at least") ||
 		modelClient.validationCalls != 1 || baseClient.preparedCount() != 0 ||
 		baseClient.respondedCount() != 0 {
 		t.Fatalf(
@@ -429,12 +430,14 @@ type outputLimitKernelModel struct {
 	validationCalls int
 }
 
-func (m *outputLimitKernelModel) ValidateOutputTokenLimit(model.RequestPolicy) error {
+func (m *outputLimitKernelModel) OutputTokenLimits(
+	policy model.RequestPolicy,
+) (model.OutputTokenLimits, error) {
 	m.validationCalls++
-	return model.ErrOutputTokenLimitIncompatible
+	return model.OutputTokenLimits{Minimum: policy.MaxOutputTokens + 1}, nil
 }
 
-func TestAgentExecutorAppliesAgentModelOptionsToRequestPolicy(t *testing.T) {
+func TestAgentExecutorAppliesCompiledModelOverridesToRequestPolicy(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
@@ -489,12 +492,12 @@ model:
 		t.Fatalf("resolver selections = %d, want 1", len(resolver.selections))
 	}
 	selection := resolver.selections[0]
-	if selection.Options.DefaultMaxOutputTokens == nil || *selection.Options.DefaultMaxOutputTokens != 1234 ||
-		selection.Options.CacheRetention != model.CacheRetentionShort {
-		t.Fatalf("selection options = %+v", selection.Options)
+	if selection.Overrides.DefaultMaxOutputTokens == nil || *selection.Overrides.DefaultMaxOutputTokens != 1234 ||
+		selection.Overrides.CacheRetention != string(model.CacheRetentionShort) {
+		t.Fatalf("selection overrides = %+v", selection.Overrides)
 	}
-	if selection.Options.ContextWindowTokens == nil || *selection.Options.ContextWindowTokens != 64000 {
-		t.Fatalf("selection token options = %+v", selection.Options)
+	if selection.Overrides.ContextWindowTokens == nil || *selection.Overrides.ContextWindowTokens != 64000 {
+		t.Fatalf("selection token overrides = %+v", selection.Overrides)
 	}
 	if modelClient.preparedCount() != 1 {
 		t.Fatalf("prepared requests = %d, want 1", modelClient.preparedCount())

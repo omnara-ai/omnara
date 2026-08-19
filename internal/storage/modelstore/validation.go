@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -56,13 +57,6 @@ type configuredModelOptions struct {
 	SupportsReasoning         bool
 	DefaultReasoningEffort    string
 	SupportedReasoningEfforts []string
-}
-
-type AgentModelOptions struct {
-	ContextWindowTokens    *int
-	DefaultMaxOutputTokens *int
-	CacheRetention         string
-	ReasoningEffort        string
 }
 
 const (
@@ -787,7 +781,7 @@ func EffectiveConfiguredModelForProjectGrant(
 func EffectiveConfiguredModelRevisionForAgentOptions(
 	apiFormat modelprotocol.APIFormat,
 	revision ConfiguredModelRevisionRecord,
-	options AgentModelOptions,
+	options agentconfig.ModelOverrides,
 ) (ConfiguredModelRevisionRecord, error) {
 	effective := revision
 	if options.ContextWindowTokens != nil {
@@ -830,7 +824,7 @@ func EffectiveConfiguredModelForAgentOptions(
 	apiFormat modelprotocol.APIFormat,
 	configuredModel ConfiguredModelRecord,
 	grant ProjectModelGrantRecord,
-	options AgentModelOptions,
+	options agentconfig.ModelOverrides,
 ) (ConfiguredModelRevisionRecord, error) {
 	effectiveProjectModel, err := EffectiveConfiguredModelForProjectGrant(apiFormat, configuredModel, grant)
 	if err != nil {

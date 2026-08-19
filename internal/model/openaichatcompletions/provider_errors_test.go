@@ -18,6 +18,44 @@ const openRouterFlatImmutableThinkingError = "{\"message\":\"messages.1.content.
 	"`thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. " +
 	"These blocks must remain as they were in the original response.\"}"
 
+type openRouterRawReplayErrorCase struct {
+	name        string
+	raw         any
+	wantCode    string
+	wantMessage string
+}
+
+func openRouterRawReplayErrorCases() []openRouterRawReplayErrorCase {
+	return []openRouterRawReplayErrorCase{
+		{
+			name: "wrapped error",
+			raw: json.RawMessage(`{"type":"error","error":{"type":"invalid_request_error",` +
+				"\"message\":\"Invalid `signature` in `thinking` block\"}}"),
+			wantCode:    "invalid_request_error",
+			wantMessage: "Invalid `signature` in `thinking` block",
+		},
+		{
+			name:     "flat error",
+			raw:      openRouterFlatImmutableThinkingError,
+			wantCode: "400",
+			wantMessage: "messages.1.content.1: `thinking` or `redacted_thinking` blocks in the latest " +
+				"assistant message cannot be modified. These blocks must remain as they were in the original response.",
+		},
+		{
+			name:        "plain string",
+			raw:         "Invalid signature in thinking block",
+			wantCode:    "400",
+			wantMessage: "Invalid signature in thinking block",
+		},
+		{
+			name:        "detail field",
+			raw:         map[string]any{"detail": "Invalid signature in thinking block"},
+			wantCode:    "400",
+			wantMessage: "Invalid signature in thinking block",
+		},
+	}
+}
+
 func TestRespondClassifiesProviderErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Request-Id", "req_1")
@@ -223,27 +261,7 @@ func TestRespondClassifiesOpenRouterWrappedImmutableThinkingError(t *testing.T) 
 }
 
 func TestRespondClassifiesOpenRouterRawReplayError(t *testing.T) {
-	for _, test := range []struct {
-		name        string
-		raw         any
-		wantCode    string
-		wantMessage string
-	}{
-		{
-			name: "wrapped error",
-			raw: json.RawMessage(`{"type":"error","error":{"type":"invalid_request_error",` +
-				"\"message\":\"Invalid `signature` in `thinking` block\"}}"),
-			wantCode:    "invalid_request_error",
-			wantMessage: "Invalid `signature` in `thinking` block",
-		},
-		{
-			name:     "flat error",
-			raw:      openRouterFlatImmutableThinkingError,
-			wantCode: "400",
-			wantMessage: "messages.1.content.1: `thinking` or `redacted_thinking` blocks in the latest " +
-				"assistant message cannot be modified. These blocks must remain as they were in the original response.",
-		},
-	} {
+	for _, test := range openRouterRawReplayErrorCases() {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"error": map[string]any{
@@ -274,6 +292,31 @@ func TestRespondClassifiesOpenRouterRawReplayError(t *testing.T) {
 				providerErr.StatusCode != http.StatusBadRequest ||
 				providerErr.Code != test.wantCode || providerErr.Message != test.wantMessage {
 				t.Fatalf("raw replay error = %+v ok=%v err=%v", providerErr, ok, err)
+			}
+		})
+	}
+}
+
+func TestOpenRouterRawErrorMessageShapes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{name: "plain string", raw: json.RawMessage(`"plain failure"`), want: "plain failure"},
+		{name: "malformed-looking string", raw: json.RawMessage(`"{"`), want: "{"},
+		{name: "JSON string", raw: json.RawMessage(`"{\"msg\":\"encoded failure\"}"`), want: "encoded failure"},
+		{name: "message", raw: json.RawMessage(`{"message":"message failure"}`), want: "message failure"},
+		{name: "error string", raw: json.RawMessage(`{"error":"error failure"}`), want: "error failure"},
+		{name: "detail", raw: json.RawMessage(`{"detail":"detail failure"}`), want: "detail failure"},
+		{name: "details", raw: json.RawMessage(`{"details":"details failure"}`), want: "details failure"},
+		{name: "msg", raw: json.RawMessage(`{"msg":"msg failure"}`), want: "msg failure"},
+		{name: "nested", raw: json.RawMessage(`{"error":{"detail":"nested failure"}}`), want: "nested failure"},
+		{name: "unrecognized", raw: json.RawMessage(`{"status":"failed"}`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := openRouterRawErrorMessage(test.raw); got != test.want {
+				t.Fatalf("raw provider message = %q, want %q", got, test.want)
 			}
 		})
 	}
@@ -387,11 +430,11 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 			wantMessage: "Provider returned error",
 		},
 		{
-			name: "malformed nested error",
+			name: "invalid raw JSON",
 			providerErr: chatProviderError{
 				Message:  "Provider returned error",
 				Type:     "provider_error",
-				Metadata: chatProviderErrorMetadata{Raw: json.RawMessage(`"{"`)},
+				Metadata: chatProviderErrorMetadata{Raw: json.RawMessage(`{`)},
 			},
 			wantKind:    model.ErrorKindProviderUnavailable,
 			wantMessage: "Provider returned error",

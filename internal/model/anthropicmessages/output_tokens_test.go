@@ -3,6 +3,8 @@ package anthropicmessages
 import (
 	"encoding/json"
 	"errors"
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
@@ -26,6 +28,14 @@ func TestAnthropicOutputTokenLimitValidation(t *testing.T) {
 		{name: "missing manual budget", options: json.RawMessage(`{"thinking":{"type":"enabled"}}`), maxOutput: 16_384, wantInvalid: true},
 		{name: "noninteger manual budget", options: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":1024.5}}`), maxOutput: 16_384, wantInvalid: true},
 		{name: "manual budget below provider minimum", options: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":1023}}`), maxOutput: 16_384, wantInvalid: true},
+		{
+			name: "manual budget cannot exceed representable output limit",
+			options: json.RawMessage(
+				`{"thinking":{"type":"enabled","budget_tokens":` + strconv.Itoa(math.MaxInt) + `}}`,
+			),
+			maxOutput:   math.MaxInt,
+			wantInvalid: true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

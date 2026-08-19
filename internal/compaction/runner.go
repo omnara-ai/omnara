@@ -165,7 +165,7 @@ func (r Runner) run(
 	}
 	providerAttempt := providerAttemptEvidence{APIFormat: apiFormat, APIVariant: apiVariant}
 	errorSource := modelErrorSourceForAPIFormat(apiFormat)
-	policy, err := compactionRequestPolicy(client, errorSource)
+	policy, summaryOutputFloor, err := compactionRequestPolicy(client, errorSource)
 	if err != nil {
 		return r.recordPreSendFailure(
 			ctx, input, claim, err,
@@ -215,6 +215,7 @@ func (r Runner) run(
 		boundaryWindow.atomicGroups,
 		client,
 		policy,
+		summaryOutputFloor,
 		errorSource,
 	)
 	if err != nil {
@@ -232,25 +233,23 @@ func (r Runner) run(
 			ctx,
 			input,
 			claim,
-			irreducibleCompactionError("no closed source prefix fits the configured model window"),
+			irreducibleCompactionError(
+				"no safe closed source prefix fits while preserving the minimum summary allowance",
+			),
 			providerAttempt,
 		)
 	}
 	if preparedRequest.sourceEnd < input.Plan.EventSequenceEnd {
-		cause := preparedRequest.adjustmentCause
-		if cause == nil {
-			cause = compactionSourceAdjustmentError(
-				boundaryWindow.sourceEvents,
-				boundaryWindow.witnessEvents,
-				boundaryWindow.atomicGroups,
-				input.Plan.EventSequenceEnd,
-			)
-		}
 		return r.replaceCompactionSource(
 			ctx,
 			input,
 			claim,
-			cause,
+			compactionSourceAdjustmentError(
+				boundaryWindow.sourceEvents,
+				boundaryWindow.witnessEvents,
+				boundaryWindow.atomicGroups,
+				input.Plan.EventSequenceEnd,
+			),
 			providerAttempt,
 			preparedRequest.sourceEnd,
 		)

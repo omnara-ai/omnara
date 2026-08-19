@@ -154,6 +154,7 @@ func (e chatProviderError) rawError() (chatProviderError, bool) {
 	if len(raw) == 0 || len(raw) > maxNestedProviderErrorBytes || bytes.Equal(raw, []byte("null")) {
 		return chatProviderError{}, false
 	}
+	message := openRouterRawErrorMessage(raw)
 	if raw[0] == '"' {
 		var encoded string
 		if err := json.Unmarshal(raw, &encoded); err != nil {
@@ -166,13 +167,57 @@ func (e chatProviderError) rawError() (chatProviderError, bool) {
 	}
 	var envelope chatProviderErrorEnvelope
 	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Error.present() {
+		if envelope.Error.Message == "" {
+			envelope.Error.Message = message
+		}
 		return envelope.Error, true
 	}
 	var flat chatProviderError
-	if err := json.Unmarshal(raw, &flat); err != nil || !flat.present() {
+	if err := json.Unmarshal(raw, &flat); err == nil && flat.present() {
+		if flat.Message == "" {
+			flat.Message = message
+		}
+		return flat, true
+	}
+	if message == "" {
 		return chatProviderError{}, false
 	}
-	return flat, true
+	return chatProviderError{Message: message}, true
+}
+
+func openRouterRawErrorMessage(raw json.RawMessage) string {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ""
+	}
+	fields := [...]string{"message", "error", "detail", "details", "msg"}
+	stack := []any{value}
+	for len(stack) > 0 {
+		value = stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		switch value := value.(type) {
+		case string:
+			message := strings.TrimSpace(value)
+			if message == "" {
+				continue
+			}
+			var nested any
+			if err := json.Unmarshal([]byte(message), &nested); err == nil {
+				if _, ok := nested.(map[string]any); ok {
+					stack = append(stack, nested)
+					continue
+				}
+			}
+			return message
+		case map[string]any:
+			for index := len(fields) - 1; index >= 0; index-- {
+				if nested, ok := value[fields[index]]; ok {
+					stack = append(stack, nested)
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func genericProviderErrorMessage(message string) bool {

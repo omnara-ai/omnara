@@ -145,7 +145,7 @@ func TestPrepareForSendRejectsProviderOutputLimitConflictBeforePreparation(t *te
 			},
 			capabilities: Capabilities{ContextWindowTokens: 100_000},
 		},
-		validationErr: ErrOutputTokenLimitIncompatible,
+		limits: OutputTokenLimits{Minimum: 16_385},
 	}
 	_, err := PrepareForSend(
 		context.Background(),
@@ -166,7 +166,7 @@ func TestPrepareForSendRejectsProviderOutputLimitConflictBeforePreparation(t *te
 		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
 	}
 
-	client.validationErr = errors.New("malformed output options")
+	client.limitsErr = errors.New("malformed output options")
 	_, err = PrepareForSend(
 		context.Background(),
 		client,
@@ -184,7 +184,26 @@ func TestPrepareForSendRejectsProviderOutputLimitConflictBeforePreparation(t *te
 		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
 	}
 
-	client.validationErr = nil
+	client.limitsErr = nil
+	client.limits = OutputTokenLimits{Minimum: -1}
+	_, err = PrepareForSend(
+		context.Background(),
+		client,
+		PrepareForSendInput{
+			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
+			ErrorSource: "test_api",
+		},
+	)
+	if !errors.As(err, &providerErr) ||
+		providerErr.Kind != ErrorKindInvalidRequest ||
+		providerErr.Code != InvalidOutputTokenConfigurationCode {
+		t.Fatalf("negative output limit = %v, want classified invalid request", err)
+	}
+	if client.prepareCalls != 0 {
+		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
+	}
+
+	client.limits = OutputTokenLimits{}
 	if _, err := PrepareForSend(
 		context.Background(),
 		client,
@@ -353,12 +372,13 @@ func (c prepareForSendClient) Capabilities() Capabilities { return c.capabilitie
 
 type outputLimitPrepareClient struct {
 	prepareForSendClient
-	validationErr error
-	prepareCalls  int
+	limits       OutputTokenLimits
+	limitsErr    error
+	prepareCalls int
 }
 
-func (c *outputLimitPrepareClient) ValidateOutputTokenLimit(RequestPolicy) error {
-	return c.validationErr
+func (c *outputLimitPrepareClient) OutputTokenLimits(RequestPolicy) (OutputTokenLimits, error) {
+	return c.limits, c.limitsErr
 }
 
 func (c *outputLimitPrepareClient) Prepare(

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -15,14 +17,7 @@ type Selection struct {
 	OrgID                     string
 	ProjectID                 string
 	ConfiguredModelRevisionID string
-	Options                   SelectionOptions
-}
-
-type SelectionOptions struct {
-	ContextWindowTokens    *int
-	DefaultMaxOutputTokens *int
-	CacheRetention         CacheRetention
-	ReasoningEffort        string
+	Overrides                 agentconfig.ModelOverrides
 }
 
 type Capabilities struct {
@@ -52,11 +47,14 @@ type Client interface {
 	Respond(ctx context.Context, input Request) (Response, error)
 }
 
-// OutputTokenLimitValidator checks provider-owned output constraints.
-// ErrOutputTokenLimitIncompatible permits another policy; any other error means
-// the provider option configuration is invalid.
-type OutputTokenLimitValidator interface {
-	ValidateOutputTokenLimit(RequestPolicy) error
+type OutputTokenLimits struct {
+	Minimum int
+}
+
+// OutputTokenLimitProvider reports constraints imposed by fixed provider
+// options that are not part of model capabilities.
+type OutputTokenLimitProvider interface {
+	OutputTokenLimits(RequestPolicy) (OutputTokenLimits, error)
 }
 
 var ErrOutputTokenLimitIncompatible = errors.New("output token limit is incompatible with provider options")
@@ -205,27 +203,48 @@ func PrepareForSend(
 }
 
 func ValidateOutputTokenLimit(client Client, policy RequestPolicy, errorSource string) error {
-	validator, ok := client.(OutputTokenLimitValidator)
-	if !ok {
-		return nil
-	}
-	err := validator.ValidateOutputTokenLimit(policy)
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, ErrOutputTokenLimitIncompatible) {
-		return ProviderError{
-			Kind:    ErrorKindInvalidRequest,
-			Source:  errorSource,
-			Code:    OutputTokenLimitIncompatibleCode,
-			Message: err.Error(),
-			Cause:   err,
-		}
-	}
-	if _, classified := ClassifyError(err); classified {
+	limits, err := OutputTokenLimitsForRequest(client, policy, errorSource)
+	if err != nil {
 		return err
 	}
+	if limits.Minimum <= 0 || policy.MaxOutputTokens >= limits.Minimum {
+		return nil
+	}
+	cause := fmt.Errorf(
+		"%w: max output tokens (%d) must be at least %d",
+		ErrOutputTokenLimitIncompatible,
+		policy.MaxOutputTokens,
+		limits.Minimum,
+	)
 	return ProviderError{
+		Kind:    ErrorKindInvalidRequest,
+		Source:  errorSource,
+		Code:    OutputTokenLimitIncompatibleCode,
+		Message: cause.Error(),
+		Cause:   cause,
+	}
+}
+
+func OutputTokenLimitsForRequest(
+	client Client,
+	policy RequestPolicy,
+	errorSource string,
+) (OutputTokenLimits, error) {
+	provider, ok := client.(OutputTokenLimitProvider)
+	if !ok {
+		return OutputTokenLimits{}, nil
+	}
+	limits, err := provider.OutputTokenLimits(policy)
+	if err == nil && limits.Minimum < 0 {
+		err = errors.New("minimum output token limit cannot be negative")
+	}
+	if err == nil {
+		return limits, nil
+	}
+	if _, classified := ClassifyError(err); classified {
+		return OutputTokenLimits{}, err
+	}
+	return OutputTokenLimits{}, ProviderError{
 		Kind:    ErrorKindInvalidRequest,
 		Source:  errorSource,
 		Code:    InvalidOutputTokenConfigurationCode,

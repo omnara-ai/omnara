@@ -398,7 +398,10 @@ func (m *summaryModel) Prepare(
 	}
 	m.preparedBundles = append(m.preparedBundles, input.Context)
 	m.preparedPolicies = append(m.preparedPolicies, input.Policy)
-	body, err := json.Marshal(map[string]any{"messages": input.Context.Messages})
+	body, err := json.Marshal(map[string]any{
+		"max_output_tokens": input.Policy.MaxOutputTokens,
+		"messages":          input.Context.Messages,
+	})
 	if err != nil {
 		return model.PreparedRequest{}, err
 	}

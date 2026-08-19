@@ -593,27 +593,7 @@ func TestChatCompletionsConsumeStreamClassifiesOpenRouterWrappedContextOverflow(
 }
 
 func TestChatCompletionsConsumeStreamClassifiesOpenRouterRawReplayError(t *testing.T) {
-	for _, test := range []struct {
-		name        string
-		raw         any
-		wantCode    string
-		wantMessage string
-	}{
-		{
-			name: "wrapped error",
-			raw: json.RawMessage(`{"type":"error","error":{"type":"invalid_request_error",` +
-				"\"message\":\"Invalid `signature` in `thinking` block\"}}"),
-			wantCode:    "invalid_request_error",
-			wantMessage: "Invalid `signature` in `thinking` block",
-		},
-		{
-			name:     "flat error",
-			raw:      openRouterFlatImmutableThinkingError,
-			wantCode: "400",
-			wantMessage: "messages.1.content.1: `thinking` or `redacted_thinking` blocks in the latest " +
-				"assistant message cannot be modified. These blocks must remain as they were in the original response.",
-		},
-	} {
+	for _, test := range openRouterRawReplayErrorCases() {
 		t.Run(test.name, func(t *testing.T) {
 			event, err := json.Marshal(map[string]any{
 				"id":    "chatcmpl_replay",

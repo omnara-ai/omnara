@@ -153,7 +153,7 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			compactionPolicy, err := compactionRequestPolicy(test.client, "test")
+			compactionPolicy, _, err := compactionRequestPolicy(test.client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}
@@ -245,7 +245,7 @@ func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing
 			outputField: "max_completion_tokens",
 			absentField: "max_tokens",
 			optionField: "reasoning",
-			wantOutput:  16_384,
+			wantOutput:  preferredSummaryOutputTokens,
 		},
 	}
 	bundle := modelcontext.Bundle{Messages: []modelcontext.Message{{
@@ -255,7 +255,7 @@ func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing
 	}}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			policy, err := compactionRequestPolicy(test.client, "test")
+			policy, _, err := compactionRequestPolicy(test.client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}

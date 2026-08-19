@@ -4,31 +4,27 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/omnara-ai/omnara/internal/model"
 )
 
 const minimumManualThinkingBudgetTokens = 1_024
 
-var _ model.OutputTokenLimitValidator = Client{}
+var _ model.OutputTokenLimitProvider = Client{}
 
-func (c Client) ValidateOutputTokenLimit(policy model.RequestPolicy) error {
+func (c Client) OutputTokenLimits(model.RequestPolicy) (model.OutputTokenLimits, error) {
 	budget, enabled, err := anthropicManualThinkingBudget(c.APIVariantOptions)
 	if err != nil {
-		return fmt.Errorf("invalid Anthropic thinking configuration: %w", err)
+		return model.OutputTokenLimits{}, fmt.Errorf("invalid Anthropic thinking configuration: %w", err)
 	}
-	if !enabled || policy.MaxOutputTokens > budget {
-		return nil
+	if !enabled {
+		return model.OutputTokenLimits{}, nil
 	}
 	// Manual thinking shares Anthropic's total output limit and, without the
 	// interleaved-thinking beta, budget_tokens must be less than max_tokens.
 	// https://platform.claude.com/docs/en/build-with-claude/extended-thinking#budget-rules-and-tuning
-	return fmt.Errorf(
-		"%w: Anthropic max_tokens (%d) must exceed thinking.budget_tokens (%d)",
-		model.ErrOutputTokenLimitIncompatible,
-		policy.MaxOutputTokens,
-		budget,
-	)
+	return model.OutputTokenLimits{Minimum: budget + 1}, nil
 }
 
 func anthropicManualThinkingBudget(options json.RawMessage) (int, bool, error) {
@@ -78,6 +74,9 @@ func anthropicManualThinkingBudget(options json.RawMessage) (int, bool, error) {
 			"thinking.budget_tokens must be at least %d",
 			minimumManualThinkingBudgetTokens,
 		)
+	}
+	if budget == math.MaxInt {
+		return 0, false, fmt.Errorf("thinking.budget_tokens is too large")
 	}
 	return budget, true, nil
 }

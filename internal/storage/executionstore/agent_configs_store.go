@@ -303,7 +303,7 @@ func validateAgentConfigModelContractTx(ctx context.Context, qtx *dbsqlc.Queries
 		input.OrgID,
 		input.ProjectID,
 		input.ConfiguredModelID,
-		AgentModelOptionsFromCompiledModel(contract.Model),
+		contract.Model.Overrides(),
 	)
 	if err != nil {
 		return fmt.Errorf("resolve configured model for agent config: %w", err)
@@ -315,19 +315,6 @@ func validateAgentConfigModelContractTx(ctx context.Context, qtx *dbsqlc.Queries
 		)
 	}
 	return nil
-}
-
-func AgentModelOptionsFromCompiledModel(model agentconfig.ModelCompiled) modelstore.AgentModelOptions {
-	reasoningEffort := ""
-	if model.Reasoning != nil {
-		reasoningEffort = model.Reasoning.Effort
-	}
-	return modelstore.AgentModelOptions{
-		ContextWindowTokens:    model.ContextWindowTokens,
-		DefaultMaxOutputTokens: model.DefaultMaxOutputTokens,
-		CacheRetention:         model.CacheRetention,
-		ReasoningEffort:        reasoningEffort,
-	}
 }
 
 func sameAgentConfigAuthority(record AgentConfigRecord, input CreateAgentConfigInput) bool {

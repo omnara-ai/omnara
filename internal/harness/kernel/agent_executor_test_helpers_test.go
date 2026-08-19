@@ -1151,14 +1151,14 @@ func (r *selectionRecordingResolver) Resolve(
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        8192,
 		DefaultMaxOutputTokens: 4096,
-		DefaultCacheRetention:  selection.Options.CacheRetention,
+		DefaultCacheRetention:  model.CacheRetention(selection.Overrides.CacheRetention),
 		SupportsReasoning:      true,
 	}
-	if selection.Options.ContextWindowTokens != nil {
-		capabilities.ContextWindowTokens = *selection.Options.ContextWindowTokens
+	if selection.Overrides.ContextWindowTokens != nil {
+		capabilities.ContextWindowTokens = *selection.Overrides.ContextWindowTokens
 	}
-	if selection.Options.DefaultMaxOutputTokens != nil {
-		capabilities.DefaultMaxOutputTokens = *selection.Options.DefaultMaxOutputTokens
+	if selection.Overrides.DefaultMaxOutputTokens != nil {
+		capabilities.DefaultMaxOutputTokens = *selection.Overrides.DefaultMaxOutputTokens
 	}
 	r.client.capabilities = capabilities
 	return model.ResolvedClient{

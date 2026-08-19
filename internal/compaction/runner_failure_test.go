@@ -17,12 +17,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func TestCompactionRequestPolicyOnlyCapsSummaryOutput(t *testing.T) {
+func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T) {
 	supportsTools := false
 	tests := []struct {
 		name       string
 		caps       model.Capabilities
 		wantOutput int
+		wantFloor  int
 	}{
 		{
 			name: "summary cap changes only output policy",
@@ -35,7 +36,8 @@ func TestCompactionRequestPolicyOnlyCapsSummaryOutput(t *testing.T) {
 				DefaultReasoningEffort:    "high",
 				SupportedReasoningEfforts: []string{"low", "medium", "high"},
 			},
-			wantOutput: 16_384,
+			wantOutput: preferredSummaryOutputTokens,
+			wantFloor:  2_048,
 		},
 		{
 			name: "model output limit below summary cap is retained",
@@ -47,6 +49,7 @@ func TestCompactionRequestPolicyOnlyCapsSummaryOutput(t *testing.T) {
 				SupportedReasoningEfforts: []string{"low", "high"},
 			},
 			wantOutput: 8_192,
+			wantFloor:  2_048,
 		},
 		{
 			name: "default output limit is used when model maximum is unavailable",
@@ -57,6 +60,7 @@ func TestCompactionRequestPolicyOnlyCapsSummaryOutput(t *testing.T) {
 				SupportedReasoningEfforts: []string{"vendor-deep"},
 			},
 			wantOutput: 2_048,
+			wantFloor:  2_048,
 		},
 	}
 	for _, test := range tests {
@@ -65,7 +69,7 @@ func TestCompactionRequestPolicyOnlyCapsSummaryOutput(t *testing.T) {
 				ProviderModelSlug: "policy-test",
 				ModelCapabilities: test.caps,
 			}
-			got, err := compactionRequestPolicy(client, "test")
+			got, floor, err := compactionRequestPolicy(client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}
@@ -73,6 +77,9 @@ func TestCompactionRequestPolicyOnlyCapsSummaryOutput(t *testing.T) {
 			want.MaxOutputTokens = test.wantOutput
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("compaction policy = %+v, want %+v", got, want)
+			}
+			if floor != test.wantFloor {
+				t.Fatalf("compaction output floor = %d, want %d", floor, test.wantFloor)
 			}
 		})
 	}
@@ -94,6 +101,7 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 		name       string
 		client     model.Client
 		wantOutput int
+		wantFloor  int
 	}{
 		{
 			name: "Anthropic preferred total already valid",
@@ -102,7 +110,22 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 				ModelCapabilities: baseCapabilities,
 				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":8192}}`),
 			},
-			wantOutput: 16_384,
+			wantOutput: preferredSummaryOutputTokens,
+			wantFloor:  preferredSummaryOutputTokens,
+		},
+		{
+			name: "Anthropic fixed budget raises configured floor",
+			client: anthropicmessages.Client{
+				ProviderModelSlug: "claude-sonnet-4",
+				ModelCapabilities: model.Capabilities{
+					ContextWindowTokens:    200_000,
+					MaxOutputTokens:        64_000,
+					DefaultMaxOutputTokens: 8_192,
+				},
+				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":9999}}`),
+			},
+			wantOutput: preferredSummaryOutputTokens,
+			wantFloor:  10_000,
 		},
 		{
 			name: "Anthropic falls back to normal allowance",
@@ -112,11 +135,12 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
 			},
 			wantOutput: 32_768,
+			wantFloor:  32_768,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := compactionRequestPolicy(test.client, "test")
+			got, floor, err := compactionRequestPolicy(test.client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}
@@ -124,6 +148,9 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 			want.MaxOutputTokens = test.wantOutput
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("compaction policy = %+v, want only output changed in %+v", got, want)
+			}
+			if floor != test.wantFloor {
+				t.Fatalf("compaction output floor = %d, want %d", floor, test.wantFloor)
 			}
 		})
 	}
@@ -139,7 +166,7 @@ func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T)
 		},
 		APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
 	}
-	_, err := compactionRequestPolicy(client, "anthropic_messages")
+	_, _, err := compactionRequestPolicy(client, "anthropic_messages")
 	var providerErr model.ProviderError
 	if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) ||
 		!errors.As(err, &providerErr) ||
@@ -582,8 +609,8 @@ func TestRunnerTerminatesInvalidCompactionOutputPolicyBeforeProviderPreparation(
 		APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
 	}
 	client := &trackedOutputLimitClient{
-		Client:    providerClient,
-		validator: providerClient,
+		Client:   providerClient,
+		provider: providerClient,
 	}
 	result, err := testRunner(store, client).Run(
 		context.Background(),
@@ -618,15 +645,17 @@ func TestRunnerTerminatesInvalidCompactionOutputPolicyBeforeProviderPreparation(
 
 type trackedOutputLimitClient struct {
 	model.Client
-	validator       model.OutputTokenLimitValidator
+	provider        model.OutputTokenLimitProvider
 	validationCalls int
 	prepareCalls    int
 	respondCalls    int
 }
 
-func (c *trackedOutputLimitClient) ValidateOutputTokenLimit(policy model.RequestPolicy) error {
+func (c *trackedOutputLimitClient) OutputTokenLimits(
+	policy model.RequestPolicy,
+) (model.OutputTokenLimits, error) {
 	c.validationCalls++
-	return c.validator.ValidateOutputTokenLimit(policy)
+	return c.provider.OutputTokenLimits(policy)
 }
 
 func (c *trackedOutputLimitClient) Prepare(
