@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -503,6 +504,93 @@ UPDATE processes SET last_activity_at = statement_timestamp() - interval '20 min
 	}
 	if !idleMachineListedForTest(t, ctx, fixture) {
 		t.Fatal("expired applied action activity kept machine alive")
+	}
+}
+
+func TestProcessFailureBeforeExecutionRestartsIdleWindow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	five := 5
+	fixture := newIdlePoolMachineFixture(
+		t,
+		ctx,
+		"process-start-failure",
+		idlePoolMachinePolicy{PoolMinutes: &five},
+	)
+	backdateIdleMachineForTest(t, ctx, fixture, 20*time.Minute)
+	toolCallID := createToolCallForProcessTest(
+		t,
+		ctx,
+		fixture.processDaemonFixture,
+		"idle-process-start-failure",
+		"run_command",
+	)
+	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessInput{
+		AgentMachineBindingID: fixture.BindingID,
+		Command:               "cat",
+		ShellSelector:         "sh",
+	})
+	if err != nil {
+		t.Fatalf("start idle test process: %v", err)
+	}
+	if _, found, err := acceptDaemonProcessForTest(
+		ctx,
+		fixture.Store,
+		fixture.OrgID,
+		fixture.MachineID,
+		fixture.RuntimeID,
+		process.ID,
+	); err != nil || !found {
+		t.Fatalf("accept idle test process found=%v err=%v", found, err)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE processes
+SET last_activity_at = statement_timestamp() - interval '20 minutes'
+WHERE id = $1
+`, process.ID); err != nil {
+		t.Fatalf("backdate accepted process activity: %v", err)
+	}
+	if _, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            fixture.OrgID,
+			MachineID:        fixture.MachineID,
+			DaemonTokenID:    fixture.TokenID,
+			DaemonInstanceID: fixture.DaemonID,
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
+			ProcessClaims: []executionstore.ProcessReconciliationClaim{{
+				ProcessID:            process.ID,
+				SupervisorInstanceID: "idle-process-start-failure-supervisor",
+				Phase:                daemonprotocol.ProcessPhasePrepared,
+			}},
+		},
+	); err != nil {
+		t.Fatalf("fail process before execution through reconciliation: %v", err)
+	}
+	if _, claimed, err := fixture.Store.Execution().ClaimExpiredIdlePoolMachineDeletion(
+		ctx,
+		fixture.OrgID,
+		fixture.MachineID,
+	); err != nil || claimed {
+		t.Fatalf("claim after recent process start failure claimed=%v err=%v", claimed, err)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE processes SET last_activity_at = statement_timestamp() - interval '20 minutes' WHERE id = $1
+`, process.ID); err != nil {
+		t.Fatalf("expire process start failure activity: %v", err)
+	}
+	if _, claimed, err := fixture.Store.Execution().ClaimExpiredIdlePoolMachineDeletion(
+		ctx,
+		fixture.OrgID,
+		fixture.MachineID,
+	); err != nil || !claimed {
+		t.Fatalf("claim after expired process start failure claimed=%v err=%v", claimed, err)
 	}
 }
 

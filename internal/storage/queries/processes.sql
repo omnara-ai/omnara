@@ -297,6 +297,7 @@ SET state = 'failed',
     state_reason_code = sqlc.narg(state_reason_code),
     state_reason_message = sqlc.arg(state_reason_message),
     state_changed_at = statement_timestamp(),
+    last_activity_at = statement_timestamp(),
     updated_at = statement_timestamp()
 WHERE process.org_id = sqlc.arg(org_id)
   AND process.machine_id = sqlc.arg(machine_id)

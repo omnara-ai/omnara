@@ -456,6 +456,7 @@ SET state = 'failed',
     state_reason_code = $1,
     state_reason_message = $2,
     state_changed_at = statement_timestamp(),
+    last_activity_at = statement_timestamp(),
     updated_at = statement_timestamp()
 WHERE process.org_id = $3
   AND process.machine_id = $4
