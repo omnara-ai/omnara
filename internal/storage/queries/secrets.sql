@@ -137,6 +137,12 @@ WHERE s.org_id = sqlc.arg(org_id)
 	AND (COALESCE(cardinality(sqlc.arg(kinds)::text[]), 0) = 0 OR s.kind = ANY(sqlc.arg(kinds)::text[]))
   AND (sqlc.arg(owner_kind)::text = '' OR s.owner_kind = sqlc.arg(owner_kind)::text)
   AND (sqlc.narg(owner_project_id)::uuid IS NULL OR s.owner_project_id = sqlc.narg(owner_project_id)::uuid)
+  AND (sqlc.narg(mcp_oauth_flow_id)::uuid IS NULL OR EXISTS (
+    SELECT 1
+    FROM secret_versions fv
+    WHERE fv.secret_id = s.id
+      AND fv.mcp_oauth_flow_id = sqlc.narg(mcp_oauth_flow_id)::uuid
+  ))
   AND (
     (s.owner_kind = 'org' AND EXISTS (
       SELECT 1

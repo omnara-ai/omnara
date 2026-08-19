@@ -33,6 +33,7 @@ function genericState(): SecretDialogState {
 
 function unusedOAuthStart() {
   return Promise.resolve({
+    flow_id: 'moaf_abcdefghijklmnopqrstuvwxyz',
     authorization_url: 'https://auth.example/authorize',
     expires_at: '2026-08-03T01:00:00Z',
   })

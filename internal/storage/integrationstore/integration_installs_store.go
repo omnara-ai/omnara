@@ -213,6 +213,7 @@ type ListIntegrationInstallsForProjectInput struct {
 
 type IntegrationInstallListFilters struct {
 	AgentProfileID ID
+	OAuthFlowID    ID
 }
 
 type ListIntegrationInstallsForProjectResult struct {
@@ -241,6 +242,7 @@ func (s *Store) ListIntegrationInstallsForProject(
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorKey: input.List.After.Key, CursorID: input.List.After.ID,
 		AgentProfileID: sqlcIDFromNil(input.Filters.AgentProfileID),
+		OauthFlowID:    sqlcIDFromNil(input.Filters.OAuthFlowID),
 	})
 	if err != nil {
 		return ListIntegrationInstallsForProjectResult{}, fmt.Errorf("list integration installs: %w", err)

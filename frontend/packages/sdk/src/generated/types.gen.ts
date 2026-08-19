@@ -61,6 +61,10 @@ export type OrgApiKeyId = string;
 
 export type ProjectId = string;
 
+export type McpoAuthFlowId = string;
+
+export type IntegrationOAuthFlowId = string;
+
 export type ActorId = string;
 
 export type AgentId = string;
@@ -735,6 +739,7 @@ export type McpoAuthStartMetadata = {
 };
 
 export type McpoAuthStartResponse = {
+    flow_id: McpoAuthFlowId;
     authorization_url: string;
     expires_at: Timestamp;
 };
@@ -777,6 +782,7 @@ export type ListIntegrationInstallsResponse = {
 
 export type IntegrationOAuthSetup = {
     provider: string;
+    flow_id: IntegrationOAuthFlowId;
     oauth_url: string;
     redirect_uri: string;
     events_url: string;
@@ -798,6 +804,7 @@ export type SlackSetupIcon = {
 
 export type SlackSetup = {
     provider: string;
+    flow_id: IntegrationOAuthFlowId;
     slack_app_id: string;
     oauth_url: string;
     redirect_uri: string;
@@ -2866,9 +2873,19 @@ export type SecretOwnerKindFilter = 'org' | 'project' | 'user';
 export type SecretOwnerProjectIdFilter = ProjectId;
 
 /**
+ * Filter to secrets that have a version created by this MCP OAuth flow.
+ */
+export type SecretMcpoAuthFlowIdFilter = McpoAuthFlowId;
+
+/**
  * Only return integration installs bound to this agent profile.
  */
 export type IntegrationInstallAgentProfileFilter = AgentProfileId;
+
+/**
+ * Only return the integration install completed by this OAuth setup flow.
+ */
+export type IntegrationInstallOAuthFlowIdFilter = IntegrationOAuthFlowId;
 
 /**
  * Filter a project inventory by how the secret became available.
@@ -5740,6 +5757,10 @@ export type ListSecretsData = {
          */
         owner_project_id?: ProjectId;
         /**
+         * Filter to secrets that have a version created by this MCP OAuth flow.
+         */
+        mcp_oauth_flow_id?: McpoAuthFlowId;
+        /**
          * Metadata key/value filters, encoded as metadata[key]=value.
          */
         metadata?: {
@@ -6488,6 +6509,10 @@ export type ListIntegrationInstallsData = {
          * Only return integration installs bound to this agent profile.
          */
         agent_profile_id?: AgentProfileId;
+        /**
+         * Only return the integration install completed by this OAuth setup flow.
+         */
+        oauth_flow_id?: IntegrationOAuthFlowId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.

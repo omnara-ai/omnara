@@ -105,6 +105,10 @@ export const zOrgApiKeyId = z.string().regex(/^oak_[a-z2-7]{26}$/);
 
 export const zProjectId = z.string().regex(/^proj_[a-z2-7]{26}$/);
 
+export const zMcpoAuthFlowId = z.string().regex(/^moaf_[a-z2-7]{26}$/);
+
+export const zIntegrationOAuthFlowId = z.string().regex(/^ioaf_[a-z2-7]{26}$/);
+
 export const zActorId = z.string().regex(/^actr_[a-z2-7]{26}$/);
 
 export const zAgentId = z.string().regex(/^agt_[a-z2-7]{26}$/);
@@ -531,6 +535,7 @@ export const zSkillGrant = z.object({
 export const zMcpoAuthStartMetadata = z.record(z.string(), z.string().max(512));
 
 export const zMcpoAuthStartResponse = z.object({
+    flow_id: zMcpoAuthFlowId,
     authorization_url: z.url(),
     expires_at: zTimestamp
 });
@@ -570,6 +575,7 @@ export const zListIntegrationInstallsResponse = z.object({
 
 export const zIntegrationOAuthSetup = z.object({
     provider: z.string(),
+    flow_id: zIntegrationOAuthFlowId,
     oauth_url: z.url(),
     redirect_uri: z.url(),
     events_url: z.url(),
@@ -591,6 +597,7 @@ export const zCreateSlackSetupRequest = z.object({
 
 export const zSlackSetup = z.object({
     provider: z.string(),
+    flow_id: zIntegrationOAuthFlowId,
     slack_app_id: z.string(),
     oauth_url: z.url(),
     redirect_uri: z.url(),
@@ -2443,9 +2450,19 @@ export const zSecretOwnerKindFilter = z.enum([
 export const zSecretOwnerProjectIdFilter = zProjectId;
 
 /**
+ * Filter to secrets that have a version created by this MCP OAuth flow.
+ */
+export const zSecretMcpoAuthFlowIdFilter = zMcpoAuthFlowId;
+
+/**
  * Only return integration installs bound to this agent profile.
  */
 export const zIntegrationInstallAgentProfileFilter = zAgentProfileId;
+
+/**
+ * Only return the integration install completed by this OAuth setup flow.
+ */
+export const zIntegrationInstallOAuthFlowIdFilter = zIntegrationOAuthFlowId;
 
 /**
  * Filter a project inventory by how the secret became available.
@@ -2937,6 +2954,7 @@ export const zListSecretsQuery = z.object({
         'user'
     ]).optional(),
     owner_project_id: zProjectId.optional(),
+    mcp_oauth_flow_id: zMcpoAuthFlowId.optional(),
     metadata: z.record(z.string(), z.string()).optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
@@ -3062,6 +3080,7 @@ export const zListIntegrationInstallsPath = z.object({
 export const zListIntegrationInstallsQuery = z.object({
     name: z.string().min(1).max(200).optional(),
     agent_profile_id: zAgentProfileId.optional(),
+    oauth_flow_id: zIntegrationOAuthFlowId.optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()

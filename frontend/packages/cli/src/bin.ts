@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 import { Command } from 'commander'
 
 import { loadConfig, registerConfigCommand } from './config.ts'

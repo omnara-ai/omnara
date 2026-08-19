@@ -30,9 +30,19 @@ func (s strictOpenAPIServer) ListIntegrationInstalls(
 		}
 		filters.AgentProfileID = id
 	}
-	extra := struct{ AgentProfileID string }{}
+	if request.Params.OauthFlowId != nil {
+		id, ok := parseOpenAPIPublicID(publicid.KindIntegrationOAuthFlow, *request.Params.OauthFlowId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid oauth_flow_id")
+		}
+		filters.OAuthFlowID = id
+	}
+	extra := struct{ AgentProfileID, OAuthFlowID string }{}
 	if filters.AgentProfileID != storage.NilID {
 		extra.AgentProfileID = filters.AgentProfileID.String()
+	}
+	if filters.OAuthFlowID != storage.NilID {
+		extra.OAuthFlowID = filters.OAuthFlowID.String()
 	}
 	scopeKey := scope.project.OrgID.String() + "/" + scope.project.ID.String()
 	list, err := parseResourceListQuery(resourceListQueryInput{

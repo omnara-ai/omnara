@@ -107,6 +107,7 @@ type SecretListFilters struct {
 	Metadata            map[string]string
 	OwnerKind           string
 	OwnerProjectID      ID
+	MCPOAuthFlowID      ID
 	Availability        string
 	AvailabilitySources []string
 	Kinds               []string

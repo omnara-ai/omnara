@@ -8,6 +8,7 @@ export interface OmnaraClientOptions {
   baseUrl?: string
   credentials?: RequestCredentials
   auth?: AuthStrategy
+  headers?: Record<string, string>
 }
 
 export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraClient {
@@ -19,6 +20,7 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
   client.setConfig({
     baseUrl: options.baseUrl ?? '',
     credentials: options.credentials,
+    headers: options.headers,
   })
   const { auth } = options
   if (auth) {
