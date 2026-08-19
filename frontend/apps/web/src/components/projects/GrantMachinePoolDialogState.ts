@@ -15,6 +15,7 @@ import {
   newEnvOverlayRow,
   newSecretEnvOverlayRow,
   numberDraft,
+  optionalIdleDeletionMinutesValid,
   optionalInt,
   optionalIntOrNull,
   optionalNonNegativeInt32Valid,
@@ -86,7 +87,7 @@ export function poolGrantOverridesValid(draft: PoolGrantOverrideDraft) {
     envOverlayRowsValid(draft.envRows) &&
     secretEnvOverlayRowsValid(draft.secretEnvRows) &&
     [draft.cpu, draft.maxMachineCpu].every(optionalPositiveInt32Valid) &&
-    optionalPositiveInt32Valid(draft.deleteAfterIdleMinutes) &&
+    optionalIdleDeletionMinutesValid(draft.deleteAfterIdleMinutes) &&
     memoryGbDraftValid(draft.memoryGb, { optional: true }) &&
     memoryGbDraftValid(draft.maxMachineMemoryGb, { optional: true }) &&
     [draft.maxTotalMachines, draft.maxTotalCpu, draft.minMachineCpu].every(

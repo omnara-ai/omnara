@@ -3,17 +3,17 @@
 ALTER TABLE machine_pools
     ADD COLUMN delete_after_idle_minutes integer,
     ADD CONSTRAINT machine_pools_delete_after_idle_minutes_check
-        CHECK (delete_after_idle_minutes IS NULL OR delete_after_idle_minutes > 0);
+        CHECK (delete_after_idle_minutes IS NULL OR delete_after_idle_minutes >= 5);
 
 ALTER TABLE project_machine_pool_grants
     ADD COLUMN delete_after_idle_minutes integer,
     ADD CONSTRAINT project_machine_pool_grants_delete_after_idle_minutes_check
-        CHECK (delete_after_idle_minutes IS NULL OR delete_after_idle_minutes > 0);
+        CHECK (delete_after_idle_minutes IS NULL OR delete_after_idle_minutes = 0 OR delete_after_idle_minutes >= 5);
 
 ALTER TABLE agent_machine_bindings
     ADD COLUMN delete_after_idle_minutes integer,
     ADD CONSTRAINT agent_machine_bindings_delete_after_idle_minutes_check
-        CHECK (delete_after_idle_minutes IS NULL OR delete_after_idle_minutes > 0);
+        CHECK (delete_after_idle_minutes IS NULL OR delete_after_idle_minutes = 0 OR delete_after_idle_minutes >= 5);
 
 CREATE UNIQUE INDEX agent_machine_bindings_one_attached_pool_machine_idx
     ON agent_machine_bindings(org_id, machine_id)
@@ -57,7 +57,7 @@ WHERE machine.source_kind = 'pool'
     AND machine.deleted_at IS NULL
     AND machine.last_observed_at IS NOT NULL
     AND coalesce(binding.delete_after_idle_minutes, pool_grant.delete_after_idle_minutes, pool.delete_after_idle_minutes)
-        IS NOT NULL
+        >= 5
     AND machine.lifecycle_changed_at <= statement_timestamp() - make_interval(mins => coalesce(
         binding.delete_after_idle_minutes,
         pool_grant.delete_after_idle_minutes,

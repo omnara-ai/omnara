@@ -335,6 +335,7 @@ WHERE org_id = $1 AND machine_id = $2 AND source_kind = 'pool'
 func TestExpiredIdlePoolMachinePolicyResolution(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+	zero := 0
 	five := 5
 	twenty := 20
 	tests := []struct {
@@ -345,7 +346,10 @@ func TestExpiredIdlePoolMachinePolicyResolution(t *testing.T) {
 		{name: "disabled", want: false},
 		{name: "pool", policy: idlePoolMachinePolicy{PoolMinutes: &five}, want: true},
 		{name: "grant_override", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &twenty}, want: false},
+		{name: "grant_disabled", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &zero}, want: false},
+		{name: "binding_disabled", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &five, BindingMinutes: &zero}, want: false},
 		{name: "binding_override", policy: idlePoolMachinePolicy{PoolMinutes: &twenty, GrantMinutes: &twenty, BindingMinutes: &five}, want: true},
+		{name: "binding_reenables", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &zero, BindingMinutes: &five}, want: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

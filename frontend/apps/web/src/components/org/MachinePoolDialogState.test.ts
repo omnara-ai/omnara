@@ -24,6 +24,9 @@ describe('machine pool memory inputs', () => {
     }
 
     expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '0' })).toBe(false)
+    expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '4' })).toBe(false)
+    expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '5' })).toBe(true)
     expect(derivedMemoryTotalCapPlaceholder(values.memoryGb, values.maxMachines)).toBe('3.75')
     expect(machinePoolCreateRequest(values)).toMatchObject({
       provider: 'blaxel',

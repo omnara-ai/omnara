@@ -39,7 +39,8 @@ export function PoolGrantOverridesCollapsible({
       <FieldGroup>
         <FieldDescription>
           Pool values are shown as placeholders. Fields left empty keep following the pool; values
-          you enter are stored as overrides for this grant.
+          you enter are stored as overrides for this grant. For idle deletion, 0 disables it at this
+          level and enabled values must be at least 5.
         </FieldDescription>
         <PoolGrantOverrideFields
           orgId={orgId}
@@ -187,7 +188,7 @@ export function PoolGrantOverrideFields({
             label="Delete after idle minutes"
             value={values.deleteAfterIdleMinutes}
             placeholder={numberPlaceholder(pool.delete_after_idle_minutes)}
-            min={1}
+            min={0}
             onValueChange={(deleteAfterIdleMinutes) => {
               onChange({ ...values, deleteAfterIdleMinutes })
             }}

@@ -10276,7 +10276,7 @@ components:
           description: Idle minutes before deleting a machine from this pool. Omit to leave the pool default unset; a grant or agent source may still override it.
           type: integer
           format: int32
-          minimum: 1
+          minimum: 5
           maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
@@ -10361,7 +10361,7 @@ components:
           description: Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
           type: [integer, "null"]
           format: int32
-          minimum: 1
+          minimum: 5
           maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
@@ -10454,7 +10454,7 @@ components:
           description: Idle minutes before deleting a machine from this pool, or null when the pool default is unset.
           type: [integer, "null"]
           format: int32
-          minimum: 1
+          minimum: 5
           maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/Metadata'
@@ -10888,11 +10888,17 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Idle minutes before deleting a machine created through this grant, or null to inherit the pool default.
+          description: Idle minutes before deleting a machine created through this grant. Zero disables deletion for this grant; null inherits the pool default.
           type: [integer, "null"]
           format: int32
-          minimum: 1
+          minimum: 0
           maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
+            - type: "null"
         metadata:
           $ref: '#/components/schemas/Metadata'
         created_at:
@@ -10970,11 +10976,16 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Idle minutes before deleting a machine created through this grant. Omit to inherit the pool default.
+          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
           type: integer
           format: int32
-          minimum: 1
+          minimum: 0
           maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/Metadata'
     UpdateProjectMachinePoolGrantRequest:
@@ -11048,11 +11059,17 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Idle minutes before deleting a machine created through this grant. Null restores inheritance from the pool; omitted leaves it unchanged.
+          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
           type: [integer, "null"]
           format: int32
-          minimum: 1
+          minimum: 0
           maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
+            - type: "null"
         metadata:
           $ref: '#/components/schemas/Metadata'
     ListProjectMachinePoolGrantsResponse:

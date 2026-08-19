@@ -699,8 +699,25 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			name: "unikraft",
 			body: `{"provider":"unikraft",` + common +
 				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
-				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,` +
+				`"delete_after_idle_minutes":5}`,
 			want: http.StatusNoContent,
+		},
+		{
+			name: "unikraft rejects zero idle deletion",
+			body: `{"provider":"unikraft",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,` +
+				`"delete_after_idle_minutes":0}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "unikraft invalid idle deletion minutes",
+			body: `{"provider":"unikraft",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,` +
+				`"delete_after_idle_minutes":4}`,
+			want: http.StatusBadRequest,
 		},
 		{
 			name: "unikraft missing cpu",
@@ -773,6 +790,86 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 				"/api/v1/orgs/"+orgID+"/machine-pools",
 				strings.NewReader(tt.body),
 			)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), tt.want)
+			}
+		})
+	}
+}
+
+func TestOpenAPIRequestValidatorEnforcesMachinePoolGrantIdleDeletionMinutes(t *testing.T) {
+	handler := newOpenAPIValidatorTestHandler(t)
+	orgID := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
+	projectID := testPublicID(t, publicid.KindProject, httpTestProjectID)
+	poolID := testPublicID(t, publicid.KindMachinePool, testHTTPID(30))
+	poolGrantID := testPublicID(t, publicid.KindProjectMachinePoolGrant, testHTTPID(31))
+	createPath := "/api/v1/orgs/" + orgID + "/projects/" + projectID + "/machine-pool-grants"
+	updatePath := createPath + "/" + poolGrantID
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		want   int
+	}{
+		{
+			name:   "create disabled",
+			method: http.MethodPost,
+			path:   createPath,
+			body:   `{"machine_pool_id":"` + poolID + `","delete_after_idle_minutes":0}`,
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "create invalid",
+			method: http.MethodPost,
+			path:   createPath,
+			body:   `{"machine_pool_id":"` + poolID + `","delete_after_idle_minutes":4}`,
+			want:   http.StatusBadRequest,
+		},
+		{
+			name:   "create enabled",
+			method: http.MethodPost,
+			path:   createPath,
+			body:   `{"machine_pool_id":"` + poolID + `","delete_after_idle_minutes":5}`,
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "update inherited",
+			method: http.MethodPatch,
+			path:   updatePath,
+			body:   `{"delete_after_idle_minutes":null}`,
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "update disabled",
+			method: http.MethodPatch,
+			path:   updatePath,
+			body:   `{"delete_after_idle_minutes":0}`,
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "update invalid",
+			method: http.MethodPatch,
+			path:   updatePath,
+			body:   `{"delete_after_idle_minutes":4}`,
+			want:   http.StatusBadRequest,
+		},
+		{
+			name:   "update enabled",
+			method: http.MethodPatch,
+			path:   updatePath,
+			body:   `{"delete_after_idle_minutes":5}`,
+			want:   http.StatusNoContent,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 

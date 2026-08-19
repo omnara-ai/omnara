@@ -281,9 +281,10 @@ func normalizeProjectMachinePoolGrantConfig(
 		)
 	}
 	if config.DeleteAfterIdleMinutes != nil &&
-		(*config.DeleteAfterIdleMinutes <= 0 || *config.DeleteAfterIdleMinutes > math.MaxInt32) {
+		(*config.DeleteAfterIdleMinutes != 0 &&
+			(*config.DeleteAfterIdleMinutes < 5 || *config.DeleteAfterIdleMinutes > math.MaxInt32)) {
 		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
-			"pool grant delete_after_idle_minutes must be between 1 and %d when set",
+			"pool grant delete_after_idle_minutes must be 0 or between 5 and %d when set",
 			math.MaxInt32,
 		)
 	}

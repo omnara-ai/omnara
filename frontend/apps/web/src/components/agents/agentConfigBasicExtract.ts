@@ -9,6 +9,7 @@ import type {
 import {
   emptyProviderOptions,
   type EnvOverlayRow,
+  idleDeletionMinutesValid,
   type ProviderOptionsDraft,
   type SecretEnvOverlayRow,
 } from '@/components/machines/machineOverrides'
@@ -22,6 +23,7 @@ const permission = z.strictObject({
 
 const positiveCount = z.number().int().positive().optional()
 const nonNegativeCount = z.number().int().nonnegative().optional()
+const idleDeletionMinutes = z.number().refine(idleDeletionMinutesValid).optional()
 const overlay = z.record(z.string(), z.string().nullable()).optional()
 const providerOptionsOverlay = z.record(z.string(), z.string()).optional()
 
@@ -36,7 +38,7 @@ const poolEntry = z.strictObject({
   machine_pool_name: z.string(),
   initial_num_machines: nonNegativeCount,
   max_machines: nonNegativeCount,
-  delete_after_idle_minutes: positiveCount,
+  delete_after_idle_minutes: idleDeletionMinutes,
   machine_cpu: positiveCount,
   machine_memory_mb: positiveCount,
   machine_provider_options_overlay: providerOptionsOverlay,

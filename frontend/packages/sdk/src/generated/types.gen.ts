@@ -2503,9 +2503,9 @@ export type ProjectMachinePoolGrant = {
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
     /**
-     * Idle minutes before deleting a machine created through this grant, or null to inherit the pool default.
+     * Idle minutes before deleting a machine created through this grant. Zero disables deletion for this grant; null inherits the pool default.
      */
-    delete_after_idle_minutes: number | null;
+    delete_after_idle_minutes: 0 | number | null;
     metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
@@ -2540,9 +2540,9 @@ export type CreateProjectMachinePoolGrantRequest = {
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
     /**
-     * Idle minutes before deleting a machine created through this grant. Omit to inherit the pool default.
+     * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
      */
-    delete_after_idle_minutes?: number;
+    delete_after_idle_minutes?: 0 | number;
     metadata?: Metadata;
 };
 
@@ -2571,9 +2571,9 @@ export type UpdateProjectMachinePoolGrantRequest = {
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
     /**
-     * Idle minutes before deleting a machine created through this grant. Null restores inheritance from the pool; omitted leaves it unchanged.
+     * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
      */
-    delete_after_idle_minutes?: number | null;
+    delete_after_idle_minutes?: 0 | number | null;
     metadata?: Metadata;
 };
 

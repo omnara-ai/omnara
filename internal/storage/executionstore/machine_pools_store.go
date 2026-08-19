@@ -457,9 +457,9 @@ func prepareMachinePoolConfigInput(
 		)
 	}
 	if input.DeleteAfterIdleMinutes != nil &&
-		(*input.DeleteAfterIdleMinutes <= 0 || *input.DeleteAfterIdleMinutes > math.MaxInt32) {
+		(*input.DeleteAfterIdleMinutes < 5 || *input.DeleteAfterIdleMinutes > math.MaxInt32) {
 		return machinePoolDefaults{}, fmt.Errorf(
-			"delete_after_idle_minutes must be between 1 and %d when set",
+			"delete_after_idle_minutes must be between 5 and %d when set",
 			math.MaxInt32,
 		)
 	}

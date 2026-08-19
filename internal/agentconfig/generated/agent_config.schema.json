@@ -109,9 +109,16 @@
           "type": "string"
         },
         "delete_after_idle_minutes": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
+          "anyOf": [
+            {
+              "const": 0
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": 5,
+              "type": "integer"
+            }
+          ]
         },
         "description": {
           "type": "string"

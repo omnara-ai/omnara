@@ -276,7 +276,10 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.Prop("initial_num_machines", kjsonschema.Integer(kjsonschema.Min(0))),
 				kjsonschema.Prop(
 					"delete_after_idle_minutes",
-					kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
+					kjsonschema.AnyOf(
+						kjsonschema.Const(0),
+						kjsonschema.Integer(kjsonschema.Min(5), kjsonschema.Max(float64(math.MaxInt32))),
+					),
 				),
 				kjsonschema.Prop("cwd", kjsonschema.String()),
 				kjsonschema.Prop(

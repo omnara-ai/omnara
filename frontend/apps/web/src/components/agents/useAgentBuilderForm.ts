@@ -11,6 +11,7 @@ import {
   envOverlayFromRows,
   type EnvOverlayRow,
   envOverlayRowsValid,
+  optionalIdleDeletionMinutesValid,
   optionalPositiveInt32Valid,
   type ProviderOptionsDraft,
   providerOptionsOverlay,
@@ -198,7 +199,7 @@ function machineSourceValid(source: BasicMachineSource) {
     (source.kind === 'machine' ||
       (machineCountValid(source.initialNumMachines) &&
         machineCountValid(source.maxMachines) &&
-        optionalPositiveInt32Valid(source.deleteAfterIdleMinutes) &&
+        optionalIdleDeletionMinutesValid(source.deleteAfterIdleMinutes) &&
         optionalPositiveInt32Valid(source.machineCpu) &&
         memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )

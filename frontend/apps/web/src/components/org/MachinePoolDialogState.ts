@@ -10,6 +10,7 @@ import {
   optionalInt,
   optionalIntOrNull,
   optionalNonNegativeInt32Valid,
+  optionalPoolIdleDeletionMinutesValid,
   optionalPositiveInt32Valid,
   secretEnvFromRows,
   type SecretEnvOverlayRow,
@@ -194,7 +195,7 @@ export function machinePoolFormValid(
     envOverlayRowsValid(values.envRows) &&
     secretEnvOverlayRowsValid(values.secretEnvRows) &&
     optionalPositiveInt32Valid(values.maxMachineCpu) &&
-    optionalPositiveInt32Valid(values.deleteAfterIdleMinutes) &&
+    optionalPoolIdleDeletionMinutesValid(values.deleteAfterIdleMinutes) &&
     memoryGbDraftValid(values.maxMachineMemoryGb, { optional: true }) &&
     (clusterEdit || optionalNonNegativeInt32Valid(values.maxTotalCpu)) &&
     optionalNonNegativeInt32Valid(values.minMachineCpu) &&

@@ -124,6 +124,30 @@ func TestPrepareMachinePoolConfigInputAllowsIndependentResourceDefaultsAndCaps(t
 	}
 }
 
+func TestPrepareMachinePoolConfigInputValidatesIdleDeletionMinutes(t *testing.T) {
+	for _, test := range []struct {
+		minutes *int
+		valid   bool
+	}{
+		{valid: true},
+		{minutes: intPtrForMachinePoolStoreTest(0), valid: false},
+		{minutes: intPtrForMachinePoolStoreTest(4), valid: false},
+		{minutes: intPtrForMachinePoolStoreTest(5), valid: true},
+	} {
+		input := CreateMachinePoolInput{
+			ManagementKind:                management.Cluster,
+			ProviderAuthEnvVar:            "TEST_PROVIDER_TOKEN",
+			DefaultMachineProviderOptions: json.RawMessage(`{}`),
+			MaxTotalMachines:              1,
+			DeleteAfterIdleMinutes:        test.minutes,
+		}
+		_, err := prepareMachinePoolConfigInput(&input)
+		if (err == nil) != test.valid {
+			t.Fatalf("delete_after_idle_minutes %v error = %v, valid = %v", test.minutes, err, test.valid)
+		}
+	}
+}
+
 func TestCheckProvisioningResourceAdmissionEnforcesMinimums(t *testing.T) {
 	err := checkProvisioningResourceAdmission(
 		0,
