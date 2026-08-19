@@ -391,8 +391,11 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if err := s.ensureAgentProfileIntegrationSendTool(ctx, project, profile); err != nil {
-		return nil, err
+	if !agentConfigCanUseIntegrationSendTool(profile.CurrentConfig) {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"agent profile config does not allow send_integration_message",
+		)
 	}
 	now := time.Now().UTC()
 	flowID, err := uuid.NewV7()
@@ -497,16 +500,19 @@ func (s strictOpenAPIServer) createSlackSetup(
 			"Slack reserves this app name. Choose a different name.",
 		)
 	}
-	appIcon, err := slackSetupAppIcon(*request.Body)
-	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
-	}
 	profile, err := s.server.store.Execution().GetAgentProfile(ctx, project.ID, agentProfileID)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if err := s.ensureAgentProfileIntegrationSendTool(ctx, project, profile); err != nil {
-		return nil, err
+	if !agentConfigCanUseIntegrationSendTool(profile.CurrentConfig) {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"agent profile config does not allow send_integration_message",
+		)
+	}
+	appIcon, err := slackSetupAppIcon(*request.Body)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
 	eventsURL := s.server.absolutePublicURL(integrationEventsPath)

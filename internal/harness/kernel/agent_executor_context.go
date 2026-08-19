@@ -174,15 +174,6 @@ func (e AgentExecutor) executeModelStep(
 		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
 	}
 	capabilities := model.CapabilitiesForClient(client)
-	if err := ensureModelSupportsContractTools(client, capabilities, contract); err != nil {
-		cause := model.ProviderError{
-			Kind:    model.ErrorKindInvalidRequest,
-			Source:  "model_capabilities",
-			Code:    "required_tools_unsupported",
-			Message: err.Error(),
-		}
-		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
-	}
 	bundle, err := builder.Build(ctx, modelcontext.BuildInput{
 		ProjectID:           input.ProjectID,
 		AgentID:             input.AgentID,
@@ -210,6 +201,19 @@ func (e AgentExecutor) executeModelStep(
 				Message: "Omnara could not construct the model context for this attempt.",
 			},
 		)
+	}
+	if err := ensureModelSupportsTools(
+		client,
+		capabilities,
+		contract.RequiresModelToolSupport() || len(bundle.ToolSpecs) > 0,
+	); err != nil {
+		cause := model.ProviderError{
+			Kind:    model.ErrorKindInvalidRequest,
+			Source:  "model_capabilities",
+			Code:    "required_tools_unsupported",
+			Message: err.Error(),
+		}
+		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
 	}
 
 	policy, err := modelretry.RequestPolicyForModelCall(

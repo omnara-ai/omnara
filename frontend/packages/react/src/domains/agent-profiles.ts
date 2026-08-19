@@ -88,27 +88,7 @@ export function useCreateAgentProfile(orgID: string, projectID: string) {
 }
 
 export function useCreateSlackSetup(orgID: string, projectID: string, agentProfileID: string) {
-  const client = useOmnaraClient()
-  const queryClient = useQueryClient()
-  return useScopedMutation(
-    sdk.createSlackSetup,
-    { orgID, projectID, agentProfileID },
-    {
-      onError: async () => {
-        await Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: getAgentProfileQueryKey({
-              path: { orgID, projectID, agentProfileID },
-              client,
-            }),
-          }),
-          queryClient.invalidateQueries({
-            queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
-          }),
-        ])
-      },
-    },
-  )
+  return useScopedMutation(sdk.createSlackSetup, { orgID, projectID, agentProfileID })
 }
 
 export function useUpdateAgentProfile(orgID: string, projectID: string) {

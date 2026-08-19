@@ -4,19 +4,24 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 func TestAgentExecutorReloadsCompiledModelOverridesFromModelContext(t *testing.T) {
@@ -97,6 +102,105 @@ model:
 		*resolvedSelection.Overrides.DefaultMaxOutputTokens != 2345 ||
 		resolvedSelection.Overrides.CacheRetention != string(model.CacheRetentionLong) {
 		t.Fatalf("selection overrides from context = %+v", resolvedSelection.Overrides)
+	}
+}
+
+func TestAgentExecutorReloadsImplicitIntegrationToolFromModelContext(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	sourceYAML := `
+instruction: Send messages through the connected integration.
+model:
+  provider_config: openai-prod
+  name: implicit-integration-tool-model
+`
+	profile := fixture.createConfigAndProfileBookmark(
+		t,
+		ctx,
+		"Kernel Implicit Integration Tool",
+		"kernel-implicit-integration-tool-agent",
+		sourceYAML,
+		now,
+	)
+	launch, err := fixture.Store.Execution().LaunchAgent(
+		ctx,
+		executionstore.LaunchAgentInput{
+			ProjectID:      kernelTestProjectID,
+			ProfileID:      profile.ID,
+			AgentConfigID:  profile.CurrentConfigID,
+			LaunchedBy:     kernelTestUserPrincipal(kernelTestUserID),
+			IdempotencyKey: "kernel-implicit-integration-tool-agent",
+		},
+	)
+	if err != nil {
+		t.Fatalf("launch agent: %v", err)
+	}
+	secret, _, err := fixture.Store.Secrets().CreateSecret(
+		ctx,
+		secretstore.CreateSecretInput{
+			OrgID:          kernelTestOrgID,
+			OwnerKind:      secretstore.SecretOwnerProject,
+			OwnerProjectID: kernelTestProjectID,
+			Name:           "kernel-implicit-integration-tool-credentials",
+			Material: secrets.SlackAppCredentialsMaterial{
+				AccessToken:   "xoxb-test",
+				ClientID:      "client-id",
+				ClientSecret:  "client-secret",
+				SigningSecret: "signing-secret",
+			},
+			Actor: kernelTestUserPrincipal(kernelTestUserID),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create integration credential secret: %v", err)
+	}
+	install, err := fixture.Store.Integrations().UpsertIntegrationInstall(
+		ctx,
+		integrationstore.UpsertIntegrationInstallInput{
+			OrgID:              kernelTestOrgID,
+			ProjectID:          kernelTestProjectID,
+			AgentProfileID:     profile.ID,
+			InstalledByUserID:  kernelTestUserID,
+			Provider:           integrationstore.IntegrationProviderSlack,
+			IntegrationKind:    slack.IntegrationKindAgentProfile,
+			ConnectionMode:     slack.ConnectionModeWebhook,
+			State:              integrationstore.IntegrationInstallStateActive,
+			ProviderTenantID:   "T_IMPLICIT_TOOL",
+			ProviderAccountRef: "A_IMPLICIT_TOOL",
+			CredentialSecretID: secret.ID,
+			ProviderIdentity:   json.RawMessage(`{"bot_user_id":"B_IMPLICIT_TOOL"}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create integration install: %v", err)
+	}
+	if _, err := fixture.Store.Integrations().CreateIntegrationTarget(
+		ctx,
+		integrationstore.CreateIntegrationTargetInput{
+			ProjectID:            kernelTestProjectID,
+			AgentID:              launch.Agent.ID,
+			IntegrationInstallID: install.ID,
+			ProviderRef:          "C_IMPLICIT_TOOL:1.0",
+			ProviderRefKind:      "thread",
+		},
+	); err != nil {
+		t.Fatalf("create integration target: %v", err)
+	}
+	specs, err := (AgentExecutor{Store: fixture.Store}).modelContextToolRuntime(
+		ctx,
+		kernelTestProjectID,
+		launch.Agent.ID,
+		executionstore.ModelCallContextRecord{AgentConfigID: profile.CurrentConfigID},
+		now,
+	)
+	if err != nil {
+		t.Fatalf("reload model context tool runtime: %v", err)
+	}
+	if len(specs) != 1 ||
+		specs[0].Name != toolcatalog.ToolNameSendIntegrationMessage ||
+		specs[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("reloaded tool specs = %+v, want implicit send_integration_message", specs)
 	}
 }
 

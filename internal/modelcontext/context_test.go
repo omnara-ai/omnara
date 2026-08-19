@@ -516,15 +516,15 @@ func TestBuildProjectsIntegrationTargets(t *testing.T) {
 	store := &fakeContextStore{
 		watermark: 15,
 		hasConfig: true,
-		config:    testAgentConfigRecordWithTools(t, toolcatalog.ToolNameSendIntegrationMessage),
+		config:    testAgentConfigRecord(),
 		integrationTargets: []integrationstore.IntegrationTargetSummary{{
 			ID:              targetID,
 			TargetRef:       "slack-abcd",
 			Provider:        integrationstore.IntegrationProviderSlack,
+			InstallState:    integrationstore.IntegrationInstallStateDisabled,
 			ProviderRef:     "C123:1712345678.000100",
 			ProviderRefKind: "thread",
 			DisplayName:     "general",
-			IsCurrent:       true,
 		}},
 	}
 	bundle, err := (Builder{Store: store}).Build(
@@ -540,9 +540,14 @@ func TestBuildProjectsIntegrationTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
+	if len(bundle.ToolSpecs) != 1 ||
+		bundle.ToolSpecs[0].Name != toolcatalog.ToolNameSendIntegrationMessage ||
+		bundle.ToolSpecs[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("expected implicit integration send tool, got %+v", bundle.ToolSpecs)
+	}
 	if len(bundle.IntegrationTargets) != 1 ||
 		bundle.IntegrationTargets[0].TargetRef != "slack-abcd" ||
-		!bundle.IntegrationTargets[0].IsCurrent {
+		bundle.IntegrationTargets[0].IsCurrent {
 		t.Fatalf("expected integration target projection, got %+v", bundle.IntegrationTargets)
 	}
 	if serialized := string(contextFixtureJSON(t, bundle)); strings.Contains(serialized, targetID.String()) {
@@ -556,14 +561,32 @@ func TestBuildProjectsIntegrationTargets(t *testing.T) {
 	}
 }
 
-func TestBuildOmitsIntegrationTargetsForAskQuestion(t *testing.T) {
+func TestBuildExplicitlyDisabledIntegrationSendToolOverridesImplicitTarget(t *testing.T) {
+	result, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
+instruction: Help the user make progress.
+model:
+  provider_config: deterministic-test
+  name: deterministic-owned-kernel-test
+tools:
+  ask_question: {}
+  send_integration_message:
+    enabled: false
+`), agentconfig.CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile disabled integration send config: %v", err)
+	}
 	store := &fakeContextStore{
 		watermark: 15,
 		hasConfig: true,
-		config:    testAgentConfigRecordWithTools(t, toolcatalog.ToolNameAskQuestion),
+		config: executionstore.AgentConfigRecord{
+			ID:                      testIDN(941),
+			CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
+			CompilerVersion:         agentconfig.CompilerVersion,
+			EffectiveDefinitionHash: result.Hash,
+		},
 		integrationTargets: []integrationstore.IntegrationTargetSummary{{
-			ID:        testIDN(941),
-			TargetRef: "slack-abcd",
+			ID:        testIDN(942),
+			TargetRef: "slack-disabled",
 			Provider:  integrationstore.IntegrationProviderSlack,
 		}},
 	}
@@ -580,8 +603,14 @@ func TestBuildOmitsIntegrationTargetsForAskQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
+	if HasTool(bundle.ToolSpecs, toolcatalog.ToolNameSendIntegrationMessage) {
+		t.Fatalf("explicitly disabled integration send tool was exposed: %+v", bundle.ToolSpecs)
+	}
+	if !HasTool(bundle.ToolSpecs, toolcatalog.ToolNameAskQuestion) {
+		t.Fatalf("explicitly enabled ask question tool was not exposed: %+v", bundle.ToolSpecs)
+	}
 	if len(bundle.IntegrationTargets) != 0 {
-		t.Fatalf("integration targets leaked into ask_question context: %+v", bundle.IntegrationTargets)
+		t.Fatalf("integration targets leaked without an integration tool: %+v", bundle.IntegrationTargets)
 	}
 }
 
