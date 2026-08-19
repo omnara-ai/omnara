@@ -1,0 +1,56 @@
+name: Release SDK
+
+on:
+  push:
+    tags:
+      - 'sdk-v[0-9]+.[0-9]+.[0-9]+'
+      - 'sdk-v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @omnara/sdk to npm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version-file: .node-version
+
+      - run: corepack enable
+
+      - name: Set version from tag
+        working-directory: frontend/packages/sdk
+        run: npm pkg set version="${GITHUB_REF_NAME#sdk-v}"
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @omnara/sdk typecheck
+
+      - run: pnpm --filter @omnara/sdk test
+
+      - run: pnpm --filter @omnara/sdk build
+
+      - name: Publish
+        working-directory: frontend/packages/sdk
+        run: |
+          version="${GITHUB_REF_NAME#sdk-v}"
+          case "$version" in
+            *-*) dist_tag=beta ;;
+            *) dist_tag=latest ;;
+          esac
+          pnpm publish --no-git-checks --tag "$dist_tag"
