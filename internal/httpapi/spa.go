@@ -29,12 +29,14 @@ var spaReservedPrefixes = []string{
 	"api/",
 	"install/",
 	".well-known/",
+	"healthz/",
 }
 
 var spaReservedExact = []string{
 	"api",
 	"install",
 	".well-known",
+	"healthz",
 }
 
 func (s *Server) registerRootRoutes(mux *http.ServeMux) {
