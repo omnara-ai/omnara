@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "generate:api": "openapi-ts",
+    "generate:api": "openapi-ts && node scripts/relax-response-enums.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

@@ -20,7 +20,7 @@ import (
 const (
 	postgresMigrationLockID      int64 = 0x4f4d4e415241
 	minimumPostgresVersion       int   = 180000
-	resourceNameMigrationVersion int64 = 22
+	resourceNameMigrationVersion int64 = 23
 
 	defaultLockTimeout      = "30s"
 	defaultStatementTimeout = "15min"

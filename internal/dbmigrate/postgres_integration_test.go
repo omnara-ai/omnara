@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
@@ -265,8 +266,8 @@ func TestResourceNameMigrationRequiresUnrepairableExistingRowsToBeValid(t *testi
 			t.Fatalf("resource-name migration error included truncated ID %s: %v", omittedID, err)
 		}
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 21 {
-		t.Fatalf("migration version after rejected resource name = %d, want 21", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 22 {
+		t.Fatalf("migration version after rejected resource name = %d, want 22", got)
 	}
 	for _, orgID := range orgIDs {
 		if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
@@ -320,8 +321,8 @@ func TestResourceNameMigrationRejectsRepairCollisions(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "projects_active_name_idx") {
 		t.Fatalf("resource-name collision error = %v", err)
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
-		t.Fatalf("migration version after repair collision = %d, want 20", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 21 {
+		t.Fatalf("migration version after repair collision = %d, want 21", got)
 	}
 	var legacyNameCount int
 	if err := pool.QueryRow(
@@ -1365,6 +1366,147 @@ WHERE id = $1
 
 	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
 		t.Fatalf("replay upgraded populated database: %v", err)
+	}
+}
+
+func TestPostgresPopulatedVersion20BackfillsConfiguredModelManagementKind(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
+		t.Fatalf("apply migrations through version 20: %v", err)
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
+		t.Fatalf("pre-upgrade schema version = %d, want 20", got)
+	}
+
+	orgID := uuid.NewString()
+	secretID := uuid.NewString()
+	secretVersionID := uuid.NewString()
+	tenantProviderID := uuid.NewString()
+	clusterProviderID := uuid.NewString()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO orgs(id, name, created_at, updated_at)
+VALUES ($1, 'v19 populated org', statement_timestamp(), statement_timestamp())
+`, orgID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO secrets(
+    id, org_id, management_kind, owner_kind, name, kind, metadata,
+    current_version_id, created_at, updated_at
+)
+VALUES (
+    $1, $2, 'tenant', 'org', 'v19 tenant provider key', 'generic', '{}'::jsonb,
+    $3, statement_timestamp(), statement_timestamp()
+)
+`, secretID, orgID, secretVersionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO secret_versions(
+    id, org_id, secret_id, version_number, payload_keys, encryption_scheme,
+    key_id, dek_wrapped_by, encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at
+)
+VALUES (
+    $1, $2, $3, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1',
+    'test-key', 'local', decode(repeat('01', 48), 'hex'), decode(repeat('02', 12), 'hex'),
+    decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), statement_timestamp()
+)
+`, secretVersionID, orgID, secretID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO model_provider_configs(
+    id, org_id, management_kind, name, api_format, base_url, endpoint_path,
+    auth_kind, credential_secret_id, created_at, updated_at
+)
+VALUES (
+    $1, $2, 'tenant', 'v19 tenant provider', 'openai-responses',
+    'https://tenant.example.test/v1', '/responses', 'bearer_token', $3,
+    statement_timestamp(), statement_timestamp()
+)
+`, tenantProviderID, orgID, secretID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO model_provider_configs(
+    id, org_id, management_kind, name, api_format, base_url, endpoint_path,
+    auth_kind, credential_secret_id, deleted_at, created_at, updated_at
+)
+VALUES (
+    $1, $2, 'cluster', 'v19 deleted cluster provider', 'openai-responses',
+    'https://cluster.example.test/v1', '/responses', 'bearer_token', NULL,
+    statement_timestamp(), statement_timestamp(), statement_timestamp()
+)
+`, clusterProviderID, orgID); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []struct {
+		name       string
+		providerID string
+		deleted    bool
+	}{
+		{name: "cluster legacy model", providerID: clusterProviderID, deleted: true},
+		{name: "tenant legacy model", providerID: tenantProviderID},
+	} {
+		if _, err := tx.ExecContext(ctx, `
+WITH configured_model AS (
+	INSERT INTO configured_models(
+		id, org_id, model_provider_config_id, name, current_revision_id,
+		deleted_at, created_at, updated_at
+	)
+	VALUES (
+		$1, $2, $3, $4, $5,
+		CASE WHEN $6::boolean THEN statement_timestamp() END,
+		statement_timestamp(), statement_timestamp()
+	)
+	RETURNING id, org_id, model_provider_config_id, current_revision_id
+)
+INSERT INTO configured_model_revisions(
+    id, org_id, configured_model_id, model_provider_config_id,
+    provider_model_slug, context_window_tokens, max_output_tokens, created_at
+)
+SELECT current_revision_id, org_id, id, model_provider_config_id,
+       $4, 128000, 8192, statement_timestamp()
+FROM configured_model
+`, uuid.NewString(), orgID, model.providerID, model.name, uuid.NewString(), model.deleted); err != nil {
+			t.Fatalf("insert %s: %v", model.name, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+		t.Fatalf("upgrade populated version 19 database: %v", err)
+	}
+	var backfilled string
+	if err := db.QueryRowContext(ctx, `
+SELECT string_agg(
+    configured_model.name || ':' || configured_model.management_kind || ':' || provider_config.management_kind,
+    ',' ORDER BY configured_model.name
+)
+FROM configured_models configured_model
+JOIN model_provider_configs provider_config
+  ON provider_config.org_id = configured_model.org_id
+ AND provider_config.id = configured_model.model_provider_config_id
+WHERE configured_model.org_id = $1
+`, orgID).Scan(&backfilled); err != nil {
+		t.Fatal(err)
+	}
+	const expected = "cluster legacy model:cluster:cluster,tenant legacy model:tenant:tenant"
+	if backfilled != expected {
+		t.Fatalf("backfilled configured model authority = %q, want %q", backfilled, expected)
 	}
 }
 

@@ -24,6 +24,7 @@
     "@tanstack/react-router": "^1.69.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "cronstrue": "^3.24.0",
     "lucide-react": "^0.460.0",
     "monaco-editor": "^0.52.2",
     "monaco-yaml": "^5.5.1",

@@ -1092,6 +1092,7 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 		Id:                        id,
 		OrgId:                     orgID,
 		ModelProviderConfigId:     configID,
+		ManagementKind:            openapigen.ManagementKind(record.ManagementKind),
 		Name:                      record.Name,
 		CurrentRevisionId:         revisionID,
 		ProviderModelSlug:         record.ProviderModelSlug,

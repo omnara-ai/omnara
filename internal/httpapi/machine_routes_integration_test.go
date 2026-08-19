@@ -1115,6 +1115,105 @@ func TestMachineDaemonReportProcessStartedCompletesStartToolCall(t *testing.T) {
 	}
 }
 
+func TestMachineDaemonStorageExhaustionFailsQueuedProcess(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "daemon-storage-queued")
+	store := newIntegrationStore(pool)
+	process := createDaemonProcessFixtureWithToolCalls(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC),
+		"daemon-storage-queued",
+		"run_command",
+		[]model.ToolCall{{ID: "call_storage_late_read", Name: "read_process", Input: json.RawMessage(`{}`)}},
+	)
+	event := daemonReportedEvent{
+		Type:               daemonprotocol.EventProcessFinished,
+		ProcessID:          process.ProcessID,
+		State:              daemonprotocol.ProcessStateFailed,
+		StateReasonCode:    daemonprotocol.ProcessReasonMachineStorageExhausted,
+		StateReasonMessage: daemonprotocol.ProcessMessageMachineStorageExhausted,
+	}
+	cleanupOnly, err := applyDaemonReportDispositionForTest(
+		t,
+		ctx,
+		store,
+		project,
+		process,
+		event,
+	)
+	if err != nil || cleanupOnly {
+		t.Fatalf("storage report: cleanup_only=%t err=%v", cleanupOnly, err)
+	}
+	updated, err := store.Execution().GetProcess(
+		ctx,
+		project.ProjectUUID,
+		process.AgentUUID,
+		process.ProcessUUID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State != executionstore.ProcessStateFailed ||
+		updated.ExecutionGrantedAt != nil ||
+		updated.SourceStartedAt != nil ||
+		updated.SourceEndedAt != nil ||
+		updated.StateReasonCode != daemonprotocol.ProcessReasonMachineStorageExhausted {
+		t.Fatalf("queued process after storage report = %+v", updated)
+	}
+	toolCall, err := store.Execution().GetToolCall(
+		ctx,
+		project.ProjectUUID,
+		process.AgentUUID,
+		process.ToolCallUUID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if toolCall.State != "completed" || !strings.Contains(
+		string(toolCall.ResultContentParts),
+		daemonprotocol.ProcessReasonMachineStorageExhausted,
+	) {
+		t.Fatalf("queued process tool result = %+v", toolCall)
+	}
+	lateReadToolCall := process.toolCall(t, "call_storage_late_read")
+	if _, err := storagetest.CreateProcessActionForToolCall(
+		ctx,
+		store,
+		executionstore.ExecuteToolCallInput{
+			ProjectID:     project.ProjectUUID,
+			AgentID:       process.AgentUUID,
+			ToolCallID:    lateReadToolCall.ID,
+			RuntimeLockID: process.RuntimeLock.ID,
+		},
+		executionstore.CreateProcessActionInput{
+			ProcessID:  process.ProcessUUID,
+			ActionKind: executionstore.ProcessActionKindRead,
+			Payload:    json.RawMessage(`{"cursor":0}`),
+		},
+	); !errors.Is(err, storeerr.ErrProcessTerminal) {
+		t.Fatalf("late storage-exhausted read error = %v, want ErrProcessTerminal", err)
+	}
+	cleanupOnly, err = applyDaemonReportDispositionForTest(
+		t,
+		ctx,
+		store,
+		project,
+		process,
+		event,
+	)
+	if err != nil {
+		t.Fatalf("replayed storage report: cleanup_only=%t err=%v", cleanupOnly, err)
+	}
+}
+
 func TestMachineDaemonRuntimeRegistrationClosesQueuedPreparation(
 	t *testing.T,
 ) {
@@ -2383,6 +2482,118 @@ func TestMachineDaemonReportProcessFinishedPreservesOutstandingReads(
 			found,
 			acceptedUpdated,
 		)
+	}
+}
+
+func TestMachineDaemonLateStorageExhaustionSettlesAcceptedAction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "daemon-storage-action")
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 8, 17, 13, 0, 0, 0, time.UTC)
+	process := createDaemonAcceptedProcessFixtureWithToolCalls(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now,
+		"daemon-storage-action",
+		[]model.ToolCall{{ID: "call_storage_action", Name: "write_process", Input: json.RawMessage(`{}`)}},
+	)
+	if _, err := store.Execution().MarkProcessStarted(
+		ctx,
+		executionstore.MarkProcessStartedInput{
+			Authority:       process.authority(),
+			ProjectID:       project.ProjectUUID,
+			AgentID:         process.AgentUUID,
+			ID:              process.ProcessUUID,
+			SourceStartedAt: now.Add(time.Second),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	toolCall := process.toolCall(t, "call_storage_action")
+	action, err := storagetest.CreateProcessActionForToolCall(
+		ctx,
+		store,
+		executionstore.ExecuteToolCallInput{
+			ProjectID:     project.ProjectUUID,
+			AgentID:       process.AgentUUID,
+			ToolCallID:    toolCall.ID,
+			RuntimeLockID: process.RuntimeLock.ID,
+		},
+		executionstore.CreateProcessActionInput{
+			ProcessID:  process.ProcessUUID,
+			ActionKind: executionstore.ProcessActionKindWrite,
+			Payload:    json.RawMessage(`{"data":"x"}`),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := acceptDaemonProcessActionOfferForTest(
+		ctx,
+		store,
+		process.authority(),
+		process.ProcessUUID,
+		action.ID,
+	); err != nil || !found {
+		t.Fatalf("accept action: found=%t err=%v", found, err)
+	}
+	exitCode := 0
+	applyDaemonReportForTest(
+		t,
+		ctx,
+		store,
+		project,
+		process,
+		daemonReportedEvent{
+			Type:      daemonprotocol.EventProcessFinished,
+			ProcessID: process.ProcessID,
+			State:     daemonprotocol.ProcessStateExited,
+			ExitCode:  &exitCode,
+			EndedAt:   now.Add(2 * time.Second),
+			Result:    json.RawMessage(`{"output":"done","cursor":0,"next_cursor":4,"truncated":false}`),
+		},
+	)
+	applyDaemonReportForTest(
+		t,
+		ctx,
+		store,
+		project,
+		process,
+		daemonReportedEvent{
+			Type:               daemonprotocol.EventProcessFinished,
+			ProcessID:          process.ProcessID,
+			State:              daemonprotocol.ProcessStateFailed,
+			StateReasonCode:    daemonprotocol.ProcessReasonMachineStorageExhausted,
+			StateReasonMessage: daemonprotocol.ProcessMessageMachineStorageExhausted,
+		},
+	)
+	updatedProcess, err := store.Execution().GetProcess(
+		ctx,
+		project.ProjectUUID,
+		process.AgentUUID,
+		process.ProcessUUID,
+	)
+	if err != nil || updatedProcess.SourceStartedAt == nil ||
+		updatedProcess.SourceEndedAt == nil ||
+		updatedProcess.SourceEndedAt.Before(*updatedProcess.SourceStartedAt) {
+		t.Fatalf("started process timestamps after storage failure = %+v, err=%v", updatedProcess, err)
+	}
+	updated, found, err := store.Execution().GetProcessActionByToolCall(
+		ctx,
+		project.ProjectUUID,
+		process.AgentUUID,
+		toolCall.ID,
+	)
+	if err != nil || !found || updated.State != executionstore.ProcessActionStateUnknown ||
+		updated.StateReasonCode != daemonprotocol.ProcessReasonMachineStorageExhausted {
+		t.Fatalf("accepted action after storage failure = %+v, found=%t err=%v", updated, found, err)
 	}
 }
 

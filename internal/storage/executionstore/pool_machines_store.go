@@ -460,21 +460,6 @@ func listMachinePoolSources(
 	return out, nil
 }
 
-func (r *ToolCallReader) ListPoolMachines(ctx context.Context) ([]PoolMachineRecord, error) {
-	t := r.transaction
-	return listPoolMachinesTx(ctx, t.q, t.input.ProjectID, t.input.AgentID)
-}
-
-func (s *Store) ListPoolMachines(
-	ctx context.Context,
-	projectID, agentID ID,
-) ([]PoolMachineRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
-		return nil, errors.New("project and agent are required")
-	}
-	return listPoolMachinesTx(ctx, s.q, projectID, agentID)
-}
-
 func listPoolMachinesTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
@@ -496,53 +481,6 @@ func listPoolMachinesTx(
 		out = append(out, poolMachineRecordFromSQLC(row))
 	}
 	return out, nil
-}
-
-func (r *ToolCallReader) GetPoolMachineByRef(
-	ctx context.Context,
-	machineRef string,
-) (PoolMachineRecord, error) {
-	if machineRef == "" {
-		return PoolMachineRecord{}, errors.New("machine ref is required")
-	}
-	t := r.transaction
-	return getPoolMachineByRef(
-		ctx,
-		t.q,
-		t.input.ProjectID,
-		t.input.AgentID,
-		machineRef,
-	)
-}
-
-func (s *Store) GetPoolMachineByRef(
-	ctx context.Context,
-	projectID, agentID ID,
-	machineRef string,
-) (PoolMachineRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
-		return PoolMachineRecord{}, errors.New("project and agent are required")
-	}
-	if machineRef == "" {
-		return PoolMachineRecord{}, errors.New("machine ref is required")
-	}
-	return getPoolMachineByRef(ctx, s.q, projectID, agentID, machineRef)
-}
-
-func getPoolMachineByRef(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	projectID, agentID ID,
-	machineRef string,
-) (PoolMachineRecord, error) {
-	record, err := poolMachineByRefTx(ctx, q, projectID, agentID, machineRef)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return PoolMachineRecord{}, fmt.Errorf("get pool machine: %w", err)
-	}
-	return record, nil
 }
 
 func poolMachineByCreateToolCallTx(

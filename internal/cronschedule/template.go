@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"text/template/parse"
 	"time"
 )
 
@@ -18,20 +19,52 @@ const (
 )
 
 var templateFuncs = template.FuncMap{
-	"print":   boundedFormatFunc(fmt.Sprint),
-	"println": boundedFormatFunc(fmt.Sprintln),
-	"printf": func(format string, args ...any) (string, error) {
-		if err := validatePrintfFormat(format); err != nil {
-			return "", err
-		}
-		return boundFormatOutput(fmt.Sprintf(format, args...))
-	},
+	"html":     boundedFormatFunc(template.HTMLEscaper),
+	"js":       boundedFormatFunc(template.JSEscaper),
+	"print":    boundedFormatFunc(fmt.Sprint),
+	"println":  boundedFormatFunc(fmt.Sprintln),
+	"printf":   boundedPrintf,
+	"urlquery": boundedFormatFunc(template.URLQueryEscaper),
 }
 
 func boundedFormatFunc(format func(...any) string) func(...any) (string, error) {
 	return func(args ...any) (string, error) {
+		if err := validateFormattingInput(args); err != nil {
+			return "", err
+		}
 		return boundFormatOutput(format(args...))
 	}
+}
+
+func boundedPrintf(format string, args ...any) (string, error) {
+	if err := validatePrintfFormat(format); err != nil {
+		return "", err
+	}
+	if err := validateFormattingInput(args); err != nil {
+		return "", err
+	}
+	return boundFormatOutput(fmt.Sprintf(format, args...))
+}
+
+// validateFormattingInput prevents variadic formatting functions from joining
+// many individually bounded strings into one large allocation before
+// boundFormatOutput can inspect the result. Count repeated arguments each time
+// they are passed so aliases cannot bypass the limit.
+func validateFormattingInput(args []any) error {
+	remaining := maxRenderedMessageBytes
+	for _, arg := range args {
+		var formatted string
+		if value, ok := arg.(string); ok {
+			formatted = value
+		} else {
+			formatted = fmt.Sprint(arg)
+		}
+		if len(formatted) > remaining {
+			return errors.New("formatted arguments exceed size limit")
+		}
+		remaining -= len(formatted)
+	}
+	return nil
 }
 
 func boundFormatOutput(formatted string) (string, error) {
@@ -42,6 +75,7 @@ func boundFormatOutput(formatted string) (string, error) {
 }
 
 func validatePrintfFormat(format string) error {
+	remaining := maxRenderedMessageBytes
 	for i := 0; i < len(format); {
 		if format[i] != '%' {
 			i++
@@ -51,38 +85,62 @@ func validatePrintfFormat(format string) error {
 		for i < len(format) && strings.IndexByte("+-# 0", format[i]) >= 0 {
 			i++
 		}
-		next, err := validatePrintfBound(format, i)
+		if i < len(format) && format[i] == '[' {
+			return errors.New("explicit argument indexes are not supported")
+		}
+		next, bound, err := validatePrintfBound(format, i)
 		if err != nil {
 			return err
 		}
+		if bound > remaining {
+			return errors.New("cumulative width and precision exceed size limit")
+		}
+		remaining -= bound
 		i = next
 		if i < len(format) && format[i] == '.' {
-			next, err := validatePrintfBound(format, i+1)
+			i++
+			if i < len(format) && format[i] == '[' {
+				return errors.New("explicit argument indexes are not supported")
+			}
+			next, bound, err := validatePrintfBound(format, i)
 			if err != nil {
 				return err
 			}
+			if bound > remaining {
+				return errors.New("cumulative width and precision exceed size limit")
+			}
+			remaining -= bound
 			i = next
+		}
+		if i < len(format) && format[i] == '[' {
+			return errors.New("explicit argument indexes are not supported")
+		}
+		if i < len(format) {
+			i++
 		}
 	}
 	return nil
 }
 
-func validatePrintfBound(format string, start int) (int, error) {
+func validatePrintfBound(format string, start int) (int, int, error) {
 	if start < len(format) && format[start] == '*' {
-		return 0, errors.New("star width and precision specifiers are not supported")
+		return 0, 0, errors.New("star width and precision specifiers are not supported")
 	}
 	end := start
 	for end < len(format) && format[end] >= '0' && format[end] <= '9' {
 		end++
 	}
 	if end == start {
-		return end, nil
+		return end, 0, nil
 	}
 	width, err := strconv.Atoi(format[start:end])
 	if err != nil || width > maxPrintfWidth {
-		return 0, fmt.Errorf("width and precision specifiers must be at most %d", maxPrintfWidth)
+		return 0, 0, fmt.Errorf(
+			"width and precision specifiers must be at most %d",
+			maxPrintfWidth,
+		)
 	}
-	return end, nil
+	return end, width, nil
 }
 
 type limitedWriter struct {
@@ -137,6 +195,13 @@ func RenderMessage(messageTemplate string, data map[string]any) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("invalid message template: %w", err)
 	}
+	for _, associated := range parsed.Templates() {
+		if containsTemplateInvocation(associated.Tree.Root) {
+			return "", errors.New(
+				"invalid message template: template invocations are not supported",
+			)
+		}
+	}
 	var rendered strings.Builder
 	execution := make(chan error, 1)
 	go func() {
@@ -153,4 +218,33 @@ func RenderMessage(messageTemplate string, data map[string]any) (string, error) 
 		return "", errors.New("invalid message template: rendering timed out")
 	}
 	return rendered.String(), nil
+}
+
+// containsTemplateInvocation rejects {{template}} and {{block}} execution.
+// text/template permits recursive calls up to a large fixed depth, and the
+// render timeout cannot cancel the goroutine executing them.
+func containsTemplateInvocation(node parse.Node) bool {
+	switch node := node.(type) {
+	case *parse.ListNode:
+		if node == nil {
+			return false
+		}
+		for _, child := range node.Nodes {
+			if containsTemplateInvocation(child) {
+				return true
+			}
+		}
+	case *parse.IfNode:
+		return containsTemplateInvocation(node.List) ||
+			(node.ElseList != nil && containsTemplateInvocation(node.ElseList))
+	case *parse.RangeNode:
+		return containsTemplateInvocation(node.List) ||
+			(node.ElseList != nil && containsTemplateInvocation(node.ElseList))
+	case *parse.TemplateNode:
+		return true
+	case *parse.WithNode:
+		return containsTemplateInvocation(node.List) ||
+			(node.ElseList != nil && containsTemplateInvocation(node.ElseList))
+	}
+	return false
 }

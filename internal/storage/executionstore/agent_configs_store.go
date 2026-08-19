@@ -362,6 +362,24 @@ func loadAgentConfigTx(
 	return agentConfigRecordFromSQLC(row), nil
 }
 
+func lockAgentConfigModelForUseTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	config AgentConfigRecord,
+) error {
+	_, err := qtx.LockConfiguredModelForUse(ctx, dbsqlc.LockConfiguredModelForUseParams{
+		OrgID: config.OrgID,
+		ID:    config.ConfiguredModelID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("configured model for agent config is unavailable: %w", storeerr.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("lock configured model for agent config: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) ValidateAgentConfigMachineSources(
 	ctx context.Context,
 	projectID ID,

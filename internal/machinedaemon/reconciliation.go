@@ -216,6 +216,9 @@ func (c *Client) scanLocalProcessesForRegistrationOnce(
 		statusCtx, cancel := context.WithTimeout(ctx, time.Second)
 		statusErr := runner.Status(statusCtx)
 		cancel()
+		if errors.Is(statusErr, errStorageExhaustionTerminalReady) {
+			continue
+		}
 		if statusErr != nil {
 			return startup, fmt.Errorf(
 				"%w: supervisor %s ended during registration snapshot: %w",
@@ -416,18 +419,31 @@ func (c *Client) applyProcessDisposition(
 
 	switch disposition.Disposition {
 	case daemonprotocol.ProcessDispositionClosePreparation:
-		if lock := startup.stoppedLocks[claim.ProcessID]; lock != nil {
-			if err := lock.Release(); err != nil {
-				return err
-			}
-			delete(startup.stoppedLocks, claim.ProcessID)
-		}
-		if err := c.closeRejectedPreparation(
+		lock := startup.stoppedLocks[claim.ProcessID]
+		delete(startup.stoppedLocks, claim.ProcessID)
+		cleanupPending, err := c.closeRejectedPreparation(
 			ctx,
 			claim.ProcessID,
 			claim.SupervisorInstanceID,
 			runner,
-		); err != nil {
+			lock,
+		)
+		if cleanupPending {
+			startup.Runners[claim.ProcessID] = &processRuntime{
+				processID:            claim.ProcessID,
+				supervisorInstanceID: claim.SupervisorInstanceID,
+				cleanupOnly:          true,
+			}
+			c.log.Warn(
+				"rejected process preparation cleanup remains pending",
+				"process_id",
+				claim.ProcessID,
+				"error",
+				err,
+			)
+			return nil
+		}
+		if err != nil {
 			return err
 		}
 		delete(startup.Runners, claim.ProcessID)
@@ -440,33 +456,75 @@ func (c *Client) applyProcessDisposition(
 				claim.ProcessID,
 			)
 		}
-		if err := retryWhileStateDBBusy(ctx, func() error {
+		if processRuntimeStorageExhaustionReady(runner) {
+			return nil
+		}
+		storageErr := retryWhileStateDBBusy(ctx, func() error {
 			return stateStore.MarkAccepted(
 				ctx,
 				claim.ProcessID,
 				claim.SupervisorInstanceID,
 			)
-		}); err != nil {
-			return err
+		})
+		if storageErr != nil && !isStorageExhaustion(storageErr) {
+			return storageErr
 		}
-		if err := runner.runner.StartOnce(ctx); err != nil {
-			return fmt.Errorf(
-				"start accepted process %s: %w",
-				claim.ProcessID,
-				err,
+		if storageErr == nil {
+			if err := runner.runner.StartOnce(ctx); err != nil {
+				if errors.Is(err, errStorageExhaustionTerminalReady) {
+					return nil
+				}
+				if !isStorageExhaustion(err) {
+					return fmt.Errorf(
+						"start accepted process %s: %w",
+						claim.ProcessID,
+						err,
+					)
+				}
+				storageErr = err
+			}
+		}
+		if storageErr != nil {
+			terminateErr := runner.runner.Terminate(
+				context.WithoutCancel(ctx),
+				daemonprotocol.ProcessReasonMachineStorageExhausted,
 			)
+			if errors.Is(terminateErr, errStorageExhaustionTerminalReady) {
+				return nil
+			}
+			if terminateErr != nil {
+				return terminateErr
+			}
+			return storageErr
 		}
 	case daemonprotocol.ProcessDispositionRetain:
 
 	case daemonprotocol.ProcessDispositionRelease:
-		if err := retryWhileStateDBBusy(ctx, func() error {
+		storageCleanup := processRuntimeStorageExhaustionReady(runner)
+		markReleasedErr := retryWhileStateDBBusy(ctx, func() error {
 			return stateStore.MarkServerReleased(
 				ctx,
 				claim.ProcessID,
 				claim.SupervisorInstanceID,
 			)
-		}); err != nil {
-			return err
+		})
+		if markReleasedErr != nil &&
+			!(storageCleanup && errors.Is(markReleasedErr, statedb.ErrFull)) {
+			return markReleasedErr
+		}
+		if storageCleanup {
+			terminateCtx, cancel := context.WithTimeout(
+				context.WithoutCancel(ctx),
+				10*time.Second,
+			)
+			terminateErr := runner.runner.Terminate(terminateCtx, "server_resolved")
+			cancel()
+			if terminateErr != nil {
+				return terminateErr
+			}
+			runner.runner = nil
+			runner.cleanupOnly = true
+			return nil
 		}
 		reports, err := stateStore.ReportsForProcess(ctx, claim.ProcessID)
 		if err != nil {
@@ -508,6 +566,7 @@ func (c *Client) applyProcessDisposition(
 			ctx,
 			claim.ProcessID,
 			claim.SupervisorInstanceID,
+			startup.stoppedLocks[claim.ProcessID],
 		); err != nil {
 			c.log.Warn(
 				"released process remains locally unresolved",
@@ -537,6 +596,14 @@ func (c *Client) applyProcessDisposition(
 		}
 	}
 	return nil
+}
+
+func processRuntimeStorageExhaustionReady(runtime *processRuntime) bool {
+	if runtime == nil {
+		return false
+	}
+	runner, ok := runtime.runner.(*ipcProcessRunner)
+	return ok && runner.storageExhaustionReady()
 }
 
 func (c *Client) applyActionDisposition(
@@ -610,6 +677,7 @@ func (c *Client) applyActionDisposition(
 func (c *Client) recoverStoppedReleasedProcess(
 	ctx context.Context,
 	processID, supervisorInstanceID string,
+	heldLock *localstore.Lock,
 ) error {
 	stateStore, err := c.stateStore(ctx)
 	if err != nil {
@@ -624,12 +692,14 @@ func (c *Client) recoverStoppedReleasedProcess(
 	}
 	if process.Phase == statedb.ProcessPreparing ||
 		process.Phase == statedb.ProcessPrepared {
-		return c.closeRejectedPreparation(
+		_, err := c.closeRejectedPreparation(
 			ctx,
 			processID,
 			supervisorInstanceID,
 			nil,
+			heldLock,
 		)
+		return err
 	}
 
 	if err := retryWhileStateDBBusy(ctx, func() error {
@@ -834,7 +904,8 @@ func (c *Client) closeRejectedPreparation(
 	ctx context.Context,
 	processID, supervisorInstanceID string,
 	runtime *processRuntime,
-) error {
+	heldLock *localstore.Lock,
+) (bool, error) {
 	cleanupCtx, cancelCleanup := context.WithTimeout(
 		context.WithoutCancel(ctx),
 		5*time.Second,
@@ -842,7 +913,7 @@ func (c *Client) closeRejectedPreparation(
 	defer cancelCleanup()
 
 	var closeErr error
-	if runtime != nil && !runtime.runner.IsDone() {
+	if runtime != nil && runtime.runner != nil && !runtime.runner.IsDone() {
 		closeCtx, cancel := context.WithTimeout(
 			cleanupCtx,
 			2*time.Second,
@@ -856,43 +927,167 @@ func (c *Client) closeRejectedPreparation(
 			)
 		}
 	}
-	for {
-		artifactErr := c.removeRejectedProcessArtifacts(processID, supervisorInstanceID)
-		if artifactErr == nil {
-			break
+	lock := heldLock
+	if lock == nil {
+		machine, err := c.machineStore()
+		if err != nil {
+			return false, errors.Join(closeErr, err)
 		}
-		if !errors.Is(artifactErr, localstore.ErrLockHeld) {
-			return errors.Join(closeErr, artifactErr)
+		lockPath, err := machine.LifetimeLockPath(processID)
+		if err != nil {
+			return false, errors.Join(closeErr, err)
 		}
-		if err := sleepContext(cleanupCtx, 25*time.Millisecond); err != nil {
-			return errors.Join(
+		for {
+			lock, err = localstore.TryAcquireExistingLock(lockPath)
+			if errors.Is(err, os.ErrNotExist) {
+				lock, err = localstore.TryAcquireLock(lockPath)
+			}
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, localstore.ErrLockHeld) {
+				return closeErr == nil && isStorageExhaustion(err), errors.Join(closeErr, err)
+			}
+			if err := sleepContext(cleanupCtx, 25*time.Millisecond); err != nil {
+				return closeErr == nil, errors.Join(
+					closeErr,
+					fmt.Errorf(
+						"wait for ungranted supervisor %s to stop: %w",
+						processID,
+						err,
+					),
+				)
+			}
+		}
+	}
+	defer func() { _ = lock.Release() }()
+
+	stateStore, err := c.stateStore(cleanupCtx)
+	if err != nil {
+		return true, errors.Join(closeErr, err)
+	}
+	process, found, err := stateStore.Process(cleanupCtx, processID)
+	if err != nil {
+		return true, errors.Join(closeErr, err)
+	}
+	if found {
+		if process.SupervisorInstanceID != supervisorInstanceID {
+			return false, errors.Join(
+				closeErr,
+				statedb.ErrSupervisorIdentityMismatch,
+			)
+		}
+		if process.ExecCommitted ||
+			(process.Phase != statedb.ProcessPreparing &&
+				process.Phase != statedb.ProcessPrepared) {
+			return false, errors.Join(
 				closeErr,
 				fmt.Errorf(
-					"wait for ungranted supervisor %s to stop: %w",
+					"%w: process %s is not an unexecuted preparation",
+					statedb.ErrStateConflict,
 					processID,
-					err,
 				),
 			)
 		}
 	}
-	stateStore, err := c.stateStore(cleanupCtx)
-	if err != nil {
-		return errors.Join(closeErr, err)
+	if err := c.removeRejectedProcessArtifacts(
+		processID,
+		supervisorInstanceID,
+	); err != nil {
+		return true, errors.Join(closeErr, err)
 	}
 	if err := stateStore.DeleteRejectedPreparationAfterArtifacts(
 		cleanupCtx,
 		processID,
 		supervisorInstanceID,
 	); err != nil {
-		return errors.Join(closeErr, err)
+		if errors.Is(err, statedb.ErrSupervisorIdentityMismatch) ||
+			errors.Is(err, statedb.ErrStateConflict) {
+			return false, errors.Join(closeErr, err)
+		}
+		return true, errors.Join(closeErr, err)
 	}
-	return nil
+	if err := lock.ReleaseAndRemove(); err != nil {
+		return true, errors.Join(closeErr, err)
+	}
+	return false, nil
+}
+
+func (c *Client) closeStorageExhaustedProcess(
+	ctx context.Context,
+	runtime *processRuntime,
+) (bool, error) {
+	if runtime.runner != nil && !runtime.runner.IsDone() {
+		terminateCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			2*time.Second,
+		)
+		err := runtime.runner.Terminate(terminateCtx, "server_resolved")
+		cancel()
+		if runner, ok := runtime.runner.(*ipcProcessRunner); ok {
+			err = errors.Join(err, runner.EndReconciliation())
+		}
+		if err != nil {
+			return true, err
+		}
+		runtime.runner = nil
+	}
+	stateStore, err := c.stateStore(ctx)
+	if err != nil {
+		return true, err
+	}
+	process, found, err := stateStore.Process(ctx, runtime.processID)
+	if err != nil {
+		return true, err
+	}
+	if found && process.SupervisorInstanceID != runtime.supervisorInstanceID {
+		return false, statedb.ErrSupervisorIdentityMismatch
+	}
+	if found && process.Phase != statedb.ProcessAccepted &&
+		process.Phase != statedb.ProcessTerminal {
+		return false, statedb.ErrStateConflict
+	}
+	machine, err := c.machineStore()
+	if err != nil {
+		return true, err
+	}
+	lockPath, err := machine.LifetimeLockPath(runtime.processID)
+	if err != nil {
+		return true, err
+	}
+	lock, err := localstore.TryAcquireExistingLock(lockPath)
+	if errors.Is(err, os.ErrNotExist) {
+		lock, err = localstore.TryAcquireLock(lockPath)
+	}
+	if err == nil {
+		defer func() { _ = lock.Release() }()
+	}
+	if err == nil {
+		err = c.removeProcessArtifacts(
+			runtime.processID,
+			runtime.supervisorInstanceID,
+			true,
+		)
+	}
+	if err == nil {
+		err = stateStore.DeleteStorageExhaustedAfterArtifacts(
+			ctx,
+			runtime.processID,
+			runtime.supervisorInstanceID,
+		)
+	}
+	if err == nil {
+		err = lock.ReleaseAndRemove()
+	}
+	permanent := errors.Is(err, statedb.ErrSupervisorIdentityMismatch) ||
+		errors.Is(err, statedb.ErrStateConflict)
+	return err != nil && !permanent, err
 }
 
 func (c *Client) removeRejectedProcessArtifacts(
 	processID, supervisorInstanceID string,
 ) error {
-	return c.removeProcessRuntimeArtifacts(processID, supervisorInstanceID, true)
+	return c.removeProcessArtifacts(processID, supervisorInstanceID, true)
 }
 
 func (c *Client) releaseProcessRuntimeArtifacts(
@@ -930,7 +1125,27 @@ func (c *Client) removeProcessRuntimeArtifacts(
 	default:
 		return err
 	}
+	if err := c.removeProcessArtifacts(
+		processID,
+		supervisorInstanceID,
+		removeOutput,
+	); err != nil {
+		return err
+	}
+	if lock != nil {
+		return lock.ReleaseAndRemove()
+	}
+	return nil
+}
 
+func (c *Client) removeProcessArtifacts(
+	processID, supervisorInstanceID string,
+	removeOutput bool,
+) error {
+	machine, err := c.machineStore()
+	if err != nil {
+		return err
+	}
 	processDir, err := machine.ProcessDir(processID)
 	if err != nil {
 		return err
@@ -956,11 +1171,6 @@ func (c *Client) removeProcessRuntimeArtifacts(
 			return err
 		}
 	}
-	if lock != nil {
-		if err := lock.ReleaseAndRemove(); err != nil {
-			return err
-		}
-	}
 	if removeOutput {
 		return localstore.SyncDir(filepath.Dir(processDir))
 	}
@@ -972,7 +1182,15 @@ func (c *Client) addProcess(runtime *processRuntime) {
 		return
 	}
 	c.processMu.Lock()
-	if runtime.runner == nil || !runtime.runner.IsDone() {
+	current := c.processes[runtime.processID]
+	if runtime.cleanupOnly &&
+		current != nil &&
+		!current.cleanupOnly &&
+		current.supervisorInstanceID != runtime.supervisorInstanceID {
+		c.processMu.Unlock()
+		return
+	}
+	if runtime.cleanupOnly || runtime.runner == nil || !runtime.runner.IsDone() {
 		c.processes[runtime.processID] = runtime
 	}
 	c.processMu.Unlock()
@@ -983,7 +1201,7 @@ func (c *Client) replaceProcesses(processes map[string]*processRuntime) {
 	replacement := make(map[string]*processRuntime, len(processes))
 	for processID, runtime := range processes {
 		if runtime != nil &&
-			(runtime.runner == nil || !runtime.runner.IsDone()) {
+			(runtime.cleanupOnly || runtime.runner == nil || !runtime.runner.IsDone()) {
 			replacement[processID] = runtime
 		}
 	}
@@ -1007,6 +1225,18 @@ func (c *Client) localProcess(
 	defer c.processMu.RUnlock()
 	runtime, ok := c.processes[processID]
 	return runtime, ok
+}
+
+func (c *Client) cleanupProcesses() []*processRuntime {
+	c.processMu.RLock()
+	defer c.processMu.RUnlock()
+	runtimes := make([]*processRuntime, 0)
+	for _, runtime := range c.processes {
+		if runtime != nil && runtime.cleanupOnly {
+			runtimes = append(runtimes, runtime)
+		}
+	}
+	return runtimes
 }
 
 func retryWhileStateDBBusy(

@@ -2966,7 +2966,7 @@ export const createConfiguredModelMutation = (options?: Partial<Options<CreateCo
 /**
  * Delete configured model
  *
- * Deletes only the configured model. Deletion is blocked while it has active project grants. Models belonging to a cluster-managed provider config cannot be deleted through this route.
+ * Deletes only the configured model. Deletion is blocked while it has active project grants. Cluster-managed configured models cannot be deleted through this route.
  */
 export const deleteConfiguredModelMutation = (options?: Partial<Options<DeleteConfiguredModelData>>): UseMutationOptions<DeleteConfiguredModelResponse, DeleteConfiguredModelError, Options<DeleteConfiguredModelData>> => {
     const mutationOptions: UseMutationOptions<DeleteConfiguredModelResponse, DeleteConfiguredModelError, Options<DeleteConfiguredModelData>> = {

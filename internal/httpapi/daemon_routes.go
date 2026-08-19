@@ -111,7 +111,8 @@ func (s *Server) applyDaemonReportedEventForProcess(
 	body daemonReportedEvent,
 	missingProcessErr error,
 ) (bool, error) {
-	if process.ExecutionGrantedAt == nil {
+	storageExhausted := isStorageExhaustionEvent(body)
+	if process.ExecutionGrantedAt == nil && !storageExhausted {
 		return false, fmt.Errorf(
 			"%w: process was not accepted",
 			errDaemonReportValidation,
@@ -150,6 +151,7 @@ func (s *Server) applyDaemonReportedEventForProcess(
 				Result:             body.Result,
 				SourceStartedAt:    body.StartedAt,
 				SourceEndedAt:      body.EndedAt,
+				StorageExhausted:   storageExhausted,
 			},
 		)
 		if err != nil {
@@ -213,6 +215,20 @@ func (s *Server) applyDaemonReportedEventForProcess(
 	default:
 		return false, errors.New("unsupported daemon reported event type")
 	}
+}
+
+func isStorageExhaustionEvent(body daemonReportedEvent) bool {
+	return body.Type == daemonprotocol.EventProcessFinished &&
+		body.ProcessActionID == "" &&
+		body.State == daemonprotocol.ProcessStateFailed &&
+		body.ExitCode == nil &&
+		body.ExitSignal == "" &&
+		body.StateReasonCode == daemonprotocol.ProcessReasonMachineStorageExhausted &&
+		body.StateReasonMessage == daemonprotocol.ProcessMessageMachineStorageExhausted &&
+		(len(body.Result) == 0 || string(body.Result) == "null") &&
+		body.StartedAt.IsZero() &&
+		body.EndedAt.IsZero() &&
+		body.ObservedAt.IsZero()
 }
 
 func (s *Server) applyDaemonReportedEventForMachineWithContext(

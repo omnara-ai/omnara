@@ -350,6 +350,7 @@ export type ConfiguredModel = {
     id: ConfiguredModelId;
     org_id: OrganizationId;
     model_provider_config_id: ModelProviderConfigId;
+    management_kind: ManagementKind;
     /**
      * User-assigned configured model name used by agent YAML as model.name.
      */
