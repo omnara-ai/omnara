@@ -151,6 +151,9 @@ SELECT id, org_id, name, management_kind, description, provider, default_machine
        max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb,
        metadata, deleted_at, created_at, updated_at, runtime_protection_enabled,
        min_machine_cpu, min_machine_memory_mb,
+       coalesce(usage.active_machines, 0)::integer AS active_machines,
+       coalesce(usage.active_cpu, 0)::bigint AS active_cpu,
+       coalesce(usage.active_memory_mb, 0)::bigint AS active_memory_mb,
        CASE sqlc.arg(sort_field)::text
          WHEN 'name' THEN lower(name)
          WHEN 'created_at' THEN to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
@@ -158,7 +161,18 @@ SELECT id, org_id, name, management_kind, description, provider, default_machine
        END::text AS sort_key,
        false AS sort_is_null
 FROM machine_pools
-WHERE org_id = sqlc.arg(org_id)
+LEFT JOIN (
+  SELECT machine_pool_id AS usage_machine_pool_id,
+         count(*)::integer AS active_machines,
+         coalesce(sum(cpu), 0)::bigint AS active_cpu,
+         coalesce(sum(memory_mb), 0)::bigint AS active_memory_mb
+  FROM machines
+  WHERE machines.org_id = sqlc.arg(org_id)
+    AND source_kind = 'pool'
+    AND deleted_at IS NULL
+  GROUP BY machine_pool_id
+) usage ON usage.usage_machine_pool_id = machine_pools.id
+WHERE machine_pools.org_id = sqlc.arg(org_id)
   AND deleted_at IS NULL
   AND (sqlc.arg(name_pattern)::text = '' OR name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (

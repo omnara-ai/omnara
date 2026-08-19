@@ -13,12 +13,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -238,16 +240,36 @@ model:
 	if err != nil {
 		t.Fatalf("create profile using removed model: %v", err)
 	}
+	machineSecret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     created.Org.ID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "default-pool-environment",
+		Material:  secrets.GenericMaterial{Value: "organization-value"},
+		Actor:     userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create machine environment secret: %v", err)
+	}
+	organizationSecretEnv := mustTestRawJSON(t, map[string]string{
+		"ORG_SECRET": secretPublicIDForTest(t, machineSecret.ID),
+	})
 	if _, err := pool.Exec(ctx, `
 		UPDATE machine_pools
 		SET max_total_machines = 8,
 		    max_total_cpu = 16,
 		    max_total_memory_mb = 8192,
+		    default_machine_cpu = 2,
+		    default_machine_memory_mb = 1024,
+		    default_machine_env = '{"ORG":"value"}'::jsonb,
+		    default_machine_secret_env = $2::jsonb,
+		    default_machine_provider_options = '{"image":"old","startup_script":"echo org"}'::jsonb,
+		    min_machine_cpu = 1,
+		    min_machine_memory_mb = 512,
 		    max_machine_cpu = 4,
 		    max_machine_memory_mb = 2048
 		WHERE org_id = $1
-	`, created.Org.ID); err != nil {
-		t.Fatalf("set pool limits: %v", err)
+	`, created.Org.ID, string(organizationSecretEnv)); err != nil {
+		t.Fatalf("set pool organization fields and limits: %v", err)
 	}
 	machineID := testID("default-reconciliation-runtime-mismatch")
 	tag, err := pool.Exec(ctx, `
@@ -273,6 +295,9 @@ model:
 	desiredPool := initialPool
 	desiredPool.Description = "new pool"
 	desiredPool.DefaultMachineEnv = json.RawMessage(`{"NEW":"value"}`)
+	desiredPool.DefaultMachineSecretEnv = mustTestRawJSON(t, map[string]string{
+		"TEMPLATE_SECRET": secretPublicIDForTest(t, machineSecret.ID),
+	})
 	desiredPool.DefaultMachineProviderOptions = json.RawMessage(`{"image":"new","sleep_after_ms":30000}`)
 	desiredPool.RuntimeProtectionEnabled = true
 	desiredPool.MaxTotalMachines = 0
@@ -334,14 +359,21 @@ model:
 		poolRecord.MaxTotalMachines != 0 ||
 		poolRecord.MaxTotalCpu == nil || *poolRecord.MaxTotalCpu != 1 ||
 		poolRecord.MaxTotalMemoryMb == nil || *poolRecord.MaxTotalMemoryMb != 0 ||
+		poolRecord.DefaultMachineCpu == nil || *poolRecord.DefaultMachineCpu != 2 ||
+		poolRecord.DefaultMachineMemoryMb == nil || *poolRecord.DefaultMachineMemoryMb != 1024 ||
 		poolRecord.MinMachineCpu == nil || *poolRecord.MinMachineCpu != 1 ||
 		poolRecord.MinMachineMemoryMb == nil || *poolRecord.MinMachineMemoryMb != 512 ||
-		poolRecord.MaxMachineCpu == nil || *poolRecord.MaxMachineCpu != 1 ||
-		poolRecord.MaxMachineMemoryMb == nil || *poolRecord.MaxMachineMemoryMb != 512 {
+		poolRecord.MaxMachineCpu == nil || *poolRecord.MaxMachineCpu != 4 ||
+		poolRecord.MaxMachineMemoryMb == nil || *poolRecord.MaxMachineMemoryMb != 2048 {
 		t.Fatalf("unexpected reconciled pool: %+v", poolRecord)
 	}
-	assertJSONRawEqual(t, poolRecord.DefaultMachineEnv, string(desiredPool.DefaultMachineEnv))
-	assertJSONRawEqual(t, poolRecord.DefaultMachineProviderOptions, string(desiredPool.DefaultMachineProviderOptions))
+	assertJSONRawEqual(t, poolRecord.DefaultMachineEnv, `{"ORG":"value"}`)
+	assertJSONRawEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
+	assertJSONRawEqual(
+		t,
+		poolRecord.DefaultMachineProviderOptions,
+		`{"image":"new","sleep_after_ms":30000}`,
+	)
 	var hasRuntimeMismatch bool
 	if err := pool.QueryRow(
 		ctx,
@@ -441,6 +473,11 @@ model:
 		preservedTenantModel.ProviderModelSlug != tenantModel.ProviderModelSlug {
 		t.Fatalf("get tenant model after reconciliation = %+v, %v", preservedTenantModel, err)
 	}
+	if _, err := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID: created.Org.ID, SecretID: machineSecret.ID, Actor: userPrincipal(user.ID),
+	}); err != nil {
+		t.Fatalf("delete machine environment secret: %v", err)
+	}
 
 	result, err = store.Organizations().ReconcileDefaults(ctx, input)
 	if err != nil {
@@ -481,6 +518,7 @@ model:
 	if poolRecord.Description != desiredPool.Description {
 		t.Fatalf("machine pool description = %q, want %q", poolRecord.Description, desiredPool.Description)
 	}
+	assertJSONRawEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
 	updatedModel, err = store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
 	if err != nil || updatedModel.ProviderModelSlug != "example/without-project" {
 		t.Fatalf("unexpected model updated without default project: %+v, err %v", updatedModel, err)
@@ -696,7 +734,7 @@ func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
 
 	desiredPools := append([]executionstore.DefaultMachinePoolTemplate(nil), initialPools...)
 	desiredPools[0].Description = "new"
-	desiredPools[1].DefaultMachineMemoryMB = intPtrForMachinePoolTest(1024)
+	desiredPools[1].MaxTotalMemoryMB = intPtrForMachinePoolTest(8192)
 	input := orglifecycle.ReconcileDefaultsInput{Apply: true, DefaultMachinePools: desiredPools}
 	result, err := store.Organizations().ReconcileDefaults(ctx, input)
 	if err == nil || !strings.Contains(err.Error(), failingOrg.Org.ID.String()) {

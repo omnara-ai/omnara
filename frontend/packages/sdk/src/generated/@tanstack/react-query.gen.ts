@@ -3214,6 +3214,8 @@ export const getMachinePoolOptions = (options: Options<GetMachinePoolData>) => q
 
 /**
  * Update machine pool
+ *
+ * Tenant-managed pools support every request field. Cluster-managed pools only allow changes to default CPU and memory, environment and secret environment variables, and provider-supported per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
  */
 export const updateMachinePoolMutation = (options?: Partial<Options<UpdateMachinePoolData>>): UseMutationOptions<UpdateMachinePoolResponse, UpdateMachinePoolError, Options<UpdateMachinePoolData>> => {
     const mutationOptions: UseMutationOptions<UpdateMachinePoolResponse, UpdateMachinePoolError, Options<UpdateMachinePoolData>> = {

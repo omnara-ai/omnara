@@ -6,24 +6,21 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { CheckboxField, Field, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
-import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, statusError, submitError } from '@/lib/submit-status'
+import { FieldGroup } from '@/components/ui/field'
+import { errorMessage } from '@/lib/submit-status'
 
-interface EditMachinePoolState {
-  name: string
-  description: string
-  maxMachines: string
-  runtimeProtectionEnabled: boolean
-  status: SubmitStatus
-}
+import {
+  machinePoolFormFromPool,
+  machinePoolFormValid,
+  type MachinePoolFormValues,
+  machinePoolUpdateRequest,
+} from './MachinePoolDialogState'
+import { MachinePoolFields, type MachinePoolFormSetValue } from './MachinePoolFields'
 
 export function EditMachinePoolDialog({
   open,
@@ -36,99 +33,71 @@ export function EditMachinePoolDialog({
   orgId: string
   pool: MachinePool
 }) {
-  const mutation = useUpdateMachinePool(orgId)
-  const [state, setState] = useState<EditMachinePoolState>({
-    name: pool.name,
-    description: pool.description,
-    maxMachines: String(pool.max_total_machines),
-    runtimeProtectionEnabled: pool.runtime_protection_enabled,
-    status: idle,
-  })
-  const errorMessage = statusError(state.status)
+  const updateMachinePool = useUpdateMachinePool(orgId)
+  const mode = pool.management_kind === 'cluster' ? 'cluster-edit' : 'tenant-edit'
+  const [values, setValues] = useState<MachinePoolFormValues | null>(() =>
+    machinePoolFormFromPool(pool),
+  )
+  const [error, setError] = useState('')
+
+  const setValue: MachinePoolFormSetValue = (key, value) => {
+    setValues((previous) => (previous === null ? null : { ...previous, [key]: value }))
+  }
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
-    setState((prev) => ({ ...prev, status: idle }))
+    if (values === null) return
+    setError('')
     try {
-      await mutation.mutateAsync({
+      await updateMachinePool.mutateAsync({
         poolID: pool.id,
-        name: state.name === pool.name ? undefined : state.name,
-        description: state.description.trim(),
-        max_total_machines: Number(state.maxMachines),
-        runtime_protection_enabled: state.runtimeProtectionEnabled,
+        ...machinePoolUpdateRequest(pool, values),
       })
       onOpenChange(false)
     } catch (err) {
-      const status = submitError(err, 'Could not update machine pool')
-      setState((prev) => ({
-        ...prev,
-        status,
-      }))
+      setError(errorMessage(err, 'Could not update machine pool'))
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit machine pool</DialogTitle>
+          <DialogDescription>Update the machines this pool provisions.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={(event) => void submit(event)}>
-          <FieldGroup>
-            <Field>
-              <FieldLabel>Name</FieldLabel>
-              <Input
-                maxLength={resourceNameInputMaxLength}
-                value={state.name}
-                onChange={(event) => {
-                  setState((prev) => ({ ...prev, name: event.target.value }))
-                }}
+        {values === null ? (
+          <p className="text-destructive text-sm">
+            This machine pool uses an unsupported provider and cannot be edited here.
+          </p>
+        ) : (
+          <form onSubmit={(event) => void submit(event)}>
+            <FieldGroup>
+              {pool.management_kind === 'cluster' && (
+                <p className="text-muted-foreground text-sm">
+                  Provider configuration and pool-wide quotas are managed by the cluster.
+                </p>
+              )}
+              <MachinePoolFields
+                orgId={orgId}
+                enabled={open}
+                mode={mode}
+                values={values}
+                setValue={setValue}
               />
-              <ResourceNameFieldError value={state.name} />
-            </Field>
-            <CheckboxField
-              label="Runtime protection"
-              description="Delete a sandbox if its provider remains running after its Omnara daemon becomes inactive."
-              checked={state.runtimeProtectionEnabled}
-              onChange={(event) => {
-                setState((prev) => ({
-                  ...prev,
-                  runtimeProtectionEnabled: event.target.checked,
-                }))
-              }}
-            />
-            <Field>
-              <FieldLabel>Description</FieldLabel>
-              <Input
-                value={state.description}
-                onChange={(event) => {
-                  setState((prev) => ({ ...prev, description: event.target.value }))
-                }}
-              />
-            </Field>
-            <Field>
-              <FieldLabel>Maximum machines</FieldLabel>
-              <Input
-                type="number"
-                min="0"
-                value={state.maxMachines}
-                onChange={(event) => {
-                  setState((prev) => ({ ...prev, maxMachines: event.target.value }))
-                }}
-              />
-            </Field>
-            {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
-            <DialogFooter>
-              <Button
-                type="submit"
-                disabled={mutation.isPending || !resourceNameValid(state.name)}
-                loading={mutation.isPending}
-              >
-                Save changes
-              </Button>
-            </DialogFooter>
-          </FieldGroup>
-        </form>
+              {error && <p className="text-destructive text-sm">{error}</p>}
+              <DialogFooter>
+                <Button
+                  type="submit"
+                  disabled={updateMachinePool.isPending || !machinePoolFormValid(values, mode)}
+                  loading={updateMachinePool.isPending}
+                >
+                  Save changes
+                </Button>
+              </DialogFooter>
+            </FieldGroup>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   )

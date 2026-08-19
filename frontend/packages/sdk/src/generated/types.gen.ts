@@ -62,7 +62,7 @@ export type ClientErrorCode = 'invalid_request' | 'validation_failed' | 'unautho
 export type ServerErrorCode = 'internal_error' | 'upstream_error' | 'service_unavailable' | 'authentication_unavailable';
 
 /**
- * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs; cluster-managed resources are installed by the control plane and are read-only through tenant lifecycle APIs.
+ * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
  */
 export type ManagementKind = 'tenant' | 'cluster';
 
@@ -2306,6 +2306,16 @@ export type MachinePool = {
     metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
+    /**
+     * Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+     */
+    usage?: MachinePoolUsage;
+};
+
+export type MachinePoolUsage = {
+    machines: number;
+    cpu: number;
+    memory_mb: number;
 };
 
 export type ListMachinePoolsResponse = {
