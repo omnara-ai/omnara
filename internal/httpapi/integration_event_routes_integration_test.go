@@ -2669,7 +2669,7 @@ func TestSlackEventsHistoryRateLimitContinues(t *testing.T) {
 	}
 }
 
-func TestSlackEventsRejectsLaunchWhenLatestConfigCannotSendIntegrationMessage(
+func TestSlackEventsLaunchesWithoutExplicitIntegrationSendTool(
 	t *testing.T,
 ) {
 	t.Parallel()
@@ -2683,6 +2683,47 @@ func TestSlackEventsRejectsLaunchWhenLatestConfigCannotSendIntegrationMessage(
 		pool,
 		slackServer,
 		"slack-events-missing-send-tool",
+	)
+
+	body := `{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"Ev-missing-send-tool","authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],"event":{"type":"app_mention","user":"U123","text":"<@U_BOT> run","channel":"C123","channel_type":"channel","ts":"111.222","team":"T123"}}`
+	response := requestJSONWithHeaders(
+		t,
+		fixture.Handler,
+		http.MethodPost,
+		integrationEventsPath,
+		body,
+		"",
+		http.StatusOK,
+		unitSlackSignedHeaders(body, "signing-secret"),
+	)
+	if response["ok"] != "accepted" {
+		t.Fatalf("response=%v want accepted", response)
+	}
+	_, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+		ctx,
+		fixture.Project.ProjectUUID,
+		fixture.Install.ID,
+		"C123:111.222",
+	)
+	if err != nil {
+		t.Fatalf("get integration target: %v", err)
+	}
+}
+
+func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
+	t *testing.T,
+) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	slackServer := newSlackEventsTestServer(t)
+	defer slackServer.Close()
+	fixture := newSlackEventsIntegrationFixture(
+		t,
+		ctx,
+		pool,
+		slackServer,
+		"slack-events-disabled-send-tool",
 	)
 
 	profileID, err := publicid.Encode(
@@ -2710,12 +2751,15 @@ func TestSlackEventsRejectsLaunchWhenLatestConfigCannotSendIntegrationMessage(
 	sourceYAML := "instruction: Help the user make progress.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
-		"  name: gpt-test\n"
+		"  name: gpt-test\n" +
+		"tools:\n" +
+		"  send_integration_message:\n" +
+		"    enabled: false\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		fixture.Handler,
 		fixture.Project,
-		"slack-events-missing-send-tool",
+		"slack-events-disabled-send-tool",
 		"yaml",
 		sourceYAML,
 		fixture.Project.AdminToken,
@@ -2727,11 +2771,11 @@ func TestSlackEventsRejectsLaunchWhenLatestConfigCannotSendIntegrationMessage(
 		http.MethodPost,
 		fixture.Project.ProjectPath+"/agent-profiles/"+profileID+"/config",
 		`{"config":"`+config["id"].(string)+`","expected_current_config_id":"`+currentConfigID+`"}`,
-		"idem-slack-events-missing-send-tool-config",
+		"idem-slack-events-disabled-send-tool-config",
 		http.StatusOK,
 		authHeaders(fixture.Project.AdminToken),
 	)
-	body := `{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"Ev-missing-send-tool","authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],"event":{"type":"app_mention","user":"U123","text":"<@U_BOT> run","channel":"C123","channel_type":"channel","ts":"111.222","team":"T123"}}`
+	body := `{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"Ev-disabled-send-tool","authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],"event":{"type":"app_mention","user":"U123","text":"<@U_BOT> run","channel":"C123","channel_type":"channel","ts":"111.333","team":"T123"}}`
 	response := requestJSONWithHeaders(
 		t,
 		fixture.Handler,
@@ -2749,13 +2793,10 @@ func TestSlackEventsRejectsLaunchWhenLatestConfigCannotSendIntegrationMessage(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
-		"C123:111.222",
+		"C123:111.333",
 	)
 	if !storeerr.IsNotFound(err) {
-		t.Fatalf(
-			"missing send tool event should not create integration target, err=%v",
-			err,
-		)
+		t.Fatalf("disabled send tool event created integration target, err=%v", err)
 	}
 }
 

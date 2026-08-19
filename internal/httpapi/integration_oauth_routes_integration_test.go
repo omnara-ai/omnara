@@ -21,6 +21,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 )
 
@@ -820,7 +822,7 @@ func TestIntegrationOAuthSetupRejectsNonPublicSlackPublicURL(t *testing.T) {
 	}
 }
 
-func TestSlackSetupRejectsProfileWithoutIntegrationSendTool(t *testing.T) {
+func TestSlackSetupRejectsProfileWithExplicitlyDisabledIntegrationSendTool(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -852,17 +854,20 @@ func TestSlackSetupRejectsProfileWithoutIntegrationSendTool(t *testing.T) {
 	project := bootstrapPublicHTTPProject(
 		t,
 		handler,
-		"slack-manifest-missing-tool",
+		"slack-manifest-disabled-tool",
 	)
 	sourceYAML := "instruction: Help the user make progress.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
-		"  name: gpt-test\n"
+		"  name: gpt-test\n" +
+		"tools:\n" +
+		"  send_integration_message:\n" +
+		"    enabled: false\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
 		project,
-		"slack-manifest-missing-tool",
+		"slack-manifest-disabled-tool",
 		"yaml",
 		sourceYAML,
 		project.AdminToken,
@@ -872,8 +877,8 @@ func TestSlackSetupRejectsProfileWithoutIntegrationSendTool(t *testing.T) {
 		t,
 		handler,
 		project,
-		"slack-manifest-missing-tool",
-		"Missing Integration Send",
+		"slack-manifest-disabled-tool",
+		"Disabled Integration Send",
 		config["id"].(string),
 		project.AdminToken,
 		http.StatusCreated,
@@ -884,14 +889,95 @@ func TestSlackSetupRejectsProfileWithoutIntegrationSendTool(t *testing.T) {
 		http.MethodPost,
 		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
 		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token"}`,
-		"",
+		"agent profile config does not allow send_integration_message",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
 	if manifestCalled {
 		t.Fatal(
-			"slack manifest creation was called for profile without send_integration_message",
+			"slack manifest creation was called for profile with explicitly disabled send_integration_message",
 		)
+	}
+}
+
+func TestSlackSetupRejectsProfileWhoseEffectiveModelDoesNotSupportTools(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	var manifestCalled bool
+	slackServer := httptest.NewServer(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			manifestCalled = true
+			writeJSON(
+				w,
+				http.StatusInternalServerError,
+				map[string]string{"error": "unexpected slack call"},
+			)
+		}),
+	)
+	defer slackServer.Close()
+
+	handler := newIntegrationServer(
+		pool,
+		WithPublicURL("https://omnara.test"),
+		WithSlackOAuth(
+			SlackOAuthConfig{
+				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
+				APIURL:       slackServer.URL,
+				HTTPClient:   slackServer.Client(),
+			},
+		),
+	)
+	project := bootstrapPublicHTTPProject(t, handler, "slack-manifest-model-without-tools")
+	profile := createSlackReadyHTTPProfile(
+		t,
+		handler,
+		project,
+		"slack-manifest-model-without-tools",
+		project.AdminToken,
+	)
+	profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, profile["id"].(string))
+	profileRecord, err := project.Store.Execution().GetAgentProfile(ctx, project.ProjectUUID, profileID)
+	if err != nil {
+		t.Fatalf("get agent profile: %v", err)
+	}
+	grant, err := project.Store.Models().GetActiveProjectModelGrantForConfiguredModel(
+		ctx,
+		project.OrgUUID,
+		project.ProjectUUID,
+		profileRecord.CurrentConfig.ConfiguredModelID,
+	)
+	if err != nil {
+		t.Fatalf("get project model grant: %v", err)
+	}
+	supportsTools := false
+	if _, err := project.Store.Models().UpdateProjectModelGrant(
+		ctx,
+		modelstore.UpdateProjectModelGrantInput{
+			OrgID:         project.OrgUUID,
+			ProjectID:     project.ProjectUUID,
+			ID:            grant.ID,
+			SupportsTools: patch.NullableBool{Set: true, Value: &supportsTools},
+		},
+	); err != nil {
+		t.Fatalf("disable model tool support: %v", err)
+	}
+	response := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
+		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	if !strings.Contains(response["error"].(string), "agent profile model does not support tools") {
+		t.Fatalf("unexpected setup error: %v", response)
+	}
+	if manifestCalled {
+		t.Fatal("slack manifest creation was called for profile whose model does not support tools")
 	}
 }
 
@@ -1022,7 +1108,7 @@ func createSlackReadyHTTPProfile(
 	token string,
 ) map[string]any {
 	t.Helper()
-	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\ntools:\n  send_integration_message: {}\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,

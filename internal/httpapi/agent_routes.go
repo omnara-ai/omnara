@@ -391,11 +391,8 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if !agentConfigHasIntegrationSendTool(profile.CurrentConfig) {
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"agent profile config must enable send_integration_message",
-		)
+	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
+		return nil, err
 	}
 	now := time.Now().UTC()
 	flowID, err := uuid.NewV7()
@@ -510,11 +507,8 @@ func (s strictOpenAPIServer) createSlackSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if !agentConfigHasIntegrationSendTool(profile.CurrentConfig) {
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"agent profile config must enable send_integration_message",
-		)
+	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
+		return nil, err
 	}
 	appIcon, err := slackSetupAppIcon(*request.Body)
 	if err != nil {

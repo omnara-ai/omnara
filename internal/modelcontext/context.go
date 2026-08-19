@@ -96,6 +96,14 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
+	integrationTargets, err := b.Store.ListIntegrationTargets(ctx, input.ProjectID, input.AgentID)
+	if err != nil {
+		return Bundle{}, err
+	}
+	contract, err = WithImplicitIntegrationMessageTool(contract, integrationTargets)
+	if err != nil {
+		return Bundle{}, err
+	}
 	toolSpecs, err := RuntimeContractToolSpecs(
 		ctx,
 		b.Store,
@@ -175,13 +183,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 			return Bundle{}, err
 		}
 	}
-	var integrationTargets []integrationstore.IntegrationTargetSummary
-	if IntegrationTargetContextEnabled(toolSpecs) {
-		integrationTargets, err = b.Store.ListIntegrationTargets(ctx, input.ProjectID, input.AgentID)
-		if err != nil {
-			return Bundle{}, err
-		}
-	}
 	bundle.ActiveProcesses = make([]ActiveProcessRef, 0, len(activeProcesses))
 	for _, work := range activeProcesses {
 		processID, err := publicid.Encode(publicid.KindProcess, work.ID)
@@ -211,17 +212,19 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 			},
 		)
 	}
-	bundle.IntegrationTargets = make([]IntegrationTargetRef, 0, len(integrationTargets))
-	for _, target := range integrationTargets {
-		bundle.IntegrationTargets = append(bundle.IntegrationTargets, IntegrationTargetRef{
-			TargetRef:       target.TargetRef,
-			DurableID:       target.ID.String(),
-			Provider:        target.Provider,
-			ProviderRefKind: target.ProviderRefKind,
-			Label:           integrationTargetLabel(target),
-			InstallState:    string(target.InstallState),
-			IsCurrent:       target.IsCurrent,
-		})
+	if IntegrationTargetContextEnabled(toolSpecs) {
+		bundle.IntegrationTargets = make([]IntegrationTargetRef, 0, len(integrationTargets))
+		for _, target := range integrationTargets {
+			bundle.IntegrationTargets = append(bundle.IntegrationTargets, IntegrationTargetRef{
+				TargetRef:       target.TargetRef,
+				DurableID:       target.ID.String(),
+				Provider:        target.Provider,
+				ProviderRefKind: target.ProviderRefKind,
+				Label:           integrationTargetLabel(target),
+				InstallState:    string(target.InstallState),
+				IsCurrent:       target.IsCurrent,
+			})
+		}
 	}
 	for _, toolCall := range toolCalls {
 		parts := toolCall.ResultContentParts
