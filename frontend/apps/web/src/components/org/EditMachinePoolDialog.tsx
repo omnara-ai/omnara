@@ -61,7 +61,7 @@ export function EditMachinePoolDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit machine pool</DialogTitle>
           <DialogDescription>Update the machines this pool provisions.</DialogDescription>

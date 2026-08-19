@@ -79,7 +79,7 @@ export function CreateMachinePoolDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New machine pool</DialogTitle>
           <DialogDescription>Pools provision the machines your agents run on.</DialogDescription>
