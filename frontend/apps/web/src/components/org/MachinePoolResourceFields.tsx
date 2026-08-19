@@ -3,6 +3,7 @@ import { type MachinePoolProvider, machinePoolProviderDefinitions } from './mach
 
 export function MachinePoolResourceFields({
   provider,
+  clusterManaged,
   location,
   cpu,
   memoryGb,
@@ -13,6 +14,7 @@ export function MachinePoolResourceFields({
   onMaxMachinesChange,
 }: {
   provider: MachinePoolProvider
+  clusterManaged: boolean
   location: string
   cpu: string
   memoryGb: string
@@ -26,15 +28,17 @@ export function MachinePoolResourceFields({
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2">
-        <MachinePoolInputField
-          id="mpool-location"
-          label={definition.location.label}
-          required
-          value={location}
-          placeholder={definition.location.placeholder}
-          autoComplete="off"
-          onValueChange={onLocationChange}
-        />
+        {!clusterManaged && (
+          <MachinePoolInputField
+            id="mpool-location"
+            label={definition.location.label}
+            required
+            value={location}
+            placeholder={definition.location.placeholder}
+            autoComplete="off"
+            onValueChange={onLocationChange}
+          />
+        )}
         {definition.resources.cpu !== 'unsupported' && (
           <MachinePoolInputField
             id="mpool-cpu"
@@ -68,16 +72,18 @@ export function MachinePoolResourceFields({
           />
         )}
       </div>
-      <MachinePoolInputField
-        id="mpool-max"
-        label="Max pool machines"
-        type="number"
-        min="1"
-        step="1"
-        required
-        value={maxMachines}
-        onValueChange={onMaxMachinesChange}
-      />
+      {!clusterManaged && (
+        <MachinePoolInputField
+          id="mpool-max"
+          label="Max pool machines"
+          type="number"
+          min="0"
+          step="1"
+          required
+          value={maxMachines}
+          onValueChange={onMaxMachinesChange}
+        />
+      )}
     </>
   )
 }

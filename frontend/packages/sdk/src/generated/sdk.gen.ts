@@ -2795,6 +2795,8 @@ export const getMachinePool = <ThrowOnError extends boolean = true>(options: Opt
 
 /**
  * Update machine pool
+ *
+ * Tenant-managed pools support every request field. Cluster-managed pools only allow changes to default CPU and memory, environment and secret environment variables, and provider-supported per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
  */
 export const updateMachinePool = <ThrowOnError extends boolean = true>(options: Options<UpdateMachinePoolData, ThrowOnError>): RequestResult<UpdateMachinePoolResponses, UpdateMachinePoolErrors, ThrowOnError> => (options.client ?? client).put<UpdateMachinePoolResponses, UpdateMachinePoolErrors, ThrowOnError>({
     responseValidator: async (data) => await validateResponse(zUpdateMachinePoolResponse, data),

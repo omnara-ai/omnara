@@ -3,9 +3,7 @@ import type { MachinePool } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 import { useState } from 'react'
 
-import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
-import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -19,18 +17,12 @@ import { FieldGroup } from '@/components/ui/field'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { errorMessage } from '@/lib/submit-status'
 
-import { CreateMachinePoolAdvancedSection } from './CreateMachinePoolAdvancedSection'
 import {
   machinePoolCreateRequest,
-  machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
   machinePoolFormValid,
-  machinePoolProviderLabel,
-} from './CreateMachinePoolDialogState'
-import { MachinePoolInputField } from './MachinePoolInputField'
-import { isMachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
-import { MachinePoolProviderSelect } from './MachinePoolProviderSelect'
-import { MachinePoolResourceFields } from './MachinePoolResourceFields'
+} from './MachinePoolDialogState'
+import { MachinePoolFields } from './MachinePoolFields'
 
 export function CreateMachinePoolDialog({
   open,
@@ -87,7 +79,7 @@ export function CreateMachinePoolDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New machine pool</DialogTitle>
           <DialogDescription>Pools provision the machines your agents run on.</DialogDescription>
@@ -99,140 +91,12 @@ export function CreateMachinePoolDialog({
           }}
         >
           <FieldGroup>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <form.Field name="provider">
-                {(field) => (
-                  <MachinePoolProviderSelect
-                    value={field.state.value}
-                    onValueChange={(provider) => {
-                      if (!isMachinePoolProvider(provider)) return
-                      const nextValues = machinePoolFormAfterProviderChange(
-                        form.state.values,
-                        provider,
-                      )
-                      field.handleChange(nextValues.provider)
-                      form.setFieldValue('workspace', nextValues.workspace)
-                      form.setFieldValue('image', nextValues.image)
-                      form.setFieldValue('location', nextValues.location)
-                      form.setFieldValue('cpu', nextValues.cpu)
-                      form.setFieldValue('memoryGb', nextValues.memoryGb)
-                      form.setFieldValue('maxTotalCpu', nextValues.maxTotalCpu)
-                      form.setFieldValue('maxTotalMemoryGb', nextValues.maxTotalMemoryGb)
-                      form.setFieldValue('minMachineCpu', nextValues.minMachineCpu)
-                      form.setFieldValue('minMachineMemoryGb', nextValues.minMachineMemoryGb)
-                      form.setFieldValue('maxMachineCpu', nextValues.maxMachineCpu)
-                      form.setFieldValue('maxMachineMemoryGb', nextValues.maxMachineMemoryGb)
-                      form.setFieldValue('secretId', nextValues.secretId)
-                    }}
-                  />
-                )}
-              </form.Field>
-              <form.Field name="name">
-                {(field) => (
-                  <MachinePoolInputField
-                    id="mpool-name"
-                    label="Name"
-                    required
-                    value={field.state.value}
-                    placeholder="default"
-                    onValueChange={field.handleChange}
-                  />
-                )}
-              </form.Field>
-            </div>
-            <form.Subscribe selector={(state) => state.values.provider}>
-              {(provider) => (
-                <form.Field name="image">
-                  {(field) => (
-                    <MachinePoolInputField
-                      id="mpool-image"
-                      label={machinePoolProviderDefinitions[provider].resource.label}
-                      required
-                      value={field.state.value}
-                      placeholder={machinePoolProviderDefinitions[provider].resource.placeholder}
-                      autoComplete="off"
-                      onValueChange={field.handleChange}
-                      description={machinePoolProviderDefinitions[provider].resource.description}
-                      descriptionHref={
-                        machinePoolProviderDefinitions[provider].resource.descriptionHref
-                      }
-                    />
-                  )}
-                </form.Field>
-              )}
-            </form.Subscribe>
-            <form.Subscribe selector={(state) => state.values.provider}>
-              {(provider) =>
-                machinePoolProviderDefinitions[provider].requiresWorkspace ? (
-                  <form.Field name="workspace">
-                    {(field) => (
-                      <MachinePoolInputField
-                        id="mpool-workspace"
-                        label="Workspace"
-                        required
-                        value={field.state.value}
-                        autoComplete="off"
-                        onValueChange={field.handleChange}
-                      />
-                    )}
-                  </form.Field>
-                ) : null
-              }
-            </form.Subscribe>
-            <form.Subscribe
-              selector={(state) =>
-                [
-                  state.values.provider,
-                  state.values.location,
-                  state.values.cpu,
-                  state.values.memoryGb,
-                  state.values.maxMachines,
-                ] as const
-              }
-            >
-              {([provider, location, cpu, memoryGb, maxMachines]) => (
-                <MachinePoolResourceFields
-                  provider={provider}
-                  location={location}
-                  cpu={cpu}
-                  memoryGb={memoryGb}
-                  maxMachines={maxMachines}
-                  onLocationChange={(value) => {
-                    form.setFieldValue('location', value)
-                  }}
-                  onCpuChange={(value) => {
-                    form.setFieldValue('cpu', value)
-                  }}
-                  onMemoryGbChange={(value) => {
-                    form.setFieldValue('memoryGb', value)
-                  }}
-                  onMaxMachinesChange={(value) => {
-                    form.setFieldValue('maxMachines', value)
-                  }}
-                />
-              )}
-            </form.Subscribe>
-            <form.Subscribe selector={(state) => state.values.provider}>
-              {(provider) => (
-                <form.Field name="startupScript">
-                  {(field) => (
-                    <StartupScriptField
-                      id="mpool-startup-script"
-                      label="Startup script (optional)"
-                      provider={provider}
-                      value={field.state.value}
-                      placeholder={'apt-get update\napt-get install -y ripgrep'}
-                      onChange={field.handleChange}
-                    />
-                  )}
-                </form.Field>
-              )}
-            </form.Subscribe>
             <form.Subscribe selector={(state) => state.values}>
               {(values) => (
-                <CreateMachinePoolAdvancedSection
+                <MachinePoolFields
                   orgId={orgId}
                   enabled={open}
+                  mode="create"
                   values={values}
                   setValue={(key, value) => {
                     form.setFieldValue(key, value as never)
@@ -240,26 +104,6 @@ export function CreateMachinePoolDialog({
                 />
               )}
             </form.Subscribe>
-            <form.Field name="secretId">
-              {(field) => (
-                <form.Subscribe selector={(state) => state.values.provider}>
-                  {(provider) => (
-                    <CredentialSecretField
-                      key={provider}
-                      orgId={orgId}
-                      enabled={open}
-                      value={field.state.value}
-                      onChange={field.handleChange}
-                      label={`${machinePoolProviderLabel(provider)} API token`}
-                      placeholder={`Search secrets for your ${machinePoolProviderLabel(provider)} token…`}
-                      emptyDescription={`No secrets yet — use New secret to store your ${machinePoolProviderLabel(provider)} API token.`}
-                      defaultSecretName={`${provider}-api-token`}
-                      secretValuePlaceholder="Provider API token"
-                    />
-                  )}
-                </form.Subscribe>
-              )}
-            </form.Field>
             <form.Field name="projectGrantIds">
               {(field) => (
                 <form.Subscribe selector={(state) => state.isSubmitting}>
