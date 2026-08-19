@@ -274,6 +274,38 @@ func agentConfigCanUseIntegrationSendTool(config executionstore.AgentConfigRecor
 	return false
 }
 
+func (s *Server) validateIntegrationSendSetupConfig(
+	ctx context.Context,
+	config executionstore.AgentConfigRecord,
+) error {
+	if !agentConfigCanUseIntegrationSendTool(config) {
+		return apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"agent profile config does not allow send_integration_message",
+		)
+	}
+	configuredModel, err := s.store.Models().GetConfiguredModel(ctx, config.OrgID, config.ConfiguredModelID)
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	grant, err := s.store.Models().GetActiveProjectModelGrantForConfiguredModel(
+		ctx,
+		config.OrgID,
+		config.ProjectID,
+		config.ConfiguredModelID,
+	)
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	if !configuredModel.SupportsTools || (grant.SupportsTools != nil && !*grant.SupportsTools) {
+		return apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"agent profile model does not support tools",
+		)
+	}
+	return nil
+}
+
 func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) error {
 	if !supportedIntegrationOAuthProvider(state.Provider) || state.ClientID == "" || state.ClientSecret == "" ||
 		state.SigningSecret == "" ||
