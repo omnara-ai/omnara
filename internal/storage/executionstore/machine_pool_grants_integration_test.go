@@ -2918,14 +2918,14 @@ func TestMachinePoolListSupportsServerSideSearchSortAndPagination(t *testing.T) 
 	now := time.Now().UTC()
 	if _, err := pool.Exec(ctx, `
 INSERT INTO machines(
-    id, org_id, machine_pool_id, source_kind, provider, lifecycle_state,
+    id, org_id, machine_pool_id, source_kind, provider, display_name, lifecycle_state,
     lifecycle_changed_at, provider_resource_id, cpu, memory_mb, provider_options,
     deleted_at, created_at, updated_at
 ) VALUES
-    ($1, $2, $3, 'pool', 'test', 'active', $4, 'list-alpha-active', 3, 2048, '{}'::jsonb, NULL, $4, $4),
-    ($5, $2, $3, 'pool', 'test', 'deleted', $4, 'list-alpha-deleted', 8, 8192, '{}'::jsonb, $4, $4, $4),
-    ($6, $2, $7, 'pool', 'test', 'active', $4, 'list-beta-known', 2, 2048, '{}'::jsonb, NULL, $4, $4),
-    ($8, $2, $7, 'pool', 'test', 'active', $4, 'list-beta-resolved', NULL, 1024, '{}'::jsonb, NULL, $4, $4)
+    ($1, $2, $3, 'pool', 'test', 'list-alpha-active', 'active', $4, 'list-alpha-active', 3, 2048, '{}'::jsonb, NULL, $4, $4),
+    ($5, $2, $3, 'pool', 'test', 'list-alpha-deleted', 'deleted', $4, 'list-alpha-deleted', 8, 8192, '{}'::jsonb, $4, $4, $4),
+    ($6, $2, $7, 'pool', 'test', 'list-beta-known', 'active', $4, 'list-beta-known', 2, 2048, '{}'::jsonb, NULL, $4, $4),
+    ($8, $2, $7, 'pool', 'test', 'list-beta-resolved', 'active', $4, 'list-beta-resolved', NULL, 1024, '{}'::jsonb, NULL, $4, $4)
 `,
 		testID("list_alpha_active"),
 		testOrgID,
