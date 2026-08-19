@@ -1,6 +1,14 @@
 {
   "name": "@omnara/sdk",
   "version": "0.0.0",
+  "description": "TypeScript SDK for the Omnara API, with browser, TanStack Query, and Zod entry points",
+  "license": "Apache-2.0",
+  "homepage": "https://omnara.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omnara-ai/omnara.git",
+    "directory": "frontend/packages/sdk"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"

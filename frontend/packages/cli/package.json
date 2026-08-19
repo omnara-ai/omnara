@@ -1,6 +1,14 @@
 {
   "name": "omnara",
   "version": "0.0.0",
+  "description": "Command-line interface for Omnara: launch and manage agents, organizations, integrations, and MCP servers",
+  "license": "Apache-2.0",
+  "homepage": "https://omnara.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omnara-ai/omnara.git",
+    "directory": "frontend/packages/cli"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
