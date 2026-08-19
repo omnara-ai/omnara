@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": []
   },
-  "include": ["src", "openapi-ts.config.ts"]
+  "include": ["src", "openapi-ts.config.ts", "tsup.config.ts"]
 }
