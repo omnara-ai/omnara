@@ -275,7 +275,9 @@ function planPathParams(
     (param) => pathParams.includes(param.key) && !positional.includes(param.key),
   )
   return {
-    positionalParams: pathParams.filter((name) => !configParams.some((param) => param.key === name)),
+    positionalParams: pathParams.filter(
+      (name) => !configParams.some((param) => param.key === name),
+    ),
     configParams,
   }
 }

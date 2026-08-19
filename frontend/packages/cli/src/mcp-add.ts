@@ -10,11 +10,7 @@ import { isMap, isScalar, parseDocument } from 'yaml'
 import * as z from 'zod'
 
 import type { FlowContext } from './factory.ts'
-import {
-  authorizeMcpOAuthSecret,
-  openAuthorizationUrl,
-  zBrowserFlag,
-} from './mcp-oauth.ts'
+import { authorizeMcpOAuthSecret, openAuthorizationUrl, zBrowserFlag } from './mcp-oauth.ts'
 import { CliInputError } from './output.ts'
 import type { FlowReporter } from './reporter.ts'
 

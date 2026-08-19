@@ -3,7 +3,7 @@
   "version": "1.0.0-beta.1",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "bin": {
     "omnara": "./dist/bin.js"
@@ -12,7 +12,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/bin.js --banner:js='#!/usr/bin/env node' --external:@clack/prompts --external:commander --external:tar --external:zod",
+    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/bin.js --banner:js='#!/usr/bin/env node' --external:@clack/prompts --external:commander --external:tar --external:yaml --external:zod",
     "prepublishOnly": "pnpm build",
     "omnara": "tsx src/bin.ts",
     "test": "vitest run",
@@ -22,11 +22,11 @@
     "@clack/prompts": "^1.7.0",
     "commander": "^14.0.0",
     "tar": "^7.5.22",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@omnara/sdk": "workspace:*",
-    "yaml": "^2.9.0",
     "@types/node": "^22.10.0",
     "esbuild": "^0.28.2",
     "tsx": "^4.19.0",
