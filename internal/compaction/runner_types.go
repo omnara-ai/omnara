@@ -6,7 +6,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -43,11 +42,10 @@ type ExecutionStore interface {
 		projectID, agentID storage.ID,
 		inputEventSequence int64,
 	) (int, error)
-	ModelCallOperationHasFailedWithErrorKind(
+	GetProviderReplaySuppressionCutoff(
 		ctx context.Context,
 		projectID, agentID, modelCallContextID storage.ID,
-		errorKind modelprotocol.ErrorKind,
-	) (bool, error)
+	) (int64, error)
 	ClaimCompactionModelCall(
 		ctx context.Context,
 		input executionstore.ClaimCompactionModelCallInput,

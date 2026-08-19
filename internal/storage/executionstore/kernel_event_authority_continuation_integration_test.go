@@ -755,7 +755,11 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 		}
 		if event.Role == modelprotocol.RoleAssistant &&
 			strings.Contains(content, "assistant visible") {
-			foundVisibleOutput = sameJSON(event.ProviderReplay, providerReplay)
+			foundVisibleOutput = sameJSON(event.ProviderReplay, providerReplay) &&
+				event.ModelProviderConfigID != (executionstore.ID{}) &&
+				event.RequestedModelSlug == providerModelSlug &&
+				event.APIFormat == modelprotocol.APIFormatOpenAIResponses &&
+				event.APIVariant == modelprotocol.APIVariantDefault
 		}
 	}
 	if !foundConfigChange || !foundVisibleInput || !foundHistoricalTool || !foundVisibleOutput {

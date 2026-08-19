@@ -89,16 +89,13 @@ func TestEstimatePreparedRequestDoesNotInferAbsentMedia(t *testing.T) {
 	}
 }
 
-func TestModelWindowFitsPreparedInputEstimateAtExactBoundary(t *testing.T) {
+func TestModelWindowComputesExactUsableInputBoundary(t *testing.T) {
 	window := ModelWindow{
 		ContextTokens:          10_000,
 		RequestMaxOutputTokens: 2_000,
 		SafetyMarginTokens:     1_000,
 	}
-	if !window.FitsInputEstimate(7_000) {
-		t.Fatal("exact usable input boundary should fit")
-	}
-	if window.FitsInputEstimate(7_001) {
-		t.Fatal("input beyond usable boundary should not fit")
+	if got := window.UsableInputTokens(); got != 7_000 {
+		t.Fatalf("usable input = %d, want 7000", got)
 	}
 }

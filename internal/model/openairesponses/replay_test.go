@@ -11,6 +11,48 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
+func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
+	oldReplay := testProviderReplay(
+		"gpt-test",
+		modelprotocol.APIFormatOpenAIResponses,
+		json.RawMessage(`[
+			{"id":"rs_old","type":"reasoning","encrypted_content":"old-encrypted-replay"},
+			{"id":"msg_old","type":"message","role":"assistant","content":[{"type":"output_text","text":"old answer"}]}
+		]`),
+	)
+	newReplay := testProviderReplay(
+		"gpt-test",
+		modelprotocol.APIFormatOpenAIResponses,
+		json.RawMessage(`[
+			{"id":"rs_new","type":"reasoning","encrypted_content":"new-encrypted-replay"},
+			{"id":"msg_new","type":"message","role":"assistant","content":[{"type":"output_text","text":"new answer"}]}
+		]`),
+	)
+	oldMessage := openAIReplayMessage("mcc_old", oldReplay)
+	oldMessage.Content = json.RawMessage(`[{"type":"text","text":"old answer"}]`)
+	newMessage := openAIReplayMessage("mcc_new", newReplay)
+	newMessage.Sequence = 2
+	newMessage.Content = json.RawMessage(`[{"type":"text","text":"new answer"}]`)
+
+	prepared, err := (Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "gpt-test",
+	}).Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{Messages: []modelcontext.Message{oldMessage, newMessage}},
+		Policy:  model.RequestPolicy{ProviderReplayCutoffEventSequence: 1},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	body := string(prepared.Body)
+	if strings.Contains(body, "old-encrypted-replay") ||
+		!strings.Contains(body, "old answer") ||
+		!strings.Contains(body, "new-encrypted-replay") {
+		t.Fatalf("provider replay cutoff was not applied per message: %s", body)
+	}
+}
+
 func TestPreparePreservesFunctionCallBeforeAssistantMessage(t *testing.T) {
 	replay := testProviderReplay(
 		"gpt-test",

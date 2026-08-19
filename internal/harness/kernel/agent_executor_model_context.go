@@ -30,25 +30,12 @@ func ensureModelSupportsContractTools(
 func modelSelectionForContext(
 	contextRow executionstore.ModelCallContextRecord,
 	runtimeModel agentconfig.ModelCompiled,
-) (model.Selection, error) {
+) model.Selection {
 	return model.Selection{
 		OrgID:                     contextRow.OrgID.String(),
 		ProjectID:                 contextRow.ProjectID.String(),
 		ConfiguredModelRevisionID: contextRow.ConfiguredModelRevisionID.String(),
-		Options:                   selectionOptionsFromCompiled(runtimeModel),
-	}, nil
-}
-
-func selectionOptionsFromCompiled(runtimeModel agentconfig.ModelCompiled) model.SelectionOptions {
-	reasoningEffort := ""
-	if runtimeModel.Reasoning != nil {
-		reasoningEffort = runtimeModel.Reasoning.Effort
-	}
-	return model.SelectionOptions{
-		ContextWindowTokens:    runtimeModel.ContextWindowTokens,
-		DefaultMaxOutputTokens: runtimeModel.DefaultMaxOutputTokens,
-		CacheRetention:         model.CacheRetention(runtimeModel.CacheRetention),
-		ReasoningEffort:        reasoningEffort,
+		Overrides:                 runtimeModel.Overrides(),
 	}
 }
 

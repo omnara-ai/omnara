@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -463,7 +464,7 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 	effective, err := EffectiveConfiguredModelRevisionForAgentOptions(
 		modelprotocol.APIFormatOpenAIResponses,
 		projectEffectiveRevision,
-		AgentModelOptions{
+		agentconfig.ModelOverrides{
 			ContextWindowTokens:    intPtrForModelProviderConfigStoreTest(800),
 			DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(120),
 			CacheRetention:         ModelCacheRetentionShort,
@@ -484,19 +485,19 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		options AgentModelOptions
+		options agentconfig.ModelOverrides
 	}{
 		{
 			name:    "reject wider context",
-			options: AgentModelOptions{ContextWindowTokens: intPtrForModelProviderConfigStoreTest(1001)},
+			options: agentconfig.ModelOverrides{ContextWindowTokens: intPtrForModelProviderConfigStoreTest(1001)},
 		},
 		{
 			name:    "reject default output over ceiling",
-			options: AgentModelOptions{DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(201)},
+			options: agentconfig.ModelOverrides{DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(201)},
 		},
 		{
 			name:    "reject unsupported reasoning",
-			options: AgentModelOptions{ReasoningEffort: "xhigh"},
+			options: agentconfig.ModelOverrides{ReasoningEffort: "xhigh"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

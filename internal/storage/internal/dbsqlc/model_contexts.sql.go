@@ -466,6 +466,55 @@ func (q *Queries) GetNormalModelCallContextByIdentity(ctx context.Context, arg G
 	return id, err
 }
 
+const getProviderReplaySuppressionCutoff = `-- name: GetProviderReplaySuppressionCutoff :one
+WITH current_replay_identity AS MATERIALIZED (
+  SELECT context.project_id, context.agent_id, context.input_event_sequence,
+         revision.model_provider_config_id, revision.provider_model_slug,
+         provider.api_format, provider.api_variant
+  FROM model_call_contexts context
+  JOIN configured_model_revisions revision ON revision.org_id = context.org_id
+    AND revision.id = context.configured_model_revision_id
+  JOIN model_provider_configs provider ON provider.org_id = revision.org_id
+    AND provider.id = revision.model_provider_config_id
+  WHERE context.project_id = $1
+    AND context.agent_id = $2
+    AND context.id = $3
+)
+SELECT COALESCE((
+  SELECT MAX(failure.input_event_sequence)
+  FROM model_call_contexts failure
+  JOIN configured_model_revisions failure_revision
+    ON failure_revision.org_id = failure.org_id
+    AND failure_revision.id = failure.configured_model_revision_id
+  WHERE failure.project_id = current.project_id
+    AND failure.agent_id = current.agent_id
+    AND failure.operation_kind = 'normal'
+    AND failure.state = 'failed'
+    AND failure.error_kind = 'replay_rejected'
+    AND failure.input_event_sequence <= current.input_event_sequence
+    AND failure_revision.model_provider_config_id = current.model_provider_config_id
+    AND failure_revision.provider_model_slug = current.provider_model_slug
+    AND failure.api_format = current.api_format
+    AND failure.api_variant = current.api_variant
+), 0)::bigint AS cutoff_event_sequence
+FROM current_replay_identity current
+`
+
+type GetProviderReplaySuppressionCutoffParams struct {
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ModelCallContextID uuid.UUID
+}
+
+// @sqlc-vet-disable model-provider-configs-deleted-at
+// Replay safety remains part of immutable call lineage after provider soft deletion.
+func (q *Queries) GetProviderReplaySuppressionCutoff(ctx context.Context, arg GetProviderReplaySuppressionCutoffParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getProviderReplaySuppressionCutoff, arg.ProjectID, arg.AgentID, arg.ModelCallContextID)
+	var cutoff_event_sequence int64
+	err := row.Scan(&cutoff_event_sequence)
+	return cutoff_event_sequence, err
+}
+
 const insertNextModelCallContext = `-- name: InsertNextModelCallContext :one
 WITH agent_scope AS MATERIALIZED (
   SELECT agent.project_id, agent.id
@@ -866,47 +915,6 @@ func (q *Queries) ModelCallContextHasLaterSemanticEvent(ctx context.Context, arg
 	var has_later_semantic_event bool
 	err := row.Scan(&has_later_semantic_event)
 	return has_later_semantic_event, err
-}
-
-const modelCallOperationHasFailedWithErrorKind = `-- name: ModelCallOperationHasFailedWithErrorKind :one
-WITH current_context AS MATERIALIZED (
-  SELECT context.project_id, context.agent_id, context.id,
-         context.operation_kind, context.input_event_sequence
-  FROM model_call_contexts context
-  WHERE context.project_id = $2
-    AND context.agent_id = $3
-    AND context.id = $4
-)
-SELECT EXISTS (
-  SELECT 1
-  FROM current_context current
-  JOIN model_call_contexts sibling ON sibling.project_id = current.project_id
-    AND sibling.agent_id = current.agent_id
-    AND sibling.operation_kind = current.operation_kind
-    AND sibling.input_event_sequence = current.input_event_sequence
-    AND sibling.id <> current.id
-  WHERE sibling.state = 'failed'
-    AND sibling.error_kind = $1
-) AS failed
-`
-
-type ModelCallOperationHasFailedWithErrorKindParams struct {
-	ErrorKind          string
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	ModelCallContextID uuid.UUID
-}
-
-func (q *Queries) ModelCallOperationHasFailedWithErrorKind(ctx context.Context, arg ModelCallOperationHasFailedWithErrorKindParams) (bool, error) {
-	row := q.db.QueryRow(ctx, modelCallOperationHasFailedWithErrorKind,
-		arg.ErrorKind,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.ModelCallContextID,
-	)
-	var failed bool
-	err := row.Scan(&failed)
-	return failed, err
 }
 
 const openingContentInputSetMatchesInputSequence = `-- name: OpeningContentInputSetMatchesInputSequence :one

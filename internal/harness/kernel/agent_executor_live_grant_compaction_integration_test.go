@@ -251,7 +251,7 @@ func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.
 	}
 	if secondState != executionstore.ModelCallContextFailed ||
 		secondRecoveryKind != executionstore.ModelCallRecoveryCompact ||
-		secondErrorCode != "prepared_request_budget_overflow" {
+		secondErrorCode != "configured_input_budget_exceeded" {
 		t.Fatalf(
 			"replacement retry = state=%s recovery=%s code=%s",
 			secondState,

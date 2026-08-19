@@ -25,10 +25,6 @@ func (w ModelWindow) UsableInputTokens() int {
 	return usable
 }
 
-func (w ModelWindow) FitsInputEstimate(estimate int) bool {
-	return w.UsableInputTokens() >= estimate
-}
-
 func DefaultSafetyMarginTokens(contextTokens int) int {
 	if contextTokens <= 0 {
 		return 0

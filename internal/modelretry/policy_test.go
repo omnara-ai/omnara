@@ -16,7 +16,7 @@ func attempt(number int) Attempt {
 	return Attempt{Number: number}
 }
 
-func TestDecideCompactsReducibleInputFailuresWhenAllowed(t *testing.T) {
+func TestDecideStopsDeterministicInputFailures(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.July, 13, 12, 0, 0, 0, time.FixedZone("test", -7*60*60))
@@ -27,49 +27,21 @@ func TestDecideCompactsReducibleInputFailuresWhenAllowed(t *testing.T) {
 		t.Run(string(kind), func(t *testing.T) {
 			t.Parallel()
 			err := model.ProviderError{Kind: kind}
-
-			_, decision := Decide(err, attempt(1), "context-1", now, CompactOnInputOverflow)
-			if decision.Action != ActionCompact {
-				t.Fatalf("action = %q, want %q", decision.Action, ActionCompact)
+			_, decision := Decide(err, attempt(1), "context-1", now)
+			if decision.Action != ActionStop {
+				t.Fatalf("action = %q, want %q", decision.Action, ActionStop)
 			}
 			if decision.RetryDelay != 0 {
-				t.Fatalf("retry delay = %s, want immediate compaction", decision.RetryDelay)
-			}
-
-			_, decision = Decide(err, attempt(1), "context-1", now, StopOnInputOverflow)
-			if decision.Action != ActionStop {
-				t.Fatalf("compaction context action = %q, want %q", decision.Action, ActionStop)
-			}
-
-			_, decision = Decide(
-				err,
-				attempt(MaxModelCallRetriesPerOperation+1),
-				"context-1",
-				now,
-				StopOnInputOverflow,
-			)
-			if decision.Action != ActionStop {
-				t.Fatalf("exhausted compaction context action = %q, want %q", decision.Action, ActionStop)
-			}
-
-			_, decision = Decide(
-				err,
-				attempt(MaxModelCallRetriesPerOperation+1),
-				"context-1",
-				now,
-				CompactOnInputOverflow,
-			)
-			if decision.Action != ActionCompact {
-				t.Fatalf("exhausted normal context action = %q, want %q", decision.Action, ActionCompact)
+				t.Fatalf("retry delay = %s, want zero", decision.RetryDelay)
 			}
 		})
 	}
 }
 
-func TestDecideCompactsReducibleInputDespiteProviderNoRetryDirective(t *testing.T) {
+func TestDecideStopsDeterministicInputDespiteProviderRetryDirective(t *testing.T) {
 	t.Parallel()
 
-	retry := false
+	retry := true
 	err := model.ProviderError{
 		Kind:      model.ErrorKindContextWindow,
 		Retryable: &retry,
@@ -78,20 +50,10 @@ func TestDecideCompactsReducibleInputDespiteProviderNoRetryDirective(t *testing.
 		err,
 		attempt(1),
 		"context-provider-no-retry-overflow",
-		time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC), CompactOnInputOverflow)
-
-	if decision.Action != ActionCompact {
-		t.Fatalf("normal overflow action = %q, want %q", decision.Action, ActionCompact)
-	}
-
-	_, decision = Decide(
-		err,
-		attempt(1),
-		"compaction-provider-no-retry-overflow",
-		time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC), StopOnInputOverflow)
+		time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC))
 
 	if decision.Action != ActionStop {
-		t.Fatalf("compaction overflow action = %q, want %q", decision.Action, ActionStop)
+		t.Fatalf("overflow action = %q, want %q", decision.Action, ActionStop)
 	}
 }
 
@@ -107,7 +69,11 @@ func TestDecideRetryBuckets(t *testing.T) {
 		{name: "transient", err: model.ProviderError{Kind: model.ErrorKindTransient}, want: ActionRetry},
 		{name: "rate limit", err: model.ProviderError{Kind: model.ErrorKindRateLimit}, want: ActionRetry},
 		{name: "provider unavailable", err: model.ProviderError{Kind: model.ErrorKindProviderUnavailable}, want: ActionRetry},
-		{name: "provider replay rejected", err: model.ProviderError{Kind: model.ErrorKindReplayRejected}, want: ActionRetry},
+		{
+			name: "provider replay rejected without recovery",
+			err:  model.ProviderError{Kind: model.ErrorKindReplayRejected},
+			want: ActionStop,
+		},
 		{name: "unknown classified", err: model.ProviderError{Kind: model.ErrorKindUnknown}, want: ActionRetry},
 		{name: "unknown unclassified", err: errors.New("connection reset"), want: ActionRetry},
 		{name: "auth", err: model.ProviderError{Kind: model.ErrorKindAuth}, want: ActionStop},
@@ -138,7 +104,7 @@ func TestDecideRetryBuckets(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			_, decision := Decide(test.err, attempt(1), "context-1", now, StopOnInputOverflow)
+			_, decision := Decide(test.err, attempt(1), "context-1", now)
 			if decision.Action != test.want {
 				t.Fatalf("action = %q, want %q", decision.Action, test.want)
 			}
@@ -146,6 +112,77 @@ func TestDecideRetryBuckets(t *testing.T) {
 				t.Fatalf("retry delay = %s, want positive delay", decision.RetryDelay)
 			}
 		})
+	}
+}
+
+func TestDecideRetriesReplayRejectionOnlyWhenRecoveryIsAvailable(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC)
+	retry := true
+	doNotRetry := false
+	for _, test := range []struct {
+		name      string
+		err       error
+		available bool
+		want      Action
+	}{
+		{
+			name:      "first rejection",
+			err:       model.ProviderError{Kind: model.ErrorKindReplayRejected},
+			available: true,
+			want:      ActionRetry,
+		},
+		{
+			name: "provider retry false cannot block changed request",
+			err: model.ProviderError{
+				Kind:      model.ErrorKindReplayRejected,
+				Retryable: &doNotRetry,
+			},
+			available: true,
+			want:      ActionRetry,
+		},
+		{
+			name: "same frontier stops despite provider retry true",
+			err: model.ProviderError{
+				Kind:      model.ErrorKindReplayRejected,
+				Retryable: &retry,
+			},
+			want: ActionStop,
+		},
+		{
+			name: "same frontier stops despite ambiguous wrapper",
+			err: model.AmbiguousProviderOutcome(model.ProviderError{
+				Kind: model.ErrorKindReplayRejected,
+			}),
+			want: ActionStop,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, decision := Decide(
+				test.err,
+				Attempt{Number: 1, ProviderReplayCutoffCanAdvance: test.available},
+				"context-replay-recovery",
+				now,
+			)
+			if decision.Action != test.want {
+				t.Fatalf("action = %q, want %q", decision.Action, test.want)
+			}
+		})
+	}
+
+	_, decision := Decide(
+		model.ProviderError{Kind: model.ErrorKindReplayRejected},
+		Attempt{
+			Number:                         MaxModelCallRetriesPerOperation + 1,
+			ProviderReplayCutoffCanAdvance: true,
+		},
+		"context-replay-recovery-exhausted",
+		now,
+	)
+	if decision.Action != ActionStop {
+		t.Fatalf("exhausted replay recovery action = %q, want %q", decision.Action, ActionStop)
 	}
 }
 
@@ -167,7 +204,6 @@ func TestDecideStopsAfterEightRetries(t *testing.T) {
 		attempt(MaxModelCallRetriesPerOperation),
 		"context-1",
 		now,
-		StopOnInputOverflow,
 	)
 	if got := decision.Action; got != ActionRetry {
 		t.Fatalf("attempt %d action = %q, want %q", MaxModelCallRetriesPerOperation, got, ActionRetry)
@@ -177,7 +213,6 @@ func TestDecideStopsAfterEightRetries(t *testing.T) {
 		attempt(MaxModelCallRetriesPerOperation+1),
 		"context-1",
 		now,
-		StopOnInputOverflow,
 	)
 	if decision.Action != ActionStop {
 		t.Fatalf("attempt %d action = %q, want %q", MaxModelCallRetriesPerOperation+1, decision.Action, ActionStop)
@@ -242,14 +277,14 @@ func TestDecideUsesOneAttemptBudgetAcrossFailures(t *testing.T) {
 	now := time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC)
 	err := model.ProviderError{Kind: model.ErrorKindTransient}
 	lastRetryable := Attempt{Number: MaxModelCallRetriesPerOperation}
-	_, decision := Decide(err, lastRetryable, "context-1", now, StopOnInputOverflow)
+	_, decision := Decide(err, lastRetryable, "context-1", now)
 	if decision.Action != ActionRetry {
 		t.Fatalf("eighth pre-send failure action = %q, want %q", decision.Action, ActionRetry)
 	}
 
 	exhausted := lastRetryable
 	exhausted.Number++
-	_, decision = Decide(err, exhausted, "context-1", now, StopOnInputOverflow)
+	_, decision = Decide(err, exhausted, "context-1", now)
 	if decision.Action != ActionStop || decision.RetryDelay != 0 {
 		t.Fatalf("ninth pre-send failure decision = %+v, want stop without retry", decision)
 	}
@@ -270,7 +305,7 @@ func TestDecideHonorsRetryAfterHints(t *testing.T) {
 		},
 	}
 
-	_, decision := Decide(err, attempt(1), "context-1", now, StopOnInputOverflow)
+	_, decision := Decide(err, attempt(1), "context-1", now)
 	if decision.Action != ActionRetry {
 		t.Fatalf("action = %q, want %q", decision.Action, ActionRetry)
 	}
@@ -293,7 +328,7 @@ func TestDecideHonorsMillisecondRetryDelayAndExplicitRetryOverride(t *testing.T)
 		},
 		attempt(1),
 		"context-provider-override",
-		now, StopOnInputOverflow)
+		now)
 
 	if decision.Action != ActionRetry ||
 		decision.RetryDelay != 30_001*time.Millisecond {
@@ -315,7 +350,7 @@ func TestDecideHonorsMillisecondRetryDelayAndExplicitRetryOverride(t *testing.T)
 		},
 		attempt(1),
 		"context-provider-no-retry",
-		now, StopOnInputOverflow)
+		now)
 
 	if decision.Action != ActionStop {
 		t.Fatalf("explicit provider no-retry decision = %+v", decision)
@@ -328,7 +363,7 @@ func TestDecideHonorsMillisecondRetryDelayAndExplicitRetryOverride(t *testing.T)
 		}),
 		attempt(1),
 		"context-ambiguous-provider-no-retry",
-		now, StopOnInputOverflow)
+		now)
 
 	if decision.Action != ActionRetry {
 		t.Fatalf("ambiguous provider no-retry decision = %+v, want durable ambiguous retry", decision)
@@ -343,7 +378,7 @@ func TestDecideHonorsMillisecondRetryDelayAndExplicitRetryOverride(t *testing.T)
 		},
 		attempt(1),
 		"context-canceled-provider-retry",
-		now, StopOnInputOverflow)
+		now)
 
 	if decision.Action != ActionRetry {
 		t.Fatalf("inner cancellation provider retry decision = %+v, want provider advice to apply", decision)
@@ -361,7 +396,7 @@ func TestDecideHonorsNormalizedRetryAfter(t *testing.T) {
 		RetryAfter: &model.RetryAfter{DeltaSeconds: &delta},
 	}
 
-	_, decision := Decide(err, attempt, "context-pre-send", now, StopOnInputOverflow)
+	_, decision := Decide(err, attempt, "context-pre-send", now)
 	want := time.Hour
 	if decision.Action != ActionRetry || decision.RetryDelay != want {
 		t.Fatalf("retry decision = %+v, want provider retry delay %s", decision, want)
@@ -375,7 +410,7 @@ func TestDecideStopsUnrecognizedFutureErrorKind(t *testing.T) {
 		model.ProviderError{Kind: model.ErrorKind("future_provider_error")},
 		attempt(1),
 		"context-future-kind",
-		time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC), StopOnInputOverflow)
+		time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC))
 
 	if decision.Action != ActionStop || decision.RetryDelay != 0 {
 		t.Fatalf("future error kind decision = %+v, want stop without retry", decision)
@@ -393,7 +428,7 @@ func TestDecideDoesNotLetRetryAfterShortenLocalBackoff(t *testing.T) {
 		RetryAfter: &model.RetryAfter{DeltaSeconds: &delta},
 	}
 
-	_, decision := Decide(err, attempt, "context-short-retry-after", now, StopOnInputOverflow)
+	_, decision := Decide(err, attempt, "context-short-retry-after", now)
 	want := backoff(attempt.Number, "context-short-retry-after")
 	if decision.RetryDelay != want {
 		t.Fatalf("retry delay = %s, want local backoff floor %s", decision.RetryDelay, want)
@@ -410,7 +445,7 @@ func TestDecideIndexesBackoffByAttemptNumber(t *testing.T) {
 		model.ProviderError{Kind: model.ErrorKindTransient},
 		attempt,
 		"context-attempt-index",
-		now, StopOnInputOverflow)
+		now)
 
 	want := backoff(attempt.Number, "context-attempt-index")
 	if decision.RetryDelay != want {
@@ -435,7 +470,7 @@ func TestDecideRejectsUnrepresentableRetryAfterWithoutSchedulingEarly(t *testing
 				Kind:       model.ErrorKindRateLimit,
 				RetryAfter: &model.RetryAfter{DeltaSeconds: &test.seconds},
 			}
-			_, decision := Decide(err, attempt(1), "context-1", now, StopOnInputOverflow)
+			_, decision := Decide(err, attempt(1), "context-1", now)
 			if test.seconds < 0 {
 				if decision.Action != ActionRetry || decision.RetryDelay <= 0 {
 					t.Fatalf("negative retry-after decision = %+v, want local retry", decision)
@@ -457,7 +492,7 @@ func TestDecideHonorsLongHTTPDateRetryAfter(t *testing.T) {
 		RetryAfter: &model.RetryAfter{HTTPDate: &httpDate},
 	}
 
-	_, decision := Decide(err, attempt(1), "context-1", now, StopOnInputOverflow)
+	_, decision := Decide(err, attempt(1), "context-1", now)
 	if decision.RetryDelay != 30*24*time.Hour {
 		t.Fatalf("retry delay = %s, want provider minimum %s", decision.RetryDelay, 30*24*time.Hour)
 	}

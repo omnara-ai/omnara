@@ -164,6 +164,137 @@ func TestPrepareReplaysThinkingAndToolUseAsOneValidatedOutput(t *testing.T) {
 	}
 }
 
+func TestPrepareSuppressesRejectedReplayAndRebuildsCanonicalToolExchange(t *testing.T) {
+	replay := testProviderReplay(
+		"claude-test",
+		modelprotocol.APIFormatAnthropicMessages,
+		json.RawMessage(`[
+			{"type":"thinking","thinking":"private reasoning","signature":"sig_rejected"},
+			{"type":"text","text":"visible reply"},
+			{"type":"tool_use","id":"toolu_replayed","name":"run_command","input":{"command":"true"}}
+		]`),
+	)
+	message := withToolCallLinks(anthropicReplayMessage("mcc_1", replay), "tcl_1")
+	message.Content = json.RawMessage(`[
+		{"type":"reasoning","text":"private reasoning"},
+		{"type":"text","text":"visible reply"},
+		{"type":"tool_call","tool_call_id":"tcl_1"}
+	]`)
+	prepared, err := (Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "claude-test",
+	}).Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{message},
+			ToolResults: []modelcontext.ToolResultRef{{
+				ToolCallID:         "tcl_1",
+				ModelCallContextID: "mcc_1",
+				ProviderCallID:     "toolu_replayed",
+				Name:               "run_command",
+				Input:              json.RawMessage(`{"command":"true"}`),
+				ContentParts:       json.RawMessage(`[{"type":"text","text":"done"}]`),
+			}},
+		},
+		Policy: model.RequestPolicy{
+			MaxOutputTokens:                   64,
+			ProviderReplayCutoffEventSequence: message.Sequence,
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare with replay suppressed: %v", err)
+	}
+	body := string(prepared.Body)
+	if strings.Contains(body, "private reasoning") ||
+		strings.Contains(body, "sig_rejected") ||
+		strings.Contains(body, `"id":"toolu_replayed"`) {
+		t.Fatalf("suppressed replay leaked provider-only data: %s", body)
+	}
+	if !strings.Contains(body, "visible reply") ||
+		!strings.Contains(body, `"type":"tool_use"`) ||
+		!strings.Contains(body, `"type":"tool_result"`) ||
+		!strings.Contains(body, "done") {
+		t.Fatalf("canonical tool exchange was not preserved: %s", body)
+	}
+
+	var payload struct {
+		Messages []struct {
+			Content []struct {
+				Type      string `json:"type"`
+				ID        string `json:"id"`
+				ToolUseID string `json:"tool_use_id"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode prepared payload: %v", err)
+	}
+	var rebuiltToolUseID, resultToolUseID string
+	for _, wireMessage := range payload.Messages {
+		for _, block := range wireMessage.Content {
+			switch block.Type {
+			case "tool_use":
+				rebuiltToolUseID = block.ID
+			case "tool_result":
+				resultToolUseID = block.ToolUseID
+			}
+		}
+	}
+	if rebuiltToolUseID == "" || resultToolUseID != rebuiltToolUseID {
+		t.Fatalf(
+			"rebuilt tool boundary tool_use=%q tool_result=%q: %s",
+			rebuiltToolUseID,
+			resultToolUseID,
+			body,
+		)
+	}
+}
+
+func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
+	oldReplay := testProviderReplay(
+		"claude-test",
+		modelprotocol.APIFormatAnthropicMessages,
+		json.RawMessage(`[
+			{"type":"redacted_thinking","data":"old-redacted-replay"},
+			{"type":"text","text":"old answer"}
+		]`),
+	)
+	newReplay := testProviderReplay(
+		"claude-test",
+		modelprotocol.APIFormatAnthropicMessages,
+		json.RawMessage(`[
+			{"type":"redacted_thinking","data":"new-redacted-replay"},
+			{"type":"text","text":"new answer"}
+		]`),
+	)
+	oldMessage := anthropicReplayMessage("mcc_old", oldReplay)
+	oldMessage.Content = json.RawMessage(`[{"type":"text","text":"old answer"}]`)
+	newMessage := anthropicReplayMessage("mcc_new", newReplay)
+	newMessage.Sequence = 2
+	newMessage.Content = json.RawMessage(`[{"type":"text","text":"new answer"}]`)
+
+	prepared, err := (Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "claude-test",
+	}).Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{Messages: []modelcontext.Message{oldMessage, newMessage}},
+		Policy: model.RequestPolicy{
+			MaxOutputTokens:                   64,
+			ProviderReplayCutoffEventSequence: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	body := string(prepared.Body)
+	if strings.Contains(body, "old-redacted-replay") ||
+		!strings.Contains(body, "old answer") ||
+		!strings.Contains(body, "new-redacted-replay") {
+		t.Fatalf("provider replay cutoff was not applied per message: %s", body)
+	}
+}
+
 func TestPrepareIgnoresReplayFromDifferentModel(t *testing.T) {
 	replay := testProviderReplay(
 		"claude-old",

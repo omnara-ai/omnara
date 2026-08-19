@@ -1222,9 +1222,9 @@ func (s *Server) agentConfigEffectiveModel(
 	record executionstore.AgentConfigRecord,
 	configuredModel modelstore.ConfiguredModelRecord,
 	revision modelstore.ConfiguredModelRevisionDisplayRecord,
-	model agentconfig.ModelCompiled,
+	compiledModel agentconfig.ModelCompiled,
 ) (modelstore.ConfiguredModelRevisionRecord, error) {
-	options := executionstore.AgentModelOptionsFromCompiledModel(model)
+	options := compiledModel.Overrides()
 	grant, err := s.store.Models().GetActiveProjectModelGrantForConfiguredModel(
 		ctx,
 		record.OrgID,

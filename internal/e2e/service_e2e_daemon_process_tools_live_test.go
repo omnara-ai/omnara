@@ -15,53 +15,62 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-func TestServiceE2ELiveOpenAIDockerDaemonProcessTools(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	defer cancel()
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		t.Fatal("OPENAI_API_KEY is required for live OpenAI Docker daemon process E2E")
-	}
-	runLiveDockerDaemonProcessTools(t, ctx, liveDockerDaemonProcessOptions{
-		Seed:                "live-openai-docker-daemon-process-tools",
-		ProviderConfig:      "openai-prod",
-		ConfiguredModelName: liveOpenAIConfiguredModelName(),
-		BaseURL:             os.Getenv("OPENAI_BASE_URL"),
-	})
+func TestServiceE2ELiveOpenAIResponsesDockerDaemonProcessTools(t *testing.T) {
+	runLiveServiceProviderJourney(
+		t,
+		"openai-prod",
+		"docker-daemon-process-tools",
+		8*time.Minute,
+		runLiveDockerDaemonProcessTools,
+	)
+}
+
+func TestServiceE2ELiveOpenAIChatCompletionsDockerDaemonProcessTools(t *testing.T) {
+	runLiveServiceProviderJourney(
+		t,
+		"openai-chat-prod",
+		"docker-daemon-process-tools",
+		8*time.Minute,
+		runLiveDockerDaemonProcessTools,
+	)
+}
+
+func TestServiceE2ELiveOpenRouterDockerDaemonProcessTools(t *testing.T) {
+	runLiveServiceProviderJourney(
+		t,
+		"openrouter-prod",
+		"docker-daemon-process-tools",
+		8*time.Minute,
+		runLiveDockerDaemonProcessTools,
+	)
 }
 
 func TestServiceE2ELiveAnthropicDockerDaemonProcessTools(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	defer cancel()
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		t.Fatal("ANTHROPIC_API_KEY is required for live Anthropic Docker daemon process E2E")
-	}
-	runLiveDockerDaemonProcessTools(t, ctx, liveDockerDaemonProcessOptions{
-		Seed:                "live-anthropic-docker-daemon-process-tools",
-		ProviderConfig:      "anthropic-prod",
-		ConfiguredModelName: liveAnthropicConfiguredModelName(),
-		BaseURL:             os.Getenv("ANTHROPIC_BASE_URL"),
-	})
+	runLiveServiceProviderJourney(
+		t,
+		"anthropic-prod",
+		"docker-daemon-process-tools",
+		8*time.Minute,
+		runLiveDockerDaemonProcessTools,
+	)
 }
 
-type liveDockerDaemonProcessOptions struct {
-	Seed                string
-	ProviderConfig      string
-	ConfiguredModelName string
-	BaseURL             string
-}
-
-func runLiveDockerDaemonProcessTools(t *testing.T, ctx context.Context, opts liveDockerDaemonProcessOptions) {
+func runLiveDockerDaemonProcessTools(t *testing.T, ctx context.Context, opts liveServiceJourneyOptions) {
 	t.Helper()
 	env := newServiceE2EEnvironment(t, ctx, opts.Seed)
 	env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPIWithTools(
+	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(
 		t,
 		ctx,
 		opts.Seed,
 		opts.ProviderConfig,
 		opts.ConfiguredModelName,
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{
+				ProviderConfigName:  opts.ProviderConfig,
+				ConfiguredModelName: opts.ConfiguredModelName,
+			}: opts.ModelOptions,
+		},
 		processToolNames...)
 	nonce := strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	machine := project.bootstrapDockerMachine(t, ctx, opts.Seed+"-byo-machine")
@@ -206,6 +215,24 @@ func waitForLiveAssistantText(
 		}
 		if messages == 1 {
 			return true, ""
+		}
+		latestFailure, err := latestTerminalLiveModelFailure(
+			ctx,
+			env,
+			projectUUID,
+			agentUUID,
+			0,
+		)
+		if err != nil {
+			return false, err.Error()
+		}
+		if latestFailure != "" {
+			t.Fatalf(
+				"terminal live model failure: %s worker_logs=%s daemon_logs=%s",
+				latestFailure,
+				worker.logExcerpt(),
+				daemon.logExcerpt(),
+			)
 		}
 		var locks, wakeups, toolCalls, openInteractions, processActions int
 		_ = env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).

@@ -389,6 +389,39 @@ func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 			want: model.ErrorKindBillingAccount,
 			code: "insufficient_quota",
 		},
+		{
+			name: "top-level gateway type with context prose",
+			body: `{"id":"resp_failed","status":"failed",` +
+				`"error_type":"provider_unavailable",` +
+				`"error":{"code":"invalid_prompt",` +
+				`"message":"Your input exceeds the context window of this model."},"output":[]}`,
+			want: model.ErrorKindContextWindow,
+			code: "provider_unavailable",
+		},
+		{
+			name: "top-level gateway type with payload prose",
+			body: `{"id":"resp_failed","status":"failed",` +
+				`"error_type":"provider_unavailable",` +
+				`"error":{"code":"invalid_prompt",` +
+				`"message":"Request entity too large for the upstream provider."},"output":[]}`,
+			want: model.ErrorKindPayloadTooLarge,
+			code: "provider_unavailable",
+		},
+		{
+			name: "top-level authentication survives lossy native code",
+			body: `{"id":"resp_failed","status":"failed","error_type":"authentication",` +
+				`"error":{"code":"server_error","message":"Invalid credentials"},"output":[]}`,
+			want: model.ErrorKindAuth,
+			code: "authentication",
+		},
+		{
+			name: "top-level content policy survives lossy native code",
+			body: `{"id":"resp_failed","status":"failed",` +
+				`"error_type":"content_policy_violation",` +
+				`"error":{"code":"server_error","message":"Output blocked"},"output":[]}`,
+			want: model.ErrorKindInvalidRequest,
+			code: "content_policy_violation",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -584,6 +617,20 @@ func TestRespondClassifiesProviderErrors(t *testing.T) {
 			statusCode: http.StatusBadGateway,
 			body:       `{"error":{"message":"upstream"}}`,
 			want:       model.ErrorKindProviderUnavailable,
+		},
+		{
+			name:       "top-level gateway type preserves upstream context cause",
+			statusCode: http.StatusBadGateway,
+			body: `{"error_type":"provider_unavailable",` +
+				`"error":{"code":502,"message":"Your input exceeds the context window of this model."}}`,
+			want: model.ErrorKindContextWindow,
+		},
+		{
+			name:       "top-level gateway type preserves upstream payload cause",
+			statusCode: http.StatusBadGateway,
+			body: `{"error_type":"provider_unavailable",` +
+				`"error":{"code":502,"message":"Payload too large for the upstream provider."}}`,
+			want: model.ErrorKindPayloadTooLarge,
 		},
 		{
 			name:       "unavailable status beats quota prose",
