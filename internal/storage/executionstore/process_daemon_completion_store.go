@@ -502,16 +502,6 @@ func (s *Store) GetProcessByToolCall(
 	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
 }
 
-func (s *Store) ListActiveProcessesForContext(
-	ctx context.Context,
-	projectID, agentID ID,
-) ([]ActiveProcessRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
-		return nil, errors.New("project and agent are required")
-	}
-	return listActiveProcessesForContext(ctx, s.q, projectID, agentID)
-}
-
 func (r *ToolCallReader) ListActiveProcessesForContext(
 	ctx context.Context,
 ) ([]ActiveProcessRecord, error) {

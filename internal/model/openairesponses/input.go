@@ -37,9 +37,6 @@ func buildInput(
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
-	if modelcontext.HasExecutionContext(bundle) {
-		capacity++
-	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
@@ -91,18 +88,6 @@ func buildInput(
 			map[string]any{
 				"role":    responsesRoleSystem,
 				"content": modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-			},
-		)
-	}
-	if modelcontext.HasExecutionContext(bundle) {
-		items = append(
-			items,
-			map[string]any{
-				"role": responsesRoleSystem,
-				"content": modelcontext.ExecutionContextContent(
-					bundle.ActiveProcesses,
-					bundle.AttachedMachines,
-				),
 			},
 		)
 	}
