@@ -110,6 +110,11 @@ export const zError = z.object({
     ])
 });
 
+export const zWarning = z.object({
+    message: z.string(),
+    code: z.enum(['missing_recommended_machine_tools'])
+});
+
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
@@ -726,6 +731,7 @@ export const zAgentConfig = z.object({
     effective_definition_hash: z.string(),
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),
+    warnings: z.array(zWarning).min(1).optional(),
     created_at: zTimestamp
 });
 

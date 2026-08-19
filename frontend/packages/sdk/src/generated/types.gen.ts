@@ -40,6 +40,17 @@ export type Error = {
     code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
+export type Warning = {
+    /**
+     * Human-readable warning message. Do not match on it programmatically.
+     */
+    message: string;
+    /**
+     * Stable warning code for programmatic handling.
+     */
+    code: 'missing_recommended_machine_tools';
+};
+
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
@@ -903,6 +914,10 @@ export type AgentConfig = {
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
+    /**
+     * Non-blocking diagnostics about the agent config.
+     */
+    warnings?: Array<Warning>;
     created_at: Timestamp;
 };
 

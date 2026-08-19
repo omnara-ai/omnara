@@ -36,6 +36,12 @@ tools:
   run_command:
     permission:
       mode: always_allow
+  write_process: {}
+  read_process: {}
+  stop_process: {}
+  list_processes: {}
+  list_machines: {}
+  inspect_machine: {}
   ask_question: {}
   # Integration targets (e.g. a Slack channel bound at launch): the send tool
   # delivers user-visible replies; the target tool switches conversations.

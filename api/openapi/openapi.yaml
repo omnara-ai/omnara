@@ -6563,6 +6563,19 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+    Warning:
+      type: object
+      additionalProperties: false
+      required: [message, code]
+      properties:
+        message:
+          type: string
+          description: Human-readable warning message. Do not match on it programmatically.
+        code:
+          type: string
+          description: Stable warning code for programmatic handling.
+          enum:
+            - missing_recommended_machine_tools
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -7886,6 +7899,13 @@ components:
           $ref: '#/components/schemas/AgentConfigModel'
         instruction_hash:
           type: string
+        warnings:
+          type: array
+          minItems: 1
+          x-go-type-skip-optional-pointer: true
+          description: Non-blocking diagnostics about the agent config.
+          items:
+            $ref: '#/components/schemas/Warning'
         created_at:
           $ref: '#/components/schemas/Timestamp'
     CreateAgentProfileRequest:
