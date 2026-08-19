@@ -113,6 +113,10 @@ tools:
     enabled: true
   list_processes:
     enabled: true
+  list_machines:
+    enabled: true
+  inspect_machine:
+    enabled: true
   web_search:
     enabled: true
   web_fetch:
