@@ -349,11 +349,13 @@ type summaryModel struct {
 	caps                        model.Capabilities
 	preparedBundles             []modelcontext.Bundle
 	preparedPolicies            []model.RequestPolicy
-	preparedEstimates           []int
+	preparedEstimate            func(model.PrepareInput, []byte) int
+	sourceInputTokens           int
 	checkpointPreparedEstimates []int
 	prepareErrs                 []error
 	requests                    []model.Request
 	results                     []summaryResult
+	outputTokenMinimum          int
 }
 
 func (m *summaryModel) RequestedProviderModelSlug() string {
@@ -385,6 +387,10 @@ func (m *summaryModel) Capabilities() model.Capabilities {
 	return caps
 }
 
+func (m *summaryModel) OutputTokenLimits() (model.OutputTokenLimits, error) {
+	return model.OutputTokenLimits{Minimum: m.outputTokenMinimum}, nil
+}
+
 func (m *summaryModel) Prepare(
 	_ context.Context,
 	input model.PrepareInput,
@@ -406,12 +412,13 @@ func (m *summaryModel) Prepare(
 		return model.PreparedRequest{}, err
 	}
 	estimate := modelcontext.EstimatePreparedRequest(body, nil)
-	if input.Context.ContextCheckpoint != nil && len(m.checkpointPreparedEstimates) > 0 {
+	if m.preparedEstimate != nil {
+		estimate = m.preparedEstimate(input, body)
+	} else if input.Context.ContextCheckpoint != nil && len(m.checkpointPreparedEstimates) > 0 {
 		estimate = m.checkpointPreparedEstimates[0]
 		m.checkpointPreparedEstimates = m.checkpointPreparedEstimates[1:]
-	} else if len(m.preparedEstimates) > 0 {
-		estimate = m.preparedEstimates[0]
-		m.preparedEstimates = m.preparedEstimates[1:]
+	} else if input.Context.ContextCheckpoint == nil && m.sourceInputTokens > 0 {
+		estimate = m.sourceInputTokens
 	}
 	return model.PreparedRequest{Body: body, InputTokenEstimate: estimate}, nil
 }

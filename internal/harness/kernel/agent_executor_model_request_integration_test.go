@@ -356,7 +356,10 @@ func TestAgentExecutorRecordsOutputLimitConflictBeforeProviderPreparation(t *tes
 		now.Add(time.Millisecond),
 	)
 	baseClient := &sequenceKernelModel{providerModelSlug: "output-limit-conflict"}
-	modelClient := &outputLimitKernelModel{sequenceKernelModel: baseClient}
+	modelClient := &outputLimitKernelModel{
+		sequenceKernelModel: baseClient,
+		minimumOutputTokens: baseClient.Capabilities().MaxOutputTokens + 1,
+	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
@@ -427,14 +430,13 @@ LIMIT 1
 
 type outputLimitKernelModel struct {
 	*sequenceKernelModel
-	validationCalls int
+	minimumOutputTokens int
+	validationCalls     int
 }
 
-func (m *outputLimitKernelModel) OutputTokenLimits(
-	policy model.RequestPolicy,
-) (model.OutputTokenLimits, error) {
+func (m *outputLimitKernelModel) OutputTokenLimits() (model.OutputTokenLimits, error) {
 	m.validationCalls++
-	return model.OutputTokenLimits{Minimum: policy.MaxOutputTokens + 1}, nil
+	return model.OutputTokenLimits{Minimum: m.minimumOutputTokens}, nil
 }
 
 func TestAgentExecutorAppliesCompiledModelOverridesToRequestPolicy(t *testing.T) {

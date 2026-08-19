@@ -42,22 +42,22 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 }
 
 func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testing.T) {
-	const configuredOutputTokens = 1_024
+	const summaryOutputFloorTokens = 2_048
 	caps := model.Capabilities{
-		ContextWindowTokens:    preferredSummaryOutputTokens + configuredOutputTokens,
+		ContextWindowTokens:    preferredSummaryOutputTokens + summaryOutputFloorTokens,
 		MaxOutputTokens:        preferredSummaryOutputTokens,
-		DefaultMaxOutputTokens: configuredOutputTokens,
+		DefaultMaxOutputTokens: summaryOutputFloorTokens,
 	}
-	inputTokens := model.UsableInputTokensForRequest(
-		caps,
-		model.RequestPolicy{MaxOutputTokens: configuredOutputTokens - 1},
-	)
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
 		textCompactionEvent(1, "only closed semantic unit"),
 	}}
 	client := &summaryModel{
-		caps:              caps,
-		preparedEstimates: []int{inputTokens, inputTokens, inputTokens},
+		caps: caps,
+		sourceInputTokens: model.UsableInputTokensForRequest(
+			caps,
+			model.RequestPolicy{MaxOutputTokens: summaryOutputFloorTokens - 1},
+		),
+		outputTokenMinimum: summaryOutputFloorTokens,
 	}
 
 	result, err := testRunner(store, client).
@@ -69,8 +69,6 @@ func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testin
 		store.terminalFailures[0].ErrorKind != model.ErrorKindContextWindow ||
 		store.terminalFailures[0].ErrorCode != "compaction_source_irreducible" ||
 		!strings.Contains(store.terminalFailures[0].ErrorMessage, "minimum summary allowance") ||
-		len(client.preparedBundles) != 3 ||
-		client.preparedPolicies[len(client.preparedPolicies)-1].MaxOutputTokens != configuredOutputTokens ||
 		len(client.requests) != 0 ||
 		len(store.replacements) != 0 || len(store.retryFailures) != 0 ||
 		len(store.publishInputs) != 0 {
@@ -84,6 +82,22 @@ func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testin
 			store.retryFailures,
 			store.publishInputs,
 		)
+	}
+	sawFloor := false
+	for _, policy := range client.preparedPolicies {
+		if policy.MaxOutputTokens < summaryOutputFloorTokens {
+			t.Fatalf(
+				"prepared output allowance = %d, below safe floor %d",
+				policy.MaxOutputTokens,
+				summaryOutputFloorTokens,
+			)
+		}
+		if policy.MaxOutputTokens == summaryOutputFloorTokens {
+			sawFloor = true
+		}
+	}
+	if !sawFloor {
+		t.Fatalf("prepared policies = %+v, want enforced floor", client.preparedPolicies)
 	}
 }
 
@@ -104,7 +118,7 @@ func TestRunnerReducesSummaryOutputToConfiguredFloor(t *testing.T) {
 	}}
 	client := &summaryModel{
 		caps:              caps,
-		preparedEstimates: []int{inputTokens, inputTokens, inputTokens},
+		sourceInputTokens: inputTokens,
 	}
 
 	result, err := testRunner(store, client).
@@ -157,13 +171,8 @@ func TestRunnerUsesExactOutputReductionBetweenPreferredAndFloor(t *testing.T) {
 		textCompactionEvent(1, strings.Repeat("compactable source context ", 40)),
 	}}
 	client := &summaryModel{
-		caps: caps,
-		preparedEstimates: []int{
-			inputTokens,
-			inputTokens,
-			inputTokens,
-			inputTokens,
-		},
+		caps:              caps,
+		sourceInputTokens: inputTokens,
 	}
 
 	result, err := testRunner(store, client).
@@ -264,7 +273,13 @@ func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testin
 			ContextWindowTokens: 8_000,
 			MaxOutputTokens:     1_024,
 		},
-		preparedEstimates: []int{500, 7_000, 500},
+		preparedEstimate: func(input model.PrepareInput, body []byte) int {
+			if input.Context.ContextCheckpoint == nil &&
+				strings.Contains(string(body), "second closed unit") {
+				return 7_000
+			}
+			return 500
+		},
 	}
 	result, err := testRunner(store, client).
 		Run(context.Background(), runInput(testPlan(1, 2, 2)))
@@ -280,22 +295,9 @@ func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testin
 		store.replacements[0].ProviderResponseID != "" {
 		t.Fatalf("serialized oversized result=%+v replacements=%+v", result, store.replacements)
 	}
-	compactionPrepares := 0
-	checkpointPrepares := 0
-	for _, bundle := range client.preparedBundles {
-		if bundle.ContextCheckpoint == nil {
-			compactionPrepares++
-		} else {
-			checkpointPrepares++
-		}
-	}
-	if compactionPrepares != 3 || checkpointPrepares != 1 || len(client.requests) != 1 {
-		t.Fatalf(
-			"compaction/checkpoint/provider calls = %d/%d/%d, want 3/1/1",
-			compactionPrepares,
-			checkpointPrepares,
-			len(client.requests),
-		)
+	if len(client.requests) != 1 ||
+		strings.Contains(string(client.requests[0].ProviderRequest), "second closed unit") {
+		t.Fatalf("provider requests = %+v, want one request without oversized source", client.requests)
 	}
 }
 

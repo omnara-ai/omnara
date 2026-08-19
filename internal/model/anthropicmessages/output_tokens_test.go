@@ -40,11 +40,10 @@ func TestAnthropicOutputTokenLimitValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := Client{APIVariantOptions: test.options}
-			err := model.ValidateOutputTokenLimit(
-				client,
-				model.RequestPolicy{MaxOutputTokens: test.maxOutput},
-				"anthropic_messages",
-			)
+			limits, err := model.OutputTokenLimitsForClient(client, "anthropic_messages")
+			if err == nil {
+				err = limits.Validate(test.maxOutput, "anthropic_messages")
+			}
 			if test.wantConflict {
 				if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) {
 					t.Fatalf("validation error = %v, want output-limit conflict", err)

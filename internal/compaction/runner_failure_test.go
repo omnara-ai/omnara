@@ -114,20 +114,6 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 			wantFloor:  preferredSummaryOutputTokens,
 		},
 		{
-			name: "Anthropic fixed budget raises configured floor",
-			client: anthropicmessages.Client{
-				ProviderModelSlug: "claude-sonnet-4",
-				ModelCapabilities: model.Capabilities{
-					ContextWindowTokens:    200_000,
-					MaxOutputTokens:        64_000,
-					DefaultMaxOutputTokens: 8_192,
-				},
-				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":9999}}`),
-			},
-			wantOutput: preferredSummaryOutputTokens,
-			wantFloor:  10_000,
-		},
-		{
 			name: "Anthropic falls back to normal allowance",
 			client: anthropicmessages.Client{
 				ProviderModelSlug: "claude-sonnet-4",
@@ -157,21 +143,41 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 }
 
 func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T) {
-	client := anthropicmessages.Client{
-		ProviderModelSlug: "claude-sonnet-4",
-		ModelCapabilities: model.Capabilities{
-			ContextWindowTokens:    200_000,
-			MaxOutputTokens:        64_000,
-			DefaultMaxOutputTokens: 16_384,
+	tests := []struct {
+		name         string
+		normalOutput int
+		options      json.RawMessage
+	}{
+		{
+			name:         "preferred and normal allowances conflict",
+			normalOutput: 16_384,
+			options:      json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
 		},
-		APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
+		{
+			name:         "normal allowance conflicts even though preferred fits",
+			normalOutput: 8_192,
+			options:      json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":9999}}`),
+		},
 	}
-	_, _, err := compactionRequestPolicy(client, "anthropic_messages")
-	var providerErr model.ProviderError
-	if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) ||
-		!errors.As(err, &providerErr) ||
-		providerErr.Code != model.OutputTokenLimitIncompatibleCode {
-		t.Fatalf("compaction policy error = %v, want terminal output-limit conflict", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := anthropicmessages.Client{
+				ProviderModelSlug: "claude-sonnet-4",
+				ModelCapabilities: model.Capabilities{
+					ContextWindowTokens:    200_000,
+					MaxOutputTokens:        64_000,
+					DefaultMaxOutputTokens: test.normalOutput,
+				},
+				APIVariantOptions: test.options,
+			}
+			_, _, err := compactionRequestPolicy(client, "anthropic_messages")
+			var providerErr model.ProviderError
+			if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) ||
+				!errors.As(err, &providerErr) ||
+				providerErr.Code != model.OutputTokenLimitIncompatibleCode {
+				t.Fatalf("compaction policy error = %v, want terminal output-limit conflict", err)
+			}
+		})
 	}
 }
 
@@ -651,11 +657,9 @@ type trackedOutputLimitClient struct {
 	respondCalls    int
 }
 
-func (c *trackedOutputLimitClient) OutputTokenLimits(
-	policy model.RequestPolicy,
-) (model.OutputTokenLimits, error) {
+func (c *trackedOutputLimitClient) OutputTokenLimits() (model.OutputTokenLimits, error) {
 	c.validationCalls++
-	return c.provider.OutputTokenLimits(policy)
+	return c.provider.OutputTokenLimits()
 }
 
 func (c *trackedOutputLimitClient) Prepare(

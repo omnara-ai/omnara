@@ -54,7 +54,7 @@ type OutputTokenLimits struct {
 // OutputTokenLimitProvider reports constraints imposed by fixed provider
 // options that are not part of model capabilities.
 type OutputTokenLimitProvider interface {
-	OutputTokenLimits(RequestPolicy) (OutputTokenLimits, error)
+	OutputTokenLimits() (OutputTokenLimits, error)
 }
 
 var ErrOutputTokenLimitIncompatible = errors.New("output token limit is incompatible with provider options")
@@ -167,7 +167,11 @@ func PrepareForSend(
 	if client == nil {
 		return PreparedRequest{}, errors.New("model client is required")
 	}
-	if err := ValidateOutputTokenLimit(client, input.Policy, input.ErrorSource); err != nil {
+	limits, err := OutputTokenLimitsForClient(client, input.ErrorSource)
+	if err != nil {
+		return PreparedRequest{}, err
+	}
+	if err := limits.Validate(input.Policy.MaxOutputTokens, input.ErrorSource); err != nil {
 		return PreparedRequest{}, err
 	}
 	if err := validateRequestModalities(
@@ -202,19 +206,15 @@ func PrepareForSend(
 	return prepared, nil
 }
 
-func ValidateOutputTokenLimit(client Client, policy RequestPolicy, errorSource string) error {
-	limits, err := OutputTokenLimitsForRequest(client, policy, errorSource)
-	if err != nil {
-		return err
-	}
-	if limits.Minimum <= 0 || policy.MaxOutputTokens >= limits.Minimum {
+func (l OutputTokenLimits) Validate(maxOutputTokens int, errorSource string) error {
+	if l.Minimum <= 0 || maxOutputTokens >= l.Minimum {
 		return nil
 	}
 	cause := fmt.Errorf(
 		"%w: max output tokens (%d) must be at least %d",
 		ErrOutputTokenLimitIncompatible,
-		policy.MaxOutputTokens,
-		limits.Minimum,
+		maxOutputTokens,
+		l.Minimum,
 	)
 	return ProviderError{
 		Kind:    ErrorKindInvalidRequest,
@@ -225,16 +225,15 @@ func ValidateOutputTokenLimit(client Client, policy RequestPolicy, errorSource s
 	}
 }
 
-func OutputTokenLimitsForRequest(
+func OutputTokenLimitsForClient(
 	client Client,
-	policy RequestPolicy,
 	errorSource string,
 ) (OutputTokenLimits, error) {
 	provider, ok := client.(OutputTokenLimitProvider)
 	if !ok {
 		return OutputTokenLimits{}, nil
 	}
-	limits, err := provider.OutputTokenLimits(policy)
+	limits, err := provider.OutputTokenLimits()
 	if err == nil && limits.Minimum < 0 {
 		err = errors.New("minimum output token limit cannot be negative")
 	}

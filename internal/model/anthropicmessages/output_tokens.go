@@ -13,7 +13,7 @@ const minimumManualThinkingBudgetTokens = 1_024
 
 var _ model.OutputTokenLimitProvider = Client{}
 
-func (c Client) OutputTokenLimits(model.RequestPolicy) (model.OutputTokenLimits, error) {
+func (c Client) OutputTokenLimits() (model.OutputTokenLimits, error) {
 	budget, enabled, err := anthropicManualThinkingBudget(c.APIVariantOptions)
 	if err != nil {
 		return model.OutputTokenLimits{}, fmt.Errorf("invalid Anthropic thinking configuration: %w", err)

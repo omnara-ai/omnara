@@ -377,7 +377,7 @@ type outputLimitPrepareClient struct {
 	prepareCalls int
 }
 
-func (c *outputLimitPrepareClient) OutputTokenLimits(RequestPolicy) (OutputTokenLimits, error) {
+func (c *outputLimitPrepareClient) OutputTokenLimits() (OutputTokenLimits, error) {
 	return c.limits, c.limitsErr
 }
 

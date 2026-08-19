@@ -172,7 +172,7 @@ func largestFittingCompactionRequest(
 	groups []executionstore.CompactionAtomicGroupRecord,
 	client model.Client,
 	policy model.RequestPolicy,
-	minimumOutputTokens int,
+	summaryOutputFloorTokens int,
 	errorSource string,
 ) (preparedCompactionRequest, error) {
 	candidates := safeCompactionSourceEndsWithWitness(
@@ -214,52 +214,47 @@ func largestFittingCompactionRequest(
 			sourceText: sourceText,
 		}, nil
 	}
-	findLargest := func(candidatePolicy model.RequestPolicy) (preparedCompactionRequest, error) {
-		low, high := 0, len(candidates)-1
-		var bestRequest preparedCompactionRequest
-		for low <= high {
-			mid := low + (high-low)/2
-			candidate, err := prepareCandidate(candidates[mid], candidatePolicy)
-			if err != nil {
-				return preparedCompactionRequest{}, err
-			}
-			if candidate.prepared.InputBudget.OverBudget() {
-				high = mid - 1
-				continue
-			}
-			bestRequest = candidate
-			low = mid + 1
-		}
-		return bestRequest, nil
-	}
-	bestRequest, err := findLargest(policy)
-	if err != nil || bestRequest.sourceEnd != 0 {
-		return bestRequest, err
-	}
-
 	adjustedPolicy := policy
-	for {
-		smallest, err := prepareCandidate(candidates[0], adjustedPolicy)
-		if err != nil {
-			return preparedCompactionRequest{}, err
-		}
-		if smallest.prepared.InputBudget.Fits() {
-			return findLargest(adjustedPolicy)
-		}
-		if adjustedPolicy.MaxOutputTokens <= minimumOutputTokens {
+	smallest, err := prepareCandidate(candidates[0], adjustedPolicy)
+	if err != nil {
+		return preparedCompactionRequest{}, err
+	}
+	for smallest.prepared.InputBudget.OverBudget() {
+		if adjustedPolicy.MaxOutputTokens <= summaryOutputFloorTokens {
 			return preparedCompactionRequest{}, nil
 		}
 		excess := smallest.prepared.InputBudget.EstimatedInputTokens -
 			smallest.prepared.InputBudget.UsableInputTokens
 		nextOutput := adjustedPolicy.MaxOutputTokens - excess
-		if nextOutput < minimumOutputTokens {
-			nextOutput = minimumOutputTokens
+		if nextOutput < summaryOutputFloorTokens {
+			nextOutput = summaryOutputFloorTokens
 		}
 		if nextOutput >= adjustedPolicy.MaxOutputTokens {
 			return preparedCompactionRequest{}, nil
 		}
 		adjustedPolicy.MaxOutputTokens = nextOutput
+		smallest, err = prepareCandidate(candidates[0], adjustedPolicy)
+		if err != nil {
+			return preparedCompactionRequest{}, err
+		}
 	}
+
+	bestRequest := smallest
+	low, high := 1, len(candidates)-1
+	for low <= high {
+		mid := low + (high-low)/2
+		candidate, err := prepareCandidate(candidates[mid], adjustedPolicy)
+		if err != nil {
+			return preparedCompactionRequest{}, err
+		}
+		if candidate.prepared.InputBudget.OverBudget() {
+			high = mid - 1
+			continue
+		}
+		bestRequest = candidate
+		low = mid + 1
+	}
+	return bestRequest, nil
 }
 
 func compactionRequestBundle(

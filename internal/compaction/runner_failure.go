@@ -268,6 +268,13 @@ func compactionRequestPolicy(
 ) (model.RequestPolicy, int, error) {
 	capabilities := model.CapabilitiesForClient(client)
 	normalPolicy := model.RequestPolicyFromCapabilities(capabilities)
+	limits, err := model.OutputTokenLimitsForClient(client, errorSource)
+	if err != nil {
+		return model.RequestPolicy{}, 0, err
+	}
+	if err := limits.Validate(normalPolicy.MaxOutputTokens, errorSource); err != nil {
+		return model.RequestPolicy{}, 0, err
+	}
 	policy := normalPolicy
 	policy.MaxOutputTokens = capabilities.MaxOutputTokens
 	if policy.MaxOutputTokens <= 0 {
@@ -276,23 +283,11 @@ func compactionRequestPolicy(
 	if policy.MaxOutputTokens > preferredSummaryOutputTokens {
 		policy.MaxOutputTokens = preferredSummaryOutputTokens
 	}
-	err := model.ValidateOutputTokenLimit(client, policy, errorSource)
-	if err != nil {
-		if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) {
-			return model.RequestPolicy{}, 0, err
-		}
+	if policy.MaxOutputTokens < limits.Minimum {
 		policy.MaxOutputTokens = normalPolicy.MaxOutputTokens
-		if err := model.ValidateOutputTokenLimit(client, policy, errorSource); err != nil {
-			return model.RequestPolicy{}, 0, err
-		}
 	}
-	limits, err := model.OutputTokenLimitsForRequest(client, policy, errorSource)
-	if err != nil {
-		return model.RequestPolicy{}, 0, err
-	}
-	minimumOutputTokens := min(policy.MaxOutputTokens, normalPolicy.MaxOutputTokens)
-	minimumOutputTokens = max(minimumOutputTokens, limits.Minimum)
-	return policy, minimumOutputTokens, nil
+	summaryOutputFloorTokens := min(policy.MaxOutputTokens, normalPolicy.MaxOutputTokens)
+	return policy, summaryOutputFloorTokens, nil
 }
 
 func validateCompactionResponse(errorSource string, response model.Response) (string, error) {
