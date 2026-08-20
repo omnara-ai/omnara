@@ -57,6 +57,7 @@ type Server struct {
 	defaultPools                        []executionstore.DefaultMachinePoolTemplate
 	defaultModelProvider                *modelstore.DefaultModelProviderTemplate
 	hostedCredentialProvisioner         modelprovider.HostedCredentialProvisioner
+	hostedAPIToken                      string
 	daemonNotifications                 *daemonNotificationConfig
 	replyPublisher                      replyChannelPublisher
 	mcpOAuthHTTPClient                  *http.Client
@@ -191,6 +192,12 @@ func WithDefaultModelProvider(defaultProviderTemplate *modelstore.DefaultModelPr
 func WithHostedCredentialProvisioner(provisioner modelprovider.HostedCredentialProvisioner) Option {
 	return func(s *Server) {
 		s.hostedCredentialProvisioner = provisioner
+	}
+}
+
+func WithHostedAPIToken(token string) Option {
+	return func(s *Server) {
+		s.hostedAPIToken = token
 	}
 }
 
@@ -355,6 +362,11 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	server.openAPIAuthorizer = openAPIAuthorizer
 	for _, opt := range opts {
 		opt(server)
+	}
+	if server.hostedAPIToken != "" {
+		if err := modelprovider.ValidateHostedAPIToken(server.hostedAPIToken); err != nil {
+			return nil, err
+		}
 	}
 	publicOrigin, err := parseConfiguredOrigin(server.publicURL)
 	if err != nil {

@@ -374,6 +374,7 @@ func apiOptions(
 			Token:      cfg.HostedAPIToken,
 			HTTPClient: operatorHTTPClient,
 		}),
+		httpapi.WithHostedAPIToken(cfg.HostedAPIToken),
 		httpapi.WithMachinePoolManager(machinePoolManager),
 		httpapi.WithDaemonReleaseURL(cfg.DaemonReleaseURL),
 		httpapi.WithDaemonSocketFallbackDrainTiming(

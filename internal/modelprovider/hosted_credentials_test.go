@@ -80,6 +80,29 @@ func TestHTTPHostedCredentialProvisionerAcceptsAdditiveResponseFields(t *testing
 	}
 }
 
+func TestHTTPHostedCredentialProvisionerAcceptsDurablyPendingRequest(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"pending","private_state":"not-for-the-control-plane"}`))
+	}))
+	defer server.Close()
+
+	provisioner := HTTPHostedCredentialProvisioner{
+		BaseURL:    server.URL,
+		Token:      testHostedAPIToken,
+		HTTPClient: server.Client(),
+	}
+	response, err := provisioner.ProvisionHostedCredential(context.Background(), validHostedCredentialRequest())
+	if err != nil {
+		t.Fatalf("accept pending credential: %v", err)
+	}
+	if !response.Pending || response.CredentialValue != "" {
+		t.Fatalf("pending response = %+v, want pending without credential", response)
+	}
+}
+
 func TestHTTPHostedCredentialProvisionerClassifiesOnlyConflictStatus(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -155,13 +178,6 @@ func TestHTTPHostedCredentialProvisionerRejectsUnsafeResponses(t *testing.T) {
 			contentType: "application/json",
 			body:        `{"error":"secret"}`,
 			wantError:   "HTTP 502",
-		},
-		{
-			name:        "accepted is not credential creation",
-			statusCode:  http.StatusAccepted,
-			contentType: "application/json",
-			body:        `{"credential_value":"secret"}`,
-			wantError:   "HTTP 202",
 		},
 		{
 			name:        "ok is not replayable credential creation",

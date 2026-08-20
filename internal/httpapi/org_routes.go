@@ -213,6 +213,21 @@ func (s strictOpenAPIServer) provisionDefaultModelProvider(
 		)
 		return nil, provisionErr
 	}
+	if response.Pending {
+		if response.CredentialValue != "" {
+			return nil, errors.New("hosted credential response cannot be pending and contain a credential")
+		}
+		s.server.log.Info(
+			"default model provider credential pending",
+			"org_id", publicOrgID,
+			"provider_name", template.Name,
+			"provisioner", template.Provisioner,
+		)
+		return nil, nil
+	}
+	if err := modelprovider.ValidateHostedCredentialValue(response.CredentialValue); err != nil {
+		return nil, fmt.Errorf("validate hosted credential response: %w", err)
+	}
 	return &modelstore.ProvisionedDefaultModelProvider{
 		Template:        template,
 		CredentialValue: response.CredentialValue,

@@ -9,10 +9,98 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+type CompleteDefaultModelProviderProvisioningInput struct {
+	OrgID           ID
+	CreatedByUserID ID
+	Provider        modelstore.ProvisionedDefaultModelProvider
+}
+
+// CompleteDefaultModelProviderProvisioning atomically installs a hosted
+// default provider after its organization has already been committed. A
+// cluster-managed provider with the configured name makes retries successful;
+// a tenant-managed provider with that name blocks the completion instead of
+// overwriting tenant state.
+func (s *Service) CompleteDefaultModelProviderProvisioning(
+	ctx context.Context,
+	input CompleteDefaultModelProviderProvisioningInput,
+) (bool, error) {
+	if isNilID(input.OrgID) || isNilID(input.CreatedByUserID) {
+		return false, errors.New("org and creator are required")
+	}
+	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(input.Provider.Template)
+	if err != nil {
+		return false, fmt.Errorf("default model provider %q: %w", input.Provider.Template.Name, err)
+	}
+	input.Provider.Template = prepared
+	input.Provider.CredentialValue = strings.TrimSpace(input.Provider.CredentialValue)
+	if input.Provider.CredentialValue == "" {
+		return false, fmt.Errorf("default model provider %q credential is required", prepared.Name)
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, fmt.Errorf("begin default model provider completion: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, storeerr.ErrNotFound
+		}
+		return false, fmt.Errorf("lock organization for default model provider completion: %w", err)
+	}
+	existing, err := qtx.GetModelProviderConfigByName(
+		ctx,
+		dbsqlc.GetModelProviderConfigByNameParams{OrgID: input.OrgID, Name: prepared.Name},
+	)
+	if err == nil {
+		if management.Kind(existing.ManagementKind) != management.Cluster {
+			return false, fmt.Errorf(
+				"default model provider %q is tenant-managed: %w",
+				prepared.Name,
+				storeerr.ErrStateTransitionConflict,
+			)
+		}
+		return false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return false, fmt.Errorf("load default model provider %q: %w", prepared.Name, err)
+	}
+	defaultProject, err := qtx.GetProjectByIdempotencyKey(
+		ctx,
+		dbsqlc.GetProjectByIdempotencyKeyParams{
+			OrgID:          input.OrgID,
+			IdempotencyKey: identitystore.DefaultProjectKey,
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, fmt.Errorf("default project is missing: %w", storeerr.ErrStateTransitionConflict)
+	}
+	if err != nil {
+		return false, fmt.Errorf("load default project: %w", err)
+	}
+	if err := s.createDefaultModelProviderForOrgTx(
+		ctx,
+		tx,
+		input.OrgID,
+		defaultProject.ID,
+		input.CreatedByUserID,
+		&input.Provider,
+	); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit default model provider completion: %w", err)
+	}
+	return true, nil
+}
 
 func (s *Service) createDefaultModelProviderForOrgTx(
 	ctx context.Context,

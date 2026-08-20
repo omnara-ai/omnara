@@ -44,6 +44,11 @@ type HostedCredentialRequest struct {
 
 type ProvisionHostedCredentialResponse struct {
 	CredentialValue string `json:"credential_value"`
+	// Pending is set only when the hosted service durably accepted the
+	// provisioning request but has not created the credential yet. Callers may
+	// commit the local resource without a credential and wait for the hosted
+	// service to complete it asynchronously.
+	Pending bool `json:"-"`
 }
 
 var ErrHostedCredentialConflict = errors.New("hosted credential setup is blocked by an unresolved attempt")
@@ -66,6 +71,10 @@ func (p HTTPHostedCredentialProvisioner) ProvisionHostedCredential(
 		return ProvisionHostedCredentialResponse{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode == http.StatusAccepted {
+		discardHostedErrorBody(response.Body)
+		return ProvisionHostedCredentialResponse{Pending: true}, nil
+	}
 	if response.StatusCode != http.StatusCreated {
 		discardHostedErrorBody(response.Body)
 		if response.StatusCode == http.StatusConflict {
@@ -85,7 +94,7 @@ func (p HTTPHostedCredentialProvisioner) ProvisionHostedCredential(
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return ProvisionHostedCredentialResponse{}, errors.New("decode hosted credential response: trailing JSON value")
 	}
-	if err := validateHostedCredential(result.CredentialValue); err != nil {
+	if err := ValidateHostedCredentialValue(result.CredentialValue); err != nil {
 		return ProvisionHostedCredentialResponse{}, err
 	}
 	return result, nil
@@ -232,7 +241,9 @@ func validateHostedCredentialRequest(request HostedCredentialRequest) error {
 	return nil
 }
 
-func validateHostedCredential(value string) error {
+// ValidateHostedCredentialValue applies the shared wire and secret-safety
+// limits to a credential returned or completed by a hosted provisioner.
+func ValidateHostedCredentialValue(value string) error {
 	if value == "" || value != strings.TrimSpace(value) {
 		return errors.New("credential_value is required and cannot have surrounding whitespace")
 	}

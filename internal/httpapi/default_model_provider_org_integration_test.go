@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
@@ -28,6 +29,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
+
+const testHostedCompletionToken = "test-hosted-completion-token-at-least-32-bytes"
 
 type hostedCredentialProvisionerFunc func(
 	context.Context,
@@ -568,6 +571,162 @@ func TestCreateOrganizationProvisionsHostedCredentialBeforeAtomicLocalCreation(t
 	}
 	if !foundSecret {
 		t.Fatalf("cluster credential missing from tenant-visible collection: %+v", secretList)
+	}
+}
+
+func TestCreateOrganizationCommitsPendingHostedCredentialAndCompletesLater(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	template := testDefaultOpenRouterTemplate()
+	var provisionRequests []modelprovider.HostedCredentialRequest
+	provisioner := hostedCredentialProvisionerFunc(func(
+		_ context.Context,
+		request modelprovider.HostedCredentialRequest,
+	) (modelprovider.ProvisionHostedCredentialResponse, error) {
+		provisionRequests = append(provisionRequests, request)
+		return modelprovider.ProvisionHostedCredentialResponse{Pending: true}, nil
+	})
+	handler := newIntegrationServer(
+		pool,
+		WithDefaultModelProvider(&template),
+		WithHostedCredentialProvisioner(provisioner),
+		WithHostedAPIToken(testHostedCompletionToken),
+	)
+	store := integrationStoreForHandler(t, handler)
+	user, token := createOrgRouteUser(t, pool, store, "default-provider-pending")
+
+	created := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs",
+		`{"name":"Pending Provider Org"}`,
+		"pending-provider-org",
+		http.StatusCreated,
+		authHeaders(token),
+	)
+	publicOrgID := created["org"].(map[string]any)["id"].(string)
+	publicProjectID := created["project"].(map[string]any)["id"].(string)
+	orgID, err := publicid.Decode(publicid.KindOrganization, publicOrgID)
+	if err != nil {
+		t.Fatalf("decode pending organization id: %v", err)
+	}
+	projectID, err := publicid.Decode(publicid.KindProject, publicProjectID)
+	if err != nil {
+		t.Fatalf("decode pending project id: %v", err)
+	}
+	if _, err := store.Models().GetModelProviderConfigByName(ctx, orgID, template.Name); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("provider before completion error = %v, want not found", err)
+	}
+	if len(provisionRequests) != 1 || provisionRequests[0].OrgID != publicOrgID {
+		t.Fatalf("pending provision requests = %+v, want one for %s", provisionRequests, publicOrgID)
+	}
+
+	publicCreatorUserID, err := publicid.Encode(publicid.KindUser, user.ID)
+	if err != nil {
+		t.Fatalf("encode pending creator user id: %v", err)
+	}
+	completionBody := `{"org_id":"` + publicOrgID +
+		`","creator_user_id":"` + publicCreatorUserID +
+		`","provisioner":"` + template.Provisioner +
+		`","credential_value":"sk-completed-openrouter"}`
+	unauthorized := httptest.NewRequest(http.MethodPost, hostedCredentialCompletionPath, strings.NewReader(completionBody))
+	unauthorized.Header.Set("Content-Type", "application/json")
+	unauthorizedRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorizedRecorder, unauthorized)
+	if unauthorizedRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf(
+			"unauthorized completion status=%d body=%s, want 401",
+			unauthorizedRecorder.Code,
+			unauthorizedRecorder.Body.String(),
+		)
+	}
+
+	completeHostedCredentialForTest(t, handler, completionBody, http.StatusNoContent)
+	provider, err := store.Models().GetModelProviderConfigByName(ctx, orgID, template.Name)
+	if err != nil {
+		t.Fatalf("get asynchronously completed provider: %v", err)
+	}
+	if provider.ManagementKind != management.Cluster {
+		t.Fatalf("completed provider management kind = %q, want cluster", provider.ManagementKind)
+	}
+	credential, err := store.Secrets().GetSecret(ctx, orgID, provider.CredentialSecretID)
+	if err != nil {
+		t.Fatalf("get asynchronously completed credential: %v", err)
+	}
+	payload, err := store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
+		OrgID:          orgID,
+		SecretID:       credential.ID,
+		ManagementKind: management.Cluster,
+		Kind:           secretstore.SecretKindGeneric,
+	})
+	if err != nil {
+		t.Fatalf("read asynchronously completed credential: %v", err)
+	}
+	if payload.Payload[secrets.KeyValue] != "sk-completed-openrouter" {
+		t.Fatalf("completed credential value = %q", payload.Payload[secrets.KeyValue])
+	}
+	models, err := store.Models().ListConfiguredModels(ctx, modelstore.ListConfiguredModelsInput{
+		OrgID: orgID, ProviderConfigID: provider.ID, Limit: 10,
+	})
+	if err != nil || len(models.Models) != 1 {
+		t.Fatalf("completed configured models=%+v err=%v", models.Models, err)
+	}
+	if _, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
+		ctx,
+		orgID,
+		projectID,
+		models.Models[0].ID,
+	); err != nil {
+		t.Fatalf("get completed default project model grant: %v", err)
+	}
+
+	// A lost acknowledgement may cause SaaS to repeat completion. Treat an
+	// existing cluster-managed provider as success without rotating its secret.
+	retryBody := strings.Replace(completionBody, "sk-completed-openrouter", "sk-must-not-replace", 1)
+	completeHostedCredentialForTest(t, handler, retryBody, http.StatusNoContent)
+	payload, err = store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
+		OrgID:          orgID,
+		SecretID:       credential.ID,
+		ManagementKind: management.Cluster,
+		Kind:           secretstore.SecretKindGeneric,
+	})
+	if err != nil {
+		t.Fatalf("read credential after completion replay: %v", err)
+	}
+	if payload.Payload[secrets.KeyValue] != "sk-completed-openrouter" {
+		t.Fatalf("completion replay replaced credential with %q", payload.Payload[secrets.KeyValue])
+	}
+
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs",
+		`{"name":"Pending Provider Org"}`,
+		"pending-provider-org",
+		http.StatusOK,
+		authHeaders(token),
+	)
+	if len(provisionRequests) != 1 {
+		t.Fatalf("organization replay made another provision request: %+v", provisionRequests)
+	}
+}
+
+func completeHostedCredentialForTest(t *testing.T, handler http.Handler, body string, wantStatus int) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, hostedCredentialCompletionPath, strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+testHostedCompletionToken)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != wantStatus {
+		t.Fatalf(
+			"hosted credential completion status=%d body=%s, want %d",
+			recorder.Code,
+			recorder.Body.String(),
+			wantStatus,
+		)
 	}
 }
 
