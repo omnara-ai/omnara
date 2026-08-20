@@ -455,7 +455,6 @@ func (f kernelFixture) provisionClusterModel(
 		tx,
 		kernelTestOrgID,
 		kernelTestProjectID,
-		kernelTestUserID,
 		credential.ID,
 		modelstore.DefaultModelProviderTemplate{
 			Provisioner:          "kernel-test",

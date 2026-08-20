@@ -11,11 +11,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
-	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -90,53 +88,15 @@ func (s strictOpenAPIServer) CreateOrganization(
 	if err != nil {
 		return nil, s.createOrganizationStorageError("generate organization id", err)
 	}
-	publicOrgID, err := publicID(publicid.KindOrganization, orgID)
-	if err != nil {
-		return nil, err
-	}
-	publicCreatorUserID, err := publicID(publicid.KindUser, principal.ID)
-	if err != nil {
-		return nil, err
-	}
-	var provisionedProvider *modelstore.ProvisionedDefaultModelProvider
-	if s.server.defaultModelProvider != nil {
-		if err := s.server.store.Identity().PreflightOrgCreationCapacity(ctx, principal.ID); err != nil {
-			return nil, s.createOrganizationStorageError("check organization creation capacity", err)
-		}
-		if s.server.hostedCredentialProvisioner == nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "hosted credential provisioner unavailable")
-		}
-		provisioning, provisionErr := s.provisionDefaultModelProvider(
-			ctx,
-			publicOrgID,
-			publicCreatorUserID,
-			*s.server.defaultModelProvider,
-		)
-		if provisionErr != nil {
-			return nil, hostedCredentialProvisioningAPIError(provisionErr)
-		}
-		if !provisioning.pending {
-			provisionedProvider = &provisioning.provider
-		}
-	}
 	input := orglifecycle.CreateOrgForUserInput{
-		OrgID:                orgID,
-		UserID:               principal.ID,
-		Name:                 request.Body.Name,
-		IdempotencyKey:       idempotencyKey,
-		DefaultMachinePools:  s.server.defaultPools,
-		DefaultModelProvider: provisionedProvider,
+		OrgID:               orgID,
+		UserID:              principal.ID,
+		Name:                request.Body.Name,
+		IdempotencyKey:      idempotencyKey,
+		DefaultMachinePools: s.server.defaultPools,
 	}
 	record, err := s.server.store.Organizations().CreateOrgForUser(ctx, input)
 	if err != nil {
-		if provisionedProvider != nil {
-			s.server.log.Error(
-				"create organization after default credential provisioning",
-				"attempted_org_id", publicOrgID,
-				"provider_name", provisionedProvider.Template.Name,
-				"error", err,
-			)
-		}
 		return nil, s.createOrganizationStorageError("commit organization creation", err)
 	}
 	return createOrganizationResponse(ctx, record)
@@ -185,76 +145,6 @@ func (s strictOpenAPIServer) DeleteOrganization(
 	}
 	s.server.startPoolMachineDeletion(ctx, machines)
 	return openapi.DeleteOrganization204Response{}, nil
-}
-
-type defaultModelProviderProvisioning struct {
-	provider modelstore.ProvisionedDefaultModelProvider
-	pending  bool
-}
-
-func (s strictOpenAPIServer) provisionDefaultModelProvider(
-	ctx context.Context,
-	publicOrgID string,
-	publicCreatorUserID string,
-	template modelstore.DefaultModelProviderTemplate,
-) (defaultModelProviderProvisioning, error) {
-	if s.server.hostedCredentialProvisioner == nil {
-		return defaultModelProviderProvisioning{}, apierror.FromCode(
-			openapi.ErrorCodeServiceUnavailable,
-			"hosted credential provisioner unavailable",
-		)
-	}
-	provisionCtx, cancel := context.WithTimeout(ctx, modelprovider.HostedCredentialProvisionTimeout)
-	response, provisionErr := s.server.hostedCredentialProvisioner.ProvisionHostedCredential(
-		provisionCtx,
-		modelprovider.HostedCredentialRequest{
-			OrgID:         publicOrgID,
-			CreatorUserID: publicCreatorUserID,
-			Template:      template,
-		},
-	)
-	cancel()
-	if provisionErr != nil {
-		s.server.log.Error(
-			"provision default model provider credential",
-			"org_id", publicOrgID,
-			"provider_name", template.Name,
-			"provisioner", template.Provisioner,
-			"error", provisionErr,
-		)
-		return defaultModelProviderProvisioning{}, provisionErr
-	}
-	if response.Pending {
-		if response.CredentialValue != "" {
-			return defaultModelProviderProvisioning{}, errors.New(
-				"hosted credential response cannot be pending and contain a credential",
-			)
-		}
-		s.server.log.Info(
-			"default model provider credential pending",
-			"org_id", publicOrgID,
-			"provider_name", template.Name,
-			"provisioner", template.Provisioner,
-		)
-		return defaultModelProviderProvisioning{pending: true}, nil
-	}
-	if err := modelprovider.ValidateHostedCredentialValue(response.CredentialValue); err != nil {
-		return defaultModelProviderProvisioning{}, fmt.Errorf("validate hosted credential response: %w", err)
-	}
-	return defaultModelProviderProvisioning{
-		provider: modelstore.ProvisionedDefaultModelProvider{
-			Template:        template,
-			CredentialValue: response.CredentialValue,
-		},
-	}, nil
-}
-
-func hostedCredentialProvisioningAPIError(err error) error {
-	if errors.Is(err, modelprovider.ErrHostedCredentialConflict) {
-		return apierror.FromCode(openapi.ErrorCodeConflict,
-			"default model provider setup is blocked by an unresolved credential attempt")
-	}
-	return apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "default model provider provisioning failed")
 }
 
 func (s strictOpenAPIServer) createOrganizationStorageError(operation string, err error) error {

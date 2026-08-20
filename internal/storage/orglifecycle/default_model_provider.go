@@ -18,9 +18,8 @@ import (
 )
 
 type CompleteDefaultModelProviderProvisioningInput struct {
-	OrgID           ID
-	CreatedByUserID ID
-	Provider        modelstore.ProvisionedDefaultModelProvider
+	OrgID    ID
+	Provider modelstore.ProvisionedDefaultModelProvider
 }
 
 // CompleteDefaultModelProviderProvisioning installs a hosted provider after organization creation.
@@ -28,8 +27,8 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	ctx context.Context,
 	input CompleteDefaultModelProviderProvisioningInput,
 ) (bool, error) {
-	if isNilID(input.OrgID) || isNilID(input.CreatedByUserID) {
-		return false, errors.New("org and creator are required")
+	if isNilID(input.OrgID) {
+		return false, errors.New("org is required")
 	}
 	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(input.Provider.Template)
 	if err != nil {
@@ -93,7 +92,6 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 		tx,
 		input.OrgID,
 		defaultProject.ID,
-		input.CreatedByUserID,
 		&input.Provider,
 	); err != nil {
 		return false, err
@@ -107,14 +105,14 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 func (s *Service) createDefaultModelProviderForOrgTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID, defaultProjectID, createdByUserID ID,
+	orgID, defaultProjectID ID,
 	provisioned *modelstore.ProvisionedDefaultModelProvider,
 ) error {
 	if provisioned == nil {
 		return nil
 	}
-	if isNilID(orgID) || isNilID(defaultProjectID) || isNilID(createdByUserID) {
-		return errors.New("org, default project, and creator are required")
+	if isNilID(orgID) || isNilID(defaultProjectID) {
+		return errors.New("org and default project are required")
 	}
 	template, err := modelstore.PrepareDefaultModelProviderTemplate(provisioned.Template)
 	if err != nil {
@@ -130,7 +128,6 @@ func (s *Service) createDefaultModelProviderForOrgTx(
 		OwnerKind:      secretstore.SecretOwnerOrg,
 		Name:           template.CredentialSecretName,
 		Material:       secrets.GenericMaterial{Value: credentialValue},
-		Actor:          identitystore.NewUserPrincipal(createdByUserID),
 	})
 	if err != nil {
 		return fmt.Errorf("create default model provider credential: %w", err)
@@ -140,7 +137,6 @@ func (s *Service) createDefaultModelProviderForOrgTx(
 		tx,
 		orgID,
 		defaultProjectID,
-		createdByUserID,
 		credential.ID,
 		template,
 	); err != nil {

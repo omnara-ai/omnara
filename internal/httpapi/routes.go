@@ -53,7 +53,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /.well-known/oauth-client.json", s.mcpOAuthClientMetadataRoute)
 	mux.HandleFunc("POST /api/integrations/slack/events", s.integrationEventsRoute)
 	mux.HandleFunc("POST /api/integrations/slack/actions", s.integrationActionsRoute)
-	if s.hostedAPIToken != "" && s.defaultModelProvider != nil {
+	if s.defaultModelProvider != nil {
 		mux.HandleFunc(
 			"POST /internal/model-provider-credentials/complete",
 			s.hostedCredentialCompletionRoute,

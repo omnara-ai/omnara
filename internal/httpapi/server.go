@@ -56,7 +56,6 @@ type Server struct {
 	allowInsecureLocalHostBypass        bool
 	defaultPools                        []executionstore.DefaultMachinePoolTemplate
 	defaultModelProvider                *modelstore.DefaultModelProviderTemplate
-	hostedCredentialProvisioner         modelprovider.HostedCredentialProvisioner
 	hostedAPIToken                      string
 	daemonNotifications                 *daemonNotificationConfig
 	replyPublisher                      replyChannelPublisher
@@ -186,12 +185,6 @@ func WithDefaultMachinePools(defaultPoolTemplates []executionstore.DefaultMachin
 func WithDefaultModelProvider(defaultProviderTemplate *modelstore.DefaultModelProviderTemplate) Option {
 	return func(s *Server) {
 		s.defaultModelProvider = defaultProviderTemplate
-	}
-}
-
-func WithHostedCredentialProvisioner(provisioner modelprovider.HostedCredentialProvisioner) Option {
-	return func(s *Server) {
-		s.hostedCredentialProvisioner = provisioner
 	}
 }
 
@@ -367,6 +360,9 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		if err := modelprovider.ValidateHostedAPIToken(server.hostedAPIToken); err != nil {
 			return nil, err
 		}
+	}
+	if server.defaultModelProvider != nil && server.hostedAPIToken == "" {
+		return nil, fmt.Errorf("default model provider requires a hosted API token")
 	}
 	publicOrigin, err := parseConfiguredOrigin(server.publicURL)
 	if err != nil {

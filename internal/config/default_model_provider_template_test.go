@@ -14,7 +14,6 @@ const testHostedAPIToken = "test-hosted-api-token-with-at-least-32-bytes"
 
 func TestLoadDefaultModelProviderTemplate(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
-	t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test/private")
 	t.Setenv("OMNARA_HOSTED_API_TOKEN", testHostedAPIToken)
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")
 	if err := os.WriteFile(path, []byte(`
@@ -62,19 +61,13 @@ models:
 	if len(template.Models) != 1 || template.Models[0].ProviderModelSlug != "anthropic/claude-sonnet-4.5" {
 		t.Fatalf("unexpected models: %+v", template.Models)
 	}
-	if cfg.HostedAPIURL != "https://saas.example.test/private" ||
-		cfg.HostedAPIToken != testHostedAPIToken {
-		t.Fatalf(
-			"unexpected hosted API config: url=%q token=%q",
-			cfg.HostedAPIURL,
-			cfg.HostedAPIToken,
-		)
+	if cfg.HostedAPIToken != testHostedAPIToken {
+		t.Fatalf("unexpected hosted API token: %q", cfg.HostedAPIToken)
 	}
 }
 
 func TestLoadDefaultModelProviderExample(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
-	t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test")
 	t.Setenv("OMNARA_HOSTED_API_TOKEN", testHostedAPIToken)
 	t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", filepath.Join("..", "..", "default-model-provider-example.yaml"))
 
@@ -120,8 +113,8 @@ models:
 		)
 	}
 	if err := cfg.ValidateAPI(); err == nil ||
-		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_URL") {
-		t.Fatalf("ValidateAPI error = %v, want missing hosted API URL", err)
+		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_TOKEN") {
+		t.Fatalf("ValidateAPI error = %v, want missing hosted API token", err)
 	}
 }
 
@@ -187,7 +180,6 @@ models:
 			path := writeDefaultModelProviderTemplateTestFile(t, tt.body)
 			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 			t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", path)
-			t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test")
 			t.Setenv("OMNARA_HOSTED_API_TOKEN", testHostedAPIToken)
 
 			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -212,8 +204,6 @@ models:
     context_window_tokens: 128000
 `)
 	t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", path)
-	t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test")
-
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -239,32 +229,6 @@ models:
 	t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", path)
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "provisioner is required") {
 		t.Fatalf("Load error = %v, want required provisioner", err)
-	}
-}
-
-func TestDefaultModelProviderTemplateRejectsUnsatisfiableHostedRequestSize(t *testing.T) {
-	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
-	path := writeDefaultModelProviderTemplateTestFile(t, `
-provisioner: custom-provisioner
-name: hosted-provider
-credential_secret_name: hosted-provider-key
-api_format: openai-chat-completions
-base_url: https://gateway.example.test/v1
-models:
-  - name: model
-    provider_model_slug: `+strings.Repeat("x", 300*1024)+`
-    context_window_tokens: 128000
-`)
-	t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", path)
-	t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test")
-	t.Setenv("OMNARA_HOSTED_API_TOKEN", testHostedAPIToken)
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if err := cfg.ValidateAPI(); err == nil ||
-		!strings.Contains(err.Error(), "hosted credential request exceeds size limit") {
-		t.Fatalf("ValidateAPI error = %v, want hosted request size limit", err)
 	}
 }
 

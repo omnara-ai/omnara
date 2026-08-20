@@ -22,7 +22,6 @@ const (
 
 type hostedCredentialCompletionRequest struct {
 	OrgID           string `json:"org_id"`
-	CreatorUserID   string `json:"creator_user_id"`
 	Provisioner     string `json:"provisioner"`
 	CredentialValue string `json:"credential_value"`
 }
@@ -46,14 +45,9 @@ func (s *Server) hostedCredentialCompletionRoute(w http.ResponseWriter, r *http.
 		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid completion payload")
 		return
 	}
-	orgID, ok := canonicalHostedCompletionID(publicid.KindOrganization, request.OrgID)
+	orgID, ok := canonicalHostedCompletionOrgID(request.OrgID)
 	if !ok {
 		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid organization id")
-		return
-	}
-	creatorUserID, ok := canonicalHostedCompletionID(publicid.KindUser, request.CreatorUserID)
-	if !ok {
-		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid creator user id")
 		return
 	}
 	if request.Provisioner == "" || request.Provisioner != strings.TrimSpace(request.Provisioner) {
@@ -72,8 +66,7 @@ func (s *Server) hostedCredentialCompletionRoute(w http.ResponseWriter, r *http.
 	created, err := s.store.Organizations().CompleteDefaultModelProviderProvisioning(
 		r.Context(),
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
-			OrgID:           orgID,
-			CreatedByUserID: creatorUserID,
+			OrgID: orgID,
 			Provider: modelstore.ProvisionedDefaultModelProvider{
 				Template:        *s.defaultModelProvider,
 				CredentialValue: request.CredentialValue,
@@ -108,12 +101,12 @@ func (s *Server) validHostedServiceAuthorization(header string) bool {
 	return subtle.ConstantTimeCompare(got[:], want[:]) == 1
 }
 
-func canonicalHostedCompletionID(kind publicid.Kind, raw string) (orglifecycle.ID, bool) {
-	id, err := publicid.Decode(kind, raw)
+func canonicalHostedCompletionOrgID(raw string) (orglifecycle.ID, bool) {
+	id, err := publicid.Decode(publicid.KindOrganization, raw)
 	if err != nil {
 		return orglifecycle.NilID, false
 	}
-	canonical, err := publicid.Encode(kind, id)
+	canonical, err := publicid.Encode(publicid.KindOrganization, id)
 	if err != nil || canonical != raw {
 		return orglifecycle.NilID, false
 	}
