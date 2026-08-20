@@ -10,13 +10,6 @@ export const machineExecutionTools = [
   'inspect_machine',
 ] as const
 
-export const integrationTools = ['send_integration_message', 'set_integration_target'] as const
-
-export const builtInToolsets = [
-  { name: 'Machine tools', tools: machineExecutionTools },
-  { name: 'Integration tools', tools: integrationTools },
-] as const
-
 interface MachineSourceSelection {
   id: string
   name: string

@@ -25,10 +25,12 @@ export function CreateAgentForm() {
     poolGrants.find((grant) => grant.machine_pool.management_kind === 'cluster') ?? poolGrants[0]
   )?.machine_pool
   const defaultModel = modelGrantsQuery.data?.pages[0]?.data[0]?.model
-  const templatesReady =
-    !toolCatalog.isPending && !poolGrantsQuery.isPending && !modelGrantsQuery.isPending
+  const templatesReady = !poolGrantsQuery.isPending && !modelGrantsQuery.isPending
   const linkedTemplate = agentTemplates.find((template) => template.id === search.template)
 
+  if (toolCatalog.isPending) return <FullPageSpinner />
+  if (toolCatalog.isError)
+    throw new Error('Failed to load tool catalog', { cause: toolCatalog.error })
   if (linkedTemplate && !templatesReady) return <FullPageSpinner />
 
   return (

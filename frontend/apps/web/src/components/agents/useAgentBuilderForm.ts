@@ -81,7 +81,7 @@ export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
   }
 }
 
-const emptyBasicConfig: BasicConfig = {
+export const emptyBasicConfig: BasicConfig = {
   instruction: '',
   providerConfig: '',
   modelName: '',

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
@@ -45,6 +46,13 @@ export function AgentConfigEditorFields({
       )}
       {builderSession != null && (
         <div className={showBuilder ? 'flex flex-col gap-8' : 'hidden'}>
+          <AgentConfigModelField
+            orgId={orgId}
+            projectId={projectId}
+            value={editor.form.model}
+            onChange={editor.form.setModel}
+            onUnavailableChange={editor.form.reportModelUnavailable}
+          />
           <AgentConfigBasicForm orgId={orgId} projectId={projectId} form={editor.form} />
         </div>
       )}
