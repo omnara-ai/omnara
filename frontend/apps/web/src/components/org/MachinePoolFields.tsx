@@ -1,7 +1,6 @@
 import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
 
-import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import {
   machinePoolFormAfterProviderChange,
   type MachinePoolFormMode,
@@ -141,13 +140,6 @@ export function MachinePoolFields({
           }}
         />
       )}
-      <MachinePoolAdvancedSection
-        orgId={orgId}
-        enabled={enabled}
-        clusterManaged={clusterEdit}
-        values={values}
-        setValue={setValue}
-      />
       {!clusterEdit && (
         <CredentialSecretField
           key={values.provider}
