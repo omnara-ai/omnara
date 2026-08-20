@@ -27,8 +27,6 @@ const (
 	integrationEventHTTPTimeout       = 2 * time.Second
 	integrationEventEnrichmentTimeout = 1500 * time.Millisecond
 	contentBlockMetadataValueMaxRunes = 512
-	slackAgentLaunchFailureMessage    = "I couldn't start an agent for this request. " +
-		"Please try again later or contact this bot's owner."
 )
 
 func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) {
@@ -648,7 +646,7 @@ func (s *Server) postSlackAgentLaunchFailure(
 			ThreadTS: threadTS,
 			BotToken: token,
 		},
-		slackAgentLaunchFailureMessage,
+		slack.AgentRequestFailureMessage,
 	)
 	if err != nil || result.MessageID == "" {
 		logger.Warn(

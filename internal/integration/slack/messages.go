@@ -20,7 +20,9 @@ const (
 	readbackPageLimit    = 100
 	readbackMaxPages     = 8
 
-	MessageMarkerEventType = "omnara_integration_message"
+	MessageMarkerEventType     = "omnara_integration_message"
+	AgentRequestFailureMessage = "I couldn't complete this request. " +
+		"Please try again later or contact this bot's owner."
 )
 
 type MessageTarget struct {

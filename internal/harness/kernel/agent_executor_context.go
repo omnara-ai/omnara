@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type modelStepState string
@@ -61,23 +62,22 @@ func (e AgentExecutor) executeModelStep(
 		if err != nil {
 			return modelStep{}, err
 		}
-		if !claim.Claimed {
-			return modelStep{State: modelStepWaiting, Context: claim.Context}, nil
-		}
-		snapshot, err = e.Store.Execution().CaptureAgentConfigForEventWatermark(
-			ctx,
-			input.ProjectID,
-			input.AgentID,
-			claim.Context.InputEventSequence,
-		)
-		if err != nil {
-			return e.recordNormalPreSendFailure(
-				ctx, input, claim, model.ResolvedClient{}, err,
-				modelretry.PreSendFailure{
-					Code:    preSendErrorCodeCaptureAgentConfigFailed,
-					Message: "Omnara could not load the agent configuration for this model attempt.",
-				},
+		if claim.Claimed {
+			snapshot, err = e.Store.Execution().CaptureAgentConfigForEventWatermark(
+				ctx,
+				input.ProjectID,
+				input.AgentID,
+				claim.Context.InputEventSequence,
 			)
+			if err != nil {
+				return e.recordNormalPreSendFailure(
+					ctx, input, claim, model.ResolvedClient{}, err,
+					modelretry.PreSendFailure{
+						Code:    preSendErrorCodeCaptureAgentConfigFailed,
+						Message: "Omnara could not load the agent configuration for this model attempt.",
+					},
+				)
+			}
 		}
 	} else {
 		snapshot, err = e.Store.Execution().CaptureAgentConfigForModelContext(ctx, input.ProjectID, input.AgentID)
@@ -98,6 +98,11 @@ func (e AgentExecutor) executeModelStep(
 		return modelStep{}, err
 	}
 	if !claim.Claimed {
+		if claim.Created &&
+			claim.Context.ErrorCode == storeerr.ManagedWorkAdmissionDeniedCode &&
+			shouldPostIntegrationRuntimeError(ctx, storeerr.ErrManagedWorkAdmissionDenied) {
+			e.postIntegrationRuntimeError(ctx, input)
+		}
 		state := modelStepWaiting
 		if claim.Context.State != executionstore.ModelCallContextStarted &&
 			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry {
@@ -631,6 +636,9 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 	)
 	if err != nil {
 		return modelStep{}, errors.Join(cause, err)
+	}
+	if ctx.Err() == nil {
+		e.postIntegrationRuntimeError(ctx, input)
 	}
 	return modelStep{State: modelStepDone, Context: claim.Context, Resolved: resolved}, nil
 }

@@ -2871,7 +2871,7 @@ func TestSlackEventsPostsMessageWhenAgentLaunchFails(t *testing.T) {
 	select {
 	case message := <-postedMessages:
 		if message["channel"] != "C123" || message["thread_ts"] != "111.444" ||
-			message["text"] != slackAgentLaunchFailureMessage {
+			message["text"] != slack.AgentRequestFailureMessage {
 			t.Fatalf("slack launch failure message=%v", message)
 		}
 		if _, ok := message["metadata"]; ok {

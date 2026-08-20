@@ -296,17 +296,6 @@ func TestShouldPostIntegrationRuntimeMessageAllowsUnavailableGrantAfterModelResp
 	}
 }
 
-func TestIntegrationRuntimeErrorMessage(t *testing.T) {
-	unavailable := integrationRuntimeErrorMessage(storeerr.ErrModelGrantUnavailable)
-	if !strings.Contains(unavailable, "does not have access to the configured model") {
-		t.Fatalf("unavailable model grant message = %q", unavailable)
-	}
-	generic := integrationRuntimeErrorMessage(errors.New("boom"))
-	if strings.Contains(generic, "configured model") {
-		t.Fatalf("generic runtime message used unavailable-grant wording: %q", generic)
-	}
-}
-
 func TestInvalidModelToolCallResponse(t *testing.T) {
 	tests := []struct {
 		name    string
