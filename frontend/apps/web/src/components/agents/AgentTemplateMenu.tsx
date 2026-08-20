@@ -19,7 +19,7 @@ export function AgentTemplateMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" size="sm" variant="outline" disabled={disabled}>
+        <Button type="button" variant="outline" disabled={disabled}>
           Templates
           <ChevronDownIcon />
         </Button>

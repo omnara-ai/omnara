@@ -102,7 +102,7 @@ export function AgentProfilesSection({
                     <Button
                       type="button"
                       size="sm"
-                      variant="secondary"
+                      variant="outline"
                       disabled={launchingId !== null}
                       loading={launchingId === profile.id}
                       onClick={() => {

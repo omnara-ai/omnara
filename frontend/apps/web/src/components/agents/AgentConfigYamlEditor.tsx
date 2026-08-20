@@ -172,7 +172,7 @@ export function AgentConfigYamlEditor({
       id={id}
       ref={editorElementRef}
       className={cn(
-        'border-input bg-background shadow-xs h-[28rem] overflow-hidden rounded-md border text-xs',
+        'border-input bg-background h-[28rem] overflow-hidden rounded-md border text-xs',
         className,
       )}
     />

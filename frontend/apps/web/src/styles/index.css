@@ -61,7 +61,7 @@
 :root {
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, monospace;
-  --radius: 0.375rem;
+  --radius: 0.625rem;
 
   /* Palette: Technical indigo #5e6ad2 over strictly neutral greys — bg
      #0b0b0c, surface #161618, alt surface / ink #232326. Chrome stays

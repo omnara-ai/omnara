@@ -3,8 +3,8 @@ import type { Skill } from '@omnara/sdk'
 import { CircleAlert, PlusIcon, Sparkles, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { Button } from '@/components/ui/button'
-import { Field, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
@@ -107,14 +107,14 @@ export function AgentConfigSkillsField({
   }, [onUnavailableIdsChange, unavailableReportKey])
 
   return (
-    <Field className="gap-5">
-      <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Skills</FieldLabel>
+    <AgentConfigSectionCard
+      title="Skills"
+      action={
         <Button
           type="button"
           size="icon"
-          variant="outline"
-          className="bg-muted/40 size-8"
+          variant="ghost"
+          className="text-muted-foreground size-8"
           aria-label="Add skill"
           onClick={() => {
             setPickerOpen((open) => !open)
@@ -123,43 +123,48 @@ export function AgentConfigSkillsField({
         >
           <PlusIcon />
         </Button>
-      </div>
-      {pickerOpen && (
-        <SkillCombobox
-          items={available}
-          value={null}
-          onValueChange={(skill) => {
-            if (!skill) return
-            setResolvedSkills((prev) => new Map(prev).set(skill.id, skill))
-            onSelectedIdsChange([...selectedIds, skill.id])
-            search.setSearch('')
-            setPickerOpen(false)
-          }}
-          search={search}
-          query={skillsQuery}
-          placeholder={skillsQuery.isPending ? 'Loading skills…' : 'Search skills…'}
-        />
-      )}
-      {selectedIds.length > 0 && (
-        <div className="space-y-2">
-          {selectedIds.map((id) => (
-            <SelectedSkillRow
-              key={id}
-              orgId={orgId}
-              projectId={projectId}
-              id={id}
-              skill={skillById(id)}
-              listedNow={loadedSkillIds.has(id)}
-              dangling={danglingIdSet.has(id)}
-              onAvailabilityChange={reportAvailability}
-              onRemove={() => {
-                onSelectedIdsChange(selectedIds.filter((selectedId) => selectedId !== id))
+      }
+    >
+      {pickerOpen || selectedIds.length > 0 ? (
+        <div className="flex flex-col gap-3 px-5 py-4">
+          {pickerOpen && (
+            <SkillCombobox
+              items={available}
+              value={null}
+              onValueChange={(skill) => {
+                if (!skill) return
+                setResolvedSkills((prev) => new Map(prev).set(skill.id, skill))
+                onSelectedIdsChange([...selectedIds, skill.id])
+                search.setSearch('')
+                setPickerOpen(false)
               }}
+              search={search}
+              query={skillsQuery}
+              placeholder={skillsQuery.isPending ? 'Loading skills…' : 'Search skills…'}
             />
-          ))}
+          )}
+          {selectedIds.length > 0 && (
+            <div className="space-y-2">
+              {selectedIds.map((id) => (
+                <SelectedSkillRow
+                  key={id}
+                  orgId={orgId}
+                  projectId={projectId}
+                  id={id}
+                  skill={skillById(id)}
+                  listedNow={loadedSkillIds.has(id)}
+                  dangling={danglingIdSet.has(id)}
+                  onAvailabilityChange={reportAvailability}
+                  onRemove={() => {
+                    onSelectedIdsChange(selectedIds.filter((selectedId) => selectedId !== id))
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
-    </Field>
+      ) : null}
+    </AgentConfigSectionCard>
   )
 }
 

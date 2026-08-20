@@ -1,4 +1,4 @@
-import { ChevronDownIcon, Trash2Icon } from 'lucide-react'
+import { ChevronRightIcon, Trash2Icon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import {
@@ -17,24 +17,34 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import { StartupScriptField } from './StartupScriptField'
 
 export function OverridesCollapsible({
   title = 'Overrides',
+  description,
   children,
 }: {
   title?: string
+  description?: string
   children: ReactNode
 }) {
   return (
-    <Collapsible className="border-border rounded-md border">
-      <CollapsibleTrigger className="text-muted-foreground group flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm">
+    <Collapsible>
+      <CollapsibleTrigger className="group flex items-center gap-1.5 text-left text-sm font-medium">
+        <ChevronRightIcon className="text-muted-foreground size-3.5 transition-transform group-data-[state=open]:rotate-90" />
         {title}
-        <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+        {description && <span className="text-muted-foreground font-normal">— {description}</span>}
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="p-3">{children}</div>
+        <div className="pt-4">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   )
@@ -189,6 +199,160 @@ export function EnvOverlayEditor({
           ))}
         </div>
       )}
+    </Field>
+  )
+}
+
+export function CombinedEnvOverlayEditor({
+  orgId,
+  projectId,
+  enabled,
+  envRows,
+  secretEnvRows,
+  onChange,
+}: {
+  orgId: string
+  projectId?: string
+  enabled: boolean
+  envRows: EnvOverlayRow[]
+  secretEnvRows: SecretEnvOverlayRow[]
+  onChange: (rows: { envRows: EnvOverlayRow[]; secretEnvRows: SecretEnvOverlayRow[] }) => void
+}) {
+  function updateEnvRow(id: string, patch: Partial<EnvOverlayRow>) {
+    onChange({
+      envRows: envRows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+      secretEnvRows,
+    })
+  }
+  function updateSecretRow(id: string, patch: Partial<SecretEnvOverlayRow>) {
+    onChange({
+      envRows,
+      secretEnvRows: secretEnvRows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    })
+  }
+  const combinedRows = [
+    ...envRows.map((row) => ({ kind: 'text' as const, ...row })),
+    ...secretEnvRows.map((row) => ({ kind: 'secret' as const, ...row })),
+  ]
+  return (
+    <Field>
+      <FieldLabel>Environment variables</FieldLabel>
+      {combinedRows.length > 0 && (
+        <div className="space-y-2">
+          {combinedRows.map((row) => {
+            const unset = row.kind === 'text' ? row.value === null : row.secretId === null
+            return (
+              <div key={row.id} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+                <Input
+                  value={row.key}
+                  autoComplete="off"
+                  placeholder="NAME"
+                  aria-label="Variable name"
+                  onChange={(event) => {
+                    if (row.kind === 'text') {
+                      updateEnvRow(row.id, { key: event.target.value })
+                    } else {
+                      updateSecretRow(row.id, { key: event.target.value })
+                    }
+                  }}
+                />
+                <Select
+                  value={row.kind}
+                  onValueChange={(kind) => {
+                    if (kind === row.kind) return
+                    if (kind === 'secret') {
+                      onChange({
+                        envRows: envRows.filter((candidate) => candidate.id !== row.id),
+                        secretEnvRows: [
+                          ...secretEnvRows,
+                          { id: row.id, key: row.key, secretId: unset ? null : '' },
+                        ],
+                      })
+                    } else {
+                      onChange({
+                        envRows: [
+                          ...envRows,
+                          { id: row.id, key: row.key, value: unset ? null : '' },
+                        ],
+                        secretEnvRows: secretEnvRows.filter((candidate) => candidate.id !== row.id),
+                      })
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-24" aria-label="Variable type">
+                    <SelectValue>{row.kind === 'text' ? 'Text' : 'Secret'}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="text">Text</SelectItem>
+                    <SelectItem value="secret">Secret</SelectItem>
+                  </SelectContent>
+                </Select>
+                {row.kind === 'text' ? (
+                  <Input
+                    value={row.value ?? ''}
+                    autoComplete="off"
+                    placeholder={unset ? 'unset — removes the pool value' : 'value'}
+                    aria-label="Variable value"
+                    onChange={(event) => {
+                      updateEnvRow(row.id, { value: event.target.value })
+                    }}
+                  />
+                ) : row.secretId === null ? (
+                  <Input
+                    disabled
+                    value=""
+                    placeholder="unset — removes the pool value"
+                    aria-label="Variable value"
+                  />
+                ) : (
+                  <SecretSelect
+                    orgId={orgId}
+                    projectId={projectId}
+                    enabled={enabled}
+                    value={row.secretId}
+                    onChange={(secretId) => {
+                      updateSecretRow(row.id, { secretId })
+                    }}
+                  />
+                )}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Remove variable"
+                  onClick={() => {
+                    if (row.kind === 'text') {
+                      onChange({
+                        envRows: envRows.filter((candidate) => candidate.id !== row.id),
+                        secretEnvRows,
+                      })
+                    } else {
+                      onChange({
+                        envRows,
+                        secretEnvRows: secretEnvRows.filter((candidate) => candidate.id !== row.id),
+                      })
+                    }
+                  }}
+                >
+                  <Trash2Icon />
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <div className="mt-1 flex justify-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            onChange({ envRows: [...envRows, newEnvOverlayRow()], secretEnvRows })
+          }}
+        >
+          Add variable
+        </Button>
+      </div>
     </Field>
   )
 }
