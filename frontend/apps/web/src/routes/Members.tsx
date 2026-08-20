@@ -6,7 +6,6 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { InviteMemberDialog } from '@/components/org/InviteMemberDialog'
 import { MemberDetailPanel } from '@/components/org/MemberDetailPanel'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { PaginationControls } from '@/hooks/use-paged-query'
 import { formatDateTime } from '@/lib/format'
@@ -180,13 +179,11 @@ export function Members() {
               className: 'w-28',
               cell: (row) =>
                 row.kind === 'invitation' ? (
-                  <Badge variant="secondary" className="capitalize">
+                  <span className="text-muted-foreground capitalize">
                     {row.invitation.org_role}
-                  </Badge>
+                  </span>
                 ) : (
-                  <Badge variant="outline" className="capitalize">
-                    {row.member.role}
-                  </Badge>
+                  <span className="capitalize">{row.member.role}</span>
                 ),
             },
           ]}

@@ -80,29 +80,37 @@ export function AgentProfilesSection({
               cell: (profile) => <span className="font-medium">{profile.name}</span>,
             },
             {
-              id: 'provider',
-              header: 'Provider',
-              cell: (profile) => profile.current_config.model.provider_config,
-            },
-            {
               id: 'model',
               header: 'Model',
               cell: (profile) => (
-                <span className="text-muted-foreground">{profile.current_config.model.name}</span>
+                <span className="truncate font-mono text-xs">
+                  {profile.current_config.model.name}
+                </span>
+              ),
+            },
+            {
+              id: 'provider',
+              header: 'Provider',
+              cell: (profile) => (
+                <span className="text-muted-foreground">
+                  {profile.current_config.model.provider_config}
+                </span>
               ),
             },
             {
               id: 'actions',
               header: '',
-              className: 'w-36',
+              className: 'w-24',
               isActions: true,
+              revealOnHover: false,
               cell: (profile) => (
                 <div className="flex items-center gap-1">
                   {canOperate && (
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
+                      variant="ghost"
+                      className="text-primary hover:text-primary h-7 px-2"
                       disabled={launchingId !== null}
                       loading={launchingId === profile.id}
                       onClick={() => {

@@ -8,7 +8,6 @@ import { SearchHeader } from '@/components/layout/SearchHeader'
 import { CreateSecretDialog } from '@/components/org/CreateSecretDialog'
 import { McpOAuthOutcomeDialog } from '@/components/secrets/McpOAuthOutcomeDialog'
 import { SecretRowActions } from '@/components/secrets/SecretRowActions'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
@@ -94,7 +93,7 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
                 <span className="inline-flex max-w-full items-center gap-2">
                   <span className="truncate font-medium">{secret.name}</span>
                   {secret.management_kind === 'cluster' && (
-                    <Badge variant="secondary">cluster</Badge>
+                    <span className="text-muted-foreground">cluster</span>
                   )}
                 </span>
               ),

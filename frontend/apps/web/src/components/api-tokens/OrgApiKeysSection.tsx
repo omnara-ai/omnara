@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { CreateOrgApiKeyDialog } from '@/components/api-tokens/CreateOrgApiKeyDialog'
 import { OrgApiKeyDetailPanel } from '@/components/api-tokens/OrgApiKeyDetailPanel'
 import { DataTable } from '@/components/data-table/DataTable'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { formatDateTime } from '@/lib/format'
@@ -48,9 +47,7 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
             className: 'w-24',
             cell: (apiKey) =>
               apiKey.org_role ? (
-                <Badge variant="outline" className="capitalize">
-                  {apiKey.org_role}
-                </Badge>
+                <span className="capitalize">{apiKey.org_role}</span>
               ) : (
                 <span className="text-muted-foreground">—</span>
               ),
@@ -79,9 +76,9 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
             className: 'w-24',
             cell: (apiKey) =>
               apiKey.revoked_at ? (
-                <Badge variant="outline">Revoked</Badge>
+                <span>Revoked</span>
               ) : (
-                <Badge variant="secondary">Active</Badge>
+                <span className="text-muted-foreground">Active</span>
               ),
           },
         ]}

@@ -6,7 +6,6 @@ import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { SecretRowActions } from '@/components/secrets/SecretRowActions'
-import { Badge } from '@/components/ui/badge'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
@@ -69,11 +68,7 @@ export function ProjectSecretGrantsTable({
             id: 'owner',
             header: 'Owner',
             className: 'w-32',
-            cell: (access) => (
-              <Badge variant="outline" className="capitalize">
-                {ownerLabel(access)}
-              </Badge>
-            ),
+            cell: (access) => <span className="capitalize">{ownerLabel(access)}</span>,
           },
           {
             id: 'actions',
