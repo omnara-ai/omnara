@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -55,18 +56,8 @@ func (s *Store) ConnectBYOMachine(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	projects, err := qtx.ListActiveProjectsForMachineConnection(
-		ctx,
-		dbsqlc.ListActiveProjectsForMachineConnectionParams{
-			OrgID:      input.OrgID,
-			ProjectIds: input.ProjectIDs,
-		},
-	)
-	if err != nil {
-		return ConnectBYOMachineResult{}, fmt.Errorf("list projects for machine connection: %w", err)
-	}
-	if len(projects) != len(input.ProjectIDs) {
-		return ConnectBYOMachineResult{}, storeerr.ErrNotFound
+	if err := lifecyclelock.EnterActiveProjects(ctx, tx, input.OrgID, input.ProjectIDs); err != nil {
+		return ConnectBYOMachineResult{}, err
 	}
 	machine, err := createDaemonMachineTx(ctx, qtx, machineInput, environment, machineMetadata)
 	if err != nil {

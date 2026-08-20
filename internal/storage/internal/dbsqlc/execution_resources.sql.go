@@ -365,12 +365,12 @@ func (q *Queries) CompletePoolMachineProvisioning(ctx context.Context, arg Compl
 }
 
 const deleteMachinePool = `-- name: DeleteMachinePool :one
-UPDATE machine_pools
+UPDATE machine_pools pool
 SET deleted_at = statement_timestamp(),
     updated_at = statement_timestamp()
-WHERE org_id = $1
-  AND id = $2
-  AND deleted_at IS NULL
+WHERE pool.org_id = $1
+  AND pool.id = $2
+  AND pool.deleted_at IS NULL
 RETURNING deleted_at
 `
 
@@ -608,34 +608,6 @@ func (q *Queries) GetActivePoolMachineUsage(ctx context.Context, arg GetActivePo
 }
 
 const getActiveProjectMachinePoolGrantForLaunch = `-- name: GetActiveProjectMachinePoolGrantForLaunch :one
-WITH locked_pool AS MATERIALIZED (
-  SELECT pool.id,
-         pool.org_id,
-         pool.name,
-         pool.management_kind,
-         pool.max_total_machines,
-         pool.max_total_cpu,
-         pool.max_total_memory_mb,
-         pool.min_machine_cpu,
-         pool.min_machine_memory_mb,
-         pool.max_machine_cpu,
-         pool.max_machine_memory_mb,
-         pool.provider,
-         pool.provider_auth_secret_id,
-         pool.provider_auth_env_var,
-         pool.provider_config,
-         pool.default_machine_cpu,
-         pool.default_machine_memory_mb,
-         pool.default_machine_env,
-         pool.default_machine_secret_env,
-         pool.default_machine_provider_options,
-         pool.default_cwd
-  FROM machine_pools pool
-  WHERE pool.org_id = $1
-    AND pool.id = $3
-    AND pool.deleted_at IS NULL
-  FOR UPDATE
-)
 SELECT pool_grant.id,
        pool_grant.org_id,
        pool_grant.project_id,
@@ -679,13 +651,14 @@ SELECT pool_grant.id,
                THEN COALESCE(admission.new_managed_work_allowed, true)
            ELSE true
        END AS new_managed_work_allowed
-FROM locked_pool pool
+FROM machine_pools pool
 JOIN project_machine_pool_grants pool_grant ON pool_grant.org_id = pool.org_id
   AND pool_grant.machine_pool_id = pool.id
 LEFT JOIN org_managed_work_admission admission ON admission.org_id = pool.org_id
 WHERE pool_grant.org_id = $1
   AND pool_grant.project_id = $2
   AND pool_grant.machine_pool_id = $3
+  AND pool.deleted_at IS NULL
 FOR UPDATE OF pool_grant
 `
 
@@ -1237,12 +1210,36 @@ func (q *Queries) GetPoolGrantConfigValidationContext(ctx context.Context, arg G
 	return i, err
 }
 
+const getPoolMachinePoolIDForLifecycle = `-- name: GetPoolMachinePoolIDForLifecycle :one
+SELECT machine_pool_id
+FROM machines
+WHERE org_id = $1
+  AND id = $2
+  AND source_kind = 'pool'
+  AND machine_pool_id IS NOT NULL
+`
+
+type GetPoolMachinePoolIDForLifecycleParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+// @sqlc-vet-disable machines-deleted-at
+// Lifecycle lookup includes soft-deleted machines during teardown.
+func (q *Queries) GetPoolMachinePoolIDForLifecycle(ctx context.Context, arg GetPoolMachinePoolIDForLifecycleParams) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getPoolMachinePoolIDForLifecycle, arg.OrgID, arg.ID)
+	var machine_pool_id *uuid.UUID
+	err := row.Scan(&machine_pool_id)
+	return machine_pool_id, err
+}
+
 const insertMachine = `-- name: InsertMachine :one
 INSERT INTO machines(org_id, machine_pool_id, source_kind, display_name, description, provider, lifecycle_state, provider_resource_id, cpu, memory_mb, cwd, env, secret_env, provider_options, idempotency_key, lifecycle_changed_at, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, created_at, updated_at)
 SELECT orgs.id, $1::uuid, $2, $3, $4, $5, $6, $7, $8::integer, $9::integer, $10::text, $11::jsonb, $12::jsonb, $13::jsonb, $14, statement_timestamp(), $15, $16, CASE WHEN $2::text = 'pool' THEN statement_timestamp() END, $17::integer, $18::integer, $19, statement_timestamp(), statement_timestamp()
 FROM orgs
 LEFT JOIN machine_pools pool ON pool.org_id = orgs.id AND pool.id = $1::uuid
 WHERE orgs.id = $20
+  AND orgs.deleted_at IS NULL
   AND (
     $1::uuid IS NULL
     OR (
@@ -1376,10 +1373,12 @@ SELECT orgs.id, $1, $2, $3, $4, $5::integer, $6::integer, $7::jsonb, $8::jsonb, 
 FROM orgs
 LEFT JOIN secrets provider_auth_secret ON provider_auth_secret.org_id = orgs.id
   AND provider_auth_secret.id = $12::uuid
+  AND provider_auth_secret.deleted_at IS NULL
   AND provider_auth_secret.management_kind = 'tenant'
   AND provider_auth_secret.owner_kind = 'org'
   AND provider_auth_secret.kind = 'generic'
 WHERE orgs.id = $23
+  AND orgs.deleted_at IS NULL
   AND (
     ($2 = 'tenant' AND provider_auth_secret.id IS NOT NULL AND $13 = '') OR
     ($2 = 'cluster' AND $12::uuid IS NULL AND $13 <> '')
@@ -1653,6 +1652,41 @@ func (q *Queries) ListClusterManagedMachinePoolsByName(ctx context.Context, arg 
 	return items, nil
 }
 
+const listMachinePoolMachineIDsForLifecycle = `-- name: ListMachinePoolMachineIDsForLifecycle :many
+SELECT id
+FROM machines
+WHERE org_id = $1
+  AND machine_pool_id = $2::uuid
+  AND source_kind = 'pool'
+  AND deleted_at IS NULL
+ORDER BY id
+`
+
+type ListMachinePoolMachineIDsForLifecycleParams struct {
+	OrgID         uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+func (q *Queries) ListMachinePoolMachineIDsForLifecycle(ctx context.Context, arg ListMachinePoolMachineIDsForLifecycleParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listMachinePoolMachineIDsForLifecycle, arg.OrgID, arg.MachinePoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMachinePools = `-- name: ListMachinePools :many
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu,
        default_machine_memory_mb, default_machine_env, default_machine_secret_env,
@@ -1830,6 +1864,38 @@ func (q *Queries) ListMachinePools(ctx context.Context, arg ListMachinePoolsPara
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrganizationMachineIDsForLifecycle = `-- name: ListOrganizationMachineIDsForLifecycle :many
+SELECT id
+FROM machines
+WHERE org_id = $1
+  AND deleted_at IS NULL
+ORDER BY id
+`
+
+type ListOrganizationMachineIDsForLifecycleParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) ListOrganizationMachineIDsForLifecycle(ctx context.Context, arg ListOrganizationMachineIDsForLifecycleParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listOrganizationMachineIDsForLifecycle, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -2076,6 +2142,64 @@ func (q *Queries) ListPoolMachinesForProvisioning(ctx context.Context, arg ListP
 	return items, nil
 }
 
+const listProjectMachineIDsForLifecycle = `-- name: ListProjectMachineIDsForLifecycle :many
+SELECT machine.id
+FROM machines machine
+JOIN project_machine_grants machine_grant ON machine_grant.org_id = machine.org_id
+  AND machine_grant.machine_id = machine.id
+WHERE machine_grant.org_id = $1
+  AND machine_grant.project_id = $2
+  AND machine.deleted_at IS NULL
+ORDER BY machine.id
+`
+
+type ListProjectMachineIDsForLifecycleParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) ListProjectMachineIDsForLifecycle(ctx context.Context, arg ListProjectMachineIDsForLifecycleParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listProjectMachineIDsForLifecycle, arg.OrgID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockMachinePoolForLifecycle = `-- name: LockMachinePoolForLifecycle :one
+SELECT id
+FROM machine_pools
+WHERE org_id = $1
+  AND id = $2
+FOR UPDATE
+`
+
+type LockMachinePoolForLifecycleParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+// @sqlc-vet-disable machine-pools-deleted-at
+// Lifecycle locking includes soft-deleted pools during teardown.
+func (q *Queries) LockMachinePoolForLifecycle(ctx context.Context, arg LockMachinePoolForLifecycleParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockMachinePoolForLifecycle, arg.OrgID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const lockMachinePoolForUpdate = `-- name: LockMachinePoolForUpdate :one
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 FROM machine_pools
@@ -2121,42 +2245,6 @@ func (q *Queries) LockMachinePoolForUpdate(ctx context.Context, arg LockMachineP
 		&i.MinMachineMemoryMb,
 	)
 	return i, err
-}
-
-const lockMachinePoolMachinesForUpdate = `-- name: LockMachinePoolMachinesForUpdate :many
-SELECT machine.id
-FROM machines machine
-WHERE machine.org_id = $1
-  AND machine.machine_pool_id = $2
-  AND machine.source_kind = 'pool'
-  AND machine.deleted_at IS NULL
-ORDER BY machine.id
-FOR UPDATE OF machine
-`
-
-type LockMachinePoolMachinesForUpdateParams struct {
-	OrgID         uuid.UUID
-	MachinePoolID *uuid.UUID
-}
-
-func (q *Queries) LockMachinePoolMachinesForUpdate(ctx context.Context, arg LockMachinePoolMachinesForUpdateParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, lockMachinePoolMachinesForUpdate, arg.OrgID, arg.MachinePoolID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const lockPoolMachineDeletionAttemptForLifecycle = `-- name: LockPoolMachineDeletionAttemptForLifecycle :one

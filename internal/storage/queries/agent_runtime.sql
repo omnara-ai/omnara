@@ -6,11 +6,16 @@ WITH inserted AS (
         org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, created_at, updated_at
     )
-    VALUES (
+    SELECT
         sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
         sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
         transaction_timestamp(), transaction_timestamp()
-    )
+    FROM projects project
+    JOIN orgs org ON org.id = project.org_id
+    WHERE project.org_id = sqlc.arg(org_id)
+      AND project.id = sqlc.arg(project_id)
+      AND project.deleted_at IS NULL
+      AND org.deleted_at IS NULL
     ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
     RETURNING id, org_id, project_id, state, name,
               agent_profile_id, current_config_id, integration_target_id,
@@ -32,14 +37,6 @@ LEFT JOIN configured_models configured_model
 LEFT JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id;
-
--- name: LockProjectAgentLifecycleShared :exec
--- Agent creation takes the shared side: creates never conflict with each
--- other, only with project/org deletion, which holds the exclusive side.
-SELECT pg_advisory_xact_lock_shared(hashtextextended(sqlc.arg(project_id)::text, 0));
-
--- name: LockProjectAgentLifecycleExclusive :exec
-SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(project_id)::text, 0));
 
 -- name: LockAgentLaunchIdempotencyKey :exec
 SELECT pg_advisory_xact_lock(

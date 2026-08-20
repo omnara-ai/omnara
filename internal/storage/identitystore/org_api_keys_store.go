@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -40,6 +41,18 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return CreatedOrgAPIKey{}, err
+	}
+	if _, err := qtx.LockUserForUpdate(
+		ctx,
+		dbsqlc.LockUserForUpdateParams{ID: input.CreatedByUserID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CreatedOrgAPIKey{}, storeerr.ErrNotFound
+		}
+		return CreatedOrgAPIKey{}, fmt.Errorf("lock org api key creator: %w", err)
+	}
 	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return CreatedOrgAPIKey{}, storeerr.ErrNotFound
@@ -256,6 +269,9 @@ func (s *Store) UpdateOrgAPIKey(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return OrgAPIKeyRecord{}, err
+	}
 	current, err := lockActiveOrgAPIKeyTx(ctx, qtx, input.OrgID, input.KeyID, input.ActorPrincipal)
 	if err != nil {
 		return OrgAPIKeyRecord{}, err
@@ -323,6 +339,9 @@ func (s *Store) RevokeOrgAPIKey(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, orgID); err != nil {
+		return OrgAPIKeyRecord{}, err
+	}
 	if _, err := qtx.LockOrgAPIKeyForUpdate(
 		ctx,
 		dbsqlc.LockOrgAPIKeyForUpdateParams{OrgID: orgID, ID: keyID},
@@ -380,6 +399,9 @@ func (s *Store) SetOrgAPIKeyProjectRole(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return ProjectMembershipRecord{}, err
+	}
 	if _, err := lockActiveOrgAPIKeyTx(ctx, qtx, input.OrgID, input.KeyID, input.ActorPrincipal); err != nil {
 		return ProjectMembershipRecord{}, err
 	}
@@ -400,7 +422,7 @@ func (s *Store) SetOrgAPIKeyProjectRole(
 		},
 	)
 	if err != nil {
-		if storeutil.IsForeignKeyViolation(err) {
+		if errors.Is(err, pgx.ErrNoRows) || storeutil.IsForeignKeyViolation(err) {
 			return ProjectMembershipRecord{}, storeerr.ErrNotFound
 		}
 		return ProjectMembershipRecord{}, fmt.Errorf("add org api key project membership: %w", err)
@@ -455,6 +477,9 @@ func (s *Store) RemoveOrgAPIKeyProjectRole(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return err
+	}
 	if _, err := lockActiveOrgAPIKeyTx(ctx, qtx, input.OrgID, input.KeyID, input.ActorPrincipal); err != nil {
 		return err
 	}

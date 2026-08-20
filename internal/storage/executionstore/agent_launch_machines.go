@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -88,80 +89,46 @@ func expandLaunchMachineBindingRequests(
 
 func (s *Store) resolveLaunchMachineSourcesTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	orgID, projectID ID,
 	sources []launchMachineSource,
 ) error {
-	machineIDs := make([]ID, 0, len(sources))
-	for _, source := range sources {
-		if source.MachineID != NilID {
-			machineIDs = append(machineIDs, source.MachineID)
-		}
+	if err := s.resolveLaunchPoolMachineSourcesTx(ctx, tx, qtx, orgID, projectID, sources); err != nil {
+		return err
 	}
-	sort.Slice(machineIDs, func(i, j int) bool {
-		return machineIDs[i].String() < machineIDs[j].String()
-	})
-	for _, machineID := range machineIDs {
-		if err := qtx.LockMachineEnvironmentKey(
-			ctx,
-			dbsqlc.LockMachineEnvironmentKeyParams{MachineID: machineID},
-		); err != nil {
-			return fmt.Errorf("lock machine environment: %w", err)
-		}
+	if err := lockLaunchMachineSourcesTx(ctx, tx, orgID, sources, nil); err != nil {
+		return err
 	}
+	return s.resolveLaunchExplicitMachineSourcesTx(ctx, qtx, orgID, projectID, sources)
+}
 
+func (s *Store) resolveLaunchPoolMachineSourcesTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	orgID, projectID ID,
+	sources []launchMachineSource,
+) error {
 	var poolIndexes []int
+	poolRefs := make([]lifecyclelock.PoolRef, 0, len(sources))
 	for index := range sources {
-		switch {
-		case sources[index].MachineID != NilID:
-			grant, err := qtx.GetActiveProjectMachineGrantForMachine(
-				ctx,
-				dbsqlc.GetActiveProjectMachineGrantForMachineParams{
-					ProjectID: projectID,
-					MachineID: sources[index].MachineID,
-				},
-			)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return fmt.Errorf(
-						"machine_sources[%d].machine_id does not have an active project grant: %w",
-						sources[index].Index,
-						storeerr.ErrNotFound,
-					)
-				}
-				return fmt.Errorf("resolve launch machine grant: %w", err)
-			}
-			sources[index].GrantID = grant.ID
-			machineEnvironment, err := MachineEnvironmentFromColumns(grant.MachineEnv, grant.MachineSecretEnv)
-			if err != nil {
-				return fmt.Errorf("machine_sources[%d] machine environment: %w", sources[index].Index, err)
-			}
-			environmentOverlay := runtimeMachineEnvironmentOverlay(sources[index].Contract)
-			if _, err := resolveMachineEnvironmentTx(
-				ctx,
-				qtx,
-				orgID,
-				projectID,
-				machineEnvironment,
-				environmentOverlay,
-			); err != nil {
-				return fmt.Errorf("machine_sources[%d] environment: %w", sources[index].Index, err)
-			}
-			sources[index].BindingConfig = MachineBindingConfig{
-				Cwd:                sources[index].Contract.Cwd,
-				EnvironmentOverlay: environmentOverlay,
-			}
-		case sources[index].MachinePoolID != NilID:
+		if sources[index].MachinePoolID != NilID {
 			poolIndexes = append(poolIndexes, index)
+			poolRefs = append(poolRefs, lifecyclelock.PoolRef{
+				OrgID:  orgID,
+				PoolID: sources[index].MachinePoolID,
+			})
 		}
+	}
+	if err := lifecyclelock.Pools(ctx, tx, poolRefs); err != nil {
+		return err
 	}
 	sort.Slice(poolIndexes, func(i, j int) bool {
 		left := sources[poolIndexes[i]]
 		right := sources[poolIndexes[j]]
 		return left.MachinePoolID.String() < right.MachinePoolID.String()
 	})
-	// Lock pool grants in a deterministic order so concurrent launches that
-	// reference the same pools in different config orders cannot deadlock.
 	for _, index := range poolIndexes {
 		poolGrant, err := qtx.GetActiveProjectMachinePoolGrantForLaunch(
 			ctx,
@@ -195,6 +162,96 @@ func (s *Store) resolveLaunchMachineSourcesTx(
 		sources[index].MachineCwd = resolved.MachineCwd
 		sources[index].MachineEnvironment = resolved.MachineEnvironment
 		sources[index].BindingConfig = resolved.BindingConfig
+	}
+	return nil
+}
+
+func lockLaunchMachineSourcesTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	orgID ID,
+	sources []launchMachineSource,
+	additionalMachineIDs []ID,
+) error {
+	refs := make([]lifecyclelock.MachineRef, 0, len(sources)+len(additionalMachineIDs))
+	for _, source := range sources {
+		if source.MachineID != NilID {
+			refs = append(refs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: source.MachineID})
+		}
+	}
+	for _, machineID := range additionalMachineIDs {
+		refs = append(refs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: machineID})
+	}
+	if err := lifecyclelock.Machines(ctx, tx, refs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) resolveLaunchExplicitMachineSourcesTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	orgID, projectID ID,
+	sources []launchMachineSource,
+) error {
+	machineIDs := make([]ID, 0, len(sources))
+	for _, source := range sources {
+		if source.MachineID != NilID {
+			machineIDs = append(machineIDs, source.MachineID)
+		}
+	}
+	sort.Slice(machineIDs, func(i, j int) bool {
+		return machineIDs[i].String() < machineIDs[j].String()
+	})
+	for _, machineID := range machineIDs {
+		if err := qtx.LockMachineEnvironmentKey(
+			ctx,
+			dbsqlc.LockMachineEnvironmentKeyParams{MachineID: machineID},
+		); err != nil {
+			return fmt.Errorf("lock machine environment: %w", err)
+		}
+	}
+	for index := range sources {
+		if sources[index].MachineID == NilID {
+			continue
+		}
+		grant, err := qtx.GetActiveProjectMachineGrantForMachine(
+			ctx,
+			dbsqlc.GetActiveProjectMachineGrantForMachineParams{
+				ProjectID: projectID,
+				MachineID: sources[index].MachineID,
+			},
+		)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf(
+					"machine_sources[%d].machine_id does not have an active project grant: %w",
+					sources[index].Index,
+					storeerr.ErrNotFound,
+				)
+			}
+			return fmt.Errorf("resolve launch machine grant: %w", err)
+		}
+		sources[index].GrantID = grant.ID
+		machineEnvironment, err := MachineEnvironmentFromColumns(grant.MachineEnv, grant.MachineSecretEnv)
+		if err != nil {
+			return fmt.Errorf("machine_sources[%d] machine environment: %w", sources[index].Index, err)
+		}
+		environmentOverlay := runtimeMachineEnvironmentOverlay(sources[index].Contract)
+		if _, err := resolveMachineEnvironmentTx(
+			ctx,
+			qtx,
+			orgID,
+			projectID,
+			machineEnvironment,
+			environmentOverlay,
+		); err != nil {
+			return fmt.Errorf("machine_sources[%d] environment: %w", sources[index].Index, err)
+		}
+		sources[index].BindingConfig = MachineBindingConfig{
+			Cwd:                sources[index].Contract.Cwd,
+			EnvironmentOverlay: environmentOverlay,
+		}
 	}
 	return nil
 }

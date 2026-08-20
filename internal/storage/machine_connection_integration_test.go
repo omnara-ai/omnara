@@ -10,7 +10,9 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestConnectBYOMachineCreatesMachineTokenAndSelectedGrants(t *testing.T) {
@@ -217,4 +219,313 @@ SELECT count(*) FROM machines WHERE org_id = $1 AND display_name = 'Invalid Proj
 	if invalidMachineCount != 0 {
 		t.Fatalf("invalid-project machine count = %d, want 0", invalidMachineCount)
 	}
+}
+
+func TestConnectBYOMachineSerializesWithScopeDeletion(t *testing.T) {
+	t.Parallel()
+	t.Run("connection wins", func(t *testing.T) {
+		ctx := context.Background()
+		pool := openIntegrationDB(t, ctx)
+		seedMigratedDB(t, ctx, pool)
+		store := newIntegrationStore(pool)
+		user := mustCreateIdentityUser(
+			t,
+			ctx,
+			store,
+			"machine-connection-wins@example.com",
+			"Machine Connection Wins",
+		)
+		actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(user.ID))
+		if err != nil {
+			t.Fatalf("build project deletion actor: %v", err)
+		}
+
+		controlTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin machine connection control transaction: %v", err)
+		}
+		defer func() { _ = controlTx.Rollback(ctx) }()
+		if err := dbsqlc.New(controlTx).LockResourceCreation(
+			ctx,
+			dbsqlc.LockResourceCreationParams{
+				ResourceKind: "machines",
+				Scope:        testOrgID.String(),
+			},
+		); err != nil {
+			t.Fatalf("lock machine creation: %v", err)
+		}
+
+		type connectionOutcome struct {
+			result executionstore.ConnectBYOMachineResult
+			err    error
+		}
+		connectDone := make(chan connectionOutcome, 1)
+		go func() {
+			result, connectErr := store.Execution().ConnectBYOMachine(
+				ctx,
+				executionstore.ConnectBYOMachineInput{
+					OrgID:       testOrgID,
+					DisplayName: "Connected Before Project Deletion",
+					ProjectIDs:  []ID{testProjectID},
+					TokenName:   "connection-wins",
+				},
+			)
+			connectDone <- connectionOutcome{result: result, err: connectErr}
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockResourceCreation", 1)
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+				ctx,
+				testOrgID,
+				testProjectID,
+				actor,
+			)
+			deleteDone <- deleteErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleExclusive", 1)
+		if err := controlTx.Commit(ctx); err != nil {
+			t.Fatalf("release machine connection control transaction: %v", err)
+		}
+
+		var connected executionstore.ConnectBYOMachineResult
+		select {
+		case outcome := <-connectDone:
+			if outcome.err != nil {
+				t.Fatalf("connect machine before project deletion: %v", outcome.err)
+			}
+			connected = outcome.result
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for machine connection")
+		}
+		select {
+		case err := <-deleteDone:
+			if err != nil {
+				t.Fatalf("delete project after machine connection: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for project deletion")
+		}
+
+		var machineActive, tokenActive bool
+		var grantCount int
+		if err := pool.QueryRow(ctx, `
+SELECT machine.deleted_at IS NULL AND machine.lifecycle_state = 'active',
+       token.revoked_at IS NULL,
+       (SELECT count(*)::integer
+        FROM project_machine_grants project_grant
+        WHERE project_grant.org_id = machine.org_id
+          AND project_grant.project_id = $3
+          AND project_grant.machine_id = machine.id)
+FROM machines machine
+JOIN machine_daemon_tokens token ON token.org_id = machine.org_id
+  AND token.machine_id = machine.id
+  AND token.id = $2
+WHERE machine.org_id = $1 AND machine.id = $4
+`, testOrgID, connected.DaemonToken.Record.ID, testProjectID, connected.Machine.ID).Scan(
+			&machineActive,
+			&tokenActive,
+			&grantCount,
+		); err != nil {
+			t.Fatalf("load connected machine after project deletion: %v", err)
+		}
+		if !machineActive || !tokenActive || grantCount != 0 {
+			t.Fatalf(
+				"connected state after project deletion: machine_active=%t token_active=%t grants=%d",
+				machineActive,
+				tokenActive,
+				grantCount,
+			)
+		}
+	})
+
+	t.Run("deletion wins", func(t *testing.T) {
+		ctx := context.Background()
+		pool := openIntegrationDB(t, ctx)
+		seedMigratedDB(t, ctx, pool)
+		store := newIntegrationStore(pool)
+		user := mustCreateIdentityUser(
+			t,
+			ctx,
+			store,
+			"project-deletion-wins@example.com",
+			"Project Deletion Wins",
+		)
+		actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(user.ID))
+		if err != nil {
+			t.Fatalf("build project deletion actor: %v", err)
+		}
+
+		controlTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin project deletion control transaction: %v", err)
+		}
+		defer func() { _ = controlTx.Rollback(ctx) }()
+		if _, err := controlTx.Exec(
+			ctx,
+			`SELECT id FROM projects WHERE org_id = $1 AND id = $2 FOR UPDATE`,
+			testOrgID,
+			testProjectID,
+		); err != nil {
+			t.Fatalf("lock project row: %v", err)
+		}
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+				ctx,
+				testOrgID,
+				testProjectID,
+				actor,
+			)
+			deleteDone <- deleteErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProject", 1)
+
+		connectDone := make(chan error, 1)
+		go func() {
+			_, connectErr := store.Execution().ConnectBYOMachine(
+				ctx,
+				executionstore.ConnectBYOMachineInput{
+					OrgID:       testOrgID,
+					DisplayName: "Rejected Project Connection",
+					ProjectIDs:  []ID{testProjectID},
+					TokenName:   "deletion-wins",
+				},
+			)
+			connectDone <- connectErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
+		if err := controlTx.Commit(ctx); err != nil {
+			t.Fatalf("release project deletion control transaction: %v", err)
+		}
+
+		select {
+		case err := <-deleteDone:
+			if err != nil {
+				t.Fatalf("delete project before machine connection: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for project deletion")
+		}
+		select {
+		case err := <-connectDone:
+			if !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("machine connection after project deletion error = %v, want not found", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for rejected machine connection")
+		}
+
+		var machineCount, tokenCount int
+		if err := pool.QueryRow(ctx, `
+SELECT (SELECT count(*)::integer
+        FROM machines
+        WHERE org_id = $1 AND display_name = 'Rejected Project Connection'),
+       (SELECT count(*)::integer
+        FROM machine_daemon_tokens
+        WHERE org_id = $1 AND name = 'deletion-wins')
+`, testOrgID).Scan(&machineCount, &tokenCount); err != nil {
+			t.Fatalf("count rejected machine connection state: %v", err)
+		}
+		if machineCount != 0 || tokenCount != 0 {
+			t.Fatalf("rejected machine connection rows: machines=%d tokens=%d", machineCount, tokenCount)
+		}
+	})
+
+	t.Run("organization deletion wins", func(t *testing.T) {
+		ctx := context.Background()
+		pool := openIntegrationDB(t, ctx)
+		seedMigratedDB(t, ctx, pool)
+		store := newIntegrationStore(pool)
+		user := mustCreateIdentityUser(
+			t,
+			ctx,
+			store,
+			"organization-deletion-wins@example.com",
+			"Organization Deletion Wins",
+		)
+		actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(user.ID))
+		if err != nil {
+			t.Fatalf("build organization deletion actor: %v", err)
+		}
+
+		controlTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin organization deletion control transaction: %v", err)
+		}
+		defer func() { _ = controlTx.Rollback(ctx) }()
+		if _, err := controlTx.Exec(
+			ctx,
+			`SELECT id FROM orgs WHERE id = $1 FOR UPDATE`,
+			testOrgID,
+		); err != nil {
+			t.Fatalf("lock organization row: %v", err)
+		}
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
+				ctx,
+				testOrgID,
+				actor,
+			)
+			deleteDone <- deleteErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteOrganization", 1)
+
+		connectDone := make(chan error, 1)
+		go func() {
+			_, connectErr := store.Execution().ConnectBYOMachine(
+				ctx,
+				executionstore.ConnectBYOMachineInput{
+					OrgID:       testOrgID,
+					DisplayName: "Rejected Organization Connection",
+					TokenName:   "organization-deletion-wins",
+				},
+			)
+			connectDone <- connectErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleShared", 1)
+		if err := controlTx.Commit(ctx); err != nil {
+			t.Fatalf("release organization deletion control transaction: %v", err)
+		}
+
+		select {
+		case err := <-deleteDone:
+			if err != nil {
+				t.Fatalf("delete organization before machine connection: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for organization deletion")
+		}
+		select {
+		case err := <-connectDone:
+			if !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("machine connection after organization deletion error = %v, want not found", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for rejected organization machine connection")
+		}
+
+		var machineCount, tokenCount int
+		if err := pool.QueryRow(ctx, `
+SELECT (SELECT count(*)::integer
+        FROM machines
+        WHERE org_id = $1 AND display_name = 'Rejected Organization Connection'),
+       (SELECT count(*)::integer
+        FROM machine_daemon_tokens
+        WHERE org_id = $1 AND name = 'organization-deletion-wins')
+`, testOrgID).Scan(&machineCount, &tokenCount); err != nil {
+			t.Fatalf("count rejected organization machine connection state: %v", err)
+		}
+		if machineCount != 0 || tokenCount != 0 {
+			t.Fatalf(
+				"rejected organization machine connection rows: machines=%d tokens=%d",
+				machineCount,
+				tokenCount,
+			)
+		}
+	})
 }

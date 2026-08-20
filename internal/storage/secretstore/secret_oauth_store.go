@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -29,29 +30,23 @@ func (s *Store) RotateProjectAvailableOAuthSecret(
 	if err != nil {
 		return SecretRecord{}, invalidSecretRequest("%v", err)
 	}
-	if err := s.ValidateProjectSecretReference(
-		ctx,
-		input.Lease.OrgID,
-		input.ProjectID,
-		input.Lease.SecretID,
-		SecretKindOAuthTokenSet,
-	); err != nil {
-		return SecretRecord{}, err
-	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, fmt.Errorf("begin rotate project oauth secret: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockSecret(
+	secret, err := lockProjectAvailableSecretTx(
 		ctx,
-		dbsqlc.LockSecretParams{OrgID: input.Lease.OrgID, ID: input.Lease.SecretID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return SecretRecord{}, storeerr.ErrNotFound
-		}
-		return SecretRecord{}, fmt.Errorf("lock secret: %w", err)
+		tx,
+		qtx,
+		input.Lease.OrgID,
+		input.ProjectID,
+		input.Lease.SecretID,
+		SecretKindOAuthTokenSet,
+	)
+	if err != nil {
+		return SecretRecord{}, err
 	}
 	_, err = qtx.LockSecretOAuthRefreshLease(
 		ctx,
@@ -84,17 +79,6 @@ func (s *Store) RotateProjectAvailableOAuthSecret(
 	}
 	if !active {
 		return SecretRecord{}, storeerr.ErrConflict
-	}
-	secret, err := getSecretTx(ctx, qtx, input.Lease.OrgID, input.Lease.SecretID)
-	if err != nil {
-		return SecretRecord{}, err
-	}
-	if secret.Kind != SecretKindOAuthTokenSet {
-		return SecretRecord{}, invalidSecretRequest(
-			"secret kind %q does not match expected kind %q",
-			secret.Kind,
-			SecretKindOAuthTokenSet,
-		)
 	}
 	if secret.CurrentVersionID != input.Lease.ExpectedCurrentVersionID {
 		return SecretRecord{}, storeerr.ErrConflict
@@ -148,15 +132,6 @@ func (s *Store) AcquireProjectOAuthRefreshLease(
 			"refresh lease ttl must be at least one millisecond",
 		)
 	}
-	if err := s.ValidateProjectSecretReference(
-		ctx,
-		input.OrgID,
-		input.ProjectID,
-		input.SecretID,
-		SecretKindOAuthTokenSet,
-	); err != nil {
-		return OAuthRefreshLeaseRecord{}, false, err
-	}
 	ownerToken, err := newSecretUUID()
 	if err != nil {
 		return OAuthRefreshLeaseRecord{}, false, err
@@ -167,25 +142,17 @@ func (s *Store) AcquireProjectOAuthRefreshLease(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockSecret(
+	secret, err := lockProjectAvailableSecretTx(
 		ctx,
-		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return OAuthRefreshLeaseRecord{}, false, storeerr.ErrNotFound
-		}
-		return OAuthRefreshLeaseRecord{}, false, fmt.Errorf("lock secret for oauth refresh lease: %w", err)
-	}
-	secret, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+		tx,
+		qtx,
+		input.OrgID,
+		input.ProjectID,
+		input.SecretID,
+		SecretKindOAuthTokenSet,
+	)
 	if err != nil {
 		return OAuthRefreshLeaseRecord{}, false, err
-	}
-	if secret.Kind != SecretKindOAuthTokenSet {
-		return OAuthRefreshLeaseRecord{}, false, invalidSecretRequest(
-			"secret kind %q does not match expected kind %q",
-			secret.Kind,
-			SecretKindOAuthTokenSet,
-		)
 	}
 	row, err := qtx.AcquireSecretOAuthRefreshLease(ctx, dbsqlc.AcquireSecretOAuthRefreshLeaseParams{
 		OrgID:                   input.OrgID,
@@ -209,6 +176,62 @@ func (s *Store) AcquireProjectOAuthRefreshLease(
 		OwnerToken:               row.OwnerToken,
 		ExpectedCurrentVersionID: row.ExpectedSecretVersionID,
 	}, true, nil
+}
+
+func lockProjectAvailableSecretTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	orgID, projectID, secretID ID,
+	expectedKind secrets.Kind,
+) (SecretRecord, error) {
+	secret, err := getSecretTx(ctx, qtx, orgID, secretID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SecretRecord{}, storeerr.ErrNotFound
+		}
+		return SecretRecord{}, err
+	}
+	projectIDs := []ID{projectID}
+	if secret.OwnerKind == SecretOwnerProject {
+		projectIDs = append(projectIDs, secret.OwnerProjectID)
+	}
+	if err := lifecyclelock.EnterActiveProjects(ctx, tx, orgID, projectIDs); err != nil {
+		return SecretRecord{}, err
+	}
+	if _, err := qtx.LockSecret(
+		ctx,
+		dbsqlc.LockSecretParams{OrgID: orgID, ID: secretID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SecretRecord{}, storeerr.ErrNotFound
+		}
+		return SecretRecord{}, fmt.Errorf("lock project-available secret: %w", err)
+	}
+	row, err := qtx.GetProjectAvailableSecret(
+		ctx,
+		dbsqlc.GetProjectAvailableSecretParams{
+			OrgID: orgID, ProjectID: projectID, SecretID: secretID,
+		},
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SecretRecord{}, fmt.Errorf(
+				"secret is not available to the project: %w",
+				storeerr.ErrNotFound,
+			)
+		}
+		return SecretRecord{}, fmt.Errorf("get project-available secret: %w", err)
+	}
+	secret = secretAccessFromProjectAvailable(row, projectID).Secret
+	if secret.Kind != expectedKind {
+		return SecretRecord{}, invalidSecretRequest(
+			"secret kind %q does not match expected kind %q",
+			secret.Kind,
+			expectedKind,
+		)
+	}
+	return secret, nil
 }
 
 func (s *Store) ReleaseProjectOAuthRefreshLease(

@@ -1193,7 +1193,7 @@ tools:
 		})
 		loweredDone <- configChangeResult{result: result, err: changeErr}
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForUpdate", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
 	select {
 	case change := <-loweredDone:
 		t.Fatalf("config change completed before waiting on pool lock: %v", change.err)
@@ -1280,7 +1280,7 @@ tools:
 		})
 		removalDone <- configChangeResult{result: result, err: changeErr}
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAttachedAgentPoolMachines", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
 	select {
 	case change := <-removalDone:
 		t.Fatalf("config removal completed before waiting on machine lock: %v", change.err)
@@ -1331,6 +1331,28 @@ tools:
 		originalMachine.Machine.ID,
 		future.Machine.Machine.ID,
 	)
+	replayedRemoval, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: changeInputFromRecord(removedConfig),
+		AgentID:                launch.Agent.ID,
+		ActorType:              identitystore.PrincipalTypeUser,
+		ActorID:                user.ID,
+		IdempotencyKey:         "idem-live-pool-removed",
+	})
+	if err != nil {
+		t.Fatalf("replay removed pool config: %v", err)
+	}
+	if replayedRemoval.ConfigChange.AgentInput.ID != removed.ConfigChange.AgentInput.ID ||
+		replayedRemoval.ConfigChange.Event.ID != removed.ConfigChange.Event.ID {
+		t.Fatalf("removed pool config replay = %+v, want %+v", replayedRemoval.ConfigChange, removed.ConfigChange)
+	}
+	if len(replayedRemoval.DeleteMachines) != len(removed.DeleteMachines) {
+		t.Fatalf("replayed pool source deletions = %+v, want %+v", replayedRemoval.DeleteMachines, removed.DeleteMachines)
+	}
+	for _, machine := range replayedRemoval.DeleteMachines {
+		if !removedIDs[machine.ID] {
+			t.Fatalf("replayed unexpected pool source deletion: %+v", machine)
+		}
+	}
 	if _, err := store.Execution().DeleteMachinePool(ctx, testOrgID, machinePool.ID); err != nil {
 		t.Fatalf("delete removed machine pool: %v", err)
 	}

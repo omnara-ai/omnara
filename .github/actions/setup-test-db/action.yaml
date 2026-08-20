@@ -1,11 +1,14 @@
 name: Setup test services
-description: Start the local Postgres, Redis, and MinIO test services and wait for their healthchecks.
+description: Configure CI diagnostics, start Postgres, Redis, and MinIO, and wait for their healthchecks.
 
 runs:
   using: composite
   steps:
-    - name: Start test services
+    - name: Configure and start test services
       shell: bash
+      env:
+        COMPOSE_FILE: ${{ github.workspace }}/compose.yaml:${{ github.workspace }}/.github/compose.ci.yaml
       run: |
+        printf 'COMPOSE_FILE=%s\n' "$COMPOSE_FILE" >> "$GITHUB_ENV"
         docker compose up -d --wait postgres redis minio
         docker compose run --rm minio-init

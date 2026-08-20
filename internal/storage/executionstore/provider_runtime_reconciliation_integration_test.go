@@ -365,6 +365,93 @@ WHERE org_id = $1 AND id = $2
 	}
 }
 
+func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProviderRuntimeStorageFixture(t, ctx, "wake-org-delete", true)
+	machine := fixture.insertInactiveMachine(t, ctx, "wake-org-delete")
+
+	controlTx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin machine wake control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.machineID},
+	); err != nil {
+		t.Fatalf("lock machine before organization deletion: %v", err)
+	}
+
+	deleteDone := make(chan error, 1)
+	actor := mustOmnaraActorParams(t, fixture.adminID)
+	go func() {
+		_, deleteErr := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
+			ctx,
+			testOrgID,
+			actor,
+		)
+		deleteDone <- deleteErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+
+	type wakeResult struct {
+		disposition executionstore.MachineWakeDisposition
+		err         error
+	}
+	wakeDone := make(chan wakeResult, 1)
+	go func() {
+		disposition, wakeErr := fixture.store.Execution().BeginMachineWake(
+			ctx,
+			testOrgID,
+			machine.machineID,
+			fixture.machinePool.ID,
+			time.Minute,
+		)
+		wakeDone <- wakeResult{disposition: disposition, err: wakeErr}
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleShared", 1)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release machine wake control transaction: %v", err)
+	}
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatalf("delete organization: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for organization deletion")
+	}
+	select {
+	case result := <-wakeDone:
+		if result.err != nil || result.disposition != executionstore.MachineWakeUnavailable {
+			t.Fatalf(
+				"machine wake after organization deletion = (%v, %v), want unavailable/nil",
+				result.disposition,
+				result.err,
+			)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for machine wake")
+	}
+
+	var wakeAttemptCount int
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int
+		 FROM machines
+		 WHERE org_id = $1 AND id = $2 AND wake_attempt_expires_at IS NOT NULL`,
+		testOrgID,
+		machine.machineID,
+	).Scan(&wakeAttemptCount); err != nil {
+		t.Fatalf("count wake attempts after organization deletion: %v", err)
+	}
+	if wakeAttemptCount != 0 {
+		t.Fatalf("wake attempts beneath deleted organization = %d, want 0", wakeAttemptCount)
+	}
+}
+
 func TestMachineWakeIntentFencesRuntimeProtectionDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -753,6 +840,81 @@ func TestEnablingRuntimeProtectionPreservesInflightWake(t *testing.T) {
 	}
 }
 
+func TestRuntimeProtectionUpdateAndPoolDeletionSerializePoolBeforeMachine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProviderRuntimeStorageFixture(t, ctx, "update-delete-order", true)
+	machine := fixture.insertInactiveMachine(t, ctx, "update-delete-order")
+
+	controlTx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin runtime protection update control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.machineID},
+	); err != nil {
+		t.Fatalf("lock machine before runtime protection update: %v", err)
+	}
+
+	updateDone := make(chan error, 1)
+	go func() {
+		_, updateErr := fixture.store.Execution().UpdateMachinePool(
+			ctx,
+			executionstore.UpdateMachinePoolInput{
+				OrgID:                    testOrgID,
+				ID:                       fixture.machinePool.ID,
+				RuntimeProtectionEnabled: boolPtrForMachinePoolTest(false),
+			},
+		)
+		updateDone <- updateErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, deleteErr := fixture.store.Execution().IntegrationDeleteMachinePoolOnce(
+			ctx,
+			testOrgID,
+			fixture.machinePool.ID,
+		)
+		deleteDone <- deleteErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release runtime protection update control transaction: %v", err)
+	}
+	select {
+	case err := <-updateDone:
+		if err != nil {
+			t.Fatalf("update runtime protection: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for runtime protection update")
+	}
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatalf("delete machine pool after runtime protection update: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for machine pool deletion")
+	}
+
+	machineRecord, err := fixture.store.Execution().GetMachine(ctx, testOrgID, machine.machineID)
+	if err != nil {
+		t.Fatalf("load machine after pool deletion: %v", err)
+	}
+	if machineRecord.LifecycleState != executionstore.MachineLifecycleStateDeleting {
+		t.Fatalf(
+			"machine lifecycle after serialized pool deletion = %s, want deleting",
+			machineRecord.LifecycleState,
+		)
+	}
+}
+
 func TestOrdinaryStaleBootstrapDeletionClearsProviderRuntimeMismatch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -893,6 +1055,71 @@ func TestProviderRuntimeDeletionRejectsSupersededMismatch(t *testing.T) {
 		providerRuntimeClaimInput(stale),
 	); err != nil || claimed {
 		t.Fatalf("superseded mismatch claim = (%t, %v), want false/nil", claimed, err)
+	}
+}
+
+func TestProviderRuntimeClaimAndPoolDeletionSerializePoolBeforeMachine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProviderRuntimeStorageFixture(t, ctx, "claim-delete-order", true)
+	machine := fixture.insertInactiveMachine(t, ctx, "claim-delete-order")
+	candidate := fixture.dueCandidate(t, ctx, machine.machineID)
+
+	controlTx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin provider runtime claim control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.machineID},
+	); err != nil {
+		t.Fatalf("lock machine before provider runtime claim: %v", err)
+	}
+
+	type claimResult struct {
+		claimed bool
+		err     error
+	}
+	claimDone := make(chan claimResult, 1)
+	go func() {
+		_, claimed, claimErr := fixture.store.Execution().ClaimProviderRuntimeMismatchDeletion(
+			ctx,
+			providerRuntimeClaimInput(candidate),
+		)
+		claimDone <- claimResult{claimed: claimed, err: claimErr}
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, deleteErr := fixture.store.Execution().IntegrationDeleteMachinePoolOnce(
+			ctx,
+			testOrgID,
+			fixture.machinePool.ID,
+		)
+		deleteDone <- deleteErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release provider runtime claim control transaction: %v", err)
+	}
+	select {
+	case result := <-claimDone:
+		if result.err != nil || !result.claimed {
+			t.Fatalf("provider runtime deletion claim = (%t, %v), want true/nil", result.claimed, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for provider runtime deletion claim")
+	}
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatalf("delete machine pool after provider runtime claim: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for machine pool deletion")
 	}
 }
 

@@ -6,10 +6,37 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+func lockActiveUserSkillOwnerTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	orgID, userID uuid.UUID,
+) error {
+	if _, err := qtx.LockUserForUpdate(
+		ctx,
+		dbsqlc.LockUserForUpdateParams{ID: userID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrUnauthorized
+		}
+		return fmt.Errorf("lock skill owner: %w", err)
+	}
+	if _, err := qtx.GetOrgAuthorizationRole(
+		ctx,
+		dbsqlc.GetOrgAuthorizationRoleParams{OrgID: orgID, UserID: userID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrUnauthorized
+		}
+		return fmt.Errorf("load skill owner organization membership: %w", err)
+	}
+	return nil
+}
 
 func (s *Store) validateCreateSkillInput(ctx context.Context, input CreateSkillInput) error {
 	if isNilUUID(input.OrgID) || isNilUUID(input.Actor.ID) {

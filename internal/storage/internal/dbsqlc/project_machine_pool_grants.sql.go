@@ -283,12 +283,143 @@ func (q *Queries) GetProjectMachinePoolGrantByIdempotency(ctx context.Context, a
 	return i, err
 }
 
+const listMachinePoolAgentRefsForLifecycle = `-- name: ListMachinePoolAgentRefsForLifecycle :many
+SELECT DISTINCT agent.project_id, agent.id AS agent_id
+FROM agents agent
+JOIN agent_machine_bindings binding ON binding.project_id = agent.project_id
+  AND binding.agent_id = agent.id
+JOIN machines machine ON machine.org_id = binding.org_id
+  AND machine.id = binding.machine_id
+WHERE machine.org_id = $1
+  AND machine.machine_pool_id = $2::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.deleted_at IS NULL
+  AND binding.state = 'attached'
+ORDER BY agent.project_id, agent.id
+`
+
+type ListMachinePoolAgentRefsForLifecycleParams struct {
+	OrgID         uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+type ListMachinePoolAgentRefsForLifecycleRow struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) ListMachinePoolAgentRefsForLifecycle(ctx context.Context, arg ListMachinePoolAgentRefsForLifecycleParams) ([]ListMachinePoolAgentRefsForLifecycleRow, error) {
+	rows, err := q.db.Query(ctx, listMachinePoolAgentRefsForLifecycle, arg.OrgID, arg.MachinePoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMachinePoolAgentRefsForLifecycleRow{}
+	for rows.Next() {
+		var i ListMachinePoolAgentRefsForLifecycleRow
+		if err := rows.Scan(&i.ProjectID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPoolGrantAgentRefsForLifecycle = `-- name: ListPoolGrantAgentRefsForLifecycle :many
+SELECT DISTINCT agent.project_id, agent.id AS agent_id
+FROM agents agent
+JOIN agent_machine_bindings binding ON binding.project_id = agent.project_id
+  AND binding.agent_id = agent.id
+JOIN project_machine_grants machine_grant ON machine_grant.project_id = binding.project_id
+  AND machine_grant.machine_id = binding.machine_id
+WHERE machine_grant.org_id = $1
+  AND machine_grant.project_id = $2
+  AND machine_grant.project_machine_pool_grant_id = $3::uuid
+  AND machine_grant.source_kind = 'pool'
+  AND binding.state = 'attached'
+ORDER BY agent.project_id, agent.id
+`
+
+type ListPoolGrantAgentRefsForLifecycleParams struct {
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+	ProjectMachinePoolGrantID uuid.UUID
+}
+
+type ListPoolGrantAgentRefsForLifecycleRow struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) ListPoolGrantAgentRefsForLifecycle(ctx context.Context, arg ListPoolGrantAgentRefsForLifecycleParams) ([]ListPoolGrantAgentRefsForLifecycleRow, error) {
+	rows, err := q.db.Query(ctx, listPoolGrantAgentRefsForLifecycle, arg.OrgID, arg.ProjectID, arg.ProjectMachinePoolGrantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPoolGrantAgentRefsForLifecycleRow{}
+	for rows.Next() {
+		var i ListPoolGrantAgentRefsForLifecycleRow
+		if err := rows.Scan(&i.ProjectID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPoolGrantMachineIDsForLifecycle = `-- name: ListPoolGrantMachineIDsForLifecycle :many
+SELECT machine.id
+FROM machines machine
+JOIN project_machine_grants machine_grant ON machine_grant.org_id = machine.org_id
+  AND machine_grant.machine_id = machine.id
+WHERE machine_grant.org_id = $1
+  AND machine_grant.project_id = $2
+  AND machine_grant.project_machine_pool_grant_id = $3::uuid
+  AND machine_grant.source_kind = 'pool'
+  AND machine.source_kind = 'pool'
+  AND machine.deleted_at IS NULL
+ORDER BY machine.id
+`
+
+type ListPoolGrantMachineIDsForLifecycleParams struct {
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+	ProjectMachinePoolGrantID uuid.UUID
+}
+
+func (q *Queries) ListPoolGrantMachineIDsForLifecycle(ctx context.Context, arg ListPoolGrantMachineIDsForLifecycleParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listPoolGrantMachineIDsForLifecycle, arg.OrgID, arg.ProjectID, arg.ProjectMachinePoolGrantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectMachinePoolGrantRefsForMachinePool = `-- name: ListProjectMachinePoolGrantRefsForMachinePool :many
-SELECT id, project_id
+SELECT id, project_id, machine_pool_id
 FROM project_machine_pool_grants
 WHERE org_id = $1
   AND machine_pool_id = $2
-ORDER BY id
+ORDER BY project_id, id
 `
 
 type ListProjectMachinePoolGrantRefsForMachinePoolParams struct {
@@ -297,8 +428,9 @@ type ListProjectMachinePoolGrantRefsForMachinePoolParams struct {
 }
 
 type ListProjectMachinePoolGrantRefsForMachinePoolRow struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	MachinePoolID uuid.UUID
 }
 
 func (q *Queries) ListProjectMachinePoolGrantRefsForMachinePool(ctx context.Context, arg ListProjectMachinePoolGrantRefsForMachinePoolParams) ([]ListProjectMachinePoolGrantRefsForMachinePoolRow, error) {
@@ -310,7 +442,83 @@ func (q *Queries) ListProjectMachinePoolGrantRefsForMachinePool(ctx context.Cont
 	items := []ListProjectMachinePoolGrantRefsForMachinePoolRow{}
 	for rows.Next() {
 		var i ListProjectMachinePoolGrantRefsForMachinePoolRow
-		if err := rows.Scan(&i.ID, &i.ProjectID); err != nil {
+		if err := rows.Scan(&i.ID, &i.ProjectID, &i.MachinePoolID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectMachinePoolGrantRefsForOrganizationLifecycle = `-- name: ListProjectMachinePoolGrantRefsForOrganizationLifecycle :many
+SELECT id, project_id, machine_pool_id
+FROM project_machine_pool_grants
+WHERE org_id = $1
+ORDER BY machine_pool_id, project_id, id
+`
+
+type ListProjectMachinePoolGrantRefsForOrganizationLifecycleParams struct {
+	OrgID uuid.UUID
+}
+
+type ListProjectMachinePoolGrantRefsForOrganizationLifecycleRow struct {
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+func (q *Queries) ListProjectMachinePoolGrantRefsForOrganizationLifecycle(ctx context.Context, arg ListProjectMachinePoolGrantRefsForOrganizationLifecycleParams) ([]ListProjectMachinePoolGrantRefsForOrganizationLifecycleRow, error) {
+	rows, err := q.db.Query(ctx, listProjectMachinePoolGrantRefsForOrganizationLifecycle, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectMachinePoolGrantRefsForOrganizationLifecycleRow{}
+	for rows.Next() {
+		var i ListProjectMachinePoolGrantRefsForOrganizationLifecycleRow
+		if err := rows.Scan(&i.ID, &i.ProjectID, &i.MachinePoolID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectMachinePoolGrantRefsForProjectLifecycle = `-- name: ListProjectMachinePoolGrantRefsForProjectLifecycle :many
+SELECT id, project_id, machine_pool_id
+FROM project_machine_pool_grants
+WHERE org_id = $1
+  AND project_id = $2
+ORDER BY machine_pool_id, id
+`
+
+type ListProjectMachinePoolGrantRefsForProjectLifecycleParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+type ListProjectMachinePoolGrantRefsForProjectLifecycleRow struct {
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+func (q *Queries) ListProjectMachinePoolGrantRefsForProjectLifecycle(ctx context.Context, arg ListProjectMachinePoolGrantRefsForProjectLifecycleParams) ([]ListProjectMachinePoolGrantRefsForProjectLifecycleRow, error) {
+	rows, err := q.db.Query(ctx, listProjectMachinePoolGrantRefsForProjectLifecycle, arg.OrgID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectMachinePoolGrantRefsForProjectLifecycleRow{}
+	for rows.Next() {
+		var i ListProjectMachinePoolGrantRefsForProjectLifecycleRow
+		if err := rows.Scan(&i.ID, &i.ProjectID, &i.MachinePoolID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -452,44 +660,27 @@ func (q *Queries) ListProjectMachinePoolGrants(ctx context.Context, arg ListProj
 	return items, nil
 }
 
-const lockProjectMachinePoolGrantMachinesForUpdate = `-- name: LockProjectMachinePoolGrantMachinesForUpdate :many
-SELECT machine.id
-FROM project_machine_grants machine_grant
-JOIN machines machine ON machine.org_id = machine_grant.org_id
-  AND machine.id = machine_grant.machine_id
-WHERE machine_grant.org_id = $1
-  AND machine_grant.project_id = $2
-  AND machine_grant.project_machine_pool_grant_id = $3
-  AND machine_grant.source_kind = 'pool'
-  AND machine.deleted_at IS NULL
-ORDER BY machine.id
-FOR UPDATE OF machine
+const lockProjectMachinePoolGrantForLifecycle = `-- name: LockProjectMachinePoolGrantForLifecycle :one
+SELECT id, machine_pool_id
+FROM project_machine_pool_grants
+WHERE id = $1
+FOR UPDATE
 `
 
-type LockProjectMachinePoolGrantMachinesForUpdateParams struct {
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	ProjectMachinePoolGrantID *uuid.UUID
+type LockProjectMachinePoolGrantForLifecycleParams struct {
+	ID uuid.UUID
 }
 
-func (q *Queries) LockProjectMachinePoolGrantMachinesForUpdate(ctx context.Context, arg LockProjectMachinePoolGrantMachinesForUpdateParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, lockProjectMachinePoolGrantMachinesForUpdate, arg.OrgID, arg.ProjectID, arg.ProjectMachinePoolGrantID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type LockProjectMachinePoolGrantForLifecycleRow struct {
+	ID            uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+func (q *Queries) LockProjectMachinePoolGrantForLifecycle(ctx context.Context, arg LockProjectMachinePoolGrantForLifecycleParams) (LockProjectMachinePoolGrantForLifecycleRow, error) {
+	row := q.db.QueryRow(ctx, lockProjectMachinePoolGrantForLifecycle, arg.ID)
+	var i LockProjectMachinePoolGrantForLifecycleRow
+	err := row.Scan(&i.ID, &i.MachinePoolID)
+	return i, err
 }
 
 const markPoolGrantMachinesDeleting = `-- name: MarkPoolGrantMachinesDeleting :many
@@ -728,7 +919,9 @@ INSERT INTO project_machine_pool_grants(org_id, project_id, machine_pool_id, des
 SELECT project.org_id, project.id, pool.id, $1, $2::integer, $3::integer, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::integer, $9::integer, $10::integer, $11::integer, $12::integer, $13::integer, $14::integer, $15, $16, statement_timestamp(), statement_timestamp()
 FROM projects project
 JOIN machine_pools pool ON pool.org_id = project.org_id AND pool.id = $17 AND pool.deleted_at IS NULL
-WHERE project.org_id = $18 AND project.id = $19
+WHERE project.org_id = $18
+  AND project.id = $19
+  AND project.deleted_at IS NULL
 ON CONFLICT (project_id, machine_pool_id) DO NOTHING
 RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
 `

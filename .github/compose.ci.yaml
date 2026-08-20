@@ -1,0 +1,3 @@
+services:
+  postgres:
+    command: ["postgres", "-c", "log_lock_waits=on", "-c", "deadlock_timeout=200ms"]

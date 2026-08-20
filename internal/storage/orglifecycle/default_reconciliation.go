@@ -8,7 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -82,7 +84,7 @@ func (s *Service) ReconcileDefaults(
 	var result ReconcileDefaultsResult
 	var reconcileErrs []error
 	for _, orgID := range orgIDs {
-		orgResult, err := s.reconcileOrgDefaults(ctx, input, pools[orgID], providers[orgID])
+		orgResult, err := s.reconcileOrgDefaults(ctx, orgID, input, pools[orgID], providers[orgID])
 		if err != nil {
 			reconcileErrs = append(reconcileErrs, fmt.Errorf("org %s: %w", orgID, err))
 			if ctx.Err() != nil {
@@ -98,6 +100,7 @@ func (s *Service) ReconcileDefaults(
 
 func (s *Service) reconcileOrgDefaults(
 	ctx context.Context,
+	orgID ID,
 	input ReconcileDefaultsInput,
 	pools []dbsqlc.MachinePool,
 	providers []dbsqlc.ModelProviderConfig,
@@ -111,11 +114,39 @@ func (s *Service) reconcileOrgDefaults(
 		return ReconcileDefaultsResult{}, fmt.Errorf("begin default reconciliation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	if input.Apply {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, orgID); err != nil {
+			return ReconcileDefaultsResult{}, err
+		}
+	}
+	defaultProjectID := NilID
+	if input.DefaultModelProvider != nil {
+		project, projectErr := qtx.GetProjectByIdempotencyKey(
+			ctx,
+			dbsqlc.GetProjectByIdempotencyKeyParams{
+				OrgID: orgID, IdempotencyKey: identitystore.DefaultProjectKey,
+			},
+		)
+		switch {
+		case projectErr == nil:
+			defaultProjectID = project.ID
+			if input.Apply {
+				if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, defaultProjectID); err != nil {
+					return ReconcileDefaultsResult{}, err
+				}
+			}
+		case errors.Is(projectErr, pgx.ErrNoRows):
+		default:
+			return ReconcileDefaultsResult{}, fmt.Errorf("load default project: %w", projectErr)
+		}
+	}
 	modelChanges, warnings, err := s.models.ReconcileDefaultModelProviderTx(
 		ctx,
 		tx,
 		input.DefaultModelProvider,
 		providers,
+		defaultProjectID,
 		input.Apply,
 	)
 	if err != nil {
@@ -124,6 +155,7 @@ func (s *Service) reconcileOrgDefaults(
 	changes, err := s.execution.ReconcileDefaultMachinePoolsTx(
 		ctx,
 		tx,
+		orgID,
 		input.DefaultMachinePools,
 		pools,
 		input.Apply,

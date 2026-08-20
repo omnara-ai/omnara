@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -28,7 +29,7 @@ func (s *Store) CreateConfiguredModel(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	record, err := s.createConfiguredModelTx(ctx, qtx, input, management.Tenant)
+	record, err := s.createConfiguredModelTx(ctx, tx, qtx, input, management.Tenant)
 	if err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -70,6 +71,7 @@ func (s *Store) CreateConfiguredModel(
 
 func (s *Store) createConfiguredModelTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input CreateConfiguredModelInput,
 	managementKind management.Kind,
@@ -87,6 +89,9 @@ func (s *Store) createConfiguredModelTx(
 		)
 	}
 	if err := management.Validate(managementKind); err != nil {
+		return ConfiguredModelRecord{}, err
+	}
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
 	providerConfigRow, err := qtx.LockModelProviderConfigForConfiguredModelCreate(
@@ -185,6 +190,9 @@ func (s *Store) PatchConfiguredModel(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return ConfiguredModelRecord{}, err
+	}
 	current, err := lockConfiguredModelCurrentRevisionForMutationTx(ctx, qtx, input.OrgID, input.ID)
 	if err != nil {
 		return ConfiguredModelRecord{}, err

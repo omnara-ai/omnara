@@ -226,6 +226,20 @@ func TestDBQueryResult(t *testing.T) {
 			wantKind:     "postgres",
 			wantSeverity: "panic",
 		},
+		{
+			name:         "postgres deadlock",
+			err:          &pgconn.PgError{Code: "40P01", SeverityUnlocalized: "ERROR"},
+			wantResult:   "error",
+			wantKind:     "postgres_deadlock",
+			wantSeverity: "error",
+		},
+		{
+			name:         "postgres serialization failure",
+			err:          &pgconn.PgError{Code: "40001", SeverityUnlocalized: "ERROR"},
+			wantResult:   "error",
+			wantKind:     "postgres_serialization_failure",
+			wantSeverity: "error",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

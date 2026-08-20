@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -103,46 +104,52 @@ const (
 // provider_user_id). Unset attributes keep their stored values, set
 // attributes are overwritten, and an unchanged actor is not rewritten.
 func (s *Store) PutActor(ctx context.Context, input PutActorInput) (ActorRecord, error) {
-	return putActorTx(ctx, s.q, input)
+	if err := validatePutActorInput(input); err != nil {
+		return ActorRecord{}, err
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ActorRecord{}, fmt.Errorf("begin put actor: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	if err := enterActiveActorProjectTx(ctx, tx, qtx, input.ProjectID); err != nil {
+		return ActorRecord{}, err
+	}
+	record, err := putActorTx(ctx, qtx, input)
+	if err != nil {
+		return ActorRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ActorRecord{}, fmt.Errorf("commit put actor: %w", err)
+	}
+	return record, nil
+}
+
+func enterActiveActorProjectTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	projectID ID,
+) error {
+	project, err := loadProjectTx(ctx, qtx, projectID)
+	if err != nil {
+		return err
+	}
+	return lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, projectID)
 }
 
 func putActorTx(ctx context.Context, q *dbsqlc.Queries, input PutActorInput) (ActorRecord, error) {
+	if err := validatePutActorInput(input); err != nil {
+		return ActorRecord{}, err
+	}
 	providerTenantID := strings.TrimSpace(input.ProviderTenantID)
 	providerUserID := strings.TrimSpace(input.ProviderUserID)
-	if isNilID(input.ProjectID) {
-		return ActorRecord{}, errors.New("project is required")
-	}
-	if providerUserID == "" {
-		return ActorRecord{}, fmt.Errorf("%w: provider user id is required", storeerr.ErrInvalidActorRequest)
-	}
-	if utf8.RuneCountInString(providerTenantID) > MaxActorProviderTenantIDLength {
-		return ActorRecord{}, fmt.Errorf(
-			"%w: provider tenant id must be at most %d characters",
-			storeerr.ErrInvalidActorRequest, MaxActorProviderTenantIDLength,
-		)
-	}
-	if utf8.RuneCountInString(providerUserID) > MaxActorProviderUserIDLength {
-		return ActorRecord{}, fmt.Errorf(
-			"%w: provider user id must be at most %d characters",
-			storeerr.ErrInvalidActorRequest, MaxActorProviderUserIDLength,
-		)
-	}
 	displayName := ""
 	if input.DisplayName != nil {
 		displayName = strings.TrimSpace(*input.DisplayName)
 	}
-	if utf8.RuneCountInString(displayName) > MaxActorDisplayNameLength {
-		return ActorRecord{}, fmt.Errorf(
-			"%w: display name must be at most %d characters",
-			storeerr.ErrInvalidActorRequest, MaxActorDisplayNameLength,
-		)
-	}
 	metadataSet := input.Metadata != nil
-	if metadataSet {
-		if err := input.Metadata.Validate(); err != nil {
-			return ActorRecord{}, fmt.Errorf("%w: %w", storeerr.ErrInvalidActorRequest, err)
-		}
-	}
 	metadata, err := input.Metadata.JSON()
 	if err != nil {
 		return ActorRecord{}, err
@@ -170,6 +177,45 @@ func putActorTx(ctx context.Context, q *dbsqlc.Queries, input PutActorInput) (Ac
 		return ActorRecord{}, fmt.Errorf("put actor: %w", err)
 	}
 	return actorRecordFromSQLC(row), nil
+}
+
+func validatePutActorInput(input PutActorInput) error {
+	providerTenantID := strings.TrimSpace(input.ProviderTenantID)
+	providerUserID := strings.TrimSpace(input.ProviderUserID)
+	if isNilID(input.ProjectID) {
+		return errors.New("project is required")
+	}
+	if providerUserID == "" {
+		return fmt.Errorf("%w: provider user id is required", storeerr.ErrInvalidActorRequest)
+	}
+	if utf8.RuneCountInString(providerTenantID) > MaxActorProviderTenantIDLength {
+		return fmt.Errorf(
+			"%w: provider tenant id must be at most %d characters",
+			storeerr.ErrInvalidActorRequest, MaxActorProviderTenantIDLength,
+		)
+	}
+	if utf8.RuneCountInString(providerUserID) > MaxActorProviderUserIDLength {
+		return fmt.Errorf(
+			"%w: provider user id must be at most %d characters",
+			storeerr.ErrInvalidActorRequest, MaxActorProviderUserIDLength,
+		)
+	}
+	displayName := ""
+	if input.DisplayName != nil {
+		displayName = strings.TrimSpace(*input.DisplayName)
+	}
+	if utf8.RuneCountInString(displayName) > MaxActorDisplayNameLength {
+		return fmt.Errorf(
+			"%w: display name must be at most %d characters",
+			storeerr.ErrInvalidActorRequest, MaxActorDisplayNameLength,
+		)
+	}
+	if input.Metadata != nil {
+		if err := input.Metadata.Validate(); err != nil {
+			return fmt.Errorf("%w: %w", storeerr.ErrInvalidActorRequest, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) GetActor(ctx context.Context, projectID, actorID ID) (ActorRecord, error) {
@@ -275,7 +321,16 @@ func (s *Store) UpdateActorDisplayName(
 		strings.TrimSpace(input.DisplayName) == "" {
 		return errors.New("project, provider, provider user id, and display name are required")
 	}
-	_, err := s.q.UpdateActorDisplayName(
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin update actor display name: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	if err := enterActiveActorProjectTx(ctx, tx, qtx, input.ProjectID); err != nil {
+		return err
+	}
+	_, err = qtx.UpdateActorDisplayName(
 		ctx,
 		dbsqlc.UpdateActorDisplayNameParams{
 			ProjectID:        input.ProjectID,
@@ -287,6 +342,9 @@ func (s *Store) UpdateActorDisplayName(
 	)
 	if err != nil {
 		return fmt.Errorf("update actor display name: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit update actor display name: %w", err)
 	}
 	return nil
 }

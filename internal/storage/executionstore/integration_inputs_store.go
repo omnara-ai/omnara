@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -64,17 +65,59 @@ func (s *Store) CreateIntegrationTargetContentInput(
 	} else if found {
 		return existing, nil, nil
 	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, install.ProjectID); err != nil {
+		return AgentInputRecord{}, nil, err
+	}
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: install.ProjectID,
+		AgentID:   target.AgentID,
+	}}); err != nil {
+		return AgentInputRecord{}, nil, err
+	}
+	if _, err := qtx.LockIntegrationInstallForMutation(
+		ctx,
+		dbsqlc.LockIntegrationInstallForMutationParams{
+			ProjectID: install.ProjectID,
+			ID:        install.ID,
+		},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AgentInputRecord{}, nil, storeerr.ErrNotFound
+		}
+		return AgentInputRecord{}, nil, fmt.Errorf("lock integration install for input: %w", err)
+	}
+	install, err = s.integrations.GetIntegrationInstallByIDTx(ctx, tx, input.IntegrationInstallID)
+	if err != nil {
+		return AgentInputRecord{}, nil, err
+	}
+	target, err = s.integrations.GetIntegrationTargetTx(
+		ctx,
+		tx,
+		install.ProjectID,
+		input.IntegrationTargetID,
+	)
+	if err != nil {
+		return AgentInputRecord{}, nil, err
+	}
+	if target.IntegrationInstallID != install.ID {
+		return AgentInputRecord{}, nil, storeerr.ErrConflict
+	}
+	if existing, found, err := integrationTargetInputByIdempotency(
+		ctx,
+		qtx,
+		install,
+		target,
+		input.IdempotencyKey,
+	); err != nil {
+		return AgentInputRecord{}, nil, err
+	} else if found {
+		return existing, nil, nil
+	}
 	if install.State != integrationstore.IntegrationInstallStateActive {
 		return AgentInputRecord{}, nil, storeerr.ErrUnauthorized
 	}
 	if err := integrationstore.ValidateProviderUserTenant(install, input.ProviderTenantID); err != nil {
 		return AgentInputRecord{}, nil, err
-	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: install.ProjectID, ID: target.AgentID},
-	); err != nil {
-		return AgentInputRecord{}, nil, fmt.Errorf("lock agent for integration input: %w", err)
 	}
 	agent, err := loadAgentInProjectTx(ctx, tx, install.ProjectID, target.AgentID)
 	if err != nil {

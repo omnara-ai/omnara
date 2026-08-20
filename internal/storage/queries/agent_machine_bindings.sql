@@ -192,6 +192,20 @@ WHERE binding.project_id = sqlc.arg(project_id)
 ORDER BY machine.id
 FOR UPDATE OF machine;
 
+-- name: ListAttachedAgentPoolMachineIDsForLifecycle :many
+SELECT machine.id
+FROM machines machine
+JOIN agent_machine_bindings binding ON binding.org_id = machine.org_id
+  AND binding.machine_id = machine.id
+WHERE binding.project_id = sqlc.arg(project_id)
+  AND binding.agent_id = sqlc.arg(agent_id)
+  AND binding.binding_kind = 'pool'
+  AND binding.state = 'attached'
+  AND machine.source_kind = 'pool'
+  AND machine.deleted_at IS NULL
+  AND machine.lifecycle_state NOT IN ('deleting', 'delete_failed', 'deleted')
+ORDER BY machine.id;
+
 -- name: MarkRemovedAgentPoolSourceMachinesDeleting :many
 UPDATE machines machine
 SET lifecycle_state = 'deleting',

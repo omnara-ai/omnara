@@ -216,7 +216,7 @@ func (s *Store) ProvisionDefaultTx(
 		return fmt.Errorf("default model provider %q: %w", template.Name, err)
 	}
 	qtx := s.q.WithTx(tx)
-	provider, err := s.createModelProviderConfigTx(ctx, qtx, CreateModelProviderConfigInput{
+	provider, err := s.createModelProviderConfigTx(ctx, tx, qtx, CreateModelProviderConfigInput{
 		OrgID:              orgID,
 		Name:               prepared.Name,
 		APIFormat:          prepared.APIFormat,
@@ -238,6 +238,7 @@ func (s *Store) ProvisionDefaultTx(
 		modelInput.ModelProviderConfigID = provider.ID
 		model, err := s.createConfiguredModelTx(
 			ctx,
+			tx,
 			qtx,
 			modelInput,
 			management.Cluster,

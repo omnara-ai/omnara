@@ -359,6 +359,7 @@ func IntegrationCreatePoolMachineBindingTx(
 
 func (s *Store) IntegrationResolveLaunchMachineSourcesTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	orgID, projectID ID,
 	sources []IntegrationLaunchMachineSource,
@@ -367,7 +368,7 @@ func (s *Store) IntegrationResolveLaunchMachineSourcesTx(
 	for index := range sources {
 		ownerSources[index] = launchMachineSource(sources[index])
 	}
-	if err := s.resolveLaunchMachineSourcesTx(ctx, qtx, orgID, projectID, ownerSources); err != nil {
+	if err := s.resolveLaunchMachineSourcesTx(ctx, tx, qtx, orgID, projectID, ownerSources); err != nil {
 		return err
 	}
 	for index := range ownerSources {
@@ -484,7 +485,20 @@ func IntegrationActivateAgentConfigTx(
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) (AgentConfigChangeRecord, error) {
-	return activateAgentConfigTx(ctx, txNotifications, tx, qtx, input)
+	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, input.AgentConfigID)
+	if err != nil {
+		return AgentConfigChangeRecord{}, err
+	}
+	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+		return AgentConfigChangeRecord{}, err
+	}
+	if err := lockAgentForConfigActivationTx(ctx, qtx, input); err != nil {
+		return AgentConfigChangeRecord{}, err
+	}
+	if err := authorizeAgentConfigChangeTx(ctx, qtx, input); err != nil {
+		return AgentConfigChangeRecord{}, err
+	}
+	return activateLockedAuthorizedAgentConfigTx(ctx, txNotifications, tx, qtx, input)
 }
 
 func (s *Store) IntegrationCompleteDaemonProcessAction(

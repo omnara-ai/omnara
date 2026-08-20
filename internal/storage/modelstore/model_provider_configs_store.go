@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -29,7 +30,7 @@ func (s *Store) CreateModelProviderConfig(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	record, err := s.createModelProviderConfigTx(ctx, qtx, input)
+	record, err := s.createModelProviderConfigTx(ctx, tx, qtx, input)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -71,6 +72,7 @@ func (s *Store) CreateModelProviderConfig(
 
 func (s *Store) createModelProviderConfigTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input CreateModelProviderConfigInput,
 ) (ModelProviderConfigRecord, error) {
@@ -108,9 +110,12 @@ func (s *Store) createModelProviderConfigTx(
 	if err := management.Validate(input.managementKind); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
 	if err := validateModelProviderCredentialTx(
 		ctx,
-		qtx,
+		tx,
 		input.OrgID,
 		input.CredentialSecretID,
 		input.managementKind,
@@ -241,11 +246,11 @@ func (s *Store) ListModelProviderConfigs(
 
 func validateModelProviderCredentialTx(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	tx pgx.Tx,
 	orgID, credentialSecretID ID,
 	managementKind management.Kind,
 ) error {
-	credential, err := secretops.GetFacts(ctx, qtx, orgID, credentialSecretID)
+	credential, err := secretops.LockReference(ctx, tx, orgID, credentialSecretID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrNotFound
 	}
@@ -289,6 +294,9 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
 	currentRow, err := qtx.LockModelProviderConfigForMutation(
 		ctx,
 		dbsqlc.LockModelProviderConfigForMutationParams{OrgID: input.OrgID, ID: input.ID},
@@ -308,7 +316,7 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	update := updateModelProviderConfigInputFromCurrent(current)
 	applyModelProviderConfigPatch(&update, current, input)
-	record, err := updateModelProviderConfigTx(ctx, qtx, update, management.Tenant)
+	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -320,6 +328,7 @@ func (s *Store) PatchModelProviderConfig(
 
 func updateModelProviderConfigTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input modelProviderConfigUpdate,
 	managementKind management.Kind,
@@ -328,7 +337,7 @@ func updateModelProviderConfigTx(
 		ctx,
 		input,
 		func(ctx context.Context, orgID, credentialSecretID ID) error {
-			return validateModelProviderCredentialTx(ctx, qtx, orgID, credentialSecretID, managementKind)
+			return validateModelProviderCredentialTx(ctx, tx, orgID, credentialSecretID, managementKind)
 		},
 	)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -28,6 +29,12 @@ func (IntegrationInstallAccess) ValidateInstallBinding(
 	}
 	if binding.AgentProfileID != integrationstore.NilID {
 		_, err := lockAgentProfileTx(ctx, qtx, binding.ProjectID, binding.AgentProfileID)
+		return err
+	}
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: binding.ProjectID,
+		AgentID:   binding.AgentID,
+	}}); err != nil {
 		return err
 	}
 	row, err := qtx.GetAgentInProject(
