@@ -152,7 +152,7 @@ func TestGetOrCreateTargetTagsAgentLaunchFailures(t *testing.T) {
 			ProviderRefKind:      "thread",
 		},
 	)
-	if !errors.Is(err, ErrAgentLaunchFailed) {
+	if !errors.Is(err, storeerr.ErrAgentLaunchFailed) {
 		t.Fatalf("error = %v, want ErrAgentLaunchFailed", err)
 	}
 	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {

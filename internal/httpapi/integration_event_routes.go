@@ -142,7 +142,7 @@ func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) 
 		envelope,
 		route,
 	)
-	if errors.Is(err, integration.ErrAgentLaunchFailed) &&
+	if errors.Is(err, storeerr.ErrAgentLaunchFailed) &&
 		(errors.Is(err, storeerr.ErrStateTransitionConflict) ||
 			errors.Is(err, storeerr.ErrManagedWorkAdmissionDenied)) {
 		logpkg.LoggerFromContext(r.Context()).Warn(
