@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -46,19 +47,11 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 		input.Now = e.now()
 	}
 	builder := e.contextBuilder()
-	toolExecutor := e.configuredToolExecutor()
 	modelProducedResponse := false
 	defer func() {
-		if !shouldPostIntegrationRuntimeMessage(ctx, err, modelProducedResponse) {
-			return
+		if shouldPostIntegrationRuntimeMessage(ctx, err, modelProducedResponse) {
+			e.postIntegrationRuntimeError(ctx, input)
 		}
-		postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		_ = toolExecutor.PostIntegrationRuntimeMessage(
-			postCtx,
-			toToolTurn(input),
-			integrationRuntimeErrorMessage(err),
-		)
 	}()
 	if e.ModelResolver == nil {
 		return errors.New("kernel model resolver is required")
@@ -112,6 +105,19 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	default:
 		return fmt.Errorf("unsupported model step state %q", step.State)
 	}
+}
+
+func (e AgentExecutor) postIntegrationRuntimeError(
+	ctx context.Context,
+	input ModelWorkExecution,
+) {
+	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	_ = e.configuredToolExecutor().PostIntegrationRuntimeMessage(
+		postCtx,
+		toToolTurn(input),
+		slack.AgentRequestFailureMessage,
+	)
 }
 
 func validateModelWorkExecution(input ModelWorkExecution) error {
@@ -176,11 +182,4 @@ func shouldPostIntegrationRuntimeError(ctx context.Context, err error) bool {
 		return false
 	}
 	return true
-}
-
-func integrationRuntimeErrorMessage(err error) string {
-	if errors.Is(err, storeerr.ErrModelGrantUnavailable) {
-		return "I couldn't continue because this project does not have access to the configured model. Ask an admin to grant access or update the agent configured model selection."
-	}
-	return "I couldn't complete this request because the agent hit a runtime error. Please check the agent logs for details."
 }

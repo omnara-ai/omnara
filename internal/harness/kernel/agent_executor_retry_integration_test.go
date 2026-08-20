@@ -5,6 +5,8 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -201,6 +203,19 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		now,
 		kernelConfiguredModelOptions{},
 	)
+	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
+	if err != nil {
+		t.Fatalf("load managed-retry agent: %v", err)
+	}
+	attachKernelSlackTarget(
+		t,
+		ctx,
+		fixture,
+		agentID,
+		agent.AgentProfileID,
+		"managed-retry",
+		"C_MANAGED_RETRY:1.0",
+	)
 	work := fixture.admitContentInputTurn(
 		t,
 		ctx,
@@ -218,10 +233,30 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		}},
 	}
 	currentNow := now.Add(2 * time.Millisecond)
+	postCount := 0
+	integrationHTTPClient := &http.Client{Transport: kernelSlackRoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			postCount++
+			if req.URL.Path != "/api/chat.postMessage" {
+				t.Fatalf("Slack runtime message path = %q", req.URL.Path)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(
+					`{"ok":true,"channel":"C_MANAGED_RETRY","ts":"2.0"}`,
+				)),
+				Request: req,
+			}, nil
+		},
+	)}
 	executor := AgentExecutor{
-		Store:           fixture.Store,
-		ModelResolver:   liveTestModelResolver(fixture.Store, modelClient),
-		ToolExecutor:    tools.Executor{Store: fixture.Store},
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
+		ToolExecutor: tools.Executor{
+			Store:                 fixture.Store,
+			IntegrationHTTPClient: integrationHTTPClient,
+		},
 		StreamPublisher: &capturingStreamPublisher{},
 		Now:             func() time.Time { return currentNow },
 		ModelRetryDelay: immediateKernelModelRetryDelay,
@@ -231,6 +266,9 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 	}
 	if modelClient.preparedCount() != 1 {
 		t.Fatalf("prepared requests after admitted attempt = %d, want 1", modelClient.preparedCount())
+	}
+	if postCount != 0 {
+		t.Fatalf("Slack runtime message post count after retryable failure = %d, want 0", postCount)
 	}
 	fixture.setManagedWorkAdmission(t, ctx, false)
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -253,8 +291,18 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		retry.Model.ModelCallContextID == storage.NilID {
 		t.Fatalf("retry claim = %+v found=%v, want model retry continuation", retry, found)
 	}
-	if err := executor.ExecuteModelWork(ctx, modelWorkExecutionFromClaimForKernelTest(retry, currentNow)); err != nil {
+	retryInput := modelWorkExecutionFromClaimForKernelTest(retry, currentNow)
+	if err := executor.ExecuteModelWork(ctx, retryInput); err != nil {
 		t.Fatalf("deny managed model retry after admission closes: %v", err)
+	}
+	if postCount != 1 {
+		t.Fatalf("Slack runtime message post count after terminal denial = %d, want 1", postCount)
+	}
+	if err := executor.ExecuteModelWork(ctx, retryInput); err != nil {
+		t.Fatalf("replay denied managed model retry: %v", err)
+	}
+	if postCount != 1 {
+		t.Fatalf("Slack runtime message post count after replay = %d, want 1", postCount)
 	}
 	if modelClient.preparedCount() != 1 || modelClient.respondedCount() != 1 {
 		t.Fatalf(
