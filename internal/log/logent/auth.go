@@ -77,6 +77,14 @@ func AuthFailedError(ctx context.Context, scheme AuthScheme, kind TokenKind, res
 	}
 }
 
+func AuthRateLimited(ctx context.Context, action, scope string) {
+	log.Attach(ctx, log.Fields{
+		"auth.rate_limit.action": action,
+		"auth.rate_limit.scope":  scope,
+	})
+	log.Level(ctx, log.WarnLevel)
+}
+
 func OrgAuthorization(ctx context.Context, in identitystore.AuthorizeOrgInput, result OrgAuthResult) {
 	log.Attach(ctx, principal(in.Principal), log.Fields{
 		"org.id":               in.OrgID,

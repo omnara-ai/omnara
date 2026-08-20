@@ -621,6 +621,16 @@ func TestCreateOrganizationCommitsPendingHostedCredentialAndCompletesLater(t *te
 	if len(provisionRequests) != 1 || provisionRequests[0].OrgID != publicOrgID {
 		t.Fatalf("pending provision requests = %+v, want one for %s", provisionRequests, publicOrgID)
 	}
+	tenantCredential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     orgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      template.CredentialSecretName,
+		Material:  secrets.GenericMaterial{Value: "tenant-secret-must-not-change"},
+		Actor:     identitystore.NewUserPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create colliding tenant credential: %v", err)
+	}
 
 	publicCreatorUserID, err := publicid.Encode(publicid.KindUser, user.ID)
 	if err != nil {
@@ -654,6 +664,9 @@ func TestCreateOrganizationCommitsPendingHostedCredentialAndCompletesLater(t *te
 	if err != nil {
 		t.Fatalf("get asynchronously completed credential: %v", err)
 	}
+	if credential.ID == tenantCredential.ID || credential.Name == tenantCredential.Name {
+		t.Fatalf("completed credential reused tenant credential: %+v", credential)
+	}
 	payload, err := store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
 		OrgID:          orgID,
 		SecretID:       credential.ID,
@@ -665,6 +678,18 @@ func TestCreateOrganizationCommitsPendingHostedCredentialAndCompletesLater(t *te
 	}
 	if payload.Payload[secrets.KeyValue] != "sk-completed-openrouter" {
 		t.Fatalf("completed credential value = %q", payload.Payload[secrets.KeyValue])
+	}
+	tenantPayload, err := store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
+		OrgID:          orgID,
+		SecretID:       tenantCredential.ID,
+		ManagementKind: management.Tenant,
+		Kind:           secretstore.SecretKindGeneric,
+	})
+	if err != nil {
+		t.Fatalf("read colliding tenant credential: %v", err)
+	}
+	if tenantPayload.Payload[secrets.KeyValue] != "tenant-secret-must-not-change" {
+		t.Fatalf("tenant credential value = %q", tenantPayload.Payload[secrets.KeyValue])
 	}
 	models, err := store.Models().ListConfiguredModels(ctx, modelstore.ListConfiguredModelsInput{
 		OrgID: orgID, ProviderConfigID: provider.ID, Limit: 10,
@@ -681,8 +706,6 @@ func TestCreateOrganizationCommitsPendingHostedCredentialAndCompletesLater(t *te
 		t.Fatalf("get completed default project model grant: %v", err)
 	}
 
-	// A lost acknowledgement may cause SaaS to repeat completion. Treat an
-	// existing cluster-managed provider as success without rotating its secret.
 	retryBody := strings.Replace(completionBody, "sk-completed-openrouter", "sk-must-not-replace", 1)
 	completeHostedCredentialForTest(t, handler, retryBody, http.StatusNoContent)
 	payload, err = store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{

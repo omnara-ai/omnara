@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -22,11 +23,7 @@ type CompleteDefaultModelProviderProvisioningInput struct {
 	Provider        modelstore.ProvisionedDefaultModelProvider
 }
 
-// CompleteDefaultModelProviderProvisioning atomically installs a hosted
-// default provider after its organization has already been committed. A
-// cluster-managed provider with the configured name makes retries successful;
-// a tenant-managed provider with that name blocks the completion instead of
-// overwriting tenant state.
+// CompleteDefaultModelProviderProvisioning installs a hosted provider after organization creation.
 func (s *Service) CompleteDefaultModelProviderProvisioning(
 	ctx context.Context,
 	input CompleteDefaultModelProviderProvisioningInput,
@@ -73,6 +70,11 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return false, fmt.Errorf("load default model provider %q: %w", prepared.Name, err)
 	}
+	credentialNameID, err := uuid.NewV7()
+	if err != nil {
+		return false, fmt.Errorf("generate default model provider credential name: %w", err)
+	}
+	input.Provider.Template.CredentialSecretName = prepared.CredentialSecretName + "-" + credentialNameID.String()
 	defaultProject, err := qtx.GetProjectByIdempotencyKey(
 		ctx,
 		dbsqlc.GetProjectByIdempotencyKeyParams{

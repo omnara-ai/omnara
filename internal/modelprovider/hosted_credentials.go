@@ -44,11 +44,7 @@ type HostedCredentialRequest struct {
 
 type ProvisionHostedCredentialResponse struct {
 	CredentialValue string `json:"credential_value"`
-	// Pending is set only when the hosted service durably accepted the
-	// provisioning request but has not created the credential yet. Callers may
-	// commit the local resource without a credential and wait for the hosted
-	// service to complete it asynchronously.
-	Pending bool `json:"-"`
+	Pending         bool   `json:"-"`
 }
 
 var ErrHostedCredentialConflict = errors.New("hosted credential setup is blocked by an unresolved attempt")
@@ -241,8 +237,7 @@ func validateHostedCredentialRequest(request HostedCredentialRequest) error {
 	return nil
 }
 
-// ValidateHostedCredentialValue applies the shared wire and secret-safety
-// limits to a credential returned or completed by a hosted provisioner.
+// ValidateHostedCredentialValue validates a hosted credential for storage.
 func ValidateHostedCredentialValue(value string) error {
 	if value == "" || value != strings.TrimSpace(value) {
 		return errors.New("credential_value is required and cannot have surrounding whitespace")

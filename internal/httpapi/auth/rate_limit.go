@@ -11,6 +11,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -122,6 +123,7 @@ func (h *Handler) requireAuthLimitBuckets(
 		key := "auth:" + action + ":" + authLimit.scope + ":" + identitystore.HashBearerToken(authLimit.subject)
 		if err := h.limiter.Allow(r.Context(), key, authLimit.limit, window); err != nil {
 			if errors.Is(err, errRateLimited) {
+				logent.AuthRateLimited(r.Context(), action, authLimit.scope)
 				apierror.Write(w, openapi.ErrorCodeRateLimited)
 				return false
 			}

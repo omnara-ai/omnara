@@ -106,15 +106,18 @@ func (s strictOpenAPIServer) CreateOrganization(
 		if s.server.hostedCredentialProvisioner == nil {
 			return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "hosted credential provisioner unavailable")
 		}
-		provisionedProvider, err = s.provisionDefaultModelProvider(
+		provisioning, provisionErr := s.provisionDefaultModelProvider(
 			ctx,
 			publicOrgID,
 			publicCreatorUserID,
 			*s.server.defaultModelProvider,
 		)
-	}
-	if err != nil {
-		return nil, hostedCredentialProvisioningAPIError(err)
+		if provisionErr != nil {
+			return nil, hostedCredentialProvisioningAPIError(provisionErr)
+		}
+		if !provisioning.pending {
+			provisionedProvider = &provisioning.provider
+		}
 	}
 	input := orglifecycle.CreateOrgForUserInput{
 		OrgID:                orgID,
@@ -184,14 +187,22 @@ func (s strictOpenAPIServer) DeleteOrganization(
 	return openapi.DeleteOrganization204Response{}, nil
 }
 
+type defaultModelProviderProvisioning struct {
+	provider modelstore.ProvisionedDefaultModelProvider
+	pending  bool
+}
+
 func (s strictOpenAPIServer) provisionDefaultModelProvider(
 	ctx context.Context,
 	publicOrgID string,
 	publicCreatorUserID string,
 	template modelstore.DefaultModelProviderTemplate,
-) (*modelstore.ProvisionedDefaultModelProvider, error) {
+) (defaultModelProviderProvisioning, error) {
 	if s.server.hostedCredentialProvisioner == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "hosted credential provisioner unavailable")
+		return defaultModelProviderProvisioning{}, apierror.FromCode(
+			openapi.ErrorCodeServiceUnavailable,
+			"hosted credential provisioner unavailable",
+		)
 	}
 	provisionCtx, cancel := context.WithTimeout(ctx, modelprovider.HostedCredentialProvisionTimeout)
 	response, provisionErr := s.server.hostedCredentialProvisioner.ProvisionHostedCredential(
@@ -211,11 +222,13 @@ func (s strictOpenAPIServer) provisionDefaultModelProvider(
 			"provisioner", template.Provisioner,
 			"error", provisionErr,
 		)
-		return nil, provisionErr
+		return defaultModelProviderProvisioning{}, provisionErr
 	}
 	if response.Pending {
 		if response.CredentialValue != "" {
-			return nil, errors.New("hosted credential response cannot be pending and contain a credential")
+			return defaultModelProviderProvisioning{}, errors.New(
+				"hosted credential response cannot be pending and contain a credential",
+			)
 		}
 		s.server.log.Info(
 			"default model provider credential pending",
@@ -223,14 +236,16 @@ func (s strictOpenAPIServer) provisionDefaultModelProvider(
 			"provider_name", template.Name,
 			"provisioner", template.Provisioner,
 		)
-		return nil, nil
+		return defaultModelProviderProvisioning{pending: true}, nil
 	}
 	if err := modelprovider.ValidateHostedCredentialValue(response.CredentialValue); err != nil {
-		return nil, fmt.Errorf("validate hosted credential response: %w", err)
+		return defaultModelProviderProvisioning{}, fmt.Errorf("validate hosted credential response: %w", err)
 	}
-	return &modelstore.ProvisionedDefaultModelProvider{
-		Template:        template,
-		CredentialValue: response.CredentialValue,
+	return defaultModelProviderProvisioning{
+		provider: modelstore.ProvisionedDefaultModelProvider{
+			Template:        template,
+			CredentialValue: response.CredentialValue,
+		},
 	}, nil
 }
 
