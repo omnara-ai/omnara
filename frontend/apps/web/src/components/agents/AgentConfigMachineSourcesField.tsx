@@ -1,4 +1,3 @@
-import { PlusIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import {
@@ -8,6 +7,7 @@ import {
 import { SourceOverridesSection } from '@/components/agents/AgentConfigMachineSourceOverrides'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { type BasicMachineSource, newMachineSource } from '@/components/agents/useAgentBuilderForm'
+import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import { Button } from '@/components/ui/button'
 import {

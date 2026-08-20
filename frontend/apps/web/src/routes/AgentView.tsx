@@ -9,7 +9,6 @@ import {
   useResolveAgentInteraction,
 } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
-import { SettingsIcon } from 'lucide-react'
 import { type CSSProperties, useRef, useState } from 'react'
 
 import { AgentComposer } from '@/components/agents/AgentComposer'
@@ -21,6 +20,7 @@ import {
   AgentSidebarToggle,
   sidebarToggleActiveClass,
 } from '@/components/agents/AgentSidebar'
+import { SettingsIcon } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { SidebarProvider } from '@/components/ui/sidebar'

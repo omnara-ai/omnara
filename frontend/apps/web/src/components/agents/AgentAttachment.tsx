@@ -1,7 +1,7 @@
 import { useDownloadAgentArtifact } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
-import { Paperclip } from 'lucide-react'
 
+import { Paperclip } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { useActiveOrg } from '@/lib/use-active-org'
 

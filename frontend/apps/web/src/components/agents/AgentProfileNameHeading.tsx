@@ -1,8 +1,8 @@
 import { useRenameAgentProfile } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
-import { CheckIcon, PencilIcon, XIcon } from 'lucide-react'
 import { type SyntheticEvent, useState } from 'react'
 
+import { CheckIcon, PencilIcon, XIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 

@@ -1,10 +1,10 @@
 import { type OmnaraUIMessage, useOmnaraClient } from '@omnara/react'
 import { getActorOptions } from '@omnara/sdk/tanstack'
 import { useQuery } from '@tanstack/react-query'
-import { Brain, Check, ChevronRight, CircleDashed, Terminal } from 'lucide-react'
 import { Streamdown } from 'streamdown'
 
 import { AgentAttachment } from '@/components/agents/AgentAttachment'
+import { Brain, Check, ChevronRight, CircleDashed, Terminal } from '@/components/icons'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'

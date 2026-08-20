@@ -16,6 +16,7 @@
     "@base-ui/react": "^1.6.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.8",
+    "@heroicons/react": "^2.2.0",
     "@omnara/react": "workspace:*",
     "@omnara/sdk": "workspace:*",
     "@shadcn/react": "^0.2.0",

@@ -1,9 +1,9 @@
 import type { ToolPermissionProfile } from '@omnara/sdk'
-import { PlusIcon, Trash2Icon } from 'lucide-react'
 
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import type { BasicMcpServer, McpAuthType } from '@/components/agents/useAgentBuilderForm'
+import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'

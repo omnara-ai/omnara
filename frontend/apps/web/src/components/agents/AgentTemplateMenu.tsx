@@ -1,6 +1,5 @@
-import { ChevronDownIcon } from 'lucide-react'
-
 import { type AgentTemplate, agentTemplates } from '@/components/agents/agentTemplates'
+import { ChevronDownIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,

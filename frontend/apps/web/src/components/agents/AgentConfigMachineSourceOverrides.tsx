@@ -26,7 +26,7 @@ export function SourceOverridesSection({
     source.kind === 'pool' && isMachinePoolProvider(source.provider) ? source.provider : null
   const resources = provider ? machinePoolProviderDefinitions[provider].resources : null
   return (
-    <OverridesCollapsible description="secrets, environment, limits">
+    <OverridesCollapsible description="environment variable overrides">
       <FieldGroup>
         {provider && (
           <>

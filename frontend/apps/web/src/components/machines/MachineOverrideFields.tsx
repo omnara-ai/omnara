@@ -1,10 +1,9 @@
-import { ChevronRightIcon, Trash2Icon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
+import { ChevronRightIcon, Trash2Icon } from '@/components/icons'
 import {
   type EnvOverlayRow,
   newEnvOverlayRow,
-  newSecretEnvOverlayRow,
   type ProviderOptionsDraft,
   type SecretEnvOverlayRow,
 } from '@/components/machines/machineOverrides'
@@ -15,7 +14,7 @@ import {
 import { SecretSelect } from '@/components/secrets/SecretTypeaheadField'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -127,79 +126,6 @@ export function ProviderOptionsOverrideFields({
         }}
       />
     </>
-  )
-}
-
-export function EnvOverlayEditor({
-  label,
-  description,
-  rows,
-  onRowsChange,
-}: {
-  label: string
-  description?: string
-  rows: EnvOverlayRow[]
-  onRowsChange: (rows: EnvOverlayRow[]) => void
-}) {
-  function updateRow(id: string, patch: Partial<EnvOverlayRow>) {
-    onRowsChange(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)))
-  }
-  return (
-    <Field>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <FieldLabel>{label}</FieldLabel>
-          {description && <FieldDescription>{description}</FieldDescription>}
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            onRowsChange([...rows, newEnvOverlayRow()])
-          }}
-        >
-          Add variable
-        </Button>
-      </div>
-      {rows.length > 0 && (
-        <div className="space-y-2">
-          {rows.map((row) => (
-            <div key={row.id} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
-              <Input
-                value={row.key}
-                autoComplete="off"
-                placeholder="NAME"
-                aria-label="Variable name"
-                onChange={(event) => {
-                  updateRow(row.id, { key: event.target.value })
-                }}
-              />
-              <Input
-                value={row.value ?? ''}
-                autoComplete="off"
-                placeholder={row.value === null ? 'unset — removes the pool value' : 'value'}
-                aria-label="Variable value"
-                onChange={(event) => {
-                  updateRow(row.id, { value: event.target.value })
-                }}
-              />
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                aria-label="Remove variable"
-                onClick={() => {
-                  onRowsChange(rows.filter((candidate) => candidate.id !== row.id))
-                }}
-              >
-                <Trash2Icon />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </Field>
   )
 }
 
@@ -353,95 +279,6 @@ export function CombinedEnvOverlayEditor({
           Add variable
         </Button>
       </div>
-    </Field>
-  )
-}
-
-export function SecretEnvOverlayEditor({
-  orgId,
-  projectId,
-  enabled,
-  label,
-  description,
-  rows,
-  onRowsChange,
-}: {
-  orgId: string
-  /** When set, offers project-available secrets instead of org-owned ones. */
-  projectId?: string
-  enabled: boolean
-  label: string
-  description?: string
-  rows: SecretEnvOverlayRow[]
-  onRowsChange: (rows: SecretEnvOverlayRow[]) => void
-}) {
-  function updateRow(id: string, patch: Partial<SecretEnvOverlayRow>) {
-    onRowsChange(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)))
-  }
-  return (
-    <Field>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <FieldLabel>{label}</FieldLabel>
-          {description && <FieldDescription>{description}</FieldDescription>}
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            onRowsChange([...rows, newSecretEnvOverlayRow()])
-          }}
-        >
-          Add variable
-        </Button>
-      </div>
-      {rows.length > 0 && (
-        <div className="space-y-2">
-          {rows.map((row) => (
-            <div key={row.id} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
-              <Input
-                value={row.key}
-                autoComplete="off"
-                placeholder="NAME"
-                aria-label="Variable name"
-                onChange={(event) => {
-                  updateRow(row.id, { key: event.target.value })
-                }}
-              />
-              {row.secretId === null ? (
-                <Input
-                  disabled
-                  value=""
-                  placeholder="unset — removes the pool value"
-                  aria-label="Variable value"
-                />
-              ) : (
-                <SecretSelect
-                  orgId={orgId}
-                  projectId={projectId}
-                  enabled={enabled}
-                  value={row.secretId}
-                  onChange={(secretId) => {
-                    updateRow(row.id, { secretId })
-                  }}
-                />
-              )}
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                aria-label="Remove variable"
-                onClick={() => {
-                  onRowsChange(rows.filter((candidate) => candidate.id !== row.id))
-                }}
-              >
-                <Trash2Icon />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
     </Field>
   )
 }

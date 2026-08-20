@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
-import { BotIcon, PlusIcon } from 'lucide-react'
 
 import { generalAgentTemplateId } from '@/components/agents/agentTemplates'
+import { BotIcon, PlusIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 
 export function FirstAgentCard({ projectId }: { projectId: string }) {

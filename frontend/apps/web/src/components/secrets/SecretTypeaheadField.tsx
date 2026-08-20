@@ -5,8 +5,8 @@ import {
   useSecrets,
 } from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
-import { PlusIcon } from 'lucide-react'
 
+import { PlusIcon } from '@/components/icons'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'

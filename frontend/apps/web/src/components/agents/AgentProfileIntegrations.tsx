@@ -1,7 +1,7 @@
 import { useDeleteIntegrationInstall, useIntegrationInstalls } from '@omnara/react'
 import { ApiError, type IntegrationInstall } from '@omnara/sdk'
-import { Trash2 } from 'lucide-react'
 
+import { Trash2 } from '@/components/icons'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'

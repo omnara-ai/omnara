@@ -1,4 +1,4 @@
-import { Check, Circle } from 'lucide-react'
+import { Check, Circle } from '@/components/icons'
 
 export function PasswordRequirements({ id, password }: { id: string; password: string }) {
   const requirements = [

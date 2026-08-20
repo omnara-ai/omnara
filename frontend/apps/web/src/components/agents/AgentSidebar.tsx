@@ -1,11 +1,11 @@
 import { useMachine } from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { InfoIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { CreateCronTriggerDialog, CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DetailList } from '@/components/data-table/DetailList'
+import { InfoIcon, PlusIcon } from '@/components/icons'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {

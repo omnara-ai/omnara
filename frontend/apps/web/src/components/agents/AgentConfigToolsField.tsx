@@ -1,7 +1,7 @@
 import type { ToolCatalog, ToolCatalogEntry, ToolPermissionSelection } from '@omnara/sdk'
-import { PlusIcon, Trash2Icon } from 'lucide-react'
 
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
+import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
