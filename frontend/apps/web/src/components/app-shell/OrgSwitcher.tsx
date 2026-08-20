@@ -1,9 +1,9 @@
 import { usePendingInvitationsQuery } from '@omnara/react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Check, ChevronsUpDown, Mail, Plus } from 'lucide-react'
 import { useState } from 'react'
 
 import { BrandMark } from '@/components/brand/OmnaraMark'
+import { Check, ChevronsUpDown, Mail, Plus } from '@/components/icons'
 import { CreateOrgDialog } from '@/components/org/CreateOrgDialog'
 import {
   DropdownMenu,

@@ -14,7 +14,6 @@ import { SearchHeader } from '@/components/layout/SearchHeader'
 import { ConnectMachineDialog } from '@/components/org/ConnectMachineDialog'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { GrantToProjectDialog } from '@/components/projects/GrantToProjectDialog'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
@@ -75,21 +74,13 @@ export function MachinesSection() {
               id: 'state',
               header: 'State',
               className: 'w-36',
-              cell: (machine) => (
-                <Badge variant="outline" className="capitalize">
-                  {machine.lifecycle_state}
-                </Badge>
-              ),
+              cell: (machine) => <span className="capitalize">{machine.lifecycle_state}</span>,
             },
             {
               id: 'connection',
               header: 'Connection',
               className: 'w-36',
-              cell: (machine) => (
-                <Badge variant="outline" className="capitalize">
-                  {machine.connection_state}
-                </Badge>
-              ),
+              cell: (machine) => <span className="capitalize">{machine.connection_state}</span>,
             },
             {
               id: 'actions',

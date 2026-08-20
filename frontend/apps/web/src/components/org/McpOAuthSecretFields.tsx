@@ -1,6 +1,6 @@
-import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 
+import { ChevronDown } from '@/components/icons'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 

@@ -25,7 +25,7 @@ function AgentConfigYamlEditorFallback({
     <div
       id={id}
       className={cn(
-        'border-input bg-background shadow-xs flex h-[28rem] items-center justify-center overflow-hidden rounded-md border text-xs',
+        'border-input bg-background flex h-[28rem] items-center justify-center overflow-hidden rounded-md border text-xs',
         className,
       )}
       role="status"
@@ -76,7 +76,7 @@ export function AgentConfigYamlField({
   if (hideLabel) return editor
 
   return (
-    <Field>
+    <Field className="min-h-0 flex-1">
       <RequiredFieldLabel asChild>
         <span>Config (YAML)</span>
       </RequiredFieldLabel>

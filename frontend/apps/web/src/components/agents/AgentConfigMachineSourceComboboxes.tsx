@@ -1,7 +1,7 @@
 import { useProjectMachinePoolGrants, useProjectMachines } from '@omnara/react'
-import { PlusIcon } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 
+import { PlusIcon } from '@/components/icons'
 import { GrantMachinePoolDialog } from '@/components/projects/GrantMachinePoolDialog'
 import { GrantProjectMachineDialog } from '@/components/projects/GrantProjectMachineDialog'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'

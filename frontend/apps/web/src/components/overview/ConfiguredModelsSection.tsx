@@ -14,7 +14,6 @@ import { CreateConfiguredModelDialog } from '@/components/org/CreateConfiguredMo
 import { EditConfiguredModelDialog } from '@/components/org/EditConfiguredModelDialog'
 import { GrantConfiguredModelDialog } from '@/components/org/GrantConfiguredModelDialog'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useArrayPagination } from '@/hooks/use-array-pagination'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
@@ -112,7 +111,7 @@ export function ConfiguredModelsSection() {
                 <span className="inline-flex max-w-full items-center gap-2">
                   <span className="truncate font-medium">{option.model.name}</span>
                   {option.model.management_kind === 'cluster' && (
-                    <Badge variant="secondary">cluster</Badge>
+                    <span className="text-muted-foreground">cluster</span>
                   )}
                 </span>
               ),

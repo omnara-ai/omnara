@@ -5,7 +5,6 @@ import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
-import { Badge } from '@/components/ui/badge'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
@@ -60,7 +59,7 @@ export function ProjectSkillGrantsTable({
             id: 'owner',
             header: 'Owner',
             className: 'w-32',
-            cell: (access) => <Badge variant="outline">{projectSkillOwnerLabel(access)}</Badge>,
+            cell: (access) => <span>{projectSkillOwnerLabel(access)}</span>,
           },
           {
             id: 'actions',

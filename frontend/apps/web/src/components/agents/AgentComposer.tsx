@@ -1,7 +1,7 @@
 import type { UseAgentChatResult } from '@omnara/react'
-import { SendHorizontal, Square } from 'lucide-react'
 import { type KeyboardEvent, type SyntheticEvent, useState } from 'react'
 
+import { SendHorizontal, Square } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 

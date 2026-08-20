@@ -1,7 +1,7 @@
 import { useRevokePersonalAccessToken } from '@omnara/react'
 import type { PersonalAccessToken } from '@omnara/sdk'
-import { Ellipsis } from 'lucide-react'
 
+import { Ellipsis } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,

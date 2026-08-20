@@ -8,9 +8,9 @@ import {
 import { type CronTrigger, type CronTriggerTarget } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 import cronstrue from 'cronstrue'
-import { Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
+import { Trash2 } from '@/components/icons'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {

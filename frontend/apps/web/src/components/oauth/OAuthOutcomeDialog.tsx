@@ -1,6 +1,6 @@
-import { CircleCheck, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
+import { CircleCheck, TriangleAlert } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,

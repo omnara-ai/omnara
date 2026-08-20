@@ -1,7 +1,7 @@
 import type { UseAgentChatResult } from '@omnara/react'
-import { Bot } from 'lucide-react'
 
 import { AgentChatMessage } from '@/components/agents/AgentChatMessage'
+import { Bot } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   MessageScroller,

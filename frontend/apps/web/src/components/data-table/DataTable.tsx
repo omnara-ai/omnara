@@ -4,13 +4,6 @@ import { Fragment, useRef, useState } from 'react'
 import { type ColumnResizeState, resizeColumnPair } from '@/components/data-table/column-resizing'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -31,6 +24,8 @@ export interface DataTableColumn<TData> {
   className?: string
   /** Right-aligns the cell and keeps clicks inside it from triggering the row. */
   isActions?: boolean
+  /** Set false to keep an actions cell always visible instead of fading in on row hover. */
+  revealOnHover?: boolean
 }
 
 function measureColumns(target: HTMLElement) {
@@ -124,7 +119,7 @@ export function DataTable<TData>({
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="bg-card text-card-foreground overflow-hidden rounded-lg border">
+      <div className="overflow-hidden rounded-xl border">
         <Table className="table-fixed">
           <colgroup>
             {columns.map((column, index) => (
@@ -205,7 +200,7 @@ export function DataTable<TData>({
                   <Fragment key={id}>
                     <TableRow
                       className={cn(
-                        'h-12',
+                        'group/row h-11',
                         (rowExpanded ?? onRowClick) && 'cursor-pointer',
                         isExpanded && 'border-b-0',
                       )}
@@ -234,7 +229,15 @@ export function DataTable<TData>({
                           }
                         >
                           {column.isActions ? (
-                            <div className="flex justify-end">{column.cell(item)}</div>
+                            <div
+                              className={cn(
+                                'flex justify-end',
+                                column.revealOnHover !== false &&
+                                  'has-aria-expanded:opacity-100 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100',
+                              )}
+                            >
+                              {column.cell(item)}
+                            </div>
                           ) : (
                             column.cell(item)
                           )}
@@ -254,40 +257,34 @@ export function DataTable<TData>({
             )}
           </TableBody>
         </Table>
+        {pagination && (pagination.canPrev || pagination.canNext || pagination.page > 0) && (
+          <div className="bg-muted/50 flex items-center justify-end gap-3 border-t px-4 py-1.5">
+            <span className="text-muted-foreground/70 text-xs tabular-nums">
+              Page {pagination.page + 1}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground h-6 px-1.5 text-xs"
+              disabled={!pagination.canPrev}
+              onClick={pagination.onPrev}
+            >
+              Previous
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground h-6 px-1.5 text-xs"
+              disabled={!pagination.canNext}
+              onClick={pagination.onNext}
+            >
+              Next
+            </Button>
+          </div>
+        )}
       </div>
-      {pagination && (pagination.canPrev || pagination.canNext || pagination.page > 0) && (
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground text-xs tabular-nums">
-            Page {pagination.page + 1}
-          </span>
-          <Pagination className="mx-0 w-auto justify-end">
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  href="#"
-                  aria-disabled={!pagination.canPrev}
-                  className={cn(!pagination.canPrev && 'pointer-events-none opacity-50')}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    pagination.onPrev()
-                  }}
-                />
-              </PaginationItem>
-              <PaginationItem>
-                <PaginationNext
-                  href="#"
-                  aria-disabled={!pagination.canNext}
-                  className={cn(!pagination.canNext && 'pointer-events-none opacity-50')}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    pagination.onNext()
-                  }}
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
-        </div>
-      )}
     </section>
   )
 }

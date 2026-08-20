@@ -14,7 +14,6 @@ import {
   machinePoolProviderDefinitions,
 } from '@/components/org/machinePoolProviders'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
@@ -76,7 +75,9 @@ export function MachinePoolsSection() {
               cell: (pool) => (
                 <span className="inline-flex max-w-full items-center gap-2">
                   <span className="truncate font-medium">{pool.name}</span>
-                  {pool.management_kind === 'cluster' && <Badge variant="secondary">cluster</Badge>}
+                  {pool.management_kind === 'cluster' && (
+                    <span className="text-muted-foreground">cluster</span>
+                  )}
                 </span>
               ),
             },

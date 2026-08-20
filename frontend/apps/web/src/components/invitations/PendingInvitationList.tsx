@@ -1,8 +1,8 @@
 import { useAcceptInvitation, useDeclineInvitation } from '@omnara/react'
 import type { OrgInvitation } from '@omnara/sdk'
-import { Building2, Check, Copy, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { Building2, Check, Copy, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatDateTime } from '@/lib/format'

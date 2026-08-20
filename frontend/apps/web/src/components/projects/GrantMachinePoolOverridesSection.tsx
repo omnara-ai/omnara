@@ -1,10 +1,9 @@
 import { type MachinePool } from '@omnara/sdk'
 
 import {
-  EnvOverlayEditor,
+  CombinedEnvOverlayEditor,
   OverridesCollapsible,
   ProviderOptionsOverrideFields,
-  SecretEnvOverlayEditor,
 } from '@/components/machines/MachineOverrideFields'
 import {
   isMachinePoolProvider,
@@ -161,23 +160,14 @@ export function PoolGrantOverrideFields({
           />
         </Field>
       </div>
-      <EnvOverlayEditor
-        label="Environment variables"
-        description="Set on top of the pool's variables for machines from this grant."
-        rows={values.envRows}
-        onRowsChange={(envRows) => {
-          onChange({ ...values, envRows })
-        }}
-      />
-      <SecretEnvOverlayEditor
+      <CombinedEnvOverlayEditor
         orgId={orgId}
         projectId={projectId}
         enabled={enabled}
-        label="Secret environment variables"
-        description="Set on top of the pool's secret variables for machines from this grant."
-        rows={values.secretEnvRows}
-        onRowsChange={(secretEnvRows) => {
-          onChange({ ...values, secretEnvRows })
+        envRows={values.envRows}
+        secretEnvRows={values.secretEnvRows}
+        onChange={(rows) => {
+          onChange({ ...values, ...rows })
         }}
       />
       <Field>

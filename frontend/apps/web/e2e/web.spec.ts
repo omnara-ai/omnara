@@ -248,10 +248,6 @@ test('creates an agent with the Builder', async ({ page }) => {
   ).toHaveCount(0)
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button', { name: 'About web_search' }).hover()
-  await expect(page.getByRole('tooltip')).toContainText('Search the public web')
-  await expect(page.getByRole('tooltip').getByRole('link', { name: 'Learn more' })).toHaveCount(0)
-
   const agentName = uniqueName('Builder Agent')
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')

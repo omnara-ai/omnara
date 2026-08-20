@@ -1,8 +1,8 @@
 import { useProjects } from '@omnara/react'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { ChevronDown, Folder, Plus } from 'lucide-react'
 import { useState } from 'react'
 
+import { ChevronDown, Folder, Plus } from '@/components/icons'
 import { NewProjectDialog } from '@/components/projects/NewProjectDialog'
 import {
   SidebarGroup,

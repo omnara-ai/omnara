@@ -1,9 +1,8 @@
 import type { BasicMachineSource } from '@/components/agents/useAgentBuilderForm'
 import {
-  EnvOverlayEditor,
+  CombinedEnvOverlayEditor,
   OverridesCollapsible,
   ProviderOptionsOverrideFields,
-  SecretEnvOverlayEditor,
 } from '@/components/machines/MachineOverrideFields'
 import {
   isMachinePoolProvider,
@@ -27,7 +26,7 @@ export function SourceOverridesSection({
     source.kind === 'pool' && isMachinePoolProvider(source.provider) ? source.provider : null
   const resources = provider ? machinePoolProviderDefinitions[provider].resources : null
   return (
-    <OverridesCollapsible>
+    <OverridesCollapsible description="environment variable overrides">
       <FieldGroup>
         {provider && (
           <>
@@ -74,11 +73,6 @@ export function SourceOverridesSection({
             )}
           </>
         )}
-        {source.kind === 'pool' && !provider && (
-          <FieldDescription>
-            Select a machine pool to configure provider overrides.
-          </FieldDescription>
-        )}
         {source.kind === 'pool' && (
           <Field>
             <FieldLabel htmlFor={`${source.id}-delete-after-idle`}>
@@ -99,23 +93,14 @@ export function SourceOverridesSection({
             </FieldDescription>
           </Field>
         )}
-        <EnvOverlayEditor
-          label="Environment overlay"
-          description="Overrides environment variables on this agent's machines."
-          rows={source.envRows}
-          onRowsChange={(envRows) => {
-            onChange({ envRows })
-          }}
-        />
-        <SecretEnvOverlayEditor
+        <CombinedEnvOverlayEditor
           orgId={orgId}
           projectId={projectId}
           enabled
-          label="Secret environment overlay"
-          description="Overrides secret environment variables on this agent's machines."
-          rows={source.secretEnvRows}
-          onRowsChange={(secretEnvRows) => {
-            onChange({ secretEnvRows })
+          envRows={source.envRows}
+          secretEnvRows={source.secretEnvRows}
+          onChange={(rows) => {
+            onChange(rows)
           }}
         />
       </FieldGroup>

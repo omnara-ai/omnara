@@ -129,7 +129,7 @@ function RequiredFieldLabel({ children, ...props }: ComponentProps<typeof FieldL
     <FieldLabel {...props}>
       <span>
         {children}
-        <span className="text-destructive" aria-hidden="true">
+        <span className="text-primary" aria-hidden="true">
           {' *'}
         </span>
       </span>
