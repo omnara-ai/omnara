@@ -1373,6 +1373,7 @@ SELECT orgs.id, $1, $2, $3, $4, $5::integer, $6::integer, $7::jsonb, $8::jsonb, 
 FROM orgs
 LEFT JOIN secrets provider_auth_secret ON provider_auth_secret.org_id = orgs.id
   AND provider_auth_secret.id = $12::uuid
+  AND provider_auth_secret.deleted_at IS NULL
   AND provider_auth_secret.management_kind = 'tenant'
   AND provider_auth_secret.owner_kind = 'org'
   AND provider_auth_secret.kind = 'generic'

@@ -469,12 +469,66 @@ func (s *Store) DeleteSecret(ctx context.Context, input DeleteSecretInput) (Secr
 	if err := s.authorizeSecretManage(ctx, record, input.Actor); err != nil {
 		return SecretRecord{}, err
 	}
+	return storeutil.RetryTransaction(ctx, func() (SecretRecord, error) {
+		return s.deleteSecretOnce(ctx, input, record)
+	})
+}
+
+func (s *Store) deleteSecretOnce(
+	ctx context.Context,
+	input DeleteSecretInput,
+	observed SecretRecord,
+) (SecretRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, fmt.Errorf("begin delete secret: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	switch observed.OwnerKind {
+	case SecretOwnerProject:
+		if err := lifecyclelock.EnterActiveProject(
+			ctx,
+			tx,
+			input.OrgID,
+			observed.OwnerProjectID,
+		); err != nil {
+			return SecretRecord{}, err
+		}
+	case SecretOwnerOrg, SecretOwnerUser:
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return SecretRecord{}, err
+		}
+	default:
+		return SecretRecord{}, invalidSecretRequest("unsupported secret owner kind %q", observed.OwnerKind)
+	}
+	if observed.OwnerKind == SecretOwnerUser {
+		if _, err := qtx.LockUserForUpdate(
+			ctx,
+			dbsqlc.LockUserForUpdateParams{ID: observed.OwnerUserID},
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return SecretRecord{}, storeerr.ErrNotFound
+			}
+			return SecretRecord{}, fmt.Errorf("lock secret owner: %w", err)
+		}
+	}
+	if _, err := qtx.LockSecret(
+		ctx,
+		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SecretRecord{}, storeerr.ErrNotFound
+		}
+		return SecretRecord{}, fmt.Errorf("lock secret for deletion: %w", err)
+	}
+	record, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+	if err != nil {
+		return SecretRecord{}, err
+	}
+	if err := management.RequireTenant(record.ManagementKind, "secrets"); err != nil {
+		return SecretRecord{}, err
+	}
 	referenced, err := qtx.SecretIsReferenced(ctx, dbsqlc.SecretIsReferencedParams{
 		OrgID: input.OrgID, SecretID: input.SecretID,
 	})

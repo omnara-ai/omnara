@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -352,6 +353,99 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 				t.Fatalf("grants after project deletion: pools=%d models=%d", poolGrantCount, modelGrantCount)
 			}
 		})
+	}
+}
+
+func TestProjectSecretDeletionSerializesWithProjectDeletion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "project-secret-delete")
+	actor := scopeDeletionActor(t, fixture)
+	secretID := createIntegrationCredential(
+		t,
+		ctx,
+		fixture.store,
+		testProjectID,
+		fixture.userID,
+		"project-secret-delete",
+	)
+
+	controlTx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin project secret control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if _, err := dbsqlc.New(controlTx).LockSecret(
+		ctx,
+		dbsqlc.LockSecretParams{OrgID: testOrgID, ID: secretID},
+	); err != nil {
+		t.Fatalf("lock project secret: %v", err)
+	}
+
+	secretDone := make(chan error, 1)
+	go func() {
+		_, deleteErr := fixture.store.Secrets().DeleteSecret(
+			context.Background(),
+			secretstore.DeleteSecretInput{
+				OrgID:    testOrgID,
+				SecretID: secretID,
+				Actor:    userPrincipal(fixture.userID),
+			},
+		)
+		secretDone <- deleteErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockSecret", 1)
+
+	projectDone := make(chan error, 1)
+	go func() {
+		_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
+			context.Background(),
+			testOrgID,
+			testProjectID,
+			actor,
+		)
+		projectDone <- deleteErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release project secret control transaction: %v", err)
+	}
+
+	select {
+	case err := <-secretDone:
+		if err != nil {
+			t.Fatalf("delete secret before project deletion: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for secret deletion")
+	}
+	select {
+	case err := <-projectDone:
+		if err != nil {
+			t.Fatalf("delete project after secret deletion: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for project deletion")
+	}
+
+	var activeSecretCount, versionCount int
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT
+		   count(*) FILTER (WHERE deleted_at IS NULL)::integer,
+		   (SELECT count(*)::integer FROM secret_versions WHERE secret_id = $1)
+		 FROM secrets
+		 WHERE id = $1`,
+		secretID,
+	).Scan(&activeSecretCount, &versionCount); err != nil {
+		t.Fatalf("count project secret rows after deletion: %v", err)
+	}
+	if activeSecretCount != 0 || versionCount != 0 {
+		t.Fatalf(
+			"project secret rows after deletion: active=%d versions=%d, want both zero",
+			activeSecretCount,
+			versionCount,
+		)
 	}
 }
 

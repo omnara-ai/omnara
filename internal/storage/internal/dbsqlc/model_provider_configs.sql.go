@@ -964,6 +964,7 @@ SELECT org.id, $1, $2, $3, $4,
 FROM orgs org
 JOIN secrets credential ON credential.org_id = org.id
   AND credential.id = $10
+  AND credential.deleted_at IS NULL
   AND credential.management_kind = $1
   AND credential.owner_kind = 'org'
   AND credential.kind = 'generic'
@@ -1944,6 +1945,7 @@ WHERE config.org_id = $7
   AND config.management_kind = $9
   AND credential.org_id = config.org_id
   AND credential.id = $6
+  AND credential.deleted_at IS NULL
   AND credential.management_kind = config.management_kind
   AND credential.owner_kind = 'org'
   AND credential.kind = 'generic'

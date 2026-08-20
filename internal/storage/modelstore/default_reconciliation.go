@@ -64,6 +64,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 			if apply {
 				if _, err := updateModelProviderConfigTx(
 					ctx,
+					tx,
 					qtx,
 					modelProviderConfigUpdate{
 						OrgID:              current.OrgID,

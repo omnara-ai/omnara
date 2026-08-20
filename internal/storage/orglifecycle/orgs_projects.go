@@ -160,14 +160,14 @@ func deleteProjectOwnedContentTx(
 	if referenced {
 		return nil, fmt.Errorf("a project-owned secret is still referenced outside the project: %w", storeerr.ErrConflict)
 	}
+	if err := q.DeleteProjectSecrets(ctx, dbsqlc.DeleteProjectSecretsParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
+		return nil, fmt.Errorf("delete project secrets: %w", err)
+	}
 	if err := q.DeleteProjectSecretGrants(ctx, dbsqlc.DeleteProjectSecretGrantsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
 		return nil, fmt.Errorf("delete project secret grants: %w", err)
 	}
 	if err := q.DeleteProjectSecretVersions(ctx, dbsqlc.DeleteProjectSecretVersionsParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
 		return nil, fmt.Errorf("destroy project secret versions: %w", err)
-	}
-	if err := q.DeleteProjectSecrets(ctx, dbsqlc.DeleteProjectSecretsParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
-		return nil, fmt.Errorf("delete project secrets: %w", err)
 	}
 	return skillArchives, nil
 }
@@ -621,14 +621,14 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.DeleteOrganizationSkillGrants(ctx, dbsqlc.DeleteOrganizationSkillGrantsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization skill grants: %w", err)
 	}
+	if err := q.DeleteOrganizationSecrets(ctx, dbsqlc.DeleteOrganizationSecretsParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("delete organization secrets: %w", err)
+	}
 	if err := q.DeleteOrganizationSecretGrants(ctx, dbsqlc.DeleteOrganizationSecretGrantsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization secret grants: %w", err)
 	}
 	if err := q.DeleteOrganizationSecretOAuthLeases(ctx, dbsqlc.DeleteOrganizationSecretOAuthLeasesParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization secret oauth leases: %w", err)
-	}
-	if err := q.DeleteOrganizationSecrets(ctx, dbsqlc.DeleteOrganizationSecretsParams{OrgID: orgID}); err != nil {
-		return nil, fmt.Errorf("delete organization secrets: %w", err)
 	}
 	// Ciphertext of secrets still referenced by pool rows awaiting machine
 	// teardown survives until teardown completion re-runs this inline.

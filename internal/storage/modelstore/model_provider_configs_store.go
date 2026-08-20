@@ -115,7 +115,7 @@ func (s *Store) createModelProviderConfigTx(
 	}
 	if err := validateModelProviderCredentialTx(
 		ctx,
-		qtx,
+		tx,
 		input.OrgID,
 		input.CredentialSecretID,
 		input.managementKind,
@@ -246,11 +246,11 @@ func (s *Store) ListModelProviderConfigs(
 
 func validateModelProviderCredentialTx(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	tx pgx.Tx,
 	orgID, credentialSecretID ID,
 	managementKind management.Kind,
 ) error {
-	credential, err := secretops.GetFacts(ctx, qtx, orgID, credentialSecretID)
+	credential, err := secretops.LockReference(ctx, tx, orgID, credentialSecretID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrNotFound
 	}
@@ -316,7 +316,7 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	update := updateModelProviderConfigInputFromCurrent(current)
 	applyModelProviderConfigPatch(&update, current, input)
-	record, err := updateModelProviderConfigTx(ctx, qtx, update, management.Tenant)
+	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -328,6 +328,7 @@ func (s *Store) PatchModelProviderConfig(
 
 func updateModelProviderConfigTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input modelProviderConfigUpdate,
 	managementKind management.Kind,
@@ -336,7 +337,7 @@ func updateModelProviderConfigTx(
 		ctx,
 		input,
 		func(ctx context.Context, orgID, credentialSecretID ID) error {
-			return validateModelProviderCredentialTx(ctx, qtx, orgID, credentialSecretID, managementKind)
+			return validateModelProviderCredentialTx(ctx, tx, orgID, credentialSecretID, managementKind)
 		},
 	)
 	if err != nil {

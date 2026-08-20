@@ -12,6 +12,7 @@ SELECT org.id, sqlc.arg(management_kind), sqlc.arg(name), sqlc.arg(api_format), 
 FROM orgs org
 JOIN secrets credential ON credential.org_id = org.id
   AND credential.id = sqlc.arg(credential_secret_id)
+  AND credential.deleted_at IS NULL
   AND credential.management_kind = sqlc.arg(management_kind)
   AND credential.owner_kind = 'org'
   AND credential.kind = 'generic'
@@ -116,6 +117,7 @@ WHERE config.org_id = sqlc.arg(org_id)
   AND config.management_kind = sqlc.arg(management_kind)
   AND credential.org_id = config.org_id
   AND credential.id = sqlc.arg(credential_secret_id)
+  AND credential.deleted_at IS NULL
   AND credential.management_kind = config.management_kind
   AND credential.owner_kind = 'org'
   AND credential.kind = 'generic'

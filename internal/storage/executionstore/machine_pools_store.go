@@ -299,9 +299,6 @@ func (s *Store) CreateMachinePool(
 	if err != nil {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
-	if err := validateMachinePoolProviderAuth(ctx, s.q, input.OrgID, input.ProviderAuthSecretID); err != nil {
-		return MachinePoolRecord{}, err
-	}
 	if err := s.validatePoolDefaultsTx(ctx, s.q, input, poolDefaults); err != nil {
 		return MachinePoolRecord{}, err
 	}
@@ -312,6 +309,9 @@ func (s *Store) CreateMachinePool(
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachinePoolRecord{}, err
+	}
+	if err := validateMachinePoolProviderAuth(ctx, tx, input.OrgID, input.ProviderAuthSecretID); err != nil {
 		return MachinePoolRecord{}, err
 	}
 	record, err := insertMachinePool(ctx, qtx, input)
@@ -534,8 +534,8 @@ func prepareMachinePoolConfigInput(
 	return machinePoolDefaults{Provisioning: poolProvisioning, Environment: poolEnvironment}, nil
 }
 
-func validateMachinePoolProviderAuth(ctx context.Context, qtx *dbsqlc.Queries, orgID, providerAuthSecretID ID) error {
-	credential, err := secretops.GetFacts(ctx, qtx, orgID, providerAuthSecretID)
+func validateMachinePoolProviderAuth(ctx context.Context, tx pgx.Tx, orgID, providerAuthSecretID ID) error {
+	credential, err := secretops.LockReference(ctx, tx, orgID, providerAuthSecretID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrNotFound
 	}
@@ -734,7 +734,7 @@ func (s *Store) UpdateMachinePool(
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
 	if merged.ManagementKind == management.Tenant {
-		if err := validateMachinePoolProviderAuth(ctx, qtx, merged.OrgID, merged.ProviderAuthSecretID); err != nil {
+		if err := validateMachinePoolProviderAuth(ctx, tx, merged.OrgID, merged.ProviderAuthSecretID); err != nil {
 			return MachinePoolRecord{}, err
 		}
 	}

@@ -961,25 +961,12 @@ func TestDeleteSecretReferencedByMachinePoolReturnsConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create provider auth secret: %v", err)
 	}
-	if _, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForTest(
-		executionstore.CreateMachinePoolInput{
-			OrgID:                testOrgID,
-			Name:                 "Secret FK Pool",
-			Provider:             "test.provider",
-			ProviderConfig:       json.RawMessage(`{}`),
-			ProviderAuthSecretID: secret.ID,
-			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForMachinePoolTest(1),
-			MaxTotalMemoryMB:     intPtrForMachinePoolTest(1024),
-			MaxMachineCPU:        intPtrForMachinePoolTest(1),
-			MaxMachineMemoryMB:   intPtrForMachinePoolTest(1024),
-		},
-		defaultMachineFieldsForTest{
-			DefaultMachineCPU:             1,
-			DefaultMachineMemoryMB:        1024,
-			DefaultMachineProviderOptions: json.RawMessage(`{"image":"test"}`),
-		},
-	)); err != nil {
+	if _, err := createMachinePoolReferencingSecretForTest(
+		ctx,
+		store,
+		"Secret FK Pool",
+		secret.ID,
+	); err != nil {
 		t.Fatalf("create machine pool: %v", err)
 	}
 	if _, err := store.Secrets().DeleteSecret(
@@ -991,6 +978,187 @@ func TestDeleteSecretReferencedByMachinePoolReturnsConflict(t *testing.T) {
 	) {
 		t.Fatalf("delete referenced secret error = %v, want ErrConflict", err)
 	}
+}
+
+func TestSecretReferenceAdmissionSerializesWithDeletion(t *testing.T) {
+	t.Parallel()
+	t.Run("reference wins", func(t *testing.T) {
+		ctx := context.Background()
+		pool := openIntegrationDB(t, ctx)
+		seedMigratedDB(t, ctx, pool)
+		store := newSecretIntegrationStore(pool)
+		admin := createSecretTestUser(t, ctx, store, "Secret Reference Winner", "admin")
+		secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+			OrgID:     testOrgID,
+			OwnerKind: secretstore.SecretOwnerOrg,
+			Name:      "reference-wins",
+			Material:  secrets.GenericMaterial{Value: "provider-token"},
+			Actor:     userPrincipal(admin.ID),
+		})
+		if err != nil {
+			t.Fatalf("create secret: %v", err)
+		}
+
+		controlTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin reference control transaction: %v", err)
+		}
+		defer func() { _ = controlTx.Rollback(ctx) }()
+		if err := dbsqlc.New(controlTx).LockResourceCreation(ctx, dbsqlc.LockResourceCreationParams{
+			ResourceKind: "machine_pools",
+			Scope:        testOrgID.String(),
+		}); err != nil {
+			t.Fatalf("lock machine pool creation: %v", err)
+		}
+
+		poolName := "Secret Reference Winner Pool"
+		type createOutcome struct {
+			record executionstore.MachinePoolRecord
+			err    error
+		}
+		createDone := make(chan createOutcome, 1)
+		go func() {
+			record, createErr := createMachinePoolReferencingSecretForTest(
+				ctx,
+				store,
+				poolName,
+				secret.ID,
+			)
+			createDone <- createOutcome{record: record, err: createErr}
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockResourceCreation", 1)
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, deleteErr := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+				OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(admin.ID),
+			})
+			deleteDone <- deleteErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecret", 1)
+		if err := controlTx.Commit(ctx); err != nil {
+			t.Fatalf("release reference control transaction: %v", err)
+		}
+
+		select {
+		case outcome := <-createDone:
+			if outcome.err != nil {
+				t.Fatalf("create machine pool before secret deletion: %v", outcome.err)
+			}
+			if outcome.record.ProviderAuthSecretID != secret.ID {
+				t.Fatalf("machine pool secret = %s, want %s", outcome.record.ProviderAuthSecretID, secret.ID)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for machine pool creation")
+		}
+		select {
+		case err := <-deleteDone:
+			if !errors.Is(err, storeerr.ErrConflict) {
+				t.Fatalf("delete newly referenced secret error = %v, want ErrConflict", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for secret deletion")
+		}
+	})
+
+	t.Run("deletion wins", func(t *testing.T) {
+		ctx := context.Background()
+		pool := openIntegrationDB(t, ctx)
+		seedMigratedDB(t, ctx, pool)
+		store := newSecretIntegrationStore(pool)
+		admin := createSecretTestUser(t, ctx, store, "Secret Deletion Winner", "admin")
+		secret, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+			OrgID:     testOrgID,
+			OwnerKind: secretstore.SecretOwnerOrg,
+			Name:      "deletion-wins",
+			Material:  secrets.GenericMaterial{Value: "provider-token"},
+			Actor:     userPrincipal(admin.ID),
+		})
+		if err != nil {
+			t.Fatalf("create secret: %v", err)
+		}
+
+		controlTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin deletion control transaction: %v", err)
+		}
+		defer func() { _ = controlTx.Rollback(ctx) }()
+		if _, err := controlTx.Exec(
+			ctx,
+			`SELECT id FROM secret_versions WHERE org_id = $1 AND secret_id = $2 AND id = $3 FOR UPDATE`,
+			testOrgID,
+			secret.ID,
+			version.ID,
+		); err != nil {
+			t.Fatalf("lock secret version: %v", err)
+		}
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, deleteErr := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+				OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(admin.ID),
+			})
+			deleteDone <- deleteErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteSecretVersions", 1)
+
+		poolName := "Secret Deletion Winner Pool"
+		createDone := make(chan error, 1)
+		go func() {
+			_, createErr := createMachinePoolReferencingSecretForTest(
+				ctx,
+				store,
+				poolName,
+				secret.ID,
+			)
+			createDone <- createErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecretForReference", 1)
+		if err := controlTx.Commit(ctx); err != nil {
+			t.Fatalf("release deletion control transaction: %v", err)
+		}
+
+		select {
+		case err := <-deleteDone:
+			if err != nil {
+				t.Fatalf("delete secret before reference creation: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for secret deletion")
+		}
+		select {
+		case err := <-createDone:
+			if !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("create machine pool after secret deletion error = %v, want ErrNotFound", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for machine pool creation")
+		}
+		var activePoolCount, versionCount int
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT count(*)::integer FROM machine_pools WHERE org_id = $1 AND name = $2 AND deleted_at IS NULL`,
+			testOrgID,
+			poolName,
+		).Scan(&activePoolCount); err != nil {
+			t.Fatalf("count machine pools after secret deletion: %v", err)
+		}
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT count(*)::integer FROM secret_versions WHERE org_id = $1 AND secret_id = $2`,
+			testOrgID,
+			secret.ID,
+		).Scan(&versionCount); err != nil {
+			t.Fatalf("count secret versions after deletion: %v", err)
+		}
+		if activePoolCount != 0 || versionCount != 0 {
+			t.Fatalf(
+				"rows after secret deletion: active pools=%d versions=%d, want both zero",
+				activePoolCount,
+				versionCount,
+			)
+		}
+	})
 }
 
 func TestUserOwnedSecretIsTenantBoundAndGrantable(t *testing.T) {
@@ -1928,6 +2096,33 @@ func newSecretIntegrationStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	}
 	allOpts = append(allOpts, opts...)
 	return newIntegrationStore(pool, allOpts...)
+}
+
+func createMachinePoolReferencingSecretForTest(
+	ctx context.Context,
+	store *Store,
+	name string,
+	secretID ID,
+) (executionstore.MachinePoolRecord, error) {
+	return store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForTest(
+		executionstore.CreateMachinePoolInput{
+			OrgID:                testOrgID,
+			Name:                 name,
+			Provider:             "test.provider",
+			ProviderConfig:       json.RawMessage(`{}`),
+			ProviderAuthSecretID: secretID,
+			MaxTotalMachines:     1,
+			MaxTotalCPU:          intPtrForMachinePoolTest(1),
+			MaxTotalMemoryMB:     intPtrForMachinePoolTest(1024),
+			MaxMachineCPU:        intPtrForMachinePoolTest(1),
+			MaxMachineMemoryMB:   intPtrForMachinePoolTest(1024),
+		},
+		defaultMachineFieldsForTest{
+			DefaultMachineCPU:             1,
+			DefaultMachineMemoryMB:        1024,
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"test"}`),
+		},
+	))
 }
 
 type testWrappedByKeyWrapper struct {

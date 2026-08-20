@@ -1705,6 +1705,124 @@ func TestIntegrationInputDedupeTargetProgressionAndDisable(t *testing.T) {
 	}
 }
 
+func TestIntegrationInputAdmissionSerializesWithInstallDisable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	targetService := integration.New(store.Execution(), store.Integrations())
+	admin := createIntegrationProjectAdmin(t, ctx, store, "input-disable-race@example.com")
+	profile := createIntegrationTestProfile(t, ctx, store, "input-disable-race-profile")
+	agent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "input-disable-race-agent")
+	credentialID := createIntegrationCredential(
+		t,
+		ctx,
+		store,
+		testProjectID,
+		admin.ID,
+		"input-disable-race",
+	)
+	installInput := slackIntegrationInstallInput(
+		NilID,
+		agent.ID,
+		admin.ID,
+		credentialID,
+		"A_INPUT_DISABLE_RACE",
+		"T_INPUT_DISABLE_RACE",
+	)
+	installInput.IntegrationKind = "workspace_single_agent"
+	install := mustCreateIntegrationInstall(t, ctx, store, installInput)
+	target, _, err := targetService.GetOrCreateTarget(ctx, integration.GetOrCreateTargetInput{
+		IntegrationInstallID: install.ID,
+		ProviderRef:          "D_INPUT_DISABLE_RACE",
+		ProviderRefKind:      "dm",
+	})
+	if err != nil {
+		t.Fatalf("create integration target: %v", err)
+	}
+	mustCreateIntegrationInput(
+		t,
+		ctx,
+		store,
+		install,
+		target,
+		"U_INPUT_DISABLE_RACE",
+		"Ev-input-disable-seed",
+		"seed",
+	)
+
+	controlTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin integration input control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
+		ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agent.ID},
+	); err != nil {
+		t.Fatalf("lock integration target agent: %v", err)
+	}
+
+	idempotencyKey := "Ev-input-disable-race"
+	inputDone := make(chan error, 1)
+	go func() {
+		_, _, createErr := store.Execution().CreateIntegrationTargetContentInput(
+			context.Background(),
+			executionstore.CreateIntegrationTargetContentInput{
+				IntegrationInstallID: install.ID,
+				IntegrationTargetID:  target.ID,
+				ProviderTenantID:     install.ProviderTenantID,
+				ProviderUserID:       "U_INPUT_DISABLE_RACE",
+				ContentBlocks:        json.RawMessage(`[{"type":"text","text":"late"}]`),
+				IdempotencyKey:       idempotencyKey,
+			},
+		)
+		inputDone <- createErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+	applied, err := store.Integrations().DisableIntegrationInstall(
+		ctx,
+		integrationstore.DisableIntegrationInstallInput{
+			ProjectID:           install.ProjectID,
+			ID:                  install.ID,
+			ExpectedOAuthFlowID: &install.LastOAuthFlowID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("disable integration install: %v", err)
+	}
+	if !applied {
+		t.Fatal("integration install disable was not applied")
+	}
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release integration input control transaction: %v", err)
+	}
+	select {
+	case err := <-inputDone:
+		if !errors.Is(err, storeerr.ErrUnauthorized) {
+			t.Fatalf("input admitted after install disable error = %v, want ErrUnauthorized", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for integration input admission")
+	}
+
+	_, found, err := store.Execution().GetIntegrationTargetInputByIdempotency(
+		ctx,
+		executionstore.GetIntegrationTargetInputByIdempotencyInput{
+			IntegrationInstallID: install.ID,
+			IntegrationTargetID:  target.ID,
+			IdempotencyKey:       idempotencyKey,
+		},
+	)
+	if err != nil {
+		t.Fatalf("check rejected integration input: %v", err)
+	}
+	if found {
+		t.Fatal("disabled integration install retained a newly admitted input")
+	}
+}
+
 func TestIntegrationTargetExternalProducerValidation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

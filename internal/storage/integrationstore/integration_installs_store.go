@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -56,7 +57,7 @@ func (s *Store) UpsertIntegrationInstall(
 	); err != nil {
 		return IntegrationInstallRecord{}, err
 	}
-	if err := validateIntegrationInstallCredential(ctx, qtx, input); err != nil {
+	if err := validateIntegrationInstallCredential(ctx, tx, input); err != nil {
 		return IntegrationInstallRecord{}, err
 	}
 
@@ -462,26 +463,23 @@ func normalizeUpsertIntegrationInstallInput(
 
 func validateIntegrationInstallCredential(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	tx pgx.Tx,
 	input UpsertIntegrationInstallInput,
 ) error {
 	if isNilID(input.CredentialSecretID) {
 		return nil
 	}
-	row, err := qtx.GetSecret(
-		ctx,
-		dbsqlc.GetSecretParams{OrgID: input.OrgID, ID: input.CredentialSecretID},
-	)
+	credential, err := secretops.LockReference(ctx, tx, input.OrgID, input.CredentialSecretID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storeerr.ErrNotFound
 		}
 		return fmt.Errorf("validate integration install credential: %w", err)
 	}
-	if management.Kind(row.ManagementKind) != management.Tenant ||
-		row.OwnerKind != secretstore.SecretOwnerProject || row.OwnerProjectID == nil ||
-		*row.OwnerProjectID != input.ProjectID ||
-		row.Kind != string(secretstore.SecretKindSlackAppCredentials) {
+	if credential.ManagementKind != management.Tenant ||
+		credential.OwnerKind != secretstore.SecretOwnerProject ||
+		credential.OwnerProjectID != input.ProjectID ||
+		credential.Kind != secretstore.SecretKindSlackAppCredentials {
 		return storeerr.ErrNotFound
 	}
 	return nil

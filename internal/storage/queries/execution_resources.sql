@@ -4,6 +4,7 @@ SELECT orgs.id, sqlc.arg(name), sqlc.arg(management_kind), sqlc.arg(description)
 FROM orgs
 LEFT JOIN secrets provider_auth_secret ON provider_auth_secret.org_id = orgs.id
   AND provider_auth_secret.id = sqlc.narg(provider_auth_secret_id)::uuid
+  AND provider_auth_secret.deleted_at IS NULL
   AND provider_auth_secret.management_kind = 'tenant'
   AND provider_auth_secret.owner_kind = 'org'
   AND provider_auth_secret.kind = 'generic'
