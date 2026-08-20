@@ -244,31 +244,17 @@ func (s *Store) ResolvePoolMachineTx(
 
 func (s *Store) ResolveMachineProviderAuthToken(
 	ctx context.Context,
-	pool MachinePoolRecord,
+	orgID ID,
+	managementKind management.Kind,
+	providerAuthSecretID ID,
+	providerAuthEnvVar string,
 ) (string, error) {
-	if pool.ManagementKind == management.Tenant && pool.DeletedAt != nil {
-		payload, err := s.secrets.ReadMachinePoolDeletionCredentialPayload(
-			ctx,
-			secretstore.ReadMachinePoolDeletionCredentialInput{
-				OrgID:         pool.OrgID,
-				MachinePoolID: pool.ID,
-			},
-		)
-		if err != nil {
-			if errors.Is(err, storeerr.ErrNotFound) {
-				return "", errors.New("machine pool provider auth secret is unavailable")
-			}
-			return "", err
-		}
-		credential, err := machineProviderCredentialFromPayload(payload)
-		return credential.Token, err
-	}
 	credential, err := s.ResolveMachineProviderCredential(
 		ctx,
-		pool.OrgID,
-		pool.ManagementKind,
-		pool.ProviderAuthSecretID,
-		pool.ProviderAuthEnvVar,
+		orgID,
+		managementKind,
+		providerAuthSecretID,
+		providerAuthEnvVar,
 	)
 	return credential.Token, err
 }
@@ -302,7 +288,11 @@ func (s *Store) ResolveMachineProviderCredential(
 			}
 			return MachineProviderCredential{}, err
 		}
-		return machineProviderCredentialFromPayload(credential)
+		token := strings.TrimSpace(credential.Payload[secrets.KeyValue])
+		if token == "" {
+			return MachineProviderCredential{}, errors.New("machine pool provider auth secret value is required")
+		}
+		return MachineProviderCredential{Token: token, VersionID: credential.CurrentVersionID}, nil
 	case management.Cluster:
 		token := strings.TrimSpace(os.Getenv(providerAuthEnvVar))
 		if token == "" {
@@ -315,16 +305,6 @@ func (s *Store) ResolveMachineProviderCredential(
 			managementKind,
 		)
 	}
-}
-
-func machineProviderCredentialFromPayload(
-	payload secretstore.SecretPayloadRecord,
-) (MachineProviderCredential, error) {
-	token := strings.TrimSpace(payload.Payload[secrets.KeyValue])
-	if token == "" {
-		return MachineProviderCredential{}, errors.New("machine pool provider auth secret value is required")
-	}
-	return MachineProviderCredential{Token: token, VersionID: payload.CurrentVersionID}, nil
 }
 
 func (s *Store) validatePoolDefaultsTx(

@@ -44,6 +44,15 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return CreatedOrgAPIKey{}, err
 	}
+	if _, err := qtx.LockUserForUpdate(
+		ctx,
+		dbsqlc.LockUserForUpdateParams{ID: input.CreatedByUserID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CreatedOrgAPIKey{}, storeerr.ErrNotFound
+		}
+		return CreatedOrgAPIKey{}, fmt.Errorf("lock org api key creator: %w", err)
+	}
 	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return CreatedOrgAPIKey{}, storeerr.ErrNotFound

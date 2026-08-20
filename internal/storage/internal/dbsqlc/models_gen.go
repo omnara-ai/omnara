@@ -282,34 +282,33 @@ type MachineDaemonToken struct {
 }
 
 type MachinePool struct {
-	ID                                  uuid.UUID
-	OrgID                               uuid.UUID
-	Name                                string
-	ManagementKind                      string
-	Description                         string
-	Provider                            string
-	DefaultMachineCpu                   *int32
-	DefaultMachineMemoryMb              *int32
-	DefaultMachineEnv                   json.RawMessage
-	DefaultMachineSecretEnv             json.RawMessage
-	DefaultMachineProviderOptions       json.RawMessage
-	DefaultCwd                          string
-	ProviderConfig                      json.RawMessage
-	ProviderAuthSecretID                *uuid.UUID
-	ProviderAuthEnvVar                  string
-	MaxTotalMachines                    int32
-	MaxTotalCpu                         *int32
-	MaxTotalMemoryMb                    *int32
-	MaxMachineCpu                       *int32
-	MaxMachineMemoryMb                  *int32
-	Metadata                            json.RawMessage
-	DeletedAt                           *time.Time
-	CreatedAt                           time.Time
-	UpdatedAt                           time.Time
-	RuntimeProtectionEnabled            bool
-	MinMachineCpu                       *int32
-	MinMachineMemoryMb                  *int32
-	DeletionProviderAuthSecretVersionID *uuid.UUID
+	ID                            uuid.UUID
+	OrgID                         uuid.UUID
+	Name                          string
+	ManagementKind                string
+	Description                   string
+	Provider                      string
+	DefaultMachineCpu             *int32
+	DefaultMachineMemoryMb        *int32
+	DefaultMachineEnv             json.RawMessage
+	DefaultMachineSecretEnv       json.RawMessage
+	DefaultMachineProviderOptions json.RawMessage
+	DefaultCwd                    string
+	ProviderConfig                json.RawMessage
+	ProviderAuthSecretID          *uuid.UUID
+	ProviderAuthEnvVar            string
+	MaxTotalMachines              int32
+	MaxTotalCpu                   *int32
+	MaxTotalMemoryMb              *int32
+	MaxMachineCpu                 *int32
+	MaxMachineMemoryMb            *int32
+	Metadata                      json.RawMessage
+	DeletedAt                     *time.Time
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
+	RuntimeProtectionEnabled      bool
+	MinMachineCpu                 *int32
+	MinMachineMemoryMb            *int32
 }
 
 type ModelProviderConfig struct {

@@ -233,6 +233,19 @@ func (s *Store) changeAgentConfigOnce(
 			}
 		}
 	}
+	if idempotentReplay {
+		poolMachines, err := listPoolMachinesTx(ctx, qtx, input.ProjectID, input.AgentID)
+		if err != nil {
+			return ChangeAgentConfigResult{}, err
+		}
+		for _, poolMachine := range poolMachines {
+			machine := poolMachine.Machine
+			if machine.LifecycleState == MachineLifecycleStateDeleting &&
+				machine.LifecycleReasonCode == "agent_config_machine_source_removed" {
+				deleteMachines = append(deleteMachines, machine)
+			}
+		}
+	}
 	if err := qtx.ReconcileAgentWakeup(ctx, dbsqlc.ReconcileAgentWakeupParams{
 		ProjectID: input.ProjectID,
 		AgentID:   input.AgentID,

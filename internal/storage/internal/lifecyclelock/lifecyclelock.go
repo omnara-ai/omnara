@@ -80,26 +80,12 @@ func OrganizationExclusive(ctx context.Context, tx pgx.Tx, orgID uuid.UUID) erro
 	return nil
 }
 
-func ProjectShared(ctx context.Context, tx pgx.Tx, projectID uuid.UUID) error {
-	return projectShared(ctx, dbsqlc.New(tx), projectID)
-}
-
 func projectShared(ctx context.Context, q *dbsqlc.Queries, projectID uuid.UUID) error {
 	if err := q.LockProjectLifecycleShared(
 		ctx,
 		dbsqlc.LockProjectLifecycleSharedParams{ProjectID: projectID},
 	); err != nil {
 		return fmt.Errorf("lock project lifecycle shared: %w", err)
-	}
-	return nil
-}
-
-func ProjectsShared(ctx context.Context, tx pgx.Tx, projectIDs []uuid.UUID) error {
-	q := dbsqlc.New(tx)
-	for _, projectID := range orderedIDs(projectIDs) {
-		if err := projectShared(ctx, q, projectID); err != nil {
-			return err
-		}
 	}
 	return nil
 }

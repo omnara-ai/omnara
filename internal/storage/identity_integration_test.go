@@ -2222,7 +2222,7 @@ func TestPoolTeardownCompletionDestroysDeletedOrgSecretVersions(t *testing.T) {
 	store := newIntegrationStore(pool, WithSecretKeyWrapper(keyWrapper))
 	now := time.Date(2026, 4, 29, 16, 20, 0, 0, time.UTC)
 	admin := createSecretTestUser(t, ctx, store, "Teardown Admin", "admin")
-	credential, credentialVersion, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+	credential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     testOrgID,
 		OwnerKind: secretstore.SecretOwnerOrg,
 		Name:      "teardown-pool-credential",
@@ -2241,11 +2241,10 @@ func TestPoolTeardownCompletionDestroysDeletedOrgSecretVersions(t *testing.T) {
 		INSERT INTO machine_pools(
 			id, org_id, name, management_kind, provider, default_machine_memory_mb,
 			max_total_machines, max_total_memory_mb, max_machine_memory_mb,
-			provider_auth_secret_id, deletion_provider_auth_secret_version_id,
-			deleted_at, created_at, updated_at
+			provider_auth_secret_id, deleted_at, created_at, updated_at
 		)
-		VALUES ($1, $2, 'teardown-destroy-pool', 'tenant', 'test', 1024, 1, 1024, 1024, $3, $4, $5, $5, $5)
-	`, poolID, testOrgID, credential.ID, credentialVersion.ID, now); err != nil {
+		VALUES ($1, $2, 'teardown-destroy-pool', 'tenant', 'test', 1024, 1, 1024, 1024, $3, $4, $4, $4)
+	`, poolID, testOrgID, credential.ID, now); err != nil {
 		t.Fatalf("insert deleted machine pool: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -6405,6 +6404,73 @@ func TestMachineDaemonTokenRequiresEligibleMachineLifecycle(t *testing.T) {
 type tokenCreationRaceResult struct {
 	token string
 	err   error
+}
+
+func TestOrgAPIKeyCreationAndMembershipUsePrincipalBeforeOrganizationOrder(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedDefaultProject(t, ctx, NewStore(pool))
+	store := NewStore(pool)
+	user := mustCreateIdentityUser(t, ctx, store, "org-key-lock-order@example.com", "Org Key Lock Order")
+
+	controlTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin principal lock control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if _, err := dbsqlc.New(controlTx).LockUserForUpdate(
+		ctx,
+		dbsqlc.LockUserForUpdateParams{ID: user.ID},
+	); err != nil {
+		t.Fatalf("lock principal for contention: %v", err)
+	}
+
+	keyDone := make(chan error, 1)
+	go func() {
+		_, createErr := store.Identity().CreateOrgAPIKeyWithPlaintext(
+			context.Background(),
+			identitystore.CreateOrgAPIKeyInput{
+				OrgID:           testOrgID,
+				CreatedByUserID: user.ID,
+				Name:            "lock-order-key",
+				OrgRole:         "member",
+			},
+		)
+		keyDone <- createErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 1)
+
+	membershipDone := make(chan error, 1)
+	go func() {
+		_, addErr := store.Identity().AddOrgMembership(
+			context.Background(),
+			identitystore.AddOrgMembershipInput{
+				OrgID:  testOrgID,
+				UserID: user.ID,
+				Role:   "member",
+			},
+		)
+		membershipDone <- addErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 2)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release principal lock: %v", err)
+	}
+	for operation, done := range map[string]<-chan error{
+		"create organization API key": keyDone,
+		"add organization membership": membershipDone,
+	} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("%s: %v", operation, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting to %s", operation)
+		}
+	}
 }
 
 func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {

@@ -645,7 +645,10 @@ func (m Manager) providerForMachine(
 	}
 	providerAuthToken, err := m.Execution.ResolveMachineProviderAuthToken(
 		ctx,
-		pool,
+		pool.OrgID,
+		pool.ManagementKind,
+		pool.ProviderAuthSecretID,
+		pool.ProviderAuthEnvVar,
 	)
 	if err != nil {
 		return nil, "provider_config_invalid", "machine provider credential is unavailable", err

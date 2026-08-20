@@ -367,12 +367,6 @@ func (q *Queries) CompletePoolMachineProvisioning(ctx context.Context, arg Compl
 const deleteMachinePool = `-- name: DeleteMachinePool :one
 UPDATE machine_pools pool
 SET deleted_at = statement_timestamp(),
-    deletion_provider_auth_secret_version_id = (
-      SELECT secret.current_version_id
-      FROM secrets secret
-      WHERE secret.org_id = pool.org_id
-        AND secret.id = pool.provider_auth_secret_id
-    ),
     updated_at = statement_timestamp()
 WHERE pool.org_id = $1
   AND pool.id = $2
@@ -985,7 +979,7 @@ func (q *Queries) GetMachineByIdempotency(ctx context.Context, arg GetMachineByI
 }
 
 const getMachinePool = `-- name: GetMachinePool :one
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, deletion_provider_auth_secret_version_id
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 FROM machine_pools
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
 `
@@ -1026,13 +1020,12 @@ func (q *Queries) GetMachinePool(ctx context.Context, arg GetMachinePoolParams) 
 		&i.RuntimeProtectionEnabled,
 		&i.MinMachineCpu,
 		&i.MinMachineMemoryMb,
-		&i.DeletionProviderAuthSecretVersionID,
 	)
 	return i, err
 }
 
 const getMachinePoolByName = `-- name: GetMachinePoolByName :one
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, deletion_provider_auth_secret_version_id
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 FROM machine_pools
 WHERE org_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -1073,13 +1066,12 @@ func (q *Queries) GetMachinePoolByName(ctx context.Context, arg GetMachinePoolBy
 		&i.RuntimeProtectionEnabled,
 		&i.MinMachineCpu,
 		&i.MinMachineMemoryMb,
-		&i.DeletionProviderAuthSecretVersionID,
 	)
 	return i, err
 }
 
 const getMachinePoolForLifecycle = `-- name: GetMachinePoolForLifecycle :one
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, deletion_provider_auth_secret_version_id
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 FROM machine_pools
 WHERE org_id = $1 AND id = $2
 `
@@ -1120,7 +1112,6 @@ func (q *Queries) GetMachinePoolForLifecycle(ctx context.Context, arg GetMachine
 		&i.RuntimeProtectionEnabled,
 		&i.MinMachineCpu,
 		&i.MinMachineMemoryMb,
-		&i.DeletionProviderAuthSecretVersionID,
 	)
 	return i, err
 }
@@ -1392,7 +1383,7 @@ WHERE orgs.id = $23
     ($2 = 'cluster' AND $12::uuid IS NULL AND $13 <> '')
   )
 ON CONFLICT (org_id, name) WHERE deleted_at IS NULL DO NOTHING
-RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, deletion_provider_auth_secret_version_id
+RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 `
 
 type InsertMachinePoolParams struct {
@@ -1476,7 +1467,6 @@ func (q *Queries) InsertMachinePool(ctx context.Context, arg InsertMachinePoolPa
 		&i.RuntimeProtectionEnabled,
 		&i.MinMachineCpu,
 		&i.MinMachineMemoryMb,
-		&i.DeletionProviderAuthSecretVersionID,
 	)
 	return i, err
 }
@@ -1544,7 +1534,7 @@ func (q *Queries) ListActiveMachinePoolIDsForOrganizationDeletion(ctx context.Co
 }
 
 const listClusterManagedMachinePools = `-- name: ListClusterManagedMachinePools :many
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, deletion_provider_auth_secret_version_id
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 FROM machine_pools
 WHERE org_id = $1 AND management_kind = 'cluster' AND deleted_at IS NULL
 ORDER BY name, id
@@ -1591,7 +1581,6 @@ func (q *Queries) ListClusterManagedMachinePools(ctx context.Context, arg ListCl
 			&i.RuntimeProtectionEnabled,
 			&i.MinMachineCpu,
 			&i.MinMachineMemoryMb,
-			&i.DeletionProviderAuthSecretVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -1604,7 +1593,7 @@ func (q *Queries) ListClusterManagedMachinePools(ctx context.Context, arg ListCl
 }
 
 const listClusterManagedMachinePoolsByName = `-- name: ListClusterManagedMachinePoolsByName :many
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, deletion_provider_auth_secret_version_id
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 FROM machine_pools
 WHERE name = $1 AND management_kind = 'cluster' AND deleted_at IS NULL
 ORDER BY org_id, id
@@ -1651,7 +1640,6 @@ func (q *Queries) ListClusterManagedMachinePoolsByName(ctx context.Context, arg 
 			&i.RuntimeProtectionEnabled,
 			&i.MinMachineCpu,
 			&i.MinMachineMemoryMb,
-			&i.DeletionProviderAuthSecretVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -1702,8 +1690,7 @@ const listMachinePools = `-- name: ListMachinePools :many
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu,
        default_machine_memory_mb, default_machine_env, default_machine_secret_env,
        default_machine_provider_options, default_cwd, provider_config,
-       provider_auth_secret_id, deletion_provider_auth_secret_version_id,
-       provider_auth_env_var, max_total_machines,
+       provider_auth_secret_id, provider_auth_env_var, max_total_machines,
        max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb,
        metadata, deleted_at, created_at, updated_at, runtime_protection_enabled,
        min_machine_cpu, min_machine_memory_mb,
@@ -1787,39 +1774,38 @@ type ListMachinePoolsParams struct {
 }
 
 type ListMachinePoolsRow struct {
-	ID                                  uuid.UUID
-	OrgID                               uuid.UUID
-	Name                                string
-	ManagementKind                      string
-	Description                         string
-	Provider                            string
-	DefaultMachineCpu                   *int32
-	DefaultMachineMemoryMb              *int32
-	DefaultMachineEnv                   json.RawMessage
-	DefaultMachineSecretEnv             json.RawMessage
-	DefaultMachineProviderOptions       json.RawMessage
-	DefaultCwd                          string
-	ProviderConfig                      json.RawMessage
-	ProviderAuthSecretID                *uuid.UUID
-	DeletionProviderAuthSecretVersionID *uuid.UUID
-	ProviderAuthEnvVar                  string
-	MaxTotalMachines                    int32
-	MaxTotalCpu                         *int32
-	MaxTotalMemoryMb                    *int32
-	MaxMachineCpu                       *int32
-	MaxMachineMemoryMb                  *int32
-	Metadata                            json.RawMessage
-	DeletedAt                           *time.Time
-	CreatedAt                           time.Time
-	UpdatedAt                           time.Time
-	RuntimeProtectionEnabled            bool
-	MinMachineCpu                       *int32
-	MinMachineMemoryMb                  *int32
-	ActiveMachines                      int32
-	ActiveCpu                           int64
-	ActiveMemoryMb                      int64
-	SortKey                             string
-	SortIsNull                          bool
+	ID                            uuid.UUID
+	OrgID                         uuid.UUID
+	Name                          string
+	ManagementKind                string
+	Description                   string
+	Provider                      string
+	DefaultMachineCpu             *int32
+	DefaultMachineMemoryMb        *int32
+	DefaultMachineEnv             json.RawMessage
+	DefaultMachineSecretEnv       json.RawMessage
+	DefaultMachineProviderOptions json.RawMessage
+	DefaultCwd                    string
+	ProviderConfig                json.RawMessage
+	ProviderAuthSecretID          *uuid.UUID
+	ProviderAuthEnvVar            string
+	MaxTotalMachines              int32
+	MaxTotalCpu                   *int32
+	MaxTotalMemoryMb              *int32
+	MaxMachineCpu                 *int32
+	MaxMachineMemoryMb            *int32
+	Metadata                      json.RawMessage
+	DeletedAt                     *time.Time
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
+	RuntimeProtectionEnabled      bool
+	MinMachineCpu                 *int32
+	MinMachineMemoryMb            *int32
+	ActiveMachines                int32
+	ActiveCpu                     int64
+	ActiveMemoryMb                int64
+	SortKey                       string
+	SortIsNull                    bool
 }
 
 func (q *Queries) ListMachinePools(ctx context.Context, arg ListMachinePoolsParams) ([]ListMachinePoolsRow, error) {
@@ -1855,7 +1841,6 @@ func (q *Queries) ListMachinePools(ctx context.Context, arg ListMachinePoolsPara
 			&i.DefaultCwd,
 			&i.ProviderConfig,
 			&i.ProviderAuthSecretID,
-			&i.DeletionProviderAuthSecretVersionID,
 			&i.ProviderAuthEnvVar,
 			&i.MaxTotalMachines,
 			&i.MaxTotalCpu,
@@ -2215,7 +2200,7 @@ func (q *Queries) LockMachinePoolForLifecycle(ctx context.Context, arg LockMachi
 }
 
 const lockMachinePoolForUpdate = `-- name: LockMachinePoolForUpdate :one
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, deletion_provider_auth_secret_version_id
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 FROM machine_pools
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
 FOR UPDATE
@@ -2257,7 +2242,6 @@ func (q *Queries) LockMachinePoolForUpdate(ctx context.Context, arg LockMachineP
 		&i.RuntimeProtectionEnabled,
 		&i.MinMachineCpu,
 		&i.MinMachineMemoryMb,
-		&i.DeletionProviderAuthSecretVersionID,
 	)
 	return i, err
 }
@@ -2785,7 +2769,6 @@ func (q *Queries) RecordPoolMachineProvisioningResource(ctx context.Context, arg
 const releaseMachinePoolCredentialIfIdle = `-- name: ReleaseMachinePoolCredentialIfIdle :exec
 UPDATE machine_pools pool
 SET provider_auth_secret_id = NULL,
-    deletion_provider_auth_secret_version_id = NULL,
     updated_at = statement_timestamp()
 WHERE pool.org_id = $1
   AND pool.id = $2
@@ -2838,7 +2821,7 @@ WHERE org_id = $20
   AND id = $21
   AND management_kind = $22
   AND deleted_at IS NULL
-RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, deletion_provider_auth_secret_version_id
+RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
 `
 
 type UpdateMachinePoolParams struct {
@@ -2920,7 +2903,6 @@ func (q *Queries) UpdateMachinePool(ctx context.Context, arg UpdateMachinePoolPa
 		&i.RuntimeProtectionEnabled,
 		&i.MinMachineCpu,
 		&i.MinMachineMemoryMb,
-		&i.DeletionProviderAuthSecretVersionID,
 	)
 	return i, err
 }

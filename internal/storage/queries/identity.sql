@@ -87,9 +87,7 @@ WHERE secret.org_id = version.org_id
   )
   AND NOT EXISTS (
     SELECT 1 FROM machine_pools pool
-    WHERE pool.org_id = secret.org_id
-      AND pool.provider_auth_secret_id = secret.id
-      AND pool.deletion_provider_auth_secret_version_id = version.id
+    WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
   )
   AND NOT EXISTS (
     SELECT 1 FROM integration_installs install

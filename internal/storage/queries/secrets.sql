@@ -93,31 +93,6 @@ SELECT id, org_id, secret_id, version_number, payload_keys, encryption_scheme, k
 FROM secret_versions
 WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id) AND id = sqlc.arg(id);
 
--- name: GetMachinePoolDeletionCredentialVersion :one
--- @sqlc-vet-disable machine-pools-deleted-at
--- @sqlc-vet-disable secrets-deleted-at
--- Provider teardown reads the retained credential after pool and secret tombstoning.
-SELECT version.id, version.org_id, version.secret_id, version.version_number,
-       version.payload_keys, version.encryption_scheme, version.key_id,
-       version.dek_wrapped_by, version.encrypted_dek, version.encrypted_dek_nonce,
-       version.nonce, version.ciphertext, version.created_at,
-       secret.kind
-FROM machine_pools pool
-JOIN secrets secret
-  ON secret.org_id = pool.org_id
- AND secret.id = pool.provider_auth_secret_id
- AND secret.management_kind = 'tenant'
- AND secret.owner_kind = 'org'
- AND secret.kind = 'generic'
-JOIN secret_versions version
-  ON version.org_id = secret.org_id
- AND version.secret_id = secret.id
- AND version.id = pool.deletion_provider_auth_secret_version_id
-WHERE pool.org_id = sqlc.arg(org_id)
-  AND pool.id = sqlc.arg(machine_pool_id)
-  AND pool.management_kind = 'tenant'
-  AND pool.deleted_at IS NOT NULL;
-
 -- name: ListSecretVersionsByKeyID :many
 -- @sqlc-vet-disable secrets-deleted-at
 -- Key rewrap sweeps versions of soft-deleted secrets too.
