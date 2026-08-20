@@ -143,7 +143,8 @@ func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) 
 		route,
 	)
 	if errors.Is(err, integration.ErrAgentLaunchFailed) &&
-		errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		(errors.Is(err, storeerr.ErrStateTransitionConflict) ||
+			errors.Is(err, storeerr.ErrManagedWorkAdmissionDenied)) {
 		logpkg.LoggerFromContext(r.Context()).Warn(
 			"slack integration agent launch failed",
 			"integration_install_id",
