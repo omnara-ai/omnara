@@ -369,11 +369,7 @@ func apiOptions(
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
 		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),
 		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog())),
-		httpapi.WithHostedCredentialProvisioner(modelprovider.HTTPHostedCredentialProvisioner{
-			BaseURL:    cfg.HostedAPIURL,
-			Token:      cfg.HostedAPIToken,
-			HTTPClient: operatorHTTPClient,
-		}),
+		httpapi.WithHostedAPIToken(cfg.HostedAPIToken),
 		httpapi.WithMachinePoolManager(machinePoolManager),
 		httpapi.WithDaemonReleaseURL(cfg.DaemonReleaseURL),
 		httpapi.WithDaemonSocketFallbackDrainTiming(

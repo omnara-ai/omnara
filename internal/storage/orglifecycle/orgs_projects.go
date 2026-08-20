@@ -74,7 +74,6 @@ func (s *Service) CreateOrgForUser(
 			tx,
 			record.Org.ID,
 			record.Project.ID,
-			input.UserID,
 			input.DefaultModelProvider,
 		); err != nil {
 			return identitystore.CreateOrgForUserRecord{}, err

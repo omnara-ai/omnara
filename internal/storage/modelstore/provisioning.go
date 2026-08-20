@@ -205,11 +205,11 @@ func configuredModelInputFromDefaultTemplate(model DefaultConfiguredModelTemplat
 func (s *Store) ProvisionDefaultTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID, defaultProjectID, createdByUserID, credentialSecretID ID,
+	orgID, defaultProjectID, credentialSecretID ID,
 	template DefaultModelProviderTemplate,
 ) error {
-	if isNilID(orgID) || isNilID(defaultProjectID) || isNilID(createdByUserID) || isNilID(credentialSecretID) {
-		return errors.New("org, default project, creator, and credential are required")
+	if isNilID(orgID) || isNilID(defaultProjectID) || isNilID(credentialSecretID) {
+		return errors.New("org, default project, and credential are required")
 	}
 	prepared, err := PrepareDefaultModelProviderTemplate(template)
 	if err != nil {

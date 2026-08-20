@@ -20,6 +20,7 @@ const (
 	manualRouteAccessAuthRequired          manualRouteAccess = "auth-required"
 	manualRouteAccessProviderSigned        manualRouteAccess = "provider-signed"
 	manualRouteAccessProviderUnsignedProbe manualRouteAccess = "provider-unsigned-probe"
+	manualRouteAccessServiceToken          manualRouteAccess = "service-token"
 	manualRouteAccessOAuthState            manualRouteAccess = "oauth-state"
 	manualRouteAccessStatic                manualRouteAccess = "static"
 )
@@ -36,6 +37,7 @@ var serverManualRouteContracts = []manualRouteContract{
 	{Method: http.MethodGet, Pattern: mcpOAuthClientMetadataPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodPost, Pattern: integrationEventsPath, Access: manualRouteAccessProviderUnsignedProbe},
 	{Method: http.MethodPost, Pattern: integrationActionsPath, Access: manualRouteAccessProviderSigned},
+	{Method: http.MethodPost, Pattern: hostedCredentialCompletionPath, Access: manualRouteAccessServiceToken},
 	{Method: http.MethodGet, Pattern: openAPIYAMLPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: omnaradInstallPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: webConfigPath, Access: manualRouteAccessStatic},
@@ -51,6 +53,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /.well-known/oauth-client.json", s.mcpOAuthClientMetadataRoute)
 	mux.HandleFunc("POST /api/integrations/slack/events", s.integrationEventsRoute)
 	mux.HandleFunc("POST /api/integrations/slack/actions", s.integrationActionsRoute)
+	if s.defaultModelProvider != nil {
+		mux.HandleFunc(
+			"POST /internal/model-provider-credentials/complete",
+			s.hostedCredentialCompletionRoute,
+		)
+	}
 	mux.HandleFunc("GET /api/openapi.yaml", s.openapiYAMLRoute)
 	mux.HandleFunc("GET /install/omnarad.sh", s.omnaradInstallRoute)
 	mux.HandleFunc("GET /api/web-config", s.webConfigRoute)

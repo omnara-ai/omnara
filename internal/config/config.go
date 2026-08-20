@@ -99,7 +99,6 @@ type Config struct {
 	OpenRouterSiteURL                 string
 	OpenRouterAppTitle                string
 	OpenRouterAppCategories           []string
-	HostedAPIURL                      string
 	HostedAPIToken                    string
 }
 
@@ -269,7 +268,6 @@ func Load() (Config, error) {
 		OpenRouterSiteURL:                 openRouterSiteURL,
 		OpenRouterAppTitle:                openRouterAppTitle,
 		OpenRouterAppCategories:           openRouterAppCategories,
-		HostedAPIURL:                      getenv("OMNARA_HOSTED_API_URL", ""),
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
 	}
 	if defaultMachinePoolTemplatesPath := getenv(
@@ -460,10 +458,7 @@ func (cfg Config) ValidateAPI() error {
 			return err
 		}
 	}
-	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
-		return err
-	}
-	if err := cfg.validateHostedAPIConfig(); err != nil {
+	if err := cfg.validateHostedProviderConfig(); err != nil {
 		return err
 	}
 	return nil
@@ -702,30 +697,12 @@ func (cfg Config) ValidateMaintenance() error {
 	return nil
 }
 
-func (cfg Config) validateDefaultModelProviderTemplateWireSize() error {
+func (cfg Config) validateHostedProviderConfig() error {
 	if cfg.DefaultModelProvider == nil {
 		return nil
 	}
-	if err := modelprovider.ValidateHostedCredentialTemplateWireSize(*cfg.DefaultModelProvider); err != nil {
-		return fmt.Errorf("default model provider %q: %w", cfg.DefaultModelProvider.Name, err)
-	}
-	return nil
-}
-
-func (cfg Config) validateHostedAPIConfig() error {
-	required := cfg.DefaultModelProvider != nil
-	configured := cfg.HostedAPIURL != "" || cfg.HostedAPIToken != ""
-	if !required && !configured {
-		return nil
-	}
-	if cfg.HostedAPIURL == "" {
-		return errors.New("OMNARA_HOSTED_API_URL is required when hosted API access is configured")
-	}
 	if cfg.HostedAPIToken == "" {
-		return errors.New("OMNARA_HOSTED_API_TOKEN is required when hosted API access is configured")
-	}
-	if err := modelprovider.ValidateHostedAPIBaseURL(cfg.HostedAPIURL); err != nil {
-		return err
+		return errors.New("OMNARA_HOSTED_API_TOKEN is required when a default model provider is configured")
 	}
 	return modelprovider.ValidateHostedAPIToken(cfg.HostedAPIToken)
 }

@@ -46,6 +46,18 @@ func TestLogEntitiesAttachCanonicalFields(t *testing.T) {
 			want: map[string]any{"org.id": orgID.String(), "project.id": projectID.String(), "project.name": "p"},
 		},
 		{
+			name: "AuthRateLimited",
+			attach: func(ctx context.Context) {
+				AuthRateLimited(ctx, "signup", "client")
+			},
+			want: map[string]any{
+				"level":                  "warn",
+				"auth.rate_limit.action": "signup",
+				"auth.rate_limit.scope":  "client",
+			},
+			banned: []string{"email", "ip", "subject", "bucket"},
+		},
+		{
 			name: "Agent",
 			attach: func(ctx context.Context) {
 				Agent(ctx, executionstore.AgentRecord{
@@ -227,6 +239,7 @@ func TestLogEntitiesNoopOnEmptyContext(t *testing.T) {
 	RuntimeLock(ctx, executionstore.AgentRuntimeLockRecord{})
 	Turn(ctx, executionstore.AgentTurnRecord{})
 	AgentInput(ctx, executionstore.AgentInputRecord{})
+	AuthRateLimited(ctx, "", "")
 	Machine(ctx, executionstore.MachineRecord{})
 	MachineBootstrap(ctx, executionstore.MachineBootstrapRecord{})
 	MachineFailureReport(ctx, executionstore.MachineFailureReportInput{})
