@@ -5645,8 +5645,9 @@ paths:
       summary: Update machine pool
       description: >-
         Tenant-managed pools support every request field. Cluster-managed pools only allow changes to
-        default CPU and memory, environment and secret environment variables, and provider-supported
-        per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
+        default CPU and memory, environment and secret environment variables, provider-supported
+        per-machine CPU and memory limits, and the idle deletion policy. Other cluster-managed changes
+        are rejected with 409 Conflict.
       security:
         - bearerAuth: []
         - browserSessionCookie: []

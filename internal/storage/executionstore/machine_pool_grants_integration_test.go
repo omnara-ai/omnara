@@ -700,18 +700,20 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	clusterMinMemoryMB := 1024
 	clusterMaxCPU := 4
 	clusterMaxMemoryMB := 4096
+	clusterDeleteAfterIdleMinutes := 30
 	clusterSecretEnv := json.RawMessage(fmt.Sprintf(
 		`{"TOKEN":%q}`,
 		secretPublicIDForTest(t, rotatedProviderAuthSecretID),
 	))
 	updatedDefaultPool, err := store.Execution().UpdateMachinePool(ctx, machinePoolUpdateInputWithDefaultMachineForTest(
 		executionstore.UpdateMachinePoolInput{
-			OrgID:              testOrgID,
-			ID:                 defaultPool.ID,
-			MinMachineCPU:      patch.NullableInt{Set: true, Value: &clusterMinCPU},
-			MinMachineMemoryMB: patch.NullableInt{Set: true, Value: &clusterMinMemoryMB},
-			MaxMachineCPU:      patch.NullableInt{Set: true, Value: &clusterMaxCPU},
-			MaxMachineMemoryMB: patch.NullableInt{Set: true, Value: &clusterMaxMemoryMB},
+			OrgID:                  testOrgID,
+			ID:                     defaultPool.ID,
+			MinMachineCPU:          patch.NullableInt{Set: true, Value: &clusterMinCPU},
+			MinMachineMemoryMB:     patch.NullableInt{Set: true, Value: &clusterMinMemoryMB},
+			MaxMachineCPU:          patch.NullableInt{Set: true, Value: &clusterMaxCPU},
+			MaxMachineMemoryMB:     patch.NullableInt{Set: true, Value: &clusterMaxMemoryMB},
+			DeleteAfterIdleMinutes: patch.NullableInt{Set: true, Value: &clusterDeleteAfterIdleMinutes},
 		},
 		defaultMachineUpdateFieldsForTest{
 			DefaultMachineCPU:       &clusterDefaultCPU,
@@ -729,6 +731,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		updatedDefaultPool.MinMachineMemoryMB == nil || *updatedDefaultPool.MinMachineMemoryMB != clusterMinMemoryMB ||
 		updatedDefaultPool.MaxMachineCPU == nil || *updatedDefaultPool.MaxMachineCPU != clusterMaxCPU ||
 		updatedDefaultPool.MaxMachineMemoryMB == nil || *updatedDefaultPool.MaxMachineMemoryMB != clusterMaxMemoryMB ||
+		updatedDefaultPool.DeleteAfterIdleMinutes == nil || *updatedDefaultPool.DeleteAfterIdleMinutes != clusterDeleteAfterIdleMinutes ||
 		!sameJSON(updatedDefaultPool.DefaultMachineEnv, json.RawMessage(`{"ALLOWED":"yes"}`)) ||
 		!sameJSON(updatedDefaultPool.DefaultMachineSecretEnv, clusterSecretEnv) ||
 		!sameJSON(updatedDefaultPool.DefaultMachineProviderOptions, json.RawMessage(`{"image":"cluster","sleep_after_ms":30000}`)) {

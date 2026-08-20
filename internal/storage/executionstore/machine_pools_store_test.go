@@ -64,9 +64,8 @@ func TestValidateClusterMachinePoolUpdate(t *testing.T) {
 			input: UpdateMachinePoolInput{MaxMachineMemoryMB: patch.NullableInt{Set: true, Value: &value}},
 		},
 		{
-			field:     "DeleteAfterIdleMinutes",
-			input:     UpdateMachinePoolInput{DeleteAfterIdleMinutes: patch.NullableInt{Set: true, Value: &value}},
-			protected: true,
+			field: "DeleteAfterIdleMinutes",
+			input: UpdateMachinePoolInput{DeleteAfterIdleMinutes: patch.NullableInt{Set: true, Value: &value}},
 		},
 		{field: "Metadata", input: UpdateMachinePoolInput{Metadata: resourcemeta.Metadata{}}, protected: true},
 	}

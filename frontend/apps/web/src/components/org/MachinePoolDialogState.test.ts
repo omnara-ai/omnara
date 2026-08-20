@@ -224,6 +224,7 @@ describe('machine pool edit state', () => {
       minMachineMemoryGb: '1',
       maxMachineCpu: '4',
       maxMachineMemoryGb: '4',
+      deleteAfterIdleMinutes: '15',
     }
 
     expect(machinePoolFormValid(edited, 'cluster-edit')).toBe(true)
@@ -237,6 +238,7 @@ describe('machine pool edit state', () => {
       min_machine_memory_mb: 1024,
       max_machine_cpu: 4,
       max_machine_memory_mb: 4096,
+      delete_after_idle_minutes: 15,
     })
   })
 

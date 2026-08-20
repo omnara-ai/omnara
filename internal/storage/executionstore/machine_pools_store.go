@@ -778,7 +778,6 @@ func validateClusterMachinePoolUpdate(input UpdateMachinePoolInput) error {
 		input.MaxTotalMachines != nil ||
 		input.MaxTotalCPU.Set ||
 		input.MaxTotalMemoryMB.Set ||
-		input.DeleteAfterIdleMinutes.Set ||
 		input.Metadata != nil
 	if protectedUpdate {
 		return fmt.Errorf(

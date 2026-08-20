@@ -436,6 +436,7 @@ function clusterMachinePoolUpdateRequest(
   const common = {
     default_machine_env: envFromRows(values.envRows) ?? {},
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows) ?? {},
+    delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
   }
   switch (values.provider) {
     case 'unikraft':
