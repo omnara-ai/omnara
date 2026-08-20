@@ -343,7 +343,7 @@ func allocateNewPoolMachineForAgentTx(
 		OrgID:                  orgID,
 		MachinePoolID:          &poolGrant.MachinePoolID,
 		SourceKind:             string(MachineSourceKindPool),
-		DisplayName:            "Instance of " + poolGrant.PoolName,
+		DisplayName:            poolMachineDisplayName(poolGrant.PoolName),
 		Description:            source.Contract.Description,
 		Provider:               poolGrant.Provider,
 		LifecycleState:         string(MachineLifecycleStateProvisioning),

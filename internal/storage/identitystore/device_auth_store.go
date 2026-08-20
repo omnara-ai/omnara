@@ -6,39 +6,38 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
-	DeviceAuthFlowTTL      = 15 * time.Minute
-	DeviceAuthPollInterval = 5 * time.Second
-	deviceAuthCodeAttempts = 5
-	deviceAuthNameMaxRunes = 128
+	DeviceAuthFlowTTL            = 15 * time.Minute
+	DeviceAuthPollInterval       = 5 * time.Second
+	DeviceAuthClientNameMaxRunes = 128
+	deviceAuthCodeAttempts       = 5
 )
 
 func (s *Store) StartDeviceAuthFlow(
 	ctx context.Context,
 	input StartDeviceAuthFlowInput,
 ) (DeviceAuthFlowStartRecord, error) {
-	clientName := strings.TrimSpace(input.ClientName)
+	clientName := input.ClientName
 	if clientName == "" {
 		clientName = "Device"
 	}
-	tokenName := strings.TrimSpace(input.TokenName)
+	tokenName := input.TokenName
 	if tokenName == "" {
 		tokenName = "Device login"
 	}
-	if err := validateDeviceAuthFlowName("client_name", clientName); err != nil {
+	if err := validateDeviceAuthClientName(clientName); err != nil {
 		return DeviceAuthFlowStartRecord{}, err
 	}
-	if err := validateDeviceAuthFlowName("token_name", tokenName); err != nil {
-		return DeviceAuthFlowStartRecord{}, err
+	if err := resourcename.Validate("token_name", tokenName); err != nil {
+		return DeviceAuthFlowStartRecord{}, storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
 	var deviceCode string
 	var userCode string
@@ -304,17 +303,9 @@ func (s *Store) PollDeviceAuthFlow(
 	}, nil
 }
 
-func validateDeviceAuthFlowName(field, value string) error {
-	if utf8.RuneCountInString(value) > deviceAuthNameMaxRunes {
-		return storeerr.Tag(
-			storeerr.ErrInvalidDeviceAuthFlow,
-			fmt.Errorf("%s cannot exceed %d characters", field, deviceAuthNameMaxRunes),
-		)
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			return storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, errors.New(field+" cannot include control characters"))
-		}
+func validateDeviceAuthClientName(value string) error {
+	if err := resourcename.ValidateWithMax("client_name", value, DeviceAuthClientNameMaxRunes); err != nil {
+		return storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
 	return nil
 }

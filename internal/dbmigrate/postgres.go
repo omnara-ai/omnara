@@ -3,20 +3,24 @@ package dbmigrate
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io/fs"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 )
 
 const (
-	postgresMigrationLockID int64 = 0x4f4d4e415241
-	minimumPostgresVersion  int   = 180000
+	postgresMigrationLockID      int64 = 0x4f4d4e415241
+	minimumPostgresVersion       int   = 180000
+	resourceNameMigrationVersion int64 = 24
 
 	defaultLockTimeout      = "30s"
 	defaultStatementTimeout = "15min"
@@ -82,7 +86,7 @@ func ApplyPostgres(
 	db *sql.DB,
 	migrations fs.FS,
 ) error {
-	if err := requirePostgresVersion(ctx, db); err != nil {
+	if err := requirePostgresCapabilities(ctx, db); err != nil {
 		return err
 	}
 	locker, err := lock.NewPostgresSessionLocker(
@@ -113,6 +117,11 @@ func ApplyPostgres(
 	if current > target {
 		return newerDatabaseVersionError(current, target)
 	}
+	if current < resourceNameMigrationVersion && target >= resourceNameMigrationVersion {
+		if err := validateStoredAgentConfigResourceNames(ctx, db); err != nil {
+			return fmt.Errorf("resource-name migration preflight: %w", err)
+		}
+	}
 	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("apply PostgreSQL migrations: %w", err)
 	}
@@ -129,6 +138,95 @@ func ApplyPostgres(
 			current,
 			target,
 		)
+	}
+	return nil
+}
+
+func validateStoredAgentConfigResourceNames(ctx context.Context, db *sql.DB) error {
+	var tableExists bool
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT to_regclass('agent_configs') IS NOT NULL`,
+	).Scan(&tableExists); err != nil {
+		return fmt.Errorf("locate stored agent configs: %w", err)
+	}
+	if !tableExists {
+		return nil
+	}
+	rows, err := db.QueryContext(
+		ctx,
+		`SELECT
+			id::text,
+			source_format,
+			source,
+			compiled_definition::text,
+			compiler_version,
+			effective_definition_hash
+		 FROM agent_configs
+		 ORDER BY id`,
+	)
+	if err != nil {
+		return fmt.Errorf("list stored agent configs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	const reportedViolationLimit = 20
+	violationCount := 0
+	violations := make([]string, 0, reportedViolationLimit)
+	for rows.Next() {
+		var id, format, source, compiledDefinition, compilerVersion, definitionHash string
+		if err := rows.Scan(
+			&id,
+			&format,
+			&source,
+			&compiledDefinition,
+			&compilerVersion,
+			&definitionHash,
+		); err != nil {
+			return fmt.Errorf("scan stored agent config: %w", err)
+		}
+		var sourceErr error
+		if _, err := agentconfig.ParseSource(
+			agentconfig.SourceFormat(format),
+			[]byte(source),
+		); err != nil {
+			sourceErr = err
+		}
+		var compiledErr error
+		if _, err := agentconfig.RuntimeContractFromCompiled(
+			json.RawMessage(compiledDefinition),
+			compilerVersion,
+			definitionHash,
+		); err != nil {
+			compiledErr = err
+		}
+		if sourceErr == nil && compiledErr == nil {
+			continue
+		}
+		violationCount++
+		if len(violations) < reportedViolationLimit {
+			reasons := make([]string, 0, 2)
+			if sourceErr != nil {
+				reasons = append(reasons, "source: "+sourceErr.Error())
+			}
+			if compiledErr != nil {
+				reasons = append(reasons, "compiled definition: "+compiledErr.Error())
+			}
+			violations = append(violations, id+" ("+strings.Join(reasons, "; ")+")")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate stored agent configs: %w", err)
+	}
+	if violationCount > 0 {
+		detail := strings.Join(violations, ", ")
+		if omitted := violationCount - len(violations); omitted > 0 {
+			detail += fmt.Sprintf(", and %d more", omitted)
+		}
+		resource := "agent configs"
+		if violationCount == 1 {
+			resource = "agent config"
+		}
+		return fmt.Errorf("%d %s must be migrated: %s", violationCount, resource, detail)
 	}
 	return nil
 }
@@ -150,15 +248,21 @@ func (locker deadlineSessionLocker) SessionUnlock(ctx context.Context, conn *sql
 	return locker.delegate.SessionUnlock(unlockCtx, conn)
 }
 
-func requirePostgresVersion(ctx context.Context, db *sql.DB) error {
+func requirePostgresCapabilities(ctx context.Context, db *sql.DB) error {
 	var version int
+	var encoding string
 	if err := db.QueryRowContext(
 		ctx,
-		`SELECT current_setting('server_version_num')::integer`,
-	).Scan(&version); err != nil {
-		return fmt.Errorf("read PostgreSQL server version: %w", err)
+		`SELECT
+			current_setting('server_version_num')::integer,
+			current_setting('server_encoding')`,
+	).Scan(&version, &encoding); err != nil {
+		return fmt.Errorf("read PostgreSQL capabilities: %w", err)
 	}
-	return validatePostgresVersion(version)
+	if err := validatePostgresVersion(version); err != nil {
+		return err
+	}
+	return validatePostgresEncoding(encoding)
 }
 
 func validatePostgresVersion(version int) error {
@@ -166,6 +270,16 @@ func validatePostgresVersion(version int) error {
 		return fmt.Errorf(
 			"PostgreSQL 18 or newer is required (server_version_num=%d)",
 			version,
+		)
+	}
+	return nil
+}
+
+func validatePostgresEncoding(encoding string) error {
+	if encoding != "UTF8" {
+		return fmt.Errorf(
+			"PostgreSQL UTF8 database encoding is required (server_encoding=%q)",
+			encoding,
 		)
 	}
 	return nil

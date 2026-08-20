@@ -44,26 +44,28 @@ func TestRenameAgentProfileRoute(t *testing.T) {
 		handler,
 		http.MethodPatch,
 		profilePath,
-		`{"name":"Renamed"}`,
+		`{"name":"Renamed  研究 🚀"}`,
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if renamed["name"] != "Renamed" || renamed["id"] != profile["id"] ||
+	if renamed["name"] != "Renamed  研究 🚀" || renamed["id"] != profile["id"] ||
 		renamed["current_config_id"] != profile["current_config_id"] {
-		t.Fatalf("renamed profile = %+v, want name Renamed with unchanged config", renamed)
+		t.Fatalf("renamed profile = %+v, want exact name with unchanged config", renamed)
 	}
 
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPatch,
-		profilePath,
-		`{"name":"   "}`,
-		"",
-		http.StatusBadRequest,
-		authHeaders(project.AdminToken),
-	)
+	for _, body := range []string{`{"name":"   "}`, `{"name":" Renamed"}`} {
+		requestJSONWithHeaders(
+			t,
+			handler,
+			http.MethodPatch,
+			profilePath,
+			body,
+			"",
+			http.StatusBadRequest,
+			authHeaders(project.AdminToken),
+		)
+	}
 
 	fetched := requestJSONWithHeaders(
 		t,
@@ -75,7 +77,7 @@ func TestRenameAgentProfileRoute(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if fetched["name"] != "Renamed" {
-		t.Fatalf("fetched profile name = %v, want Renamed", fetched["name"])
+	if fetched["name"] != "Renamed  研究 🚀" {
+		t.Fatalf("fetched profile name = %v, want exact renamed value", fetched["name"])
 	}
 }

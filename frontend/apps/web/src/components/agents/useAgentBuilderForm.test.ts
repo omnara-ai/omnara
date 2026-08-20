@@ -3,7 +3,12 @@ import { parse } from 'yaml'
 
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
-import { type BasicConfig, createBasicConfigSession } from './useAgentBuilderForm'
+import {
+  type BasicConfig,
+  basicConfigValid,
+  createBasicConfigSession,
+  mcpServerNameError,
+} from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
   instruction: 'You are a research assistant.\n\nCite sources.',
@@ -524,5 +529,62 @@ describe('createBasicConfigSession apply', () => {
       skills: ['skl_1', 'skl_2'],
       tools: { shell: { type: 'built_in' } },
     })
+  })
+})
+
+describe('basic agent config names', () => {
+  it.each([
+    ['provider config', { providerConfig: ' anthropic' }],
+    ['configured model', { modelName: 'claude-sonnet-5 ' }],
+  ])('rejects rather than trims %s references', (_case, patch) => {
+    expect(basicConfigValid({ ...fullConfig, ...patch })).toBe(false)
+  })
+
+  it('rejects rather than trims machine references', () => {
+    const machineSources = fullConfig.machineSources.map((source, index) =>
+      index === 0 ? { ...source, name: ` ${source.name}` } : source,
+    )
+    expect(basicConfigValid({ ...fullConfig, machineSources })).toBe(false)
+  })
+
+  it('rejects rather than trims MCP server keys', () => {
+    const mcpServers = fullConfig.mcpServers.map((server, index) =>
+      index === 0 ? { ...server, name: ` ${server.name}` } : server,
+    )
+    expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
+  })
+
+  it.each([
+    ['', 'Name is required.'],
+    [' github', 'Name must start with a letter.'],
+    ['1github', 'Name must start with a letter.'],
+    ['git_hub', 'Name may only contain letters, numbers, and hyphens.'],
+    ['a'.repeat(33), 'Name cannot exceed 32 characters.'],
+    ['github', undefined],
+    ['GitHub-2', undefined],
+  ])('reports the MCP server key rule for %j', (name, expected) => {
+    expect(mcpServerNameError(name)).toBe(expected)
+  })
+
+  it('rejects duplicate MCP server keys', () => {
+    const mcpServers = fullConfig.mcpServers.map((server, index) =>
+      index === 1 ? { ...server, name: fullConfig.mcpServers[0]?.name ?? '' } : server,
+    )
+    expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
+  })
+
+  it('preserves accepted resource names exactly', () => {
+    const config = {
+      ...fullConfig,
+      providerConfig: 'Production OpenAI',
+      modelName: 'GPT 5',
+      machineSources: fullConfig.machineSources.map((source, index) =>
+        index === 0 ? { ...source, name: 'Primary  Pool' } : source,
+      ),
+    }
+    const roundTripped = mustDeserialize(applyToSource('', config))
+    expect(roundTripped.providerConfig).toBe('Production OpenAI')
+    expect(roundTripped.modelName).toBe('GPT 5')
+    expect(roundTripped.machineSources[0]?.name).toBe('Primary  Pool')
   })
 })

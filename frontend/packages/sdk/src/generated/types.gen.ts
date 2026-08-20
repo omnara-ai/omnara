@@ -5,6 +5,21 @@ export type ClientOptions = {
 };
 
 /**
+ * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character.
+ */
+export type ResourceName = string;
+
+/**
+ * Empty represents the endpoint's documented default or unnamed state; non-empty values use ResourceName.
+ */
+export type DefaultableResourceName = string;
+
+/**
+ * Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export type SkillName = string;
+
+/**
  * Sort order for named resources that expose created and modified timestamps.
  */
 export type ResourceListSort = 'name' | '-name' | '-updated_at' | 'updated_at' | '-created_at' | 'created_at';
@@ -127,7 +142,7 @@ export type ModelCacheRetention = 'none' | 'short' | 'long';
  * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
  */
 export type CreateModelProviderConfigRequest = {
-    name: string;
+    name: ResourceName;
     preset?: 'openai' | 'openrouter' | 'anthropic';
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
@@ -183,7 +198,7 @@ export type ModelProviderConfig = {
     id: ModelProviderConfigId;
     org_id: OrganizationId;
     management_kind: ManagementKind;
-    name: string;
+    name: ResourceName;
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
@@ -247,9 +262,9 @@ export type ModelProviderConfigList = {
 
 export type CreateConfiguredModelRequest = {
     /**
-     * Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
+     * User-assigned configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
      */
-    name: string;
+    name: ResourceName;
     /**
      * Exact provider model slug sent to the provider endpoint.
      */
@@ -299,9 +314,9 @@ export type CreateConfiguredModelRequest = {
  */
 export type UpdateConfiguredModelRequest = {
     /**
-     * Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
+     * User-assigned configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
      */
-    name?: string;
+    name?: ResourceName;
     /**
      * Exact provider model slug sent to the provider endpoint.
      */
@@ -352,9 +367,9 @@ export type ConfiguredModel = {
     model_provider_config_id: ModelProviderConfigId;
     management_kind: ManagementKind;
     /**
-     * Admin-facing configured model name used by agent YAML as model.name.
+     * User-assigned configured model name used by agent YAML as model.name.
      */
-    name: string;
+    name: ResourceName;
     current_revision_id: ConfiguredModelRevisionId;
     /**
      * Exact provider model slug sent to the provider endpoint by the current revision.
@@ -560,13 +575,13 @@ export type ConfiguredModelSummary = {
     org_id: OrganizationId;
     model_provider_config_id: ModelProviderConfigId;
     /**
-     * Admin-facing configured model name used by agent YAML as model.name.
+     * User-assigned configured model name used by agent YAML as model.name.
      */
-    name: string;
+    name: ResourceName;
     /**
      * Name of the provider config that owns this model, used by agent YAML as model.provider_config.
      */
-    provider_config: string;
+    provider_config: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -655,7 +670,7 @@ export type Skill = {
     id: SkillId;
     org_id: OrganizationId;
     owner: SkillOwner;
-    name: string;
+    name: SkillName;
     revision_id: SkillRevisionId;
     /**
      * Latest revision number of the skill.
@@ -723,7 +738,7 @@ export type ListSkillGrantsResponse = {
 export type McpoAuthStartRequest = {
     owner: SecretOwnerInput;
     mcp_url: string;
-    name: string;
+    name: ResourceName;
     return_to?: string;
     client_id?: string;
     client_secret?: string;
@@ -862,11 +877,11 @@ export type ToolCatalog = {
 };
 
 export type AgentConfigModel = {
-    provider_config: string;
+    provider_config: ResourceName;
     /**
-     * Configured model name selected by this agent config, rendered from the current configured model display record.
+     * Configured model name selected by this agent config, rendered from the current configured model record.
      */
-    name: string;
+    name: ResourceName;
     /**
      * Exact provider model slug on the configured model's current revision at response time.
      */
@@ -914,7 +929,7 @@ export type AgentConfig = {
 };
 
 export type CreateAgentProfileRequest = {
-    name: string;
+    name: ResourceName;
     config: AgentConfigId;
 };
 
@@ -924,14 +939,14 @@ export type UpdateAgentProfileRequest = {
 };
 
 export type RenameAgentProfileRequest = {
-    name: string;
+    name: ResourceName;
 };
 
 export type AgentProfile = {
     id: AgentProfileId;
     org_id: OrganizationId;
     project_id: ProjectId;
-    name: string;
+    name: ResourceName;
     current_config_id: AgentConfigId;
     current_generation: number;
     current_config: AgentConfig;
@@ -991,7 +1006,7 @@ export type CronTriggerFailureReport = {
 };
 
 export type CreateCronTriggerRequest = {
-    name: string;
+    name: ResourceName;
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone?: CronTimezone;
@@ -1000,7 +1015,7 @@ export type CreateCronTriggerRequest = {
 };
 
 export type UpdateCronTriggerRequest = {
-    name?: string;
+    name?: ResourceName;
     cron?: CronExpression;
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
@@ -1011,7 +1026,7 @@ export type CronTrigger = {
     id: CronTriggerId;
     org_id: OrganizationId;
     project_id: ProjectId;
-    name: string;
+    name: ResourceName;
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone: CronTimezone;
@@ -1045,9 +1060,9 @@ export type CreateAgentRequest = {
     profile?: AgentProfileId;
     config: AgentConfigId;
     /**
-     * Display name for the launched agent. Defaults to the profile name when launching from a profile.
+     * Agent name. Empty defaults to the profile name.
      */
-    name?: string;
+    name?: DefaultableResourceName;
     message?: string;
 };
 
@@ -1057,7 +1072,10 @@ export type Agent = {
     project_id: ProjectId;
     agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
-    name: string;
+    /**
+     * Agent name. Only explicitly unnamed agents are empty.
+     */
+    name: DefaultableResourceName;
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
@@ -1067,8 +1085,8 @@ export type Agent = {
 };
 
 export type AgentModel = {
-    provider_config: string;
-    name: string;
+    provider_config: ResourceName;
+    name: ResourceName;
 };
 
 export type IntegrationTarget = {
@@ -1928,13 +1946,13 @@ export type SecretMaterial = ({
 
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
-    name: string;
+    name: ResourceName;
     metadata?: Metadata;
     material: SecretMaterial;
 };
 
 export type UpdateSecretRequest = {
-    name?: string;
+    name?: ResourceName;
     metadata?: Metadata;
 };
 
@@ -1953,7 +1971,7 @@ export type Secret = {
     org_id: OrganizationId;
     management_kind: ManagementKind;
     owner: SecretOwner;
-    name: string;
+    name: ResourceName;
     kind: SecretKind;
     metadata: Metadata;
     current_version_number: number;
@@ -2013,7 +2031,7 @@ export type ListSecretGrantsResponse = {
 };
 
 export type CreateOrganizationRequest = {
-    name: string;
+    name: ResourceName;
 };
 
 export type CreateOrganizationResponse = {
@@ -2024,7 +2042,7 @@ export type CreateOrganizationResponse = {
 
 export type Organization = {
     id: OrganizationId;
-    name: string;
+    name: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -2039,7 +2057,7 @@ export type OrganizationMembership = {
 export type OrgInvitation = {
     id: OrgInvitationId;
     org_id: OrganizationId;
-    org_name: string;
+    org_name: ResourceName;
     email: string;
     org_role: string;
     created_at: Timestamp;
@@ -2059,13 +2077,13 @@ export type CreateOrgInvitationRequest = {
 };
 
 export type CreatePersonalAccessTokenRequest = {
-    name: string;
+    name: ResourceName;
 };
 
 export type PersonalAccessToken = {
     id: PersonalAccessTokenId;
     user_id: UserId;
-    name: string;
+    name: ResourceName;
     /**
      * Stable non-secret display identifier. It is not embedded in the bearer token.
      */
@@ -2091,7 +2109,7 @@ export type OrgApiKeyRole = 'admin' | 'member';
 export type OrgApiKey = {
     id: OrgApiKeyId;
     org_id: OrganizationId;
-    name: string;
+    name: ResourceName;
     /**
      * Stable non-secret display identifier. It is not embedded in the bearer token.
      */
@@ -2108,7 +2126,7 @@ export type OrgApiKey = {
 };
 
 export type CreateOrgApiKeyRequest = {
-    name: string;
+    name: ResourceName;
     org_role: OrgApiKeyRole;
 };
 
@@ -2121,7 +2139,7 @@ export type CreateOrgApiKeyResponse = {
 };
 
 export type UpdateOrgApiKeyRequest = {
-    name?: string;
+    name?: ResourceName;
     org_role?: OrgApiKeyRole;
 };
 
@@ -2167,7 +2185,7 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
 });
 
 export type CreateMachinePoolRequestBase = {
-    name: string;
+    name: ResourceName;
     description?: string;
     provider: string;
     default_machine_cpu?: number;
@@ -2207,7 +2225,7 @@ export type CreateMachinePoolRequestBase = {
 };
 
 export type UpdateMachinePoolRequest = {
-    name?: string;
+    name?: ResourceName;
     description?: string;
     default_machine_cpu?: number | null;
     default_machine_memory_mb?: number | null;
@@ -2248,7 +2266,7 @@ export type UpdateMachinePoolRequest = {
 export type MachinePool = {
     id: MachinePoolId;
     org_id: OrganizationId;
-    name: string;
+    name: ResourceName;
     management_kind: ManagementKind;
     description: string;
     provider: string;
@@ -2320,7 +2338,7 @@ export type Machine = {
     org_id: OrganizationId;
     source_kind: MachineSourceKind;
     machine_pool_id?: MachinePoolId | null;
-    display_name: string;
+    display_name: ResourceName;
     description: string;
     provider: string;
     lifecycle_state: MachineLifecycleState;
@@ -2347,7 +2365,7 @@ export type Machine = {
 };
 
 export type CreateMachineRequest = {
-    display_name: string;
+    display_name: ResourceName;
     description?: string;
     cwd?: string;
     env?: {
@@ -2360,7 +2378,7 @@ export type CreateMachineRequest = {
 };
 
 export type ConnectByoMachineRequest = {
-    display_name: string;
+    display_name: ResourceName;
     project_ids: Array<ProjectId>;
 };
 
@@ -2391,7 +2409,7 @@ export type MachineSummaryFields = {
     id: MachineId;
     org_id: OrganizationId;
     source_kind: MachineSourceKind;
-    display_name: string;
+    display_name: ResourceName;
     description: string;
     provider: string;
     lifecycle_state: MachineLifecycleState;
@@ -2566,7 +2584,7 @@ export type ProjectMachinePoolGrantListItem = {
 export type MachinePoolSummary = {
     id: MachinePoolId;
     org_id: OrganizationId;
-    name: string;
+    name: ResourceName;
     management_kind: ManagementKind;
     description: string;
     provider: string;
@@ -2575,7 +2593,10 @@ export type MachinePoolSummary = {
 };
 
 export type CreateMachineDaemonTokenRequest = {
-    name?: string;
+    /**
+     * Optional token name subject to the ResourceName character policy when non-empty; omitted or empty values default to daemon.
+     */
+    name?: DefaultableResourceName;
     metadata?: Metadata;
 };
 
@@ -2583,7 +2604,7 @@ export type MachineDaemonToken = {
     id: MachineDaemonTokenId;
     org_id: OrganizationId;
     machine_id: MachineId;
-    name: string;
+    name: ResourceName;
     metadata: Metadata;
     created_at: Timestamp;
     last_used_at: Timestamp | null;
@@ -2685,7 +2706,7 @@ export type BootstrapDaemonResponse = {
 };
 
 export type CreateProjectRequest = {
-    name: string;
+    name: ResourceName;
 };
 
 /**
@@ -2694,7 +2715,7 @@ export type CreateProjectRequest = {
 export type ProjectFields = {
     id: ProjectId;
     org_id: OrganizationId;
-    name: string;
+    name: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -2746,7 +2767,7 @@ export type CurrentUserIdentity = {
 
 export type CurrentUserOrg = {
     id: OrganizationId;
-    name: string;
+    name: ResourceName;
     /**
      * The authenticated user's role in this organization.
      */
@@ -2808,7 +2829,7 @@ export type SetProjectMembershipRequest = {
 
 export type ProjectMembershipGrant = {
     project_id: ProjectId;
-    project_name: string;
+    project_name: ResourceName;
     /**
      * The member's role on the project (admin, developer, operator, or viewer).
      */

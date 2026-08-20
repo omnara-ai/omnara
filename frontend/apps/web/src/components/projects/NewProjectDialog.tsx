@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -67,18 +69,20 @@ export function NewProjectDialog({
               <Input
                 id="new-project-name"
                 required
+                maxLength={resourceNameInputMaxLength}
                 value={state.name}
                 placeholder="Production"
                 onChange={(event) => {
                   setState((prev) => ({ ...prev, name: event.target.value }))
                 }}
               />
+              <ResourceNameFieldError value={state.name} />
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={createProject.isPending || state.name.trim() === ''}
+                disabled={createProject.isPending || !resourceNameValid(state.name)}
                 loading={createProject.isPending}
               >
                 Create project

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -59,8 +60,6 @@ func PrepareDefaultModelProviderTemplate(
 ) (DefaultModelProviderTemplate, error) {
 	template = cloneDefaultModelProviderTemplate(template)
 	template.Provisioner = strings.TrimSpace(template.Provisioner)
-	template.Name = strings.TrimSpace(template.Name)
-	template.CredentialSecretName = strings.TrimSpace(template.CredentialSecretName)
 	template.APIFormat = modelprotocol.APIFormat(strings.TrimSpace(string(template.APIFormat)))
 	template.APIVariant = modelprotocol.APIVariant(strings.TrimSpace(string(template.APIVariant)))
 	if template.APIVariant == "" {
@@ -104,8 +103,14 @@ func validatePreparedDefaultModelProviderTemplate(template DefaultModelProviderT
 	if template.Name == "" {
 		return errors.New("name is required")
 	}
+	if err := resourcename.Validate("model provider config name", template.Name); err != nil {
+		return err
+	}
 	if template.CredentialSecretName == "" {
 		return errors.New("credential secret name is required")
+	}
+	if err := resourcename.Validate("credential secret name", template.CredentialSecretName); err != nil {
+		return err
 	}
 	if len(template.Models) == 0 {
 		return errors.New("at least one model is required")
@@ -133,6 +138,9 @@ func validatePreparedDefaultModelProviderTemplate(template DefaultModelProviderT
 	for _, model := range template.Models {
 		if model.Name == "" || model.ProviderModelSlug == "" {
 			return errors.New("model name and provider model slug are required")
+		}
+		if err := resourcename.Validate("configured model name", model.Name); err != nil {
+			return err
 		}
 		if _, ok := seen[model.Name]; ok {
 			return fmt.Errorf("model name %q is duplicated", model.Name)

@@ -5,7 +5,7 @@ import {
   sdk,
   type Secret,
 } from '@omnara/sdk'
-import { zMcpoAuthStartRequest } from '@omnara/sdk/zod'
+import { zMcpoAuthStartRequest, zResourceName } from '@omnara/sdk/zod'
 import { isMap, isScalar, parseDocument } from 'yaml'
 import * as z from 'zod'
 
@@ -36,9 +36,7 @@ export const zMcpAddBody = zMcpoAuthStartRequest.omit({ owner: true, name: true 
       'must start with a letter and contain at most 32 letters, digits, or hyphens',
     )
     .describe('MCP server key used in the agent config'),
-  secret_name: z
-    .string()
-    .min(1)
+  secret_name: zResourceName
     .optional()
     .describe('OAuth secret name; defaults to <server-name>-mcp'),
   browser: zBrowserFlag,

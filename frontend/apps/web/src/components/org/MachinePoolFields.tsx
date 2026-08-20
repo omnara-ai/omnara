@@ -1,5 +1,7 @@
 import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameInputMaxLength } from '@/lib/resource-name'
 
 import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import {
@@ -67,11 +69,13 @@ export function MachinePoolFields({
               id="mpool-name"
               label="Name"
               required
+              maxLength={resourceNameInputMaxLength}
               value={values.name}
               placeholder="default"
               onValueChange={(name) => {
                 setValue('name', name)
               }}
+              error={<ResourceNameFieldError value={values.name} />}
             />
           </div>
           <MachinePoolInputField

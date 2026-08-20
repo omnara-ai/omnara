@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
@@ -55,6 +56,9 @@ type preparedPersonalAccessToken struct {
 func preparePersonalAccessTokenInput(input CreatePersonalAccessTokenInput) (preparedPersonalAccessToken, error) {
 	if input.Name == "" {
 		return preparedPersonalAccessToken{}, errors.New("personal access token name is required")
+	}
+	if err := resourcename.Validate("personal access token name", input.Name); err != nil {
+		return preparedPersonalAccessToken{}, storeerr.InvalidRequest(err)
 	}
 	if isNilID(input.UserID) {
 		return preparedPersonalAccessToken{}, errors.New("personal access token user id is required")

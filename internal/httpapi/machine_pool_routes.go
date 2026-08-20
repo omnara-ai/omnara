@@ -8,6 +8,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -159,6 +160,9 @@ func (s strictOpenAPIServer) createMachinePool(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
+	if err := resourcename.Validate("machine pool name", request.Body.Name); err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
 	description := ""
 	if request.Body.Description != nil {
 		description = *request.Body.Description
@@ -275,6 +279,11 @@ func (s strictOpenAPIServer) updateMachinePool(
 ) (openapi.UpdateMachinePoolResponseObject, error) {
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	if request.Body.Name != nil {
+		if err := resourcename.Validate("machine pool name", *request.Body.Name); err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		}
 	}
 	poolID, ok := parseOpenAPIPublicID(publicid.KindMachinePool, request.PoolID)
 	if !ok {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -57,6 +58,9 @@ func (s *Store) ProvisionOrganizationTx(
 	}
 	if input.Name == "" {
 		return CreateOrgForUserRecord{}, errors.New("org name is required")
+	}
+	if err := resourcename.Validate("org name", input.Name); err != nil {
+		return CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
 	}
 	qtx := s.q.WithTx(tx)
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
@@ -216,6 +220,9 @@ func (s *Store) CreateProjectForPrincipal(
 	}
 	if input.Name == "" {
 		return ProjectRecord{}, errors.New("project name is required")
+	}
+	if err := resourcename.Validate("project name", input.Name); err != nil {
+		return ProjectRecord{}, storeerr.InvalidRequest(err)
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

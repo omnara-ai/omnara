@@ -9,7 +9,9 @@ import {
   sdk,
   startDeviceAuth,
 } from '@omnara/sdk'
+import { zResourceName } from '@omnara/sdk/zod'
 import type { Command } from 'commander'
+import * as z from 'zod'
 
 import { openInBrowser } from './browser.ts'
 import {
@@ -20,7 +22,7 @@ import {
   updateConfigFile,
 } from './config.ts'
 import { canPromptInteractively } from './interactive.ts'
-import { runCliAction } from './output.ts'
+import { CliInputError, runCliAction } from './output.ts'
 
 async function isProjectVisible(
   client: OmnaraClient,
@@ -114,6 +116,14 @@ interface LoginOptions {
   tokenName?: string
 }
 
+export function loginTokenName(explicit: string | undefined, hostName: string): string {
+  const candidate = explicit ?? `Omnara CLI on ${hostName}`
+  const result = zResourceName.safeParse(candidate)
+  if (result.success) return result.data
+  if (explicit === undefined) return 'Omnara CLI'
+  throw new CliInputError(`invalid token name:\n${z.prettifyError(result.error)}`)
+}
+
 export function registerLoginCommand(program: Command, cli: CliConfig): void {
   program
     .command('login')
@@ -127,7 +137,7 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
         const start = await startDeviceAuth({
           baseUrl: cli.baseUrl,
           clientName: 'Omnara CLI',
-          tokenName: options.tokenName ?? `Omnara CLI on ${hostname()}`,
+          tokenName: loginTokenName(options.tokenName, hostname()),
         })
         report.showCode(start.userCode, start.verificationUriComplete)
         if (options.browser) {

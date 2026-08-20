@@ -958,6 +958,76 @@ model:
 	}
 }
 
+func TestPatchConfiguredModelRejectsInvalidStoredName(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	admin := createSecretTestUser(t, ctx, store, "Invalid Model Admin", "admin")
+	credential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     testOrgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "stored-model-credential",
+		Material:  secrets.GenericMaterial{Value: "sk-test"},
+		Actor:     userPrincipal(admin.ID),
+	})
+	if err != nil {
+		t.Fatalf("create credential: %v", err)
+	}
+	provider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+		OrgID:              testOrgID,
+		Name:               "stored-model-provider",
+		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+		BaseURL:            "https://api.openai.com/v1",
+		CredentialSecretID: credential.ID,
+	})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	model, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+		OrgID:                 testOrgID,
+		ModelProviderConfigID: provider.ID,
+		Name:                  "stored-model",
+		ProviderModelSlug:     "model-v1",
+		ContextWindowTokens:   128000,
+		MaxOutputTokens:       8192,
+	})
+	if err != nil {
+		t.Fatalf("create configured model: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE configured_models DROP CONSTRAINT configured_models_name_policy`); err != nil {
+		t.Fatalf("drop configured model name constraint: %v", err)
+	}
+	const invalidStoredName = " invalid model "
+	if _, err := pool.Exec(ctx, `UPDATE configured_models SET name = $1 WHERE id = $2`, invalidStoredName, model.ID); err != nil {
+		t.Fatalf("seed invalid configured model name: %v", err)
+	}
+
+	providerModelSlug := "model-v2"
+	if _, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+		OrgID:                 testOrgID,
+		ModelProviderConfigID: provider.ID,
+		ID:                    model.ID,
+		ProviderModelSlug:     &providerModelSlug,
+	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("patch with invalid stored configured model name error = %v, want invalid request", err)
+	}
+	repairedName := "Repaired model"
+	repaired, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+		OrgID:                 testOrgID,
+		ModelProviderConfigID: provider.ID,
+		ID:                    model.ID,
+		Name:                  &repairedName,
+	})
+	if err != nil {
+		t.Fatalf("repair configured model name: %v", err)
+	}
+	if repaired.Name != repairedName || repaired.ProviderModelSlug != "model-v1" {
+		t.Fatalf("repaired configured model = %+v", repaired)
+	}
+}
+
 func TestDeleteConfiguredModelDoesNotRequireActiveProviderConfig(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

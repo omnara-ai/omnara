@@ -53,6 +53,29 @@ describe('machine pool memory inputs', () => {
   })
 })
 
+describe('machine pool names', () => {
+  const validValues = {
+    ...machinePoolFormDefaults,
+    image: 'alpine:latest',
+    workspace: 'workspace',
+    secretId: 'secret_1',
+  }
+
+  it('preserves an accepted name exactly on create', () => {
+    const values = { ...validValues, name: 'R&D Pool 😀' }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values).name).toBe('R&D Pool 😀')
+  })
+
+  it.each([' pool', 'pool ', 'x'.repeat(65), 'pool\u200dname'])(
+    'rejects invalid name %j',
+    (name) => {
+      expect(machinePoolFormValid({ ...validValues, name })).toBe(false)
+    },
+  )
+})
+
 describe('machine pool edit state', () => {
   it('hydrates every shared Blaxel field and preserves hidden provider settings', () => {
     const pool = machinePool({
@@ -111,7 +134,7 @@ describe('machine pool edit state', () => {
 
     const request = machinePoolUpdateRequest(pool, {
       ...values,
-      name: ' updated ',
+      name: 'R&D updated 😀',
       description: ' updated description ',
       workspace: 'new-workspace',
       image: 'new-image',
@@ -123,7 +146,7 @@ describe('machine pool edit state', () => {
     })
 
     expect(request).toMatchObject({
-      name: 'updated',
+      name: 'R&D updated 😀',
       description: 'updated description',
       default_machine_memory_mb: 1537,
       default_machine_env: {},

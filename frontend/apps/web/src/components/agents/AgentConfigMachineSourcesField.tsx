@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Field, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 
 export function AgentConfigMachineSourcesField({
   orgId,
@@ -197,6 +198,10 @@ export function AgentConfigMachineSourcesField({
                       }}
                     />
                   )}
+                  <ResourceNameFieldError
+                    value={source.name}
+                    fieldLabel={source.kind === 'pool' ? 'Machine pool name' : 'Machine name'}
+                  />
                   {unavailableIds.has(source.id) && (
                     <p className="text-destructive text-sm">
                       {source.kind === 'pool'

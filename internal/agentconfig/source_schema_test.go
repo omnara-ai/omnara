@@ -28,28 +28,57 @@ machine_sources:
 	}
 }
 
-func TestParseStoredSourceAllowsLegacyName(t *testing.T) {
-	source := `
-name: legacy-agent
+func TestParseSourceRejectsInvalidResourceNameReferences(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "provider config boundary whitespace",
+			source: `
+instruction: Help the user make progress.
+model:
+  provider_config: " openai-prod"
+  name: gpt-test
+`,
+			want: "provider_config",
+		},
+		{
+			name: "configured model boundary whitespace",
+			source: `
 instruction: Help the user make progress.
 model:
   provider_config: openai-prod
-  name: gpt-test
+  name: "gpt-test "
+`,
+			want: "/model/name",
+		},
+		{
+			name: "machine boundary whitespace",
+			source: validAgentSource(`
 machine_sources:
-  - machine_pool_name: Build Pool
-`
-	if _, err := ParseSource(SourceFormatYAML, []byte(source)); err == nil {
-		t.Fatal("expected ParseSource to reject legacy top-level name")
+  - machine_name: " Primary Machine"
+`),
+			want: "machine_name",
+		},
+		{
+			name: "machine pool boundary whitespace",
+			source: validAgentSource(`
+machine_sources:
+  - machine_pool_name: "Build Pool "
+`),
+			want: "machine_pool_name",
+		},
 	}
-	parsed, err := ParseStoredSource(SourceFormatYAML, []byte(source))
-	if err != nil {
-		t.Fatalf("parse stored source with legacy name: %v", err)
-	}
-	if len(parsed.MachineSources) != 1 {
-		t.Fatalf("machine sources = %d, want 1", len(parsed.MachineSources))
-	}
-	if parsed.Model.Name != "gpt-test" {
-		t.Fatalf("model name = %q, want gpt-test", parsed.Model.Name)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseSource(SourceFormatYAML, []byte(tt.source))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ParseSource error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

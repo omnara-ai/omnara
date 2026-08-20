@@ -31,10 +31,12 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { formatDateTime } from '@/lib/format'
+import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 const nextFireFormatter = new Intl.DateTimeFormat(undefined, {
@@ -218,7 +220,7 @@ function createCronTriggerFormValid(value: {
   messageTemplate: string
 }) {
   return (
-    value.name.trim() !== '' &&
+    resourceNameValid(value.name) &&
     value.cron.trim() !== '' &&
     value.timezone.trim() !== '' &&
     value.messageTemplate.trim() !== ''
@@ -256,7 +258,7 @@ export function CreateCronTriggerDialog({
       setError('')
       try {
         const trigger = await createTrigger.mutateAsync({
-          name: value.name.trim(),
+          name: value.name,
           target,
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
@@ -299,11 +301,13 @@ export function CreateCronTriggerDialog({
                   <Input
                     id="cron-trigger-name"
                     required
+                    maxLength={resourceNameInputMaxLength}
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)
                     }}
                   />
+                  <ResourceNameFieldError value={field.state.value} />
                 </Field>
               )}
             </form.Field>

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -107,6 +108,9 @@ func prepareOrgAPIKeyInput(input CreateOrgAPIKeyInput) (string, string, error) {
 	}
 	if input.Name == "" {
 		return "", "", errors.New("org api key name is required")
+	}
+	if err := resourcename.Validate("org api key name", input.Name); err != nil {
+		return "", "", storeerr.InvalidRequest(err)
 	}
 	if !orgAPIKeyRoleAllowed(input.OrgRole) {
 		return "", "", fmt.Errorf("org api key role must be %q or %q", authz.OrgRoleAdmin, authz.OrgRoleMember)
@@ -259,6 +263,16 @@ func (s *Store) UpdateOrgAPIKey(
 	current, err := lockActiveOrgAPIKeyTx(ctx, qtx, input.OrgID, input.KeyID, input.ActorPrincipal)
 	if err != nil {
 		return OrgAPIKeyRecord{}, err
+	}
+	effectiveName := current.Name
+	if input.Name != "" {
+		effectiveName = input.Name
+	}
+	if effectiveName == "" {
+		return OrgAPIKeyRecord{}, errors.New("org api key name is required")
+	}
+	if err := resourcename.Validate("org api key name", effectiveName); err != nil {
+		return OrgAPIKeyRecord{}, storeerr.InvalidRequest(err)
 	}
 	var row dbsqlc.OrgApiKey
 	if input.Name != "" {

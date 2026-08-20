@@ -1,15 +1,34 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
+
+func TestStartMCPOAuthRejectsInvalidSecretNameBeforeStartingFlow(t *testing.T) {
+	server := strictOpenAPIServer{server: &Server{}}
+	_, apiErr, err := server.startMCPOAuth(
+		context.Background(),
+		mcpOAuthOwner{},
+		identitystore.PrincipalRecord{},
+		&openapi.MCPOAuthStartRequest{Name: " secret"},
+	)
+	if err != nil {
+		t.Fatalf("start MCP OAuth: %v", err)
+	}
+	if apiErr == nil || apiErr.Code != openapi.ErrorCodeInvalidRequest {
+		t.Fatalf("start MCP OAuth error = %+v, want invalid_request", apiErr)
+	}
+}
 
 func TestMCPOAuthSecretMetadataMergesExistingAndProvided(t *testing.T) {
 	mcpURL := "https://mcp.example.com/mcp"

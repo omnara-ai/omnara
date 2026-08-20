@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -20,6 +21,7 @@ import (
 	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"gopkg.in/yaml.v3"
 )
 
@@ -139,6 +141,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		Components struct {
 			SecuritySchemes map[string]any `yaml:"securitySchemes"`
 			Schemas         map[string]struct {
+				MaxLength            int            `yaml:"maxLength"`
 				Pattern              string         `yaml:"pattern"`
 				Required             []string       `yaml:"required"`
 				Properties           map[string]any `yaml:"properties"`
@@ -156,6 +159,12 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 
 	if got := doc.Components.Schemas["ProjectID"].Pattern; got != `^proj_[a-z2-7]{26}$` {
 		t.Fatalf("ProjectID pattern = %q, want proj_ public ID prefix", got)
+	}
+	if got := doc.Components.Schemas["ResourceName"].MaxLength; got != resourcename.MaxCodePoints {
+		t.Fatalf("ResourceName maxLength = %d, want %d", got, resourcename.MaxCodePoints)
+	}
+	if got := doc.Components.Schemas["SkillName"].MaxLength; got != 64 {
+		t.Fatalf("SkillName maxLength = %d, want 64", got)
 	}
 	if _, ok := doc.Components.SecuritySchemes["machineDaemonAuth"]; !ok {
 		t.Fatal("machineDaemonAuth security scheme is required for daemon routes")
@@ -339,6 +348,135 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]any `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(openapispec.YAML, &doc); err != nil {
+		t.Fatalf("parse checked-in openapi spec: %v", err)
+	}
+
+	propertiesByRef := map[string][]string{
+		"#/components/schemas/ResourceName": {
+			"AgentConfigModel.name",
+			"AgentConfigModel.provider_config",
+			"AgentModel.name",
+			"AgentModel.provider_config",
+			"AgentProfile.name",
+			"ConnectBYOMachineRequest.display_name",
+			"ConfiguredModel.name",
+			"ConfiguredModelSummary.name",
+			"ConfiguredModelSummary.provider_config",
+			"CreateAgentProfileRequest.name",
+			"CreateConfiguredModelRequest.name",
+			"CreateCronTriggerRequest.name",
+			"CreateMachinePoolRequestBase.name",
+			"CreateMachineRequest.display_name",
+			"CreateModelProviderConfigRequest.name",
+			"CreateOrgAPIKeyRequest.name",
+			"CreateOrganizationRequest.name",
+			"CreatePersonalAccessTokenRequest.name",
+			"CreateProjectRequest.name",
+			"CreateSecretRequest.name",
+			"CurrentUserOrg.name",
+			"CronTrigger.name",
+			"Machine.display_name",
+			"MachineDaemonToken.name",
+			"MachinePool.name",
+			"MachinePoolSummary.name",
+			"MachineSummaryFields.display_name",
+			"MCPOAuthStartRequest.name",
+			"ModelProviderConfig.name",
+			"OrgAPIKey.name",
+			"Organization.name",
+			"OrgInvitation.org_name",
+			"PersonalAccessToken.name",
+			"ProjectFields.name",
+			"ProjectMembershipGrant.project_name",
+			"RenameAgentProfileRequest.name",
+			"Secret.name",
+			"UpdateConfiguredModelRequest.name",
+			"UpdateCronTriggerRequest.name",
+			"UpdateMachinePoolRequest.name",
+			"UpdateOrgAPIKeyRequest.name",
+			"UpdateSecretRequest.name",
+		},
+		"#/components/schemas/DefaultableResourceName": {
+			"Agent.name",
+			"CreateAgentRequest.name",
+			"CreateMachineDaemonTokenRequest.name",
+		},
+		"#/components/schemas/SkillName": {
+			"Skill.name",
+		},
+		"": {
+			"Actor.display_name",
+			"CreateMachinePoolRequestBase.provider_config",
+			"CreateSlackSetupRequest.app_name",
+			"CurrentUserIdentity.display_name",
+			"DiscoveredProviderModel.display_name",
+			"ExternalActorParams.display_name",
+			"IntegrationInstall.provider_agent_display_name",
+			"IntegrationTarget.display_name",
+			"MachinePool.provider_config",
+			"ModelOutputToolUseStreamBlock.tool_name",
+			"ModelToolCallContentBlock.name",
+			"OrgMember.display_name",
+			"ToolCall.name",
+			"ToolCatalogEntry.name",
+			"ToolPermissionMode.name",
+			"UpdateMachinePoolRequest.provider_config",
+		},
+	}
+
+	expectedRefs := make(map[string]string)
+	for ref, properties := range propertiesByRef {
+		for _, property := range properties {
+			if _, exists := expectedRefs[property]; exists {
+				t.Fatalf("duplicate name contract for %s", property)
+			}
+			expectedRefs[property] = ref
+		}
+	}
+
+	var failures []string
+	for schemaName, schema := range doc.Components.Schemas {
+		for propertyName := range schema.Properties {
+			if !openAPINameProperty(propertyName) {
+				continue
+			}
+			key := schemaName + "." + propertyName
+			expectedRef, ok := expectedRefs[key]
+			if !ok {
+				failures = append(failures, key+": name contract is not classified")
+				continue
+			}
+			property := openAPIPropertySchema(t, schema.Properties, propertyName)
+			actualRef, _ := property["$ref"].(string)
+			if actualRef != expectedRef {
+				failures = append(failures, fmt.Sprintf("%s: $ref = %q, want %q", key, actualRef, expectedRef))
+			}
+			delete(expectedRefs, key)
+		}
+	}
+	for property := range expectedRefs {
+		failures = append(failures, property+": classified name property does not exist")
+	}
+	slices.Sort(failures)
+	if len(failures) > 0 {
+		t.Fatalf("OpenAPI name contracts are incomplete:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func openAPINameProperty(property string) bool {
+	return property == "name" || property == "display_name" || property == "provider_config" ||
+		strings.HasSuffix(property, "_name")
 }
 
 func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {
@@ -965,6 +1103,32 @@ func TestOpenAPIRequestValidatorRejectsTrailingJSON(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("trailing whitespace status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
+	}
+}
+
+func TestOpenAPIResourceNameLengthCountsUnicodeCodePoints(t *testing.T) {
+	handler := newOpenAPIValidatorTestHandler(t)
+	for _, test := range []struct {
+		name       string
+		value      string
+		wantStatus int
+	}{
+		{name: "at limit", value: strings.Repeat("😀", resourcename.MaxCodePoints), wantStatus: http.StatusNoContent},
+		{name: "above limit", value: strings.Repeat("界", resourcename.MaxCodePoints+1), wantStatus: http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]string{"name": test.value})
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/orgs", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != test.wantStatus {
+				t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), test.wantStatus)
+			}
+		})
 	}
 }
 

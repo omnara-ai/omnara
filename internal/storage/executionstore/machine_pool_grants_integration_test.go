@@ -279,7 +279,6 @@ func completeMachinePoolCreateInputForTest(
 			t,
 			ctx,
 			store,
-			"machine-pool-provider-auth-"+strings.ToLower(strings.ReplaceAll(input.Name, " ", "-")),
 			"test-token",
 		)
 	}
@@ -290,14 +289,14 @@ func createMachinePoolProviderAuthSecretForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	name, value string,
+	value string,
 ) ID {
 	t.Helper()
 	suffix, err := newSecretUUID()
 	if err != nil {
 		t.Fatalf("generate machine pool provider auth secret suffix: %v", err)
 	}
-	name = name + "-" + suffix.String()
+	name := "machine-pool-auth-" + suffix.String()
 	admin := createSecretTestUser(t, ctx, store, name+" admin", "admin")
 	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     testOrgID,
@@ -408,7 +407,6 @@ func TestCreateMachinePoolRequiresDefaultMachineProviderOptions(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"missing-resource-provider-auth",
 		"test-token",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
@@ -443,7 +441,6 @@ func TestCreateMachinePoolAllowsOmittedDefaultMachineEnv(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"omitted-env-provider-auth",
 		"test-token",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
@@ -541,7 +538,6 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"mutable-pool-provider-auth-rotated",
 		"rotated-token",
 	)
 	machinePoolProviders.validatedProvider = ""
@@ -756,7 +752,6 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"reserved-env-provider-auth",
 		"test-token",
 	)
 
@@ -921,6 +916,83 @@ tools:
 	}
 }
 
+func TestUpdateMachinePoolRejectsInvalidStoredName(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	created, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(
+			t,
+			ctx,
+			store,
+			machinePoolInputWithDefaultMachineForTest(
+				executionstore.CreateMachinePoolInput{
+					OrgID:            testOrgID,
+					Name:             "Stored Pool",
+					Provider:         "test",
+					MaxTotalMachines: 1,
+				},
+				defaultMachineFieldsForTest{
+					DefaultMachineCPU:             1,
+					DefaultMachineMemoryMB:        1024,
+					DefaultMachineProviderOptions: json.RawMessage(`{}`),
+				},
+			),
+		),
+	)
+	if err != nil {
+		t.Fatalf("create machine pool: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE machine_pools DROP CONSTRAINT machine_pools_name_policy`); err != nil {
+		t.Fatalf("drop machine pool name constraint: %v", err)
+	}
+	const invalidStoredName = " invalid pool "
+	var seededName string
+	if err := pool.QueryRow(
+		ctx,
+		`UPDATE machine_pools SET name = $1 WHERE id = $2 RETURNING name`,
+		invalidStoredName,
+		created.ID,
+	).Scan(&seededName); err != nil {
+		t.Fatalf("seed invalid machine pool name: %v", err)
+	}
+	if seededName != invalidStoredName {
+		t.Fatalf("seeded machine pool name = %q", seededName)
+	}
+	stored, err := store.Execution().GetMachinePool(ctx, testOrgID, created.ID)
+	if err != nil {
+		t.Fatalf("load invalid stored machine pool: %v", err)
+	}
+	if stored.Name != invalidStoredName {
+		t.Fatalf("loaded machine pool name = %q", stored.Name)
+	}
+
+	description := "updated without a rename"
+	updatedInvalid, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID:       testOrgID,
+		ID:          created.ID,
+		Description: &description,
+	})
+	if !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("update with invalid stored machine pool name = %+v, error = %v, want invalid request", updatedInvalid, err)
+	}
+	repairedName := "Repaired Pool"
+	updated, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID: testOrgID,
+		ID:    created.ID,
+		Name:  &repairedName,
+	})
+	if err != nil {
+		t.Fatalf("repair machine pool name: %v", err)
+	}
+	if updated.Name != repairedName {
+		t.Fatalf("repaired machine pool name = %q", updated.Name)
+	}
+}
+
 func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -933,7 +1005,6 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"secret-env-provider-auth",
 		"test-token",
 	)
 
@@ -1268,7 +1339,6 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 		t,
 		ctx,
 		store,
-		"cap-fit-provider-auth",
 		"test-token",
 	)
 	maxCPU, maxMemoryMB := 16, 32768
@@ -2848,14 +2918,14 @@ func TestMachinePoolListSupportsServerSideSearchSortAndPagination(t *testing.T) 
 	now := time.Now().UTC()
 	if _, err := pool.Exec(ctx, `
 INSERT INTO machines(
-    id, org_id, machine_pool_id, source_kind, provider, lifecycle_state,
+    id, org_id, machine_pool_id, source_kind, provider, display_name, lifecycle_state,
     lifecycle_changed_at, provider_resource_id, cpu, memory_mb, provider_options,
     deleted_at, created_at, updated_at
 ) VALUES
-    ($1, $2, $3, 'pool', 'test', 'active', $4, 'list-alpha-active', 3, 2048, '{}'::jsonb, NULL, $4, $4),
-    ($5, $2, $3, 'pool', 'test', 'deleted', $4, 'list-alpha-deleted', 8, 8192, '{}'::jsonb, $4, $4, $4),
-    ($6, $2, $7, 'pool', 'test', 'active', $4, 'list-beta-known', 2, 2048, '{}'::jsonb, NULL, $4, $4),
-    ($8, $2, $7, 'pool', 'test', 'active', $4, 'list-beta-resolved', NULL, 1024, '{}'::jsonb, NULL, $4, $4)
+    ($1, $2, $3, 'pool', 'test', 'list-alpha-active', 'active', $4, 'list-alpha-active', 3, 2048, '{}'::jsonb, NULL, $4, $4),
+    ($5, $2, $3, 'pool', 'test', 'list-alpha-deleted', 'deleted', $4, 'list-alpha-deleted', 8, 8192, '{}'::jsonb, $4, $4, $4),
+    ($6, $2, $7, 'pool', 'test', 'list-beta-known', 'active', $4, 'list-beta-known', 2, 2048, '{}'::jsonb, NULL, $4, $4),
+    ($8, $2, $7, 'pool', 'test', 'list-beta-resolved', 'active', $4, 'list-beta-resolved', NULL, 1024, '{}'::jsonb, NULL, $4, $4)
 `,
 		testID("list_alpha_active"),
 		testOrgID,
@@ -2949,7 +3019,6 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"pool-grant-update-provider-auth",
 		"test-token",
 	)
 	maxCPU, maxMemoryMB := 16, 32768

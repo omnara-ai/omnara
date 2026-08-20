@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -49,6 +50,9 @@ func (s *Store) LaunchAgent(
 			"project, agent config, and launching principal are required",
 		)
 	}
+	if err := resourcename.Validate("agent name", input.Name); err != nil {
+		return LaunchAgentResult{}, storeerr.InvalidRequest(err)
+	}
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -89,6 +93,10 @@ func (s *Store) LaunchAgent(
 		}
 		profile = &record
 	}
+	agentName, err := launchAgentName(input.Name, profile)
+	if err != nil {
+		return LaunchAgentResult{}, storeerr.InvalidRequest(err)
+	}
 	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, input.AgentConfigID)
 	if err != nil {
 		return LaunchAgentResult{}, err
@@ -101,7 +109,7 @@ func (s *Store) LaunchAgent(
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
 		AgentProfileID:  input.ProfileID,
-		Name:            launchAgentName(input.Name, profile),
+		Name:            agentName,
 		CurrentConfigID: config.ID,
 		IdempotencyKey:  input.IdempotencyKey,
 	})
@@ -326,14 +334,14 @@ func launchConfigTx(
 	return config, contract, nil
 }
 
-func launchAgentName(name string, profile *AgentProfileRecord) string {
-	if name != "" {
-		return name
+func launchAgentName(name string, profile *AgentProfileRecord) (string, error) {
+	if name == "" && profile != nil {
+		name = profile.Name
 	}
-	if profile != nil {
-		return profile.Name
+	if err := resourcename.Validate("agent name", name); err != nil {
+		return "", err
 	}
-	return ""
+	return name, nil
 }
 
 func createAgentMCPConnectionsTx(

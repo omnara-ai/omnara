@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
@@ -93,6 +94,9 @@ func (s *Store) createSecretTx(
 	qtx *dbsqlc.Queries,
 	input CreateSecretInput,
 ) (SecretRecord, SecretVersionRecord, error) {
+	if err := validateSecretName(input.Name); err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
 	material, err := secrets.CanonicalizeMaterial(input.Material)
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
@@ -221,9 +225,8 @@ func (s *Store) UpdateSecretMetadata(
 	ctx context.Context,
 	input UpdateSecretMetadataInput,
 ) (SecretRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || input.Name == "" ||
-		isNilID(input.Actor.ID) {
-		return SecretRecord{}, invalidSecretRequest("org, secret, name, and actor are required")
+	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.Actor.ID) {
+		return SecretRecord{}, invalidSecretRequest("org, secret, and actor are required")
 	}
 	metadata, err := normalizedSecretMetadata(input.Metadata)
 	if err != nil {
@@ -252,6 +255,9 @@ func (s *Store) UpdateSecretMetadata(
 		return SecretRecord{}, err
 	}
 	if err := s.authorizeSecretManage(ctx, current, input.Actor); err != nil {
+		return SecretRecord{}, err
+	}
+	if err := validateSecretName(input.Name); err != nil {
 		return SecretRecord{}, err
 	}
 	row, err := qtx.UpdateSecretMetadata(
@@ -463,9 +469,12 @@ func (s *Store) validateCreateSecretInput(ctx context.Context, input *CreateSecr
 	if s.secretKeyWrapper == nil {
 		return errors.New("secret key wrapper is required")
 	}
-	if isNilID(input.OrgID) || input.OwnerKind == "" || input.Name == "" || input.Material == nil ||
+	if isNilID(input.OrgID) || input.OwnerKind == "" || input.Material == nil ||
 		isNilID(input.Actor.ID) {
-		return invalidSecretRequest("org, owner kind, name, material, and actor are required")
+		return invalidSecretRequest("org, owner kind, material, and actor are required")
+	}
+	if err := validateSecretName(input.Name); err != nil {
+		return err
 	}
 	if err := management.Validate(input.ManagementKind); err != nil {
 		return invalidSecretRequest("%v", err)
@@ -473,6 +482,16 @@ func (s *Store) validateCreateSecretInput(ctx context.Context, input *CreateSecr
 	return s.AuthorizeSecretOwnerManage(ctx, input.OrgID, SecretOwner{
 		Kind: input.OwnerKind, ProjectID: input.OwnerProjectID, UserID: input.OwnerUserID,
 	}, input.Actor)
+}
+
+func validateSecretName(name string) error {
+	if name == "" {
+		return invalidSecretName("secret name is required")
+	}
+	if err := resourcename.Validate("secret name", name); err != nil {
+		return invalidSecretName("%v", err)
+	}
+	return nil
 }
 
 func newSecretUUID() (ID, error) {

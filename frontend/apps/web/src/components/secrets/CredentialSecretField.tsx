@@ -6,6 +6,8 @@ import { SecretTypeaheadField } from '@/components/secrets/SecretTypeaheadField'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 export function CredentialSecretField({
@@ -86,14 +88,14 @@ function InlineNewSecretFields({
   const [name, setName] = useState(defaultName)
   const [secretValue, setSecretValue] = useState('')
   const [error, setError] = useState('')
-  const valid = name.trim() !== '' && secretValue !== ''
+  const valid = resourceNameValid(name) && secretValue !== ''
 
   async function submit() {
     setError('')
     try {
       const secret = await createSecret.mutateAsync({
         owner: { kind: 'org' },
-        name: name.trim(),
+        name,
         material: { kind: 'generic', value: secretValue },
       })
       onCreated(secret)
@@ -119,6 +121,7 @@ function InlineNewSecretFields({
             <FieldLabel htmlFor="credential-secret-name">Secret name</FieldLabel>
             <Input
               id="credential-secret-name"
+              maxLength={resourceNameInputMaxLength}
               value={name}
               autoComplete="off"
               placeholder="api-key"
@@ -127,6 +130,7 @@ function InlineNewSecretFields({
               }}
               onKeyDown={submitOnEnter}
             />
+            <ResourceNameFieldError value={name} />
           </Field>
           <Field>
             <FieldLabel htmlFor="credential-secret-value">API key</FieldLabel>

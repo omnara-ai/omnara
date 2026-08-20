@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -424,7 +423,7 @@ func listMachinePoolSources(
 	if err != nil {
 		return nil, err
 	}
-	configSource, err := agentconfig.ParseStoredSource(
+	configSource, err := agentconfig.ParseSource(
 		agentconfig.SourceFormat(config.SourceFormat),
 		[]byte(config.Source),
 	)
@@ -454,7 +453,7 @@ func listMachinePoolSources(
 		}
 		out = append(out, MachinePoolSourceRecord{
 			MachinePoolID:   source.MachinePoolID,
-			MachinePoolName: strings.TrimSpace(configSource.MachineSources[source.Index].MachinePoolName),
+			MachinePoolName: configSource.MachineSources[source.Index].MachinePoolName,
 			Description:     source.Contract.Description,
 		})
 	}
@@ -655,7 +654,7 @@ func createPoolMachineBindingTx(
 		OrgID:                  input.OrgID,
 		MachinePoolID:          &poolGrant.MachinePoolID,
 		SourceKind:             string(MachineSourceKindPool),
-		DisplayName:            "Instance of " + poolGrant.PoolName,
+		DisplayName:            poolMachineDisplayName(poolGrant.PoolName),
 		Description:            input.Description,
 		Provider:               poolGrant.Provider,
 		LifecycleState:         string(MachineLifecycleStateProvisioning),

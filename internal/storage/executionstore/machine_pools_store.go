@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -229,10 +230,22 @@ type DefaultMachinePoolTemplate struct {
 	Metadata                      resourcemeta.Metadata `json:"metadata"`
 }
 
+const poolMachineDisplayNamePrefix = "Instance of "
+
+func poolMachineDisplayName(poolName string) string {
+	maxPoolNameCodePoints := resourcename.MaxCodePoints - len([]rune(poolMachineDisplayNamePrefix))
+	poolNameCodePoints := []rune(poolName)
+	if len(poolNameCodePoints) > maxPoolNameCodePoints {
+		poolNameCodePoints = poolNameCodePoints[:maxPoolNameCodePoints]
+		poolNameCodePoints = []rune(strings.TrimRight(string(poolNameCodePoints), " "))
+	}
+	return poolMachineDisplayNamePrefix + string(poolNameCodePoints)
+}
+
 func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) CreateMachinePoolInput {
 	return CreateMachinePoolInput{
 		OrgID:                         orgID,
-		Name:                          strings.TrimSpace(defaultPoolTemplate.Name),
+		Name:                          defaultPoolTemplate.Name,
 		ManagementKind:                management.Cluster,
 		Description:                   defaultPoolTemplate.Description,
 		Provider:                      defaultPoolTemplate.Provider,
@@ -263,6 +276,9 @@ func ValidateDefaultMachinePoolTemplate(
 	input := defaultPoolTemplate.createInput(NilID)
 	if input.Name == "" {
 		return errors.New("name is required")
+	}
+	if err := resourcename.Validate("machine pool name", input.Name); err != nil {
+		return err
 	}
 	defaults, err := prepareMachinePoolConfigInput(&input)
 	if err != nil {
@@ -391,12 +407,14 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 func prepareMachinePoolCreateInput(
 	input *CreateMachinePoolInput,
 ) (machinePoolDefaults, error) {
-	input.Name = strings.TrimSpace(input.Name)
 	if input.ManagementKind == "" {
 		input.ManagementKind = management.Tenant
 	}
 	if isNilID(input.OrgID) || input.Name == "" || input.Provider == "" {
 		return machinePoolDefaults{}, errors.New("org, name, and provider are required")
+	}
+	if err := resourcename.Validate("machine pool name", input.Name); err != nil {
+		return machinePoolDefaults{}, err
 	}
 	switch input.ManagementKind {
 	case management.Tenant:
@@ -711,9 +729,11 @@ func (s *Store) UpdateMachinePool(
 	if input.Metadata != nil {
 		merged.Metadata = input.Metadata
 	}
-	merged.Name = strings.TrimSpace(merged.Name)
 	if merged.Name == "" {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(errors.New("name is required"))
+	}
+	if err := resourcename.Validate("machine pool name", merged.Name); err != nil {
+		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
 	poolDefaults, err := prepareMachinePoolConfigInput(&merged)
 	if err != nil {

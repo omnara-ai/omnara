@@ -153,16 +153,12 @@ model:
   provider_config: ` + initialProvider.Name + `
   name: ` + model.Name + `
 `
-		supportsTools := model.SupportsTools
 		compiled, err := agentconfig.Compile(
 			agentconfig.SourceFormatYAML,
 			[]byte(source),
 			agentconfig.CompileOptions{
 				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-					return agentconfig.ResolvedModelSelection{
-						ConfiguredModelID: model.ID.String(),
-						SupportsTools:     &supportsTools,
-					}, nil
+					return resolvedTestModelSelection(model), nil
 				},
 			},
 		)
@@ -173,6 +169,7 @@ model:
 			ProjectID:               created.Project.ID,
 			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  source,
+			SourceFormat:            string(agentconfig.SourceFormatYAML),
 			ConfiguredModelID:       model.ID,
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
 			CompilerVersion:         agentconfig.CompilerVersion,
