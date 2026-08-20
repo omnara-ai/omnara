@@ -202,7 +202,7 @@ func (s *Server) processIntegrationInboundEvent(
 		if err != nil {
 			return false, err
 		}
-		if !agentConfigHasIntegrationSendTool(profile.CurrentConfig) {
+		if !agentConfigCanUseIntegrationSendTool(profile.CurrentConfig) {
 			return false, storeerr.ErrStateTransitionConflict
 		}
 		mappedTarget, launchResult, err := s.integrations.GetOrCreateTarget(

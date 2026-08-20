@@ -1,15 +1,18 @@
 package openaichatcompletions
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/openaierrors"
+	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
+
+const maxNestedProviderErrorBytes = 64 * 1024
 
 func (p protocol) errorSource() string {
 	if strings.TrimSpace(p.client.BaseURL) != "" {
@@ -35,7 +38,13 @@ func (p protocol) invalidResponseError(
 	})
 }
 
-func classifyHTTPError(source string, statusCode int, header http.Header, body []byte) model.ProviderError {
+func classifyHTTPError(
+	source string,
+	apiVariant modelprotocol.APIVariant,
+	statusCode int,
+	header http.Header,
+	body []byte,
+) model.ProviderError {
 	message := strings.TrimSpace(string(body))
 	var envelope chatProviderErrorEnvelope
 	if err := json.Unmarshal(body, &envelope); err == nil {
@@ -44,17 +53,19 @@ func classifyHTTPError(source string, statusCode int, header http.Header, body [
 		}
 		return classifyProviderError(
 			source,
+			apiVariant,
 			statusCode,
 			header,
 			envelope.Error,
 			message,
 		)
 	}
-	return classifyProviderError(source, statusCode, header, chatProviderError{}, message)
+	return classifyProviderError(source, apiVariant, statusCode, header, chatProviderError{}, message)
 }
 
 func classifyChoiceError(
 	source string,
+	apiVariant modelprotocol.APIVariant,
 	httpStatusCode int,
 	header http.Header,
 	choice chatChoice,
@@ -67,11 +78,12 @@ func classifyChoiceError(
 			Code:    "finish_reason_error",
 		}
 	}
-	return classifyProviderError(source, httpStatusCode, header, providerErr, "")
+	return classifyProviderError(source, apiVariant, httpStatusCode, header, providerErr, "")
 }
 
 func classifyProviderError(
 	source string,
+	apiVariant modelprotocol.APIVariant,
 	statusCode int,
 	header http.Header,
 	providerErr chatProviderError,
@@ -82,13 +94,28 @@ func classifyProviderError(
 		message = fallbackMessage
 	}
 	code := providerErr.codeText()
-	providerStatus := openaierrors.StatusCode(providerErr.Code)
-	effectiveStatus := openaierrors.EffectiveStatusCode(statusCode, providerStatus)
-	kind := openaierrors.Classify(
+	providerStatus := providererrors.StatusCode(providerErr.Code)
+	effectiveStatus := providererrors.EffectiveStatusCode(statusCode, providerStatus)
+	classificationValues := providerErr.classificationValues()
+	refineFromRaw := apiVariant == modelprotocol.APIVariantOpenRouter &&
+		genericProviderErrorMessage(message) &&
+		rawErrorCanRefine(effectiveStatus, classificationValues)
+	if refineFromRaw {
+		if rawError, ok := providerErr.rawError(); ok {
+			if rawMessage := strings.TrimSpace(rawError.Message); rawMessage != "" {
+				message = rawMessage
+			}
+			classificationValues = append(classificationValues, rawError.classificationValues()...)
+			if rawCode := rawError.codeText(); rawCode != "" {
+				code = rawCode
+			}
+		}
+	}
+	kind := providererrors.Classify(
 		statusCode,
 		providerStatus,
 		message,
-		providerErr.classificationValues()...,
+		classificationValues...,
 	)
 	return model.ProviderError{
 		Kind:       kind,
@@ -113,11 +140,96 @@ type chatProviderError struct {
 }
 
 func (e chatProviderError) present() bool {
+	raw := bytes.TrimSpace(e.Metadata.Raw)
 	return e.Message != "" ||
 		e.Type != "" ||
-		openaierrors.CodeText(e.Code) != "" ||
+		providererrors.CodeText(e.Code) != "" ||
 		e.Metadata.ErrorType != "" ||
-		e.Metadata.ProviderCode != ""
+		e.Metadata.ProviderCode != "" ||
+		(len(raw) > 0 && !bytes.Equal(raw, []byte("null")))
+}
+
+func (e chatProviderError) rawError() (chatProviderError, bool) {
+	raw := bytes.TrimSpace(e.Metadata.Raw)
+	if len(raw) == 0 || len(raw) > maxNestedProviderErrorBytes || bytes.Equal(raw, []byte("null")) {
+		return chatProviderError{}, false
+	}
+	message := openRouterRawErrorMessage(raw)
+	if raw[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(raw, &encoded); err != nil {
+			return chatProviderError{}, false
+		}
+		raw = []byte(encoded)
+		if len(raw) == 0 || len(raw) > maxNestedProviderErrorBytes {
+			return chatProviderError{}, false
+		}
+	}
+	var envelope chatProviderErrorEnvelope
+	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Error.present() {
+		if envelope.Error.Message == "" {
+			envelope.Error.Message = message
+		}
+		return envelope.Error, true
+	}
+	var flat chatProviderError
+	if err := json.Unmarshal(raw, &flat); err == nil && flat.present() {
+		if flat.Message == "" {
+			flat.Message = message
+		}
+		return flat, true
+	}
+	if message == "" {
+		return chatProviderError{}, false
+	}
+	return chatProviderError{Message: message}, true
+}
+
+func openRouterRawErrorMessage(raw json.RawMessage) string {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ""
+	}
+	fields := [...]string{"message", "error", "detail", "details", "msg"}
+	stack := []any{value}
+	for len(stack) > 0 {
+		value = stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		switch value := value.(type) {
+		case string:
+			message := strings.TrimSpace(value)
+			if message == "" {
+				continue
+			}
+			var nested any
+			if err := json.Unmarshal([]byte(message), &nested); err == nil {
+				if _, ok := nested.(map[string]any); ok {
+					stack = append(stack, nested)
+					continue
+				}
+			}
+			return message
+		case map[string]any:
+			for index := len(fields) - 1; index >= 0; index-- {
+				if nested, ok := value[fields[index]]; ok {
+					stack = append(stack, nested)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func genericProviderErrorMessage(message string) bool {
+	message = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(message)), ".")
+	return message == "" || message == "provider returned error" ||
+		message == "provider returned an error"
+}
+
+func rawErrorCanRefine(statusCode int, structuredValues []string) bool {
+	// https://openrouter.ai/docs/api/reference/errors-and-debugging#masking-and-raw-provider-details
+	return statusCode == http.StatusBadRequest &&
+		providererrors.StructuredEvidenceCanBeRefined(structuredValues...)
 }
 
 func (e chatProviderError) codeText() string {
@@ -127,7 +239,7 @@ func (e chatProviderError) codeText() string {
 	if e.Metadata.ProviderCode != "" {
 		return e.Metadata.ProviderCode
 	}
-	if code := openaierrors.CodeText(e.Code); code != "" {
+	if code := providererrors.CodeText(e.Code); code != "" {
 		return code
 	}
 	return e.Type
@@ -137,12 +249,13 @@ func (e chatProviderError) classificationValues() []string {
 	return []string{
 		e.Metadata.ErrorType,
 		e.Metadata.ProviderCode,
-		openaierrors.CodeText(e.Code),
+		providererrors.CodeText(e.Code),
 		e.Type,
 	}
 }
 
 type chatProviderErrorMetadata struct {
-	ErrorType    string `json:"error_type"`
-	ProviderCode string `json:"provider_code"`
+	ErrorType    string          `json:"error_type"`
+	ProviderCode string          `json:"provider_code"`
+	Raw          json.RawMessage `json:"raw"`
 }

@@ -41,6 +41,170 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 	}
 }
 
+func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testing.T) {
+	const summaryOutputFloorTokens = 2_048
+	caps := model.Capabilities{
+		ContextWindowTokens:    preferredSummaryOutputTokens + summaryOutputFloorTokens,
+		MaxOutputTokens:        preferredSummaryOutputTokens,
+		DefaultMaxOutputTokens: summaryOutputFloorTokens,
+	}
+	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+		textCompactionEvent(1, "only closed semantic unit"),
+	}}
+	client := &summaryModel{
+		caps: caps,
+		sourceInputTokens: model.UsableInputTokensForRequest(
+			caps,
+			model.RequestPolicy{MaxOutputTokens: summaryOutputFloorTokens - 1},
+		),
+		outputTokenMinimum: summaryOutputFloorTokens,
+	}
+
+	result, err := testRunner(store, client).
+		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	if err != nil {
+		t.Fatalf("run irreducibly oversized source: %v", err)
+	}
+	if result.State != RunTerminal || len(store.terminalFailures) != 1 ||
+		store.terminalFailures[0].ErrorKind != model.ErrorKindContextWindow ||
+		store.terminalFailures[0].ErrorCode != "compaction_source_irreducible" ||
+		!strings.Contains(store.terminalFailures[0].ErrorMessage, "minimum summary allowance") ||
+		len(client.requests) != 0 ||
+		len(store.replacements) != 0 || len(store.retryFailures) != 0 ||
+		len(store.publishInputs) != 0 {
+		t.Fatalf(
+			"irreducible result=%+v terminal=%+v prepares=%d requests=%d replacements=%+v retries=%+v publishes=%+v",
+			result,
+			store.terminalFailures,
+			len(client.preparedBundles),
+			len(client.requests),
+			store.replacements,
+			store.retryFailures,
+			store.publishInputs,
+		)
+	}
+	sawFloor := false
+	for _, policy := range client.preparedPolicies {
+		if policy.MaxOutputTokens < summaryOutputFloorTokens {
+			t.Fatalf(
+				"prepared output allowance = %d, below safe floor %d",
+				policy.MaxOutputTokens,
+				summaryOutputFloorTokens,
+			)
+		}
+		if policy.MaxOutputTokens == summaryOutputFloorTokens {
+			sawFloor = true
+		}
+	}
+	if !sawFloor {
+		t.Fatalf("prepared policies = %+v, want enforced floor", client.preparedPolicies)
+	}
+}
+
+func TestRunnerReducesSummaryOutputToConfiguredFloor(t *testing.T) {
+	const configuredOutputTokens = 1_024
+	contextWindow := preferredSummaryOutputTokens + configuredOutputTokens
+	caps := model.Capabilities{
+		ContextWindowTokens:    contextWindow,
+		MaxOutputTokens:        preferredSummaryOutputTokens,
+		DefaultMaxOutputTokens: configuredOutputTokens,
+	}
+	inputTokens := model.UsableInputTokensForRequest(
+		caps,
+		model.RequestPolicy{MaxOutputTokens: configuredOutputTokens},
+	)
+	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+		textCompactionEvent(1, strings.Repeat("compactable source context ", 40)),
+	}}
+	client := &summaryModel{
+		caps:              caps,
+		sourceInputTokens: inputTokens,
+	}
+
+	result, err := testRunner(store, client).
+		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	if err != nil {
+		t.Fatalf("run narrow-window compaction: %v", err)
+	}
+	if result.State != RunCompleted || len(client.requests) != 1 ||
+		len(store.publishInputs) != 1 || len(store.terminalFailures) != 0 {
+		t.Fatalf(
+			"narrow-window result=%+v requests=%d publications=%+v terminal=%+v",
+			result,
+			len(client.requests),
+			store.publishInputs,
+			store.terminalFailures,
+		)
+	}
+	initialSummaryOutput := client.preparedPolicies[0].MaxOutputTokens
+	usedConfiguredFloor := false
+	for index, policy := range client.preparedPolicies {
+		if client.preparedBundles[index].ContextCheckpoint == nil &&
+			policy.MaxOutputTokens == configuredOutputTokens {
+			usedConfiguredFloor = true
+			break
+		}
+	}
+	if !usedConfiguredFloor {
+		t.Fatalf(
+			"summary policies = %+v, want configured floor below %d",
+			client.preparedPolicies,
+			initialSummaryOutput,
+		)
+	}
+}
+
+func TestRunnerUsesExactOutputReductionBetweenPreferredAndFloor(t *testing.T) {
+	const configuredOutputTokens = 1_024
+	adjustedOutputTokens := configuredOutputTokens +
+		(preferredSummaryOutputTokens-configuredOutputTokens)/2
+	caps := model.Capabilities{
+		ContextWindowTokens:    64_000,
+		MaxOutputTokens:        preferredSummaryOutputTokens,
+		DefaultMaxOutputTokens: configuredOutputTokens,
+	}
+	inputTokens := model.UsableInputTokensForRequest(
+		caps,
+		model.RequestPolicy{MaxOutputTokens: adjustedOutputTokens},
+	)
+	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+		textCompactionEvent(1, strings.Repeat("compactable source context ", 40)),
+	}}
+	client := &summaryModel{
+		caps:              caps,
+		sourceInputTokens: inputTokens,
+	}
+
+	result, err := testRunner(store, client).
+		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	if err != nil {
+		t.Fatalf("run compaction with partial output adjustment: %v", err)
+	}
+	if result.State != RunCompleted || len(client.requests) != 1 ||
+		len(store.publishInputs) != 1 || len(store.terminalFailures) != 0 {
+		t.Fatalf(
+			"partial-adjustment result=%+v requests=%d publications=%+v terminal=%+v",
+			result,
+			len(client.requests),
+			store.publishInputs,
+			store.terminalFailures,
+		)
+	}
+	var sent struct {
+		MaxOutputTokens int `json:"max_output_tokens"`
+	}
+	if err := json.Unmarshal(client.requests[0].ProviderRequest, &sent); err != nil {
+		t.Fatalf("decode sent compaction request: %v", err)
+	}
+	if sent.MaxOutputTokens != adjustedOutputTokens {
+		t.Fatalf(
+			"sent max output tokens = %d, want exact adjusted allowance %d",
+			sent.MaxOutputTokens,
+			adjustedOutputTokens,
+		)
+	}
+}
+
 func TestRunnerRecordsBoundaryAdjustmentSeparatelyFromBudgetOverflow(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
 		textCompactionEvent(1, strings.Repeat("closed semantic event ", 20)),
@@ -109,7 +273,13 @@ func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testin
 			ContextWindowTokens: 8_000,
 			MaxOutputTokens:     1_024,
 		},
-		preparedEstimates: []int{500, 7_000, 500},
+		preparedEstimate: func(input model.PrepareInput, body []byte) int {
+			if input.Context.ContextCheckpoint == nil &&
+				strings.Contains(string(body), "second closed unit") {
+				return 7_000
+			}
+			return 500
+		},
 	}
 	result, err := testRunner(store, client).
 		Run(context.Background(), runInput(testPlan(1, 2, 2)))
@@ -117,7 +287,7 @@ func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testin
 		t.Fatalf("run serialized oversized source: %v", err)
 	}
 	if result.State != RunCompleted || len(store.replacements) != 1 ||
-		store.replacements[0].ErrorCode != "prepared_request_budget_overflow" ||
+		store.replacements[0].ErrorCode != "compaction_source_over_budget" ||
 		store.replacements[0].NextSourceEventSequenceEnd != 1 ||
 		store.replacements[0].APIFormat != client.APIFormat() ||
 		store.replacements[0].APIVariant != client.ModelAPIVariant() ||
@@ -125,22 +295,9 @@ func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testin
 		store.replacements[0].ProviderResponseID != "" {
 		t.Fatalf("serialized oversized result=%+v replacements=%+v", result, store.replacements)
 	}
-	compactionPrepares := 0
-	checkpointPrepares := 0
-	for _, bundle := range client.preparedBundles {
-		if bundle.ContextCheckpoint == nil {
-			compactionPrepares++
-		} else {
-			checkpointPrepares++
-		}
-	}
-	if compactionPrepares != 3 || checkpointPrepares != 1 || len(client.requests) != 1 {
-		t.Fatalf(
-			"compaction/checkpoint/provider calls = %d/%d/%d, want 3/1/1",
-			compactionPrepares,
-			checkpointPrepares,
-			len(client.requests),
-		)
+	if len(client.requests) != 1 ||
+		strings.Contains(string(client.requests[0].ProviderRequest), "second closed unit") {
+		t.Fatalf("provider requests = %+v, want one request without oversized source", client.requests)
 	}
 }
 

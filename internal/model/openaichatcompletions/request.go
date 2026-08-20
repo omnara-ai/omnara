@@ -36,6 +36,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	messages, err := buildMessages(
 		input.Context,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
+		input.Policy,
 	)
 	if err != nil {
 		return nil, err
@@ -53,15 +54,12 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = "auto"
 	}
-	supportsReasoning := c.ModelCapabilities.SupportsReasoning
-	if input.Policy.SupportsReasoning != nil {
-		supportsReasoning = *input.Policy.SupportsReasoning
-	}
-	if supportsReasoning && input.Policy.DefaultReasoningEffort != "" {
+	reasoningOwned := chatCompletionsOwnsReasoning(c.ModelCapabilities, input.Policy)
+	if reasoningOwned {
 		if apiVariant == modelprotocol.APIVariantOpenRouter {
-			payload.Reasoning = &chatReasoning{Effort: input.Policy.DefaultReasoningEffort}
+			payload.Reasoning = &chatReasoning{Effort: input.Policy.ReasoningEffort}
 		} else {
-			payload.ReasoningEffort = input.Policy.DefaultReasoningEffort
+			payload.ReasoningEffort = input.Policy.ReasoningEffort
 		}
 	}
 	if input.Policy.MaxOutputTokens > 0 {
@@ -75,24 +73,33 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
-		chatCompletionsOwnedFields(supportsReasoning, input.Policy.DefaultReasoningEffort)...,
+		chatCompletionsOwnedFields(reasoningOwned)...,
 	)
 }
 
-func chatCompletionsOwnedFields(supportsReasoning bool, reasoningEffort string) []string {
+func chatCompletionsOwnedFields(reasoningOwned bool) []string {
 	fields := []string{
 		"model",
 		"stream",
 		"messages",
 		"tools",
 		"tool_choice",
+		"max_tokens",
 		"max_completion_tokens",
 		"n",
 	}
-	if supportsReasoning && reasoningEffort != "" {
+	if reasoningOwned {
 		fields = append(fields, "reasoning_effort", "reasoning")
 	}
 	return fields
+}
+
+func chatCompletionsOwnsReasoning(capabilities model.Capabilities, policy model.RequestPolicy) bool {
+	supportsReasoning := capabilities.SupportsReasoning
+	if policy.SupportsReasoning != nil {
+		supportsReasoning = *policy.SupportsReasoning
+	}
+	return supportsReasoning && policy.ReasoningEffort != ""
 }
 
 func promptCacheRetention(retention model.CacheRetention) string {
@@ -178,6 +185,7 @@ type chatFunction struct {
 func buildMessages(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
+	policy model.RequestPolicy,
 ) ([]chatMessage, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -214,6 +222,7 @@ func buildMessages(
 				entry.AssistantContent,
 				entry.ToolResults,
 				replayIdentity,
+				policy,
 			)
 			if buildErr != nil {
 				return nil, buildErr
@@ -301,9 +310,12 @@ func assistantMessagesForEntry(
 	content []modelcontext.AssistantContentEntry,
 	group []modelcontext.ToolResultRef,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
+	policy model.RequestPolicy,
 ) ([]chatMessage, error) {
-	if replay, ok := completeChatReplay(source, content, replayIdentity); ok {
-		return appendToolResultMessages([]chatMessage{replay}, group), nil
+	if policy.AllowsProviderReplay(source.Sequence) {
+		if replay, ok := completeChatReplay(source, content, replayIdentity); ok {
+			return appendToolResultMessages([]chatMessage{replay}, group), nil
+		}
 	}
 	contentParts := make([]json.RawMessage, 0, len(content))
 	for _, entry := range content {

@@ -136,6 +136,13 @@ func (c *Client) outboxReports(
 	blockedProcesses := make(map[string]struct{})
 	blockedActions := make(map[string]struct{})
 	for _, report := range candidates {
+		c.processMu.RLock()
+		runtime := c.processes[report.ProcessID]
+		cleanupOnly := runtime != nil && runtime.cleanupOnly
+		c.processMu.RUnlock()
+		if cleanupOnly {
+			continue
+		}
 		if _, blocked := blockedProcesses[report.ProcessID]; blocked {
 			continue
 		}
@@ -211,6 +218,59 @@ func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	for _, runtime := range c.cleanupProcesses() {
+		process, found, err := stateStore.Process(ctx, runtime.processID)
+		if err != nil {
+			continue
+		}
+		if !found {
+			if err := c.removeProcessRuntimeArtifacts(
+				runtime.processID,
+				runtime.supervisorInstanceID,
+				true,
+			); err != nil {
+				continue
+			}
+			c.removeProcessInstance(
+				runtime.processID,
+				runtime.supervisorInstanceID,
+			)
+			continue
+		}
+		var cleanupPending bool
+		if process.Phase == statedb.ProcessPreparing ||
+			process.Phase == statedb.ProcessPrepared {
+			cleanupPending, err = c.closeRejectedPreparation(
+				ctx,
+				runtime.processID,
+				runtime.supervisorInstanceID,
+				nil,
+				nil,
+			)
+		} else {
+			cleanupPending, err = c.closeStorageExhaustedProcess(ctx, runtime)
+		}
+		if cleanupPending {
+			continue
+		}
+		if err != nil {
+			c.log.Debug(
+				"process cleanup failed",
+				"process_id",
+				runtime.processID,
+				"supervisor_instance_id",
+				runtime.supervisorInstanceID,
+				"error",
+				err,
+			)
+			continue
+		}
+		c.removeProcessInstance(
+			runtime.processID,
+			runtime.supervisorInstanceID,
+		)
+	}
+
 	processes, err := stateStore.Processes(ctx)
 	if err != nil {
 		return err
@@ -221,6 +281,9 @@ func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
 		}
 		if !process.LocalClosed {
 			if runtime, ok := c.localProcess(process.ProcessID); ok {
+				if runtime.cleanupOnly || runtime.runner == nil {
+					continue
+				}
 				probeCtx, cancel := context.WithTimeout(
 					ctx,
 					250*time.Millisecond,
@@ -252,6 +315,7 @@ func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
 					ctx,
 					process.ProcessID,
 					process.SupervisorInstanceID,
+					lock,
 				)
 				releaseErr := lock.Release()
 				if recoverErr != nil {

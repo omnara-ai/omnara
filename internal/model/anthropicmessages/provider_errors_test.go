@@ -10,7 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 )
 
-func TestRespondClassifiesAnthropicErrorsTypeFirst(t *testing.T) {
+func TestRespondClassifiesAnthropicErrorsByEvidencePrecedence(t *testing.T) {
 	tests := []struct {
 		name       string
 		statusCode int
@@ -37,6 +37,20 @@ func TestRespondClassifiesAnthropicErrorsTypeFirst(t *testing.T) {
 			want: model.ErrorKindContextWindow,
 		},
 		{
+			name:       "generic gateway type with explicit context prose",
+			statusCode: http.StatusBadGateway,
+			body: `{"type":"error","error":{"type":"api_error",` +
+				`"message":"Your input exceeds the context window of this model."}}`,
+			want: model.ErrorKindContextWindow,
+		},
+		{
+			name:       "generic gateway type with explicit payload prose",
+			statusCode: http.StatusBadGateway,
+			body: `{"type":"error","error":{"type":"api_error",` +
+				`"message":"Request body too large for the upstream provider."}}`,
+			want: model.ErrorKindPayloadTooLarge,
+		},
+		{
 			name:       "anthropic input plus output exceeds context wire error",
 			statusCode: http.StatusBadRequest,
 			body: `{"type":"error","error":{"type":"invalid_request_error",` +
@@ -58,6 +72,22 @@ func TestRespondClassifiesAnthropicErrorsTypeFirst(t *testing.T) {
 			want: model.ErrorKindContextWindow,
 		},
 		{
+			name:       "immutable thinking replay is recoverable",
+			statusCode: http.StatusBadRequest,
+			body: `{"type":"error","error":{"type":"invalid_request_error",` +
+				"\"message\":\"messages.1.content.0: `thinking` or `redacted_thinking` blocks " +
+				"in the latest assistant message cannot be modified. These blocks must remain as " +
+				"they were in the original response.\"}}",
+			want: model.ErrorKindReplayRejected,
+		},
+		{
+			name:       "invalid thinking signature is recoverable",
+			statusCode: http.StatusBadRequest,
+			body: `{"type":"error","error":{"type":"invalid_request_error",` +
+				"\"message\":\"Invalid `signature` in `thinking` block\"}}",
+			want: model.ErrorKindReplayRejected,
+		},
+		{
 			name:       "request too large type",
 			statusCode: http.StatusRequestEntityTooLarge,
 			body: `{"type":"error","error":{"type":"request_too_large",` +
@@ -65,12 +95,12 @@ func TestRespondClassifiesAnthropicErrorsTypeFirst(t *testing.T) {
 			want: model.ErrorKindPayloadTooLarge,
 		},
 		{
-			name:       "structured invalid type precedes status fallback",
+			name:       "request entity too large status is decisive",
 			statusCode: http.StatusRequestEntityTooLarge,
 			body: `{"type":"error","error":{"type":"invalid_request_error",` +
 				`"message":"Request exceeds the maximum size"},` +
 				`"request_id":"req_large_status"}`,
-			want: model.ErrorKindInvalidRequest,
+			want: model.ErrorKindPayloadTooLarge,
 		},
 		{
 			name:       "rate",
@@ -82,6 +112,12 @@ func TestRespondClassifiesAnthropicErrorsTypeFirst(t *testing.T) {
 			name:       "timeout",
 			statusCode: http.StatusGatewayTimeout,
 			body:       `{"type":"error","error":{"type":"api_error","message":"timeout"}}`,
+			want:       model.ErrorKindProviderUnavailable,
+		},
+		{
+			name:       "unknown gateway timeout standardized as unavailable",
+			statusCode: http.StatusGatewayTimeout,
+			body:       `{"type":"error","error":{"message":"gateway timeout"}}`,
 			want:       model.ErrorKindProviderUnavailable,
 		},
 		{

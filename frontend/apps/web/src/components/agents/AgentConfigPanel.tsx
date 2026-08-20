@@ -144,7 +144,8 @@ function AgentConfigPanelEditor({
 
   return (
     <form
-      className="flex flex-1 flex-col"
+      noValidate
+      className="mx-auto flex w-full max-w-3xl flex-1 flex-col"
       onSubmit={(event) => {
         void submit(event)
       }}

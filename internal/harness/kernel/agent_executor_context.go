@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -27,7 +26,6 @@ const (
 	preSendErrorCodeCaptureAgentConfigFailed  = "capture_agent_config_failed"
 	preSendErrorCodeCompileAgentConfigFailed  = "compile_agent_config_failed"
 	preSendErrorCodeInitializeMCPFailed       = "initialize_mcp_connections_failed"
-	preSendErrorCodeBuildModelSelectionFailed = "build_model_selection_failed"
 	preSendErrorCodeResolveModelFailed        = "resolve_model_failed"
 	preSendErrorCodeBuildModelContextFailed   = "build_model_context_failed"
 	preSendErrorCodeLoadReplayPolicyFailed    = "load_provider_replay_policy_failed"
@@ -147,16 +145,7 @@ func (e AgentExecutor) executeModelStep(
 			)
 		}
 	}
-	selection, err := modelSelectionForContext(claim.Context, contract.Model)
-	if err != nil {
-		return e.recordNormalPreSendFailure(
-			ctx, input, claim, model.ResolvedClient{}, err,
-			modelretry.PreSendFailure{
-				Code:    preSendErrorCodeBuildModelSelectionFailed,
-				Message: "Omnara could not construct the configured model selection.",
-			},
-		)
-	}
+	selection := modelSelectionForContext(claim.Context, contract.Model)
 	resolved, err := resolver.Resolve(ctx, selection)
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
@@ -185,15 +174,6 @@ func (e AgentExecutor) executeModelStep(
 		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
 	}
 	capabilities := model.CapabilitiesForClient(client)
-	if err := ensureModelSupportsContractTools(client, capabilities, contract); err != nil {
-		cause := model.ProviderError{
-			Kind:    model.ErrorKindInvalidRequest,
-			Source:  "model_capabilities",
-			Code:    "required_tools_unsupported",
-			Message: err.Error(),
-		}
-		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
-	}
 	bundle, err := builder.Build(ctx, modelcontext.BuildInput{
 		ProjectID:           input.ProjectID,
 		AgentID:             input.AgentID,
@@ -222,14 +202,27 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
+	if err := ensureModelSupportsTools(
+		client,
+		capabilities,
+		contract.RequiresModelToolSupport() || len(bundle.ToolSpecs) > 0,
+	); err != nil {
+		cause := model.ProviderError{
+			Kind:    model.ErrorKindInvalidRequest,
+			Source:  "model_capabilities",
+			Code:    "required_tools_unsupported",
+			Message: err.Error(),
+		}
+		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
+	}
 
-	policy := model.RequestPolicyFromCapabilities(capabilities)
-	policy.SuppressProviderReplay, err = e.Store.Execution().ModelCallOperationHasFailedWithErrorKind(
+	policy, err := modelretry.RequestPolicyForModelCall(
 		ctx,
+		e.Store.Execution(),
 		input.ProjectID,
 		input.AgentID,
 		claim.Context.ID,
-		model.ErrorKindReplayRejected,
+		model.RequestPolicyFromCapabilities(capabilities),
 	)
 	if err != nil {
 		return e.recordNormalPreSendFailure(
@@ -244,9 +237,11 @@ func (e AgentExecutor) executeModelStep(
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,
-		bundle,
-		policy,
-		modelErrorSourceForClient(client),
+		model.PrepareForSendInput{
+			Context:     bundle,
+			Policy:      policy,
+			ErrorSource: modelErrorSourceForClient(client),
+		},
 	)
 	if err != nil {
 		return e.recordNormalPreSendFailure(
@@ -255,6 +250,24 @@ func (e AgentExecutor) executeModelStep(
 				Code:    preSendErrorCodePrepareModelRequestFailed,
 				Message: "Omnara could not prepare the provider request for this attempt.",
 			},
+		)
+	}
+	if prepared.InputBudget.OverBudget() {
+		trigger, triggerErr := localInputBudgetTrigger(
+			prepared.InputBudget,
+			modelErrorSourceForClient(client),
+		)
+		if triggerErr != nil {
+			return modelStep{}, triggerErr
+		}
+		return e.enterContextMaintenance(
+			ctx,
+			input,
+			claim,
+			resolved,
+			trigger,
+			false,
+			model.Response{},
 		)
 	}
 	request := model.Request{
@@ -280,7 +293,15 @@ func (e AgentExecutor) executeModelStep(
 		if _, classified := model.ClassifyError(err); !classified {
 			return modelStep{}, err
 		}
-		return e.recordNormalFailure(ctx, input, claim, resolved, err, true, response)
+		return e.recordNormalProviderFailure(
+			ctx,
+			input,
+			claim,
+			resolved,
+			policy,
+			err,
+			response,
+		)
 	}
 	response = model.WithoutToolCallsOnMaxTokens(response)
 	if err := model.ValidateProviderResponse(response); err != nil {
@@ -291,7 +312,7 @@ func (e AgentExecutor) executeModelStep(
 			resolved,
 			model.MalformedProviderResponse(string(apiFormat), err),
 			true,
-			model.ResponseEvidenceForStorage(response),
+			response,
 		)
 	}
 	envelope, err := model.NewResponseEnvelopeForStorage(
@@ -308,7 +329,7 @@ func (e AgentExecutor) executeModelStep(
 			resolved,
 			model.MalformedProviderResponse(string(apiFormat), err),
 			true,
-			model.ResponseEvidenceForStorage(response),
+			response,
 		)
 	}
 	step := modelStep{
@@ -488,134 +509,103 @@ func (e AgentExecutor) recordNormalFailure(
 	providerRequestStarted bool,
 	response model.Response,
 ) (modelStep, error) {
-	response = model.ResponseEvidenceForStorage(response)
+	return e.recordNormalFailureForAttempt(
+		ctx,
+		input,
+		claim,
+		resolved,
+		cause,
+		providerRequestStarted,
+		response,
+		modelretry.Attempt{Number: claim.Context.AttemptNumber},
+	)
+}
+
+func (e AgentExecutor) recordNormalProviderFailure(
+	ctx context.Context,
+	input ModelWorkExecution,
+	claim executionstore.ModelCallClaim,
+	resolved model.ResolvedClient,
+	policy model.RequestPolicy,
+	cause error,
+	response model.Response,
+) (modelStep, error) {
+	return e.recordNormalFailureForAttempt(
+		ctx,
+		input,
+		claim,
+		resolved,
+		cause,
+		true,
+		response,
+		modelretry.Attempt{
+			Number: claim.Context.AttemptNumber,
+			ProviderReplayCutoffCanAdvance: policy.ProviderReplayCutoffEventSequence <
+				claim.Context.InputEventSequence,
+		},
+	)
+}
+
+func (e AgentExecutor) recordNormalFailureForAttempt(
+	ctx context.Context,
+	input ModelWorkExecution,
+	claim executionstore.ModelCallClaim,
+	resolved model.ResolvedClient,
+	cause error,
+	providerRequestStarted bool,
+	response model.Response,
+	attempt modelretry.Attempt,
+) (modelStep, error) {
+	if trigger, ok := providerInputFailureTrigger(cause); ok {
+		return e.enterContextMaintenance(
+			ctx,
+			input,
+			claim,
+			resolved,
+			trigger,
+			providerRequestStarted,
+			response,
+		)
+	}
 	now := e.now()
 	evidence, decision := modelretry.Decide(
 		cause,
-		modelretry.Attempt{Number: claim.Context.AttemptNumber},
+		attempt,
 		claim.Context.ID.String(),
-		now, modelretry.CompactOnInputOverflow)
+		now,
+	)
 	if decision.Action == modelretry.ActionRetry {
 		decision.RetryDelay = e.modelRetryDelay(decision.RetryDelay)
 	}
 
-	var plan compaction.Plan
-	if decision.Action == modelretry.ActionCompact {
-		planned, ok, err := e.planCompactionForContext(
-			ctx,
-			claim.Context,
-			resolved.Client,
-			input,
-		)
-		if err != nil {
-			return modelStep{}, err
-		}
-		if !ok {
-			compactionTrigger, err := marshalJSON(map[string]any{
-				"compaction_trigger": map[string]any{
-					"kind":    evidence.Kind,
-					"code":    evidence.Code,
-					"message": evidence.Message,
-					"details": evidence.Details,
-				},
-			})
-			if err != nil {
-				return modelStep{}, err
-			}
-			cause = model.ProviderError{
-				Kind:      model.ErrorKindContextWindow,
-				Source:    modelErrorSourceForClient(resolved.Client),
-				Code:      "context_cannot_be_compacted",
-				Message:   "The current model input is too large and has no closed event prefix that can be compacted safely.",
-				RequestID: evidence.RequestID,
-				Metadata:  compactionTrigger,
-			}
-			evidence = modelretry.EvidenceFor(cause)
-			decision.Action = modelretry.ActionStop
-		} else {
-			plan = planned
-		}
-	}
-	apiFormat, apiVariant, _ := model.APIIdentityForClient(resolved.Client)
-	servedSlug := ""
-	providerRequestID := ""
-	providerResponseID := ""
-	usage := modelenvelope.Usage{}
-	var providerReportedCostUSD modelenvelope.ProviderReportedCostUSD
-	if providerRequestStarted {
-		servedSlug = response.ServedProviderModelSlug
-		providerRequestID = evidence.RequestID
-		if providerRequestID == "" {
-			providerRequestID = response.ProviderRequestID
-		}
-		providerResponseID = response.ID
-		usage = response.Usage
-		providerReportedCostUSD = response.ProviderReportedCostUSD
-	}
-	if decision.Action == modelretry.ActionRetry || decision.Action == modelretry.ActionCompact {
-		recoveryKind := executionstore.ModelCallRecoveryRetry
-		if decision.Action == modelretry.ActionCompact {
-			recoveryKind = executionstore.ModelCallRecoveryCompact
-		}
+	failureEvidence := collectNormalCallFailureEvidence(
+		resolved,
+		evidence.RequestID,
+		providerRequestStarted,
+		response,
+	)
+	if decision.Action == modelretry.ActionRetry {
 		failureInput := executionstore.RecordRecoverableModelCallFailureInput{
 			ProjectID:               input.ProjectID,
 			AgentID:                 input.AgentID,
 			ModelCallContextID:      claim.Context.ID,
 			RuntimeLockID:           input.RuntimeLockID,
-			RecoveryKind:            recoveryKind,
-			APIFormat:               apiFormat,
-			APIVariant:              apiVariant,
-			ProviderRequestID:       providerRequestID,
-			ProviderResponseID:      providerResponseID,
+			RecoveryKind:            executionstore.ModelCallRecoveryRetry,
+			APIFormat:               failureEvidence.APIFormat,
+			APIVariant:              failureEvidence.APIVariant,
+			ProviderRequestID:       failureEvidence.ProviderRequestID,
+			ProviderResponseID:      failureEvidence.ProviderResponseID,
 			ErrorKind:               evidence.Kind,
 			ErrorCode:               evidence.Code,
 			ErrorMessage:            evidence.Message,
 			ErrorDetails:            evidence.Details,
 			RetryDelay:              decision.RetryDelay,
-			Usage:                   usage,
-			ProviderReportedCostUSD: providerReportedCostUSD,
+			Usage:                   failureEvidence.Usage,
+			ProviderReportedCostUSD: failureEvidence.ProviderReportedCostUSD,
 		}
-		var (
-			contextRecord executionstore.ModelCallContextRecord
-			err           error
-		)
-		compactionBoundaryPreempted := false
-		var compactionClaim executionstore.ModelCallClaim
-		if decision.Action == modelretry.ActionCompact {
-			handoff, handoffErr := e.Store.Execution().RecordModelCallFailureAndClaimCompaction(
-				ctx,
-				executionstore.RecordModelCallFailureAndClaimCompactionInput{
-					ParentContextID:        claim.Context.ID,
-					Failure:                failureInput,
-					SourceEventSequenceEnd: plan.EventSequenceEnd,
-				},
-			)
-			contextRecord, err = handoff.ParentContext, handoffErr
-			compactionBoundaryPreempted = handoff.BoundaryPreempted
-			compactionClaim = handoff.CompactionCall
-		} else {
-			contextRecord, err = e.Store.Execution().RecordRetryableModelCallFailure(ctx, failureInput)
-		}
+		contextRecord, err := e.Store.Execution().RecordRetryableModelCallFailure(ctx, failureInput)
 		if err != nil {
 			return modelStep{}, errors.Join(cause, err)
-		}
-		if decision.Action == modelretry.ActionCompact && !compactionBoundaryPreempted {
-			if _, err := (compaction.Runner{
-				Store:           compaction.NewStore(e.Store.Execution()),
-				Resolver:        e.ModelResolver,
-				ContextBuilder:  e.contextBuilder(),
-				Now:             e.Now,
-				ModelRetryDelay: e.ModelRetryDelay,
-			}).RunClaimed(ctx, compaction.RunInput{
-				Plan:                     plan,
-				TurnID:                   input.TurnID,
-				OpeningInputIDs:          input.InputIDs,
-				OpeningEventSequence:     input.OpeningEventSequence,
-				RuntimeLockID:            input.RuntimeLockID,
-				ParentModelCallContextID: claim.Context.ID,
-			}, compactionClaim); err != nil {
-				return modelStep{}, err
-			}
 		}
 		return modelStep{State: modelStepWaiting, Context: contextRecord, Resolved: resolved}, nil
 	}
@@ -626,17 +616,17 @@ func (e AgentExecutor) recordNormalFailure(
 			AgentID:                 input.AgentID,
 			RuntimeLockID:           input.RuntimeLockID,
 			ModelCallContextID:      claim.Context.ID,
-			APIFormat:               apiFormat,
-			APIVariant:              apiVariant,
-			ServedProviderModelSlug: servedSlug,
-			ProviderRequestID:       providerRequestID,
-			ProviderResponseID:      providerResponseID,
+			APIFormat:               failureEvidence.APIFormat,
+			APIVariant:              failureEvidence.APIVariant,
+			ServedProviderModelSlug: failureEvidence.ServedModelSlug,
+			ProviderRequestID:       failureEvidence.ProviderRequestID,
+			ProviderResponseID:      failureEvidence.ProviderResponseID,
 			ErrorKind:               evidence.Kind,
 			ErrorCode:               evidence.Code,
 			ErrorMessage:            evidence.Message,
 			ErrorDetails:            evidence.Details,
-			Usage:                   usage,
-			ProviderReportedCostUSD: providerReportedCostUSD,
+			Usage:                   failureEvidence.Usage,
+			ProviderReportedCostUSD: failureEvidence.ProviderReportedCostUSD,
 		},
 	)
 	if err != nil {

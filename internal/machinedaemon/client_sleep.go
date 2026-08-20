@@ -29,7 +29,13 @@ func (c *Client) sleepEnabled() bool {
 
 func (c *Client) daemonIdle(ctx context.Context) bool {
 	c.processMu.RLock()
-	busy := len(c.processes) > 0
+	busy := false
+	for _, runtime := range c.processes {
+		if runtime != nil && !runtime.cleanupOnly {
+			busy = true
+			break
+		}
+	}
 	c.processMu.RUnlock()
 	if busy {
 		return false

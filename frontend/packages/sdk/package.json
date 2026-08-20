@@ -1,8 +1,21 @@
 {
   "name": "@omnara/sdk",
   "version": "0.0.0",
-  "private": true,
+  "description": "TypeScript SDK for the Omnara API, with browser, TanStack Query, and Zod entry points",
+  "license": "Apache-2.0",
+  "homepage": "https://omnara.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omnara-ai/omnara.git",
+    "directory": "frontend/packages/sdk"
+  },
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -21,8 +34,31 @@
       "default": "./src/generated/zod.gen.ts"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./browser": {
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.js"
+      },
+      "./tanstack": {
+        "types": "./dist/tanstack.d.ts",
+        "default": "./dist/tanstack.js"
+      },
+      "./zod": {
+        "types": "./dist/zod.d.ts",
+        "default": "./dist/zod.js"
+      }
+    }
+  },
   "scripts": {
-    "generate:api": "openapi-ts",
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "generate:api": "openapi-ts && node scripts/relax-response-enums.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -40,6 +76,7 @@
   "devDependencies": {
     "@hey-api/openapi-ts": "0.99.0",
     "@tanstack/react-query": "^5.59.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.6.0",
     "vitest": "4.1.9"
   }

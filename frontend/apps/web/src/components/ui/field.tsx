@@ -124,6 +124,19 @@ function FieldLabel({ className, ...props }: ComponentProps<typeof Label>) {
   )
 }
 
+function RequiredFieldLabel({ children, ...props }: ComponentProps<typeof FieldLabel>) {
+  return (
+    <FieldLabel {...props}>
+      <span>
+        {children}
+        <span className="text-destructive" aria-hidden="true">
+          {' *'}
+        </span>
+      </span>
+    </FieldLabel>
+  )
+}
+
 function FieldDescription({ className, ...props }: ComponentProps<'p'>) {
   return (
     <p
@@ -182,4 +195,5 @@ export {
   FieldGroup,
   FieldLabel,
   FieldSeparator,
+  RequiredFieldLabel,
 }

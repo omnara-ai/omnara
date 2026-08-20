@@ -120,3 +120,48 @@ func TestUnexpectedSupervisorListenerFailureClosesProcessContainment(
 		t.Fatal("unexpected listener failure left the child unreaped")
 	}
 }
+
+func TestStorageExhaustionClosesProcessBeforeTerminalReadiness(t *testing.T) {
+	t.Parallel()
+
+	command := exec.Command("/bin/sh", "-c", "sleep 30")
+	if err := setupProcessCommand(command); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	runner := &localProcessRunner{
+		cmd:                 command,
+		terminalResultReady: make(chan struct{}),
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+		}
+	})
+	if err := afterStartProcessCommand(runner); err != nil {
+		t.Fatal(err)
+	}
+	state := &runnerServerState{prepared: runner}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := state.closeForStorageExhaustion(ctx); !errors.Is(
+		err,
+		errStorageExhaustionTerminalReady,
+	) {
+		t.Fatalf("storage closure error = %v", err)
+	}
+	if command.ProcessState == nil {
+		t.Fatal("storage terminal readiness preceded process reaping")
+	}
+	if response := state.status(ctx); response.ErrorCode != runnerErrorStorageExhaustionReady {
+		t.Fatalf("storage-ready status = %+v", response)
+	}
+	if err := releaseProcessCommand(ctx, runner); err != nil {
+		t.Fatal(err)
+	}
+	released = true
+}

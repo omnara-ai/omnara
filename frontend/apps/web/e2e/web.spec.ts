@@ -73,7 +73,7 @@ async function signIn(page: Page, email: string, returnTo: string) {
 }
 
 async function selectConfiguredModel(page: Page) {
-  const modelPicker = page.getByRole('combobox', { name: 'Search granted models…' })
+  const modelPicker = page.getByRole('combobox', { name: 'Model' })
   await modelPicker.fill(modelName)
   await page
     .getByRole('option')
@@ -84,7 +84,7 @@ async function selectConfiguredModel(page: Page) {
 
 async function createProfile(page: Page, name: string, instruction: string) {
   await signIn(page, adminEmail, createAgentPath)
-  await page.getByLabel('Name', { exact: true }).fill(name)
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
   await page.getByLabel('Instruction').fill(instruction)
   await selectConfiguredModel(page)
   await expect(page.getByRole('button', { name: 'Create profile' })).toBeEnabled()
@@ -101,6 +101,14 @@ async function typeInConfigEditor(page: Page, text: string) {
   const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
   await expect(editor).toBeVisible()
   await editor.focus()
+  await page.keyboard.insertText(text)
+}
+
+async function replaceConfigEditor(page: Page, text: string) {
+  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
+  await expect(editor).toBeVisible()
+  await editor.focus()
+  await page.keyboard.press('Control+A')
   await page.keyboard.insertText(text)
 }
 
@@ -193,14 +201,18 @@ test('creates an agent from YAML', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
 
   await page.getByRole('button', { name: 'YAML' }).click()
+  await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
+    'aria-required',
+    'true',
+  )
 
   const agentName = uniqueName('YAML E2E Agent')
-  await page.getByLabel('Name', { exact: true }).fill(agentName)
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
   const yamlLines = [
     'instruction: Test agent creation from YAML.',
     `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
   ]
-  await typeInConfigEditor(page, yamlLines.join('\n'))
+  await replaceConfigEditor(page, yamlLines.join('\n'))
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
@@ -214,8 +226,34 @@ test('creates an agent with the Builder', async ({ page }) => {
   await signIn(page, adminEmail, createAgentPath)
 
   await expect(page.getByRole('button', { name: 'Builder' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Model' })).toHaveAttribute(
+    'aria-required',
+    'true',
+  )
+  await expect(page.getByText('web_search', { exact: true })).toBeVisible()
+  await expect(page.getByText('web_fetch', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Toolsets' })).toHaveCount(0)
+  await expect(page.getByLabel('First message (optional)')).toHaveCount(0)
+  await expect(page.getByText('No machine sources', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('No skills attached', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('No MCP servers', { exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Add tools' }).click()
+  await expect(page.getByRole('menuitem', { name: 'skill', exact: true })).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'send_integration_message', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'set_integration_target', exact: true }),
+  ).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: 'About web_search' }).hover()
+  await expect(page.getByRole('tooltip')).toContainText('Search the public web')
+  await expect(page.getByRole('tooltip').getByRole('link', { name: 'Learn more' })).toHaveCount(0)
+
   const agentName = uniqueName('Builder Agent')
-  await page.getByLabel('Name', { exact: true }).fill(agentName)
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
   await selectConfiguredModel(page)
 
@@ -264,7 +302,7 @@ test('granting a model from the Builder does not create a profile or agent', asy
   })
   await signIn(page, adminEmail, createAgentPath)
 
-  await page.getByLabel('Name', { exact: true }).fill('Unintended Agent')
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Unintended Agent')
   await page.getByLabel('Instruction').fill('This form must not submit from a grant dialog.')
   await selectConfiguredModel(page)
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
@@ -282,9 +320,20 @@ test('granting a model from the Builder does not create a profile or agent', asy
     }
   })
 
-  await page.getByRole('button', { name: 'Grant models' }).click()
+  const modelPicker = page.getByRole('combobox', { name: 'Model' })
+  await modelPicker.fill('Grant models')
+  const grantModelsOption = page.getByRole('option', { name: 'Grant models…' })
+  await expect(grantModelsOption).toBeVisible()
+  await modelPicker.press('ArrowDown')
+  await expect(grantModelsOption).toHaveAttribute('data-highlighted', '')
+  const providerListResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return response.request().method() === 'GET' && url.pathname.endsWith('/model-provider-configs')
+  })
+  await modelPicker.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Grant models' })
   const providerPicker = dialog.getByRole('combobox', { name: 'Search model providers…' })
+  expect((await providerListResponse).ok()).toBe(true)
   await providerPicker.fill(providerConfig)
   await page.getByRole('option', { name: providerConfig }).click()
   const configuredModelPicker = dialog.getByRole('combobox', {
@@ -296,6 +345,7 @@ test('granting a model from the Builder does not create a profile or agent', asy
 
   await expect(dialog).toHaveCount(0)
   await expect(page).toHaveURL(createAgentPath)
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   expect(agentSubmissionRequests).toBe(0)
   expect(failures).toEqual([])
@@ -426,6 +476,7 @@ test('edits a profile with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
   await createProfile(page, uniqueName('Builder Edit Agent'), 'Original instruction.')
 
+  await expect(page.getByRole('combobox', { name: 'Model' })).toBeVisible()
   const instruction = page.getByLabel('Instruction')
   await expect(instruction).toHaveValue('Original instruction.')
   const save = page.getByRole('button', { name: 'Save revision' })

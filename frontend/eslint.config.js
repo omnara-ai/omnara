@@ -34,6 +34,10 @@ export default tseslint.config(
       'simple-import-sort/exports': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
+      '@typescript-eslint/no-unnecessary-condition': [
+        'error',
+        { allowConstantLoopConditions: 'only-allowed-literals' },
+      ],
       'max-lines': ['error', { max: 500, skipBlankLines: true, skipComments: true }],
     },
   },
@@ -41,6 +45,12 @@ export default tseslint.config(
     files: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}'],
     rules: {
       'max-lines': ['error', { max: 800, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    files: ['packages/cli/src/manifest.ts'],
+    rules: {
+      'max-lines': 'off',
     },
   },
   {

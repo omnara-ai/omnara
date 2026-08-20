@@ -139,6 +139,7 @@ type CompleteDaemonProcessInput struct {
 	Result             json.RawMessage
 	SourceStartedAt    time.Time
 	SourceEndedAt      time.Time
+	StorageExhausted   bool
 }
 
 type ProcessRecord struct {

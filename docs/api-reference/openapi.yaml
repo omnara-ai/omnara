@@ -1739,6 +1739,7 @@ paths:
         - $ref: '#/components/parameters/SecretKindFilter'
         - $ref: '#/components/parameters/SecretOwnerKindFilter'
         - $ref: '#/components/parameters/SecretOwnerProjectIDFilter'
+        - $ref: '#/components/parameters/SecretMCPOAuthFlowIDFilter'
         - $ref: '#/components/parameters/SecretMetadataFilter'
         - name: sort
           in: query
@@ -2120,6 +2121,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/IntegrationInstallAgentProfileFilter'
+        - $ref: '#/components/parameters/IntegrationInstallOAuthFlowIDFilter'
         - name: sort
           in: query
           schema:
@@ -5297,7 +5299,7 @@ paths:
       summary: Delete configured model
       description: >-
         Deletes only the configured model. Deletion is blocked while it has active project grants.
-        Models belonging to a cluster-managed provider config cannot be deleted through this route.
+        Cluster-managed configured models cannot be deleted through this route.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5641,6 +5643,10 @@ paths:
       operationId: updateMachinePool
       tags: [Machine Pools]
       summary: Update machine pool
+      description: >-
+        Tenant-managed pools support every request field. Cluster-managed pools only allow changes to
+        default CPU and memory, environment and secret environment variables, and provider-supported
+        per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6398,6 +6404,13 @@ components:
       schema:
         $ref: '#/components/schemas/ProjectID'
       description: Required with owner_kind=project and invalid with other owner kinds.
+    SecretMCPOAuthFlowIDFilter:
+      name: mcp_oauth_flow_id
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/MCPOAuthFlowID'
+      description: Filter to secrets that have a version created by this MCP OAuth flow.
     IntegrationInstallAgentProfileFilter:
       name: agent_profile_id
       in: query
@@ -6405,6 +6418,13 @@ components:
       schema:
         $ref: '#/components/schemas/AgentProfileID'
       description: Only return integration installs bound to this agent profile.
+    IntegrationInstallOAuthFlowIDFilter:
+      name: oauth_flow_id
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/IntegrationOAuthFlowID'
+      description: Only return the integration install completed by this OAuth setup flow.
     SecretAvailabilitySourceFilter:
       name: availability_source
       in: query
@@ -6547,6 +6567,19 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+    Warning:
+      type: object
+      additionalProperties: false
+      required: [message, code]
+      properties:
+        message:
+          type: string
+          description: Human-readable warning message. Do not match on it programmatically.
+        code:
+          type: string
+          description: Stable warning code for programmatic handling.
+          enum:
+            - missing_recommended_machine_tools
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -6578,7 +6611,10 @@ components:
         - authentication_unavailable
     ManagementKind:
       type: string
-      description: Lifecycle owner. Tenant-managed resources can be changed through tenant APIs; cluster-managed resources are installed by the control plane and are read-only through tenant lifecycle APIs.
+      description: >-
+        Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed
+        resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly
+        expose tenant-editable settings.
       enum: [tenant, cluster]
     OrganizationID:
       type: string
@@ -6595,6 +6631,12 @@ components:
     ProjectID:
       type: string
       pattern: '^proj_[a-z2-7]{26}$'
+    MCPOAuthFlowID:
+      type: string
+      pattern: '^moaf_[a-z2-7]{26}$'
+    IntegrationOAuthFlowID:
+      type: string
+      pattern: '^ioaf_[a-z2-7]{26}$'
     ActorID:
       type: string
       pattern: '^actr_[a-z2-7]{26}$'
@@ -6678,8 +6720,9 @@ components:
         does not expose as typed fields, such as OpenRouter `provider` routing
         or sampling parameters. Omnara still controls the fields it needs to run
         the agent correctly, including the model, prompt/messages, streaming,
-        tools, and selected reasoning policy. For OpenRouter routing options,
-        see
+        tools, output-token limit, and selected reasoning policy. Provider
+        passthrough values for those fields are ignored. For OpenRouter routing
+        options, see
         https://openrouter.ai/docs/guides/routing/provider-selection and general
         request parameters at https://openrouter.ai/docs/api/reference/parameters.
       additionalProperties: true
@@ -6984,7 +7027,7 @@ components:
     ConfiguredModel:
       type: object
       additionalProperties: false
-      required: [id, org_id, model_provider_config_id, name, current_revision_id, provider_model_slug, context_window_tokens, max_output_tokens, default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities, api_variant_options, created_at, updated_at, revision_created_at]
+      required: [id, org_id, model_provider_config_id, management_kind, name, current_revision_id, provider_model_slug, context_window_tokens, max_output_tokens, default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities, api_variant_options, created_at, updated_at, revision_created_at]
       properties:
         id:
           $ref: '#/components/schemas/ConfiguredModelID'
@@ -6992,6 +7035,8 @@ components:
           $ref: '#/components/schemas/OrganizationID'
         model_provider_config_id:
           $ref: '#/components/schemas/ModelProviderConfigID'
+        management_kind:
+          $ref: '#/components/schemas/ManagementKind'
         name:
           type: string
           description: Admin-facing configured model name used by agent YAML as model.name.
@@ -7560,8 +7605,10 @@ components:
     MCPOAuthStartResponse:
       type: object
       additionalProperties: false
-      required: [authorization_url, expires_at]
+      required: [flow_id, authorization_url, expires_at]
       properties:
+        flow_id:
+          $ref: '#/components/schemas/MCPOAuthFlowID'
         authorization_url:
           type: string
           format: uri
@@ -7639,10 +7686,12 @@ components:
     IntegrationOAuthSetup:
       type: object
       additionalProperties: false
-      required: [provider, oauth_url, redirect_uri, events_url, actions_url, expires_at]
+      required: [provider, flow_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
       properties:
         provider:
           type: string
+        flow_id:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
         oauth_url:
           type: string
           format: uri
@@ -7686,10 +7735,12 @@ components:
     SlackSetup:
       type: object
       additionalProperties: false
-      required: [provider, slack_app_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
+      required: [provider, flow_id, slack_app_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
       properties:
         provider:
           type: string
+        flow_id:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
         slack_app_id:
           type: string
         oauth_url:
@@ -7872,6 +7923,13 @@ components:
           $ref: '#/components/schemas/AgentConfigModel'
         instruction_hash:
           type: string
+        warnings:
+          type: array
+          minItems: 1
+          x-go-type-skip-optional-pointer: true
+          description: Non-blocking diagnostics about the agent config.
+          items:
+            $ref: '#/components/schemas/Warning'
         created_at:
           $ref: '#/components/schemas/Timestamp'
     CreateAgentProfileRequest:
@@ -10387,6 +10445,26 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+        usage:
+          description: Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+          $ref: '#/components/schemas/MachinePoolUsage'
+    MachinePoolUsage:
+      type: object
+      additionalProperties: false
+      required: [machines, cpu, memory_mb]
+      properties:
+        machines:
+          type: integer
+          format: int32
+          minimum: 0
+        cpu:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_mb:
+          type: integer
+          format: int64
+          minimum: 0
     ListMachinePoolsResponse:
       type: object
       additionalProperties: false

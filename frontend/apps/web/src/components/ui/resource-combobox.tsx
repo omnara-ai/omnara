@@ -14,6 +14,8 @@ export type {
 export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TItem>) {
   return function BoundResourceCombobox({
     items,
+    id,
+    required,
     value,
     onValueChange,
     search,
@@ -37,6 +39,8 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
     return (
       <Combobox
         {...rootProps}
+        id={id}
+        required={required}
         inputValue={inputValue}
         onInputValueChange={(nextValue, eventDetails) => {
           // Only user typing is a search query. Selection and popup lifecycle
@@ -46,7 +50,7 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
         value={value}
         onValueChange={onValueChange}
       >
-        <ComboboxInput aria-label={placeholder} placeholder={placeholder} />
+        <ComboboxInput aria-label={id ? undefined : placeholder} placeholder={placeholder} />
         <ResourceComboboxContent
           config={config}
           pending={pending}

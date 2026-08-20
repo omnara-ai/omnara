@@ -1,10 +1,10 @@
 import { useProjectAvailableSkills } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
-import { CircleAlert, Sparkles, Trash2Icon } from 'lucide-react'
+import { CircleAlert, PlusIcon, Sparkles, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
@@ -107,24 +107,21 @@ export function AgentConfigSkillsField({
   }, [onUnavailableIdsChange, unavailableReportKey])
 
   return (
-    <Field>
+    <Field className="gap-5">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <FieldLabel>Skills</FieldLabel>
-          <FieldDescription>
-            Reusable instructions and files this agent can load on demand.
-          </FieldDescription>
-        </div>
+        <FieldLabel>Skills</FieldLabel>
         <Button
           type="button"
-          size="sm"
+          size="icon"
           variant="outline"
+          className="bg-muted/40 size-8"
+          aria-label="Add skill"
           onClick={() => {
             setPickerOpen((open) => !open)
             search.setSearch('')
           }}
         >
-          Add skill
+          <PlusIcon />
         </Button>
       </div>
       {pickerOpen && (
@@ -143,14 +140,9 @@ export function AgentConfigSkillsField({
           placeholder={skillsQuery.isPending ? 'Loading skills…' : 'Search skills…'}
         />
       )}
-      <div className="space-y-2">
-        {selectedIds.length === 0 ? (
-          <div className="border-border bg-background/60 text-muted-foreground flex min-h-20 items-center justify-center gap-2 rounded-md border border-dashed px-4 text-sm">
-            <Sparkles className="size-4" />
-            No skills attached
-          </div>
-        ) : (
-          selectedIds.map((id) => (
+      {selectedIds.length > 0 && (
+        <div className="space-y-2">
+          {selectedIds.map((id) => (
             <SelectedSkillRow
               key={id}
               orgId={orgId}
@@ -164,9 +156,9 @@ export function AgentConfigSkillsField({
                 onSelectedIdsChange(selectedIds.filter((selectedId) => selectedId !== id))
               }}
             />
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </Field>
   )
 }
@@ -214,7 +206,7 @@ function SelectedSkillRow({
       className={
         unavailable
           ? 'border-destructive/40 bg-destructive/5 flex items-center gap-3 rounded-md border px-3 py-2.5'
-          : 'border-border bg-background flex items-center gap-3 rounded-md border px-3 py-2.5'
+          : 'border-border bg-muted/40 flex items-center gap-3 rounded-md border px-3 py-2.5'
       }
     >
       <div className="bg-muted flex size-8 shrink-0 items-center justify-center rounded-md">

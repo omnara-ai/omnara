@@ -559,6 +559,7 @@ WHERE install.project_id = $7
   AND install.deleted_at IS NULL
   AND ($8::text = '' OR install.provider_agent_display_name ILIKE $8::text ESCAPE '\')
   AND ($9::uuid IS NULL OR install.agent_profile_id = $9::uuid)
+  AND ($10::uuid IS NULL OR install.last_oauth_flow_id = $10::uuid)
 )
 SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
        provider, integration_kind, connection_mode, state,
@@ -586,6 +587,7 @@ type ListIntegrationInstallsForProjectParams struct {
 	ProjectID      uuid.UUID
 	NamePattern    string
 	AgentProfileID *uuid.UUID
+	OauthFlowID    *uuid.UUID
 }
 
 type ListIntegrationInstallsForProjectRow struct {
@@ -623,6 +625,7 @@ func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg Lis
 		arg.ProjectID,
 		arg.NamePattern,
 		arg.AgentProfileID,
+		arg.OauthFlowID,
 	)
 	if err != nil {
 		return nil, err

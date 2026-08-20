@@ -172,7 +172,7 @@ func TestRunnerValidatesCandidateWithSerializedNormalProviderRequest(t *testing.
 			MaxOutputTokens:        1_024,
 			DefaultMaxOutputTokens: 1_024,
 		},
-		preparedEstimates:           []int{500},
+		sourceInputTokens:           500,
 		checkpointPreparedEstimates: []int{9_000},
 	}
 	result, err := testRunner(store, client).
@@ -209,7 +209,7 @@ func TestRunnerRejectsProgressiveCheckpointWithoutRemainingSemanticSource(t *tes
 			MaxOutputTokens:        1_024,
 			DefaultMaxOutputTokens: 1_024,
 		},
-		preparedEstimates:           []int{500},
+		sourceInputTokens:           500,
 		checkpointPreparedEstimates: []int{9_000},
 	}
 	result, err := testRunner(store, client).

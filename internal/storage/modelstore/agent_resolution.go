@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -16,7 +17,7 @@ func ResolveForAgentTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	orgID, projectID, configuredModelID uuid.UUID,
-	options AgentModelOptions,
+	options agentconfig.ModelOverrides,
 ) (ConfiguredModelRevisionRecord, error) {
 	configuredModelRow, err := q.LockConfiguredModelForUse(ctx, dbsqlc.LockConfiguredModelForUseParams{
 		OrgID: orgID,

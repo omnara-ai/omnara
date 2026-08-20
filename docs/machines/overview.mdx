@@ -27,11 +27,11 @@ The [mounted storage example](/examples/mounted-storage) is the canonical BYO st
 Every machine reports two independent states:
 
 - **`lifecycle_state`** tracks whether the machine is being provisioned, active, being deleted, or deleted. It also reports provisioning and deletion failures.
-- **`connection_state`** reports whether its daemon is currently `online` or `offline`.
+- **`connection_state`** reports whether the machine is currently `online`, `asleep`, or `offline`.
 
 An `active` machine can be `offline`, for example when someone closes a laptop. New commands fail with a retryable error. A process may continue on the machine, but the agent cannot interact with it until the daemon reconnects. After a grace period, tool calls waiting on that process return a retryable `machine_unreachable` result.
 
-A machine is available to an agent only when its binding is attached, its lifecycle is `active`, and its daemon is `online`. The [`inspect_machine`](/tools/built-in#list_machines--inspect_machine) tool reports this as `executable`.
+A machine is available to an agent only when its binding is attached, its project grant still exists, its lifecycle is `active`, and its daemon is `online` or the machine is asleep and can be woken. The [`inspect_machine`](/tools/built-in#list_machines--inspect_machine) tool reports this as `executable`.
 
 ## Who may use a machine
 

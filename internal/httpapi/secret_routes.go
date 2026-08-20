@@ -392,13 +392,24 @@ func (s strictOpenAPIServer) ListSecrets(
 		}
 		filters.OwnerProjectID = id
 	}
+	if request.Params.McpOauthFlowId != nil {
+		id, ok := parseOpenAPIPublicID(publicid.KindMCPOAuthFlow, *request.Params.McpOauthFlowId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid mcp_oauth_flow_id")
+		}
+		filters.MCPOAuthFlowID = id
+	}
 	extra := struct {
 		OwnerKind, OwnerProjectID string
+		MCPOAuthFlowID            string
 		Kind                      string
 		Metadata                  map[string]string
 	}{OwnerKind: filters.OwnerKind, Kind: kind, Metadata: filters.Metadata}
 	if filters.OwnerProjectID != storage.NilID {
 		extra.OwnerProjectID = filters.OwnerProjectID.String()
+	}
+	if filters.MCPOAuthFlowID != storage.NilID {
+		extra.MCPOAuthFlowID = filters.MCPOAuthFlowID.String()
 	}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: request.Params.Name, Sort: optionalString(request.Params.Sort),

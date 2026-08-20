@@ -13,12 +13,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func ensureModelSupportsContractTools(
+func ensureModelSupportsTools(
 	client model.Client,
 	capabilities model.Capabilities,
-	contract agentconfig.RuntimeContract,
+	required bool,
 ) error {
-	if !contract.RequiresModelToolSupport() || capabilities.SupportsTools == nil || *capabilities.SupportsTools {
+	if !required || capabilities.SupportsTools == nil || *capabilities.SupportsTools {
 		return nil
 	}
 	return fmt.Errorf(
@@ -30,25 +30,12 @@ func ensureModelSupportsContractTools(
 func modelSelectionForContext(
 	contextRow executionstore.ModelCallContextRecord,
 	runtimeModel agentconfig.ModelCompiled,
-) (model.Selection, error) {
+) model.Selection {
 	return model.Selection{
 		OrgID:                     contextRow.OrgID.String(),
 		ProjectID:                 contextRow.ProjectID.String(),
 		ConfiguredModelRevisionID: contextRow.ConfiguredModelRevisionID.String(),
-		Options:                   selectionOptionsFromCompiled(runtimeModel),
-	}, nil
-}
-
-func selectionOptionsFromCompiled(runtimeModel agentconfig.ModelCompiled) model.SelectionOptions {
-	reasoningEffort := ""
-	if runtimeModel.Reasoning != nil {
-		reasoningEffort = runtimeModel.Reasoning.Effort
-	}
-	return model.SelectionOptions{
-		ContextWindowTokens:    runtimeModel.ContextWindowTokens,
-		DefaultMaxOutputTokens: runtimeModel.DefaultMaxOutputTokens,
-		CacheRetention:         model.CacheRetention(runtimeModel.CacheRetention),
-		ReasoningEffort:        reasoningEffort,
+		Overrides:                 runtimeModel.Overrides(),
 	}
 }
 
@@ -102,6 +89,14 @@ func (e AgentExecutor) modelContextToolRuntime(
 		e.Store.Artifacts(),
 		e.Store.Integrations(),
 	)
+	integrationTargets, err := contextStore.ListIntegrationTargets(ctx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	contract, err = modelcontext.WithImplicitIntegrationMessageTool(contract, integrationTargets)
+	if err != nil {
+		return nil, err
+	}
 	specs, err := modelcontext.RuntimeContractToolSpecs(
 		ctx,
 		contextStore,

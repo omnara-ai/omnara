@@ -170,8 +170,8 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 		"deterministic-anthropic-compaction",
 		"anthropic-prod",
 		"service-e2e-claude",
-		map[string]serviceE2EConfiguredModelOptions{
-			"service-e2e-claude": {
+		serviceE2EConfiguredModelOptionsByIdentity{
+			{ProviderConfigName: "anthropic-prod", ConfiguredModelName: "service-e2e-claude"}: {
 				ContextWindowTokens:    128000,
 				MaxOutputTokens:        8192,
 				DefaultMaxOutputTokens: 64,

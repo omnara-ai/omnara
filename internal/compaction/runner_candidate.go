@@ -43,12 +43,6 @@ func compactionSourceAdjustmentError(
 	}
 }
 
-func requestSizeError(err error) bool {
-	providerErr, ok := model.ClassifyError(err)
-	return ok && (providerErr.Kind == model.ErrorKindContextWindow ||
-		providerErr.Kind == model.ErrorKindPayloadTooLarge)
-}
-
 func (r Runner) loadClosedEventRange(
 	ctx context.Context,
 	plan Plan,
@@ -164,10 +158,9 @@ func (r Runner) hasRemainingSemanticSource(
 }
 
 type preparedCompactionRequest struct {
-	prepared        model.PreparedRequest
-	sourceEnd       int64
-	sourceText      string
-	adjustmentCause error
+	prepared   model.PreparedRequest
+	sourceEnd  int64
+	sourceText string
 }
 
 func largestFittingCompactionRequest(
@@ -179,6 +172,7 @@ func largestFittingCompactionRequest(
 	groups []executionstore.CompactionAtomicGroupRecord,
 	client model.Client,
 	policy model.RequestPolicy,
+	summaryOutputFloorTokens int,
 	errorSource string,
 ) (preparedCompactionRequest, error) {
 	candidates := safeCompactionSourceEndsWithWitness(
@@ -189,13 +183,7 @@ func largestFittingCompactionRequest(
 	if len(candidates) == 0 {
 		return preparedCompactionRequest{}, nil
 	}
-	low, high := 0, len(candidates)-1
-	best := -1
-	var bestRequest preparedCompactionRequest
-	var sizeErr error
-	for low <= high {
-		mid := low + (high-low)/2
-		end := candidates[mid]
+	prepareCandidate := func(end int64, candidatePolicy model.RequestPolicy) (preparedCompactionRequest, error) {
 		count := int(end-input.Plan.EventSequenceStart) + 1
 		if count <= 0 || count > len(events) {
 			return preparedCompactionRequest{}, errors.New("compaction source candidates do not match loaded events")
@@ -211,30 +199,61 @@ func largestFittingCompactionRequest(
 		prepared, err := model.PrepareForSend(
 			ctx,
 			client,
-			bundle,
-			policy,
-			errorSource,
+			model.PrepareForSendInput{
+				Context:     bundle,
+				Policy:      candidatePolicy,
+				ErrorSource: errorSource,
+			},
 		)
 		if err != nil {
-			if !requestSizeError(err) {
-				return preparedCompactionRequest{}, err
-			}
-			sizeErr = err
-			high = mid - 1
-			continue
+			return preparedCompactionRequest{}, err
 		}
-		best = mid
-		bestRequest = preparedCompactionRequest{
+		return preparedCompactionRequest{
 			prepared:   prepared,
 			sourceEnd:  end,
 			sourceText: sourceText,
+		}, nil
+	}
+	adjustedPolicy := policy
+	smallest, err := prepareCandidate(candidates[0], adjustedPolicy)
+	if err != nil {
+		return preparedCompactionRequest{}, err
+	}
+	for smallest.prepared.InputBudget.OverBudget() {
+		if adjustedPolicy.MaxOutputTokens <= summaryOutputFloorTokens {
+			return preparedCompactionRequest{}, nil
 		}
+		excess := smallest.prepared.InputBudget.EstimatedInputTokens -
+			smallest.prepared.InputBudget.UsableInputTokens
+		nextOutput := adjustedPolicy.MaxOutputTokens - excess
+		if nextOutput < summaryOutputFloorTokens {
+			nextOutput = summaryOutputFloorTokens
+		}
+		if nextOutput >= adjustedPolicy.MaxOutputTokens {
+			return preparedCompactionRequest{}, nil
+		}
+		adjustedPolicy.MaxOutputTokens = nextOutput
+		smallest, err = prepareCandidate(candidates[0], adjustedPolicy)
+		if err != nil {
+			return preparedCompactionRequest{}, err
+		}
+	}
+
+	bestRequest := smallest
+	low, high := 1, len(candidates)-1
+	for low <= high {
+		mid := low + (high-low)/2
+		candidate, err := prepareCandidate(candidates[mid], adjustedPolicy)
+		if err != nil {
+			return preparedCompactionRequest{}, err
+		}
+		if candidate.prepared.InputBudget.OverBudget() {
+			high = mid - 1
+			continue
+		}
+		bestRequest = candidate
 		low = mid + 1
 	}
-	if best < 0 {
-		return preparedCompactionRequest{}, nil
-	}
-	bestRequest.adjustmentCause = sizeErr
 	return bestRequest, nil
 }
 

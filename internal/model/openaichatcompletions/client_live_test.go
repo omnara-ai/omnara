@@ -15,9 +15,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 )
-
-const liveOpenRouterGeneralModelSlug = "z-ai/glm-5.2"
 
 func TestLiveOpenAIChatCompletionsText(t *testing.T) {
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
@@ -28,7 +27,7 @@ func TestLiveOpenAIChatCompletionsText(t *testing.T) {
 		Auth:              route.BearerToken{Token: apiKey},
 		BaseURL:           os.Getenv("OPENAI_BASE_URL"),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: liveOpenAIChatProviderModelSlug(),
+		ProviderModelSlug: modeltest.LiveOpenAIProviderModelSlug,
 	}, model.RequestPolicy{MaxOutputTokens: 64, CacheRetention: model.CacheRetentionLong})
 }
 
@@ -47,12 +46,12 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 	}{
 		{
 			name:              "z-ai",
-			providerModelSlug: liveOpenRouterGeneralModelSlug,
+			providerModelSlug: modeltest.LiveOpenRouterProviderModelSlug,
 			apiVariantOptions: json.RawMessage(`{"reasoning":{"enabled":false}}`),
 		},
 		{
 			name:              "openai",
-			providerModelSlug: "openai/gpt-5.6-luna",
+			providerModelSlug: "openai/" + modeltest.LiveOpenAIProviderModelSlug,
 			apiVariantOptions: json.RawMessage(`{}`),
 		},
 		{
@@ -62,7 +61,7 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 		},
 		{
 			name:              "anthropic",
-			providerModelSlug: "anthropic/claude-sonnet-5",
+			providerModelSlug: "anthropic/" + modeltest.LiveAnthropicProviderModelSlug,
 			apiVariantOptions: json.RawMessage(`{}`),
 		},
 	} {
@@ -116,7 +115,7 @@ func TestLiveOpenRouterChatCompletionsSettings(t *testing.T) {
 		Auth:              liveOpenRouterAuth(apiKey),
 		BaseURL:           liveOpenRouterBaseURL(),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: liveOpenRouterGeneralModelSlug,
+		ProviderModelSlug: modeltest.LiveOpenRouterProviderModelSlug,
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
 		APIVariantOptions: json.RawMessage(
 			`{"provider":{"sort":"price"},"temperature":0,"reasoning":{"enabled":false}}`,
@@ -139,7 +138,7 @@ func TestLiveOpenRouterChatCompletionsStreamText(t *testing.T) {
 		Auth:              liveOpenRouterAuth(apiKey),
 		BaseURL:           liveOpenRouterBaseURL(),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: liveOpenRouterGeneralModelSlug,
+		ProviderModelSlug: modeltest.LiveOpenRouterProviderModelSlug,
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
 		APIVariantOptions: json.RawMessage(`{"reasoning":{"enabled":false}}`),
 	}
@@ -201,7 +200,7 @@ func TestLiveOpenRouterChatCompletionsToolCall(t *testing.T) {
 		Auth:              liveOpenRouterAuth(apiKey),
 		BaseURL:           liveOpenRouterBaseURL(),
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-		ProviderModelSlug: liveOpenRouterGeneralModelSlug,
+		ProviderModelSlug: modeltest.LiveOpenRouterProviderModelSlug,
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
 		APIVariantOptions: json.RawMessage(`{"provider":{"sort":"price"}}`),
 	}
@@ -299,16 +298,6 @@ func liveTextContent(t *testing.T, text string) json.RawMessage {
 func liveChatCompletionsToken() string {
 	stamp := time.Now().UTC().Format("20060102T150405000000000")
 	return "OMNARA_LIVE_CHAT_" + stamp
-}
-
-func liveOpenAIChatProviderModelSlug() string {
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_CHAT_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	if providerModelSlug := os.Getenv("OMNARA_E2E_OPENAI_PROVIDER_MODEL_SLUG"); providerModelSlug != "" {
-		return providerModelSlug
-	}
-	return "gpt-4.1-mini"
 }
 
 func liveOpenRouterBaseURL() string {

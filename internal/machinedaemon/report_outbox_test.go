@@ -190,6 +190,15 @@ func TestOutboxForcedReportKeepsLifecycleOrder(t *testing.T) {
 	sent := make(chan statedb.Report, 2)
 	client := New(Config{}, nil, nil)
 	client.state = store
+	client.addProcess(&processRuntime{
+		processID:            processID,
+		supervisorInstanceID: supervisorInstanceID,
+		cleanupOnly:          true,
+	})
+	if !client.daemonIdle(ctx) {
+		t.Fatal("server-resolved storage cleanup prevented idleness")
+	}
+	client.removeProcessInstance(processID, supervisorInstanceID)
 	client.transport = rejectingReportTransport{sent: sent}
 	replayCtx, cancelReplay := context.WithCancel(ctx)
 	replayDone := make(chan struct{})

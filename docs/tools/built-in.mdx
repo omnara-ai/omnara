@@ -145,7 +145,7 @@ Agents remain observable when machine state changes:
 
 ## Machines
 
-These tools let an agent inspect, create, and delete its pool-backed machines. Its [config](/agents/configuration#machines) and [pool grants](/machines/pools) determine which pools it can use and how many machines it can create.
+These tools let an agent inspect its BYO and pool-backed machines, and create or delete pool-backed machines. Its [config](/agents/configuration#machines) and [machine or pool grants](/machines/overview#who-may-use-a-machine) determine which machines it can use and how many pool-backed machines it can create.
 
 ### `create_machine`
 
@@ -157,7 +157,7 @@ Deletes a pool-backed machine. Requires `machine_ref`.
 
 ### `list_machines` / `inspect_machine`
 
-`list_machines` lists the agent's pool-backed machines. `inspect_machine` shows whether a specific pool-backed machine is online and ready to run commands; provide `machine_ref` when the agent has more than one.
+`list_machines` lists the agent's BYO and pool-backed machines. `inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_ref` when the agent has more than one. Results identify the machine's `source_kind` and `binding_kind`; only pool bindings can be passed to `delete_machine`.
 
 ## Integrations
 

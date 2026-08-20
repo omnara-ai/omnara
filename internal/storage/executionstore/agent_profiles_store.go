@@ -61,6 +61,9 @@ func (s *Store) CreateAgentProfile(
 		}
 		return record, nil
 	}
+	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+		return AgentProfileRecord{}, err
+	}
 	if err := lockResourceCreation(ctx, qtx, resourceAgentProfiles, input.ProjectID.String()); err != nil {
 		return AgentProfileRecord{}, err
 	}
@@ -186,6 +189,9 @@ func (s *Store) RetargetAgentProfile(
 			return AgentProfileRecord{}, fmt.Errorf("commit no-op retarget agent profile: %w", err)
 		}
 		return profile, nil
+	}
+	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+		return AgentProfileRecord{}, err
 	}
 	row, err := qtx.RetargetAgentProfile(
 		ctx,

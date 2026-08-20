@@ -12,7 +12,7 @@ export default defineConfig({
     {
       name: 'zod',
       dates: { offset: true },
-      requests: false,
+      requests: true,
       responses: true,
       definitions: true,
     },

@@ -635,10 +635,9 @@ func (s *Store) UpdateMachinePool(
 		return MachinePoolRecord{}, fmt.Errorf("lock machine pool for update: %w", err)
 	}
 	if management.Kind(locked.ManagementKind) == management.Cluster {
-		return MachinePoolRecord{}, fmt.Errorf(
-			"cluster-managed machine pools cannot be updated: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
+		if err := validateClusterMachinePoolUpdate(input); err != nil {
+			return MachinePoolRecord{}, err
+		}
 	}
 	lockedMetadata, err := resourcemeta.FromJSON(locked.Metadata)
 	if err != nil {
@@ -786,6 +785,27 @@ func (s *Store) UpdateMachinePool(
 	return record, nil
 }
 
+func validateClusterMachinePoolUpdate(input UpdateMachinePoolInput) error {
+	protectedUpdate := input.Name != nil ||
+		input.Description != nil ||
+		len(input.DefaultMachineProviderOptions) > 0 ||
+		input.DefaultCwd != nil ||
+		len(input.ProviderConfig) > 0 ||
+		input.ProviderAuthSecretID != nil ||
+		input.RuntimeProtectionEnabled != nil ||
+		input.MaxTotalMachines != nil ||
+		input.MaxTotalCPU.Set ||
+		input.MaxTotalMemoryMB.Set ||
+		input.Metadata != nil
+	if protectedUpdate {
+		return fmt.Errorf(
+			"cluster-managed machine pool contains protected updates: %w",
+			storeerr.ErrStateTransitionConflict,
+		)
+	}
+	return nil
+}
+
 func updateMachinePoolRow(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
@@ -853,8 +873,19 @@ type ListMachinePoolsInput struct {
 	List  listing.Options
 }
 
+type MachinePoolUsageRecord struct {
+	Machines int32
+	CPU      int64
+	MemoryMB int64
+}
+
+type MachinePoolListRecord struct {
+	MachinePoolRecord
+	Usage MachinePoolUsageRecord
+}
+
 type ListMachinePoolsResult struct {
-	Pools   []MachinePoolRecord
+	Pools   []MachinePoolListRecord
 	HasMore bool
 	Next    listing.Cursor
 }
@@ -889,7 +920,7 @@ func (s *Store) ListMachinePools(ctx context.Context, input ListMachinePoolsInpu
 		result.HasMore = true
 		rows = rows[:input.Limit]
 	}
-	result.Pools = make([]MachinePoolRecord, 0, len(rows))
+	result.Pools = make([]MachinePoolListRecord, 0, len(rows))
 	for _, row := range rows {
 		result.Pools = append(result.Pools, machinePoolRecordFromListSQLC(row))
 		result.Next = listing.Cursor{Set: true, IsNull: row.SortIsNull, Key: row.SortKey, ID: row.ID}

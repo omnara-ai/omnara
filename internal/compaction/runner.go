@@ -164,13 +164,25 @@ func (r Runner) run(
 		)
 	}
 	providerAttempt := providerAttemptEvidence{APIFormat: apiFormat, APIVariant: apiVariant}
-	policy := compactionRequestPolicy(client)
-	policy.SuppressProviderReplay, err = r.Store.ModelCallOperationHasFailedWithErrorKind(
+	errorSource := modelErrorSourceForAPIFormat(apiFormat)
+	policy, summaryOutputFloor, err := compactionRequestPolicy(client, errorSource)
+	if err != nil {
+		return r.recordPreSendFailure(
+			ctx, input, claim, err,
+			modelretry.PreSendFailure{
+				Code:    compactionErrorCodePrepareRequestFailed,
+				Message: "Omnara could not prepare a valid compaction request policy.",
+			},
+			providerAttempt,
+		)
+	}
+	continuationPolicy, err := modelretry.RequestPolicyForModelCall(
 		ctx,
+		r.Store,
 		input.Plan.ProjectID,
 		input.Plan.AgentID,
 		claim.Context.ID,
-		model.ErrorKindReplayRejected,
+		model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
 	)
 	if err != nil {
 		return r.recordPreSendFailure(
@@ -178,7 +190,7 @@ func (r Runner) run(
 			modelretry.PreSendFailure{
 				Code: compactionErrorCodeLoadReplayPolicyFailed,
 				Message: "Omnara could not determine whether provider replay is safe " +
-					"for compaction.",
+					"for the projected continuation.",
 			},
 			providerAttempt,
 		)
@@ -203,7 +215,8 @@ func (r Runner) run(
 		boundaryWindow.atomicGroups,
 		client,
 		policy,
-		modelErrorSourceForAPIFormat(apiFormat),
+		summaryOutputFloor,
+		errorSource,
 	)
 	if err != nil {
 		return r.recordPreSendFailure(
@@ -220,25 +233,23 @@ func (r Runner) run(
 			ctx,
 			input,
 			claim,
-			irreducibleCompactionError("no closed source prefix fits the configured model window"),
+			irreducibleCompactionError(
+				"no safe closed source prefix fits while preserving the minimum summary allowance",
+			),
 			providerAttempt,
 		)
 	}
 	if preparedRequest.sourceEnd < input.Plan.EventSequenceEnd {
-		cause := preparedRequest.adjustmentCause
-		if cause == nil {
-			cause = compactionSourceAdjustmentError(
-				boundaryWindow.sourceEvents,
-				boundaryWindow.witnessEvents,
-				boundaryWindow.atomicGroups,
-				input.Plan.EventSequenceEnd,
-			)
-		}
 		return r.replaceCompactionSource(
 			ctx,
 			input,
 			claim,
-			cause,
+			compactionSourceAdjustmentError(
+				boundaryWindow.sourceEvents,
+				boundaryWindow.witnessEvents,
+				boundaryWindow.atomicGroups,
+				input.Plan.EventSequenceEnd,
+			),
 			providerAttempt,
 			preparedRequest.sourceEnd,
 		)
@@ -265,7 +276,6 @@ func (r Runner) run(
 	}
 	response = model.WithoutToolCallsOnMaxTokens(response)
 	providerAttempt.Response = response
-	errorSource := modelErrorSourceForAPIFormat(apiFormat)
 	if err := model.ValidateProviderResponse(response); err != nil {
 		return r.recordFailure(
 			ctx,
@@ -295,31 +305,38 @@ func (r Runner) run(
 			Summary:                        summary,
 		},
 	})
+	candidateOverBudget := false
 	if candidateErr == nil {
-		_, candidateErr = model.PrepareForSend(
+		var candidatePrepared model.PreparedRequest
+		candidatePrepared, candidateErr = model.PrepareForSend(
 			ctx,
 			client,
-			candidateBundle,
-			model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
-			modelErrorSourceForAPIFormat(apiFormat),
+			model.PrepareForSendInput{
+				Context:     candidateBundle,
+				Policy:      continuationPolicy,
+				ErrorSource: errorSource,
+			},
 		)
+		if candidateErr == nil {
+			candidateOverBudget = candidatePrepared.InputBudget.OverBudget()
+		}
 	}
 	if candidateErr != nil {
-		if !requestSizeError(candidateErr) {
-			if _, classified := model.ClassifyError(candidateErr); classified {
-				return r.recordFailure(
-					ctx,
-					input,
-					claim,
-					candidateErr,
-					providerAttempt,
-				)
-			}
-			return RunResult{}, fmt.Errorf(
-				"validate projected context with candidate checkpoint: %w",
+		if _, classified := model.ClassifyError(candidateErr); classified {
+			return r.recordFailure(
+				ctx,
+				input,
+				claim,
 				candidateErr,
+				providerAttempt,
 			)
 		}
+		return RunResult{}, fmt.Errorf(
+			"validate projected context with candidate checkpoint: %w",
+			candidateErr,
+		)
+	}
+	if candidateOverBudget {
 		hasRemainingSource, err := r.hasRemainingSemanticSource(ctx, input, protectOpening)
 		if err != nil {
 			return RunResult{}, err

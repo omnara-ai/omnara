@@ -34,7 +34,7 @@ export function OverridesCollapsible({
         <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="px-3 pb-3">{children}</div>
+        <div className="p-3">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   )
@@ -127,7 +127,7 @@ export function EnvOverlayEditor({
   onRowsChange,
 }: {
   label: string
-  description: string
+  description?: string
   rows: EnvOverlayRow[]
   onRowsChange: (rows: EnvOverlayRow[]) => void
 }) {
@@ -139,7 +139,7 @@ export function EnvOverlayEditor({
       <div className="flex items-center justify-between gap-3">
         <div>
           <FieldLabel>{label}</FieldLabel>
-          <FieldDescription>{description}</FieldDescription>
+          {description && <FieldDescription>{description}</FieldDescription>}
         </div>
         <Button
           type="button"
@@ -207,7 +207,7 @@ export function SecretEnvOverlayEditor({
   projectId?: string
   enabled: boolean
   label: string
-  description: string
+  description?: string
   rows: SecretEnvOverlayRow[]
   onRowsChange: (rows: SecretEnvOverlayRow[]) => void
 }) {
@@ -219,7 +219,7 @@ export function SecretEnvOverlayEditor({
       <div className="flex items-center justify-between gap-3">
         <div>
           <FieldLabel>{label}</FieldLabel>
-          <FieldDescription>{description}</FieldDescription>
+          {description && <FieldDescription>{description}</FieldDescription>}
         </div>
         <Button
           type="button"

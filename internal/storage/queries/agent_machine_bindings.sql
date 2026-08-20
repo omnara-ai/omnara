@@ -272,17 +272,63 @@ JOIN machines machine ON machine.org_id = binding.org_id
   AND machine.id = binding.machine_id
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state = 'active'
+JOIN machine_connection_states connection ON connection.org_id = machine.org_id
+  AND connection.machine_id = machine.id
 WHERE binding.project_id = sqlc.arg(project_id)
   AND binding.agent_id = sqlc.arg(agent_id)
   AND binding.state = 'attached'
+  AND connection.connection_state IN ('online', 'asleep')
+ORDER BY binding.created_at, binding.id;
+
+-- name: SelectAgentMachineObservations :many
+SELECT binding.machine_ref,
+       binding.binding_kind,
+       binding.state AS binding_state,
+       binding.description,
+       coalesce(nullif(binding.cwd, ''), machine.cwd, '') AS effective_cwd,
+       binding.created_at,
+       binding.updated_at,
+       machine.source_kind,
+       machine.display_name,
+       machine.lifecycle_state,
+       machine.failure_report,
+       connection.connection_state,
+       coalesce(current_runtime.state_reason_code, '') AS connection_state_reason,
+       coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code,
+       machine.lifecycle_reason_message,
+       coalesce(pool.name, '') AS machine_pool_name,
+       (binding.state = 'attached' AND pmgrant.id IS NULL)::boolean AS project_grant_missing,
+       coalesce((
+         binding.state = 'attached'
+         AND pmgrant.id IS NOT NULL
+         AND machine.deleted_at IS NULL
+         AND machine.lifecycle_state = 'active'
+         AND connection.connection_state IN ('online', 'asleep')
+       ), false)::boolean AS executable
+FROM agent_machine_bindings binding
+JOIN machines machine ON machine.org_id = binding.org_id
+  AND machine.id = binding.machine_id
+LEFT JOIN project_machine_grants pmgrant ON pmgrant.org_id = binding.org_id
+  AND pmgrant.project_id = binding.project_id
+  AND pmgrant.machine_id = binding.machine_id
+JOIN machine_connection_states connection ON connection.org_id = machine.org_id
+  AND connection.machine_id = machine.id
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
+LEFT JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+WHERE binding.project_id = sqlc.arg(project_id)
+  AND binding.agent_id = sqlc.arg(agent_id)
+  AND (sqlc.narg(machine_ref)::text IS NULL OR binding.machine_ref = sqlc.narg(machine_ref)::text)
   AND (
-    EXISTS (
-      SELECT 1
-      FROM online_daemon_runtimes runtime
-      WHERE runtime.org_id = binding.org_id
-        AND runtime.machine_id = binding.machine_id
+    binding.state = 'attached'
+    OR (
+      sqlc.arg(include_released_pool)::boolean
+      AND sqlc.narg(machine_ref)::text IS NOT NULL
+      AND binding.state = 'released'
+      AND binding.binding_kind = 'pool'
+      AND machine.source_kind = 'pool'
     )
-    OR machine.asleep_since IS NOT NULL
   )
 ORDER BY binding.created_at, binding.id;
 

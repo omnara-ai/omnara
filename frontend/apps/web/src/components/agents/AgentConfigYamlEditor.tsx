@@ -103,6 +103,7 @@ export function AgentConfigYamlEditor({
     editorRef.current = monaco.editor.create(editorElementRef.current, {
       model,
       ariaLabel: agentConfigYamlAriaLabel(initialReadOnlyRef.current),
+      ariaRequired: !initialReadOnlyRef.current,
       automaticLayout: true,
       fontFamily: 'var(--font-mono)',
       fontSize: 12,
@@ -161,6 +162,7 @@ export function AgentConfigYamlEditor({
   useEffect(() => {
     editorRef.current?.updateOptions({
       ariaLabel: agentConfigYamlAriaLabel(readOnly),
+      ariaRequired: !readOnly,
       readOnly,
     })
   }, [readOnly])

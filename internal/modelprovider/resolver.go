@@ -140,7 +140,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	effectiveRevision, err = modelstore.EffectiveConfiguredModelRevisionForAgentOptions(
 		providerConfig.APIFormat,
 		effectiveRevision,
-		agentModelOptionsForSelection(selection.Options),
+		selection.Overrides,
 	)
 	if err != nil {
 		return model.ResolvedClient{}, resolverError(
@@ -261,15 +261,6 @@ func resolverError(kind model.ErrorKind, code, message string, cause error) erro
 		Code:    code,
 		Message: message,
 		Cause:   cause,
-	}
-}
-
-func agentModelOptionsForSelection(options model.SelectionOptions) modelstore.AgentModelOptions {
-	return modelstore.AgentModelOptions{
-		ContextWindowTokens:    options.ContextWindowTokens,
-		DefaultMaxOutputTokens: options.DefaultMaxOutputTokens,
-		CacheRetention:         string(options.CacheRetention),
-		ReasoningEffort:        options.ReasoningEffort,
 	}
 }
 

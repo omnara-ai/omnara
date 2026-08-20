@@ -109,6 +109,7 @@ WHERE install.project_id = sqlc.arg(project_id)
   AND install.deleted_at IS NULL
   AND (sqlc.arg(name_pattern)::text = '' OR install.provider_agent_display_name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR install.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+  AND (sqlc.narg(oauth_flow_id)::uuid IS NULL OR install.last_oauth_flow_id = sqlc.narg(oauth_flow_id)::uuid)
 )
 SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
        provider, integration_kind, connection_mode, state,

@@ -1,4 +1,4 @@
-import { Trash2Icon } from 'lucide-react'
+import { PlusIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import {
@@ -15,7 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
 export function AgentConfigMachineSourcesField({
@@ -24,12 +24,16 @@ export function AgentConfigMachineSourcesField({
   sources,
   onSourcesChange,
   onUnavailableIdsChange,
+  showMissingToolsWarning,
+  onAddMissingTools,
 }: {
   orgId: string
   projectId: string
   sources: BasicMachineSource[]
   onSourcesChange: (sources: BasicMachineSource[]) => void
   onUnavailableIdsChange: (ids: string[]) => void
+  showMissingToolsWarning: boolean
+  onAddMissingTools: () => void
 }) {
   function updateSource(id: string, patch: Partial<BasicMachineSource>) {
     onSourcesChange(sources.map((source) => (source.id === id ? { ...source, ...patch } : source)))
@@ -55,17 +59,20 @@ export function AgentConfigMachineSourcesField({
   }, [onUnavailableIdsChange, sources, unavailableIds])
 
   return (
-    <Field>
+    <Field className="gap-5">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <FieldLabel>Machine sources</FieldLabel>
-          <FieldDescription>Machines the agent can run commands on.</FieldDescription>
-        </div>
+        <FieldLabel>Machine sources</FieldLabel>
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" size="sm" variant="outline">
-                Add source
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="bg-muted/40 size-8"
+                aria-label="Add source"
+              >
+                <PlusIcon />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -81,28 +88,39 @@ export function AgentConfigMachineSourcesField({
                   onSourcesChange([...sources, newMachineSource('machine')])
                 }}
               >
-                Existing machine
+                BYO machine
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
-      <div className="space-y-3">
-        {sources.length === 0 ? (
-          <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
-            No machine sources
-          </div>
-        ) : (
-          sources.map((source) => (
+      {showMissingToolsWarning && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2"
+        >
+          <p className="text-sm">Some machine tools are missing.</p>
+          <Button type="button" size="sm" variant="outline" onClick={onAddMissingTools}>
+            Add missing tools
+          </Button>
+        </div>
+      )}
+      {sources.length > 0 && (
+        <div className="space-y-3">
+          {sources.map((source) => (
             <div
               key={source.id}
-              className="border-border bg-background space-y-4 rounded-lg border p-4"
+              className="border-border bg-muted/40 space-y-4 rounded-lg border p-4"
             >
               <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
                 <Field>
-                  <FieldLabel>{source.kind === 'pool' ? 'Machine pool' : 'Machine'}</FieldLabel>
+                  <RequiredFieldLabel htmlFor={`${source.id}-source`}>
+                    {source.kind === 'pool' ? 'Machine pool' : 'BYO machine'}
+                  </RequiredFieldLabel>
                   {source.kind === 'pool' ? (
                     <PoolSourceCombobox
+                      id={`${source.id}-source`}
+                      required
                       orgId={orgId}
                       projectId={projectId}
                       value={source.name}
@@ -137,6 +155,8 @@ export function AgentConfigMachineSourcesField({
                     />
                   ) : (
                     <MachineSourceCombobox
+                      id={`${source.id}-source`}
+                      required
                       orgId={orgId}
                       projectId={projectId}
                       value={source.name}
@@ -263,9 +283,9 @@ export function AgentConfigMachineSourcesField({
                 Remove source
               </Button>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </Field>
   )
 }

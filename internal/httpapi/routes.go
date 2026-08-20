@@ -9,6 +9,7 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 )
 
+const healthzPath = "/healthz"
 const openAPIYAMLPath = "/api/openapi.yaml"
 const omnaradInstallPath = "/install/omnarad.sh"
 const webConfigPath = "/api/web-config"
@@ -38,6 +39,7 @@ var serverManualRouteContracts = []manualRouteContract{
 	{Method: http.MethodGet, Pattern: openAPIYAMLPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: omnaradInstallPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: webConfigPath, Access: manualRouteAccessStatic},
+	{Method: http.MethodGet, Pattern: healthzPath, Access: manualRouteAccessStatic},
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
@@ -52,6 +54,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/openapi.yaml", s.openapiYAMLRoute)
 	mux.HandleFunc("GET /install/omnarad.sh", s.omnaradInstallRoute)
 	mux.HandleFunc("GET /api/web-config", s.webConfigRoute)
+	mux.HandleFunc("GET /healthz", s.healthzRoute)
 	openapi.HandlerWithOptions(s.strictOpenAPIHandler(), openapi.StdHTTPServerOptions{
 		BaseRouter: mux,
 		Middlewares: []openapi.MiddlewareFunc{
@@ -75,11 +78,21 @@ func (s *Server) webConfigRoute(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, webConfigResponse{BillingURL: s.billingURL})
 }
 
+type healthzResponse struct {
+	Status string `json:"status"`
+}
+
+func (s *Server) healthzRoute(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, healthzResponse{Status: "ok"})
+}
+
 func openAPIErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	logpkg.Error(r.Context(), err)
 	apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 }
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	apierror.Write(w, openapi.ErrorCodeNotFound)
 }

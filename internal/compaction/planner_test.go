@@ -17,7 +17,7 @@ func TestRecentTailTargetTokens(t *testing.T) {
 		{name: "no input budget", usableInput: 0, want: 0},
 		{name: "negative input budget", usableInput: -1, want: 0},
 		{name: "quarter of input budget", usableInput: 20_000, want: 5_000},
-		{name: "large input budget capped", usableInput: 128_000, want: 8_000},
+		{name: "large input budget capped", usableInput: 128_000, want: 20_000},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := RecentTailTargetTokens(test.usableInput); got != test.want {

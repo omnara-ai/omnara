@@ -2,6 +2,7 @@ import type { OmnaraClient } from './client'
 import { streamEvents } from './generated/sdk.gen'
 import type { AgentEventStreamData, StreamEventsData } from './generated/types.gen'
 import { zStreamEventsResponse } from './generated/zod.gen'
+import { isUnknownEnumError } from './validate-response'
 
 export type AgentEventStreamErrorKind = 'aborted' | 'contract' | 'http' | 'transport'
 
@@ -82,7 +83,11 @@ async function* validatedFrames(
   try {
     for await (const data of source) {
       const parsed = await zStreamEventsResponse.safeParseAsync(data)
-      if (!parsed.success) {
+      if (parsed.success) {
+        yield parsed.data
+      } else if (isUnknownEnumError(parsed.error, data)) {
+        yield data as AgentEventStreamData
+      } else {
         throw new AgentEventStreamError({
           kind: 'contract',
           message: 'Agent event stream received data that does not match the API contract',
@@ -90,7 +95,6 @@ async function* validatedFrames(
           cause: parsed.error,
         })
       }
-      yield parsed.data
     }
   } catch (error) {
     throw classifyStreamError(error, signal)

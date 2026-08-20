@@ -34,12 +34,6 @@ WHERE process_id = sqlc.arg(process_id)
   AND local_closed = 0
   AND server_released = 0;
 
--- name: GetUngrantedProcessStatus :one
-SELECT phase, exec_committed
-FROM processes
-WHERE process_id = sqlc.arg(process_id)
-  AND supervisor_instance_id = sqlc.arg(supervisor_instance_id);
-
 -- name: DeleteProcess :exec
 DELETE FROM processes
 WHERE process_id = sqlc.arg(process_id)

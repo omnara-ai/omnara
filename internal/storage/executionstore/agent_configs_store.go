@@ -307,7 +307,7 @@ func validateAgentConfigModelContractTx(ctx context.Context, qtx *dbsqlc.Queries
 		input.OrgID,
 		input.ProjectID,
 		input.ConfiguredModelID,
-		AgentModelOptionsFromCompiledModel(contract.Model),
+		contract.Model.Overrides(),
 	)
 	if err != nil {
 		return fmt.Errorf("resolve configured model for agent config: %w", err)
@@ -319,19 +319,6 @@ func validateAgentConfigModelContractTx(ctx context.Context, qtx *dbsqlc.Queries
 		)
 	}
 	return nil
-}
-
-func AgentModelOptionsFromCompiledModel(model agentconfig.ModelCompiled) modelstore.AgentModelOptions {
-	reasoningEffort := ""
-	if model.Reasoning != nil {
-		reasoningEffort = model.Reasoning.Effort
-	}
-	return modelstore.AgentModelOptions{
-		ContextWindowTokens:    model.ContextWindowTokens,
-		DefaultMaxOutputTokens: model.DefaultMaxOutputTokens,
-		CacheRetention:         model.CacheRetention,
-		ReasoningEffort:        reasoningEffort,
-	}
 }
 
 func sameAgentConfigAuthority(record AgentConfigRecord, input CreateAgentConfigInput) bool {
@@ -358,6 +345,24 @@ func loadAgentConfigTx(
 		return AgentConfigRecord{}, fmt.Errorf("load agent config: %w", err)
 	}
 	return agentConfigRecordFromSQLC(row), nil
+}
+
+func lockAgentConfigModelForUseTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	config AgentConfigRecord,
+) error {
+	_, err := qtx.LockConfiguredModelForUse(ctx, dbsqlc.LockConfiguredModelForUseParams{
+		OrgID: config.OrgID,
+		ID:    config.ConfiguredModelID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("configured model for agent config is unavailable: %w", storeerr.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("lock configured model for agent config: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) ValidateAgentConfigMachineSources(

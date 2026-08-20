@@ -391,11 +391,8 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if !agentConfigHasIntegrationSendTool(profile.CurrentConfig) {
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"agent profile config must enable send_integration_message",
-		)
+	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
+		return nil, err
 	}
 	now := time.Now().UTC()
 	flowID, err := uuid.NewV7()
@@ -445,8 +442,14 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 		logpkg.Error(ctx, fmt.Errorf("build integration oauth authorization URL: %w", err))
 		return nil, fmt.Errorf("internal server error")
 	}
+	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
+	if err != nil {
+		logpkg.Error(ctx, err)
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
+	}
 	return openapi.CreateIntegrationOAuthSetup201JSONResponse(openapi.IntegrationOAuthSetup{
 		Provider:    provider,
+		FlowId:      publicFlowID,
 		OauthUrl:    installURL,
 		RedirectUri: redirectURI,
 		EventsUrl:   eventsURL,
@@ -504,11 +507,8 @@ func (s strictOpenAPIServer) createSlackSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if !agentConfigHasIntegrationSendTool(profile.CurrentConfig) {
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"agent profile config must enable send_integration_message",
-		)
+	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
+		return nil, err
 	}
 	appIcon, err := slackSetupAppIcon(*request.Body)
 	if err != nil {
@@ -585,8 +585,14 @@ func (s strictOpenAPIServer) createSlackSetup(
 		logpkg.Error(ctx, fmt.Errorf("build slack oauth authorization URL: %w", err))
 		return nil, fmt.Errorf("internal server error")
 	}
+	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
+	if err != nil {
+		logpkg.Error(ctx, err)
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
+	}
 	return openapi.CreateSlackSetup201JSONResponse(openapi.SlackSetup{
 		Provider:    integrationstore.IntegrationProviderSlack,
+		FlowId:      publicFlowID,
 		SlackAppId:  app.AppID,
 		OauthUrl:    installURL,
 		RedirectUri: redirectURI,
@@ -1166,6 +1172,7 @@ func (s *Server) agentConfigResponseFromRecord(
 	if err != nil {
 		return openapi.AgentConfig{}, err
 	}
+	response.Warnings = agentConfigWarnings(contract)
 	configuredModel, err := s.store.Models().GetConfiguredModelDisplay(ctx, record.OrgID, record.ConfiguredModelID)
 	if err != nil {
 		return openapi.AgentConfig{}, err
@@ -1221,9 +1228,9 @@ func (s *Server) agentConfigEffectiveModel(
 	record executionstore.AgentConfigRecord,
 	configuredModel modelstore.ConfiguredModelRecord,
 	revision modelstore.ConfiguredModelRevisionDisplayRecord,
-	model agentconfig.ModelCompiled,
+	compiledModel agentconfig.ModelCompiled,
 ) (modelstore.ConfiguredModelRevisionRecord, error) {
-	options := executionstore.AgentModelOptionsFromCompiledModel(model)
+	options := compiledModel.Overrides()
 	grant, err := s.store.Models().GetActiveProjectModelGrantForConfiguredModel(
 		ctx,
 		record.OrgID,

@@ -6,8 +6,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
+
+type reasoningSelectionResolver struct {
+	client     *summaryModel
+	selections []model.Selection
+}
+
+func (r *reasoningSelectionResolver) Resolve(
+	_ context.Context,
+	selection model.Selection,
+) (model.ResolvedClient, error) {
+	r.selections = append(r.selections, selection)
+	caps := r.client.caps
+	caps.DefaultReasoningEffort = selection.Overrides.ReasoningEffort
+	r.client.caps = caps
+	return model.ResolvedClient{
+		Client:                    r.client,
+		ConfiguredModelRevisionID: selection.ConfiguredModelRevisionID,
+	}, nil
+}
 
 func TestRunnerPublishesAuditedCumulativeCheckpoint(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
@@ -47,6 +67,90 @@ func TestRunnerPublishesAuditedCumulativeCheckpoint(t *testing.T) {
 	if !strings.Contains(prompt, "Event 1 (model_output.content)") ||
 		!strings.Contains(prompt, "Event 2 (model_output.content)") {
 		t.Fatalf("compaction prompt was not derived from canonical events: %s", prompt)
+	}
+}
+
+func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
+	const reasoningEffort = "high"
+	store := &fakeStore{
+		agentConfig: compactionAgentConfigWithReasoning(reasoningEffort),
+		events: []executionstore.CompactionSourceEventRecord{
+			textCompactionEvent(1, strings.Repeat("User supplied durable context. ", 20)),
+			textCompactionEvent(2, strings.Repeat("Assistant recorded the durable context. ", 20)),
+		},
+	}
+	client := &summaryModel{caps: model.Capabilities{
+		ContextWindowTokens:    200_000,
+		MaxOutputTokens:        64_000,
+		DefaultMaxOutputTokens: 2_048,
+		SupportsReasoning:      true,
+		SupportedReasoningEfforts: []string{
+			"low", "high",
+		},
+	}}
+	resolver := &reasoningSelectionResolver{client: client}
+	now := time.Unix(123, 0).UTC()
+	runner := Runner{
+		Store:          store,
+		Resolver:       resolver,
+		ContextBuilder: &fakeContextBuilder{},
+		Now:            func() time.Time { return now },
+	}
+	store.clock = runner.now
+
+	result, err := runner.Run(context.Background(), runInput(testPlan(1, 2, 2)))
+	if err != nil {
+		t.Fatalf("run compaction with agent reasoning selection: %v", err)
+	}
+	if result.State != RunCompleted || result.Checkpoint == nil {
+		t.Fatalf("run result = %+v, want completed checkpoint", result)
+	}
+	if len(resolver.selections) != 1 {
+		t.Fatalf("model selections = %+v, want one", resolver.selections)
+	}
+	selection := resolver.selections[0]
+	if selection.ConfiguredModelRevisionID != testIDN(601).String() ||
+		selection.Overrides.ReasoningEffort != reasoningEffort {
+		t.Fatalf("compaction model selection = %+v", selection)
+	}
+	if len(client.preparedPolicies) != len(client.preparedBundles) ||
+		len(client.preparedPolicies) < 2 {
+		t.Fatalf(
+			"prepared policies=%d bundles=%d, want summary and candidate requests",
+			len(client.preparedPolicies),
+			len(client.preparedBundles),
+		)
+	}
+	sawSummaryRequest := false
+	sawCandidateRequest := false
+	for index, policy := range client.preparedPolicies {
+		if policy.ReasoningEffort != reasoningEffort {
+			t.Fatalf("prepared policy %d = %+v, want inherited reasoning", index, policy)
+		}
+		if client.preparedBundles[index].ContextCheckpoint == nil {
+			sawSummaryRequest = true
+			if policy.MaxOutputTokens != preferredSummaryOutputTokens {
+				t.Fatalf(
+					"summary policy %d output = %d, want %d",
+					index,
+					policy.MaxOutputTokens,
+					preferredSummaryOutputTokens,
+				)
+			}
+			continue
+		}
+		sawCandidateRequest = true
+		if policy.MaxOutputTokens != 2_048 {
+			t.Fatalf("candidate policy %d output = %d, want normal 2048", index, policy.MaxOutputTokens)
+		}
+	}
+	if !sawSummaryRequest || !sawCandidateRequest || len(client.requests) != 1 {
+		t.Fatalf(
+			"summary=%v candidate=%v provider requests=%d",
+			sawSummaryRequest,
+			sawCandidateRequest,
+			len(client.requests),
+		)
 	}
 }
 

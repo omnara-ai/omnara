@@ -568,6 +568,90 @@ func TestChatCompletionsConsumeStreamClassifiesOpenRouterMidStreamError(t *testi
 	}
 }
 
+func TestChatCompletionsConsumeStreamClassifiesOpenRouterWrappedContextOverflow(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_context","object":"chat.completion.chunk","created":123,` +
+			`"model":"openai/gpt-5","provider":"openai","error":{"code":502,` +
+			`"message":"Your input exceeds the context window of this model.",` +
+			`"metadata":{"error_type":"provider_unavailable"}},` +
+			`"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error"}],` +
+			`"usage":{"prompt_tokens":914245,"completion_tokens":0}}`,
+	)
+	_, err := consumeChatCompletionsStream(
+		t,
+		stream,
+		&chatRecordingSink{},
+		modelprotocol.APIVariantOpenRouter,
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindContextWindow ||
+		providerErr.StatusCode != http.StatusBadGateway ||
+		providerErr.Code != "provider_unavailable" ||
+		model.IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("wrapped OpenRouter context overflow = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestChatCompletionsConsumeStreamClassifiesOpenRouterRawReplayError(t *testing.T) {
+	for _, test := range openRouterRawReplayErrorCases() {
+		t.Run(test.name, func(t *testing.T) {
+			event, err := json.Marshal(map[string]any{
+				"id":    "chatcmpl_replay",
+				"model": "anthropic/claude-sonnet-4",
+				"error": map[string]any{
+					"code":     400,
+					"message":  "Provider returned error",
+					"metadata": map[string]any{"raw": test.raw},
+				},
+				"choices": []map[string]any{{
+					"index":         0,
+					"delta":         map[string]any{},
+					"finish_reason": "error",
+				}},
+			})
+			if err != nil {
+				t.Fatalf("marshal raw stream error: %v", err)
+			}
+			_, err = consumeChatCompletionsStream(
+				t,
+				chatCompletionsSSE(string(event)),
+				&chatRecordingSink{},
+				modelprotocol.APIVariantOpenRouter,
+			)
+			providerErr, ok := model.ClassifyError(err)
+			if !ok || providerErr.Kind != model.ErrorKindReplayRejected ||
+				providerErr.StatusCode != http.StatusBadRequest ||
+				providerErr.Code != test.wantCode || providerErr.Message != test.wantMessage ||
+				model.IsAmbiguousProviderOutcome(err) {
+				t.Fatalf("raw streamed replay rejection = %+v ok=%v err=%v", providerErr, ok, err)
+			}
+		})
+	}
+}
+
+func TestChatCompletionsConsumeStreamClassifiesOpenRouterWrappedPayloadOverflow(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_payload","object":"chat.completion.chunk","created":123,` +
+			`"model":"openai/gpt-5","provider":"openai","error":{"code":502,` +
+			`"message":"Payload too large for the upstream provider.",` +
+			`"metadata":{"error_type":"provider_unavailable"}},` +
+			`"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error"}]}`,
+	)
+	_, err := consumeChatCompletionsStream(
+		t,
+		stream,
+		&chatRecordingSink{},
+		modelprotocol.APIVariantOpenRouter,
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindPayloadTooLarge ||
+		providerErr.StatusCode != http.StatusBadGateway ||
+		providerErr.Code != "provider_unavailable" ||
+		model.IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("wrapped OpenRouter payload overflow = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
 func TestChatCompletionsConsumeStreamClassifiesErrorBeforeSuccessPayloadValidation(t *testing.T) {
 	tests := []struct {
 		name    string

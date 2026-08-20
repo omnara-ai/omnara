@@ -88,6 +88,9 @@ func (s *Store) createConfiguredModelTx(
 			storeerr.ErrInvalidModelProviderConfig,
 		)
 	}
+	if err := management.Validate(managementKind); err != nil {
+		return ConfiguredModelRecord{}, err
+	}
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -101,9 +104,9 @@ func (s *Store) createConfiguredModelTx(
 	if err != nil {
 		return ConfiguredModelRecord{}, err
 	}
-	if management.Kind(providerConfigRow.ManagementKind) != managementKind {
+	if managementKind == management.Cluster && management.Kind(providerConfigRow.ManagementKind) != management.Cluster {
 		return ConfiguredModelRecord{}, fmt.Errorf(
-			"configured model management must match its provider: %w",
+			"cluster-managed configured models require a cluster-managed provider: %w",
 			storeerr.ErrStateTransitionConflict,
 		)
 	}
@@ -121,6 +124,7 @@ func (s *Store) createConfiguredModelTx(
 		dbsqlc.InsertConfiguredModelParams{
 			OrgID:                     input.OrgID,
 			ModelProviderConfigID:     input.ModelProviderConfigID,
+			ManagementKind:            string(managementKind),
 			Name:                      input.Name,
 			ProviderModelSlug:         input.ProviderModelSlug,
 			ContextWindowTokens:       int32(input.ContextWindowTokens),
@@ -159,7 +163,7 @@ func (s *Store) createConfiguredModelTx(
 		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)
 	}
 	record := configuredModelRecordFromGetByNameSQLC(existingRow)
-	if !sameConfiguredModelIntent(record, input) {
+	if record.ManagementKind != managementKind || !sameConfiguredModelIntent(record, input) {
 		return ConfiguredModelRecord{}, configuredModelNameConflict(input.Name)
 	}
 	return record, nil
@@ -199,20 +203,7 @@ func (s *Store) PatchConfiguredModel(
 			storeerr.ErrNotFound,
 		)
 	}
-	providerConfig, err := qtx.GetModelProviderConfig(
-		ctx,
-		dbsqlc.GetModelProviderConfigParams{
-			OrgID: input.OrgID,
-			ID:    input.ModelProviderConfigID,
-		},
-	)
-	if err != nil {
-		return ConfiguredModelRecord{}, fmt.Errorf("load configured model provider: %w", err)
-	}
-	if err := management.RequireTenant(
-		management.Kind(providerConfig.ManagementKind),
-		"configured models",
-	); err != nil {
+	if err := management.RequireTenant(current.ManagementKind, "configured models"); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
 	update := updateConfiguredModelInputFromCurrent(current)
@@ -620,20 +611,7 @@ func (s *Store) DeleteConfiguredModel(
 	if err != nil {
 		return ConfiguredModelRecord{}, err
 	}
-	managementKind, err := qtx.GetModelProviderManagementKindForLifecycle(
-		ctx,
-		dbsqlc.GetModelProviderManagementKindForLifecycleParams{
-			OrgID: orgID,
-			ID:    lockedModel.ModelProviderConfigID,
-		},
-	)
-	if err != nil {
-		return ConfiguredModelRecord{}, fmt.Errorf("load configured model provider: %w", err)
-	}
-	if err := management.RequireTenant(
-		management.Kind(managementKind),
-		"configured models",
-	); err != nil {
+	if err := management.RequireTenant(lockedModel.ManagementKind, "configured models"); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
 	hasGrants, err := qtx.ConfiguredModelHasActiveGrants(
@@ -666,6 +644,7 @@ func configuredModelRecordFromInsertSQLC(row dbsqlc.InsertConfiguredModelRow) Co
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ModelProviderConfigID:     row.ModelProviderConfigID,
+		ManagementKind:            management.Kind(row.ManagementKind),
 		Name:                      row.Name,
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
@@ -692,6 +671,7 @@ func configuredModelRecordFromGetSQLC(row dbsqlc.GetConfiguredModelRow) Configur
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ModelProviderConfigID:     row.ModelProviderConfigID,
+		ManagementKind:            management.Kind(row.ManagementKind),
 		Name:                      row.Name,
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
@@ -718,6 +698,7 @@ func configuredModelRecordFromLockForUseSQLC(row dbsqlc.LockConfiguredModelForUs
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ModelProviderConfigID:     row.ModelProviderConfigID,
+		ManagementKind:            management.Kind(row.ManagementKind),
 		Name:                      row.Name,
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
@@ -744,6 +725,7 @@ func configuredModelRecordFromDisplaySQLC(row dbsqlc.GetConfiguredModelDisplayRo
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ModelProviderConfigID:     row.ModelProviderConfigID,
+		ManagementKind:            management.Kind(row.ManagementKind),
 		Name:                      row.Name,
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
@@ -770,6 +752,7 @@ func configuredModelRecordFromGetByNameSQLC(row dbsqlc.GetConfiguredModelByNameR
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ModelProviderConfigID:     row.ModelProviderConfigID,
+		ManagementKind:            management.Kind(row.ManagementKind),
 		Name:                      row.Name,
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
@@ -796,6 +779,7 @@ func configuredModelRecordFromListSQLC(row dbsqlc.ListConfiguredModelsRow) Confi
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ModelProviderConfigID:     row.ModelProviderConfigID,
+		ManagementKind:            management.Kind(row.ManagementKind),
 		Name:                      row.Name,
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
@@ -822,6 +806,7 @@ func configuredModelRecordFromUpdateSQLC(row dbsqlc.UpdateConfiguredModelRow) Co
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ModelProviderConfigID:     row.ModelProviderConfigID,
+		ManagementKind:            management.Kind(row.ManagementKind),
 		Name:                      row.Name,
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
@@ -848,6 +833,7 @@ func configuredModelRecordFromRenameSQLC(row dbsqlc.RenameConfiguredModelRow) Co
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ModelProviderConfigID:     row.ModelProviderConfigID,
+		ManagementKind:            management.Kind(row.ManagementKind),
 		Name:                      row.Name,
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
@@ -877,6 +863,7 @@ func configuredModelRecordFromLockedConfiguredModelAndRevisionSQLC(
 		ID:                        configuredModel.ID,
 		OrgID:                     configuredModel.OrgID,
 		ModelProviderConfigID:     configuredModel.ModelProviderConfigID,
+		ManagementKind:            management.Kind(configuredModel.ManagementKind),
 		Name:                      configuredModel.Name,
 		CurrentRevisionID:         configuredModel.CurrentRevisionID,
 		ProviderModelSlug:         revision.ProviderModelSlug,

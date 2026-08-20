@@ -377,11 +377,9 @@ func activateLockedAuthorizedAgentConfigTx(
 	default:
 		return AgentConfigChangeRecord{}, fmt.Errorf("unsupported agent config change actor type %q", input.ActorType)
 	}
-	if _, err := qtx.GetAgentConfig(
-		ctx,
-		dbsqlc.GetAgentConfigParams{ProjectID: input.ProjectID, ID: input.AgentConfigID},
-	); err != nil {
-		return AgentConfigChangeRecord{}, fmt.Errorf("load agent config for change: %w", err)
+	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, input.AgentConfigID)
+	if err != nil {
+		return AgentConfigChangeRecord{}, err
 	}
 	metadata, err := marshalJSON(map[string]any{"agent_config_id": input.AgentConfigID, "reason": input.Reason})
 	if err != nil {
@@ -427,6 +425,9 @@ func activateLockedAuthorizedAgentConfigTx(
 			return AgentConfigChangeRecord{}, storeerr.ErrStateTransitionConflict
 		}
 		return AgentConfigChangeRecord{AgentInput: agentInput, Event: event}, nil
+	}
+	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+		return AgentConfigChangeRecord{}, err
 	}
 	eventRecord, _, _, err := appendEventToCurrentOrNewAgentTurnTx(
 		ctx,

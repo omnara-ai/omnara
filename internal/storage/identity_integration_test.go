@@ -857,7 +857,8 @@ func TestCreateOrgForUserCreatesClusterManagedModelProviderAtomically(t *testing
 	if err != nil {
 		t.Fatalf("list default configured models: %v", err)
 	}
-	if len(models.Models) != 1 || models.Models[0].Name != template.Models[0].Name {
+	if len(models.Models) != 1 || models.Models[0].Name != template.Models[0].Name ||
+		models.Models[0].ManagementKind != management.Cluster {
 		t.Fatalf("unexpected default configured models: %+v", models.Models)
 	}
 	if _, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
@@ -880,15 +881,29 @@ func TestCreateOrgForUserCreatesClusterManagedModelProviderAtomically(t *testing
 	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("archive cluster-managed provider error = %v, want state transition conflict", err)
 	}
-	if _, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+	tenantModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
 		OrgID:                 created.Org.ID,
 		ModelProviderConfigID: provider.ID,
 		Name:                  "tenant-added-model",
 		ProviderModelSlug:     "example/model",
 		ContextWindowTokens:   8192,
 		MaxOutputTokens:       1024,
-	}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("create model under cluster-managed provider error = %v, want state transition conflict", err)
+	})
+	if err != nil {
+		t.Fatalf("create tenant model under cluster-managed provider: %v", err)
+	}
+	if tenantModel.ManagementKind != management.Tenant {
+		t.Fatalf("tenant model management kind = %q, want tenant", tenantModel.ManagementKind)
+	}
+	tenantModelName := "tenant-renamed-model"
+	tenantModel, err = store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+		OrgID: created.Org.ID, ModelProviderConfigID: provider.ID, ID: tenantModel.ID, Name: &tenantModelName,
+	})
+	if err != nil || tenantModel.Name != tenantModelName {
+		t.Fatalf("patch tenant model under cluster-managed provider = %+v, %v", tenantModel, err)
+	}
+	if _, err := store.Models().DeleteConfiguredModel(ctx, created.Org.ID, tenantModel.ID); err != nil {
+		t.Fatalf("delete tenant model under cluster-managed provider: %v", err)
 	}
 	if _, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
 		OrgID: created.Org.ID, ModelProviderConfigID: provider.ID, ID: models.Models[0].ID,

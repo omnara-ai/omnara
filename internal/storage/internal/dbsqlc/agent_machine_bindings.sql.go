@@ -445,18 +445,12 @@ JOIN machines machine ON machine.org_id = binding.org_id
   AND machine.id = binding.machine_id
   AND machine.deleted_at IS NULL
   AND machine.lifecycle_state = 'active'
+JOIN machine_connection_states connection ON connection.org_id = machine.org_id
+  AND connection.machine_id = machine.id
 WHERE binding.project_id = $1
   AND binding.agent_id = $2
   AND binding.state = 'attached'
-  AND (
-    EXISTS (
-      SELECT 1
-      FROM online_daemon_runtimes runtime
-      WHERE runtime.org_id = binding.org_id
-        AND runtime.machine_id = binding.machine_id
-    )
-    OR machine.asleep_since IS NOT NULL
-  )
+  AND connection.connection_state IN ('online', 'asleep')
 ORDER BY binding.created_at, binding.id
 `
 
@@ -929,6 +923,131 @@ type ReleaseExplicitAgentMachineBindingsForAgentParams struct {
 func (q *Queries) ReleaseExplicitAgentMachineBindingsForAgent(ctx context.Context, arg ReleaseExplicitAgentMachineBindingsForAgentParams) error {
 	_, err := q.db.Exec(ctx, releaseExplicitAgentMachineBindingsForAgent, arg.ProjectID, arg.AgentID)
 	return err
+}
+
+const selectAgentMachineObservations = `-- name: SelectAgentMachineObservations :many
+SELECT binding.machine_ref,
+       binding.binding_kind,
+       binding.state AS binding_state,
+       binding.description,
+       coalesce(nullif(binding.cwd, ''), machine.cwd, '') AS effective_cwd,
+       binding.created_at,
+       binding.updated_at,
+       machine.source_kind,
+       machine.display_name,
+       machine.lifecycle_state,
+       machine.failure_report,
+       connection.connection_state,
+       coalesce(current_runtime.state_reason_code, '') AS connection_state_reason,
+       coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code,
+       machine.lifecycle_reason_message,
+       coalesce(pool.name, '') AS machine_pool_name,
+       (binding.state = 'attached' AND pmgrant.id IS NULL)::boolean AS project_grant_missing,
+       coalesce((
+         binding.state = 'attached'
+         AND pmgrant.id IS NOT NULL
+         AND machine.deleted_at IS NULL
+         AND machine.lifecycle_state = 'active'
+         AND connection.connection_state IN ('online', 'asleep')
+       ), false)::boolean AS executable
+FROM agent_machine_bindings binding
+JOIN machines machine ON machine.org_id = binding.org_id
+  AND machine.id = binding.machine_id
+LEFT JOIN project_machine_grants pmgrant ON pmgrant.org_id = binding.org_id
+  AND pmgrant.project_id = binding.project_id
+  AND pmgrant.machine_id = binding.machine_id
+JOIN machine_connection_states connection ON connection.org_id = machine.org_id
+  AND connection.machine_id = machine.id
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
+LEFT JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+WHERE binding.project_id = $1
+  AND binding.agent_id = $2
+  AND ($3::text IS NULL OR binding.machine_ref = $3::text)
+  AND (
+    binding.state = 'attached'
+    OR (
+      $4::boolean
+      AND $3::text IS NOT NULL
+      AND binding.state = 'released'
+      AND binding.binding_kind = 'pool'
+      AND machine.source_kind = 'pool'
+    )
+  )
+ORDER BY binding.created_at, binding.id
+`
+
+type SelectAgentMachineObservationsParams struct {
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	MachineRef          *string
+	IncludeReleasedPool bool
+}
+
+type SelectAgentMachineObservationsRow struct {
+	MachineRef             string
+	BindingKind            string
+	BindingState           string
+	Description            string
+	EffectiveCwd           string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	SourceKind             string
+	DisplayName            string
+	LifecycleState         string
+	FailureReport          *json.RawMessage
+	ConnectionState        string
+	ConnectionStateReason  string
+	LifecycleReasonCode    string
+	LifecycleReasonMessage string
+	MachinePoolName        string
+	ProjectGrantMissing    bool
+	Executable             bool
+}
+
+func (q *Queries) SelectAgentMachineObservations(ctx context.Context, arg SelectAgentMachineObservationsParams) ([]SelectAgentMachineObservationsRow, error) {
+	rows, err := q.db.Query(ctx, selectAgentMachineObservations,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.MachineRef,
+		arg.IncludeReleasedPool,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectAgentMachineObservationsRow{}
+	for rows.Next() {
+		var i SelectAgentMachineObservationsRow
+		if err := rows.Scan(
+			&i.MachineRef,
+			&i.BindingKind,
+			&i.BindingState,
+			&i.Description,
+			&i.EffectiveCwd,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SourceKind,
+			&i.DisplayName,
+			&i.LifecycleState,
+			&i.FailureReport,
+			&i.ConnectionState,
+			&i.ConnectionStateReason,
+			&i.LifecycleReasonCode,
+			&i.LifecycleReasonMessage,
+			&i.MachinePoolName,
+			&i.ProjectGrantMissing,
+			&i.Executable,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const selectPoolMachines = `-- name: SelectPoolMachines :many

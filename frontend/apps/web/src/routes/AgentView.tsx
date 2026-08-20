@@ -73,7 +73,10 @@ export function AgentView() {
       className="h-[calc(100svh-3rem)] min-h-0 overflow-hidden"
       style={{ '--sidebar-width': '20rem' } as CSSProperties}
     >
-      <div className="mx-auto flex h-full w-full min-w-0 max-w-5xl flex-1 flex-col overflow-hidden">
+      <div
+        className="mx-auto flex h-full w-full min-w-0 max-w-5xl flex-1 flex-col overflow-hidden"
+        style={{ contain: 'paint' }}
+      >
         <header className="shrink-0 pb-4">
           <div className="flex min-w-0 items-center justify-between gap-2">
             <PageBreadcrumb
@@ -148,13 +151,15 @@ export function AgentView() {
             onResolve={resolve}
             canOperate={canOperate}
           />
-          <AgentComposer
-            chat={chat}
-            cancelPending={cancelAgent.isPending}
-            cancelError={cancelAgent.error}
-            onCancel={() => cancelAgent.mutateAsync()}
-            canOperate={canOperate}
-          />
+          {!configOpen && (
+            <AgentComposer
+              chat={chat}
+              cancelPending={cancelAgent.isPending}
+              cancelError={cancelAgent.error}
+              onCancel={() => cancelAgent.mutateAsync()}
+              canOperate={canOperate}
+            />
+          )}
         </div>
       </div>
       <AgentSidebar
@@ -164,6 +169,7 @@ export function AgentView() {
         machineIds={data.machine_ids}
         mcpConnections={data.mcp_connections}
         profile={profile}
+        canManage={project?.access.can_manage ?? false}
       />
     </SidebarProvider>
   )
