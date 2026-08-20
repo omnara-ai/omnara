@@ -103,6 +103,21 @@ export function optionalNonNegativeInt32Valid(value: string) {
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= maxInt32
 }
 
+export function idleDeletionMinutesValid(value: number) {
+  return Number.isInteger(value) && (value === 0 || (value >= 5 && value <= maxInt32))
+}
+
+export function optionalIdleDeletionMinutesValid(value: string) {
+  if (value.trim() === '') return true
+  return idleDeletionMinutesValid(Number(value))
+}
+
+export function optionalPoolIdleDeletionMinutesValid(value: string) {
+  if (value.trim() === '') return true
+  const parsed = Number(value)
+  return parsed !== 0 && idleDeletionMinutesValid(parsed)
+}
+
 export function optionalInt(value: string): number | undefined {
   return value.trim() === '' ? undefined : Number(value)
 }

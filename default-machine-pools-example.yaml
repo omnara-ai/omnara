@@ -15,3 +15,4 @@ pools:
     min_machine_memory_mb: 2048
     max_machine_cpu: 4
     max_machine_memory_mb: 8192
+    delete_after_idle_minutes: 60

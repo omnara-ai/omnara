@@ -39,6 +39,7 @@ type ProjectMachinePoolGrantRecord struct {
 	MinMachineMemoryMB                   *int            `json:"min_machine_memory_mb,omitempty"`
 	MaxMachineCPU                        *int            `json:"max_machine_cpu,omitempty"`
 	MaxMachineMemoryMB                   *int            `json:"max_machine_memory_mb,omitempty"`
+	DeleteAfterIdleMinutes               *int            `json:"delete_after_idle_minutes,omitempty"`
 	IdempotencyKey                       string          `json:"idempotency_key,omitempty"`
 	Metadata                             json.RawMessage `json:"metadata"`
 	CreatedAt                            time.Time       `json:"created_at"`
@@ -98,6 +99,7 @@ type CreateProjectMachinePoolGrantInput struct {
 	MinMachineMemoryMB                   *int
 	MaxMachineCPU                        *int
 	MaxMachineMemoryMB                   *int
+	DeleteAfterIdleMinutes               *int
 	IdempotencyKey                       string
 	Metadata                             resourcemeta.Metadata
 }
@@ -120,6 +122,7 @@ type UpdateProjectMachinePoolGrantInput struct {
 	MinMachineMemoryMB                   patch.NullableInt
 	MaxMachineCPU                        patch.NullableInt
 	MaxMachineMemoryMB                   patch.NullableInt
+	DeleteAfterIdleMinutes               patch.NullableInt
 	Metadata                             *resourcemeta.Metadata
 }
 
@@ -137,6 +140,7 @@ type projectMachinePoolGrantConfig struct {
 	MinMachineMemoryMB                   *int
 	MaxMachineCPU                        *int
 	MaxMachineMemoryMB                   *int
+	DeleteAfterIdleMinutes               *int
 }
 
 func projectMachinePoolGrantConfigFromCreateInput(
@@ -156,6 +160,7 @@ func projectMachinePoolGrantConfigFromCreateInput(
 		MinMachineMemoryMB:                   input.MinMachineMemoryMB,
 		MaxMachineCPU:                        input.MaxMachineCPU,
 		MaxMachineMemoryMB:                   input.MaxMachineMemoryMB,
+		DeleteAfterIdleMinutes:               input.DeleteAfterIdleMinutes,
 	}
 }
 
@@ -176,6 +181,7 @@ func projectMachinePoolGrantConfigFromRecord(
 		MinMachineMemoryMB:                   cloneIntPtr(record.MinMachineMemoryMB),
 		MaxMachineCPU:                        cloneIntPtr(record.MaxMachineCPU),
 		MaxMachineMemoryMB:                   cloneIntPtr(record.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:               cloneIntPtr(record.DeleteAfterIdleMinutes),
 	}
 }
 
@@ -221,6 +227,9 @@ func applyProjectMachinePoolGrantPatch(
 	}
 	if input.MaxMachineMemoryMB.Set {
 		config.MaxMachineMemoryMB = cloneIntPtr(input.MaxMachineMemoryMB.Value)
+	}
+	if input.DeleteAfterIdleMinutes.Set {
+		config.DeleteAfterIdleMinutes = cloneIntPtr(input.DeleteAfterIdleMinutes.Value)
 	}
 }
 
@@ -268,6 +277,14 @@ func normalizeProjectMachinePoolGrantConfig(
 		(*config.MaxMachineMemoryMB <= 0 || *config.MaxMachineMemoryMB > math.MaxInt32) {
 		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
 			"pool grant max_machine_memory_mb must be between 1 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if config.DeleteAfterIdleMinutes != nil &&
+		(*config.DeleteAfterIdleMinutes != 0 &&
+			(*config.DeleteAfterIdleMinutes < 5 || *config.DeleteAfterIdleMinutes > math.MaxInt32)) {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, fmt.Errorf(
+			"pool grant delete_after_idle_minutes must be 0 or between 5 and %d when set",
 			math.MaxInt32,
 		)
 	}
@@ -471,6 +488,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 			MinMachineMemoryMb:                   sqlcInt32Ptr(config.MinMachineMemoryMB),
 			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
 			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
+			DeleteAfterIdleMinutes:               sqlcInt32Ptr(config.DeleteAfterIdleMinutes),
 			IdempotencyKey:                       sqlcTextFromEmpty(input.IdempotencyKey),
 			Metadata:                             metadata,
 		},
@@ -525,6 +543,7 @@ func sameProjectMachinePoolGrantCreateIntent(
 		sameIntPtr(grant.MinMachineMemoryMB, config.MinMachineMemoryMB) &&
 		sameIntPtr(grant.MaxMachineCPU, config.MaxMachineCPU) &&
 		sameIntPtr(grant.MaxMachineMemoryMB, config.MaxMachineMemoryMB) &&
+		sameIntPtr(grant.DeleteAfterIdleMinutes, config.DeleteAfterIdleMinutes) &&
 		sameMetadata(grant.Metadata, input.Metadata)
 }
 
@@ -622,6 +641,7 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 			MinMachineMemoryMb:                   sqlcInt32Ptr(config.MinMachineMemoryMB),
 			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
 			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
+			DeleteAfterIdleMinutes:               sqlcInt32Ptr(config.DeleteAfterIdleMinutes),
 			Metadata:                             metadata,
 			OrgID:                                input.OrgID,
 			ProjectID:                            input.ProjectID,

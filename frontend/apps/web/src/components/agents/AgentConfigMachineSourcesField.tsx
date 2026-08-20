@@ -132,6 +132,7 @@ export function AgentConfigMachineSourcesField({
                           managementKind: pool?.management_kind ?? '',
                           machineCpu: '',
                           machineMemoryGb: '',
+                          deleteAfterIdleMinutes: '',
                           providerOptions: emptyProviderOptions,
                           envRows: [],
                           secretEnvRows: [],

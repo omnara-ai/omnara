@@ -64,6 +64,7 @@ type RuntimeMachine struct {
 	MachinePoolID                 string
 	MaxMachines                   int
 	InitialNumMachines            int
+	DeleteAfterIdleMinutes        *int
 	Cwd                           string
 	MachineCPU                    *int
 	MachineMemoryMB               *int

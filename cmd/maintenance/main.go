@@ -28,6 +28,7 @@ const (
 	runtimeLockReapBatchSize         int32 = 100
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
+	idleMachineReconcileInterval           = time.Minute
 )
 
 func main() {
@@ -386,8 +387,24 @@ func runMachinePoolMaintenanceLoop(
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var nextIdleReconcileAt time.Time
 	for {
 		runMachinePoolMaintenanceTick(ctx, log, machinePoolManager)
+		if now := time.Now(); !now.Before(nextIdleReconcileAt) {
+			candidateCount, err := runIdleMachineDeletionMaintenanceTick(
+				ctx,
+				log,
+				machinePoolManager.ReconcileIdleDeletion,
+			)
+			if err != nil {
+				log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", err)
+			} else if candidateCount > 0 {
+				log.Info("reconciled idle machine deletion", "candidate_count", candidateCount)
+			}
+			if candidateCount < machinepool.DefaultReconcileBatchSize {
+				nextIdleReconcileAt = now.Add(idleMachineReconcileInterval)
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -396,16 +413,27 @@ func runMachinePoolMaintenanceLoop(
 	}
 }
 
+func runIdleMachineDeletionMaintenanceTick(
+	ctx context.Context,
+	log *slog.Logger,
+	reconcile func(context.Context, int32) (int, error),
+) (candidateCount int, err error) {
+	defer recoverMachinePoolMaintenancePanic(log)
+	return reconcile(ctx, machinepool.DefaultReconcileBatchSize)
+}
+
+func recoverMachinePoolMaintenancePanic(log *slog.Logger) {
+	if recovered := recover(); recovered != nil {
+		log.Error("machine pool maintenance tick panicked", "error", recovered, "stack", string(debug.Stack()))
+	}
+}
+
 func runMachinePoolMaintenanceTick(
 	ctx context.Context,
 	log *slog.Logger,
 	machinePoolManager *machinepool.Manager,
 ) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			log.Error("machine pool maintenance tick panicked", "error", recovered, "stack", string(debug.Stack()))
-		}
-	}()
+	defer recoverMachinePoolMaintenancePanic(log)
 	if attempted, err := machinePoolManager.ReconcileProvisioning(
 		ctx,
 		machinepool.DefaultReconcileBatchSize,

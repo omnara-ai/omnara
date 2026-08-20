@@ -125,6 +125,7 @@ type MachinePoolRecord struct {
 	MinMachineMemoryMB            *int            `json:"min_machine_memory_mb"`
 	MaxMachineCPU                 *int            `json:"max_machine_cpu"`
 	MaxMachineMemoryMB            *int            `json:"max_machine_memory_mb"`
+	DeleteAfterIdleMinutes        *int            `json:"delete_after_idle_minutes"`
 	Metadata                      json.RawMessage `json:"metadata"`
 	DeletedAt                     *time.Time      `json:"deleted_at,omitempty"`
 	CreatedAt                     time.Time       `json:"created_at"`
@@ -179,6 +180,7 @@ type CreateMachinePoolInput struct {
 	MinMachineMemoryMB            *int
 	MaxMachineCPU                 *int
 	MaxMachineMemoryMB            *int
+	DeleteAfterIdleMinutes        *int
 	Metadata                      resourcemeta.Metadata
 }
 
@@ -203,6 +205,7 @@ type UpdateMachinePoolInput struct {
 	MinMachineMemoryMB            patch.NullableInt
 	MaxMachineCPU                 patch.NullableInt
 	MaxMachineMemoryMB            patch.NullableInt
+	DeleteAfterIdleMinutes        patch.NullableInt
 	Metadata                      resourcemeta.Metadata
 }
 
@@ -226,6 +229,7 @@ type DefaultMachinePoolTemplate struct {
 	MinMachineMemoryMB            *int                  `json:"min_machine_memory_mb"`
 	MaxMachineCPU                 *int                  `json:"max_machine_cpu"`
 	MaxMachineMemoryMB            *int                  `json:"max_machine_memory_mb"`
+	DeleteAfterIdleMinutes        *int                  `json:"delete_after_idle_minutes"`
 	Metadata                      resourcemeta.Metadata `json:"metadata"`
 }
 
@@ -252,6 +256,7 @@ func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) Crea
 		MinMachineMemoryMB:            defaultPoolTemplate.MinMachineMemoryMB,
 		MaxMachineCPU:                 defaultPoolTemplate.MaxMachineCPU,
 		MaxMachineMemoryMB:            defaultPoolTemplate.MaxMachineMemoryMB,
+		DeleteAfterIdleMinutes:        defaultPoolTemplate.DeleteAfterIdleMinutes,
 		Metadata:                      defaultPoolTemplate.Metadata,
 	}
 }
@@ -385,6 +390,7 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 		sameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) &&
 		sameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) &&
 		sameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
+		sameIntPtr(record.DeleteAfterIdleMinutes, input.DeleteAfterIdleMinutes) &&
 		sameMetadata(record.Metadata, input.Metadata)
 }
 
@@ -447,6 +453,13 @@ func prepareMachinePoolConfigInput(
 	if input.MaxMachineMemoryMB != nil && (*input.MaxMachineMemoryMB <= 0 || *input.MaxMachineMemoryMB > math.MaxInt32) {
 		return machinePoolDefaults{}, fmt.Errorf(
 			"max_machine_memory_mb must be between 1 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if input.DeleteAfterIdleMinutes != nil &&
+		(*input.DeleteAfterIdleMinutes < 5 || *input.DeleteAfterIdleMinutes > math.MaxInt32) {
+		return machinePoolDefaults{}, fmt.Errorf(
+			"delete_after_idle_minutes must be between 5 and %d when set",
 			math.MaxInt32,
 		)
 	}
@@ -590,6 +603,7 @@ func insertMachinePool(
 		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -652,6 +666,7 @@ func (s *Store) UpdateMachinePool(
 		MinMachineMemoryMB:            intPtrFromSQLC(locked.MinMachineMemoryMb),
 		MaxMachineCPU:                 intPtrFromSQLC(locked.MaxMachineCpu),
 		MaxMachineMemoryMB:            intPtrFromSQLC(locked.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        intPtrFromSQLC(locked.DeleteAfterIdleMinutes),
 		Metadata:                      lockedMetadata,
 	}
 	if input.Name != nil {
@@ -707,6 +722,9 @@ func (s *Store) UpdateMachinePool(
 	}
 	if input.MaxMachineMemoryMB.Set {
 		merged.MaxMachineMemoryMB = input.MaxMachineMemoryMB.Value
+	}
+	if input.DeleteAfterIdleMinutes.Set {
+		merged.DeleteAfterIdleMinutes = input.DeleteAfterIdleMinutes.Value
 	}
 	if input.Metadata != nil {
 		merged.Metadata = input.Metadata
@@ -805,6 +823,7 @@ func updateMachinePoolRow(
 		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 }

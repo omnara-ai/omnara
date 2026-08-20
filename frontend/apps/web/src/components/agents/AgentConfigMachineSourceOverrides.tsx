@@ -79,6 +79,26 @@ export function SourceOverridesSection({
             Select a machine pool to configure provider overrides.
           </FieldDescription>
         )}
+        {source.kind === 'pool' && (
+          <Field>
+            <FieldLabel htmlFor={`${source.id}-delete-after-idle`}>
+              Delete after idle minutes
+            </FieldLabel>
+            <Input
+              id={`${source.id}-delete-after-idle`}
+              type="number"
+              min={0}
+              step={1}
+              value={source.deleteAfterIdleMinutes}
+              onChange={(event) => {
+                onChange({ deleteAfterIdleMinutes: event.target.value })
+              }}
+            />
+            <FieldDescription>
+              Use 0 to disable at this level; enabled values must be at least 5.
+            </FieldDescription>
+          </Field>
+        )}
         <EnvOverlayEditor
           label="Environment overlay"
           description="Overrides environment variables on this agent's machines."

@@ -21,6 +21,9 @@ Omnara deletes a pool machine when:
 - The agent's config no longer includes that pool source.
 - The agent is archived.
 - The pool is deleted.
+- Its configured idle-deletion period elapses.
+
+Idle deletion waits until the machine has no queued or active process work. Process activity restarts the idle period.
 
 A replacement starts from the pool's original image or snapshot.
 
@@ -137,6 +140,8 @@ When Omnara creates a pool machine, it combines the machine size, working direct
 3. The agent config can customize them for that agent.
 
 Later values replace earlier ones. A project grant or agent config can remove an environment variable inherited from the pool by setting it to `null`. Pool and project limits remain hard constraints.
+
+`delete_after_idle_minutes` follows the same override order. An unset grant or agent value inherits, `0` disables idle deletion at that level, and enabled values must be at least 5 minutes.
 
 ## Use it from a config
 

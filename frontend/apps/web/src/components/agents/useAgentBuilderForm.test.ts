@@ -19,6 +19,7 @@ const fullConfig: BasicConfig = {
       defaultCwd: '/workspace',
       initialNumMachines: '2',
       maxMachines: '5',
+      deleteAfterIdleMinutes: '0',
       machineCpu: '4',
       machineMemoryGb: '8',
       providerOptions: emptyProviderOptions,
@@ -34,6 +35,7 @@ const fullConfig: BasicConfig = {
       defaultCwd: '',
       initialNumMachines: '',
       maxMachines: '',
+      deleteAfterIdleMinutes: '',
       machineCpu: '',
       machineMemoryGb: '',
       providerOptions: emptyProviderOptions,
@@ -152,6 +154,7 @@ describe('createBasicConfigSession initialDraft', () => {
       defaultCwd: '/workspace',
       initialNumMachines: '2',
       maxMachines: '5',
+      deleteAfterIdleMinutes: '0',
       machineCpu: '4',
       machineMemoryGb: '8',
     })

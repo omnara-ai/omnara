@@ -288,17 +288,18 @@ func insertAgentMachineBindingTx(
 	row, err := qtx.InsertAgentMachineBinding(
 		ctx,
 		dbsqlc.InsertAgentMachineBindingParams{
-			ProjectID:             input.ProjectID,
-			AgentID:               input.AgentID,
-			CreateToolCallID:      sqlcIDFromNil(input.CreateToolCallID),
-			ProjectMachineGrantID: input.ProjectMachineGrantID,
-			MachineRef:            input.MachineRef,
-			BindingKind:           string(input.BindingKind),
-			Description:           input.Description,
-			Cwd:                   input.Cwd,
-			EnvOverlay:            normalizedJSON(input.EnvOverlay),
-			SecretEnvOverlay:      normalizedJSON(input.SecretEnvOverlay),
-			Metadata:              normalizedJSON(input.Metadata),
+			ProjectID:              input.ProjectID,
+			AgentID:                input.AgentID,
+			CreateToolCallID:       sqlcIDFromNil(input.CreateToolCallID),
+			ProjectMachineGrantID:  input.ProjectMachineGrantID,
+			MachineRef:             input.MachineRef,
+			BindingKind:            string(input.BindingKind),
+			Description:            input.Description,
+			Cwd:                    input.Cwd,
+			EnvOverlay:             normalizedJSON(input.EnvOverlay),
+			SecretEnvOverlay:       normalizedJSON(input.SecretEnvOverlay),
+			DeleteAfterIdleMinutes: sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
+			Metadata:               normalizedJSON(input.Metadata),
 		},
 	)
 	if err != nil {
@@ -384,15 +385,16 @@ func allocateNewPoolMachineForAgentTx(
 		)
 	}
 	return insertAgentMachineBindingTx(ctx, qtx, insertAgentMachineBindingInput{
-		ProjectID:             projectID,
-		AgentID:               agentID,
-		ProjectMachineGrantID: grantRow.ID,
-		MachineRef:            machineRef,
-		BindingKind:           MachineBindingKindPool,
-		Description:           source.Contract.Description,
-		Cwd:                   source.BindingConfig.Cwd,
-		EnvOverlay:            bindingEnvOverlay,
-		SecretEnvOverlay:      bindingSecretEnvOverlay,
-		Metadata:              json.RawMessage(`{}`),
+		ProjectID:              projectID,
+		AgentID:                agentID,
+		ProjectMachineGrantID:  grantRow.ID,
+		MachineRef:             machineRef,
+		BindingKind:            MachineBindingKindPool,
+		Description:            source.Contract.Description,
+		Cwd:                    source.BindingConfig.Cwd,
+		EnvOverlay:             bindingEnvOverlay,
+		SecretEnvOverlay:       bindingSecretEnvOverlay,
+		DeleteAfterIdleMinutes: source.BindingConfig.DeleteAfterIdleMinutes,
+		Metadata:               json.RawMessage(`{}`),
 	})
 }

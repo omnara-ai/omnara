@@ -3,7 +3,9 @@ package executionstore
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -54,6 +56,13 @@ func StopProcessForToolCall(
 	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		record, err := tx.createProcessAction(ctx, input)
 		if errors.Is(err, storeerr.ErrProcessAlreadyStopped) {
+			if err := tx.q.TouchProcessActivity(ctx, dbsqlc.TouchProcessActivityParams{
+				ProjectID: tx.input.ProjectID,
+				AgentID:   tx.input.AgentID,
+				ProcessID: input.ProcessID,
+			}); err != nil {
+				return nil, fmt.Errorf("touch already-stopped process activity: %w", err)
+			}
 			return tx.completeToolCall(ctx, alreadyStoppedCompletion)
 		}
 		if err != nil {

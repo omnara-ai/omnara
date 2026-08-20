@@ -86,6 +86,7 @@ func (s strictOpenAPIServer) createProjectMachinePoolGrant(
 			MinMachineMemoryMB:                   intPtrFromInt32(request.Body.MinMachineMemoryMb),
 			MaxMachineCPU:                        intPtrFromInt32(request.Body.MaxMachineCpu),
 			MaxMachineMemoryMB:                   intPtrFromInt32(request.Body.MaxMachineMemoryMb),
+			DeleteAfterIdleMinutes:               intPtrFromInt32(request.Body.DeleteAfterIdleMinutes),
 			IdempotencyKey:                       idempotencyKey,
 			Metadata:                             metadata,
 		},
@@ -283,6 +284,7 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 		MinMachineMemoryMB:                   nullableIntPatchFromInt32(request.Body.MinMachineMemoryMb),
 		MaxMachineCPU:                        nullableIntPatchFromInt32(request.Body.MaxMachineCpu),
 		MaxMachineMemoryMB:                   nullableIntPatchFromInt32(request.Body.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:               nullableIntPatchFromInt32(request.Body.DeleteAfterIdleMinutes),
 		Metadata:                             metadataPatch,
 	}
 	record, err := s.server.store.Execution().UpdateProjectMachinePoolGrant(ctx, input)
@@ -385,6 +387,7 @@ func projectMachinePoolGrantResponse(
 		MinMachineMemoryMb:                   nullableInt32FromIntPtr(record.MinMachineMemoryMB),
 		MaxMachineCpu:                        nullableInt32FromIntPtr(record.MaxMachineCPU),
 		MaxMachineMemoryMb:                   nullableInt32FromIntPtr(record.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:               nullableInt32FromIntPtr(record.DeleteAfterIdleMinutes),
 		Metadata:                             metadata,
 		CreatedAt:                            record.CreatedAt,
 		UpdatedAt:                            record.UpdatedAt,

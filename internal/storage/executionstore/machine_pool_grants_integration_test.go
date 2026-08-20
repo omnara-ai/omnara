@@ -557,6 +557,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	updatedMinMachineMemoryMB := 1024
 	updatedMaxMachineCPU := 4
 	updatedMaxMachineMemoryMB := 8192
+	updatedDeleteAfterIdleMinutes := 30
 	updated, err := store.Execution().UpdateMachinePool(ctx, machinePoolUpdateInputWithDefaultMachineForTest(
 		executionstore.UpdateMachinePoolInput{
 			OrgID:                testOrgID,
@@ -573,7 +574,10 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 			MinMachineMemoryMB:   patch.NullableInt{Set: true, Value: &updatedMinMachineMemoryMB},
 			MaxMachineCPU:        patch.NullableInt{Set: true, Value: &updatedMaxMachineCPU},
 			MaxMachineMemoryMB:   patch.NullableInt{Set: true, Value: &updatedMaxMachineMemoryMB},
-			Metadata:             resourcemeta.Metadata{"team": "infra"},
+			DeleteAfterIdleMinutes: patch.NullableInt{
+				Set: true, Value: &updatedDeleteAfterIdleMinutes,
+			},
+			Metadata: resourcemeta.Metadata{"team": "infra"},
 		},
 		defaultMachineUpdateFieldsForTest{
 			DefaultMachineCPU:             intPtrForMachinePoolTest(2),
@@ -595,7 +599,8 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		updated.MinMachineCPU == nil || *updated.MinMachineCPU != 1 ||
 		updated.MinMachineMemoryMB == nil || *updated.MinMachineMemoryMB != 1024 ||
 		updated.MaxMachineCPU == nil || *updated.MaxMachineCPU != 4 ||
-		updated.MaxMachineMemoryMB == nil || *updated.MaxMachineMemoryMB != 8192 {
+		updated.MaxMachineMemoryMB == nil || *updated.MaxMachineMemoryMB != 8192 ||
+		updated.DeleteAfterIdleMinutes == nil || *updated.DeleteAfterIdleMinutes != 30 {
 		t.Fatalf("update did not apply mutable fields: %+v", updated)
 	}
 	if machinePoolProviders.validatedProvider != "test.provider" {
@@ -634,6 +639,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	if patched.Name != updated.Name || patched.Description != patchDescription ||
 		patched.DefaultCwd != updated.DefaultCwd || patched.ProviderAuthSecretID != updated.ProviderAuthSecretID ||
 		!sameIntPtr(patched.MaxTotalCPU, updated.MaxTotalCPU) ||
+		!sameIntPtr(patched.DeleteAfterIdleMinutes, updated.DeleteAfterIdleMinutes) ||
 		!sameIntPtr(patched.DefaultMachineCPU, updated.DefaultMachineCPU) ||
 		!sameIntPtr(patched.DefaultMachineMemoryMB, updated.DefaultMachineMemoryMB) ||
 		!sameJSON(patched.DefaultMachineEnv, updated.DefaultMachineEnv) ||
@@ -641,6 +647,16 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		!sameJSON(patched.DefaultMachineProviderOptions, updated.DefaultMachineProviderOptions) ||
 		!sameJSON(patched.ProviderConfig, updated.ProviderConfig) || !sameJSON(patched.Metadata, updated.Metadata) {
 		t.Fatalf("patch did not preserve omitted fields: before=%+v after=%+v", updated, patched)
+	}
+	cleared, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID: testOrgID, ID: created.ID,
+		DeleteAfterIdleMinutes: patch.NullableInt{Set: true},
+	})
+	if err != nil {
+		t.Fatalf("clear machine pool idle deletion policy: %v", err)
+	}
+	if cleared.DeleteAfterIdleMinutes != nil {
+		t.Fatalf("cleared machine pool idle deletion policy = %v, want nil", cleared.DeleteAfterIdleMinutes)
 	}
 	badMaxMachineCPU := 1
 	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
@@ -684,18 +700,20 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	clusterMinMemoryMB := 1024
 	clusterMaxCPU := 4
 	clusterMaxMemoryMB := 4096
+	clusterDeleteAfterIdleMinutes := 30
 	clusterSecretEnv := json.RawMessage(fmt.Sprintf(
 		`{"TOKEN":%q}`,
 		secretPublicIDForTest(t, rotatedProviderAuthSecretID),
 	))
 	updatedDefaultPool, err := store.Execution().UpdateMachinePool(ctx, machinePoolUpdateInputWithDefaultMachineForTest(
 		executionstore.UpdateMachinePoolInput{
-			OrgID:              testOrgID,
-			ID:                 defaultPool.ID,
-			MinMachineCPU:      patch.NullableInt{Set: true, Value: &clusterMinCPU},
-			MinMachineMemoryMB: patch.NullableInt{Set: true, Value: &clusterMinMemoryMB},
-			MaxMachineCPU:      patch.NullableInt{Set: true, Value: &clusterMaxCPU},
-			MaxMachineMemoryMB: patch.NullableInt{Set: true, Value: &clusterMaxMemoryMB},
+			OrgID:                  testOrgID,
+			ID:                     defaultPool.ID,
+			MinMachineCPU:          patch.NullableInt{Set: true, Value: &clusterMinCPU},
+			MinMachineMemoryMB:     patch.NullableInt{Set: true, Value: &clusterMinMemoryMB},
+			MaxMachineCPU:          patch.NullableInt{Set: true, Value: &clusterMaxCPU},
+			MaxMachineMemoryMB:     patch.NullableInt{Set: true, Value: &clusterMaxMemoryMB},
+			DeleteAfterIdleMinutes: patch.NullableInt{Set: true, Value: &clusterDeleteAfterIdleMinutes},
 		},
 		defaultMachineUpdateFieldsForTest{
 			DefaultMachineCPU:       &clusterDefaultCPU,
@@ -713,6 +731,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		updatedDefaultPool.MinMachineMemoryMB == nil || *updatedDefaultPool.MinMachineMemoryMB != clusterMinMemoryMB ||
 		updatedDefaultPool.MaxMachineCPU == nil || *updatedDefaultPool.MaxMachineCPU != clusterMaxCPU ||
 		updatedDefaultPool.MaxMachineMemoryMB == nil || *updatedDefaultPool.MaxMachineMemoryMB != clusterMaxMemoryMB ||
+		updatedDefaultPool.DeleteAfterIdleMinutes == nil || *updatedDefaultPool.DeleteAfterIdleMinutes != clusterDeleteAfterIdleMinutes ||
 		!sameJSON(updatedDefaultPool.DefaultMachineEnv, json.RawMessage(`{"ALLOWED":"yes"}`)) ||
 		!sameJSON(updatedDefaultPool.DefaultMachineSecretEnv, clusterSecretEnv) ||
 		!sameJSON(updatedDefaultPool.DefaultMachineProviderOptions, json.RawMessage(`{"image":"cluster","sleep_after_ms":30000}`)) {
@@ -2986,6 +3005,7 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		MaxTotalCPU:              intPtrForMachinePoolTest(8),
 		MinMachineCPU:            intPtrForMachinePoolTest(0),
 		MaxMachineCPU:            intPtrForMachinePoolTest(4),
+		DeleteAfterIdleMinutes:   intPtrForMachinePoolTest(15),
 	})
 	if err != nil {
 		t.Fatalf("create grant: %v", err)
@@ -2993,6 +3013,7 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 
 	description := "after"
 	memory4096 := 4096
+	deleteAfterIdleMinutes := 30
 	envOverlay := json.RawMessage(`{"NEW":"value"}`)
 	updated, err := store.Execution().UpdateProjectMachinePoolGrant(ctx, executionstore.UpdateProjectMachinePoolGrantInput{
 		OrgID:                    testOrgID,
@@ -3002,6 +3023,7 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		DefaultMachineMemoryMB:   patch.NullableInt{Set: true, Value: &memory4096},
 		DefaultMachineEnvOverlay: &envOverlay,
 		MaxTotalCPU:              patch.NullableInt{Set: true},
+		DeleteAfterIdleMinutes:   patch.NullableInt{Set: true, Value: &deleteAfterIdleMinutes},
 	})
 	if err != nil {
 		t.Fatalf("update grant: %v", err)
@@ -3014,6 +3036,7 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		updated.MaxTotalCPU != nil ||
 		updated.MinMachineCPU == nil || *updated.MinMachineCPU != 0 ||
 		updated.MaxMachineCPU == nil || *updated.MaxMachineCPU != 4 ||
+		updated.DeleteAfterIdleMinutes == nil || *updated.DeleteAfterIdleMinutes != 30 ||
 		updated.MachinePoolID != machinePool.ID {
 		t.Fatalf("updated grant patch mismatch: %+v", updated)
 	}
@@ -3025,20 +3048,22 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		t.Fatalf("get updated grant: %v", err)
 	}
 	if fetched.Description != "after" || fetched.MaxTotalCPU != nil ||
+		fetched.DeleteAfterIdleMinutes == nil || *fetched.DeleteAfterIdleMinutes != 30 ||
 		fetched.MinMachineCPU == nil || *fetched.MinMachineCPU != 0 {
 		t.Fatalf("fetched grant did not persist patch: %+v", fetched)
 	}
 	cleared, err := store.Execution().UpdateProjectMachinePoolGrant(ctx, executionstore.UpdateProjectMachinePoolGrantInput{
-		OrgID:         testOrgID,
-		ProjectID:     testProjectID,
-		ID:            grant.ID,
-		MinMachineCPU: patch.NullableInt{Set: true},
+		OrgID:                  testOrgID,
+		ProjectID:              testProjectID,
+		ID:                     grant.ID,
+		MinMachineCPU:          patch.NullableInt{Set: true},
+		DeleteAfterIdleMinutes: patch.NullableInt{Set: true},
 	})
 	if err != nil {
 		t.Fatalf("clear grant minimum: %v", err)
 	}
-	if cleared.MinMachineCPU != nil {
-		t.Fatalf("cleared grant minimum = %v, want nil", cleared.MinMachineCPU)
+	if cleared.MinMachineCPU != nil || cleared.DeleteAfterIdleMinutes != nil {
+		t.Fatalf("cleared grant overrides = %+v, want nil minimum and idle deletion policy", cleared)
 	}
 
 	two := 2
