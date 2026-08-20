@@ -430,14 +430,12 @@ func completeDaemonProcessActionTx(
 	if err != nil {
 		return DaemonProcessActionReportApplication{}, fmt.Errorf("complete process action: %w", err)
 	}
-	if state == ProcessActionStateApplied {
-		if err := qtx.TouchProcessActivity(ctx, dbsqlc.TouchProcessActivityParams{
-			ProjectID: input.ProjectID,
-			AgentID:   input.AgentID,
-			ProcessID: input.ProcessID,
-		}); err != nil {
-			return DaemonProcessActionReportApplication{}, fmt.Errorf("touch process activity: %w", err)
-		}
+	if err := qtx.TouchProcessActivity(ctx, dbsqlc.TouchProcessActivityParams{
+		ProjectID: input.ProjectID,
+		AgentID:   input.AgentID,
+		ProcessID: input.ProcessID,
+	}); err != nil {
+		return DaemonProcessActionReportApplication{}, fmt.Errorf("touch process activity: %w", err)
 	}
 	record := processActionRecordFromSQLC(row)
 	resultCommitted := isNilID(record.ToolCallID)

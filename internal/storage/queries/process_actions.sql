@@ -103,25 +103,34 @@ WHERE action.project_id = sqlc.arg(project_id)
 RETURNING action.id;
 
 -- name: CancelAcceptedProcessActionsForAgentTurn :execrows
-UPDATE process_actions action
-SET state = CASE WHEN action.action_kind = 'read' THEN 'failed' ELSE 'unknown' END,
-    state_reason_code = CASE
-      WHEN action.action_kind = 'read' THEN 'agent_canceled'
-      ELSE 'agent_canceled_after_grant'
-    END,
-    state_reason_message = CASE
-      WHEN action.action_kind = 'read' THEN 'agent was canceled while process output was being read'
-      ELSE 'agent was canceled after process action execution was granted'
-    END,
-    updated_at = statement_timestamp()
-FROM tool_call_read_projection tool_call
-WHERE action.project_id = sqlc.arg(project_id)
-  AND action.agent_id = sqlc.arg(agent_id)
-  AND action.state = 'accepted'
-  AND action.tool_call_id = tool_call.id
-  AND tool_call.project_id = action.project_id
-  AND tool_call.agent_id = action.agent_id
-  AND tool_call.turn_id = sqlc.arg(turn_id);
+WITH canceled AS (
+  UPDATE process_actions action
+  SET state = CASE WHEN action.action_kind = 'read' THEN 'failed' ELSE 'unknown' END,
+      state_reason_code = CASE
+        WHEN action.action_kind = 'read' THEN 'agent_canceled'
+        ELSE 'agent_canceled_after_grant'
+      END,
+      state_reason_message = CASE
+        WHEN action.action_kind = 'read' THEN 'agent was canceled while process output was being read'
+        ELSE 'agent was canceled after process action execution was granted'
+      END,
+      updated_at = statement_timestamp()
+  FROM tool_call_read_projection tool_call
+  WHERE action.project_id = sqlc.arg(project_id)
+    AND action.agent_id = sqlc.arg(agent_id)
+    AND action.state = 'accepted'
+    AND action.tool_call_id = tool_call.id
+    AND tool_call.project_id = action.project_id
+    AND tool_call.agent_id = action.agent_id
+    AND tool_call.turn_id = sqlc.arg(turn_id)
+  RETURNING action.project_id, action.agent_id, action.process_id
+)
+UPDATE processes process
+SET last_activity_at = statement_timestamp()
+FROM canceled
+WHERE process.project_id = canceled.project_id
+  AND process.agent_id = canceled.agent_id
+  AND process.id = canceled.process_id;
 
 -- name: ResetAcceptedReadProcessActionsForMachine :execrows
 UPDATE process_actions action

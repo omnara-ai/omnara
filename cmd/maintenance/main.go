@@ -391,9 +391,10 @@ func runMachinePoolMaintenanceLoop(
 	for {
 		runMachinePoolMaintenanceTick(ctx, log, machinePoolManager)
 		if now := time.Now(); !now.Before(nextIdleReconcileAt) {
-			candidateCount, err := machinePoolManager.ReconcileIdleDeletion(
+			candidateCount, err := runIdleMachineDeletionMaintenanceTick(
 				ctx,
-				machinepool.DefaultReconcileBatchSize,
+				log,
+				machinePoolManager.ReconcileIdleDeletion,
 			)
 			if err != nil {
 				log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", err)
@@ -412,16 +413,27 @@ func runMachinePoolMaintenanceLoop(
 	}
 }
 
+func runIdleMachineDeletionMaintenanceTick(
+	ctx context.Context,
+	log *slog.Logger,
+	reconcile func(context.Context, int32) (int, error),
+) (candidateCount int, err error) {
+	defer recoverMachinePoolMaintenancePanic(log)
+	return reconcile(ctx, machinepool.DefaultReconcileBatchSize)
+}
+
+func recoverMachinePoolMaintenancePanic(log *slog.Logger) {
+	if recovered := recover(); recovered != nil {
+		log.Error("machine pool maintenance tick panicked", "error", recovered, "stack", string(debug.Stack()))
+	}
+}
+
 func runMachinePoolMaintenanceTick(
 	ctx context.Context,
 	log *slog.Logger,
 	machinePoolManager *machinepool.Manager,
 ) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			log.Error("machine pool maintenance tick panicked", "error", recovered, "stack", string(debug.Stack()))
-		}
-	}()
+	defer recoverMachinePoolMaintenancePanic(log)
 	if attempted, err := machinePoolManager.ReconcileProvisioning(
 		ctx,
 		machinepool.DefaultReconcileBatchSize,

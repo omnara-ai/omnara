@@ -56,6 +56,10 @@ WHERE machine.source_kind = 'pool'
     AND machine.lifecycle_state = 'active'
     AND machine.deleted_at IS NULL
     AND machine.last_observed_at IS NOT NULL
+    AND (
+        machine.wake_attempt_expires_at IS NULL
+        OR machine.wake_attempt_expires_at <= statement_timestamp()
+    )
     AND coalesce(binding.delete_after_idle_minutes, pool_grant.delete_after_idle_minutes, pool.delete_after_idle_minutes)
         >= 5
     AND machine.lifecycle_changed_at <= statement_timestamp() - make_interval(mins => coalesce(

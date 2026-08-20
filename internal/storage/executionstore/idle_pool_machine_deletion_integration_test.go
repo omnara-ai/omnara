@@ -433,81 +433,108 @@ WHERE id = $1
 	}
 }
 
-func TestAppliedProcessActionRestartsIdleWindow(t *testing.T) {
+func TestTerminalProcessActionRestartsIdleWindow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	five := 5
-	fixture := newIdlePoolMachineFixture(
-		t,
-		ctx,
-		"applied-action",
-		idlePoolMachinePolicy{PoolMinutes: &five},
-	)
-	backdateIdleMachineForTest(t, ctx, fixture, 20*time.Minute)
-	process, action := createQueuedProcessActionForIdleTest(t, ctx, fixture, "idle-applied-action")
-	if _, found, err := acceptDaemonProcessActionForTest(
-		ctx,
-		fixture.Store,
-		fixture.OrgID,
-		fixture.MachineID,
-		fixture.RuntimeID,
-		process.ID,
-		action.ID,
-	); err != nil || !found {
-		t.Fatalf("accept idle test action found=%v err=%v", found, err)
+	tests := []struct {
+		name  string
+		state executionstore.ProcessActionState
+	}{
+		{name: "applied", state: executionstore.ProcessActionStateApplied},
+		{name: "failed", state: executionstore.ProcessActionStateFailed},
+		{name: "unknown", state: executionstore.ProcessActionStateUnknown},
 	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newIdlePoolMachineFixture(
+				t,
+				ctx,
+				test.name+"-action",
+				idlePoolMachinePolicy{PoolMinutes: &five},
+			)
+			backdateIdleMachineForTest(t, ctx, fixture, 20*time.Minute)
+			process, action := createQueuedProcessActionForIdleTest(
+				t,
+				ctx,
+				fixture,
+				"idle-"+test.name+"-action",
+			)
+			if _, found, err := acceptDaemonProcessActionForTest(
+				ctx,
+				fixture.Store,
+				fixture.OrgID,
+				fixture.MachineID,
+				fixture.RuntimeID,
+				process.ID,
+				action.ID,
+			); err != nil || !found {
+				t.Fatalf("accept idle test action found=%v err=%v", found, err)
+			}
+			if _, err := fixture.Store.pool.Exec(ctx, `
 UPDATE processes SET last_activity_at = statement_timestamp() - interval '20 minutes' WHERE id = $1
 `, process.ID); err != nil {
-		t.Fatalf("backdate process activity: %v", err)
-	}
-	var before, updatedAtBefore time.Time
-	if err := fixture.Store.pool.QueryRow(ctx, `
+				t.Fatalf("backdate process activity: %v", err)
+			}
+			var before, updatedAtBefore time.Time
+			if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT last_activity_at, updated_at FROM processes WHERE id = $1
 `, process.ID).Scan(&before, &updatedAtBefore); err != nil {
-		t.Fatalf("load process activity before action: %v", err)
-	}
-	if _, err := fixture.Store.Execution().ApplyDaemonProcessAction(
-		ctx,
-		executionstore.CompleteDaemonProcessActionInput{
-			ProjectID: testProjectID,
-			AgentID:   fixture.AgentID,
-			ProcessID: process.ID,
-			ID:        action.ID,
-			Authority: fixture.authority(),
-		},
-	); err != nil {
-		t.Fatalf("apply idle test action: %v", err)
-	}
-	var after, updatedAtAfter time.Time
-	if err := fixture.Store.pool.QueryRow(ctx, `
+				t.Fatalf("load process activity before action: %v", err)
+			}
+			input := executionstore.CompleteDaemonProcessActionInput{
+				ProjectID: testProjectID,
+				AgentID:   fixture.AgentID,
+				ProcessID: process.ID,
+				ID:        action.ID,
+				Authority: fixture.authority(),
+			}
+			if test.state != executionstore.ProcessActionStateApplied {
+				input.StateReasonCode = "test_" + test.name
+			}
+			var err error
+			switch test.state {
+			case executionstore.ProcessActionStateApplied:
+				_, err = fixture.Store.Execution().ApplyDaemonProcessAction(ctx, input)
+			case executionstore.ProcessActionStateFailed:
+				_, err = fixture.Store.Execution().FailDaemonProcessAction(ctx, input)
+			case executionstore.ProcessActionStateUnknown:
+				_, err = fixture.Store.Execution().MarkDaemonProcessActionUnknown(ctx, input)
+			}
+			if err != nil {
+				t.Fatalf("complete idle test action as %s: %v", test.state, err)
+			}
+			var after, updatedAtAfter time.Time
+			if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT last_activity_at, updated_at FROM processes WHERE id = $1
 `, process.ID).Scan(&after, &updatedAtAfter); err != nil {
-		t.Fatalf("load process activity after action: %v", err)
-	}
-	if !after.After(before) {
-		t.Fatalf("process activity after applied action = %s, want after %s", after, before)
-	}
-	if !updatedAtAfter.Equal(updatedAtBefore) {
-		t.Fatalf("process updated_at after applied action = %s, want unchanged at %s", updatedAtAfter, updatedAtBefore)
-	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
+				t.Fatalf("load process activity after action: %v", err)
+			}
+			if !after.After(before) {
+				t.Fatalf("process activity after %s action = %s, want after %s", test.state, after, before)
+			}
+			if !updatedAtAfter.Equal(updatedAtBefore) {
+				t.Fatalf("process updated_at after %s action = %s, want unchanged at %s", test.state, updatedAtAfter, updatedAtBefore)
+			}
+			if _, err := fixture.Store.pool.Exec(ctx, `
 UPDATE processes
 SET state = 'unknown', state_reason_code = 'test_unknown', state_changed_at = statement_timestamp()
 WHERE id = $1
 `, process.ID); err != nil {
-		t.Fatalf("make applied-action process nonblocking: %v", err)
-	}
-	if idleMachineListedForTest(t, ctx, fixture) {
-		t.Fatal("recent applied action did not restart idle window")
-	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
+				t.Fatalf("make %s-action process nonblocking: %v", test.state, err)
+			}
+			if idleMachineListedForTest(t, ctx, fixture) {
+				t.Fatalf("recent %s action did not restart idle window", test.state)
+			}
+			if _, err := fixture.Store.pool.Exec(ctx, `
 UPDATE processes SET last_activity_at = statement_timestamp() - interval '20 minutes' WHERE id = $1
 `, process.ID); err != nil {
-		t.Fatalf("expire process activity: %v", err)
-	}
-	if !idleMachineListedForTest(t, ctx, fixture) {
-		t.Fatal("expired applied action activity kept machine alive")
+				t.Fatalf("expire process activity: %v", err)
+			}
+			if !idleMachineListedForTest(t, ctx, fixture) {
+				t.Fatalf("expired %s action activity kept machine alive", test.state)
+			}
+		})
 	}
 }
 
@@ -595,6 +622,102 @@ UPDATE processes SET last_activity_at = statement_timestamp() - interval '20 min
 		fixture.MachineID,
 	); err != nil || !claimed {
 		t.Fatalf("claim after expired process start failure claimed=%v err=%v", claimed, err)
+	}
+}
+
+func TestExpiredIdlePoolMachineClaimRespectsWakeAttemptLease(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	five := 5
+	fixture := newIdlePoolMachineFixture(
+		t,
+		ctx,
+		"claim-wake-attempt",
+		idlePoolMachinePolicy{PoolMinutes: &five},
+	)
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE machines SET sandbox_url = 'https://idle-wake.example.com' WHERE org_id = $1 AND id = $2
+`, fixture.OrgID, fixture.MachineID); err != nil {
+		t.Fatalf("set idle machine sandbox URL: %v", err)
+	}
+	if _, err := fixture.Store.Execution().SleepDaemonRuntime(
+		ctx,
+		executionstore.DaemonRuntimeAuthority{
+			OrgID:           fixture.OrgID,
+			MachineID:       fixture.MachineID,
+			DaemonRuntimeID: fixture.RuntimeID,
+			DaemonTokenID:   fixture.TokenID,
+		},
+	); err != nil {
+		t.Fatalf("sleep idle machine runtime: %v", err)
+	}
+	backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
+	if !idleMachineListedForTest(t, ctx, fixture) {
+		t.Fatal("idle machine was not initially eligible")
+	}
+	disposition, err := fixture.Store.Execution().BeginMachineWake(
+		ctx,
+		fixture.OrgID,
+		fixture.MachineID,
+		fixture.PoolID,
+		5*time.Minute,
+	)
+	if err != nil || disposition != executionstore.MachineWakeReady {
+		t.Fatalf("begin idle machine wake disposition=%v err=%v", disposition, err)
+	}
+	if idleMachineListedForTest(t, ctx, fixture) {
+		t.Fatal("idle machine with active wake attempt was listed")
+	}
+	var activeWakeExpiresAt time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT wake_attempt_expires_at FROM machines WHERE org_id = $1 AND id = $2
+`, fixture.OrgID, fixture.MachineID).Scan(&activeWakeExpiresAt); err != nil {
+		t.Fatalf("read active wake attempt: %v", err)
+	}
+	if _, claimed, err := fixture.Store.Execution().ClaimExpiredIdlePoolMachineDeletion(
+		ctx,
+		fixture.OrgID,
+		fixture.MachineID,
+	); err != nil || claimed {
+		t.Fatalf("claim during active wake attempt claimed=%v err=%v", claimed, err)
+	}
+	var lifecycleState string
+	var preservedWakeExpiresAt time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT lifecycle_state, wake_attempt_expires_at
+FROM machines
+WHERE org_id = $1 AND id = $2
+`, fixture.OrgID, fixture.MachineID).Scan(&lifecycleState, &preservedWakeExpiresAt); err != nil {
+		t.Fatalf("read machine after active wake claim: %v", err)
+	}
+	if lifecycleState != "active" || !preservedWakeExpiresAt.Equal(activeWakeExpiresAt) {
+		t.Fatalf(
+			"machine after active wake claim state=%q wake_expires_at=%v, want active/%v",
+			lifecycleState,
+			preservedWakeExpiresAt,
+			activeWakeExpiresAt,
+		)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE machines
+SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
+WHERE org_id = $1 AND id = $2
+`, fixture.OrgID, fixture.MachineID); err != nil {
+		t.Fatalf("expire idle machine wake attempt: %v", err)
+	}
+	if !idleMachineListedForTest(t, ctx, fixture) {
+		t.Fatal("idle machine with expired wake attempt was not listed")
+	}
+	claim, claimed, err := fixture.Store.Execution().ClaimExpiredIdlePoolMachineDeletion(
+		ctx,
+		fixture.OrgID,
+		fixture.MachineID,
+	)
+	if err != nil || !claimed {
+		t.Fatalf("claim after expired wake attempt claimed=%v err=%v", claimed, err)
+	}
+	if claim.Machine.LifecycleState != "deleting" || claim.Machine.LifecycleReasonCode != "idle_timeout" {
+		t.Fatalf("claimed idle machine = %+v, want deleting/idle_timeout", claim.Machine)
 	}
 }
 
