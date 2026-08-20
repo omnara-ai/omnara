@@ -62,25 +62,50 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
-  it('clears a model stream error when a durable event confirms recovery', async () => {
+  it('drops a failed model attempt preview while recovery continues', async () => {
     const session = startSession()
     const stream = await connection(0)
 
+    stream.push({ event: 'agent_input', data: userInputEvent() })
     stream.push({
       event: 'model_output_delta',
       data: delta(
         1,
+        { kind: 'block_start', block_index: 0, block: { kind: 'text' } },
+        { model_call_context_id: 'failed-call' },
+      ),
+    })
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(
+        2,
+        { kind: 'text_delta', block_index: 0, delta: 'Partial' },
+        { model_call_context_id: 'failed-call' },
+      ),
+    })
+    await waitForSnapshot(session, (state) => messageText(state.messages.at(-1))[0] === 'Partial')
+
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(
+        3,
         { kind: 'error', error: { message: 'model call failed' } },
         { model_call_context_id: 'failed-call' },
       ),
     })
-    const failed = await waitForSnapshot(session, (state) => state.status === 'error')
-    expect(failed.error?.message).toBe('model call failed')
+    const retrying = await waitForSnapshot(
+      session,
+      (state) =>
+        state.status === 'streaming' &&
+        !state.messages.some((message) => message.id === 'turn:turn'),
+    )
+    expect(retrying.error).toBeUndefined()
 
     stream.push({
       event: 'model_output',
       data: event({
         model_call_context_id: 'recovered-call',
+        sequence: 12,
         content_blocks: [{ type: 'text', text: 'Recovered' }],
       }),
     })
@@ -487,6 +512,7 @@ describe('AgentChatSession streaming', () => {
     })
     second.end()
     const recovered = await connection(2)
+    expect(read(session).error).toBeUndefined()
     recovered.push({ event: 'agent_input', data: userInputEvent() })
     await waitForSnapshot(session, (state) => state.status === 'streaming')
     recovered.end()
@@ -496,7 +522,6 @@ describe('AgentChatSession streaming', () => {
       .map((call) => call[1])
       .filter((delay) => delay === 1 || delay === 2)
     expect(reconnectDelays.slice(-3)).toEqual([1, 2, 1])
-    expect(read(session).error).toBeUndefined()
     expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(4)
     session.disconnect()
     setTimeout.mockRestore()
