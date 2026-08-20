@@ -1,5 +1,5 @@
 import type { ToolPermissionProfile } from '@omnara/sdk'
-import { Trash2Icon } from 'lucide-react'
+import { PlusIcon, Trash2Icon } from 'lucide-react'
 
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import {
@@ -9,7 +9,13 @@ import {
   mcpServerNameMaxLength,
 } from '@/components/agents/useAgentBuilderForm'
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  RequiredFieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -63,33 +69,28 @@ export function AgentConfigMcpServersField({
   }
 
   return (
-    <Field>
+    <Field className="gap-5">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <FieldLabel>MCP servers</FieldLabel>
-          <FieldDescription>Remote MCP servers the agent can call tools on.</FieldDescription>
-        </div>
+        <FieldLabel>MCP servers</FieldLabel>
         <Button
           type="button"
-          size="sm"
+          size="icon"
           variant="outline"
+          className="bg-muted/40 size-8"
           disabled={permissionProfile == null}
+          aria-label="Add server"
           onClick={() => {
             if (permissionProfile != null) {
               onServersChange([...servers, newMcpServer(permissionProfile)])
             }
           }}
         >
-          Add server
+          <PlusIcon />
         </Button>
       </div>
-      <div className="space-y-3">
-        {servers.length === 0 ? (
-          <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
-            No MCP servers
-          </div>
-        ) : (
-          servers.map((server) => {
+      {servers.length > 0 && (
+        <div className="space-y-3">
+          {servers.map((server) => {
             const duplicateName = servers.some(
               (candidate) => candidate.id !== server.id && candidate.name === server.name,
             )
@@ -99,11 +100,11 @@ export function AgentConfigMcpServersField({
             return (
               <div
                 key={server.id}
-                className="border-border bg-background space-y-4 rounded-lg border p-4"
+                className="border-border bg-muted/40 space-y-4 rounded-lg border p-4"
               >
                 <div className="grid gap-4 sm:grid-cols-[minmax(8rem,14rem)_1fr_auto]">
                   <Field data-invalid={nameError !== undefined}>
-                    <FieldLabel htmlFor={`${server.id}-name`}>Name</FieldLabel>
+                    <RequiredFieldLabel htmlFor={`${server.id}-name`}>Name</RequiredFieldLabel>
                     <Input
                       id={`${server.id}-name`}
                       required
@@ -118,9 +119,10 @@ export function AgentConfigMcpServersField({
                     <FieldError>{nameError}</FieldError>
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor={`${server.id}-url`}>URL</FieldLabel>
+                    <RequiredFieldLabel htmlFor={`${server.id}-url`}>URL</RequiredFieldLabel>
                     <Input
                       id={`${server.id}-url`}
+                      required
                       value={server.url}
                       placeholder="https://example.com/mcp"
                       onChange={(event) => {
@@ -222,8 +224,12 @@ export function AgentConfigMcpServersField({
                   </Field>
                   {server.authType !== 'none' && (
                     <Field>
-                      <FieldLabel>Secret</FieldLabel>
+                      <RequiredFieldLabel htmlFor={`${server.id}-secret`}>
+                        Secret
+                      </RequiredFieldLabel>
                       <AgentConfigMcpSecretCombobox
+                        id={`${server.id}-secret`}
+                        required
                         orgId={orgId}
                         projectId={projectId}
                         server={server}
@@ -243,11 +249,12 @@ export function AgentConfigMcpServersField({
                   {server.authType === 'sigv4' &&
                     awsSigningFields.map((field) => (
                       <Field key={field.key}>
-                        <FieldLabel htmlFor={`${server.id}-aws-${field.key}`}>
+                        <RequiredFieldLabel htmlFor={`${server.id}-aws-${field.key}`}>
                           {field.label}
-                        </FieldLabel>
+                        </RequiredFieldLabel>
                         <Input
                           id={`${server.id}-aws-${field.key}`}
+                          required
                           value={server[field.key]}
                           onChange={(event) => {
                             updateServer(server.id, { [field.key]: event.target.value })
@@ -270,9 +277,9 @@ export function AgentConfigMcpServersField({
                 </Button>
               </div>
             )
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </Field>
   )
 }

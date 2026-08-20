@@ -2,7 +2,7 @@ import { CatchBoundary } from '@tanstack/react-router'
 import { lazy, Suspense } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { Field, RequiredFieldLabel } from '@/components/ui/field'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 
@@ -77,9 +77,9 @@ export function AgentConfigYamlField({
 
   return (
     <Field>
-      <FieldLabel asChild>
+      <RequiredFieldLabel asChild>
         <span>Config (YAML)</span>
-      </FieldLabel>
+      </RequiredFieldLabel>
       {editor}
     </Field>
   )

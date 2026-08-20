@@ -1,24 +1,41 @@
 import { useProjectModelGrants } from '@omnara/react'
 import type { ConfiguredModelSummary } from '@omnara/sdk'
-import { useEffect } from 'react'
+import { PlusIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
-import { GrantModelButton } from '@/components/projects/GrantModelButton'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { GrantProjectModelDialog } from '@/components/projects/GrantProjectModelDialog'
+import { Field, RequiredFieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
+import { useProjectPage } from '@/lib/use-project-page'
 
-const ModelCombobox = createResourceCombobox<ConfiguredModelSummary>({
-  itemKey: (model) => model.id,
-  itemLabel: (model) => `${model.name} · ${model.provider_config}`,
-  renderItem: (model) => (
-    <span className="flex min-w-0 items-baseline gap-1.5">
-      <span className="truncate">{model.name}</span>
-      <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
-    </span>
-  ),
+type ModelOption = { kind: 'grant' } | { kind: 'model'; model: ConfiguredModelSummary }
+
+const grantModelsOption: ModelOption = { kind: 'grant' }
+
+const ModelCombobox = createResourceCombobox<ModelOption>({
+  itemKey: (option) => (option.kind === 'grant' ? 'grant-models' : option.model.id),
+  itemLabel: (option) =>
+    option.kind === 'grant'
+      ? 'Grant models…'
+      : `${option.model.name} · ${option.model.provider_config}`,
+  renderItem: (option) =>
+    option.kind === 'grant' ? (
+      <>
+        <PlusIcon className="size-4" />
+        <span>Grant models…</span>
+      </>
+    ) : (
+      <span className="flex min-w-0 items-baseline gap-1.5">
+        <span className="truncate">{option.model.name}</span>
+        <span className="text-muted-foreground truncate text-xs">
+          {option.model.provider_config}
+        </span>
+      </span>
+    ),
   placeholder: 'Search granted models…',
   emptyMessage: 'No granted models found.',
 })
@@ -41,6 +58,8 @@ export function AgentConfigModelField({
   onChange: (selection: ModelSelection) => void
   onUnavailableChange?: (unavailable: boolean) => void
 }) {
+  const { project } = useProjectPage()
+  const [grantOpen, setGrantOpen] = useState(false)
   const search = useTypeaheadSearch()
   const grantsQuery = useProjectModelGrants(orgId, projectId, {
     filters: search.filters,
@@ -62,74 +81,90 @@ export function AgentConfigModelField({
     listedSelected ?? completeSelection.items.map((item) => item.model).find(matchesValue) ?? null
   const displayedModels =
     selected && !models.some((model) => model.id === selected.id) ? [selected, ...models] : models
+  const modelOptions: ModelOption[] = displayedModels.map((model) => ({ kind: 'model', model }))
+  const selectedOption: ModelOption | null = selected ? { kind: 'model', model: selected } : null
+  const options = project?.access.can_manage_access
+    ? [grantModelsOption, ...modelOptions]
+    : modelOptions
   const unavailable = lookupEnabled && completeSelection.isComplete && selected === null
   useEffect(() => {
     onUnavailableChange?.(unavailable)
   }, [onUnavailableChange, unavailable])
 
   return (
-    <Field>
-      <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Model</FieldLabel>
-        <GrantModelButton />
-      </div>
-      <p className="text-muted-foreground text-sm">
-        Choose the exact granted model this agent will use.
-      </p>
-      <ModelCombobox
-        items={displayedModels}
-        value={selected}
-        onValueChange={(model) => {
-          if (!model) return
-          onChange({ providerConfig: model.provider_config, modelName: model.name })
-        }}
-        search={search}
-        query={grantsQuery}
-        placeholder={
-          grantsQuery.isPending
-            ? 'Loading models…'
-            : models.length === 0 && search.search === ''
-              ? 'No models granted'
-              : 'Search granted models…'
-        }
-        disabled={grantsQuery.isError || selectedQuery.isError}
+    <>
+      <Field>
+        <RequiredFieldLabel htmlFor="agent-config-model">Model</RequiredFieldLabel>
+        <ModelCombobox
+          id="agent-config-model"
+          required
+          items={options}
+          value={selectedOption}
+          onValueChange={(option) => {
+            if (option?.kind === 'grant') {
+              setGrantOpen(true)
+              return
+            }
+            if (!option) return
+            onChange({
+              providerConfig: option.model.provider_config,
+              modelName: option.model.name,
+            })
+          }}
+          search={search}
+          query={grantsQuery}
+          placeholder={
+            grantsQuery.isPending
+              ? 'Loading models…'
+              : models.length === 0 && search.search === ''
+                ? 'No models granted'
+                : 'Search granted models…'
+          }
+          disabled={grantsQuery.isError || selectedQuery.isError}
+        />
+        <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider name" />
+        <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
+        {unavailable && (
+          <p className="text-destructive text-sm">
+            The configured model “{value.modelName}” ({value.providerConfig}) is no longer available
+            to the project. Pick another model or grant it again.
+          </p>
+        )}
+        {grantsQuery.isError && (
+          <p className="text-destructive text-sm">
+            Could not load granted models.{' '}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => {
+                void grantsQuery.refetch()
+              }}
+            >
+              Retry
+            </button>
+          </p>
+        )}
+        {selectedQuery.isError && (
+          <p className="text-destructive text-sm">
+            Could not load the selected model.{' '}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => {
+                void selectedQuery.refetch()
+              }}
+            >
+              Retry
+            </button>
+          </p>
+        )}
+      </Field>
+      <GrantProjectModelDialog
+        open={grantOpen}
+        onOpenChange={setGrantOpen}
+        orgId={orgId}
+        projectId={projectId}
       />
-      <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider name" />
-      <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
-      {unavailable && (
-        <p className="text-destructive text-sm">
-          The configured model “{value.modelName}” ({value.providerConfig}) is no longer available
-          to the project. Pick another model or grant it again.
-        </p>
-      )}
-      {grantsQuery.isError && (
-        <p className="text-destructive text-sm">
-          Could not load granted models.{' '}
-          <button
-            type="button"
-            className="underline"
-            onClick={() => {
-              void grantsQuery.refetch()
-            }}
-          >
-            Retry
-          </button>
-        </p>
-      )}
-      {selectedQuery.isError && (
-        <p className="text-destructive text-sm">
-          Could not load the selected model.{' '}
-          <button
-            type="button"
-            className="underline"
-            onClick={() => {
-              void selectedQuery.refetch()
-            }}
-          >
-            Retry
-          </button>
-        </p>
-      )}
-    </Field>
+    </>
   )
 }

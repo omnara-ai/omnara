@@ -9,6 +9,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import {
   type AgentConfigMode,
   agentConfigModeReducer,
@@ -21,17 +22,19 @@ import {
   type AgentTemplate,
   agentTemplateConfig,
   agentTemplateName,
+  defaultAgentTools,
 } from '@/components/agents/agentTemplates'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
 import {
   type BasicConfig,
   createBasicConfigSession,
+  emptyBasicConfig,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
@@ -44,7 +47,6 @@ type SubmitAction = 'profile' | 'launch'
 
 interface CreateAgentDraft {
   name: string
-  message: string
   status: SubmitStatus
 }
 
@@ -80,16 +82,17 @@ export function CreateAgentFormView({
   )
   const [draft, setDraft] = useState<CreateAgentDraft>(() => ({
     name: initialTemplate?.name ?? '',
-    message: '',
     status: idle,
   }))
-  const [appliedTemplate, setAppliedTemplate] = useState<AgentTemplate | null>(
-    initialTemplate ?? null,
-  )
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
   const savedProfile = useRef<SavedProfile | null>(null)
   const [session, setSession] = useState(() => createBasicConfigSession(''))
-  const form = useAgentBuilderForm(session, initialTemplate && templateBasicConfig(initialTemplate))
+  const form = useAgentBuilderForm(
+    session,
+    initialTemplate
+      ? templateBasicConfig(initialTemplate)
+      : { ...emptyBasicConfig, tools: defaultAgentTools(catalog) },
+  )
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {
       const adopted = createBasicConfigSession(mode.editorYaml)
@@ -120,7 +123,6 @@ export function CreateAgentFormView({
     }
     form.reset(next)
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
-    setAppliedTemplate(template)
   }
 
   if (project == null) return null
@@ -161,7 +163,6 @@ export function CreateAgentFormView({
         const launch = await createAgent.mutateAsync({
           profile: profile.profileId,
           config: profile.configId,
-          message: draft.message.trim() === '' ? undefined : draft.message,
         })
         await navigate({
           to: '/projects/$projectId/agents/$agentId',
@@ -193,6 +194,7 @@ export function CreateAgentFormView({
 
   return (
     <form
+      noValidate
       className="mx-auto flex w-full max-w-6xl flex-col gap-6"
       onSubmit={(event: SyntheticEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -212,7 +214,7 @@ export function CreateAgentFormView({
           { id: 'new-agent', label: 'New agent' },
         ]}
       />
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">New agent</h1>
         <div className="flex items-center gap-2">
           {showBuilder && <AgentTemplateMenu disabled={!templatesReady} onApply={applyTemplate} />}
@@ -227,22 +229,33 @@ export function CreateAgentFormView({
         </div>
       </div>
 
-      <FieldGroup className="max-w-3xl gap-8">
-        <Field>
-          <FieldLabel htmlFor="agent-config-name">Name</FieldLabel>
-          <Input
-            id="agent-config-name"
-            required
-            maxLength={resourceNameInputMaxLength}
-            value={draft.name}
-            placeholder="Demo research agent"
-            className="max-w-md"
-            onChange={(event) => {
-              setDraft((prev) => ({ ...prev, name: event.target.value }))
-            }}
-          />
-          <ResourceNameFieldError value={draft.name} />
-        </Field>
+      <FieldGroup className="mx-auto w-full max-w-3xl gap-8">
+        <div className={cn(showBuilder && 'grid gap-6 sm:grid-cols-2')}>
+          <Field>
+            <RequiredFieldLabel htmlFor="agent-config-name">Name</RequiredFieldLabel>
+            <Input
+              id="agent-config-name"
+              required
+              maxLength={resourceNameInputMaxLength}
+              value={draft.name}
+              placeholder="Demo research agent"
+              className={cn(!showBuilder && 'max-w-md')}
+              onChange={(event) => {
+                setDraft((prev) => ({ ...prev, name: event.target.value }))
+              }}
+            />
+            <ResourceNameFieldError value={draft.name} />
+          </Field>
+          {showBuilder && (
+            <AgentConfigModelField
+              orgId={activeOrg.id}
+              projectId={projectId}
+              value={form.model}
+              onChange={form.setModel}
+              onUnavailableChange={form.reportModelUnavailable}
+            />
+          )}
+        </div>
         <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
           <AgentConfigBasicForm orgId={activeOrg.id} projectId={projectId} form={form} />
         </div>
@@ -256,19 +269,6 @@ export function CreateAgentFormView({
             }}
           />
         )}
-        <Field>
-          <FieldLabel htmlFor="agent-message">First message (optional)</FieldLabel>
-          <Input
-            id="agent-message"
-            value={draft.message}
-            placeholder={
-              appliedTemplate?.firstMessagePlaceholder ?? 'Kick the agent off with a message'
-            }
-            onChange={(event) => {
-              setDraft((prev) => ({ ...prev, message: event.target.value }))
-            }}
-          />
-        </Field>
       </FieldGroup>
       {/* -bottom-6 offsets the scroll container's p-6 so the bar sits flush with the viewport edge. */}
       <div className="bg-background sticky -bottom-6 z-10 -mb-6 flex items-center justify-between gap-4 border-t py-4">

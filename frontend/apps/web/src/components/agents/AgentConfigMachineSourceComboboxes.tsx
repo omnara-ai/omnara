@@ -75,6 +75,8 @@ function useStaleName<TItem>(
 }
 
 export function PoolSourceCombobox({
+  id,
+  required,
   orgId,
   projectId,
   value,
@@ -82,6 +84,8 @@ export function PoolSourceCombobox({
   onUnavailableChange,
   onPoolResolved,
 }: {
+  id?: string
+  required?: boolean
   orgId: string
   projectId: string
   value: string
@@ -121,6 +125,8 @@ export function PoolSourceCombobox({
   return (
     <>
       <PoolNameCombobox
+        id={id}
+        required={required}
         items={grants.map((item) => ({
           name: item.machine_pool.name,
           pool: item.machine_pool,
@@ -159,6 +165,8 @@ export function PoolSourceCombobox({
 }
 
 export function MachineSourceCombobox({
+  id,
+  required,
   orgId,
   projectId,
   value,
@@ -166,6 +174,8 @@ export function MachineSourceCombobox({
   onUnavailableChange,
   onMachinesGranted,
 }: {
+  id?: string
+  required?: boolean
   orgId: string
   projectId: string
   value: string
@@ -200,6 +210,8 @@ export function MachineSourceCombobox({
   return (
     <>
       <MachineNameCombobox
+        id={id}
+        required={required}
         items={machines.map((machine) => ({ name: machine.display_name }))}
         value={value === '' ? null : { name: value }}
         onValueChange={(machine) => {

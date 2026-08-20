@@ -11,7 +11,7 @@ function ComboboxInput({ className, ...props }: ComponentProps<typeof ComboboxPr
     <div className="relative">
       <ComboboxPrimitive.Input
         className={cn(
-          'border-input bg-background shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border pl-3 pr-9 text-sm outline-none focus-visible:ring-[3px]',
+          'border-input shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:ring-destructive/40 h-9 w-full rounded-md border bg-transparent pl-3 pr-9 text-sm outline-none transition-[color,box-shadow] focus-visible:ring-[3px]',
           className,
         )}
         {...props}
@@ -28,7 +28,7 @@ function ComboboxChips({ className, ...props }: ComponentProps<typeof ComboboxPr
     <ComboboxPrimitive.InputGroup className="w-full">
       <ComboboxPrimitive.Chips
         className={cn(
-          'border-input bg-background shadow-xs focus-within:border-ring focus-within:ring-ring/50 flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border px-2 py-1 transition-[color,box-shadow] focus-within:ring-[3px]',
+          'border-input shadow-xs focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border bg-transparent px-2 py-1 transition-[color,box-shadow] focus-within:ring-[3px]',
           className,
         )}
         {...props}

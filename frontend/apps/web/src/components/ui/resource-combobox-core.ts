@@ -25,6 +25,8 @@ export interface ResourceComboboxSearch {
 
 export interface ResourceComboboxBaseProps<TItem> {
   items: TItem[]
+  id?: string
+  required?: boolean
   search?: ResourceComboboxSearch
   query?: ResourceComboboxQuery
   pending?: boolean
