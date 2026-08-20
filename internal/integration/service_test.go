@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type integrationServiceExecutionStub struct{}
@@ -26,6 +27,26 @@ func (integrationServiceExecutionStub) LaunchAgent(
 	executionstore.LaunchAgentInput,
 ) (executionstore.LaunchAgentResult, error) {
 	return executionstore.LaunchAgentResult{}, errors.New("unexpected LaunchAgent call")
+}
+
+type integrationServiceLaunchFailureStub struct {
+	profile   executionstore.AgentProfileRecord
+	launchErr error
+}
+
+func (s integrationServiceLaunchFailureStub) GetAgentProfile(
+	context.Context,
+	executionstore.ID,
+	executionstore.ID,
+) (executionstore.AgentProfileRecord, error) {
+	return s.profile, nil
+}
+
+func (s integrationServiceLaunchFailureStub) LaunchAgent(
+	context.Context,
+	executionstore.LaunchAgentInput,
+) (executionstore.LaunchAgentResult, error) {
+	return executionstore.LaunchAgentResult{}, s.launchErr
 }
 
 type integrationServiceStoreStub struct {
@@ -100,5 +121,44 @@ func TestGetOrCreateTargetTreatsDatabaseNoRowsAsNotFound(t *testing.T) {
 	}
 	if store.createdInput != wantInput {
 		t.Fatalf("create input = %+v, want %+v", store.createdInput, wantInput)
+	}
+}
+
+func TestGetOrCreateTargetTagsAgentLaunchFailures(t *testing.T) {
+	installID := uuid.New()
+	projectID := uuid.New()
+	profileID := uuid.New()
+	configID := uuid.New()
+	store := &integrationServiceStoreStub{
+		install: integrationstore.IntegrationInstallRecord{
+			ID:                installID,
+			ProjectID:         projectID,
+			AgentProfileID:    profileID,
+			InstalledByUserID: uuid.New(),
+			State:             integrationstore.IntegrationInstallStateActive,
+		},
+		lookupErr: pgx.ErrNoRows,
+	}
+	execution := integrationServiceLaunchFailureStub{
+		profile:   executionstore.AgentProfileRecord{CurrentConfigID: configID},
+		launchErr: storeerr.ErrStateTransitionConflict,
+	}
+
+	_, _, err := New(execution, store).GetOrCreateTarget(
+		context.Background(),
+		GetOrCreateTargetInput{
+			IntegrationInstallID: installID,
+			ProviderRef:          "C123:111.222",
+			ProviderRefKind:      "thread",
+		},
+	)
+	if !errors.Is(err, ErrAgentLaunchFailed) {
+		t.Fatalf("error = %v, want ErrAgentLaunchFailed", err)
+	}
+	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("error = %v, want underlying state transition conflict", err)
+	}
+	if store.createdInput != (integrationstore.CreateIntegrationTargetInput{}) {
+		t.Fatalf("launch failure created integration target with input %+v", store.createdInput)
 	}
 }

@@ -17,6 +17,8 @@ type Service struct {
 	integrations integrationStore
 }
 
+var ErrAgentLaunchFailed = errors.New("launch agent for integration target")
+
 type executionStore interface {
 	GetAgentProfile(context.Context, executionstore.ID, executionstore.ID) (executionstore.AgentProfileRecord, error)
 	LaunchAgent(context.Context, executionstore.LaunchAgentInput) (executionstore.LaunchAgentResult, error)
@@ -94,7 +96,8 @@ func (s *Service) GetOrCreateTarget(
 		})
 		if err != nil {
 			return integrationstore.IntegrationTargetRecord{}, executionstore.LaunchAgentResult{}, fmt.Errorf(
-				"launch agent for integration target: %w",
+				"%w: %w",
+				ErrAgentLaunchFailed,
 				err,
 			)
 		}

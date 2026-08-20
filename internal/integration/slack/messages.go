@@ -120,12 +120,38 @@ func PostMessage(
 	if target.ThreadTS != "" {
 		payload["thread_ts"] = target.ThreadTS
 	}
+	return postMessageAt(ctx, client, defaultAPIURL, target, payload)
+}
+
+func PostPlainMessage(
+	ctx context.Context,
+	config OAuthConfig,
+	target MessageTarget,
+	text string,
+) (APIResult, error) {
+	payload := map[string]any{
+		"channel": target.Channel,
+		"text":    text,
+	}
+	if target.ThreadTS != "" {
+		payload["thread_ts"] = target.ThreadTS
+	}
+	return postMessageAt(ctx, config.HTTPClient, config.APIURL, target, payload)
+}
+
+func postMessageAt(
+	ctx context.Context,
+	client *http.Client,
+	apiURL string,
+	target MessageTarget,
+	payload map[string]any,
+) (APIResult, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return APIResult{}, err
 	}
 	var out postMessageResponse
-	result, err := callJSON(ctx, client, target.BotToken, "chat.postMessage", body, &out)
+	result, err := callJSONAt(ctx, client, apiURL, target.BotToken, "chat.postMessage", body, &out)
 	if err != nil {
 		return APIResult{}, err
 	}

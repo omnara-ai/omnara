@@ -27,6 +27,8 @@ const (
 	integrationEventHTTPTimeout       = 2 * time.Second
 	integrationEventEnrichmentTimeout = 1500 * time.Millisecond
 	contentBlockMetadataValueMaxRunes = 512
+	slackAgentLaunchFailureMessage    = "I couldn't start an agent for this request. " +
+		"Please try again later or contact this bot's owner."
 )
 
 func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +144,27 @@ func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) 
 		envelope,
 		route,
 	)
+	if errors.Is(err, integration.ErrAgentLaunchFailed) &&
+		errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		logpkg.LoggerFromContext(r.Context()).Warn(
+			"slack integration agent launch failed",
+			"integration_install_id",
+			install.ID,
+			"provider_ref",
+			route.ProviderRef,
+			"error",
+			err,
+		)
+		go s.postSlackAgentLaunchFailure(
+			r.Context(),
+			install,
+			credentials.BotToken,
+			route,
+		)
+		logent.IntegrationEvent(r.Context(), install, "agent_launch_failed", envelope.Event.Type)
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "launch_failed"})
+		return
+	}
 	if errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		logent.IntegrationEvent(r.Context(), install, "ignored_agent_state", envelope.Event.Type)
 		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
@@ -594,6 +617,48 @@ func (s *Server) addIntegrationInboundReaction(
 			result.Message,
 			"rate_limited",
 			result.RateLimited,
+		)
+	}
+}
+
+func (s *Server) postSlackAgentLaunchFailure(
+	parent context.Context,
+	install integrationstore.IntegrationInstallRecord,
+	token string,
+	route slack.InboundRoute,
+) {
+	logger := logpkg.LoggerFromContext(parent)
+	channel, threadTS, err := slack.Destination(route.ProviderRefKind, route.ProviderRef)
+	if err != nil {
+		logger.Warn(
+			"slack agent launch failure message failed",
+			"integration_install_id", install.ID,
+			"provider_ref", route.ProviderRef,
+			"error", err,
+		)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), integrationEventHTTPTimeout)
+	defer cancel()
+	result, err := slack.PostPlainMessage(
+		ctx,
+		s.slackOAuth,
+		slack.MessageTarget{
+			Channel:  channel,
+			ThreadTS: threadTS,
+			BotToken: token,
+		},
+		slackAgentLaunchFailureMessage,
+	)
+	if err != nil || result.MessageID == "" {
+		logger.Warn(
+			"slack agent launch failure message failed",
+			"integration_install_id", install.ID,
+			"provider_ref", route.ProviderRef,
+			"error", err,
+			"code", result.Code,
+			"message", result.Message,
+			"rate_limited", result.RateLimited,
 		)
 	}
 }
