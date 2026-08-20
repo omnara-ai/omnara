@@ -1124,7 +1124,7 @@ WHERE pool.org_id = $1 AND pool.id = $2 AND machine.id = $3`,
 	}
 }
 
-func TestReconcileDefaultsSerializesModelBeforePoolWithAgentConfigChange(t *testing.T) {
+func TestReconcileDefaultsSerializesModelBeforePoolForAgentWorkflows(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	defer pool.Close()
@@ -1220,6 +1220,19 @@ machine_sources:
   - machine_pool_name: reconcile-launch-order-pool
 `
 	nextCompiled := compileConfig(nextSource)
+	nextConfigInput := executionstore.CreateAgentConfigInput{
+		ProjectID:               created.Project.ID,
+		Definition:              json.RawMessage(nextCompiled.CanonicalJSON),
+		Source:                  nextSource,
+		ConfiguredModelID:       configuredModel.ID,
+		CompiledDefinition:      json.RawMessage(nextCompiled.CanonicalJSON),
+		CompilerVersion:         agentconfig.CompilerVersion,
+		EffectiveDefinitionHash: nextCompiled.Hash,
+	}
+	nextConfig, err := store.Execution().CreateAgentConfig(ctx, nextConfigInput)
+	if err != nil {
+		t.Fatalf("create pool-backed config: %v", err)
+	}
 	controlTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin control transaction: %v", err)
@@ -1250,20 +1263,12 @@ machine_sources:
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
 	changeDone := make(chan error, 1)
 	go func() {
-		_, changeErr := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-			CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-				ProjectID:               created.Project.ID,
-				Definition:              json.RawMessage(nextCompiled.CanonicalJSON),
-				Source:                  nextSource,
-				ConfiguredModelID:       configuredModel.ID,
-				CompiledDefinition:      json.RawMessage(nextCompiled.CanonicalJSON),
-				CompilerVersion:         agentconfig.CompilerVersion,
-				EffectiveDefinitionHash: nextCompiled.Hash,
-			},
-			AgentID:        launched.Agent.ID,
-			ActorType:      identitystore.PrincipalTypeUser,
-			ActorID:        user.ID,
-			IdempotencyKey: "reconcile-config-order",
+		_, changeErr := store.Execution().IntegrationChangeAgentConfigOnce(ctx, executionstore.ChangeAgentConfigInput{
+			CreateAgentConfigInput: nextConfigInput,
+			AgentID:                launched.Agent.ID,
+			ActorType:              identitystore.PrincipalTypeUser,
+			ActorID:                user.ID,
+			IdempotencyKey:         "reconcile-config-order",
 		})
 		changeDone <- changeErr
 	}()
@@ -1283,6 +1288,61 @@ machine_sources:
 	}
 	if err := waitForDefaultReconciliationOperation(t, "agent config change", changeDone); err != nil {
 		t.Fatalf("change agent config: %v", err)
+	}
+
+	launchControlTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin launch control transaction: %v", err)
+	}
+	defer func() { _ = launchControlTx.Rollback(ctx) }()
+	if _, err := dbsqlc.New(launchControlTx).LockMachinePoolForLifecycle(
+		ctx,
+		dbsqlc.LockMachinePoolForLifecycleParams{OrgID: created.Org.ID, ID: poolRow.ID},
+	); err != nil {
+		t.Fatalf("lock machine pool for launch: %v", err)
+	}
+	desiredPool.Description = "reconciled for launch"
+	desiredProvider.BaseURL = "https://launch-reconciled.example.com/v1"
+	reconcileDone = make(chan error, 1)
+	go func() {
+		_, reconcileErr := store.Organizations().ReconcileDefaults(
+			ctx,
+			orglifecycle.ReconcileDefaultsInput{
+				Apply:                true,
+				DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{desiredPool},
+				DefaultModelProvider: &desiredProvider,
+			},
+		)
+		reconcileDone <- reconcileErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
+	launchDone := make(chan error, 1)
+	go func() {
+		_, launchErr := store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
+			ProjectID:      created.Project.ID,
+			AgentConfigID:  nextConfig.ID,
+			LaunchedBy:     userPrincipal(user.ID),
+			Name:           "Reconcile Launch Order Agent",
+			IdempotencyKey: "reconcile-launch-order-agent",
+		})
+		launchDone <- launchErr
+	}()
+	waitForDefaultReconciliationLockWaiter(
+		t,
+		ctx,
+		pool,
+		"LockConfiguredModelForUse",
+		"agent launch",
+		launchDone,
+	)
+	if err := launchControlTx.Commit(ctx); err != nil {
+		t.Fatalf("release launch control transaction: %v", err)
+	}
+	if err := waitForDefaultReconciliationOperation(t, "launch reconciliation", reconcileDone); err != nil {
+		t.Fatalf("reconcile defaults for launch: %v", err)
+	}
+	if err := waitForDefaultReconciliationOperation(t, "agent launch", launchDone); err != nil {
+		t.Fatalf("launch agent: %v", err)
 	}
 }
 

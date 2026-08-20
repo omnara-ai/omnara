@@ -389,27 +389,12 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			t.Fatalf("begin artifact creation control transaction: %v", err)
 		}
 		defer func() { _ = controlTx.Rollback(ctx) }()
-		if err := dbsqlc.New(controlTx).LockAgentMachineSources(
+		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 			ctx,
-			dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
+			dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID},
 		); err != nil {
-			t.Fatalf("lock agent sources before project deletion: %v", err)
+			t.Fatalf("lock agent before artifact creation: %v", err)
 		}
-		if _, err := controlTx.Exec(ctx, `LOCK TABLE artifacts IN ACCESS EXCLUSIVE MODE`); err != nil {
-			t.Fatalf("lock artifact table: %v", err)
-		}
-
-		deleteDone := make(chan error, 1)
-		go func() {
-			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
-				ctx,
-				testOrgID,
-				testProjectID,
-				actor,
-			)
-			deleteDone <- deleteErr
-		}()
-		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentMachineSources", 1)
 
 		artifactDone := make(chan artifactOutcome, 1)
 		go func() {
@@ -424,17 +409,39 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			)
 			artifactDone <- artifactOutcome{record: record, err: createErr}
 		}()
-		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "InsertArtifact", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+				ctx,
+				testOrgID,
+				testProjectID,
+				actor,
+			)
+			deleteDone <- deleteErr
+		}()
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release artifact creation control transaction: %v", err)
 		}
 
-		outcome := <-artifactDone
+		var outcome artifactOutcome
+		select {
+		case outcome = <-artifactDone:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for artifact creation")
+		}
 		if outcome.err != nil {
 			t.Fatalf("create artifact before project deletion: %v", outcome.err)
 		}
-		if err := <-deleteDone; err != nil {
-			t.Fatalf("delete project after artifact creation: %v", err)
+		select {
+		case err := <-deleteDone:
+			if err != nil {
+				t.Fatalf("delete project after artifact creation: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for project deletion")
 		}
 		var agentState string
 		var projectDeleted, artifactExists bool
@@ -527,10 +534,20 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			t.Fatalf("release project deletion control transaction: %v", err)
 		}
 
-		if err := <-deleteDone; err != nil {
-			t.Fatalf("delete project before artifact creation: %v", err)
+		select {
+		case err := <-deleteDone:
+			if err != nil {
+				t.Fatalf("delete project before artifact creation: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for project deletion")
 		}
-		outcome := <-artifactDone
+		var outcome artifactOutcome
+		select {
+		case outcome = <-artifactDone:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for artifact creation")
+		}
 		if !errors.Is(outcome.err, storeerr.ErrStateTransitionConflict) {
 			t.Fatalf("artifact after project deletion error = %v, want state transition conflict", outcome.err)
 		}

@@ -14,11 +14,12 @@ import (
 )
 
 // Canonical order: scope gates, account principals, agent profiles, agent
-// sources, pools and grants, machines, existing agents, environment keys, then
-// child state. A transaction may enter at the earliest class shared with
-// competing work, such as an agent child serializing at the agent, but it must
-// never acquire an earlier class afterward. IDs in the same class are locked
-// in stable UUID order.
+// sources, configured models, pools and grants, machines, existing agents,
+// environment keys, then child state. A transaction may enter at the earliest
+// class shared with competing work, such as an agent child serializing at the
+// agent, but it must never acquire an earlier class afterward. IDs in the same
+// class are locked in stable UUID order. A lock outside this ladder must have a
+// fixed class or be reachable only behind the same earlier serialization lock.
 
 type PoolRef struct {
 	OrgID  uuid.UUID

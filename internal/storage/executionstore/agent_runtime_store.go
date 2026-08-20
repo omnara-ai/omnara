@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -354,7 +355,13 @@ func (s *Store) ArchiveAgent(
 		machines []MachineRecord
 	}
 	result, err := storeutil.RetryTransaction(ctx, func() (archiveAgentResult, error) {
-		agent, machines, archiveErr := s.archiveAgentOnce(ctx, projectID, agentID, actor)
+		agent, machines, archiveErr := s.archiveAgentOnce(
+			ctx,
+			project.OrgID,
+			projectID,
+			agentID,
+			actor,
+		)
 		return archiveAgentResult{agent: agent, machines: machines}, archiveErr
 	})
 	return result.agent, result.machines, err
@@ -362,7 +369,7 @@ func (s *Store) ArchiveAgent(
 
 func (s *Store) archiveAgentOnce(
 	ctx context.Context,
-	projectID, agentID ID,
+	orgID, projectID, agentID ID,
 	actor *ActorParams,
 ) (AgentRecord, []MachineRecord, error) {
 	txNotifications := s.newTxNotifications()
@@ -372,6 +379,9 @@ func (s *Store) archiveAgentOnce(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, projectID); err != nil {
+		return AgentRecord{}, nil, err
+	}
 	machines, err := archiveAgentTx(ctx, tx, qtx, txNotifications, projectID, agentID, actor)
 	if err != nil {
 		return AgentRecord{}, nil, err

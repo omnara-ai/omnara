@@ -3663,6 +3663,41 @@ func (q *Queries) ListVisibleProjectRolesForPrincipal(ctx context.Context, arg L
 	return items, nil
 }
 
+const lockActiveOwnedOrganizationsForUser = `-- name: LockActiveOwnedOrganizationsForUser :many
+SELECT org.id
+FROM org_memberships membership
+JOIN orgs org ON org.id = membership.org_id
+WHERE membership.user_id = $1::uuid
+  AND membership.role = 'owner'
+  AND org.deleted_at IS NULL
+ORDER BY org.id
+FOR UPDATE OF org
+`
+
+type LockActiveOwnedOrganizationsForUserParams struct {
+	UserID uuid.UUID
+}
+
+func (q *Queries) LockActiveOwnedOrganizationsForUser(ctx context.Context, arg LockActiveOwnedOrganizationsForUserParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockActiveOwnedOrganizationsForUser, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockNormalizedEmailKey = `-- name: LockNormalizedEmailKey :exec
 SELECT pg_advisory_xact_lock(hashtext($1::text))
 `

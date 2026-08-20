@@ -210,16 +210,6 @@ func prelockProjectMachineLifecycleTx(
 	if err != nil {
 		return nil, fmt.Errorf("list project agents for lifecycle: %w", err)
 	}
-	if err := lifecyclelock.AgentSources(ctx, tx, agentIDs); err != nil {
-		return nil, err
-	}
-	agentIDs, err = q.ListActiveAgentIDsForProjectDeletion(
-		ctx,
-		dbsqlc.ListActiveAgentIDsForProjectDeletionParams{ProjectID: projectID},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("reload project agents for lifecycle: %w", err)
-	}
 	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentIDs))
 	for _, agentID := range agentIDs {
 		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
@@ -289,24 +279,6 @@ func prelockOrganizationMachineLifecycleTx(
 	if err != nil {
 		return organizationMachineLifecyclePlan{}, fmt.Errorf(
 			"list organization agents for lifecycle: %w",
-			err,
-		)
-	}
-	sourceRefs, _ := organizationAgentLifecycleRefs(agentRows)
-	sourceIDs := make([]uuid.UUID, 0, len(sourceRefs))
-	for _, ref := range sourceRefs {
-		sourceIDs = append(sourceIDs, ref.AgentID)
-	}
-	if err := lifecyclelock.AgentSources(ctx, tx, sourceIDs); err != nil {
-		return organizationMachineLifecyclePlan{}, err
-	}
-	agentRows, err = q.ListActiveAgentRefsForOrganizationDeletion(
-		ctx,
-		dbsqlc.ListActiveAgentRefsForOrganizationDeletionParams{OrgID: orgID},
-	)
-	if err != nil {
-		return organizationMachineLifecyclePlan{}, fmt.Errorf(
-			"reload organization agents for lifecycle: %w",
 			err,
 		)
 	}
@@ -551,9 +523,6 @@ func (s *Service) deleteOrganizationOnce(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list organization projects: %w", err)
-	}
-	if err := lifecyclelock.ProjectsExclusive(ctx, tx, orgProjectIDs); err != nil {
-		return nil, err
 	}
 	plan, err := prelockOrganizationMachineLifecycleTx(ctx, tx, q, orgID)
 	if err != nil {

@@ -1155,6 +1155,67 @@ func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonPro
 	return items, nil
 }
 
+const listMachineLifecycleTerminalAgentRefs = `-- name: ListMachineLifecycleTerminalAgentRefs :many
+SELECT DISTINCT process.project_id, process.agent_id
+FROM processes process
+WHERE process.org_id = $1
+  AND process.machine_id = $2
+  AND (
+    process.state IN ('starting', 'running')
+    OR EXISTS (
+      SELECT 1
+      FROM process_actions action
+      WHERE action.project_id = process.project_id
+        AND action.agent_id = process.agent_id
+        AND action.process_id = process.id
+        AND action.state IN ('queued', 'accepted')
+    )
+    OR (
+      process.state = 'queued'
+      AND process.tool_call_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM tool_calls tool_call
+        WHERE tool_call.agent_id = process.agent_id
+          AND tool_call.id = process.tool_call_id
+          AND tool_call.type = 'built_in'
+          AND tool_call.state = 'waiting'
+      )
+    )
+  )
+ORDER BY process.project_id, process.agent_id
+`
+
+type ListMachineLifecycleTerminalAgentRefsParams struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+}
+
+type ListMachineLifecycleTerminalAgentRefsRow struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) ListMachineLifecycleTerminalAgentRefs(ctx context.Context, arg ListMachineLifecycleTerminalAgentRefsParams) ([]ListMachineLifecycleTerminalAgentRefsRow, error) {
+	rows, err := q.db.Query(ctx, listMachineLifecycleTerminalAgentRefs, arg.OrgID, arg.MachineID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMachineLifecycleTerminalAgentRefsRow{}
+	for rows.Next() {
+		var i ListMachineLifecycleTerminalAgentRefsRow
+		if err := rows.Scan(&i.ProjectID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProcessesForExecutionRevoked = `-- name: ListProcessesForExecutionRevoked :many
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at
 FROM processes process

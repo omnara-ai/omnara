@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
 func completeMachineLifecycleTerminalWorkTx(
@@ -19,6 +20,25 @@ func completeMachineLifecycleTerminalWorkTx(
 	orgID, machineID ID,
 	reason string,
 ) error {
+	agents, err := qtx.ListMachineLifecycleTerminalAgentRefs(
+		ctx,
+		dbsqlc.ListMachineLifecycleTerminalAgentRefsParams{
+			OrgID: orgID, MachineID: machineID,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("list agents for machine lifecycle termination: %w", err)
+	}
+	refs := make([]lifecyclelock.AgentRef, 0, len(agents))
+	for _, agent := range agents {
+		refs = append(refs, lifecyclelock.AgentRef{
+			ProjectID: agent.ProjectID,
+			AgentID:   agent.AgentID,
+		})
+	}
+	if err := lifecyclelock.Agents(ctx, tx, refs); err != nil {
+		return err
+	}
 	if err := completeMachineLifecycleTerminalProcessesTx(
 		ctx,
 		txNotifications,
@@ -162,9 +182,6 @@ func completeMachineLifecycleTerminalProcessesTx(
 	if err != nil {
 		return fmt.Errorf("list process work for machine lifecycle termination: %w", err)
 	}
-	if err := lockAgentsForProcessesTx(ctx, qtx, rows); err != nil {
-		return err
-	}
 	for _, row := range rows {
 		record := processRecordFromSQLC(row)
 		switch record.State {
@@ -223,9 +240,6 @@ func completeMachineLifecycleTerminalQueuedProcessToolCallsTx(
 		}
 		if len(rows) == 0 {
 			return nil
-		}
-		if err := lockAgentsForProcessesTx(ctx, qtx, rows); err != nil {
-			return err
 		}
 		for _, row := range rows {
 			process := processRecordFromSQLC(row)

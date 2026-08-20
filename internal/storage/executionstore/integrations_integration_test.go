@@ -445,12 +445,14 @@ func TestIntegrationInstallRechecksAgentAfterArchiveWait(t *testing.T) {
 		t.Fatalf("lock integration agent: %v", err)
 	}
 	archiveDone := make(chan error, 1)
+	archiveActor := mustOmnaraActorParams(t, admin.ID)
 	go func() {
-		_, _, archiveErr := store.Execution().ArchiveAgent(
+		_, _, archiveErr := store.Execution().IntegrationArchiveAgentOnce(
 			context.Background(),
+			testOrgID,
 			testProjectID,
 			agent.ID,
-			userPrincipal(admin.ID),
+			archiveActor,
 		)
 		archiveDone <- archiveErr
 	}()
@@ -471,10 +473,20 @@ func TestIntegrationInstallRechecksAgentAfterArchiveWait(t *testing.T) {
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release integration agent blocker: %v", err)
 	}
-	if err := <-archiveDone; err != nil {
-		t.Fatalf("archive integration agent: %v", err)
+	select {
+	case err := <-archiveDone:
+		if err != nil {
+			t.Fatalf("archive integration agent: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for agent archival")
 	}
-	result := <-installDone
+	var result installResult
+	select {
+	case result = <-installDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for integration install")
+	}
 	if !errors.Is(result.err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("install after agent archive error = %v, want state transition conflict", result.err)
 	}
@@ -536,12 +548,14 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 		t.Fatalf("lock integration target agent: %v", err)
 	}
 	archiveDone := make(chan error, 1)
+	archiveActor := mustOmnaraActorParams(t, admin.ID)
 	go func() {
-		_, _, archiveErr := store.Execution().ArchiveAgent(
+		_, _, archiveErr := store.Execution().IntegrationArchiveAgentOnce(
 			context.Background(),
+			testOrgID,
 			testProjectID,
 			agent.ID,
-			userPrincipal(admin.ID),
+			archiveActor,
 		)
 		archiveDone <- archiveErr
 	}()
@@ -558,11 +572,21 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release integration target agent blocker: %v", err)
 	}
-	if err := <-archiveDone; err != nil {
-		t.Fatalf("archive integration target agent: %v", err)
+	select {
+	case err := <-archiveDone:
+		if err != nil {
+			t.Fatalf("archive integration target agent: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for agent archival")
 	}
-	if err := <-targetDone; !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("target after agent archive error = %v, want state transition conflict", err)
+	select {
+	case err := <-targetDone:
+		if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+			t.Fatalf("target after agent archive error = %v, want state transition conflict", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for integration target creation")
 	}
 	var targetCount int
 	if err := pool.QueryRow(
@@ -649,7 +673,7 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 			}
 			startDelete := func() {
 				go func() {
-					deleteDone <- store.Integrations().DeleteIntegrationInstall(
+					deleteDone <- store.Integrations().DeleteIntegrationInstallOnceForIntegration(
 						context.Background(),
 						testProjectID,
 						install.ID,
@@ -669,9 +693,19 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 			if err := blockingTx.Commit(ctx); err != nil {
 				t.Fatalf("release integration install blocker: %v", err)
 			}
-			targetOutcome := <-targetDone
-			if err := <-deleteDone; err != nil {
-				t.Fatalf("delete integration install: %v", err)
+			var targetOutcome targetResult
+			select {
+			case targetOutcome = <-targetDone:
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for integration target creation")
+			}
+			select {
+			case err := <-deleteDone:
+				if err != nil {
+					t.Fatalf("delete integration install: %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for integration install deletion")
 			}
 			if targetWins {
 				if targetOutcome.err != nil || !targetOutcome.record.Created {
@@ -832,7 +866,7 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 
 			installDeleteDone := make(chan error, 1)
 			go func() {
-				installDeleteDone <- store.Integrations().DeleteIntegrationInstall(
+				installDeleteDone <- store.Integrations().DeleteIntegrationInstallOnceForIntegration(
 					context.Background(),
 					testProjectID,
 					install.ID,

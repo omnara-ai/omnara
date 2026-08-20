@@ -880,6 +880,128 @@ func TestOAuthRefreshLeaseExpiryIsCheckedAfterRowLockWait(t *testing.T) {
 	}
 }
 
+func TestSecretGrantRevocationWaitsForInFlightOAuthRotation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	admin := createSecretTestUser(t, ctx, store, "OAuth Grant Revocation Admin", "admin")
+	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     testOrgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "oauth-grant-revocation",
+		Material: oauthSecretMaterialForTest(
+			"access-old",
+			"refresh-old",
+			secrets.FixedOAuthAccessTokenLifetime(time.Hour),
+		),
+		Actor: userPrincipal(admin.ID),
+	})
+	if err != nil {
+		t.Fatalf("create OAuth secret: %v", err)
+	}
+	grant, err := store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{
+		OrgID:           testOrgID,
+		SecretID:        secret.ID,
+		TargetProjectID: testProjectID,
+		Actor:           userPrincipal(admin.ID),
+	})
+	if err != nil {
+		t.Fatalf("create secret grant: %v", err)
+	}
+	lease, acquired, err := store.Secrets().AcquireProjectOAuthRefreshLease(
+		ctx,
+		secretstore.AcquireProjectOAuthRefreshLeaseInput{
+			OrgID: testOrgID, ProjectID: testProjectID, SecretID: secret.ID, TTL: time.Minute,
+		},
+	)
+	if err != nil || !acquired {
+		t.Fatalf("acquire OAuth refresh lease acquired=%v err=%v", acquired, err)
+	}
+
+	controlTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin OAuth lease control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	if err := controlTx.QueryRow(ctx, `
+		SELECT owner_token
+		FROM secret_oauth_refresh_leases
+		WHERE org_id = $1 AND secret_id = $2 AND owner_token = $3
+		FOR UPDATE
+	`, lease.OrgID, lease.SecretID, lease.OwnerToken).Scan(new(ID)); err != nil {
+		t.Fatalf("lock OAuth refresh lease: %v", err)
+	}
+
+	rotationDone := make(chan error, 1)
+	go func() {
+		_, rotateErr := store.Secrets().RotateProjectAvailableOAuthSecret(
+			context.Background(),
+			secretstore.RotateProjectAvailableOAuthSecretInput{
+				ProjectID: testProjectID,
+				Lease:     lease,
+				Material: oauthSecretMaterialForTest(
+					"access-new",
+					"refresh-new",
+					secrets.FixedOAuthAccessTokenLifetime(time.Hour),
+				),
+			},
+		)
+		rotationDone <- rotateErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecretOAuthRefreshLease", 1)
+
+	revocationDone := make(chan error, 1)
+	go func() {
+		_, revokeErr := store.Secrets().DeleteSecretGrant(
+			context.Background(),
+			secretstore.DeleteSecretGrantInput{
+				OrgID: testOrgID, SecretID: secret.ID, GrantID: grant.ID,
+				Actor: userPrincipal(admin.ID),
+			},
+		)
+		revocationDone <- revokeErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecret", 1)
+	select {
+	case err := <-revocationDone:
+		t.Fatalf("secret grant revocation completed before OAuth rotation: %v", err)
+	default:
+	}
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release OAuth lease control transaction: %v", err)
+	}
+	for operation, done := range map[string]<-chan error{
+		"rotate OAuth secret": rotationDone,
+		"revoke secret grant": revocationDone,
+	} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("%s: %v", operation, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting to %s", operation)
+		}
+	}
+	if _, err := store.Secrets().GetSecretGrant(
+		ctx,
+		testOrgID,
+		grant.ID,
+	); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("secret grant after revocation error = %v, want not found", err)
+	}
+	rotated, err := store.Secrets().GetSecret(ctx, testOrgID, secret.ID)
+	if err != nil {
+		t.Fatalf("load rotated OAuth secret: %v", err)
+	}
+	if rotated.CurrentVersionID == secret.CurrentVersionID {
+		t.Fatal("OAuth rotation did not persist before grant revocation")
+	}
+}
+
 func TestResolveMachineProviderAuthTokenReportsMissingSecret(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1030,7 +1152,7 @@ func TestSecretReferenceAdmissionSerializesWithDeletion(t *testing.T) {
 
 		deleteDone := make(chan error, 1)
 		go func() {
-			_, deleteErr := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+			_, deleteErr := store.Secrets().DeleteSecretOnceForIntegration(ctx, secretstore.DeleteSecretInput{
 				OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(admin.ID),
 			})
 			deleteDone <- deleteErr
@@ -1095,7 +1217,7 @@ func TestSecretReferenceAdmissionSerializesWithDeletion(t *testing.T) {
 
 		deleteDone := make(chan error, 1)
 		go func() {
-			_, deleteErr := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+			_, deleteErr := store.Secrets().DeleteSecretOnceForIntegration(ctx, secretstore.DeleteSecretInput{
 				OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(admin.ID),
 			})
 			deleteDone <- deleteErr

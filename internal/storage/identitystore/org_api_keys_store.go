@@ -269,6 +269,9 @@ func (s *Store) UpdateOrgAPIKey(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return OrgAPIKeyRecord{}, err
+	}
 	current, err := lockActiveOrgAPIKeyTx(ctx, qtx, input.OrgID, input.KeyID, input.ActorPrincipal)
 	if err != nil {
 		return OrgAPIKeyRecord{}, err
@@ -336,6 +339,9 @@ func (s *Store) RevokeOrgAPIKey(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, orgID); err != nil {
+		return OrgAPIKeyRecord{}, err
+	}
 	if _, err := qtx.LockOrgAPIKeyForUpdate(
 		ctx,
 		dbsqlc.LockOrgAPIKeyForUpdateParams{OrgID: orgID, ID: keyID},
@@ -471,6 +477,9 @@ func (s *Store) RemoveOrgAPIKeyProjectRole(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return err
+	}
 	if _, err := lockActiveOrgAPIKeyTx(ctx, qtx, input.OrgID, input.KeyID, input.ActorPrincipal); err != nil {
 		return err
 	}

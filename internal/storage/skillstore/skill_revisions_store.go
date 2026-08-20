@@ -109,6 +109,11 @@ func (s *Store) insertSkillRevision(
 	); err != nil {
 		return skillRevisionInsertResult{}, err
 	}
+	if input.OwnerKind == SkillOwnerUser {
+		if err := lockActiveUserSkillOwnerTx(ctx, qtx, input.OrgID, input.OwnerUserID); err != nil {
+			return skillRevisionInsertResult{}, err
+		}
+	}
 	if createIdentity {
 		if err := resourceguard.Lock(
 			ctx,

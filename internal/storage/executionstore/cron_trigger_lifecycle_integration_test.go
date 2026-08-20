@@ -124,11 +124,11 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 				t.Fatalf("begin project deletion control transaction: %v", err)
 			}
 			defer func() { _ = controlTx.Rollback(ctx) }()
-			if err := dbsqlc.New(controlTx).LockAgentMachineSources(
+			if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 				ctx,
-				dbsqlc.LockAgentMachineSourcesParams{AgentID: fixture.agent.ID},
+				dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
 			); err != nil {
-				t.Fatalf("lock project agent machine sources: %v", err)
+				t.Fatalf("lock project agent: %v", err)
 			}
 
 			deleteDone := make(chan error, 1)
@@ -141,7 +141,7 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 				)
 				deleteDone <- deleteErr
 			}()
-			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
 			admissionDone := make(chan error, 1)
 			go func() {

@@ -115,7 +115,7 @@ func (s *Store) createSecretTx(
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
 	}
-	if err := validateSecretOwnerMembershipTx(
+	if err := lockActiveSecretOwnerMembershipTx(
 		ctx,
 		qtx,
 		input.OrgID,

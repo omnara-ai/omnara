@@ -384,11 +384,12 @@ func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *test
 	}
 
 	deleteDone := make(chan error, 1)
+	actor := mustOmnaraActorParams(t, fixture.adminID)
 	go func() {
-		_, deleteErr := fixture.store.Organizations().DeleteOrganization(
+		_, deleteErr := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
 			ctx,
 			testOrgID,
-			userPrincipal(fixture.adminID),
+			actor,
 		)
 		deleteDone <- deleteErr
 	}()
@@ -873,7 +874,7 @@ func TestRuntimeProtectionUpdateAndPoolDeletionSerializePoolBeforeMachine(t *tes
 
 	deleteDone := make(chan error, 1)
 	go func() {
-		_, deleteErr := fixture.store.Execution().DeleteMachinePool(
+		_, deleteErr := fixture.store.Execution().IntegrationDeleteMachinePoolOnce(
 			ctx,
 			testOrgID,
 			fixture.machinePool.ID,
@@ -1092,7 +1093,7 @@ func TestProviderRuntimeClaimAndPoolDeletionSerializePoolBeforeMachine(t *testin
 
 	deleteDone := make(chan error, 1)
 	go func() {
-		_, deleteErr := fixture.store.Execution().DeleteMachinePool(
+		_, deleteErr := fixture.store.Execution().IntegrationDeleteMachinePoolOnce(
 			ctx,
 			testOrgID,
 			fixture.machinePool.ID,

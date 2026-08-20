@@ -516,6 +516,9 @@ func (s *Store) UpdateOrgMemberRole(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return OrgMembershipRecord{}, err
+	}
 	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return OrgMembershipRecord{}, storeerr.ErrNotFound
@@ -565,6 +568,15 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return err
+	}
+	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("lock organization member: %w", err)
+	}
 	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storeerr.ErrNotFound
@@ -583,6 +595,27 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	}
 	if err := guardLastOwnerChange(ctx, qtx, input.OrgID, existing.Role, ""); err != nil {
 		return err
+	}
+	if _, err := qtx.RemoveUserOrgMembership(
+		ctx,
+		dbsqlc.RemoveUserOrgMembershipParams{OrgID: input.OrgID, UserID: input.UserID},
+	); err != nil {
+		return fmt.Errorf("remove org membership: %w", err)
+	}
+	skillIDs, err := qtx.ListUserOwnedSkillIDsForOrg(
+		ctx,
+		dbsqlc.ListUserOwnedSkillIDsForOrgParams{OrgID: input.OrgID, UserID: input.UserID},
+	)
+	if err != nil {
+		return fmt.Errorf("list user-owned skills for member: %w", err)
+	}
+	skillArchives := make([]skillops.ArchiveRef, 0)
+	for _, skillID := range skillIDs {
+		archives, err := skillops.Delete(ctx, qtx, input.OrgID, skillID)
+		if err != nil {
+			return fmt.Errorf("delete user-owned skill for member: %w", mapSkillOpsError(err))
+		}
+		skillArchives = append(skillArchives, archives...)
 	}
 	secretsReferenced, err := qtx.OrgMemberOwnedSecretsReferenced(
 		ctx,
@@ -611,27 +644,6 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 		dbsqlc.DeleteUserOwnedSecretVersionsForOrgMemberParams{OrgID: input.OrgID, UserID: input.UserID},
 	); err != nil {
 		return fmt.Errorf("destroy member-owned secret versions: %w", err)
-	}
-	skillIDs, err := qtx.ListUserOwnedSkillIDsForOrg(
-		ctx,
-		dbsqlc.ListUserOwnedSkillIDsForOrgParams{OrgID: input.OrgID, UserID: input.UserID},
-	)
-	if err != nil {
-		return fmt.Errorf("list user-owned skills for member: %w", err)
-	}
-	skillArchives := make([]skillops.ArchiveRef, 0)
-	for _, skillID := range skillIDs {
-		archives, err := skillops.Delete(ctx, qtx, input.OrgID, skillID)
-		if err != nil {
-			return fmt.Errorf("delete user-owned skill for member: %w", mapSkillOpsError(err))
-		}
-		skillArchives = append(skillArchives, archives...)
-	}
-	if _, err := qtx.RemoveUserOrgMembership(
-		ctx,
-		dbsqlc.RemoveUserOrgMembershipParams{OrgID: input.OrgID, UserID: input.UserID},
-	); err != nil {
-		return fmt.Errorf("remove org membership: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit remove org member: %w", err)
@@ -845,12 +857,21 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID ID) error {
 		}
 		return fmt.Errorf("lock user for account deletion: %w", err)
 	}
+	if _, err := q.LockActiveOwnedOrganizationsForUser(
+		ctx,
+		dbsqlc.LockActiveOwnedOrganizationsForUserParams{UserID: userID},
+	); err != nil {
+		return fmt.Errorf("lock user-owned organizations: %w", err)
+	}
 	isLastOwner, err := q.UserIsLastOwnerOfAnyOrg(ctx, dbsqlc.UserIsLastOwnerOfAnyOrgParams{UserID: userID})
 	if err != nil {
 		return fmt.Errorf("check user ownership: %w", err)
 	}
 	if isLastOwner {
 		return fmt.Errorf("account is the last owner of an organization: %w", storeerr.ErrConflict)
+	}
+	if err := q.DeleteUserOrgMemberships(ctx, dbsqlc.DeleteUserOrgMembershipsParams{UserID: userID}); err != nil {
+		return fmt.Errorf("delete user memberships: %w", err)
 	}
 	skillArchives, err := deleteUserOwnedSkillsTx(ctx, q, userID)
 	if err != nil {
@@ -889,9 +910,6 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID ID) error {
 	}
 	if err := q.DeleteUserOwnedSecretVersionsForUser(ctx, dbsqlc.DeleteUserOwnedSecretVersionsForUserParams{UserID: userID}); err != nil {
 		return fmt.Errorf("destroy user-owned secret versions: %w", err)
-	}
-	if err := q.DeleteUserOrgMemberships(ctx, dbsqlc.DeleteUserOrgMembershipsParams{UserID: userID}); err != nil {
-		return fmt.Errorf("delete user memberships: %w", err)
 	}
 	rows, err := q.DeleteUser(ctx, dbsqlc.DeleteUserParams{ID: userID})
 	if err != nil {

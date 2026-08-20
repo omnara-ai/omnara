@@ -1194,6 +1194,7 @@ type LockSecretForReferenceParams struct {
 }
 
 // @sqlc-vet-disable secrets-deleted-at
+// Tombstoned rows remain lockable so admission waits before fresh revalidation.
 func (q *Queries) LockSecretForReference(ctx context.Context, arg LockSecretForReferenceParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lockSecretForReference, arg.OrgID, arg.ID)
 	var id uuid.UUID

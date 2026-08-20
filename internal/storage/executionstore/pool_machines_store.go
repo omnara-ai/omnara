@@ -105,6 +105,13 @@ func (t *toolCallTransaction) createPoolMachine(
 		}
 		return CreatePoolMachineResult{Machine: replay, Created: false}, nil
 	}
+	project, err := loadProjectTx(ctx, t.q, projectID)
+	if err != nil {
+		return CreatePoolMachineResult{}, err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, t.tx, project.OrgID, projectID); err != nil {
+		return CreatePoolMachineResult{}, err
+	}
 	if err := lifecyclelock.AgentSources(
 		ctx,
 		t.tx,
@@ -292,6 +299,14 @@ func (t *toolCallTransaction) deletePoolMachine(
 			return PoolMachineRecord{}, err
 		}
 		return record, nil
+	}
+	if err := lifecyclelock.EnterActiveProject(
+		ctx,
+		t.tx,
+		record.Machine.OrgID,
+		projectID,
+	); err != nil {
+		return PoolMachineRecord{}, err
 	}
 	if err := lifecyclelock.AgentSources(
 		ctx,

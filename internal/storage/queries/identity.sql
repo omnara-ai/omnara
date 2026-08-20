@@ -408,6 +408,16 @@ SELECT EXISTS (
     )
 ) AS is_last_owner;
 
+-- name: LockActiveOwnedOrganizationsForUser :many
+SELECT org.id
+FROM org_memberships membership
+JOIN orgs org ON org.id = membership.org_id
+WHERE membership.user_id = sqlc.arg(user_id)::uuid
+  AND membership.role = 'owner'
+  AND org.deleted_at IS NULL
+ORDER BY org.id
+FOR UPDATE OF org;
+
 -- name: LockUserForUpdate :one
 SELECT id
 FROM users

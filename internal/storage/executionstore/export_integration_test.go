@@ -485,6 +485,13 @@ func IntegrationActivateAgentConfigTx(
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) (AgentConfigChangeRecord, error) {
+	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, input.AgentConfigID)
+	if err != nil {
+		return AgentConfigChangeRecord{}, err
+	}
+	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+		return AgentConfigChangeRecord{}, err
+	}
 	if err := lockAgentForConfigActivationTx(ctx, qtx, input); err != nil {
 		return AgentConfigChangeRecord{}, err
 	}
@@ -574,44 +581,4 @@ func IntegrationAppendToolResultEventTx(
 	record ToolCallRecord,
 ) (events.Event, error) {
 	return appendToolResultEventTx(ctx, txNotifications, tx, record)
-}
-
-func (s *Store) IntegrationExecuteToolCallOnce(
-	ctx context.Context,
-	input ExecuteToolCallInput,
-	command ToolCallCommand,
-) (ExecuteToolCallResult, error) {
-	return s.executeToolCallOnce(
-		ctx,
-		input,
-		func(*ToolCallReader) (ToolCallCommand, error) { return command, nil },
-	)
-}
-
-func (s *Store) IntegrationLaunchAgentOnce(
-	ctx context.Context,
-	input LaunchAgentInput,
-) (LaunchAgentResult, error) {
-	return s.launchAgentOnce(ctx, input)
-}
-
-func (s *Store) IntegrationChangeAgentConfigOnce(
-	ctx context.Context,
-	input ChangeAgentConfigInput,
-) (ChangeAgentConfigResult, error) {
-	return s.changeAgentConfigOnce(ctx, input)
-}
-
-func (s *Store) IntegrationDeleteMachineOnce(
-	ctx context.Context,
-	input DeleteMachineInput,
-) (MachineRecord, error) {
-	return s.deleteMachineOnce(ctx, input)
-}
-
-func (s *Store) IntegrationDeleteProjectMachineGrantOnce(
-	ctx context.Context,
-	orgID, projectID, grantID ID,
-) (ProjectMachineGrantRecord, error) {
-	return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, grantID)
 }

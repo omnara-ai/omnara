@@ -123,11 +123,11 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("begin project deletion control transaction: %v", err)
 		}
 		defer func() { _ = controlTx.Rollback(ctx) }()
-		if err := dbsqlc.New(controlTx).LockAgentMachineSources(
+		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 			ctx,
-			dbsqlc.LockAgentMachineSourcesParams{AgentID: fixture.agent.ID},
+			dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
 		); err != nil {
-			t.Fatalf("lock project agent machine sources: %v", err)
+			t.Fatalf("lock project agent: %v", err)
 		}
 
 		deleteDone := make(chan error, 1)
@@ -140,7 +140,7 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			deleteDone <- deleteErr
 		}()
-		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
 		profileDone := make(chan error, 1)
 		go func() {
@@ -244,11 +244,11 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 				); err != nil {
 					t.Fatalf("lock configured model for grant update contention: %v", err)
 				}
-			} else if err := controlQ.LockAgentMachineSources(
+			} else if _, err := controlQ.LockAgentInProject(
 				ctx,
-				dbsqlc.LockAgentMachineSourcesParams{AgentID: fixture.agent.ID},
+				dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
 			); err != nil {
-				t.Fatalf("lock agent sources for project deletion contention: %v", err)
+				t.Fatalf("lock agent for project deletion contention: %v", err)
 			}
 
 			poolUpdateDone := make(chan error, 1)
@@ -306,7 +306,7 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
 			} else {
 				startDelete()
-				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 				startUpdates()
 				integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
 			}
@@ -384,7 +384,7 @@ func TestProjectSecretDeletionSerializesWithProjectDeletion(t *testing.T) {
 
 	secretDone := make(chan error, 1)
 	go func() {
-		_, deleteErr := fixture.store.Secrets().DeleteSecret(
+		_, deleteErr := fixture.store.Secrets().DeleteSecretOnceForIntegration(
 			context.Background(),
 			secretstore.DeleteSecretInput{
 				OrgID:    testOrgID,
@@ -469,11 +469,11 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 		t.Fatalf("begin actor lifecycle control transaction: %v", err)
 	}
 	defer func() { _ = controlTx.Rollback(ctx) }()
-	if err := dbsqlc.New(controlTx).LockAgentMachineSources(
+	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 		ctx,
-		dbsqlc.LockAgentMachineSourcesParams{AgentID: fixture.agent.ID},
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
 	); err != nil {
-		t.Fatalf("lock project agent machine sources: %v", err)
+		t.Fatalf("lock project agent: %v", err)
 	}
 	deleteDone := make(chan error, 1)
 	go func() {
@@ -485,7 +485,7 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 		)
 		deleteDone <- deleteErr
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 	putDone := make(chan error, 1)
 	go func() {
 		displayName := "Created too late"
@@ -517,14 +517,29 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release actor lifecycle control transaction: %v", err)
 	}
-	if err := <-deleteDone; err != nil {
-		t.Fatalf("delete project before actor writes: %v", err)
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatalf("delete project before actor writes: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for project deletion")
 	}
-	if err := <-putDone; !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("put actor after project deletion error = %v, want not found", err)
+	select {
+	case err := <-putDone:
+		if !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("put actor after project deletion error = %v, want not found", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for actor creation")
 	}
-	if err := <-updateDone; !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("update actor after project deletion error = %v, want not found", err)
+	select {
+	case err := <-updateDone:
+		if !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("update actor after project deletion error = %v, want not found", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for actor update")
 	}
 	var existingName string
 	if err := fixture.pool.QueryRow(
@@ -645,11 +660,11 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("begin organization deletion control transaction: %v", err)
 		}
 		defer func() { _ = controlTx.Rollback(ctx) }()
-		if err := dbsqlc.New(controlTx).LockAgentMachineSources(
+		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 			ctx,
-			dbsqlc.LockAgentMachineSourcesParams{AgentID: fixture.agent.ID},
+			dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
 		); err != nil {
-			t.Fatalf("lock organization agent machine sources: %v", err)
+			t.Fatalf("lock organization agent: %v", err)
 		}
 
 		deleteDone := make(chan error, 1)
@@ -661,7 +676,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			)
 			deleteDone <- deleteErr
 		}()
-		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
 		invitationDone := make(chan error, 1)
 		go func() {
@@ -761,24 +776,25 @@ func TestProjectMembershipAdmissionWaitingBehindDeletionRejectsInactiveProject(t
 	}
 	defer func() { _ = controlTx.Rollback(ctx) }()
 	controlQ := dbsqlc.New(controlTx)
-	if err := controlQ.LockAgentMachineSources(
+	if _, err := controlQ.LockAgentInProject(
 		ctx,
-		dbsqlc.LockAgentMachineSourcesParams{AgentID: fixture.agent.ID},
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
 	); err != nil {
-		t.Fatalf("lock agent machine sources: %v", err)
+		t.Fatalf("lock agent for project deletion: %v", err)
 	}
 
 	deleteDone := make(chan error, 1)
+	actor := scopeDeletionActor(t, fixture)
 	go func() {
-		_, deleteErr := fixture.store.Organizations().DeleteProject(
+		_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 			ctx,
 			testOrgID,
 			testProjectID,
-			identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
+			actor,
 		)
 		deleteDone <- deleteErr
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
 	userRoleDone := make(chan error, 1)
 	go func() {
