@@ -14,6 +14,37 @@ A machine starts as a record in the control plane — the daemon attaches to it 
 <Tab title="Console">
   Open **Machines** in the sidebar and click **Connect machine**. In the **Connect a machine** dialog, set the machine name — this is what agent configs reference as `machine_name`, so pick something stable — and optionally attach **Project grants**. Click **Connect machine**; the next screen is the daemon install step below.
 </Tab>
+<Tab title="CLI">
+  ```bash
+  omnara machines create \
+    --display-name build-server-1 \
+    --description "Bare-metal builder in the office rack" \
+    --cwd /srv/repo \
+    --env '{"CI": "true"}' \
+    --secret-env '{"GITHUB_TOKEN": "sec_7jehcyd5n6a2bfgik7mv4qtrwz"}' \
+    --json
+  ```
+
+  ```json
+  {
+    "id": "mch_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "org_id": "org_k7mv4qtrwz3jehcyd5n6a2bfgi",
+    "source_kind": "byo",
+    "machine_pool_id": null,
+    "display_name": "build-server-1",
+    "description": "Bare-metal builder in the office rack",
+    "provider": "byo",
+    "lifecycle_state": "active",
+    "connection_state": "offline",
+    "cwd": "/srv/repo",
+    "env": { "CI": "true" },
+    "secret_env": { "GITHUB_TOKEN": "sec_7jehcyd5n6a2bfgik7mv4qtrwz" },
+    "...": "..."
+  }
+  ```
+
+  `display_name` is what agent configs reference as `machine_name`, so pick something stable. `cwd`, `env`, and `secret_env` are execution defaults for every process on this machine; `secret_env` injects [secret](/organization/secrets) values by `sec_…` reference at process launch, so credentials never sit in the machine record.
+</Tab>
 <Tab title="API">
   ```bash
   curl "$OMNARA_API/orgs/$ORG/machines" \
@@ -60,7 +91,7 @@ the complete value and treat it as opaque.
   The **Connect a machine** flow creates a token and shows it alongside the install command.
 </Tab>
 <Tab title="API">
-  Create a token for the machine:
+  Daemon tokens are API-only for now. Create a token for the machine:
 
   ```bash
   curl -X POST "$OMNARA_API/orgs/$ORG/machines/mch_5n6a2bfgik7mv4qtrwz3jehcyd/daemon-tokens" \
@@ -90,6 +121,24 @@ Machines are org-level; a project's agents can only target machines granted to t
   If you didn't grant the machine while connecting it, find its row under **Machines**, click **Grant to project**, and select the project.
 
   From a project, open **Grants**, select the **Machines** tab, and click **Grant machines**. This tab also lists existing grants; click **Delete grant** to revoke one.
+</Tab>
+<Tab title="CLI">
+  ```bash
+  omnara grant machines add --machine-id mch_5n6a2bfgik7mv4qtrwz3jehcyd --json
+  ```
+
+  ```json
+  {
+    "id": "pmg_6a2bfgik7mv4qtrwz3jehcyd5n",
+    "machine_id": "mch_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "source_kind": "explicit",
+    "...": "..."
+  }
+  ```
+
+  `omnara grant machines list` shows the project's explicit machine grants, and `omnara grant machines delete <grant-id>` revokes one.
+
+  Revoking the grant stops that project's work on the machine but leaves the machine itself untouched. Grants created through a [pool grant](/machines/pools) are managed through the pool and cannot be revoked individually.
 </Tab>
 <Tab title="API">
   ```bash
@@ -125,13 +174,13 @@ machine_sources:
 
 ## Manage a machine
 
-The console's **Machines** page shows every machine you can access. The org API provides the same view and explains whether access comes from your org role, having created the machine, or a project grant. The project API lists only machines that project's agents can use.
+The console's **Machines** page shows every machine you can access. `omnara machines list` and the org API provide the same view and explain whether access comes from your org role, having created the machine, or a project grant. The project API lists only machines that project's agents can use.
 
-You can update `cwd`, `env`, and `secret_env` through the API; machine names cannot be changed.
+You can update `cwd`, `env`, and `secret_env` with `omnara machines update <machine-id>` or through the API; machine names cannot be changed.
 
 Machine tokens can be created, listed, and revoked through the API.
 
-Deleting a BYO machine disconnects its daemon, revokes its tokens, removes its grants, and releases its agent bindings. In the console, open the machine's row menu and click **Delete**.
+Deleting a BYO machine disconnects its daemon, revokes its tokens, removes its grants, and releases its agent bindings. In the console, open the machine's row menu and click **Delete**; in the CLI, run `omnara machines delete <machine-id>`.
 
 <Info>
 Full schema and playground: [Create machine](/api-reference/endpoints/machines/create-machine) · [List visible machines](/api-reference/endpoints/machines/list-visible-machines) · [Daemon tokens](/api-reference/endpoints/machines/list-byo-machine-daemon-tokens) · [Machine grants](/api-reference/endpoints/machines/create-project-machine-grant).

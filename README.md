@@ -20,6 +20,36 @@ interact with each agent.
 - **Teams.** Interact with agents directly through Omnara's dashboard or
   first-party Slack connector.
 
+## Getting Started
+
+1. Create your agent
+```yaml agent.yaml
+instruction: |
+  You are a coding agent running gpt-5.6-sol. Use the tools
+  you have available to solve coding problems for the user.
+model:
+  provider_config: omnara-openrouter
+  name: openai/gpt-5.6-sol
+# ...
+# add more tools, sandboxes, mcps
+```
+
+2. Upload your agent profile
+```bash
+$ pnpx omnara login
+$ pnpx omnara profiles create --name agent --file agent.yaml
+id                  aprf_aej3...
+name                agent
+[...]
+```
+
+3. Launch the agent from the profile and chat with it
+
+```bash
+$ pnpm omnara agents launch $AGENT_PROFILE_ID
+$ open https://app.omnara.com/projects/[$PROJECT_ID]/agents/[$AGENT_ID]
+```
+
 ## Features
 
 - <ins><strong>Durable agents</strong></ins>. Agent state is committed
@@ -43,6 +73,7 @@ interact with each agent.
   - <ins><strong>Queryable state</strong></ins>. Self-hosted deployments can
     query agent history directly in Postgres for analytics, evals, prompt
     analysis, and training datasets.
+- <ins><string>CLI and SDK</strong></ins>. Use Omnara programmatically via the CLI, Typescript CLI, or REST API.
 
 ## Get started
 
