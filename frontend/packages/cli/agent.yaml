@@ -1,0 +1,6 @@
+instruction: |
+  You are a coding agent running gpt-5.6-sol. Use the tools
+  you have available to solve coding problems for the user.
+model:
+  provider_config: omnara-openrouter
+  name: openai/gpt-5.6-sol
