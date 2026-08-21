@@ -119,8 +119,10 @@ export const recordMachineFailure = <ThrowOnError extends boolean = true>(option
  * Creates the organization and its local default resources atomically.
  * When supplied, the idempotency key determines the proposed organization
  * ID. Reusing it after a completed request returns the existing
- * organization without another hosted call. A failed retry uses the same
- * proposed ID. Without a key, each request is a fresh attempt.
+ * organization. Without a key, each request is a fresh attempt. When an
+ * operator-provisioned default model provider is configured, its credential
+ * and model resources are created asynchronously after this request commits;
+ * temporary credential-service failures do not fail organization creation.
  *
  */
 export const createOrganization = <ThrowOnError extends boolean = true>(options: Options<CreateOrganizationData, ThrowOnError>): RequestResult<CreateOrganizationResponses, CreateOrganizationErrors, ThrowOnError> => (options.client ?? client).post<CreateOrganizationResponses, CreateOrganizationErrors, ThrowOnError>({

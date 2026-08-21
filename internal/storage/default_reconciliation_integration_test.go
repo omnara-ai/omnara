@@ -80,17 +80,18 @@ func TestReconcileDefaults(t *testing.T) {
 		},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:              user.ID,
-		Name:                "Defaults Org",
-		IdempotencyKey:      "defaults-org",
-		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{initialPool},
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template: initialProvider, CredentialValue: "provider-token",
-		},
+		UserID:               user.ID,
+		Name:                 "Defaults Org",
+		IdempotencyKey:       "defaults-org",
+		DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{initialPool},
+		DefaultModelProvider: &initialProvider,
 	})
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t, ctx, store, created.Org.ID, initialProvider, "provider-token",
+	)
 	providerInvalidPool := initialPool
 	providerInvalidPool.MaxTotalCPU = intPtrForMachinePoolTest(99)
 	if _, err := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
@@ -592,17 +593,18 @@ func TestReconcileDefaultsLocksModelsBeforeMachinePools(t *testing.T) {
 		}},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:              user.ID,
-		Name:                "Reconcile Lock Org",
-		IdempotencyKey:      "reconcile-lock-org",
-		DefaultMachinePools: initialPools,
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template: initialProvider, CredentialValue: "provider-token",
-		},
+		UserID:               user.ID,
+		Name:                 "Reconcile Lock Org",
+		IdempotencyKey:       "reconcile-lock-org",
+		DefaultMachinePools:  initialPools,
+		DefaultModelProvider: &initialProvider,
 	})
 	if err != nil {
 		t.Fatalf("create lock-order org: %v", err)
 	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t, ctx, store, created.Org.ID, initialProvider, "provider-token",
+	)
 	provider, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, initialProvider.Name)
 	if err != nil {
 		t.Fatalf("get lock-order provider: %v", err)

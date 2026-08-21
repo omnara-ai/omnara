@@ -146,6 +146,34 @@ Provider notes:
 - Daytona snapshots are allowed by name, must be active in the selected target, must allow sandboxes to reach `OMNARA_PUBLIC_URL`, and their API-resolved CPU and memory count against the pool caps.
 - For Unikraft and Blaxel, `sleep_after_ms` enables scale-to-zero after that many milliseconds of daemon inactivity; omit or `0` disables it, and enabled values must be at least `30000`.
 
+### Operator-provisioned default model provider
+
+An installation can give each new organization a model provider without storing
+the upstream credential in configuration. This is optional; most self-hosted
+installations can leave all three variables unset and let organization owners
+configure providers normally.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API. See `default-model-provider-example.yaml`. | — | No |
+| `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used only by maintenance. | — | With a default provider template |
+| `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used only by maintenance. | — | With a default provider template |
+
+The API commits the organization and its provider template in a durable
+provisioning job. Maintenance then sends `POST /model-provider-credentials` to
+the configured base URL with the organization ID, creator user ID, and stored
+template. The credential service returns `201` with
+`{"credential_value":"..."}`, `202` while an earlier issuance is still pending,
+`409` for a durable identity conflict, or `5xx` for a retryable failure. Omnara
+encrypts a successful credential and creates the provider, configured models,
+and default-project grants in one transaction.
+
+Organization creation does not depend on that network call. If the credential
+service is unavailable, the organization remains usable and maintenance retries
+with backoff. Run migrations before deploying the API and maintenance binaries;
+maintenance also needs the normal secret-encryption key ring so it can store the
+credential.
+
 ### Host daemon configuration
 
 | Variable | Purpose | Default |

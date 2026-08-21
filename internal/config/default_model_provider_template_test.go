@@ -83,7 +83,7 @@ func TestLoadDefaultModelProviderExample(t *testing.T) {
 	}
 }
 
-func TestDefaultModelProviderTemplateProvisionerIsAPIOnly(t *testing.T) {
+func TestDefaultModelProviderTemplateDoesNotRequireCredentialServiceInAPI(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")
 	if err := os.WriteFile(path, []byte(`
@@ -106,6 +106,9 @@ models:
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatalf("ValidateAPI error = %v, want nil", err)
+	}
 	if err := cfg.ValidateMaintenance(); err != nil {
 		t.Fatalf("ValidateMaintenance error = %v, want nil", err)
 	}
@@ -118,10 +121,6 @@ models:
 			"default model output limits = %+v, want 8192/4096",
 			cfg.DefaultModelProvider,
 		)
-	}
-	if err := cfg.ValidateAPI(); err == nil ||
-		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_URL") {
-		t.Fatalf("ValidateAPI error = %v, want missing hosted API URL", err)
 	}
 }
 
@@ -197,7 +196,7 @@ models:
 	}
 }
 
-func TestDefaultModelProviderTemplateAPIRequiresHostedAPIToken(t *testing.T) {
+func TestDefaultModelProviderTemplateMaintenanceRequiresHostedAPIToken(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	path := writeDefaultModelProviderTemplateTestFile(t, `
 provisioner: openrouter
@@ -218,9 +217,12 @@ models:
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if err := cfg.ValidateAPI(); err == nil ||
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatalf("ValidateAPI error = %v, want nil", err)
+	}
+	if err := cfg.ValidateMaintenance(); err == nil ||
 		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_TOKEN") {
-		t.Fatalf("ValidateAPI error = %v, want missing hosted API token", err)
+		t.Fatalf("ValidateMaintenance error = %v, want missing hosted API token", err)
 	}
 }
 

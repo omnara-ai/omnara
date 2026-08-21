@@ -78,17 +78,27 @@ func TestResolverUsesClusterManagedDefaultProvider(t *testing.T) {
 	}
 	orgID := uuid.New()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		OrgID:          orgID,
-		UserID:         user.ID,
-		Name:           "Cluster Resolver Org",
-		IdempotencyKey: "cluster-resolver-org",
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template:        template,
-			CredentialValue: "sk-cluster-resolver",
-		},
+		OrgID:                orgID,
+		UserID:               user.ID,
+		Name:                 "Cluster Resolver Org",
+		IdempotencyKey:       "cluster-resolver-org",
+		DefaultModelProvider: &template,
 	})
 	if err != nil {
-		t.Fatalf("create org with cluster default provider: %v", err)
+		t.Fatalf("create org for cluster default provider: %v", err)
+	}
+	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx)
+	if err != nil || !found {
+		t.Fatalf("claim cluster default provider provisioning: found=%t err=%v", found, err)
+	}
+	if err := store.Organizations().CompleteDefaultModelProviderProvisioning(
+		ctx,
+		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
+			Claim:           claim,
+			CredentialValue: "sk-cluster-resolver",
+		},
+	); err != nil {
+		t.Fatalf("complete cluster default provider provisioning: %v", err)
 	}
 	provider, err := store.Models().GetModelProviderConfigByName(
 		ctx,

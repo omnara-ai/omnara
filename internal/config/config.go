@@ -463,9 +463,6 @@ func (cfg Config) ValidateAPI() error {
 	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
 		return err
 	}
-	if err := cfg.validateHostedAPIConfig(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -699,6 +696,9 @@ func (cfg Config) ValidateMaintenance() error {
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
 	}
+	if err := cfg.validateHostedAPIConfig(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -713,9 +713,8 @@ func (cfg Config) validateDefaultModelProviderTemplateWireSize() error {
 }
 
 func (cfg Config) validateHostedAPIConfig() error {
-	required := cfg.DefaultModelProvider != nil
 	configured := cfg.HostedAPIURL != "" || cfg.HostedAPIToken != ""
-	if !required && !configured {
+	if !configured {
 		return nil
 	}
 	if cfg.HostedAPIURL == "" {

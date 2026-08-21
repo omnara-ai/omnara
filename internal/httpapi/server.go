@@ -56,7 +56,6 @@ type Server struct {
 	allowInsecureLocalHostBypass        bool
 	defaultPools                        []executionstore.DefaultMachinePoolTemplate
 	defaultModelProvider                *modelstore.DefaultModelProviderTemplate
-	hostedCredentialProvisioner         modelprovider.HostedCredentialProvisioner
 	daemonNotifications                 *daemonNotificationConfig
 	replyPublisher                      replyChannelPublisher
 	mcpOAuthHTTPClient                  *http.Client
@@ -185,12 +184,6 @@ func WithDefaultMachinePools(defaultPoolTemplates []executionstore.DefaultMachin
 func WithDefaultModelProvider(defaultProviderTemplate *modelstore.DefaultModelProviderTemplate) Option {
 	return func(s *Server) {
 		s.defaultModelProvider = defaultProviderTemplate
-	}
-}
-
-func WithHostedCredentialProvisioner(provisioner modelprovider.HostedCredentialProvisioner) Option {
-	return func(s *Server) {
-		s.hostedCredentialProvisioner = provisioner
 	}
 }
 
