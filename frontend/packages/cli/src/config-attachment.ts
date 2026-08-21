@@ -6,14 +6,20 @@ import * as z from 'zod'
 
 import { CliInputError } from './output.ts'
 
-export const zConfigAttachment = z.object({
-  config: zAgentConfigId.optional().describe('existing agent config ID'),
+export const zConfigSourceAttachment = z.object({
   file: z
     .string()
     .min(1)
     .optional()
     .describe('path to an agent config file (.yaml, .yml, or .json)'),
   source: z.string().min(1).optional().describe('inline agent config source (YAML or JSON)'),
+})
+
+export type ConfigSourceAttachment = z.output<typeof zConfigSourceAttachment>
+
+export const zConfigAttachment = z.object({
+  config: zAgentConfigId.optional().describe('existing agent config ID'),
+  ...zConfigSourceAttachment.shape,
 })
 
 export type ConfigAttachment = z.output<typeof zConfigAttachment>
@@ -24,17 +30,11 @@ export interface ConfigSource {
 }
 
 const ATTACHMENT_HINT = 'pass exactly one of --config, --file, or --source'
+const SOURCE_HINT = 'pass exactly one of --file or --source'
 
-const zProjectScope = z.object({
-  orgID: z.string().min(1),
-  projectID: z.string().min(1),
-})
-
-function requireExactlyOne(attachment: ConfigAttachment): void {
-  const provided = [attachment.config, attachment.file, attachment.source].filter(
-    (value) => value !== undefined,
-  )
-  if (provided.length !== 1) throw new CliInputError(ATTACHMENT_HINT)
+function requireExactlyOne(values: (string | undefined)[], hint: string): void {
+  const provided = values.filter((value) => value !== undefined)
+  if (provided.length !== 1) throw new CliInputError(hint)
 }
 
 function fileFormat(filePath: string): 'yaml' | 'json' {
@@ -53,7 +53,8 @@ function inlineFormat(source: string): 'yaml' | 'json' {
   }
 }
 
-export function renderConfigAttachment(attachment: ConfigAttachment): ConfigSource {
+export function renderConfigSource(attachment: ConfigSourceAttachment): ConfigSource {
+  requireExactlyOne([attachment.file, attachment.source], SOURCE_HINT)
   if (attachment.file !== undefined) {
     const format = fileFormat(attachment.file)
     let source: string
@@ -67,39 +68,27 @@ export function renderConfigAttachment(attachment: ConfigAttachment): ConfigSour
   if (attachment.source !== undefined) {
     return { source: attachment.source, source_format: inlineFormat(attachment.source) }
   }
-  throw new CliInputError(ATTACHMENT_HINT)
+  throw new CliInputError(SOURCE_HINT)
 }
+
+const zProjectScope = z.object({
+  orgID: z.string().min(1),
+  projectID: z.string().min(1),
+})
 
 export async function resolveConfigId(
   client: OmnaraClient,
   path: Record<string, unknown>,
   attachment: ConfigAttachment,
 ): Promise<string> {
-  requireExactlyOne(attachment)
+  requireExactlyOne([attachment.config, attachment.file, attachment.source], ATTACHMENT_HINT)
   if (attachment.config !== undefined) return attachment.config
   const { data } = await sdk.createAgentConfig({
     client,
     path: zProjectScope.parse(path),
-    body: renderConfigAttachment(attachment),
+    body: renderConfigSource(attachment),
   })
   return data.id
-}
-
-export async function resolveConfigSource(
-  client: OmnaraClient,
-  path: Record<string, unknown>,
-  attachment: ConfigAttachment,
-): Promise<ConfigSource> {
-  requireExactlyOne(attachment)
-  if (attachment.config === undefined) return renderConfigAttachment(attachment)
-  const { data } = await sdk.getAgentConfig({
-    client,
-    path: { ...zProjectScope.parse(path), agentConfigID: attachment.config },
-  })
-  if (data.source === undefined || data.source_format === undefined) {
-    throw new CliInputError(`the source of agent config ${attachment.config} is unavailable`)
-  }
-  return { source: data.source, source_format: data.source_format }
 }
 
 const zProfilePath = zProjectScope.extend({ agentProfileID: z.string().min(1) })

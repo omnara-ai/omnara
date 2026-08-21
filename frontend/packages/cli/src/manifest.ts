@@ -4,9 +4,10 @@ import * as z from 'zod'
 
 import {
   currentProfileConfigId,
+  renderConfigSource,
   resolveConfigId,
-  resolveConfigSource,
   zConfigAttachment,
+  zConfigSourceAttachment,
 } from './config-attachment.ts'
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
@@ -64,13 +65,13 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.updateAgentConfig,
         format: (response) => formatRecord()(response.agent_config),
         path: schemas.zUpdateAgentConfigPath,
-        body: zConfigAttachment.extend({
+        body: zConfigSourceAttachment.extend({
           expected_current_config_id: schemas.zAgentConfigId
             .optional()
             .describe('fail unless the agent still runs this config'),
         }),
-        transformBody: async ({ expected_current_config_id, ...attachment }, { client, path }) => ({
-          ...(await resolveConfigSource(client, path, attachment)),
+        transformBody: ({ expected_current_config_id, ...attachment }) => ({
+          ...renderConfigSource(attachment),
           expected_current_config_id,
         }),
       }),
@@ -644,11 +645,14 @@ export const commandGroups: CommandGroup[] = [
             .optional()
             .describe('fail unless the profile still points at this config'),
         }),
-        transformBody: async ({ expected_current_config_id, ...attachment }, { client, path }) => ({
-          config: await resolveConfigId(client, path, attachment),
-          expected_current_config_id:
-            expected_current_config_id ?? (await currentProfileConfigId(client, path)),
-        }),
+        transformBody: async ({ expected_current_config_id, ...attachment }, { client, path }) => {
+          const expected =
+            expected_current_config_id ?? (await currentProfileConfigId(client, path))
+          return {
+            config: await resolveConfigId(client, path, attachment),
+            expected_current_config_id: expected,
+          }
+        },
       }),
       op({
         verb: 'rename',
