@@ -15,9 +15,14 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { useAgentInputBacklog } from '@omnara/react'
 import type { AgentInput } from '@omnara/sdk'
 import { GripVertical, X } from 'lucide-react'
 import { useState } from 'react'
+
+import { errorMessage } from '@/lib/submit-status'
+
+type AgentInputBacklog = ReturnType<typeof useAgentInputBacklog>
 
 function inputPreview(input: AgentInput) {
   const blocks = input.content_blocks?.filter((block) => block.metadata?.omnara_hidden !== 'true')
@@ -39,27 +44,23 @@ function inputPreview(input: AgentInput) {
 }
 
 export function AgentInputQueue({
-  inputs,
+  scope,
   canOperate,
   canSendNow,
-  actionPending,
-  onSendNow,
-  onRemove,
-  onMove,
 }: {
-  inputs: AgentInput[]
+  scope: { orgID: string; projectID: string; agentID: string }
   canOperate: boolean
   canSendNow: boolean
-  actionPending: boolean
-  onSendNow: (inputID: string) => Promise<unknown>
-  onRemove: (inputID: string) => Promise<unknown>
-  onMove: (inputID: string, anchorInputID: string, position: 'before' | 'after') => Promise<unknown>
 }) {
+  const backlog = useAgentInputBacklog(scope)
   const [orderedInputs, setOrderedInputs] = useState<AgentInput[] | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+  const inputs = backlog.query.data?.data ?? []
+  const actionPending =
+    backlog.cancel.isPending || backlog.promote.isPending || backlog.move.isPending
 
   if (inputs.length === 0) return null
 
@@ -73,13 +74,18 @@ export function AgentInputQueue({
     if (oldIndex === -1 || newIndex === -1) return
 
     setOrderedInputs(arrayMove(visibleInputs, oldIndex, newIndex))
-    await onMove(
-      String(active.id),
-      String(over.id),
-      oldIndex < newIndex ? 'after' : 'before',
-    ).finally(() => {
-      setOrderedInputs(null)
-    })
+    await backlog.move
+      .mutateAsync({
+        inputID: String(active.id),
+        anchorInputID: String(over.id),
+        position: oldIndex < newIndex ? 'after' : 'before',
+      })
+      .catch((err: unknown) => {
+        window.alert(errorMessage(err, 'Could not reorder this message'))
+      })
+      .finally(() => {
+        setOrderedInputs(null)
+      })
   }
 
   return (
@@ -94,7 +100,7 @@ export function AgentInputQueue({
       >
         <section
           aria-label="Queued messages"
-          className="bg-muted/50 divide-border divide-y rounded-t-xl border border-b-0"
+          className="bg-muted/50 divide-border divide-y rounded-t-xl border border-b-0 [&~form]:rounded-t-none"
         >
           {visibleInputs.map((input, index) => (
             <SortableQueueRow
@@ -105,8 +111,8 @@ export function AgentInputQueue({
               canOperate={canOperate}
               canSendNow={canSendNow}
               actionPending={actionPending}
-              onSendNow={onSendNow}
-              onRemove={onRemove}
+              promote={backlog.promote}
+              cancel={backlog.cancel}
             />
           ))}
         </section>
@@ -122,8 +128,8 @@ function SortableQueueRow({
   canOperate,
   canSendNow,
   actionPending,
-  onSendNow,
-  onRemove,
+  promote,
+  cancel,
 }: {
   input: AgentInput
   index: number
@@ -131,8 +137,8 @@ function SortableQueueRow({
   canOperate: boolean
   canSendNow: boolean
   actionPending: boolean
-  onSendNow: (inputID: string) => Promise<unknown>
-  onRemove: (inputID: string) => Promise<unknown>
+  promote: AgentInputBacklog['promote']
+  cancel: AgentInputBacklog['cancel']
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: input.id,
@@ -172,7 +178,11 @@ function SortableQueueRow({
           type="button"
           disabled={actionPending}
           className="text-muted-foreground hover:text-primary shrink-0 rounded px-1.5 py-1 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-50"
-          onClick={() => void onSendNow(input.id)}
+          onClick={() => {
+            void promote.mutateAsync(input.id).catch((err: unknown) => {
+              window.alert(errorMessage(err, 'Could not send this message now'))
+            })
+          }}
         >
           Send now
         </button>
@@ -182,7 +192,11 @@ function SortableQueueRow({
         aria-label="Remove queued message"
         disabled={!canOperate || actionPending}
         className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 rounded p-1 transition-colors disabled:pointer-events-none disabled:opacity-50"
-        onClick={() => void onRemove(input.id)}
+        onClick={() => {
+          void cancel.mutateAsync(input.id).catch((err: unknown) => {
+            window.alert(errorMessage(err, 'Could not remove this message'))
+          })
+        }}
       >
         <X className="size-3.5" />
       </button>

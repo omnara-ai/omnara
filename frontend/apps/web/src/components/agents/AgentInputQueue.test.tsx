@@ -4,9 +4,27 @@ import type { AgentInput } from '@omnara/sdk'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AgentInputQueue } from '@/components/agents/AgentInputQueue'
+
+const backlogMocks = vi.hoisted(() => ({
+  inputs: [] as AgentInput[],
+  cancel: vi.fn(),
+  promote: vi.fn(),
+  move: vi.fn(),
+}))
+
+vi.mock('@omnara/react', () => ({
+  useAgentInputBacklog: () => ({
+    query: { data: { data: backlogMocks.inputs } },
+    cancel: { isPending: false, mutateAsync: backlogMocks.cancel },
+    promote: { isPending: false, mutateAsync: backlogMocks.promote },
+    move: { isPending: false, mutateAsync: backlogMocks.move },
+  }),
+}))
+
+const scope = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 
 function input(id: string, text: string): AgentInput {
   return {
@@ -28,6 +46,12 @@ function input(id: string, text: string): AgentInput {
 }
 
 describe('AgentInputQueue', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    backlogMocks.inputs = []
+    backlogMocks.move.mockResolvedValue(undefined)
+  })
+
   it('renders every queued message with its queue order, preview, and actions', () => {
     const firstInput = input('input-1', 'Raw message')
     firstInput.content_blocks = [
@@ -36,18 +60,9 @@ describe('AgentInputQueue', () => {
     ]
     const secondInput = input('input-2', '')
     secondInput.content_blocks = [{ type: 'media_ref', artifact_id: 'artifact' }]
+    backlogMocks.inputs = [firstInput, secondInput]
 
-    const html = renderToStaticMarkup(
-      <AgentInputQueue
-        inputs={[firstInput, secondInput]}
-        canOperate
-        canSendNow
-        actionPending={false}
-        onSendNow={vi.fn()}
-        onRemove={vi.fn()}
-        onMove={vi.fn()}
-      />,
-    )
+    const html = renderToStaticMarkup(<AgentInputQueue scope={scope} canOperate canSendNow />)
 
     expect(html).toContain('First message')
     expect(html).not.toContain('Raw message')
@@ -61,16 +76,9 @@ describe('AgentInputQueue', () => {
   })
 
   it('hides send-now actions when steering is unavailable', () => {
+    backlogMocks.inputs = [input('input-1', 'Message')]
     const html = renderToStaticMarkup(
-      <AgentInputQueue
-        inputs={[input('input-1', 'Message')]}
-        canOperate
-        canSendNow={false}
-        actionPending={false}
-        onSendNow={vi.fn()}
-        onRemove={vi.fn()}
-        onMove={vi.fn()}
-      />,
+      <AgentInputQueue scope={scope} canOperate canSendNow={false} />,
     )
 
     expect(html).not.toContain('Send now')
@@ -82,7 +90,11 @@ describe('AgentInputQueue', () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
-    const onMove = vi.fn().mockResolvedValue(undefined)
+    backlogMocks.inputs = [
+      input('input-1', 'First message'),
+      input('input-2', 'Second message'),
+      input('input-3', 'Third message'),
+    ]
     const actEnvironment = globalThis as typeof globalThis & {
       IS_REACT_ACT_ENVIRONMENT?: boolean
     }
@@ -91,21 +103,7 @@ describe('AgentInputQueue', () => {
 
     try {
       act(() => {
-        root.render(
-          <AgentInputQueue
-            inputs={[
-              input('input-1', 'First message'),
-              input('input-2', 'Second message'),
-              input('input-3', 'Third message'),
-            ]}
-            canOperate
-            canSendNow
-            actionPending={false}
-            onSendNow={vi.fn()}
-            onRemove={vi.fn()}
-            onMove={onMove}
-          />,
-        )
+        root.render(<AgentInputQueue scope={scope} canOperate canSendNow />)
       })
 
       const handles = Array.from(
@@ -149,7 +147,11 @@ describe('AgentInputQueue', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
 
-      expect(onMove).toHaveBeenCalledWith('input-3', 'input-2', 'before')
+      expect(backlogMocks.move).toHaveBeenCalledWith({
+        inputID: 'input-3',
+        anchorInputID: 'input-2',
+        position: 'before',
+      })
     } finally {
       act(() => {
         root.unmount()

@@ -1,7 +1,6 @@
 import {
   useAgent,
   useAgentChat,
-  useAgentInputBacklog,
   useAgentInteractions,
   useAgentProfileQuery,
   useCancelAgent,
@@ -54,15 +53,10 @@ export function AgentView() {
   const interactions = useAgentInteractions(activeOrg.id, projectId, agentId, chat.isWorking)
   const resolveInteraction = useResolveAgentInteraction(activeOrg.id, projectId, agentId)
   const cancelAgent = useCancelAgent(activeOrg.id, projectId, agentId)
-  const backlogScope = { orgID: activeOrg.id, projectID: projectId, agentID: agentId }
-  const backlog = useAgentInputBacklog(backlogScope)
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
   const [configOpen, setConfigOpen] = useState(false)
   const configDirty = useRef(false)
-  const queuedInputs = backlog.query.data?.data ?? []
-  const queueActionPending =
-    backlog.cancel.isPending || backlog.promote.isPending || backlog.move.isPending
   const canSendNow = canOperate && interactions.data?.data.length === 0
 
   function closeConfig() {
@@ -75,34 +69,6 @@ export function AgentView() {
     body: Parameters<typeof resolveInteraction.mutateAsync>[0]['body'],
   ) {
     return resolveInteraction.mutateAsync({ interactionID, body })
-  }
-
-  async function sendQueuedInputNow(inputID: string) {
-    try {
-      await backlog.promote.mutateAsync(inputID)
-    } catch (err) {
-      window.alert(errorMessage(err, 'Could not send this message now'))
-    }
-  }
-
-  async function removeQueuedInput(inputID: string) {
-    try {
-      await backlog.cancel.mutateAsync(inputID)
-    } catch (err) {
-      window.alert(errorMessage(err, 'Could not remove this message'))
-    }
-  }
-
-  async function moveQueuedInput(
-    inputID: string,
-    anchorInputID: string,
-    position: 'before' | 'after',
-  ) {
-    try {
-      await backlog.move.mutateAsync({ inputID, anchorInputID, position })
-    } catch (err) {
-      window.alert(errorMessage(err, 'Could not reorder this message'))
-    }
   }
 
   return (
@@ -192,35 +158,33 @@ export function AgentView() {
               canOperate={canOperate}
             />
           )}
-          {!configOpen &&
-            (archived ? (
+          {archived ? (
+            !configOpen && (
               <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
                 <p className="text-sm font-medium">This agent is archived</p>
                 <p className="text-muted-foreground mt-1 text-xs">
                   You can view its conversation, but it can no longer receive messages.
                 </p>
               </div>
-            ) : (
-              <div className="min-w-0">
-                <AgentInputQueue
-                  inputs={queuedInputs}
-                  canOperate={canOperate}
-                  canSendNow={canSendNow}
-                  actionPending={queueActionPending}
-                  onSendNow={sendQueuedInputNow}
-                  onRemove={removeQueuedInput}
-                  onMove={moveQueuedInput}
-                />
+            )
+          ) : (
+            <div className={cn('min-w-0', configOpen && 'hidden')}>
+              <AgentInputQueue
+                scope={{ orgID: activeOrg.id, projectID: projectId, agentID: agentId }}
+                canOperate={canOperate}
+                canSendNow={canSendNow}
+              />
+              {!configOpen && (
                 <AgentComposer
                   chat={chat}
                   cancelPending={cancelAgent.isPending}
                   cancelError={cancelAgent.error}
                   onCancel={() => cancelAgent.mutateAsync()}
                   canOperate={canOperate}
-                  className={queuedInputs.length > 0 ? 'rounded-t-none' : undefined}
                 />
-              </div>
-            ))}
+              )}
+            </div>
+          )}
         </div>
       </div>
       <AgentSidebar
