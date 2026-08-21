@@ -157,16 +157,17 @@ func createAgentContentInputTx(
 			if err != nil {
 				return createAgentContentInputTxResult{}, err
 			}
-			existingContentBlocks, err := agentInputContentBlocksTx(
+			existingContentBlocksByInput, err := agentInputContentBlocks(
 				ctx,
-				tx,
+				qtx,
 				existingInput.ProjectID,
 				existingInput.AgentID,
-				existingInput.ID,
+				[]ID{existingInput.ID},
 			)
 			if err != nil {
 				return createAgentContentInputTxResult{}, err
 			}
+			existingContentBlocks := existingContentBlocksByInput[existingInput.ID]
 			if !actorFound ||
 				existingInput.DeliveryMode != input.DeliveryMode ||
 				existingInput.ActorID != existingActorID ||
@@ -274,21 +275,25 @@ func createAgentInputContentBlocksTx(
 	return nil
 }
 
-func agentInputContentBlocksTx(
+func agentInputContentBlocks(
 	ctx context.Context,
-	tx pgx.Tx,
-	projectID, agentID, inputID ID,
-) (json.RawMessage, error) {
-	rows, err := dbsqlc.New(tx).
-		ListContentBlocksForAgentInput(ctx, dbsqlc.ListContentBlocksForAgentInputParams{
-			ProjectID:    projectID,
-			AgentID:      agentID,
-			AgentInputID: &inputID,
-		})
+	q *dbsqlc.Queries,
+	projectID, agentID ID,
+	inputIDs []ID,
+) (map[ID]json.RawMessage, error) {
+	contentBlocks := make(map[ID]json.RawMessage, len(inputIDs))
+	if len(inputIDs) == 0 {
+		return contentBlocks, nil
+	}
+	rows, err := q.ListContentBlocksForAgentInputs(ctx, dbsqlc.ListContentBlocksForAgentInputsParams{
+		ProjectID:     projectID,
+		AgentID:       agentID,
+		AgentInputIds: inputIDs,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list agent input content blocks: %w", err)
 	}
-	blocks := make([]CreateContentBlockInput, 0, len(rows))
+	blocksByInput := make(map[ID][]CreateContentBlockInput, len(inputIDs))
 	for _, row := range rows {
 		metadata, err := resourcemeta.FromJSON(row.Metadata)
 		if err != nil {
@@ -303,13 +308,17 @@ func agentInputContentBlocksTx(
 		if row.ArtifactID != nil {
 			block.ArtifactID = *row.ArtifactID
 		}
-		blocks = append(blocks, block)
+		inputID := *row.OwnerAgentInputID
+		blocksByInput[inputID] = append(blocksByInput[inputID], block)
 	}
-	body, err := marshalAgentInputContentBlocks(blocks)
-	if err != nil {
-		return nil, fmt.Errorf("marshal agent input content parts: %w", err)
+	for _, inputID := range inputIDs {
+		body, err := marshalAgentInputContentBlocks(blocksByInput[inputID])
+		if err != nil {
+			return nil, fmt.Errorf("marshal agent input content parts: %w", err)
+		}
+		contentBlocks[inputID] = body
 	}
-	return body, nil
+	return contentBlocks, nil
 }
 
 type CreateAgentContentInputInput struct {

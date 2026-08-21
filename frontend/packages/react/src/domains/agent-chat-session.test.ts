@@ -5,7 +5,6 @@ import {
   chatSdkMocks,
   client,
   connection,
-  controlEvent,
   createChatTestSession,
   event,
   messageText,
@@ -150,29 +149,23 @@ describe('AgentChatSession input lifecycle', () => {
     session.disconnect()
   })
 
-  it('keeps an optimistic input while cancellation races its durable event', async () => {
+  it('clears an optimistic input once the server accepts it', async () => {
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
     const session = startSession([], client(), queryClient)
     const stream = await connection(0)
 
     await session.sendMessage({ text: 'Hello' })
-    stream.push({
-      event: 'agent_input',
-      data: controlEvent({ sequence: 12 }),
+    const accepted = read(session)
+    expect(accepted.status).toBe('ready')
+    expect(accepted.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: [expect.objectContaining({ _id: 'listQueuedBacklogInputs' })],
     })
-    await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(1)
-    })
-
-    const cancelled = read(session)
-    expect(cancelled.status).toBe('submitted')
-    expect(cancelled.messages.at(-1)?.id).toMatch(/^local:/)
-    expect(messageText(cancelled.messages.at(-1))).toEqual(['Hello'])
 
     stream.push({
       event: 'agent_input',
-      data: userInputEvent({ sequence: 13, input_idempotency_key: sentIdempotencyKey() }),
+      data: userInputEvent({ sequence: 12, input_idempotency_key: sentIdempotencyKey() }),
     })
     const durable = await waitForSnapshot(
       session,
@@ -182,7 +175,7 @@ describe('AgentChatSession input lifecycle', () => {
     session.disconnect()
   })
 
-  it('keeps a pending send until its own durable event lands, not any teammate message', async () => {
+  it('keeps teammate and own durable inputs distinct after a send is accepted', async () => {
     const session = startSession()
     await connection(0)
     const stream = await connection(0)
@@ -200,9 +193,9 @@ describe('AgentChatSession input lifecycle', () => {
       }),
     })
     await waitForSnapshot(session, (state) => state.messages.some((m) => m.id === 'teammate-event'))
-    const stillPending = read(session)
-    expect(stillPending.status).toBe('submitted')
-    expect(stillPending.messages.some((message) => message.id.startsWith('local:'))).toBe(true)
+    const teammateLoaded = read(session)
+    expect(teammateLoaded.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
+    expect(teammateLoaded.messages.filter((message) => message.role === 'user')).toHaveLength(1)
 
     stream.push({
       event: 'agent_input',
@@ -212,9 +205,12 @@ describe('AgentChatSession input lifecycle', () => {
         input_idempotency_key: sentIdempotencyKey(),
       }),
     })
-    const durable = await waitForSnapshot(session, (state) => state.status === 'streaming')
+    const durable = await waitForSnapshot(session, (state) =>
+      state.messages.some((message) => message.id === 'own-event'),
+    )
     expect(durable.messages.some((message) => message.id === 'own-event')).toBe(true)
     expect(durable.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
+    expect(durable.messages.filter((message) => message.role === 'user')).toHaveLength(2)
     session.disconnect()
   })
 

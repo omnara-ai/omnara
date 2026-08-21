@@ -14,6 +14,7 @@ import { type CSSProperties, useRef, useState } from 'react'
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
 import { AgentConversation } from '@/components/agents/AgentConversation'
+import { AgentInputQueue } from '@/components/agents/AgentInputQueue'
 import { AgentInteractions } from '@/components/agents/AgentInteractions'
 import {
   AgentSidebar,
@@ -56,6 +57,7 @@ export function AgentView() {
   const canOperate = project?.access.can_operate ?? false
   const [configOpen, setConfigOpen] = useState(false)
   const configDirty = useRef(false)
+  const canSendNow = canOperate && interactions.data?.data.length === 0
 
   function closeConfig() {
     configDirty.current = false
@@ -156,23 +158,33 @@ export function AgentView() {
               canOperate={canOperate}
             />
           )}
-          {!configOpen &&
-            (archived ? (
+          {archived ? (
+            !configOpen && (
               <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
                 <p className="text-sm font-medium">This agent is archived</p>
                 <p className="text-muted-foreground mt-1 text-xs">
                   You can view its conversation, but it can no longer receive messages.
                 </p>
               </div>
-            ) : (
-              <AgentComposer
-                chat={chat}
-                cancelPending={cancelAgent.isPending}
-                cancelError={cancelAgent.error}
-                onCancel={() => cancelAgent.mutateAsync()}
+            )
+          ) : (
+            <div className={cn('min-w-0', configOpen && 'hidden')}>
+              <AgentInputQueue
+                scope={{ orgID: activeOrg.id, projectID: projectId, agentID: agentId }}
                 canOperate={canOperate}
+                canSendNow={canSendNow}
               />
-            ))}
+              {!configOpen && (
+                <AgentComposer
+                  chat={chat}
+                  cancelPending={cancelAgent.isPending}
+                  cancelError={cancelAgent.error}
+                  onCancel={() => cancelAgent.mutateAsync()}
+                  canOperate={canOperate}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
       <AgentSidebar

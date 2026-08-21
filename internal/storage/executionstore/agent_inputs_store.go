@@ -473,8 +473,18 @@ func (s *Store) ListQueuedBacklogInputs(
 		rows = rows[:input.Limit]
 	}
 	result.Inputs = make([]AgentInputRecord, 0, len(rows))
+	inputIDs := make([]ID, 0, len(rows))
 	for _, row := range rows {
-		result.Inputs = append(result.Inputs, agentInputRecordFromBacklogSQLC(row))
+		record := agentInputRecordFromBacklogSQLC(row)
+		result.Inputs = append(result.Inputs, record)
+		inputIDs = append(inputIDs, record.ID)
+	}
+	contentBlocks, err := agentInputContentBlocks(ctx, s.q, input.ProjectID, input.AgentID, inputIDs)
+	if err != nil {
+		return ListQueuedBacklogInputsResult{}, err
+	}
+	for index := range result.Inputs {
+		result.Inputs[index].ContentBlocks = contentBlocks[result.Inputs[index].ID]
 	}
 	return result, nil
 }

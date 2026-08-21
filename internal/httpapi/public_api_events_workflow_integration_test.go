@@ -207,9 +207,11 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(viewerPAT.Token),
 	)
-	if len(viewerBacklog["data"].([]any)) != 2 {
+	viewerBacklogData := viewerBacklog["data"].([]any)
+	if len(viewerBacklogData) != 2 ||
+		!publicEventTextEquals(viewerBacklogData[0].(map[string]any), "first") {
 		t.Fatalf(
-			"viewer should be able to read queued backlog, got %+v",
+			"viewer should be able to read queued backlog content, got %+v",
 			viewerBacklog,
 		)
 	}
