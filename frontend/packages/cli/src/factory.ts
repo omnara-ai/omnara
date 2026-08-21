@@ -96,7 +96,12 @@ export interface FlowSpec {
   execute: (input: FlowInput) => Promise<void>
 }
 
-export type CommandSpec = OperationSpec | FlowSpec
+export interface CustomSpec {
+  type: 'custom'
+  register: (parent: Command, config: CliConfig) => void
+}
+
+export type CommandSpec = OperationSpec | FlowSpec | CustomSpec
 
 export interface CommandGroup {
   name: string
@@ -304,7 +309,7 @@ function collectFlagValues(specs: FlagSpec[], options: CommandOptions) {
   return root
 }
 
-function parseWithSchema<S extends z.ZodType>(
+export function parseWithSchema<S extends z.ZodType>(
   schema: S,
   value: FlagValue | PathValues,
   label: string,
@@ -345,12 +350,12 @@ function saveConfigDefault(
   }
 }
 
-interface PathPlan {
+export interface PathPlan {
   positionalParams: string[]
   configParams: ConfigParam[]
 }
 
-function planPathParams(path: z.ZodObject | undefined, positional: string[]): PathPlan {
+export function planPathParams(path: z.ZodObject | undefined, positional: string[]): PathPlan {
   const pathParams = path ? Object.keys(path.shape) : []
   const configParams = CONFIG_PARAMS.filter(
     (param) => pathParams.includes(param.key) && !positional.includes(param.key),
@@ -363,7 +368,7 @@ function planPathParams(path: z.ZodObject | undefined, positional: string[]): Pa
   }
 }
 
-function registerPathParams(command: Command, plan: PathPlan): void {
+export function registerPathParams(command: Command, plan: PathPlan): void {
   for (const param of plan.positionalParams) command.argument(`<${kebabCase(param)}>`)
   for (const param of plan.configParams) {
     command.option(param.option, `defaults from config (${param.describe})`)
@@ -372,7 +377,7 @@ function registerPathParams(command: Command, plan: PathPlan): void {
 
 const zExplicitOption = z.string().optional()
 
-async function resolvePathValues(
+export async function resolvePathValues(
   plan: PathPlan,
   args: string[],
   options: CommandOptions,
@@ -463,7 +468,8 @@ export function registerGroup(program: Command, config: CliConfig, group: Comman
     .description(group.summary)
   for (const spec of group.operations ?? []) {
     if (spec.type === 'op') registerOperation(groupCommand, config, spec)
-    else registerFlow(groupCommand, config, spec)
+    else if (spec.type === 'flow') registerFlow(groupCommand, config, spec)
+    else spec.register(groupCommand, config)
   }
   for (const subgroup of group.groups ?? []) registerGroup(groupCommand, config, subgroup)
 }

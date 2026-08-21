@@ -39,6 +39,28 @@ export async function promptOrgSelection(client: OmnaraClient, issuerUrl: string
   )
 }
 
+export async function promptAgentSelection(
+  client: OmnaraClient,
+  orgId: string,
+  projectId: string,
+): Promise<string> {
+  const agents: Choice[] = []
+  let cursor: string | undefined
+  do {
+    const { data } = await sdk.listAgents({
+      client,
+      path: { orgID: orgId, projectID: projectId },
+      query: cursor === undefined ? {} : { cursor },
+    })
+    agents.push(...data.data.map((agent) => ({ id: agent.id, label: `${agent.name} (${agent.state})` })))
+    cursor = data.next_cursor ?? undefined
+  } while (cursor !== undefined)
+  if (agents.length === 0) {
+    throw new CliInputError(`no agents in project ${projectId}`)
+  }
+  return selectFrom('Select an agent', agents)
+}
+
 export async function promptProjectSelection(client: OmnaraClient, orgId: string): Promise<string> {
   const projects: Choice[] = []
   let cursor: string | undefined
