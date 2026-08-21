@@ -763,12 +763,12 @@ func assertLivePersistedModelUsage(
 func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts liveServiceJourneyOptions) {
 	t.Helper()
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, opts.Seed)
-	toolResult := "OPAQUE_COMPACTION_TOOL_RESULT_" + rand.Text()
-	mcpServer := mcptest.NewJSONServerWithGreetResult(t, toolResult)
+	sampleID := "COMPACTION_SAMPLE_ID_" + rand.Text()
+	mcpServer := mcptest.NewJSONServerWithGreetResult(t, sampleID)
 	toolName := toolcatalog.MCPRuntimeToolName("docs", "greet")
 	env.startAPI(t, ctx)
 	sourceYAML := strings.Join([]string{
-		"instruction: Use tools only when explicitly requested. Preserve exact tool results and opaque facts across compaction.",
+		"instruction: Use tools only when explicitly requested. Preserve exact tool results and conversation facts across compaction.",
 		"model:",
 		"  provider_config: " + opts.ProviderConfig,
 		"  name: " + opts.ConfiguredModelName,
@@ -821,8 +821,8 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	firstPrompt := strings.Join([]string{
 		"The fictional project label for this conversation is " + projectLabel + ".",
 		"Call the " + toolName + " tool exactly once with name set to " + toolArgument + ".",
-		"The exact result is generated inside the tool server and cannot be reconstructed from the tool name or arguments.",
-		"Remember both the exact project label and exact tool result if the conversation is summarized or compacted.",
+		"The tool returns a generated sample identifier that does not appear elsewhere in this prompt.",
+		"Remember both the exact project label and generated sample identifier if the conversation is summarized or compacted.",
 		"After the tool returns, do not call another tool. Reply with exactly ACK_" + projectLabel + " and no other words.",
 		"Disposable context padding for the first turn: " + strings.Repeat(rawPaddingToken+" ", 150),
 	}, "\n")
@@ -835,11 +835,10 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForLiveModelOutputText(t, ctx, env, project.projectID, agentID, "ACK_"+projectLabel, worker)
 	waitForLiveAgentIdle(t, ctx, env, project.projectID, agentID, worker)
-	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
+	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
 
 	secondPrompt := strings.Join([]string{
 		"Create enough ordinary context pressure that the system may compact older history before this turn completes.",
-		"Do not mention the earlier project label or tool result in this response.",
 		"Reply with exactly " + bridgeToken + " and no other words.",
 		"Additional current-turn padding: " + strings.Repeat("fresh continuation detail ", 1100),
 	}, "\n")
@@ -851,7 +850,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	project.createInput(t, ctx, agentID, secondPrompt)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		var checkpoints, compactedContexts, failedBudgetContexts int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0`, projectUUID, agentUUID, projectLabel, toolResult, rawPaddingToken).
+		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0`, projectUUID, agentUUID, projectLabel, sampleID, rawPaddingToken).
 			Scan(&checkpoints); err != nil {
 			return false, err.Error()
 		}
@@ -883,7 +882,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		}
 		outputMatches := strings.Contains(latestOutput, bridgeToken) &&
 			!strings.Contains(latestOutput, projectLabel) &&
-			!strings.Contains(latestOutput, toolResult)
+			!strings.Contains(latestOutput, sampleID)
 		if outputMatches && checkpoints == 1 && compactedContexts >= 1 && failedBudgetContexts == 1 {
 			return true, ""
 		}
@@ -902,7 +901,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 				latestOutput,
 				bridgeToken,
 				projectLabel,
-				toolResult,
+				sampleID,
 			)
 		}
 		return false, "live compaction bridge not complete checkpoints=" + itoa(checkpoints) +
@@ -923,8 +922,8 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		agentUUID,
 		opts.RequireProviderReportedCost,
 	)
-	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
-	assertLiveToolResultSummarized(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
+	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
+	assertLiveToolResultSummarized(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
 
 	var beforeRecallSequence int64
 	if err := env.db.QueryRow(ctx, `SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`, projectUUID, agentUUID).
@@ -935,7 +934,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		t,
 		ctx,
 		agentID,
-		"What are the fictional project label and exact opaque tool result from earlier? Reply with both exact values and no explanation.",
+		"What are the fictional project label and generated sample identifier from the earlier tool call? Reply with both exact values and no explanation.",
 	)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		var compactedContexts, locks, wakeups int
@@ -970,7 +969,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			return false, err.Error()
 		}
 		if strings.Contains(latestOutput, projectLabel) &&
-			strings.Contains(latestOutput, toolResult) &&
+			strings.Contains(latestOutput, sampleID) &&
 			compactedContexts >= 2 && locks == 0 && wakeups == 0 {
 			return true, ""
 		}
@@ -979,7 +978,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 				"post-compaction recall output omitted durable fact: output=%q want_contains=%q,%q",
 				latestOutput,
 				projectLabel,
-				toolResult,
+				sampleID,
 			)
 		}
 		return false, "live compaction recall not complete compacted_contexts=" + itoa(compactedContexts) +
@@ -988,7 +987,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			" latest_output=" + strconv.Quote(latestOutput) +
 			" worker_logs=" + worker.logExcerpt()
 	})
-	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
+	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
 }
 
 func latestModelOutputTextAfterSequence(
