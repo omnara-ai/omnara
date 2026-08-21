@@ -24,6 +24,12 @@ const (
 	maximumDefaultModelProviderRetryDelay      = 24 * time.Hour
 )
 
+// ErrDefaultModelProviderProvisioningSuperseded means the durable job was removed
+// because the organization can no longer accept the configured default provider.
+var ErrDefaultModelProviderProvisioningSuperseded = errors.New(
+	"default model provider provisioning was superseded by organization state",
+)
+
 type DefaultModelProviderProvisioningClaim struct {
 	OrgID         ID
 	CreatorUserID ID
@@ -63,17 +69,18 @@ func (s *Service) ClaimDefaultModelProviderProvisioning(
 	if row.ClaimToken == nil || *row.ClaimToken == uuid.Nil || row.AttemptCount <= 0 {
 		return DefaultModelProviderProvisioningClaim{}, false, storeerr.ErrStateTransitionConflict
 	}
-	template, err := decodeDefaultModelProviderTemplate(row.ProviderTemplate)
-	if err != nil {
-		return DefaultModelProviderProvisioningClaim{}, false, err
-	}
-	return DefaultModelProviderProvisioningClaim{
+	claim := DefaultModelProviderProvisioningClaim{
 		OrgID:         row.OrganizationID,
 		CreatorUserID: row.CreatorUserID,
 		ClaimToken:    *row.ClaimToken,
 		Attempt:       row.AttemptCount,
-		Template:      template,
-	}, true, nil
+	}
+	template, err := decodeDefaultModelProviderTemplate(row.ProviderTemplate)
+	if err != nil {
+		return claim, true, err
+	}
+	claim.Template = template
+	return claim, true, nil
 }
 
 func (s *Service) CompleteDefaultModelProviderProvisioning(
@@ -94,6 +101,12 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.Claim.OrgID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("lock organization for default model provider provisioning: %w", err)
+	}
 	job, err := qtx.LockDefaultModelProviderProvisioning(
 		ctx,
 		dbsqlc.LockDefaultModelProviderProvisioningParams{
@@ -114,12 +127,6 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	if err != nil {
 		return err
 	}
-	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.Claim.OrgID}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
-		}
-		return fmt.Errorf("lock organization for default model provider provisioning: %w", err)
-	}
 	if _, err := qtx.GetModelProviderConfigByName(
 		ctx,
 		dbsqlc.GetModelProviderConfigByNameParams{
@@ -127,10 +134,12 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 			Name:  prepared.Name,
 		},
 	); err == nil {
-		return fmt.Errorf(
-			"default model provider %q already exists: %w",
-			prepared.Name,
-			storeerr.ErrStateTransitionConflict,
+		return finishSupersededDefaultModelProviderProvisioning(
+			ctx,
+			tx,
+			qtx,
+			input.Claim,
+			fmt.Sprintf("model provider %q already exists", prepared.Name),
 		)
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("load default model provider %q: %w", prepared.Name, err)
@@ -143,7 +152,13 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("default project is missing: %w", storeerr.ErrStateTransitionConflict)
+		return finishSupersededDefaultModelProviderProvisioning(
+			ctx,
+			tx,
+			qtx,
+			input.Claim,
+			"default project is missing",
+		)
 	}
 	if err != nil {
 		return fmt.Errorf("load default project: %w", err)
@@ -159,18 +174,46 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 		input.Claim.OrgID,
 		defaultProject.ID,
 		input.Claim.CreatorUserID,
-		modelstore.ProvisionedDefaultModelProvider{
-			Template:        prepared,
-			CredentialValue: credentialValue,
-		},
+		prepared,
+		credentialValue,
 	); err != nil {
 		return err
 	}
+	if err := completeDefaultModelProviderProvisioningJob(ctx, qtx, input.Claim); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit default model provider provisioning completion: %w", err)
+	}
+	return nil
+}
+
+func finishSupersededDefaultModelProviderProvisioning(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	claim DefaultModelProviderProvisioningClaim,
+	reason string,
+) error {
+	if err := completeDefaultModelProviderProvisioningJob(ctx, qtx, claim); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit superseded default model provider provisioning: %w", err)
+	}
+	return fmt.Errorf("%w: %s", ErrDefaultModelProviderProvisioningSuperseded, reason)
+}
+
+func completeDefaultModelProviderProvisioningJob(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	claim DefaultModelProviderProvisioningClaim,
+) error {
 	rows, err := qtx.CompleteDefaultModelProviderProvisioning(
 		ctx,
 		dbsqlc.CompleteDefaultModelProviderProvisioningParams{
-			OrganizationID: input.Claim.OrgID,
-			ClaimToken:     input.Claim.ClaimToken,
+			OrganizationID: claim.OrgID,
+			ClaimToken:     claim.ClaimToken,
 		},
 	)
 	if err != nil {
@@ -178,9 +221,6 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	}
 	if rows != 1 {
 		return storeerr.ErrStateTransitionConflict
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit default model provider provisioning completion: %w", err)
 	}
 	return nil
 }
@@ -238,14 +278,15 @@ func (s *Service) installDefaultModelProviderTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	orgID, defaultProjectID, createdByUserID ID,
-	provider modelstore.ProvisionedDefaultModelProvider,
+	template modelstore.DefaultModelProviderTemplate,
+	credentialValue string,
 ) error {
 	credential, _, err := s.secrets.CreateTx(ctx, tx, secretstore.CreateSecretInput{
 		OrgID:          orgID,
 		ManagementKind: management.Cluster,
 		OwnerKind:      secretstore.SecretOwnerOrg,
-		Name:           provider.Template.CredentialSecretName,
-		Material:       secrets.GenericMaterial{Value: provider.CredentialValue},
+		Name:           template.CredentialSecretName,
+		Material:       secrets.GenericMaterial{Value: credentialValue},
 		Actor:          identitystore.NewUserPrincipal(createdByUserID),
 	})
 	if err != nil {
@@ -258,7 +299,7 @@ func (s *Service) installDefaultModelProviderTx(
 		defaultProjectID,
 		createdByUserID,
 		credential.ID,
-		provider.Template,
+		template,
 	); err != nil {
 		return fmt.Errorf("provision default model provider: %w", err)
 	}

@@ -69,9 +69,32 @@ func TestDefaultModelProviderProvisioningClaimsAreFenced(t *testing.T) {
 	if _, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx); err != nil || found {
 		t.Fatalf("concurrent claim: found=%t err=%v", found, err)
 	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE default_model_provider_provisioning_jobs
+		SET claim_expires_at = statement_timestamp() - interval '1 second'
+		WHERE organization_id = $1
+	`, created.Org.ID); err != nil {
+		t.Fatalf("expire provisioning claim: %v", err)
+	}
+	expiredClaim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx)
+	if err != nil || !found {
+		t.Fatalf("reclaim expired provisioning: found=%t err=%v", found, err)
+	}
+	if expiredClaim.Attempt != 2 || expiredClaim.ClaimToken == claim.ClaimToken {
+		t.Fatalf("expired claim = %+v, want attempt 2 with a new token", expiredClaim)
+	}
+	if err := store.Organizations().CompleteDefaultModelProviderProvisioning(
+		ctx,
+		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
+			Claim:           claim,
+			CredentialValue: "stale-credential",
+		},
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("expired claim completion error = %v, want state transition conflict", err)
+	}
 	if err := store.Organizations().RetryDefaultModelProviderProvisioning(
 		ctx,
-		orglifecycle.RetryDefaultModelProviderProvisioningInput{Claim: claim, Delay: time.Second},
+		orglifecycle.RetryDefaultModelProviderProvisioningInput{Claim: expiredClaim, Delay: time.Second},
 	); err != nil {
 		t.Fatalf("schedule retry: %v", err)
 	}
@@ -89,13 +112,13 @@ func TestDefaultModelProviderProvisioningClaimsAreFenced(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("claim retry: found=%t err=%v", found, err)
 	}
-	if retryClaim.Attempt != 2 || retryClaim.ClaimToken == claim.ClaimToken {
-		t.Fatalf("retry claim = %+v, want attempt 2 with a new token", retryClaim)
+	if retryClaim.Attempt != 3 || retryClaim.ClaimToken == expiredClaim.ClaimToken {
+		t.Fatalf("retry claim = %+v, want attempt 3 with a new token", retryClaim)
 	}
 	if err := store.Organizations().CompleteDefaultModelProviderProvisioning(
 		ctx,
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
-			Claim:           claim,
+			Claim:           expiredClaim,
 			CredentialValue: "stale-credential",
 		},
 	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
@@ -148,6 +171,84 @@ func TestDefaultModelProviderProvisioningDoesNotClaimConfiguredSecretName(t *tes
 	if !strings.HasPrefix(credential.Name, template.CredentialSecretName+"-") {
 		t.Fatalf("credential name = %q, want generated suffix", credential.Name)
 	}
+}
+
+func TestDeleteOrganizationDeletesDefaultModelProviderProvisioning(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	defer pool.Close()
+	store := newSecretIntegrationStore(pool)
+	user := mustCreateIdentityUser(t, ctx, store, "provider-delete@example.com", "Provider Delete Owner")
+	template := testProvisioningTemplate()
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID: user.ID, Name: "Provider Delete Org", IdempotencyKey: "provider-delete-org",
+		DefaultModelProvider: &template,
+	})
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
+	if _, err := store.Organizations().DeleteOrganization(
+		ctx,
+		created.Org.ID,
+		identitystore.NewUserPrincipal(user.ID),
+	); err != nil {
+		t.Fatalf("delete organization: %v", err)
+	}
+	var jobCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM default_model_provider_provisioning_jobs
+		WHERE organization_id = $1
+	`, created.Org.ID).Scan(&jobCount); err != nil {
+		t.Fatalf("count provisioning jobs: %v", err)
+	}
+	if jobCount != 0 {
+		t.Fatalf("provisioning jobs after organization deletion = %d, want 0", jobCount)
+	}
+}
+
+func TestCreatorAccountDeletionPreservesDefaultModelProviderProvisioning(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	defer pool.Close()
+	store := newSecretIntegrationStore(pool)
+	creator := mustCreateIdentityUser(t, ctx, store, "provider-creator@example.com", "Provider Creator")
+	coOwner := mustCreateIdentityUser(t, ctx, store, "provider-co-owner@example.com", "Provider Co-owner")
+	template := testProvisioningTemplate()
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID: creator.ID, Name: "Provider Creator Org", IdempotencyKey: "provider-creator-org",
+		DefaultModelProvider: &template,
+	})
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
+	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+		OrgID: created.Org.ID, UserID: coOwner.ID, Role: "owner",
+	}); err != nil {
+		t.Fatalf("add co-owner: %v", err)
+	}
+	if err := store.Identity().DeleteUserAccount(ctx, creator.ID); err != nil {
+		t.Fatalf("delete creator account: %v", err)
+	}
+	var jobCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM default_model_provider_provisioning_jobs
+		WHERE organization_id = $1 AND creator_user_id = $2
+	`, created.Org.ID, creator.ID).Scan(&jobCount); err != nil {
+		t.Fatalf("count provisioning jobs: %v", err)
+	}
+	if jobCount != 1 {
+		t.Fatalf("provisioning jobs after creator deletion = %d, want 1", jobCount)
+	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t,
+		ctx,
+		store,
+		created.Org.ID,
+		template,
+		"cluster-value",
+	)
 }
 
 func testProvisioningTemplate() modelstore.DefaultModelProviderTemplate {

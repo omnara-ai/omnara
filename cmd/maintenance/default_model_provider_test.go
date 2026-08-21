@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -12,6 +14,29 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 )
+
+func TestDefaultModelProviderProvisioningTickRecoversPanic(t *testing.T) {
+	claim := testDefaultModelProviderProvisioningClaim()
+	store := &defaultModelProviderProvisioningStoreStub{claim: claim, found: true}
+	worker := defaultModelProviderProvisioningWorker{
+		store: store,
+		provisioner: defaultModelProviderProvisionerStub(func(
+			context.Context,
+			modelprovider.HostedCredentialRequest,
+		) (modelprovider.ProvisionHostedCredentialResponse, error) {
+			panic("provider panic")
+		}),
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if _, _, err := runDefaultModelProviderProvisioningTick(
+		context.Background(),
+		log,
+		worker,
+	); err == nil {
+		t.Fatal("provisioning tick panic error = nil")
+	}
+}
 
 type defaultModelProviderProvisioningStoreStub struct {
 	claim    orglifecycle.DefaultModelProviderProvisioningClaim
@@ -116,6 +141,98 @@ func TestDefaultModelProviderProvisioningWorkerSchedulesPendingRetry(t *testing.
 	}
 	if retry.Claim.ClaimToken != claim.ClaimToken || retry.Delay != defaultModelProviderPendingRetryDelay {
 		t.Fatalf("retry = %+v, want pending delay", retry)
+	}
+}
+
+func TestDefaultModelProviderProvisioningWorkerRetriesClaimDecodeFailure(t *testing.T) {
+	claim := testDefaultModelProviderProvisioningClaim()
+	claimErr := errors.New("decode stored provider template")
+	var retry orglifecycle.RetryDefaultModelProviderProvisioningInput
+	store := &defaultModelProviderProvisioningStoreStub{
+		claim: claim, found: true, claimErr: claimErr,
+	}
+	store.complete = func(input orglifecycle.CompleteDefaultModelProviderProvisioningInput) error {
+		t.Fatalf("unexpected completion: %+v", input)
+		return nil
+	}
+	store.retry = func(input orglifecycle.RetryDefaultModelProviderProvisioningInput) error {
+		retry = input
+		return nil
+	}
+	worker := defaultModelProviderProvisioningWorker{
+		store: store,
+		provisioner: defaultModelProviderProvisionerStub(func(
+			context.Context,
+			modelprovider.HostedCredentialRequest,
+		) (modelprovider.ProvisionHostedCredentialResponse, error) {
+			t.Fatal("unexpected credential provisioning")
+			return modelprovider.ProvisionHostedCredentialResponse{}, nil
+		}),
+	}
+
+	attempted, orgID, err := worker.runOnce(context.Background())
+	if !attempted || orgID == "" || !errors.Is(err, claimErr) {
+		t.Fatalf("run once = attempted=%t org=%q err=%v", attempted, orgID, err)
+	}
+	if retry.Claim.ClaimToken != claim.ClaimToken || retry.Delay != defaultModelProviderInitialRetryDelay {
+		t.Fatalf("retry = %+v, want initial retry delay", retry)
+	}
+}
+
+func TestDefaultModelProviderProvisioningWorkerRetriesCompletionFailure(t *testing.T) {
+	claim := testDefaultModelProviderProvisioningClaim()
+	completeErr := errors.New("database unavailable")
+	var retry orglifecycle.RetryDefaultModelProviderProvisioningInput
+	store := &defaultModelProviderProvisioningStoreStub{claim: claim, found: true}
+	store.complete = func(orglifecycle.CompleteDefaultModelProviderProvisioningInput) error {
+		return completeErr
+	}
+	store.retry = func(input orglifecycle.RetryDefaultModelProviderProvisioningInput) error {
+		retry = input
+		return nil
+	}
+	worker := defaultModelProviderProvisioningWorker{
+		store: store,
+		provisioner: defaultModelProviderProvisionerStub(func(
+			context.Context,
+			modelprovider.HostedCredentialRequest,
+		) (modelprovider.ProvisionHostedCredentialResponse, error) {
+			return modelprovider.ProvisionHostedCredentialResponse{CredentialValue: "issued-credential"}, nil
+		}),
+	}
+
+	attempted, _, err := worker.runOnce(context.Background())
+	if !attempted || !errors.Is(err, completeErr) {
+		t.Fatalf("run once = attempted=%t err=%v", attempted, err)
+	}
+	if retry.Claim.ClaimToken != claim.ClaimToken || retry.Delay != defaultModelProviderInitialRetryDelay {
+		t.Fatalf("retry = %+v, want initial retry delay", retry)
+	}
+}
+
+func TestDefaultModelProviderProvisioningWorkerDoesNotRetrySupersededJob(t *testing.T) {
+	claim := testDefaultModelProviderProvisioningClaim()
+	store := &defaultModelProviderProvisioningStoreStub{claim: claim, found: true}
+	store.complete = func(orglifecycle.CompleteDefaultModelProviderProvisioningInput) error {
+		return orglifecycle.ErrDefaultModelProviderProvisioningSuperseded
+	}
+	store.retry = func(input orglifecycle.RetryDefaultModelProviderProvisioningInput) error {
+		t.Fatalf("unexpected retry: %+v", input)
+		return nil
+	}
+	worker := defaultModelProviderProvisioningWorker{
+		store: store,
+		provisioner: defaultModelProviderProvisionerStub(func(
+			context.Context,
+			modelprovider.HostedCredentialRequest,
+		) (modelprovider.ProvisionHostedCredentialResponse, error) {
+			return modelprovider.ProvisionHostedCredentialResponse{CredentialValue: "issued-credential"}, nil
+		}),
+	}
+
+	attempted, _, err := worker.runOnce(context.Background())
+	if !attempted || !errors.Is(err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded) {
+		t.Fatalf("run once = attempted=%t err=%v", attempted, err)
 	}
 }
 

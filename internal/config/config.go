@@ -713,8 +713,9 @@ func (cfg Config) validateDefaultModelProviderTemplateWireSize() error {
 }
 
 func (cfg Config) validateHostedAPIConfig() error {
+	required := cfg.DefaultModelProvider != nil
 	configured := cfg.HostedAPIURL != "" || cfg.HostedAPIToken != ""
-	if !configured {
+	if !required && !configured {
 		return nil
 	}
 	if cfg.HostedAPIURL == "" {

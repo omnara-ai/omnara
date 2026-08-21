@@ -49,11 +49,6 @@ type DefaultConfiguredModelTemplate struct {
 	APIVariantOptions         json.RawMessage `json:"api_variant_options"`
 }
 
-type ProvisionedDefaultModelProvider struct {
-	Template        DefaultModelProviderTemplate
-	CredentialValue string
-}
-
 func PrepareDefaultModelProviderTemplate(
 	template DefaultModelProviderTemplate,
 ) (DefaultModelProviderTemplate, error) {

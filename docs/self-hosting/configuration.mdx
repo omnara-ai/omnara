@@ -168,6 +168,13 @@ template. The credential service returns `201` with
 encrypts a successful credential and creates the provider, configured models,
 and default-project grants in one transaction.
 
+If that local transaction does not commit after a `201`, maintenance repeats
+the same request. The credential service must use the organization ID as the
+stable issuance identity: it can return `202` while recovery is in progress,
+but must eventually return a usable `201` credential that supersedes the
+uncommitted issuance. It should reserve `409` for durable identity or
+provisioner mismatches that require operator action.
+
 Organization creation does not depend on that network call. If the credential
 service is unavailable, the organization remains usable and maintenance retries
 with backoff. Run migrations before deploying the API and maintenance binaries;

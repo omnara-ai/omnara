@@ -83,7 +83,7 @@ func TestLoadDefaultModelProviderExample(t *testing.T) {
 	}
 }
 
-func TestDefaultModelProviderTemplateDoesNotRequireCredentialServiceInAPI(t *testing.T) {
+func TestDefaultModelProviderTemplateOnlyRequiresCredentialServiceInMaintenance(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")
 	if err := os.WriteFile(path, []byte(`
@@ -109,8 +109,9 @@ models:
 	if err := cfg.ValidateAPI(); err != nil {
 		t.Fatalf("ValidateAPI error = %v, want nil", err)
 	}
-	if err := cfg.ValidateMaintenance(); err != nil {
-		t.Fatalf("ValidateMaintenance error = %v, want nil", err)
+	if err := cfg.ValidateMaintenance(); err == nil ||
+		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_URL") {
+		t.Fatalf("ValidateMaintenance error = %v, want missing hosted API URL", err)
 	}
 	if cfg.DefaultModelProvider == nil ||
 		len(cfg.DefaultModelProvider.Models) != 1 ||

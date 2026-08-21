@@ -976,7 +976,7 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 	}
 }
 
-func TestDefaultProviderCompletionFailurePreservesOrganizationAndJob(t *testing.T) {
+func TestConflictingProviderSupersedesDefaultProviderProvisioning(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	defer pool.Close()
@@ -1032,10 +1032,11 @@ func TestDefaultProviderCompletionFailurePreservesOrganizationAndJob(t *testing.
 	if err != nil {
 		t.Fatalf("create tenant credential: %v", err)
 	}
-	if _, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+	tenantProvider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID: created.Org.ID, Name: baseTemplate.Name, APIFormat: baseTemplate.APIFormat,
 		BaseURL: baseTemplate.BaseURL, CredentialSecretID: tenantCredential.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create conflicting tenant provider: %v", err)
 	}
 	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx)
@@ -1048,11 +1049,15 @@ func TestDefaultProviderCompletionFailurePreservesOrganizationAndJob(t *testing.
 			Claim:           claim,
 			CredentialValue: "sk-one",
 		},
-	); err == nil {
-		t.Fatal("complete conflicting default provider error = nil")
+	); !errors.Is(err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded) {
+		t.Fatalf("complete conflicting default provider error = %v, want superseded", err)
 	}
 	if persisted, err := store.Identity().GetOrg(ctx, orgID); err != nil || persisted.ID != created.Org.ID {
 		t.Fatalf("get preserved organization = %+v err=%v", persisted, err)
+	}
+	persistedProvider, err := store.Models().GetModelProviderConfigByName(ctx, orgID, baseTemplate.Name)
+	if err != nil || persistedProvider.ID != tenantProvider.ID {
+		t.Fatalf("get preserved tenant provider = %+v err=%v", persistedProvider, err)
 	}
 	var jobCount int
 	if err := pool.QueryRow(ctx, `
@@ -1062,8 +1067,8 @@ func TestDefaultProviderCompletionFailurePreservesOrganizationAndJob(t *testing.
 	`, orgID).Scan(&jobCount); err != nil {
 		t.Fatalf("count provisioning jobs: %v", err)
 	}
-	if jobCount != 1 {
-		t.Fatalf("provisioning jobs after completion failure = %d, want 1", jobCount)
+	if jobCount != 0 {
+		t.Fatalf("provisioning jobs after provider conflict = %d, want 0", jobCount)
 	}
 }
 
