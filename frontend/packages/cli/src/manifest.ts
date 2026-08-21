@@ -2,6 +2,13 @@ import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
+import {
+  currentProfileConfigId,
+  renderConfigSource,
+  resolveConfigId,
+  zConfigAttachment,
+  zConfigSourceAttachment,
+} from './config-attachment.ts'
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
@@ -40,7 +47,33 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgent,
         format: formatRecord(),
         path: schemas.zCreateAgentPath,
-        body: schemas.zCreateAgentBody,
+        body: zConfigAttachment.extend({
+          profile: schemas.zAgentProfileId.optional(),
+          name: z.string().optional(),
+          message: z.string().optional(),
+        }),
+        transformBody: async ({ profile, name, message, ...attachment }, { client, path }) => ({
+          profile,
+          name,
+          message,
+          config: await resolveConfigId(client, path, attachment),
+        }),
+      }),
+      op({
+        verb: 'update',
+        summary: "Replace a running agent's config",
+        fn: sdk.updateAgentConfig,
+        format: (response) => formatRecord()(response.agent_config),
+        path: schemas.zUpdateAgentConfigPath,
+        body: zConfigSourceAttachment.extend({
+          expected_current_config_id: schemas.zAgentConfigId
+            .optional()
+            .describe('fail unless the agent still runs this config'),
+        }),
+        transformBody: ({ expected_current_config_id, ...attachment }) => ({
+          ...renderConfigSource(attachment),
+          expected_current_config_id,
+        }),
       }),
       op({
         verb: 'cancel',
@@ -595,7 +628,31 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgentProfile,
         format: formatRecord(),
         path: schemas.zCreateAgentProfilePath,
-        body: schemas.zCreateAgentProfileBody,
+        body: zConfigAttachment.extend({ name: z.string() }),
+        transformBody: async ({ name, ...attachment }, { client, path }) => ({
+          name,
+          config: await resolveConfigId(client, path, attachment),
+        }),
+      }),
+      op({
+        verb: 'update',
+        summary: 'Point an agent profile at a new config',
+        fn: sdk.updateAgentProfile,
+        format: formatRecord(),
+        path: schemas.zUpdateAgentProfilePath,
+        body: zConfigAttachment.extend({
+          expected_current_config_id: schemas.zAgentConfigId
+            .optional()
+            .describe('fail unless the profile still points at this config'),
+        }),
+        transformBody: async ({ expected_current_config_id, ...attachment }, { client, path }) => {
+          const expected =
+            expected_current_config_id ?? (await currentProfileConfigId(client, path))
+          return {
+            config: await resolveConfigId(client, path, attachment),
+            expected_current_config_id: expected,
+          }
+        },
       }),
       op({
         verb: 'rename',
