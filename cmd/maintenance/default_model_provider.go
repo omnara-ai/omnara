@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -19,6 +20,10 @@ const (
 	defaultModelProviderInitialRetryDelay  = 5 * time.Second
 	defaultModelProviderMaximumRetryDelay  = 15 * time.Minute
 	defaultModelProviderStateWriteTimeout  = 30 * time.Second
+)
+
+var errDefaultModelProviderRetrySchedule = errors.New(
+	"schedule default model provider provisioning retry",
 )
 
 type defaultModelProviderProvisioningStore interface {
@@ -51,8 +56,12 @@ func runDefaultModelProviderProvisioningLoop(
 		switch {
 		case err == nil && attempted:
 			log.Info("provisioned default model provider", "org_id", orgID)
+		case errors.Is(err, errDefaultModelProviderRetrySchedule):
+			log.Error("schedule default model provider provisioning retry", "org_id", orgID, "error", err)
 		case errors.Is(err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded):
 			log.Warn("default model provider provisioning superseded", "org_id", orgID, "error", err)
+		case errors.Is(err, storeerr.ErrNotFound):
+			log.Info("default model provider provisioning canceled", "org_id", orgID)
 		case errors.Is(err, modelprovider.ErrHostedCredentialPending):
 			log.Info("default model provider provisioning pending", "org_id", orgID)
 		case err != nil && ctx.Err() == nil:
@@ -144,7 +153,8 @@ func (worker defaultModelProviderProvisioningWorker) runOnce(
 	)
 	stateCancel()
 	if completeErr != nil {
-		if errors.Is(completeErr, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded) {
+		if errors.Is(completeErr, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded) ||
+			errors.Is(completeErr, storeerr.ErrNotFound) {
 			return true, orgID, completeErr
 		}
 		return true, orgID, worker.retry(ctx, claim, completeErr)
@@ -170,7 +180,10 @@ func (worker defaultModelProviderProvisioningWorker) retry(
 		},
 	)
 	if retryErr != nil {
-		return errors.Join(cause, fmt.Errorf("schedule default model provider retry: %w", retryErr))
+		return errors.Join(
+			cause,
+			fmt.Errorf("%w: %w", errDefaultModelProviderRetrySchedule, retryErr),
+		)
 	}
 	return cause
 }
