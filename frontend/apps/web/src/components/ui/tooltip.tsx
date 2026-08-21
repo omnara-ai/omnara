@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react'
 import { cn } from '@/lib/utils'
 
 function TooltipProvider({
-  delayDuration = 200,
+  delayDuration = 0,
   ...props
 }: ComponentProps<typeof TooltipPrimitive.Provider>) {
   return (
