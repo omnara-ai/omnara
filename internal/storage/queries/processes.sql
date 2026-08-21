@@ -505,7 +505,7 @@ WHERE process.org_id = sqlc.arg(org_id)
   )
 ORDER BY project_id, agent_id, created_at, id;
 
--- name: ListActiveProcessesForContext :many
+-- name: ListActiveProcesses :many
 SELECT id, state, machine_id, io_mode, command, shell_selector, cwd, source_started_at, created_at, updated_at, tool_call_id
 FROM processes
 WHERE project_id = sqlc.arg(project_id)
