@@ -1022,7 +1022,7 @@ func (q *Queries) InsertProcess(ctx context.Context, arg InsertProcessParams) (P
 	return i, err
 }
 
-const listActiveProcessesForContext = `-- name: ListActiveProcessesForContext :many
+const listActiveProcesses = `-- name: ListActiveProcesses :many
 SELECT id, state, machine_id, io_mode, command, shell_selector, cwd, source_started_at, created_at, updated_at, tool_call_id
 FROM processes
 WHERE project_id = $1
@@ -1032,12 +1032,12 @@ ORDER BY updated_at DESC, id
 LIMIT 20
 `
 
-type ListActiveProcessesForContextParams struct {
+type ListActiveProcessesParams struct {
 	ProjectID uuid.UUID
 	AgentID   uuid.UUID
 }
 
-type ListActiveProcessesForContextRow struct {
+type ListActiveProcessesRow struct {
 	ID              uuid.UUID
 	State           string
 	MachineID       uuid.UUID
@@ -1051,15 +1051,15 @@ type ListActiveProcessesForContextRow struct {
 	ToolCallID      uuid.UUID
 }
 
-func (q *Queries) ListActiveProcessesForContext(ctx context.Context, arg ListActiveProcessesForContextParams) ([]ListActiveProcessesForContextRow, error) {
-	rows, err := q.db.Query(ctx, listActiveProcessesForContext, arg.ProjectID, arg.AgentID)
+func (q *Queries) ListActiveProcesses(ctx context.Context, arg ListActiveProcessesParams) ([]ListActiveProcessesRow, error) {
+	rows, err := q.db.Query(ctx, listActiveProcesses, arg.ProjectID, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListActiveProcessesForContextRow{}
+	items := []ListActiveProcessesRow{}
 	for rows.Next() {
-		var i ListActiveProcessesForContextRow
+		var i ListActiveProcessesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.State,

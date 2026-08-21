@@ -18,44 +18,6 @@ func IntegrationTargetContextEnabled(specs []ToolSpec) bool {
 	)
 }
 
-func ProcessContextEnabled(specs []ToolSpec) bool {
-	return HasAnyTool(
-		specs,
-		toolcatalog.ToolNameRunCommand,
-		toolcatalog.ToolNameWriteProcess,
-		toolcatalog.ToolNameReadProcess,
-		toolcatalog.ToolNameStopProcess,
-		toolcatalog.ToolNameListProcesses,
-	)
-}
-
-func MachineContextEnabled(specs []ToolSpec) bool {
-	return HasAnyTool(
-		specs,
-		toolcatalog.ToolNameRunCommand,
-		toolcatalog.ToolNameCreateMachine,
-		toolcatalog.ToolNameDeleteMachine,
-		toolcatalog.ToolNameListMachines,
-		toolcatalog.ToolNameInspectMachine,
-	)
-}
-
-func HasExecutionContext(bundle Bundle) bool {
-	return len(bundle.ActiveProcesses) > 0 || len(bundle.AttachedMachines) > 0
-}
-
-func ExecutionContextContent(processes []ActiveProcessRef, machines []AttachedMachineRef) string {
-	body, err := json.Marshal(struct {
-		ActiveProcesses  []ActiveProcessRef   `json:"active_processes,omitempty"`
-		AttachedMachines []AttachedMachineRef `json:"attached_machines,omitempty"`
-	}{ActiveProcesses: processes, AttachedMachines: machines})
-	if err != nil {
-		return "Active execution context is present but could not be serialized."
-	}
-	return "Active execution observations. These are not transcript messages; use the latest tool results " +
-		"and visible process state together when reasoning about active work: " + string(body)
-}
-
 func IntegrationTargetsContent(targets []IntegrationTargetRef) string {
 	if len(targets) == 0 {
 		return "No external integration targets are currently available for this agent."

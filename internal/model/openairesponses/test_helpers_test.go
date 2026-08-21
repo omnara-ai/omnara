@@ -112,8 +112,3 @@ func assistantToolCallMessage(
 		Content:            json.RawMessage(`[]`),
 	}, toolCallIDs...)
 }
-
-func messageAtSequence(message modelcontext.Message, sequence int64) modelcontext.Message {
-	message.Sequence = sequence
-	return message
-}

@@ -199,9 +199,6 @@ func buildMessages(
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
-	if modelcontext.HasExecutionContext(bundle) {
-		capacity++
-	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
@@ -239,15 +236,6 @@ func buildMessages(
 		messages = append(messages, chatMessage{
 			Role:    chatRoleSystem,
 			Content: modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-		})
-	}
-	if modelcontext.HasExecutionContext(bundle) {
-		messages = append(messages, chatMessage{
-			Role: chatRoleSystem,
-			Content: modelcontext.ExecutionContextContent(
-				bundle.ActiveProcesses,
-				bundle.AttachedMachines,
-			),
 		})
 	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {

@@ -361,7 +361,7 @@ func observeProcess(
 		); err != nil {
 			return nil, err
 		}
-		records, err := call.Reader.ListActiveProcessesForContext(ctx)
+		records, err := call.Reader.ListActiveProcesses(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -442,7 +442,7 @@ func createProcessAction(
 			false,
 			processID,
 			"",
-			"",
+			processToolNextActionList,
 		)
 	}
 	input := executionstore.CreateProcessActionInput{
@@ -505,7 +505,7 @@ func createProcessAction(
 					false,
 					processID,
 					"",
-					"",
+					processToolNextActionList,
 				)
 			}
 			return nil, fmt.Errorf(

@@ -221,15 +221,26 @@ func inspectMachine(
 		}
 	}
 	if err != nil {
-		if errors.Is(err, ErrMachineSelectionRequired) {
+		if input.MachineRef != "" && errors.Is(err, storeerr.ErrNotFound) {
+			err = ErrMachineRefUnavailable
+		}
+		if errors.Is(err, ErrMachineSelectionRequired) ||
+			errors.Is(err, ErrMachineRefUnavailable) {
 			unavailable, resultErr := machineUnavailableToolResult(err)
 			if resultErr != nil {
 				return nil, resultErr
 			}
 			return failInTransaction(unavailable.Content, unavailable.Cause), nil
 		}
-		if !errors.Is(err, storeerr.ErrNotFound) &&
-			!errors.Is(err, ErrNoMachine) {
+		if errors.Is(err, ErrNoMachine) {
+			return failMachineTransactionWithMessage(
+				"inspect_machine_failed",
+				"no machines are associated with this agent",
+				err,
+				false,
+			)
+		}
+		if !errors.Is(err, storeerr.ErrNotFound) {
 			return nil, err
 		}
 		return failMachineTransaction("inspect_machine_failed", err, false)

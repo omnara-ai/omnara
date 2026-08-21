@@ -502,31 +502,21 @@ func (s *Store) GetProcessByToolCall(
 	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
 }
 
-func (s *Store) ListActiveProcessesForContext(
-	ctx context.Context,
-	projectID, agentID ID,
-) ([]ActiveProcessRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
-		return nil, errors.New("project and agent are required")
-	}
-	return listActiveProcessesForContext(ctx, s.q, projectID, agentID)
-}
-
-func (r *ToolCallReader) ListActiveProcessesForContext(
+func (r *ToolCallReader) ListActiveProcesses(
 	ctx context.Context,
 ) ([]ActiveProcessRecord, error) {
 	t := r.transaction
-	return listActiveProcessesForContext(ctx, t.q, t.input.ProjectID, t.input.AgentID)
+	return listActiveProcesses(ctx, t.q, t.input.ProjectID, t.input.AgentID)
 }
 
-func listActiveProcessesForContext(
+func listActiveProcesses(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	projectID, agentID ID,
 ) ([]ActiveProcessRecord, error) {
-	rows, err := q.ListActiveProcessesForContext(
+	rows, err := q.ListActiveProcesses(
 		ctx,
-		dbsqlc.ListActiveProcessesForContextParams{ProjectID: projectID, AgentID: agentID},
+		dbsqlc.ListActiveProcessesParams{ProjectID: projectID, AgentID: agentID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list active processes: %w", err)

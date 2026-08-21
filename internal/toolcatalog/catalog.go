@@ -31,10 +31,10 @@ const (
 	writeProcessToolDescription   = "Write exact stdin/PTY bytes to a running process, close pipe stdin, or do both."
 	stopProcessToolDescription    = "Interrupt or terminate a running process."
 	readProcessToolDescription    = "Read retained process output, optionally waiting briefly for output or completion."
-	listProcessesToolDescription  = "List active processes in the current agent."
+	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request another pool-backed machine for this agent. machine_pool_name is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent."
+	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_ref values and current availability."
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_ref is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
@@ -79,7 +79,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	machineRef := map[string]any{
 		"type":        "string",
-		"description": "Pass machine_ref only when multiple machines are available; otherwise omit it.",
+		"description": "Exact machine_ref returned by list_machines. Omit it when the target is unambiguous.",
 	}
 	deleteMachineRef := map[string]any{
 		"type":        "string",
@@ -91,7 +91,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	processID := map[string]any{
 		"type":        "string",
-		"description": "Opaque process_id returned by run_command after execution is granted. Copy it exactly.",
+		"description": "Opaque process_id returned by run_command or list_processes. Copy it exactly.",
 	}
 	entries := map[string]Entry{}
 	var err error
