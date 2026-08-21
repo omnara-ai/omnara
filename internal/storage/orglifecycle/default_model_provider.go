@@ -2,7 +2,6 @@ package orglifecycle
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,11 +34,11 @@ type DefaultModelProviderProvisioningClaim struct {
 	CreatorUserID ID
 	ClaimToken    ID
 	Attempt       int32
-	Template      modelstore.DefaultModelProviderTemplate
 }
 
 type CompleteDefaultModelProviderProvisioningInput struct {
 	Claim           DefaultModelProviderProvisioningClaim
+	Template        modelstore.DefaultModelProviderTemplate
 	CredentialValue string
 }
 
@@ -75,11 +74,6 @@ func (s *Service) ClaimDefaultModelProviderProvisioning(
 		ClaimToken:    *row.ClaimToken,
 		Attempt:       row.AttemptCount,
 	}
-	template, err := decodeDefaultModelProviderTemplate(row.ProviderTemplate)
-	if err != nil {
-		return claim, true, err
-	}
-	claim.Template = template
 	return claim, true, nil
 }
 
@@ -89,6 +83,10 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 ) error {
 	if !validDefaultModelProviderProvisioningClaim(input.Claim) {
 		return errors.New("valid default model provider provisioning claim is required")
+	}
+	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(input.Template)
+	if err != nil {
+		return fmt.Errorf("default model provider %q: %w", input.Template.Name, err)
 	}
 	credentialValue := strings.TrimSpace(input.CredentialValue)
 	if credentialValue == "" {
@@ -107,7 +105,7 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 		}
 		return fmt.Errorf("lock organization for default model provider provisioning: %w", err)
 	}
-	job, err := qtx.LockDefaultModelProviderProvisioning(
+	creatorUserID, err := qtx.LockDefaultModelProviderProvisioning(
 		ctx,
 		dbsqlc.LockDefaultModelProviderProvisioningParams{
 			OrganizationID: input.Claim.OrgID,
@@ -120,12 +118,8 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	if err != nil {
 		return fmt.Errorf("lock default model provider provisioning: %w", err)
 	}
-	if job.CreatorUserID != input.Claim.CreatorUserID {
+	if creatorUserID != input.Claim.CreatorUserID {
 		return storeerr.ErrStateTransitionConflict
-	}
-	prepared, err := decodeDefaultModelProviderTemplate(job.ProviderTemplate)
-	if err != nil {
-		return err
 	}
 	if _, err := qtx.GetModelProviderConfigByName(
 		ctx,
@@ -253,25 +247,6 @@ func (s *Service) RetryDefaultModelProviderProvisioning(
 func validDefaultModelProviderProvisioningClaim(claim DefaultModelProviderProvisioningClaim) bool {
 	return !isNilID(claim.OrgID) && !isNilID(claim.CreatorUserID) &&
 		!isNilID(claim.ClaimToken) && claim.Attempt > 0
-}
-
-func decodeDefaultModelProviderTemplate(raw json.RawMessage) (modelstore.DefaultModelProviderTemplate, error) {
-	var template modelstore.DefaultModelProviderTemplate
-	if err := json.Unmarshal(raw, &template); err != nil {
-		return modelstore.DefaultModelProviderTemplate{}, fmt.Errorf(
-			"decode default model provider template: %w",
-			err,
-		)
-	}
-	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(template)
-	if err != nil {
-		return modelstore.DefaultModelProviderTemplate{}, fmt.Errorf(
-			"default model provider %q: %w",
-			template.Name,
-			err,
-		)
-	}
-	return prepared, nil
 }
 
 func (s *Service) installDefaultModelProviderTx(

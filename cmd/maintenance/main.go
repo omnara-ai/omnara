@@ -158,7 +158,7 @@ func main() {
 		)
 	}()
 	defaultModelProviderDone := make(chan struct{})
-	if cfg.HostedAPIURL == "" {
+	if cfg.DefaultModelProvider == nil {
 		close(defaultModelProviderDone)
 	} else {
 		hostedHTTPClient := metrics.NewObservedHTTPClient(
@@ -173,6 +173,7 @@ func main() {
 				Token:      cfg.HostedAPIToken,
 				HTTPClient: hostedHTTPClient,
 			},
+			template: *cfg.DefaultModelProvider,
 		}
 		go func() {
 			defer close(defaultModelProviderDone)

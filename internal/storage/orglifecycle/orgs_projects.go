@@ -3,7 +3,6 @@ package orglifecycle
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -16,17 +15,16 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type CreateOrgForUserInput struct {
-	OrgID                ID
-	UserID               ID
-	Name                 string
-	IdempotencyKey       string
-	DefaultMachinePools  []executionstore.DefaultMachinePoolTemplate
-	DefaultModelProvider *modelstore.DefaultModelProviderTemplate
+	OrgID                         ID
+	UserID                        ID
+	Name                          string
+	IdempotencyKey                string
+	DefaultMachinePools           []executionstore.DefaultMachinePoolTemplate
+	ProvisionDefaultModelProvider bool
 }
 
 func (s *Service) CreateOrgForUser(
@@ -38,25 +36,6 @@ func (s *Service) CreateOrgForUser(
 	}
 	if input.Name == "" {
 		return identitystore.CreateOrgForUserRecord{}, errors.New("org name is required")
-	}
-	var defaultModelProviderTemplate json.RawMessage
-	if input.DefaultModelProvider != nil {
-		prepared, err := modelstore.PrepareDefaultModelProviderTemplate(*input.DefaultModelProvider)
-		if err != nil {
-			return identitystore.CreateOrgForUserRecord{}, fmt.Errorf(
-				"default model provider %q: %w",
-				input.DefaultModelProvider.Name,
-				err,
-			)
-		}
-		defaultModelProviderTemplate, err = json.Marshal(prepared)
-		if err != nil {
-			return identitystore.CreateOrgForUserRecord{}, fmt.Errorf(
-				"encode default model provider %q: %w",
-				prepared.Name,
-				err,
-			)
-		}
 	}
 	if isNilID(input.OrgID) {
 		orgID, err := uuid.NewV7()
@@ -89,13 +68,12 @@ func (s *Service) CreateOrgForUser(
 		); err != nil {
 			return identitystore.CreateOrgForUserRecord{}, err
 		}
-		if len(defaultModelProviderTemplate) > 0 {
+		if input.ProvisionDefaultModelProvider {
 			rows, err := s.q.WithTx(tx).EnqueueDefaultModelProviderProvisioning(
 				ctx,
 				dbsqlc.EnqueueDefaultModelProviderProvisioningParams{
-					OrganizationID:   record.Org.ID,
-					CreatorUserID:    input.UserID,
-					ProviderTemplate: defaultModelProviderTemplate,
+					OrganizationID: record.Org.ID,
+					CreatorUserID:  input.UserID,
 				},
 			)
 			if err != nil {

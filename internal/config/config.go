@@ -718,6 +718,11 @@ func (cfg Config) validateHostedAPIConfig() error {
 	if !required && !configured {
 		return nil
 	}
+	if cfg.DefaultModelProvider == nil {
+		return errors.New(
+			"OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE is required when hosted API access is configured",
+		)
+	}
 	if cfg.HostedAPIURL == "" {
 		return errors.New("OMNARA_HOSTED_API_URL is required when hosted API access is configured")
 	}

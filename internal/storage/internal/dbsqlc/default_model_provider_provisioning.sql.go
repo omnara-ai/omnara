@@ -7,7 +7,6 @@ package dbsqlc
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -39,7 +38,6 @@ WHERE job.organization_id = candidate.organization_id
 RETURNING
     job.organization_id,
     job.creator_user_id,
-    job.provider_template,
     job.attempt_count,
     job.claim_token
 `
@@ -49,11 +47,10 @@ type ClaimDefaultModelProviderProvisioningParams struct {
 }
 
 type ClaimDefaultModelProviderProvisioningRow struct {
-	OrganizationID   uuid.UUID
-	CreatorUserID    uuid.UUID
-	ProviderTemplate json.RawMessage
-	AttemptCount     int32
-	ClaimToken       *uuid.UUID
+	OrganizationID uuid.UUID
+	CreatorUserID  uuid.UUID
+	AttemptCount   int32
+	ClaimToken     *uuid.UUID
 }
 
 func (q *Queries) ClaimDefaultModelProviderProvisioning(ctx context.Context, arg ClaimDefaultModelProviderProvisioningParams) (ClaimDefaultModelProviderProvisioningRow, error) {
@@ -62,7 +59,6 @@ func (q *Queries) ClaimDefaultModelProviderProvisioning(ctx context.Context, arg
 	err := row.Scan(
 		&i.OrganizationID,
 		&i.CreatorUserID,
-		&i.ProviderTemplate,
 		&i.AttemptCount,
 		&i.ClaimToken,
 	)
@@ -105,25 +101,22 @@ func (q *Queries) DeleteDefaultModelProviderProvisioningForOrganization(ctx cont
 const enqueueDefaultModelProviderProvisioning = `-- name: EnqueueDefaultModelProviderProvisioning :execrows
 INSERT INTO default_model_provider_provisioning_jobs (
     organization_id,
-    creator_user_id,
-    provider_template
+    creator_user_id
 )
 VALUES (
     $1,
-    $2,
-    $3
+    $2
 )
 ON CONFLICT (organization_id) DO NOTHING
 `
 
 type EnqueueDefaultModelProviderProvisioningParams struct {
-	OrganizationID   uuid.UUID
-	CreatorUserID    uuid.UUID
-	ProviderTemplate json.RawMessage
+	OrganizationID uuid.UUID
+	CreatorUserID  uuid.UUID
 }
 
 func (q *Queries) EnqueueDefaultModelProviderProvisioning(ctx context.Context, arg EnqueueDefaultModelProviderProvisioningParams) (int64, error) {
-	result, err := q.db.Exec(ctx, enqueueDefaultModelProviderProvisioning, arg.OrganizationID, arg.CreatorUserID, arg.ProviderTemplate)
+	result, err := q.db.Exec(ctx, enqueueDefaultModelProviderProvisioning, arg.OrganizationID, arg.CreatorUserID)
 	if err != nil {
 		return 0, err
 	}
@@ -131,7 +124,7 @@ func (q *Queries) EnqueueDefaultModelProviderProvisioning(ctx context.Context, a
 }
 
 const lockDefaultModelProviderProvisioning = `-- name: LockDefaultModelProviderProvisioning :one
-SELECT creator_user_id, provider_template
+SELECT creator_user_id
 FROM default_model_provider_provisioning_jobs
 WHERE organization_id = $1
   AND claim_token = $2::uuid
@@ -143,16 +136,11 @@ type LockDefaultModelProviderProvisioningParams struct {
 	ClaimToken     uuid.UUID
 }
 
-type LockDefaultModelProviderProvisioningRow struct {
-	CreatorUserID    uuid.UUID
-	ProviderTemplate json.RawMessage
-}
-
-func (q *Queries) LockDefaultModelProviderProvisioning(ctx context.Context, arg LockDefaultModelProviderProvisioningParams) (LockDefaultModelProviderProvisioningRow, error) {
+func (q *Queries) LockDefaultModelProviderProvisioning(ctx context.Context, arg LockDefaultModelProviderProvisioningParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lockDefaultModelProviderProvisioning, arg.OrganizationID, arg.ClaimToken)
-	var i LockDefaultModelProviderProvisioningRow
-	err := row.Scan(&i.CreatorUserID, &i.ProviderTemplate)
-	return i, err
+	var creator_user_id uuid.UUID
+	err := row.Scan(&creator_user_id)
+	return creator_user_id, err
 }
 
 const retryDefaultModelProviderProvisioning = `-- name: RetryDefaultModelProviderProvisioning :execrows

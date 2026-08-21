@@ -125,6 +125,21 @@ models:
 	}
 }
 
+func TestHostedCredentialServiceRequiresDefaultModelProviderTemplate(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test")
+	t.Setenv("OMNARA_HOSTED_API_TOKEN", testHostedAPIToken)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateMaintenance(); err == nil ||
+		!strings.Contains(err.Error(), "OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE") {
+		t.Fatalf("ValidateMaintenance error = %v, want missing default model provider template", err)
+	}
+}
+
 func TestLoadDefaultModelProviderTemplateRejectsUnknownFieldsAndTrailingDocuments(t *testing.T) {
 	tests := []struct {
 		name string

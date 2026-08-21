@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -43,6 +44,7 @@ type defaultModelProviderProvisioningStore interface {
 type defaultModelProviderProvisioningWorker struct {
 	store       defaultModelProviderProvisioningStore
 	provisioner modelprovider.HostedCredentialProvisioner
+	template    modelstore.DefaultModelProviderTemplate
 }
 
 func runDefaultModelProviderProvisioningLoop(
@@ -105,14 +107,7 @@ func (worker defaultModelProviderProvisioningWorker) runOnce(
 ) (bool, string, error) {
 	claim, found, err := worker.store.ClaimDefaultModelProviderProvisioning(ctx)
 	if err != nil {
-		if !found {
-			return false, "", err
-		}
-		orgID, encodeErr := publicid.Encode(publicid.KindOrganization, claim.OrgID)
-		if encodeErr != nil {
-			return true, "", worker.retry(ctx, claim, errors.Join(err, encodeErr))
-		}
-		return true, orgID, worker.retry(ctx, claim, err)
+		return false, "", err
 	}
 	if !found {
 		return false, "", err
@@ -132,7 +127,7 @@ func (worker defaultModelProviderProvisioningWorker) runOnce(
 		modelprovider.HostedCredentialRequest{
 			OrgID:         orgID,
 			CreatorUserID: creatorUserID,
-			Template:      claim.Template,
+			Template:      worker.template,
 		},
 	)
 	cancel()
@@ -148,6 +143,7 @@ func (worker defaultModelProviderProvisioningWorker) runOnce(
 		stateCtx,
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
 			Claim:           claim,
+			Template:        worker.template,
 			CredentialValue: response.CredentialValue,
 		},
 	)

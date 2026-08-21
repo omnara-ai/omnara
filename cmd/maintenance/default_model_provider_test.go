@@ -20,7 +20,8 @@ func TestDefaultModelProviderProvisioningTickRecoversPanic(t *testing.T) {
 	claim := testDefaultModelProviderProvisioningClaim()
 	store := &defaultModelProviderProvisioningStoreStub{claim: claim, found: true}
 	worker := defaultModelProviderProvisioningWorker{
-		store: store,
+		store:    store,
+		template: testDefaultModelProviderTemplate(),
 		provisioner: defaultModelProviderProvisionerStub(func(
 			context.Context,
 			modelprovider.HostedCredentialRequest,
@@ -42,7 +43,6 @@ func TestDefaultModelProviderProvisioningTickRecoversPanic(t *testing.T) {
 type defaultModelProviderProvisioningStoreStub struct {
 	claim    orglifecycle.DefaultModelProviderProvisioningClaim
 	found    bool
-	claimErr error
 	complete func(orglifecycle.CompleteDefaultModelProviderProvisioningInput) error
 	retry    func(orglifecycle.RetryDefaultModelProviderProvisioningInput) error
 }
@@ -50,7 +50,7 @@ type defaultModelProviderProvisioningStoreStub struct {
 func (stub *defaultModelProviderProvisioningStoreStub) ClaimDefaultModelProviderProvisioning(
 	context.Context,
 ) (orglifecycle.DefaultModelProviderProvisioningClaim, bool, error) {
-	return stub.claim, stub.found, stub.claimErr
+	return stub.claim, stub.found, nil
 }
 
 func (stub *defaultModelProviderProvisioningStoreStub) CompleteDefaultModelProviderProvisioning(
@@ -81,9 +81,11 @@ func (stub defaultModelProviderProvisionerStub) ProvisionHostedCredential(
 
 func TestDefaultModelProviderProvisioningWorkerCompletesIssuedCredential(t *testing.T) {
 	claim := testDefaultModelProviderProvisioningClaim()
+	template := testDefaultModelProviderTemplate()
 	store := &defaultModelProviderProvisioningStoreStub{claim: claim, found: true}
 	store.complete = func(input orglifecycle.CompleteDefaultModelProviderProvisioningInput) error {
-		if input.Claim.ClaimToken != claim.ClaimToken || input.CredentialValue != "issued-credential" {
+		if input.Claim.ClaimToken != claim.ClaimToken || input.Template.Name != template.Name ||
+			input.CredentialValue != "issued-credential" {
 			t.Fatalf("unexpected completion input: %+v", input)
 		}
 		return nil
@@ -93,7 +95,8 @@ func TestDefaultModelProviderProvisioningWorkerCompletesIssuedCredential(t *test
 		return nil
 	}
 	worker := defaultModelProviderProvisioningWorker{
-		store: store,
+		store:    store,
+		template: template,
 		provisioner: defaultModelProviderProvisionerStub(func(
 			_ context.Context,
 			request modelprovider.HostedCredentialRequest,
@@ -101,7 +104,7 @@ func TestDefaultModelProviderProvisioningWorkerCompletesIssuedCredential(t *test
 			wantOrgID, _ := publicid.Encode(publicid.KindOrganization, claim.OrgID)
 			wantCreatorID, _ := publicid.Encode(publicid.KindUser, claim.CreatorUserID)
 			if request.OrgID != wantOrgID || request.CreatorUserID != wantCreatorID ||
-				request.Template.Name != claim.Template.Name {
+				request.Template.Name != template.Name {
 				t.Fatalf("unexpected provision request: %+v", request)
 			}
 			return modelprovider.ProvisionHostedCredentialResponse{CredentialValue: "issued-credential"}, nil
@@ -127,7 +130,8 @@ func TestDefaultModelProviderProvisioningWorkerSchedulesPendingRetry(t *testing.
 		return nil
 	}
 	worker := defaultModelProviderProvisioningWorker{
-		store: store,
+		store:    store,
+		template: testDefaultModelProviderTemplate(),
 		provisioner: defaultModelProviderProvisionerStub(func(
 			context.Context,
 			modelprovider.HostedCredentialRequest,
@@ -145,41 +149,6 @@ func TestDefaultModelProviderProvisioningWorkerSchedulesPendingRetry(t *testing.
 	}
 }
 
-func TestDefaultModelProviderProvisioningWorkerRetriesClaimDecodeFailure(t *testing.T) {
-	claim := testDefaultModelProviderProvisioningClaim()
-	claimErr := errors.New("decode stored provider template")
-	var retry orglifecycle.RetryDefaultModelProviderProvisioningInput
-	store := &defaultModelProviderProvisioningStoreStub{
-		claim: claim, found: true, claimErr: claimErr,
-	}
-	store.complete = func(input orglifecycle.CompleteDefaultModelProviderProvisioningInput) error {
-		t.Fatalf("unexpected completion: %+v", input)
-		return nil
-	}
-	store.retry = func(input orglifecycle.RetryDefaultModelProviderProvisioningInput) error {
-		retry = input
-		return nil
-	}
-	worker := defaultModelProviderProvisioningWorker{
-		store: store,
-		provisioner: defaultModelProviderProvisionerStub(func(
-			context.Context,
-			modelprovider.HostedCredentialRequest,
-		) (modelprovider.ProvisionHostedCredentialResponse, error) {
-			t.Fatal("unexpected credential provisioning")
-			return modelprovider.ProvisionHostedCredentialResponse{}, nil
-		}),
-	}
-
-	attempted, orgID, err := worker.runOnce(context.Background())
-	if !attempted || orgID == "" || !errors.Is(err, claimErr) {
-		t.Fatalf("run once = attempted=%t org=%q err=%v", attempted, orgID, err)
-	}
-	if retry.Claim.ClaimToken != claim.ClaimToken || retry.Delay != defaultModelProviderInitialRetryDelay {
-		t.Fatalf("retry = %+v, want initial retry delay", retry)
-	}
-}
-
 func TestDefaultModelProviderProvisioningWorkerSurfacesRetryScheduleFailure(t *testing.T) {
 	claim := testDefaultModelProviderProvisioningClaim()
 	retryErr := errors.New("database unavailable")
@@ -192,7 +161,8 @@ func TestDefaultModelProviderProvisioningWorkerSurfacesRetryScheduleFailure(t *t
 		return retryErr
 	}
 	worker := defaultModelProviderProvisioningWorker{
-		store: store,
+		store:    store,
+		template: testDefaultModelProviderTemplate(),
 		provisioner: defaultModelProviderProvisionerStub(func(
 			context.Context,
 			modelprovider.HostedCredentialRequest,
@@ -221,7 +191,8 @@ func TestDefaultModelProviderProvisioningWorkerRetriesCompletionFailure(t *testi
 		return nil
 	}
 	worker := defaultModelProviderProvisioningWorker{
-		store: store,
+		store:    store,
+		template: testDefaultModelProviderTemplate(),
 		provisioner: defaultModelProviderProvisionerStub(func(
 			context.Context,
 			modelprovider.HostedCredentialRequest,
@@ -250,7 +221,8 @@ func TestDefaultModelProviderProvisioningWorkerDoesNotRetrySupersededJob(t *test
 		return nil
 	}
 	worker := defaultModelProviderProvisioningWorker{
-		store: store,
+		store:    store,
+		template: testDefaultModelProviderTemplate(),
 		provisioner: defaultModelProviderProvisionerStub(func(
 			context.Context,
 			modelprovider.HostedCredentialRequest,
@@ -276,7 +248,8 @@ func TestDefaultModelProviderProvisioningWorkerDoesNotRetryDeletedOrganization(t
 		return nil
 	}
 	worker := defaultModelProviderProvisioningWorker{
-		store: store,
+		store:    store,
+		template: testDefaultModelProviderTemplate(),
 		provisioner: defaultModelProviderProvisionerStub(func(
 			context.Context,
 			modelprovider.HostedCredentialRequest,
@@ -318,9 +291,12 @@ func testDefaultModelProviderProvisioningClaim() orglifecycle.DefaultModelProvid
 		CreatorUserID: uuid.MustParse("01922e74-9d00-7000-8000-000000000002"),
 		ClaimToken:    uuid.MustParse("01922e74-9d00-7000-8000-000000000003"),
 		Attempt:       1,
-		Template: modelstore.DefaultModelProviderTemplate{
-			Provisioner: "test",
-			Name:        "default-provider",
-		},
+	}
+}
+
+func testDefaultModelProviderTemplate() modelstore.DefaultModelProviderTemplate {
+	return modelstore.DefaultModelProviderTemplate{
+		Provisioner: "test",
+		Name:        "default-provider",
 	}
 }

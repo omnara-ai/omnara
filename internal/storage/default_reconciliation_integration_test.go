@@ -80,11 +80,11 @@ func TestReconcileDefaults(t *testing.T) {
 		},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:               user.ID,
-		Name:                 "Defaults Org",
-		IdempotencyKey:       "defaults-org",
-		DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{initialPool},
-		DefaultModelProvider: &initialProvider,
+		UserID:                        user.ID,
+		Name:                          "Defaults Org",
+		IdempotencyKey:                "defaults-org",
+		DefaultMachinePools:           []executionstore.DefaultMachinePoolTemplate{initialPool},
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create org: %v", err)
@@ -593,11 +593,11 @@ func TestReconcileDefaultsLocksModelsBeforeMachinePools(t *testing.T) {
 		}},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:               user.ID,
-		Name:                 "Reconcile Lock Org",
-		IdempotencyKey:       "reconcile-lock-org",
-		DefaultMachinePools:  initialPools,
-		DefaultModelProvider: &initialProvider,
+		UserID:                        user.ID,
+		Name:                          "Reconcile Lock Org",
+		IdempotencyKey:                "reconcile-lock-org",
+		DefaultMachinePools:           initialPools,
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create lock-order org: %v", err)

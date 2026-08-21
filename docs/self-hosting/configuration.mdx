@@ -155,14 +155,14 @@ configure providers normally.
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
-| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API. See `default-model-provider-example.yaml`. | — | No |
+| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. See `default-model-provider-example.yaml`. | — | No |
 | `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used only by maintenance. | — | With a default provider template |
 | `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used only by maintenance. | — | With a default provider template |
 
-The API commits the organization and its provider template in a durable
-provisioning job. Maintenance then sends `POST /model-provider-credentials` to
-the configured base URL with the organization ID, creator user ID, and stored
-template. The credential service returns `201` with
+The API commits the organization and a durable provisioning job. Maintenance
+then sends `POST /model-provider-credentials` to the configured base URL with
+the organization ID, creator user ID, and its configured template. The
+credential service returns `201` with
 `{"credential_value":"..."}`, `202` while an earlier issuance is still pending,
 `409` for a durable identity conflict, or `5xx` for a retryable failure. Omnara
 encrypts a successful credential and creates the provider, configured models,

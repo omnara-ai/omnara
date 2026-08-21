@@ -23,7 +23,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 )
 
@@ -55,7 +54,7 @@ type Server struct {
 	modelDiscoverer                     modelprovider.DiscoverFunc
 	allowInsecureLocalHostBypass        bool
 	defaultPools                        []executionstore.DefaultMachinePoolTemplate
-	defaultModelProvider                *modelstore.DefaultModelProviderTemplate
+	provisionDefaultModelProvider       bool
 	daemonNotifications                 *daemonNotificationConfig
 	replyPublisher                      replyChannelPublisher
 	mcpOAuthHTTPClient                  *http.Client
@@ -181,9 +180,9 @@ func WithDefaultMachinePools(defaultPoolTemplates []executionstore.DefaultMachin
 	}
 }
 
-func WithDefaultModelProvider(defaultProviderTemplate *modelstore.DefaultModelProviderTemplate) Option {
+func WithDefaultModelProviderProvisioning(enabled bool) Option {
 	return func(s *Server) {
-		s.defaultModelProvider = defaultProviderTemplate
+		s.provisionDefaultModelProvider = enabled
 	}
 }
 

@@ -89,12 +89,12 @@ func (s strictOpenAPIServer) CreateOrganization(
 		return nil, s.createOrganizationStorageError("generate organization id", err)
 	}
 	input := orglifecycle.CreateOrgForUserInput{
-		OrgID:                orgID,
-		UserID:               principal.ID,
-		Name:                 request.Body.Name,
-		IdempotencyKey:       idempotencyKey,
-		DefaultMachinePools:  s.server.defaultPools,
-		DefaultModelProvider: s.server.defaultModelProvider,
+		OrgID:                         orgID,
+		UserID:                        principal.ID,
+		Name:                          request.Body.Name,
+		IdempotencyKey:                idempotencyKey,
+		DefaultMachinePools:           s.server.defaultPools,
+		ProvisionDefaultModelProvider: s.server.provisionDefaultModelProvider,
 	}
 	record, err := s.server.store.Organizations().CreateOrgForUser(ctx, input)
 	if err != nil {

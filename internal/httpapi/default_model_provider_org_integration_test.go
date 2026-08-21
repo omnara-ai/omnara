@@ -26,7 +26,7 @@ func TestCreateOrganizationQueuesDefaultProviderAfterCommit(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	template := testDefaultOpenRouterTemplate()
-	handler := newIntegrationServer(pool, WithDefaultModelProvider(&template))
+	handler := newIntegrationServer(pool, WithDefaultModelProviderProvisioning(true))
 	store := integrationStoreForHandler(t, handler)
 	user, token := createOrgRouteUser(t, pool, store, "postcommit-default-provider")
 
@@ -60,6 +60,7 @@ func TestCreateOrganizationQueuesDefaultProviderAfterCommit(t *testing.T) {
 		ctx,
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
 			Claim:           claim,
+			Template:        template,
 			CredentialValue: "sk-cluster-openrouter",
 		},
 	); err != nil {

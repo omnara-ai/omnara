@@ -1,13 +1,11 @@
 -- name: EnqueueDefaultModelProviderProvisioning :execrows
 INSERT INTO default_model_provider_provisioning_jobs (
     organization_id,
-    creator_user_id,
-    provider_template
+    creator_user_id
 )
 VALUES (
     sqlc.arg(organization_id),
-    sqlc.arg(creator_user_id),
-    sqlc.arg(provider_template)
+    sqlc.arg(creator_user_id)
 )
 ON CONFLICT (organization_id) DO NOTHING;
 
@@ -38,12 +36,11 @@ WHERE job.organization_id = candidate.organization_id
 RETURNING
     job.organization_id,
     job.creator_user_id,
-    job.provider_template,
     job.attempt_count,
     job.claim_token;
 
 -- name: LockDefaultModelProviderProvisioning :one
-SELECT creator_user_id, provider_template
+SELECT creator_user_id
 FROM default_model_provider_provisioning_jobs
 WHERE organization_id = sqlc.arg(organization_id)
   AND claim_token = sqlc.arg(claim_token)::uuid

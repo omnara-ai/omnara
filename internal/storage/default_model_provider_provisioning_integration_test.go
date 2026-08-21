@@ -30,13 +30,14 @@ func mustCompleteDefaultModelProviderProvisioning(
 	if err != nil || !found {
 		t.Fatalf("claim default model provider provisioning: found=%t err=%v", found, err)
 	}
-	if claim.OrgID != orgID || claim.Template.Name != template.Name {
-		t.Fatalf("claimed provisioning = %+v, want organization %s template %q", claim, orgID, template.Name)
+	if claim.OrgID != orgID {
+		t.Fatalf("claimed provisioning = %+v, want organization %s", claim, orgID)
 	}
 	if err := store.Organizations().CompleteDefaultModelProviderProvisioning(
 		ctx,
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
 			Claim:           claim,
+			Template:        template,
 			CredentialValue: credentialValue,
 		},
 	); err != nil {
@@ -53,7 +54,7 @@ func TestDefaultModelProviderProvisioningClaimsAreFenced(t *testing.T) {
 	template := testProvisioningTemplate()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID: user.ID, Name: "Provider Claim Org", IdempotencyKey: "provider-claim-org",
-		DefaultModelProvider: &template,
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
@@ -62,8 +63,7 @@ func TestDefaultModelProviderProvisioningClaimsAreFenced(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("claim provisioning: found=%t err=%v", found, err)
 	}
-	if claim.OrgID != created.Org.ID || claim.CreatorUserID != user.ID || claim.Attempt != 1 ||
-		claim.Template.Name != template.Name || claim.Template.Models[0].Name != template.Models[0].Name {
+	if claim.OrgID != created.Org.ID || claim.CreatorUserID != user.ID || claim.Attempt != 1 {
 		t.Fatalf("unexpected claim: %+v", claim)
 	}
 	if _, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx); err != nil || found {
@@ -87,6 +87,7 @@ func TestDefaultModelProviderProvisioningClaimsAreFenced(t *testing.T) {
 		ctx,
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
 			Claim:           claim,
+			Template:        template,
 			CredentialValue: "stale-credential",
 		},
 	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
@@ -119,6 +120,7 @@ func TestDefaultModelProviderProvisioningClaimsAreFenced(t *testing.T) {
 		ctx,
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
 			Claim:           expiredClaim,
+			Template:        template,
 			CredentialValue: "stale-credential",
 		},
 	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
@@ -128,6 +130,7 @@ func TestDefaultModelProviderProvisioningClaimsAreFenced(t *testing.T) {
 		ctx,
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
 			Claim:           retryClaim,
+			Template:        template,
 			CredentialValue: "current-credential",
 		},
 	); err != nil {
@@ -147,7 +150,7 @@ func TestDefaultModelProviderProvisioningDoesNotClaimConfiguredSecretName(t *tes
 	template := testProvisioningTemplate()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID: user.ID, Name: "Provider Secret Org", IdempotencyKey: "provider-secret-org",
-		DefaultModelProvider: &template,
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
@@ -179,10 +182,9 @@ func TestDeleteOrganizationDeletesDefaultModelProviderProvisioning(t *testing.T)
 	defer pool.Close()
 	store := newSecretIntegrationStore(pool)
 	user := mustCreateIdentityUser(t, ctx, store, "provider-delete@example.com", "Provider Delete Owner")
-	template := testProvisioningTemplate()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID: user.ID, Name: "Provider Delete Org", IdempotencyKey: "provider-delete-org",
-		DefaultModelProvider: &template,
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
@@ -217,7 +219,7 @@ func TestCreatorAccountDeletionPreservesDefaultModelProviderProvisioning(t *test
 	template := testProvisioningTemplate()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID: creator.ID, Name: "Provider Creator Org", IdempotencyKey: "provider-creator-org",
-		DefaultModelProvider: &template,
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create organization: %v", err)

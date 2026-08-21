@@ -768,11 +768,11 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 	}
 	orgID := uuid.New()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		OrgID:                orgID,
-		UserID:               user.ID,
-		Name:                 "Cluster Model Provider Org",
-		IdempotencyKey:       "cluster-model-provider-org",
-		DefaultModelProvider: &template,
+		OrgID:                         orgID,
+		UserID:                        user.ID,
+		Name:                          "Cluster Model Provider Org",
+		IdempotencyKey:                "cluster-model-provider-org",
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create org for user: %v", err)
@@ -1000,11 +1000,11 @@ func TestConflictingProviderSupersedesDefaultProviderProvisioning(t *testing.T) 
 		}},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		OrgID:                orgID,
-		UserID:               user.ID,
-		Name:                 "Durable Provider Org",
-		IdempotencyKey:       "durable-default-provider",
-		DefaultModelProvider: &baseTemplate,
+		OrgID:                         orgID,
+		UserID:                        user.ID,
+		Name:                          "Durable Provider Org",
+		IdempotencyKey:                "durable-default-provider",
+		ProvisionDefaultModelProvider: true,
 		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{
 			defaultMachinePoolTemplateWithDefaultMachineForTest(executionstore.DefaultMachinePoolTemplate{
 				Name:               "rollback-cluster-pool",
@@ -1047,6 +1047,7 @@ func TestConflictingProviderSupersedesDefaultProviderProvisioning(t *testing.T) 
 		ctx,
 		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
 			Claim:           claim,
+			Template:        baseTemplate,
 			CredentialValue: "sk-one",
 		},
 	); !errors.Is(err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded) {
