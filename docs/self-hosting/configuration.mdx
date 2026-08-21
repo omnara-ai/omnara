@@ -149,9 +149,8 @@ Provider notes:
 ### Operator-provisioned default model provider
 
 An installation can give each new organization a model provider without storing
-the upstream credential in configuration. This is optional; most self-hosted
-installations can leave all three variables unset and let organization owners
-configure providers normally.
+the upstream credential in configuration. Leave these variables unset to let
+organization owners configure providers themselves.
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
@@ -159,27 +158,21 @@ configure providers normally.
 | `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
 | `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
 
-The API commits the organization and a durable provisioning job, then
-immediately sends `POST /model-provider-credentials` with the organization ID,
-creator user ID, and configured template. The credential service returns `201` with
-`{"credential_value":"..."}`, `202` while an earlier issuance is still pending,
-`409` for a durable identity conflict, or `5xx` for a retryable failure. Omnara
-encrypts a successful credential and creates the provider, configured models,
-and default-project grants in one transaction.
+The credential service contract has these invariants:
 
-If the initial request fails, or if the local transaction does not commit after
-a `201`, maintenance repeats the same operation with backoff. Both processes use
-the same configured template and provisioning path. The credential service must
-use the organization ID as the stable issuance identity: it can return `202`
-while recovery is in progress, but must eventually return a usable `201`
-credential that supersedes the uncommitted issuance. It should reserve `409` for
-durable identity or provisioner mismatches that require operator action.
-
-Organization creation does not depend on that network call succeeding. If the
-credential service is unavailable, the organization remains usable and
-maintenance retries with backoff. Run migrations before deploying the API and
-maintenance binaries; both need the normal secret-encryption key ring so they
-can store the credential.
+- `POST /model-provider-credentials` receives the organization ID, creator user
+  ID, and provider template. A successful response is `201` with
+  `{"credential_value":"..."}`; `202` and `5xx` are retryable, while `409`
+  represents a durable identity or provisioner conflict.
+- The organization ID is the stable issuance identity. The same request may be
+  repeated until Omnara commits the credential, provider, models, grants, and job
+  completion together. The credential service must recover ambiguous issuance
+  without returning an unusable credential.
+- Organization creation never depends on credential issuance. The API attempts
+  provisioning after commit, and maintenance retries failures.
+- Apply migrations before deploying both binaries. The API and maintenance must
+  use the same template, credential-service configuration, and secret-encryption
+  key ring.
 
 ### Host daemon configuration
 

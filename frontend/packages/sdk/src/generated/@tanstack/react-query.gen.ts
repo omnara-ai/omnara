@@ -192,13 +192,10 @@ export const recordMachineFailureMutation = (options?: Partial<Options<RecordMac
  * Create organization
  *
  * Creates the organization and its local default resources atomically.
- * When supplied, the idempotency key determines the proposed organization
- * ID. Reusing it after a completed request returns the existing
- * organization. Without a key, each request is a fresh attempt. When an
- * operator-provisioned default model provider is configured, its credential
- * and model resources are created immediately after the organization commits
- * when possible. Failures retry asynchronously without failing organization
- * creation.
+ * An idempotency key determines the proposed organization ID; replaying it
+ * returns the existing organization. Without a key, each request is a fresh
+ * attempt. Optional default-provider provisioning begins after commit and
+ * retries asynchronously without failing organization creation.
  *
  */
 export const createOrganizationMutation = (options?: Partial<Options<CreateOrganizationData>>): UseMutationOptions<CreateOrganizationResponse2, CreateOrganizationError, Options<CreateOrganizationData>> => {

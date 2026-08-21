@@ -23,8 +23,7 @@ const (
 	maximumDefaultModelProviderRetryDelay      = 24 * time.Hour
 )
 
-// ErrDefaultModelProviderProvisioningSuperseded means the durable job was removed
-// because the organization can no longer accept the configured default provider.
+// ErrDefaultModelProviderProvisioningSuperseded means organization state made the job terminal.
 var ErrDefaultModelProviderProvisioningSuperseded = errors.New(
 	"default model provider provisioning was superseded by organization state",
 )
