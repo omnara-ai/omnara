@@ -26,7 +26,10 @@ func mustCompleteDefaultModelProviderProvisioning(
 	credentialValue string,
 ) {
 	t.Helper()
-	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx)
+	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioningForOrganization(
+		ctx,
+		orgID,
+	)
 	if err != nil || !found {
 		t.Fatalf("claim default model provider provisioning: found=%t err=%v", found, err)
 	}
@@ -59,7 +62,10 @@ func TestDefaultModelProviderProvisioningClaimsAreFenced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
-	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx)
+	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioningForOrganization(
+		ctx,
+		created.Org.ID,
+	)
 	if err != nil || !found {
 		t.Fatalf("claim provisioning: found=%t err=%v", found, err)
 	}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
@@ -166,21 +167,21 @@ func main() {
 			metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient),
 			metrics.WithHTTPClientPathLabel(modelprovider.HostedCredentialPath),
 		)
-		worker := defaultModelProviderProvisioningWorker{
-			store: store.Organizations(),
-			provisioner: modelprovider.HTTPHostedCredentialProvisioner{
+		runner := defaultprovider.NewRunner(
+			store.Organizations(),
+			modelprovider.HTTPHostedCredentialProvisioner{
 				BaseURL:    cfg.HostedAPIURL,
 				Token:      cfg.HostedAPIToken,
 				HTTPClient: hostedHTTPClient,
 			},
-			template: *cfg.DefaultModelProvider,
-		}
+			*cfg.DefaultModelProvider,
+		)
 		go func() {
 			defer close(defaultModelProviderDone)
 			runDefaultModelProviderProvisioningLoop(
 				ctx,
 				logger,
-				worker,
+				runner,
 				cfg.MaintenanceInterval,
 			)
 		}()

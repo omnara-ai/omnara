@@ -65,6 +65,59 @@ func (q *Queries) ClaimDefaultModelProviderProvisioning(ctx context.Context, arg
 	return i, err
 }
 
+const claimDefaultModelProviderProvisioningForOrganization = `-- name: ClaimDefaultModelProviderProvisioningForOrganization :one
+WITH candidate AS (
+    SELECT job.organization_id
+    FROM default_model_provider_provisioning_jobs job
+    JOIN orgs organization
+      ON organization.id = job.organization_id
+     AND organization.deleted_at IS NULL
+    WHERE job.organization_id = $2
+      AND (
+          job.claim_expires_at IS NULL
+          OR job.claim_expires_at <= statement_timestamp()
+      )
+    FOR UPDATE OF job SKIP LOCKED
+)
+UPDATE default_model_provider_provisioning_jobs job
+SET attempt_count = job.attempt_count + 1,
+    claim_token = uuidv7(),
+    claim_expires_at = statement_timestamp()
+        + $1::bigint * interval '1 second',
+    updated_at = statement_timestamp()
+FROM candidate
+WHERE job.organization_id = candidate.organization_id
+RETURNING
+    job.organization_id,
+    job.creator_user_id,
+    job.attempt_count,
+    job.claim_token
+`
+
+type ClaimDefaultModelProviderProvisioningForOrganizationParams struct {
+	ClaimLeaseSeconds int64
+	OrganizationID    uuid.UUID
+}
+
+type ClaimDefaultModelProviderProvisioningForOrganizationRow struct {
+	OrganizationID uuid.UUID
+	CreatorUserID  uuid.UUID
+	AttemptCount   int32
+	ClaimToken     *uuid.UUID
+}
+
+func (q *Queries) ClaimDefaultModelProviderProvisioningForOrganization(ctx context.Context, arg ClaimDefaultModelProviderProvisioningForOrganizationParams) (ClaimDefaultModelProviderProvisioningForOrganizationRow, error) {
+	row := q.db.QueryRow(ctx, claimDefaultModelProviderProvisioningForOrganization, arg.ClaimLeaseSeconds, arg.OrganizationID)
+	var i ClaimDefaultModelProviderProvisioningForOrganizationRow
+	err := row.Scan(
+		&i.OrganizationID,
+		&i.CreatorUserID,
+		&i.AttemptCount,
+		&i.ClaimToken,
+	)
+	return i, err
+}
+
 const completeDefaultModelProviderProvisioning = `-- name: CompleteDefaultModelProviderProvisioning :execrows
 DELETE FROM default_model_provider_provisioning_jobs
 WHERE organization_id = $1

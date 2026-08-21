@@ -83,7 +83,7 @@ func TestLoadDefaultModelProviderExample(t *testing.T) {
 	}
 }
 
-func TestDefaultModelProviderTemplateOnlyRequiresCredentialServiceInMaintenance(t *testing.T) {
+func TestDefaultModelProviderTemplateRequiresCredentialService(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")
 	if err := os.WriteFile(path, []byte(`
@@ -106,12 +106,13 @@ models:
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if err := cfg.ValidateAPI(); err != nil {
-		t.Fatalf("ValidateAPI error = %v, want nil", err)
-	}
-	if err := cfg.ValidateMaintenance(); err == nil ||
-		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_URL") {
-		t.Fatalf("ValidateMaintenance error = %v, want missing hosted API URL", err)
+	for name, validate := range map[string]func() error{
+		"API":         cfg.ValidateAPI,
+		"maintenance": cfg.ValidateMaintenance,
+	} {
+		if err := validate(); err == nil || !strings.Contains(err.Error(), "OMNARA_HOSTED_API_URL") {
+			t.Fatalf("Validate%s error = %v, want missing hosted API URL", name, err)
+		}
 	}
 	if cfg.DefaultModelProvider == nil ||
 		len(cfg.DefaultModelProvider.Models) != 1 ||
@@ -134,9 +135,14 @@ func TestHostedCredentialServiceRequiresDefaultModelProviderTemplate(t *testing.
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if err := cfg.ValidateMaintenance(); err == nil ||
-		!strings.Contains(err.Error(), "OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE") {
-		t.Fatalf("ValidateMaintenance error = %v, want missing default model provider template", err)
+	for name, validate := range map[string]func() error{
+		"API":         cfg.ValidateAPI,
+		"maintenance": cfg.ValidateMaintenance,
+	} {
+		if err := validate(); err == nil ||
+			!strings.Contains(err.Error(), "OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE") {
+			t.Fatalf("Validate%s error = %v, want missing default model provider template", name, err)
+		}
 	}
 }
 
@@ -212,7 +218,7 @@ models:
 	}
 }
 
-func TestDefaultModelProviderTemplateMaintenanceRequiresHostedAPIToken(t *testing.T) {
+func TestDefaultModelProviderTemplateRequiresHostedAPIToken(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	path := writeDefaultModelProviderTemplateTestFile(t, `
 provisioner: openrouter
@@ -233,12 +239,13 @@ models:
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if err := cfg.ValidateAPI(); err != nil {
-		t.Fatalf("ValidateAPI error = %v, want nil", err)
-	}
-	if err := cfg.ValidateMaintenance(); err == nil ||
-		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_TOKEN") {
-		t.Fatalf("ValidateMaintenance error = %v, want missing hosted API token", err)
+	for name, validate := range map[string]func() error{
+		"API":         cfg.ValidateAPI,
+		"maintenance": cfg.ValidateMaintenance,
+	} {
+		if err := validate(); err == nil || !strings.Contains(err.Error(), "OMNARA_HOSTED_API_TOKEN") {
+			t.Fatalf("Validate%s error = %v, want missing hosted API token", name, err)
+		}
 	}
 }
 
@@ -280,9 +287,14 @@ models:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if err := cfg.ValidateAPI(); err == nil ||
-		!strings.Contains(err.Error(), "hosted credential request exceeds size limit") {
-		t.Fatalf("ValidateAPI error = %v, want hosted request size limit", err)
+	for name, validate := range map[string]func() error{
+		"API":         cfg.ValidateAPI,
+		"maintenance": cfg.ValidateMaintenance,
+	} {
+		if err := validate(); err == nil ||
+			!strings.Contains(err.Error(), "hosted credential request exceeds size limit") {
+			t.Fatalf("Validate%s error = %v, want hosted request size limit", name, err)
+		}
 	}
 }
 

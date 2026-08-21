@@ -65,16 +65,59 @@ func (s *Service) ClaimDefaultModelProviderProvisioning(
 			err,
 		)
 	}
-	if row.ClaimToken == nil || *row.ClaimToken == uuid.Nil || row.AttemptCount <= 0 {
+	return defaultModelProviderProvisioningClaim(
+		row.OrganizationID,
+		row.CreatorUserID,
+		row.ClaimToken,
+		row.AttemptCount,
+	)
+}
+
+func (s *Service) ClaimDefaultModelProviderProvisioningForOrganization(
+	ctx context.Context,
+	organizationID ID,
+) (DefaultModelProviderProvisioningClaim, bool, error) {
+	if isNilID(organizationID) {
+		return DefaultModelProviderProvisioningClaim{}, false, errors.New("organization is required")
+	}
+	row, err := s.q.ClaimDefaultModelProviderProvisioningForOrganization(
+		ctx,
+		dbsqlc.ClaimDefaultModelProviderProvisioningForOrganizationParams{
+			OrganizationID:    organizationID,
+			ClaimLeaseSeconds: int64(defaultModelProviderProvisioningClaimLease / time.Second),
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DefaultModelProviderProvisioningClaim{}, false, nil
+	}
+	if err != nil {
+		return DefaultModelProviderProvisioningClaim{}, false, fmt.Errorf(
+			"claim default model provider provisioning for organization: %w",
+			err,
+		)
+	}
+	return defaultModelProviderProvisioningClaim(
+		row.OrganizationID,
+		row.CreatorUserID,
+		row.ClaimToken,
+		row.AttemptCount,
+	)
+}
+
+func defaultModelProviderProvisioningClaim(
+	organizationID, creatorUserID ID,
+	claimToken *ID,
+	attempt int32,
+) (DefaultModelProviderProvisioningClaim, bool, error) {
+	if claimToken == nil || *claimToken == uuid.Nil || attempt <= 0 {
 		return DefaultModelProviderProvisioningClaim{}, false, storeerr.ErrStateTransitionConflict
 	}
-	claim := DefaultModelProviderProvisioningClaim{
-		OrgID:         row.OrganizationID,
-		CreatorUserID: row.CreatorUserID,
-		ClaimToken:    *row.ClaimToken,
-		Attempt:       row.AttemptCount,
-	}
-	return claim, true, nil
+	return DefaultModelProviderProvisioningClaim{
+		OrgID:         organizationID,
+		CreatorUserID: creatorUserID,
+		ClaimToken:    *claimToken,
+		Attempt:       attempt,
+	}, true, nil
 }
 
 func (s *Service) CompleteDefaultModelProviderProvisioning(

@@ -39,6 +39,34 @@ RETURNING
     job.attempt_count,
     job.claim_token;
 
+-- name: ClaimDefaultModelProviderProvisioningForOrganization :one
+WITH candidate AS (
+    SELECT job.organization_id
+    FROM default_model_provider_provisioning_jobs job
+    JOIN orgs organization
+      ON organization.id = job.organization_id
+     AND organization.deleted_at IS NULL
+    WHERE job.organization_id = sqlc.arg(organization_id)
+      AND (
+          job.claim_expires_at IS NULL
+          OR job.claim_expires_at <= statement_timestamp()
+      )
+    FOR UPDATE OF job SKIP LOCKED
+)
+UPDATE default_model_provider_provisioning_jobs job
+SET attempt_count = job.attempt_count + 1,
+    claim_token = uuidv7(),
+    claim_expires_at = statement_timestamp()
+        + sqlc.arg(claim_lease_seconds)::bigint * interval '1 second',
+    updated_at = statement_timestamp()
+FROM candidate
+WHERE job.organization_id = candidate.organization_id
+RETURNING
+    job.organization_id,
+    job.creator_user_id,
+    job.attempt_count,
+    job.claim_token;
+
 -- name: LockDefaultModelProviderProvisioning :one
 SELECT creator_user_id
 FROM default_model_provider_provisioning_jobs

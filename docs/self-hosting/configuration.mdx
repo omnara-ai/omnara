@@ -156,30 +156,30 @@ configure providers normally.
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
 | `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. See `default-model-provider-example.yaml`. | — | No |
-| `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used only by maintenance. | — | With a default provider template |
-| `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used only by maintenance. | — | With a default provider template |
+| `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
+| `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
 
-The API commits the organization and a durable provisioning job. Maintenance
-then sends `POST /model-provider-credentials` to the configured base URL with
-the organization ID, creator user ID, and its configured template. The
-credential service returns `201` with
+The API commits the organization and a durable provisioning job, then
+immediately sends `POST /model-provider-credentials` with the organization ID,
+creator user ID, and configured template. The credential service returns `201` with
 `{"credential_value":"..."}`, `202` while an earlier issuance is still pending,
 `409` for a durable identity conflict, or `5xx` for a retryable failure. Omnara
 encrypts a successful credential and creates the provider, configured models,
 and default-project grants in one transaction.
 
-If that local transaction does not commit after a `201`, maintenance repeats
-the same request. The credential service must use the organization ID as the
-stable issuance identity: it can return `202` while recovery is in progress,
-but must eventually return a usable `201` credential that supersedes the
-uncommitted issuance. It should reserve `409` for durable identity or
-provisioner mismatches that require operator action.
+If the initial request fails, or if the local transaction does not commit after
+a `201`, maintenance repeats the same operation with backoff. Both processes use
+the same configured template and provisioning path. The credential service must
+use the organization ID as the stable issuance identity: it can return `202`
+while recovery is in progress, but must eventually return a usable `201`
+credential that supersedes the uncommitted issuance. It should reserve `409` for
+durable identity or provisioner mismatches that require operator action.
 
-Organization creation does not depend on that network call. If the credential
-service is unavailable, the organization remains usable and maintenance retries
-with backoff. Run migrations before deploying the API and maintenance binaries;
-maintenance also needs the normal secret-encryption key ring so it can store the
-credential.
+Organization creation does not depend on that network call succeeding. If the
+credential service is unavailable, the organization remains usable and
+maintenance retries with backoff. Run migrations before deploying the API and
+maintenance binaries; both need the normal secret-encryption key ring so they
+can store the credential.
 
 ### Host daemon configuration
 

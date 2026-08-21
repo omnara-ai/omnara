@@ -4,12 +4,14 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -22,11 +24,34 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
-func TestCreateOrganizationQueuesDefaultProviderAfterCommit(t *testing.T) {
+type hostedCredentialProvisionerFunc func(
+	context.Context,
+	modelprovider.HostedCredentialRequest,
+) (modelprovider.ProvisionHostedCredentialResponse, error)
+
+func (provision hostedCredentialProvisionerFunc) ProvisionHostedCredential(
+	ctx context.Context,
+	request modelprovider.HostedCredentialRequest,
+) (modelprovider.ProvisionHostedCredentialResponse, error) {
+	return provision(ctx, request)
+}
+
+func TestCreateOrganizationFallsBackToDefaultProviderMaintenance(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	template := testDefaultOpenRouterTemplate()
-	handler := newIntegrationServer(pool, WithDefaultModelProviderProvisioning(true))
+	var provisionRequest modelprovider.HostedCredentialRequest
+	handler := newIntegrationServer(
+		pool,
+		WithDefaultModelProvider(&template),
+		WithHostedCredentialProvisioner(hostedCredentialProvisionerFunc(func(
+			_ context.Context,
+			request modelprovider.HostedCredentialRequest,
+		) (modelprovider.ProvisionHostedCredentialResponse, error) {
+			provisionRequest = request
+			return modelprovider.ProvisionHostedCredentialResponse{}, errors.New("provider unavailable")
+		})),
+	)
 	store := integrationStoreForHandler(t, handler)
 	user, token := createOrgRouteUser(t, pool, store, "postcommit-default-provider")
 
@@ -48,12 +73,24 @@ func TestCreateOrganizationQueuesDefaultProviderAfterCommit(t *testing.T) {
 	if _, err := store.Models().GetModelProviderConfigByName(ctx, orgID, template.Name); !storeerr.IsNotFound(err) {
 		t.Fatalf("provider before post-commit provisioning error = %v, want not found", err)
 	}
+	wantCreatorID, _ := publicid.Encode(publicid.KindUser, user.ID)
+	if provisionRequest.OrgID != publicOrgID || provisionRequest.CreatorUserID != wantCreatorID ||
+		provisionRequest.Template.Name != template.Name {
+		t.Fatalf("unexpected initial provision request: %+v", provisionRequest)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE default_model_provider_provisioning_jobs
+		SET next_attempt_at = statement_timestamp()
+		WHERE organization_id = $1
+	`, orgID); err != nil {
+		t.Fatalf("make provisioning retry due: %v", err)
+	}
 
 	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx)
 	if err != nil || !found {
 		t.Fatalf("claim default provider provisioning: found=%t err=%v", found, err)
 	}
-	if claim.OrgID != orgID || claim.CreatorUserID != user.ID || claim.Attempt != 1 {
+	if claim.OrgID != orgID || claim.CreatorUserID != user.ID || claim.Attempt != 2 {
 		t.Fatalf("unexpected provisioning claim: %+v", claim)
 	}
 	if err := store.Organizations().CompleteDefaultModelProviderProvisioning(
@@ -101,6 +138,53 @@ func TestCreateOrganizationQueuesDefaultProviderAfterCommit(t *testing.T) {
 	}
 	if _, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx); err != nil || found {
 		t.Fatalf("claim after completed replay: found=%t err=%v", found, err)
+	}
+}
+
+func TestCreateOrganizationProvisionsDefaultProviderImmediately(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	template := testDefaultOpenRouterTemplate()
+	calls := 0
+	handler := newIntegrationServer(
+		pool,
+		WithDefaultModelProvider(&template),
+		WithHostedCredentialProvisioner(hostedCredentialProvisionerFunc(func(
+			context.Context,
+			modelprovider.HostedCredentialRequest,
+		) (modelprovider.ProvisionHostedCredentialResponse, error) {
+			calls++
+			return modelprovider.ProvisionHostedCredentialResponse{
+				CredentialValue: "sk-immediate-openrouter",
+			}, nil
+		})),
+	)
+	store := integrationStoreForHandler(t, handler)
+	_, token := createOrgRouteUser(t, pool, store, "immediate-default-provider")
+
+	created := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs",
+		`{"name":"Immediate Provider Org"}`,
+		"immediate-provider-org",
+		http.StatusCreated,
+		authHeaders(token),
+	)
+	publicOrgID := created["org"].(map[string]any)["id"].(string)
+	orgID, err := publicid.Decode(publicid.KindOrganization, publicOrgID)
+	if err != nil {
+		t.Fatalf("decode organization id: %v", err)
+	}
+	if _, err := store.Models().GetModelProviderConfigByName(ctx, orgID, template.Name); err != nil {
+		t.Fatalf("get immediately provisioned model provider: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("credential provision calls = %d, want 1", calls)
+	}
+	if _, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx); err != nil || found {
+		t.Fatalf("claim after immediate provisioning: found=%t err=%v", found, err)
 	}
 }
 

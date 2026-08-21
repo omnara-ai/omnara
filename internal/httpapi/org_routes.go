@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
@@ -94,11 +95,33 @@ func (s strictOpenAPIServer) CreateOrganization(
 		Name:                          request.Body.Name,
 		IdempotencyKey:                idempotencyKey,
 		DefaultMachinePools:           s.server.defaultPools,
-		ProvisionDefaultModelProvider: s.server.provisionDefaultModelProvider,
+		ProvisionDefaultModelProvider: s.server.defaultModelProvider != nil,
 	}
 	record, err := s.server.store.Organizations().CreateOrgForUser(ctx, input)
 	if err != nil {
 		return nil, s.createOrganizationStorageError("commit organization creation", err)
+	}
+	if record.Created && s.server.defaultModelProvider != nil && s.server.hostedCredentialProvisioner != nil {
+		runner := defaultprovider.NewRunner(
+			s.server.store.Organizations(),
+			s.server.hostedCredentialProvisioner,
+			*s.server.defaultModelProvider,
+		)
+		attempted, publicOrgID, provisionErr := runner.RunOrganization(ctx, record.Org.ID)
+		if provisionErr != nil {
+			s.server.log.Warn(
+				"defer default model provider provisioning",
+				"org_id", publicOrgID,
+				"provider_name", s.server.defaultModelProvider.Name,
+				"error", provisionErr,
+			)
+		} else if attempted {
+			s.server.log.Info(
+				"provisioned default model provider",
+				"org_id", publicOrgID,
+				"provider_name", s.server.defaultModelProvider.Name,
+			)
+		}
 	}
 	return createOrganizationResponse(ctx, record)
 }

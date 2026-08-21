@@ -367,8 +367,13 @@ func apiOptions(
 		httpapi.WithAgentStreamDeltaSubscriber(redisBus),
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
-		httpapi.WithDefaultModelProviderProvisioning(cfg.DefaultModelProvider != nil),
+		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),
 		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog())),
+		httpapi.WithHostedCredentialProvisioner(modelprovider.HTTPHostedCredentialProvisioner{
+			BaseURL:    cfg.HostedAPIURL,
+			Token:      cfg.HostedAPIToken,
+			HTTPClient: operatorHTTPClient,
+		}),
 		httpapi.WithMachinePoolManager(machinePoolManager),
 		httpapi.WithDaemonReleaseURL(cfg.DaemonReleaseURL),
 		httpapi.WithDaemonSocketFallbackDrainTiming(
