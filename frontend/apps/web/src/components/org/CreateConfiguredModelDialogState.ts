@@ -28,21 +28,17 @@ type DiscoveredModelPrefillField =
   | 'maxOutputTokens'
   | 'defaultMaxOutputTokens'
 
-function isGeneratedName(providerName: string, values: ConfiguredModelFormValues) {
-  return values.name === `${providerName} - ${values.providerModelSlug}`
+function isGeneratedName(values: ConfiguredModelFormValues) {
+  return values.name === values.providerModelSlug
 }
 
 export function discoveredModelPrefill(
-  providerName: string | undefined,
   values: ConfiguredModelFormValues,
   model: DiscoveredProviderModel,
 ): [DiscoveredModelPrefillField, string][] {
   const updates: [DiscoveredModelPrefillField, string][] = [['providerModelSlug', model.slug]]
-  if (
-    providerName !== undefined &&
-    (values.name.trim() === '' || isGeneratedName(providerName, values))
-  ) {
-    updates.push(['name', `${providerName} - ${model.slug}`])
+  if (values.name.trim() === '' || isGeneratedName(values)) {
+    updates.push(['name', model.slug])
   }
   updates.push([
     'contextWindowTokens',
@@ -63,7 +59,6 @@ export function discoveredModelPrefill(
 }
 
 export function providerChangeReset(
-  previousProviderName: string | undefined,
   values: ConfiguredModelFormValues,
 ): [DiscoveredModelPrefillField, string][] {
   const updates: [DiscoveredModelPrefillField, string][] = [
@@ -72,7 +67,7 @@ export function providerChangeReset(
     ['maxOutputTokens', ''],
     ['defaultMaxOutputTokens', ''],
   ]
-  if (previousProviderName !== undefined && isGeneratedName(previousProviderName, values)) {
+  if (isGeneratedName(values)) {
     updates.push(['name', ''])
   }
   return updates
