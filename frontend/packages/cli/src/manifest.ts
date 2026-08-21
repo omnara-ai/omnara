@@ -3,6 +3,13 @@ import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
 import {
+  agentChatOp,
+  agentEventsStreamOp,
+  agentInputOp,
+  formatAgentEventList,
+  zListEventsCliQuery,
+} from './agent-commands.ts'
+import {
   currentProfileConfigId,
   renderConfigSource,
   resolveConfigId,
@@ -101,6 +108,56 @@ export const commandGroups: CommandGroup[] = [
         body: zMcpAddBody,
         run: runAgentMcpAdd,
       }),
+      agentChatOp,
+      agentInputOp,
+    ],
+    groups: [
+      {
+        name: 'events',
+        aliases: ['event'],
+        summary: "Inspect an agent's event log",
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List an agent's events",
+            fn: sdk.listEvents,
+            format: formatAgentEventList,
+            path: schemas.zListEventsPath,
+            query: zListEventsCliQuery,
+          }),
+          agentEventsStreamOp,
+        ],
+      },
+      {
+        name: 'interactions',
+        aliases: ['interaction'],
+        summary: "Manage an agent's interactions",
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List an agent's interactions",
+            fn: sdk.listAgentInteractions,
+            format: (response) =>
+              formatTable(['id', 'interaction_kind', 'state', 'title', 'created_at'])({
+                data: response.data.map((interaction) => ({
+                  ...interaction,
+                  title: interaction.request.title,
+                })),
+                next_cursor: response.next_cursor,
+              }),
+            path: schemas.zListAgentInteractionsPath,
+            query: schemas.zListAgentInteractionsQuery,
+          }),
+          op({
+            verb: 'resolve',
+            summary: 'Resolve an open interaction',
+            fn: sdk.resolveAgentInteraction,
+            format: formatRecord(),
+            path: schemas.zResolveAgentInteractionPath,
+            body: schemas.zResolveAgentInteractionBody,
+          }),
+        ],
+      },
     ],
   },
   {
