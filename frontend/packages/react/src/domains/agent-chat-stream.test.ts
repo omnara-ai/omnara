@@ -396,7 +396,13 @@ describe('AgentChatSession streaming', () => {
 
     stream.push({ event: 'agent_input', data: userInputEvent() })
     await waitForSnapshot(session, (s) => s.status === 'streaming')
-    expect(invalidate).not.toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(1)
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: [expect.objectContaining({ _id: 'listQueuedBacklogInputs' })],
+    })
+    invalidate.mockClear()
 
     stream.push({
       event: 'model_output',

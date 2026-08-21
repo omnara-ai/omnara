@@ -195,7 +195,7 @@ func publicToolResultFromRecord(
 }
 
 func publicAgentInputResponseFromRecord(record executionstore.AgentInputRecord) (openapi.AgentInput, error) {
-	return publicAgentInputResponseFromRecordWithContent(record, nil)
+	return publicAgentInputResponseFromRecordWithContent(record, record.ContentBlocks)
 }
 
 func publicAgentInputResponseFromRecordWithContent(

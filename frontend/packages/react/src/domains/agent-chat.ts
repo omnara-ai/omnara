@@ -29,6 +29,7 @@ import {
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import { agentInputBacklogQueryKey } from './agent-input-backlog'
 import { openAgentInteractionsQueryKey } from './agent-interactions'
 
 export type {
@@ -172,7 +173,10 @@ export class AgentChatSession {
         },
       })
       this.lastFailedSend = null
-      if (this.inputEchoLoaded(id)) this.clearPendingInput(id)
+      this.clearPendingInput(id)
+      void this.queryClient.invalidateQueries({
+        queryKey: agentInputBacklogQueryKey(this.client, this.scope),
+      })
       void this.queryClient.invalidateQueries({
         predicate: projectActorsQueryPredicate(this.scope.orgID, this.scope.projectID),
       })
@@ -253,6 +257,11 @@ export class AgentChatSession {
       }
       void this.queryClient.invalidateQueries({
         predicate: projectActorsQueryPredicate(this.scope.orgID, this.scope.projectID),
+      })
+    }
+    if (event.event_kind === 'agent_input' && event.input_kind === 'content') {
+      void this.queryClient.invalidateQueries({
+        queryKey: agentInputBacklogQueryKey(this.client, this.scope),
       })
     }
     if (event.event_kind === 'model_output') {

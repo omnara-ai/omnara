@@ -4,6 +4,7 @@ import { type KeyboardEvent, type SyntheticEvent, useState } from 'react'
 import { SendHorizontal, Square } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 
 export function AgentComposer({
   chat,
@@ -11,12 +12,14 @@ export function AgentComposer({
   cancelPending,
   cancelError,
   canOperate,
+  className,
 }: {
   chat: UseAgentChatResult
   onCancel: () => Promise<unknown>
   cancelPending: boolean
   cancelError?: Error | null
   canOperate: boolean
+  className?: string
 }) {
   const [text, setText] = useState('')
   const working = chat.isWorking
@@ -46,7 +49,10 @@ export function AgentComposer({
   }
 
   return (
-    <form onSubmit={onSubmit} className="bg-background rounded-xl border p-2 shadow-sm">
+    <form
+      onSubmit={onSubmit}
+      className={cn('bg-background rounded-xl border p-2 shadow-sm', className)}
+    >
       {chat.error && <p className="text-destructive px-2 pb-2 text-xs">{chat.error.message}</p>}
       {cancelError && <p className="text-destructive px-2 pb-2 text-xs">{cancelError.message}</p>}
       <Textarea
