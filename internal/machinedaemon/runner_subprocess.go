@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 const (
@@ -43,11 +44,12 @@ func (subprocessRunnerLauncher) Prepare(
 	assignment ProcessAssignment,
 ) (*processRuntime, error) {
 	if assignment.PreparationError == "" {
-		canonicalCwd, err := filepath.Abs(assignment.Process.Cwd)
+		canonicalCwd, err := canonicalProcessCwd(assignment.Process.Cwd, os.UserHomeDir)
 		if err != nil {
-			return nil, err
+			assignment.PreparationError = err.Error()
+		} else {
+			assignment.Process.Cwd = canonicalCwd
 		}
-		assignment.Process.Cwd = canonicalCwd
 	}
 	machine, err := c.machineStore()
 	if err != nil {
@@ -319,6 +321,24 @@ func (subprocessRunnerLauncher) Prepare(
 		return runtime, fail(err)
 	}
 	return runtime, nil
+}
+
+func canonicalProcessCwd(cwd string, userHomeDir func() (string, error)) (string, error) {
+	if processcmd.IsHomeRelativeCwd(cwd) {
+		home, err := userHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve process working directory home: %w", err)
+		}
+		if home == "" {
+			return "", errors.New("resolve process working directory home: home is empty")
+		}
+		if cwd == "~" {
+			cwd = home
+		} else {
+			cwd = filepath.Join(home, cwd[2:])
+		}
+	}
+	return filepath.Abs(cwd)
 }
 
 func (r *ipcProcessRunner) prepare(

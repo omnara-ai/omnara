@@ -65,6 +65,8 @@ A binding stores the working directory and environment for that agent. It also g
 ]
 ```
 
+In working-directory values, `~` and paths beginning with `~/` resolve using the machine daemon's home environment (`HOME` on macOS and Linux or `USERPROFILE` on Windows). The process fails to start if that value is unavailable. Omnara does not expand `~user`, environment variables, or globs.
+
 Bindings remain `attached` until released. Releasing a pool binding schedules its machine for deletion; releasing a BYO binding only detaches it from the agent. Archiving an agent releases all of its bindings. The [command and process tools](/tools/built-in#commands) use these bindings.
 
 ## Reading order

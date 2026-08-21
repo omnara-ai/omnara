@@ -84,6 +84,10 @@ func NormalizeIOMode(value IOMode) (IOMode, error) {
 	}
 }
 
+func IsHomeRelativeCwd(cwd string) bool {
+	return cwd == "~" || strings.HasPrefix(cwd, "~/")
+}
+
 func ResolveShellCommand(command string, shell ShellSelector, goos string) ([]string, error) {
 	spec, err := NormalizeShellCommand(command, shell)
 	if err != nil {
