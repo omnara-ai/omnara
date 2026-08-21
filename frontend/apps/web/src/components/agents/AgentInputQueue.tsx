@@ -73,11 +73,13 @@ export function AgentInputQueue({
     if (oldIndex === -1 || newIndex === -1) return
 
     setOrderedInputs(arrayMove(visibleInputs, oldIndex, newIndex))
-    try {
-      await onMove(String(active.id), String(over.id), oldIndex < newIndex ? 'after' : 'before')
-    } finally {
+    await onMove(
+      String(active.id),
+      String(over.id),
+      oldIndex < newIndex ? 'after' : 'before',
+    ).finally(() => {
       setOrderedInputs(null)
-    }
+    })
   }
 
   return (
