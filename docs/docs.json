@@ -15,13 +15,13 @@
   },
   "favicon": "/favicon.ico",
   "colors": {
-    "primary": "#d4a843",
-    "light": "#c9b06a",
-    "dark": "#1A1A1A"
+    "primary": "#4372cf",
+    "light": "#81a1df",
+    "dark": "#3162c2"
   },
   "background": {
     "color": {
-      "dark": "#1a1917"
+      "dark": "#0b0b0c"
     },
     "decoration": "gradient"
   },
@@ -52,7 +52,7 @@
     ],
     "primary": {
       "type": "button",
-      "label": "Console",
+      "label": "Dashboard",
       "href": "https://app.omnara.com"
     }
   },
@@ -75,7 +75,7 @@
             "pages": [
               "introduction",
               "quickstart",
-              "how-omnara-works"
+              "concepts"
             ]
           },
           {

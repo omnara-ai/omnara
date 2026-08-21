@@ -4,3 +4,39 @@ description: Key concepts to understand when using Omnara
 icon: "hand-wave"
 ---
 
+## Organizations and projects
+
+When you join Omnara, you join or create an **organization**. Organizations manage [memberships](/organization/members), own shared team resources, and contain **projects**. Projects contain [agents](/agents/overview), their [configs and profiles](/agents/configuration), and the grants that control which shared resources those agents may use.
+
+## Resources
+
+Shared resources are owned at the org, project, or user scope:
+
+- **[Machines and machine pools](/machines/overview)** (org owned): existing computers you [connect](/machines/connect) (BYO) or [pools](/machines/pools) of ephemeral sandboxes that agents run commands on.
+- **[Model providers and models](/organization/model-providers)** (org owned): the model endpoints and configured models agents can use.
+- **[Skills](/tools/skills)** (org, project, or user owned): reusable instructions and tools for agents.
+- **[Secrets](/organization/secrets)** (org, project, or user owned): credentials referenced by model providers, machine and their environments, and [MCP servers](/tools/mcp).
+
+## Grants
+
+A project can use a resource only if it owns it or holds an explicit **grant**. Org and user ownership alone don't make a resource visible to a project — granting is the deliberate step that shares a model, pool, machine, secret, or skill with a project. Own each resource at the narrowest scope that needs it, and grant outward.
+
+## Agents
+
+[Agents](/agents/overview) are the core feature of Omnara. Define an agent's model, [tools](/tools/permissions), and instructions in a [config or profile](/agents/configuration). Then Omnara runs the agent loop and runtime. 
+
+Once an agent has started, interact with it by:
+* Reading or [streaming](/events/streaming) it's event log
+* [Sending inputs](/events/sending-input), such as messages or file attachments 
+* Resolving [questions and approvals](/events/interactions)
+
+## Continue
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Write a config, create the grants, and launch an agent with the dashboard, the API, or the CLI
+  </Card>
+  <Card title="API reference" icon="code" href="/api/overview">
+    Conventions, authentication, errors, and every endpoint
+  </Card>
+</CardGroup>

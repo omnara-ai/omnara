@@ -1,0 +1,39 @@
+<CodeGroup>
+```bash CLI
+npx omnara login
+npx omnara config select
+```
+
+```bash REST API
+export OMNARA_API="https://api.omnara.com/v1"    # or your self-hosted origin + /api/v1
+export OMNARA_TOKEN="omnara_pat_v1_..."
+
+export ORG="$(curl -fsS "$OMNARA_API/me" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" | jq -r '.orgs[0].id')"
+export PROJ="$(curl -fsS "$OMNARA_API/orgs/$ORG/projects?limit=1" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" | jq -r '.data[0].id')"
+```
+
+```typescript SDK
+// npm install @omnara/sdk
+import { createOmnaraClient, bearerToken, sdk } from '@omnara/sdk'
+
+const token = process.env.OMNARA_TOKEN
+if (!token) throw new Error('Set OMNARA_TOKEN')
+
+const client = createOmnaraClient({
+  baseUrl: 'https://api.omnara.com',
+  auth: bearerToken(token),
+})
+
+const me = await sdk.getCurrentUser({ client })
+const orgID = me.data.orgs[0].id
+
+const projects = await sdk.listVisibleProjects({
+  client,
+  path: { orgID },
+  query: { limit: 1 },
+})
+const projectID = projects.data.data[0].id
+```
+</CodeGroup>

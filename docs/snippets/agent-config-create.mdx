@@ -1,0 +1,27 @@
+<CodeGroup>
+```bash CLI
+omnara agents launch --file agent.yaml --message "Get started."
+omnara profiles create --name "Support triage" --file agent.yaml
+```
+
+```bash REST API
+jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
+curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @-
+```
+
+```typescript SDK
+import { readFile } from 'node:fs/promises'
+
+const source = await readFile('agent.yaml', 'utf8')
+
+const config = await sdk.createAgentConfig({
+  client,
+  path: { orgID, projectID },
+  body: { source, source_format: 'yaml' },
+})
+console.log(config.data.id)
+```
+</CodeGroup>

@@ -32,7 +32,7 @@ curl https://api.omnara.com/v1/me \
 }
 ```
 
-A personal API key authenticates as you and carries exactly your roles and project access — no more, no less. There are no separate API scopes to configure; what you can do in the console, your token can do through the API. For service integrations, use an [org API key](#org-api-keys-for-services) instead, so access doesn't hinge on one person's account.
+A personal API key authenticates as you and carries exactly your roles and project access — no more, no less. There are no separate API scopes to configure; what you can do in the dashboard, your token can do through the API. For service integrations, use an [org API key](#org-api-keys-for-services) instead, so access doesn't hinge on one person's account.
 
 A missing or invalid token returns `401` with code `unauthorized`. A valid token used on something your roles don't permit returns `403` — or `404` if you can't even see the resource. Details in [Errors](/api/overview#errors).
 
@@ -40,7 +40,7 @@ A missing or invalid token returns `401` with code `unauthorized`. A valid token
 
 Tokens are minted where a human can approve them — creating one is deliberately *not* possible with another API key:
 
-- **Console** — go to **API Tokens** in the sidebar and click **New token**. The full token is shown once.
+- **Dashboard** — go to **API Tokens** in the sidebar and click **New token**. The full token is shown once.
 - **Device login** — for CLIs and dev tools, below.
 
 Only a hash is stored server-side, so save the token when it is shown.
@@ -49,9 +49,9 @@ Only a hash is stored server-side, so save the token when it is shown.
 
 Services shouldn't run as a person — when that person leaves or their access changes, the integration breaks. An org API key is its own principal: it holds an org role (`admin` or `member`) and per-project roles, granted exactly like a member's.
 
-Create one in the console: open **API Tokens**, switch to the **Organization** tab, and under **Organization API tokens** click **New token**. Pick a name and org role; the `omnara_org_v1_…` token is shown once. Then grant the key project roles from its detail panel — a member-role key sees nothing until you do, same as a human member.
+Create one in the dashboard: open **API Tokens**, switch to the **Organization** tab, and under **Organization API tokens** click **New token**. Pick a name and org role; the `omnara_org_v1_…` token is shown once. Then grant the key project roles from its detail panel — a member-role key sees nothing until you do, same as a human member.
 
-Key management stays human-gated: creating, renaming, changing roles, and revoking all require a console session, so one API key can never mint or escalate another. Listing and reading key metadata work with regular API auth ([List org API keys](/api-reference/endpoints/users-and-api-keys/list-org-api-keys)). Revocation is permanent and drops the key's org and project roles ([Revoke](/api-reference/endpoints/users-and-api-keys/revoke-an-org-api-key)).
+Key management stays human-gated: creating, renaming, changing roles, and revoking all require a dashboard session, so one API key can never mint or escalate another. Listing and reading key metadata work with regular API auth ([List org API keys](/api-reference/endpoints/users-and-api-keys/list-org-api-keys)). Revocation is permanent and drops the key's org and project roles ([Revoke](/api-reference/endpoints/users-and-api-keys/revoke-an-org-api-key)).
 
 ## Device login for CLIs
 
@@ -76,7 +76,7 @@ curl https://app.omnara.com/api/auth/device/code \
 }
 ```
 
-**2. Send the user to approve.** Open `verification_uri_complete` (or show `user_code` and point them at `verification_uri`). They sign in and approve — or deny — on the console's **Approve device login** page.
+**2. Send the user to approve.** Open `verification_uri_complete` (or show `user_code` and point them at `verification_uri`). They sign in and approve — or deny — on the dashboard's **Approve device login** page.
 
 **3. Poll for the token** every `interval` seconds with the private `device_code`:
 

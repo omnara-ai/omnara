@@ -1,0 +1,26 @@
+<CodeGroup>
+```bash REST API
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "delivery_mode": "steering",
+    "cancel_open_interactions": true,
+    "content_blocks": [ { "type": "text", "text": "Ignore the 2024 draft — it was superseded." } ]
+  }'
+```
+
+```typescript SDK
+await sdk.createAgentInput({
+  client,
+  path: { orgID, projectID, agentID },
+  body: {
+    delivery_mode: 'steering',
+    cancel_open_interactions: true,
+    content_blocks: [
+      { type: 'text', text: 'Ignore the 2024 draft — it was superseded.' },
+    ],
+  },
+})
+```
+</CodeGroup>

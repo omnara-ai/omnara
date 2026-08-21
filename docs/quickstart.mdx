@@ -1,10 +1,16 @@
 ---
 title: Quickstart
-description: Define an agent config, grant the resources, and launch an agent with the web application, the CLI, or the API
+description: Define an agent config, grant the resources, and launch an agent with the dashboard, the CLI, the REST API, or the TypeScript SDK
 icon: "rocket"
 ---
 
-Launch your first agent with Omnara via the **web application**, **CLI**, or **API**.
+import ApiSetup from '/snippets/api-setup.mdx'
+import ProjectGrants from '/snippets/project-grants.mdx'
+import QuickstartAgentConfig from '/snippets/quickstart-agent-config.mdx'
+import QuickstartLaunch from '/snippets/quickstart-launch.mdx'
+import QuickstartFollow from '/snippets/quickstart-follow.mdx'
+
+Launch your first agent with Omnara via the **dashboard**, or programmatically with the **CLI**, the **REST API**, or the **TypeScript SDK**.
 
 ## Before you start
 
@@ -16,7 +22,33 @@ Sign in at [app.omnara.com](https://app.omnara.com). When you sign in the first 
 ## Create and launch the agent
 
 <Tabs>
-<Tab title="Web application">
+<Tab title="API">
+  You can interact with Omnara via the **CLI**, the **REST API**, or the **TypeScript SDK**. 
+
+  <Steps>
+    <Step title="Set up">
+      The CLI signs in through your browser. The REST API and the SDK authenticate with an API token. In the web browser, open **Tokens** in the sidebar, click **New token**, and save the value.
+
+      <ApiSetup />
+    </Step>
+    <Step title="Write the config">
+      Save this config as `agent.yaml`. The machine tools run on the cloud machine that Omnara creates from `default-pool` at launch:
+
+      <QuickstartAgentConfig />
+    </Step>
+    <Step title="Upload the config and launch the agent">
+      <QuickstartLaunch />
+    </Step>
+    <Step title="Follow the agent and send input">
+      The event stream shows the tool calls and the reply as it is generated. Send a follow-up message while the stream runs:
+
+      <QuickstartFollow />
+
+      To watch the conversation live and send follow-up messages from the browser, open `https://app.omnara.com/projects/{project-id}/agents/{agent-id}`.
+    </Step>
+  </Steps>
+</Tab>
+<Tab title="Dashboard">
   <Steps>
     <Step title="Open the agent editor">
       In your project, open **Agents** and click **New agent**.
@@ -25,177 +57,13 @@ Sign in at [app.omnara.com](https://app.omnara.com). When you sign in the first 
       In the **Builder** form, select the **Deep researcher** template. It fills the instruction and enables the tools the agent needs: `web_search`, `web_fetch`, `run_command`, the process and machine tools, and `ask_question`.
     </Step>
     <Step title="Grant and select the model">
-      Select `anthropic/claude-fable-5` from the `omnara-openrouter` provider. If the project does not have a [grant](/how-omnara-works#projects-and-grants-control-access) for the model yet, click the `Grant models...` button
+      Select your preferred model from the `omnara-openrouter` provider. Omnara automatically [grants](/concepts) models to the default project in your organization.
     </Step>
     <Step title="Grant and select the machine pool">
-      Add `default-pool` as a machine source. If the project does not have a grant for the pool yet, click the "Grant pools..." button. The machine sources gives your agent a sandbox, which it's tools run on.
+      Select `default-pool` as a machine source, which provides your agent with a sandboxed environment. Omnara automatically [grants](/concepts) a machine pool to the default project in your organization.
     </Step>
     <Step title="Name the agent and launch">
-      Click **Create and launch agent**. The web application validates the config, launches the agent, and opens the conversation view. 
-    </Step>
-  </Steps>
-</Tab>
-<Tab title="CLI">
-  <Steps>
-    <Step title="Install the CLI and sign in">
-      Install the CLI with Node.js 22 or later. Sign in, then set your default organization and project:
-
-      ```bash
-      npx omnara login
-      npx omnara config select
-      ```
-    </Step>
-    <Step title="Make sure the project has the grants">
-      A project can use a model or a machine pool only through a **grant**. Your first project has grants for the default resources — check with `omnara grant models list` and `omnara grant pools list`, and continue if both are there. For a different project, create them:
-
-      ```bash
-      npx omnara model-providers list
-      npx omnara models list <model-provider-config-id> # IDs from: omnara model-providers list
-      npx omnara pools list
-
-      npx omnara grant models add --configured-model-id mdl_... # selected model ID
-      npx omnara grant pools add --machine-pool-id mpo_... # selected machine pool ID
-      ```
-    </Step>
-    <Step title="Upload the config and launch the agent">
-      Save this config as `agent.yaml`. The machine tools run on the cloud machine that Omnara creates from `default-pool` at launch:
-
-      ```yaml
-      version: v1
-      instruction: |
-        You are an engineering assistant. Use your machine to run
-        commands. Use web search to find current information. Ask a
-        question when a task is not clear.
-      model:
-        provider_config: omnara-openrouter
-        name: anthropic/claude-fable-5
-      tools:
-        run_command: {}
-        read_process: {}
-        list_processes: {}
-        list_machines: {}
-        inspect_machine: {}
-        web_search: {}
-        web_fetch: {}
-        ask_question: {}
-      machine_sources:
-        - machine_pool_name: default-pool
-      ```
-
-      One command uploads the config and launches the agent:
-
-      ```bash
-      npx omnara agents launch --file agent.yaml \
-        --name "Machine assistant" \
-        --message "Use your machine to report the operating system and the free disk space. Then find the latest stable Node.js release on the web and tell me the version."
-      ```
-
-      To upload as a reusable profile, use `omnara profiles create --name machine-assistant --file agent.yaml`.
-    </Step>
-    <Step title="Check the agent">
-      Check the agent's state with `omnara agents get <agent-id>`. To watch the conversation live, open `https://app.omnara.com/projects/<project-id>/agents/<agent-id>` in the web application.
-    </Step>
-  </Steps>
-</Tab>
-<Tab title="API">
-  <Steps>
-    <Step title="Set up your shell">
-      You need `curl` and `jq`. Open **API Tokens** in the sidebar, click **New token**, and copy it. Then set your API origin, token, and first organization and project:
-
-      ```bash
-      export OMNARA_API="https://api.omnara.com/v1"    # or your self-hosted origin + /api/v1
-      export OMNARA_TOKEN="omnara_pat_v1_..."
-
-      export ORG="$(curl -fsS "$OMNARA_API/me" \
-        -H "Authorization: Bearer $OMNARA_TOKEN" | jq -r '.orgs[0].id')"
-      export PROJ="$(curl -fsS "$OMNARA_API/orgs/$ORG/projects?limit=1" \
-        -H "Authorization: Bearer $OMNARA_TOKEN" | jq -r '.data[0].id')"
-      ```
-    </Step>
-    <Step title="Make sure the project has the grants">
-      A project can use a model or a machine pool only through a **grant**. Your first project has grants for the default resources — continue to the next step. For a different project, find the IDs with `GET /orgs/$ORG/model-provider-configs/$PROVIDER/models` and `GET /orgs/$ORG/machine-pools`, then create the grants:
-
-      ```bash
-      curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/model-grants" \
-        -H "Authorization: Bearer $OMNARA_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{"configured_model_id": "mdl_..."}'
-
-      curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/machine-pool-grants" \
-        -H "Authorization: Bearer $OMNARA_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{"machine_pool_id": "mpo_..."}'
-      ```
-    </Step>
-    <Step title="Upload the config">
-      Save this config as `agent.yaml`. The machine tools run on the cloud machine that Omnara creates from `default-pool` at launch:
-
-      ```yaml
-      version: v1
-      instruction: |
-        You are an engineering assistant. Use your machine to run
-        commands. Use web search to find current information. Ask a
-        question when a task is not clear.
-      model:
-        provider_config: omnara-openrouter
-        name: anthropic/claude-fable-5
-      tools:
-        run_command: {}
-        read_process: {}
-        list_processes: {}
-        list_machines: {}
-        inspect_machine: {}
-        web_search: {}
-        web_fetch: {}
-        ask_question: {}
-      machine_sources:
-        - machine_pool_name: default-pool
-      ```
-
-      Create the config and keep its ID:
-
-      ```bash
-      export CONFIG="$(
-        jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
-        curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
-          -H "Authorization: Bearer $OMNARA_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d @- |
-        jq -r '.id'
-      )"
-      ```
-    </Step>
-    <Step title="Launch the agent">
-      ```bash
-      export AGENT="$(
-        curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents" \
-          -H "Authorization: Bearer $OMNARA_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "config": "'"$CONFIG"'",
-            "name": "Machine assistant",
-            "message": "Use your machine to report the operating system and the free disk space. Then find the latest stable Node.js release on the web and tell me the version."
-          }' |
-        jq -r '.agent.id'
-      )"
-      ```
-    </Step>
-    <Step title="Stream the events and send input">
-      The stream shows the tool calls and the reply as it is generated:
-
-      ```bash
-      curl -N "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/events/stream?stream_deltas=true" \
-        -H "Authorization: Bearer $OMNARA_TOKEN"
-      ```
-
-      Send a follow-up message from a second terminal:
-
-      ```bash
-      curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/inputs" \
-        -H "Authorization: Bearer $OMNARA_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{"content_blocks": [{"type": "text", "text": "Install that Node.js version on the machine and show me node --version."}]}'
-      ```
+      Click **Create and launch agent**. The dashboard validates the config, launches the agent, and opens the conversation view. 
     </Step>
   </Steps>
 </Tab>
@@ -204,8 +72,8 @@ Sign in at [app.omnara.com](https://app.omnara.com). When you sign in the first 
 ## Next steps
 
 <CardGroup cols={2}>
-  <Card title="How Omnara works" icon="sitemap" href="/how-omnara-works">
-    The object model behind what you just did
+  <Card title="Concepts" icon="sitemap" href="/concepts">
+    The object model behind Omnara
   </Card>
   <Card title="Agents" icon="robot" href="/agents/overview">
     Launch, update, cancel, and archive agents
@@ -214,6 +82,6 @@ Sign in at [app.omnara.com](https://app.omnara.com). When you sign in the first 
     Define models, tools, permissions, and machines
   </Card>
   <Card title="Machine pools" icon="layer-group" href="/machines/pools">
-    Create pools and control their capacity
+    Create machine pools and control their capacity
   </Card>
 </CardGroup>

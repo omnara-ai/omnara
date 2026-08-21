@@ -1,0 +1,13 @@
+<CodeGroup>
+```bash CLI
+npx omnara members list
+```
+
+```bash REST API
+curl "$OMNARA_API/orgs/$ORG/members" -H "Authorization: Bearer $OMNARA_TOKEN"
+```
+
+```typescript SDK
+const members = await sdk.listOrgMembers({ client, path: { orgID } })
+```
+</CodeGroup>

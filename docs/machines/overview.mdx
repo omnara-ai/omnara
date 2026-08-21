@@ -8,7 +8,7 @@ A machine is an environment where agents run tools such as `run_command`. It can
 
 Every machine runs the same small daemon, `omnarad`, which connects outbound to the control plane. You do not need to open inbound ports, distribute SSH keys, or give Omnara a network path into your infrastructure.
 
-Most importantly, **the machine does not own the agent**. Agents live in the control plane as [event logs](/how-omnara-works#the-log-is-the-agent); machines are execution environments they can attach and release. Disconnecting a machine does not kill the agent.
+Most importantly, **the machine does not own the agent**. Agents live in the control plane as [event logs](/concepts); machines are execution environments they can attach and release. Disconnecting a machine does not kill the agent.
 
 ## Two ways to get one
 

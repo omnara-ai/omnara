@@ -1,0 +1,30 @@
+<CodeGroup>
+```bash CLI
+npx omnara grant models add --configured-model-id mdl_fgik7mv4qtrwz3jehcyd5n6a2b --json
+```
+
+```bash REST API
+curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/model-grants" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"configured_model_id": "mdl_fgik7mv4qtrwz3jehcyd5n6a2b"}'
+```
+
+```typescript SDK
+await sdk.createProjectModelGrant({
+  client,
+  path: { orgID, projectID },
+  body: { configured_model_id: 'mdl_fgik7mv4qtrwz3jehcyd5n6a2b' },
+})
+```
+</CodeGroup>
+
+```json
+{
+  "grant": {
+    "id": "pmog_ik7mv4qtrwz3jehcyd5n6a2bfg",
+    "configured_model_id": "mdl_fgik7mv4qtrwz3jehcyd5n6a2b",
+    "...": "..."
+  }
+}
+```

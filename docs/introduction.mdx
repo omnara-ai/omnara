@@ -34,11 +34,10 @@ machine_sources:
   - machine_pool_name: default-pool
 ```
 
-You can create and launch the agent in three ways:
+You can create and launch the agent in two ways:
 
-- **Web application** — click **New agent** in your project. Define the config in the **Builder** form or paste it in the **YAML** editor, then click **Create agent**.
-- **API** — `POST` the YAML to `/agent-configs`, then `POST` to `/agents` to launch.
-- **CLI** — one command uploads the config and launches the agent:
+- **Dashboard** — click **New agent** in your project in the dashboard.
+- **Programmatically** - Omnara provides an **API**, **Typescript SDK**, and **CLI** to interact with Omnara
 
 The [quickstart](/quickstart) provides a more detailed guide to setting up your first agent.
 
@@ -55,12 +54,9 @@ The [concepts](/concepts) page gives a short overview of this model.
 
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="rocket" href="/quickstart">
-    Write a config, create the grants, and launch an agent with the web application, the API, or the CLI
+    Write a config, create the grants, and launch an agent with the dashboard, the API, or the CLI
   </Card>
-  <Card title="How Omnara works" icon="sitemap" href="/how-omnara-works">
+  <Card title="Concepts" icon="sitemap" href="/concepts">
     The object model, the agent loop, and access control
-  </Card>
-  <Card title="API reference" icon="code" href="/api/overview">
-    Conventions, authentication, errors, and every endpoint
   </Card>
 </CardGroup>
