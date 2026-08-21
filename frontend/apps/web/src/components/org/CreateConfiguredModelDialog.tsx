@@ -107,11 +107,7 @@ export function CreateConfiguredModelDialog({
   }
 
   function applyDiscoveredModel(model: DiscoveredProviderModel) {
-    for (const [fieldName, fieldValue] of discoveredModelPrefill(
-      providerById(form.state.values.providerId)?.name,
-      form.state.values,
-      model,
-    )) {
+    for (const [fieldName, fieldValue] of discoveredModelPrefill(form.state.values, model)) {
       form.setFieldValue(fieldName, fieldValue)
     }
   }
@@ -144,10 +140,7 @@ export function CreateConfiguredModelDialog({
                   providers={providers}
                   value={field.state.value}
                   onChange={(nextValue) => {
-                    for (const [fieldName, fieldValue] of providerChangeReset(
-                      providerById(field.state.value)?.name,
-                      form.state.values,
-                    )) {
+                    for (const [fieldName, fieldValue] of providerChangeReset(form.state.values)) {
                       form.setFieldValue(fieldName, fieldValue)
                     }
                     field.handleChange(nextValue)

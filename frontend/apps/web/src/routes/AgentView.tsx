@@ -46,6 +46,7 @@ export function AgentView() {
         : false,
   })
   const agent = data.agent
+  const archived = agent.state === 'archived'
   const { data: profile } = useAgentProfileQuery(activeOrg.id, projectId, agent.agent_profile_id)
   const { data: me } = useMe()
   const interactions = useAgentInteractions(activeOrg.id, projectId, agentId, chat.isWorking)
@@ -141,25 +142,37 @@ export function AgentView() {
         )}
 
         <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3">
-          <AgentInteractions
-            interactions={interactions.data?.data ?? []}
-            pending={resolveInteraction.isPending}
-            error={resolveInteraction.error}
-            loadError={
-              interactions.error != null ? errorMessage(interactions.error, 'Unknown error') : null
-            }
-            onResolve={resolve}
-            canOperate={canOperate}
-          />
-          {!configOpen && (
-            <AgentComposer
-              chat={chat}
-              cancelPending={cancelAgent.isPending}
-              cancelError={cancelAgent.error}
-              onCancel={() => cancelAgent.mutateAsync()}
+          {!archived && (
+            <AgentInteractions
+              interactions={interactions.data?.data ?? []}
+              pending={resolveInteraction.isPending}
+              error={resolveInteraction.error}
+              loadError={
+                interactions.error != null
+                  ? errorMessage(interactions.error, 'Unknown error')
+                  : null
+              }
+              onResolve={resolve}
               canOperate={canOperate}
             />
           )}
+          {!configOpen &&
+            (archived ? (
+              <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
+                <p className="text-sm font-medium">This agent is archived</p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  You can view its conversation, but it can no longer receive messages.
+                </p>
+              </div>
+            ) : (
+              <AgentComposer
+                chat={chat}
+                cancelPending={cancelAgent.isPending}
+                cancelError={cancelAgent.error}
+                onCancel={() => cancelAgent.mutateAsync()}
+                canOperate={canOperate}
+              />
+            ))}
         </div>
       </div>
       <AgentSidebar

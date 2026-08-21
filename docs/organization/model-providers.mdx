@@ -95,7 +95,7 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
 
 <Tabs>
 <Tab title="Console">
-  In **Add models**, select the detected models you want, or click **Skip for now**. Omnara prefixes each model name with its provider, such as `openai-prod - gpt-5.6`, to keep names distinct. Agent YAML must use that exact name.
+  In **Add models**, select the detected models you want, or click **Skip for now**. Omnara uses each detected provider model slug as the model's initial name, such as `gpt-5.6`. Agent YAML must use that exact name.
 
   To add or tune a model later, go to **Models > Configured models** and click **New model**. Choose the provider, set the name and provider model slug, and use the advanced section for token limits and capabilities. You can also attach project grants in this dialog.
 </Tab>
@@ -105,7 +105,7 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
     -H "Authorization: Bearer $OMNARA_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{
-      "name": "openai-prod - gpt-5.6",
+      "name": "gpt-5.6",
       "provider_model_slug": "gpt-5.6",
       "context_window_tokens": 272000,
       "max_output_tokens": 32768,
@@ -118,7 +118,7 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
   ```json
   {
     "id": "mdl_fgik7mv4qtrwz3jehcyd5n6a2b",
-    "name": "openai-prod - gpt-5.6",
+    "name": "gpt-5.6",
     "provider_model_slug": "gpt-5.6",
     "context_window_tokens": 272000,
     "supports_reasoning": true,
@@ -174,7 +174,7 @@ With the chain complete, this config can now be created in the project:
 ```yaml
 model:
   provider_config: openai-prod
-  name: openai-prod - gpt-5.6
+  name: gpt-5.6
 ```
 
 When you create the config, Omnara checks the provider, model, and project grant. If something is missing, the validation error tells you what to fix.
