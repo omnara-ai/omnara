@@ -937,6 +937,37 @@ func TestDetachedSupervisorPreparationErrorNeedsNoCommand(t *testing.T) {
 	}
 }
 
+func TestDetachedSupervisorCwdHomeErrorIsTerminal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test requires Unix HOME semantics")
+	}
+	t.Setenv("HOME", "")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	fixture := newDetachedSupervisorTestFixture(
+		t,
+		ctx,
+		ProcessAssignment{
+			ID: "prc_cwd_home_error",
+			Process: Process{
+				Cwd: "~/repo",
+			},
+		},
+	)
+	fixture.acceptAndStart(t, ctx)
+	process := fixture.waitClosed(t, 10*time.Second)
+	if process.ExecCommitted || process.Phase != statedb.ProcessTerminal {
+		t.Fatalf("cwd home failure state = %+v", process)
+	}
+	_, terminal := fixture.terminalEvent(t)
+	if terminal.State != "failed" ||
+		terminal.StateReasonCode != "start_failed" ||
+		!strings.Contains(terminal.StateReasonMessage, "resolve process working directory home") {
+		t.Fatalf("cwd home failure evidence = %+v", terminal)
+	}
+}
+
 func TestDetachedSupervisorFastExitFreezesOnlyTerminalReport(t *testing.T) {
 	tests := []struct {
 		name      string
