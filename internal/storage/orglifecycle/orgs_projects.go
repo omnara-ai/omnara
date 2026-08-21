@@ -15,17 +15,16 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type CreateOrgForUserInput struct {
-	OrgID                ID
-	UserID               ID
-	Name                 string
-	IdempotencyKey       string
-	DefaultMachinePools  []executionstore.DefaultMachinePoolTemplate
-	DefaultModelProvider *modelstore.ProvisionedDefaultModelProvider
+	OrgID                         ID
+	UserID                        ID
+	Name                          string
+	IdempotencyKey                string
+	DefaultMachinePools           []executionstore.DefaultMachinePoolTemplate
+	ProvisionDefaultModelProvider bool
 }
 
 func (s *Service) CreateOrgForUser(
@@ -69,15 +68,23 @@ func (s *Service) CreateOrgForUser(
 		); err != nil {
 			return identitystore.CreateOrgForUserRecord{}, err
 		}
-		if err := s.createDefaultModelProviderForOrgTx(
-			ctx,
-			tx,
-			record.Org.ID,
-			record.Project.ID,
-			input.UserID,
-			input.DefaultModelProvider,
-		); err != nil {
-			return identitystore.CreateOrgForUserRecord{}, err
+		if input.ProvisionDefaultModelProvider {
+			rows, err := s.q.WithTx(tx).EnqueueDefaultModelProviderProvisioning(
+				ctx,
+				dbsqlc.EnqueueDefaultModelProviderProvisioningParams{
+					OrganizationID: record.Org.ID,
+					CreatorUserID:  input.UserID,
+				},
+			)
+			if err != nil {
+				return identitystore.CreateOrgForUserRecord{}, fmt.Errorf(
+					"enqueue default model provider provisioning: %w",
+					err,
+				)
+			}
+			if rows != 1 {
+				return identitystore.CreateOrgForUserRecord{}, storeerr.ErrStateTransitionConflict
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -422,6 +429,12 @@ func (s *Service) deleteOrganizationAttempt(
 	}
 	if err := q.DeleteOrganizationSecretOAuthLeases(ctx, dbsqlc.DeleteOrganizationSecretOAuthLeasesParams{OrgID: orgID}); err != nil {
 		return nil, nil, fmt.Errorf("delete organization secret oauth leases: %w", err)
+	}
+	if err := q.DeleteDefaultModelProviderProvisioningForOrganization(
+		ctx,
+		dbsqlc.DeleteDefaultModelProviderProvisioningForOrganizationParams{OrganizationID: orgID},
+	); err != nil {
+		return nil, nil, fmt.Errorf("delete default model provider provisioning: %w", err)
 	}
 	if err := q.DeleteOrganizationSecrets(ctx, dbsqlc.DeleteOrganizationSecretsParams{OrgID: orgID}); err != nil {
 		return nil, nil, fmt.Errorf("delete organization secrets: %w", err)

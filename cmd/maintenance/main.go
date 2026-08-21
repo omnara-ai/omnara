@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -13,10 +14,12 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -155,6 +158,34 @@ func main() {
 			},
 		)
 	}()
+	defaultModelProviderDone := make(chan struct{})
+	if cfg.DefaultModelProvider == nil {
+		close(defaultModelProviderDone)
+	} else {
+		hostedHTTPClient := metrics.NewObservedHTTPClient(
+			&http.Client{Timeout: modelprovider.HostedCredentialProvisionTimeout},
+			metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient),
+			metrics.WithHTTPClientPathLabel(modelprovider.HostedCredentialPath),
+		)
+		runner := defaultprovider.NewRunner(
+			store.Organizations(),
+			modelprovider.HTTPHostedCredentialProvisioner{
+				BaseURL:    cfg.HostedAPIURL,
+				Token:      cfg.HostedAPIToken,
+				HTTPClient: hostedHTTPClient,
+			},
+			*cfg.DefaultModelProvider,
+		)
+		go func() {
+			defer close(defaultModelProviderDone)
+			runDefaultModelProviderProvisioningLoop(
+				ctx,
+				logger,
+				runner,
+				cfg.MaintenanceInterval,
+			)
+		}()
+	}
 
 	exitCode := runCoreMaintenanceLoop(
 		ctx,
@@ -168,6 +199,7 @@ func main() {
 	<-machineLoopDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
+	<-defaultModelProviderDone
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}

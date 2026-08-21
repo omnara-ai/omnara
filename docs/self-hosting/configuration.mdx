@@ -146,6 +146,34 @@ Provider notes:
 - Daytona snapshots are allowed by name, must be active in the selected target, must allow sandboxes to reach `OMNARA_PUBLIC_URL`, and their API-resolved CPU and memory count against the pool caps.
 - For Unikraft and Blaxel, `sleep_after_ms` enables scale-to-zero after that many milliseconds of daemon inactivity; omit or `0` disables it, and enabled values must be at least `30000`.
 
+### Operator-provisioned default model provider
+
+An installation can give each new organization a model provider without storing
+the upstream credential in configuration. Leave these variables unset to let
+organization owners configure providers themselves.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. See `default-model-provider-example.yaml`. | — | No |
+| `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
+| `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
+
+The credential service contract has these invariants:
+
+- `POST /model-provider-credentials` receives the organization ID, creator user
+  ID, and provider template. A successful response is `201` with
+  `{"credential_value":"..."}`; `202` and `5xx` are retryable, while `409`
+  represents a durable identity or provisioner conflict.
+- The organization ID is the stable issuance identity. The same request may be
+  repeated until Omnara commits the credential, provider, models, grants, and job
+  completion together. The credential service must recover ambiguous issuance
+  without returning an unusable credential.
+- Organization creation never depends on credential issuance. The API attempts
+  provisioning after commit, and maintenance retries failures.
+- Apply migrations before deploying both binaries. The API and maintenance must
+  use the same template, credential-service configuration, and secret-encryption
+  key ring.
+
 ### Host daemon configuration
 
 | Variable | Purpose | Default |

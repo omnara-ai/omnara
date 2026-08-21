@@ -182,9 +182,9 @@ func WithDefaultMachinePools(defaultPoolTemplates []executionstore.DefaultMachin
 	}
 }
 
-func WithDefaultModelProvider(defaultProviderTemplate *modelstore.DefaultModelProviderTemplate) Option {
+func WithDefaultModelProvider(template *modelstore.DefaultModelProviderTemplate) Option {
 	return func(s *Server) {
-		s.defaultModelProvider = defaultProviderTemplate
+		s.defaultModelProvider = template
 	}
 }
 

@@ -699,6 +699,12 @@ func (cfg Config) ValidateMaintenance() error {
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
 	}
+	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
+		return err
+	}
+	if err := cfg.validateHostedAPIConfig(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -717,6 +723,11 @@ func (cfg Config) validateHostedAPIConfig() error {
 	configured := cfg.HostedAPIURL != "" || cfg.HostedAPIToken != ""
 	if !required && !configured {
 		return nil
+	}
+	if cfg.DefaultModelProvider == nil {
+		return errors.New(
+			"OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE is required when hosted API access is configured",
+		)
 	}
 	if cfg.HostedAPIURL == "" {
 		return errors.New("OMNARA_HOSTED_API_URL is required when hosted API access is configured")
