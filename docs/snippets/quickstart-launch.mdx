@@ -8,7 +8,7 @@ npx omnara agents launch --file agent.yaml \
 npx omnara profiles create --name machine-assistant --file agent.yaml
 ```
 
-```bash REST API
+```bash REST
 export CONFIG="$(
   jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
   curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \

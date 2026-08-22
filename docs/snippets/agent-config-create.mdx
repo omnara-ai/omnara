@@ -4,7 +4,7 @@ omnara agents launch --file agent.yaml --message "Get started."
 omnara profiles create --name "Support triage" --file agent.yaml
 ```
 
-```bash REST API
+```bash REST
 jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
 curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
   -H "Authorization: Bearer $OMNARA_TOKEN" \

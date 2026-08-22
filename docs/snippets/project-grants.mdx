@@ -11,7 +11,7 @@ npx omnara grant models add --configured-model-id mdl_... # selected model ID
 npx omnara grant pools add --machine-pool-id mpo_... # selected machine pool ID
 ```
 
-```bash REST API
+```bash REST
 # IDs from: GET /orgs/$ORG/model-provider-configs/$PROVIDER/models
 #           GET /orgs/$ORG/machine-pools
 curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/model-grants" \

@@ -3,7 +3,7 @@
 omnara skills create --owner-kind org --archive release-notes/ --json
 ```
 
-```bash REST API
+```bash REST
 curl "$OMNARA_API/orgs/$ORG/skills" \
   -H "Authorization: Bearer $OMNARA_TOKEN" \
   -F 'owner={"kind": "org"}' \

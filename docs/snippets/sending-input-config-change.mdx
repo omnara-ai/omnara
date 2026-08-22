@@ -3,7 +3,7 @@
 npx omnara agents update {agent-id} --file agent-v2.yaml
 ```
 
-```bash REST API
+```bash REST
 jq -n --rawfile src agent-v2.yaml '{source: $src, source_format: "yaml"}' |
 curl "$BASE/agents/$AGENT/config" \
   -H "Authorization: Bearer $OMNARA_TOKEN" \

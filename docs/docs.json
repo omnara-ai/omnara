@@ -130,7 +130,6 @@
             "group": "Examples",
             "pages": [
               "examples/overview",
-              "examples/repo-slack-agent",
               "examples/mounted-storage"
             ]
           }

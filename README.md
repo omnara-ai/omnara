@@ -36,8 +36,8 @@ model:
 
 2. Upload your agent profile
 ```bash
-$ pnpx omnara login
-$ pnpx omnara profiles create --name agent --file agent.yaml
+$ npx omnara login
+$ npx omnara profiles create --name agent --file agent.yaml
 id                  aprf_aej3...
 name                agent
 [...]
@@ -46,7 +46,7 @@ name                agent
 3. Launch the agent from the profile and chat with it
 
 ```bash
-$ pnpm omnara agents launch $AGENT_PROFILE_ID
+$ npx omnara agents launch --profile $AGENT_PROFILE_ID --file agent.yaml
 $ open https://app.omnara.com/projects/[$PROJECT_ID]/agents/[$AGENT_ID]
 ```
 

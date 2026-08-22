@@ -3,7 +3,7 @@
 npx omnara agents get {agent-id}
 ```
 
-```bash REST API
+```bash REST
 curl -N "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/events/stream?stream_deltas=true" \
   -H "Authorization: Bearer $OMNARA_TOKEN"
 
