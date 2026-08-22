@@ -17,7 +17,7 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
 | `OMNARA_PUBLIC_URL` | Public origin for the app and API; used in emails, OAuth callbacks, and daemon bootstrap config. Origin only, no path; HTTPS outside localhost. Set identically on API, worker, and maintenance. | — | Yes |
-| `OMNARA_BILLING_URL` | External billing page linked from the web app; the UI appends `?org=<org-id>`. HTTPS outside localhost, no query parameters. Leave unset to hide billing in the web app. | — | No |
+| `OMNARA_BILLING_URL` | External billing page linked from the dashboard; the UI appends `?org={org-id}`. HTTPS outside localhost, no query parameters. Leave unset to hide billing in the dashboard. | — | No |
 | `OMNARA_API_ADDR` | Public listen address of `api` | `:8080` | No |
 | `OMNARA_API_METRICS_ADDR` | `api` health/metrics listener | `:8081` | No |
 | `OMNARA_WORKER_METRICS_ADDR` | `worker` health/metrics listener | `:8082` | No |
@@ -83,8 +83,8 @@ GitHub uses `kind:"github"` (endpoints default to github.com; GitHub-compatible 
 
 ```sh
 OMNARA_AUTH_CONNECTORS_JSON='[
-  {"slug":"github","kind":"github","display_name":"GitHub","client_id":"<id>","client_secret":"<secret>"},
-  {"slug":"google","kind":"oidc","display_name":"Google","issuer":"https://accounts.google.com","client_id":"<id>","client_secret":"<secret>","email_trust_policy":"verified_email"}
+  {"slug":"github","kind":"github","display_name":"GitHub","client_id":"{id}","client_secret":"{secret}"},
+  {"slug":"google","kind":"oidc","display_name":"Google","issuer":"https://accounts.google.com","client_id":"{id}","client_secret":"{secret}","email_trust_policy":"verified_email"}
 ]'
 ```
 

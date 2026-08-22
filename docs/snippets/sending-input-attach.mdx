@@ -1,0 +1,36 @@
+<CodeGroup>
+```bash REST
+jq -n --arg data "$(base64 < chart.png)" '{
+  content_blocks: [
+    { type: "text", text: "Does this chart match the numbers you found?" },
+    { type: "media", media_type: "image/png", filename: "chart.png", data: $data }
+  ]
+}' |
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @-
+```
+
+```typescript SDK
+import { readFile } from 'node:fs/promises'
+
+const chart = await readFile('chart.png')
+
+await sdk.createAgentInput({
+  client,
+  path: { orgID, projectID, agentID },
+  body: {
+    content_blocks: [
+      { type: 'text', text: 'Does this chart match the numbers you found?' },
+      {
+        type: 'media',
+        media_type: 'image/png',
+        filename: 'chart.png',
+        data: chart.toString('base64'),
+      },
+    ],
+  },
+})
+```
+</CodeGroup>

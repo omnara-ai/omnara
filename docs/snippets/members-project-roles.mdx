@@ -1,0 +1,16 @@
+<CodeGroup>
+```bash REST
+curl -X PUT "$OMNARA_API/orgs/$ORG/members/usr_trwz3jehcyd5n6a2bfgik7mv4q/projects/$PROJ" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"role": "operator"}'
+```
+
+```typescript SDK
+await sdk.setMemberProjectAccess({
+  client,
+  path: { orgID, userID: 'usr_trwz3jehcyd5n6a2bfgik7mv4q', projectID },
+  body: { role: 'operator' },
+})
+```
+</CodeGroup>

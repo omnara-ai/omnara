@@ -1,0 +1,18 @@
+<CodeGroup>
+```bash REST
+curl "$BASE/agents/$AGENT/interactions/int_rwz3jehcyd5n6a2bfgik7mv4qt/resolve" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "answers": [ { "option_indices": [1], "text": "Not on the build server — use a pool machine." } ] }'
+```
+
+```typescript SDK
+await sdk.resolveAgentInteraction({
+  client,
+  path: { orgID, projectID, agentID, interactionID: 'int_rwz3jehcyd5n6a2bfgik7mv4qt' },
+  body: {
+    answers: [{ option_indices: [1], text: 'Not on the build server — use a pool machine.' }],
+  },
+})
+```
+</CodeGroup>

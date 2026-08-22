@@ -1,0 +1,57 @@
+<CodeGroup>
+```bash CLI
+npx omnara machines create \
+  --display-name build-server-1 \
+  --description "Bare-metal builder in the office rack" \
+  --cwd /srv/repo \
+  --env '{"CI": "true"}' \
+  --secret-env '{"GITHUB_TOKEN": "sec_7jehcyd5n6a2bfgik7mv4qtrwz"}' \
+  --json
+```
+
+```bash REST
+curl "$OMNARA_API/orgs/$ORG/machines" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "display_name": "build-server-1",
+    "description": "Bare-metal builder in the office rack",
+    "cwd": "/srv/repo",
+    "env": { "CI": "true" },
+    "secret_env": { "GITHUB_TOKEN": "sec_7jehcyd5n6a2bfgik7mv4qtrwz" }
+  }'
+```
+
+```typescript SDK
+const machine = await sdk.createMachine({
+  client,
+  path: { orgID },
+  body: {
+    display_name: 'build-server-1',
+    description: 'Bare-metal builder in the office rack',
+    cwd: '/srv/repo',
+    env: { CI: 'true' },
+    secret_env: { GITHUB_TOKEN: 'sec_7jehcyd5n6a2bfgik7mv4qtrwz' },
+  },
+})
+const machineID = machine.data.id
+```
+</CodeGroup>
+
+```json
+{
+  "id": "mch_5n6a2bfgik7mv4qtrwz3jehcyd",
+  "org_id": "org_k7mv4qtrwz3jehcyd5n6a2bfgi",
+  "source_kind": "byo",
+  "machine_pool_id": null,
+  "display_name": "build-server-1",
+  "description": "Bare-metal builder in the office rack",
+  "provider": "byo",
+  "lifecycle_state": "active",
+  "connection_state": "offline",
+  "cwd": "/srv/repo",
+  "env": { "CI": "true" },
+  "secret_env": { "GITHUB_TOKEN": "sec_7jehcyd5n6a2bfgik7mv4qtrwz" },
+  "...": "..."
+}
+```
