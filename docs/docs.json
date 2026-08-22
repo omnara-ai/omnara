@@ -11,31 +11,30 @@
   },
   "logo": {
     "dark": "/logo/omnara-logo.svg",
-    "light": "/logo/omnara-logo.svg"
+    "light": "/logo/omnara-logo-light.svg"
   },
   "favicon": "/favicon.ico",
   "colors": {
-    "primary": "#d4a843",
-    "light": "#c9b06a",
-    "dark": "#1A1A1A"
+    "primary": "#5e6ad2",
+    "light": "#8188df",
+    "dark": "#4e59c7"
   },
   "background": {
     "color": {
-      "dark": "#1a1917"
-    },
-    "decoration": "gradient"
+      "light": "#ffffff",
+      "dark": "#0b0b0c"
+    }
   },
   "appearance": {
-    "default": "dark",
-    "strict": true
+    "default": "system"
   },
   "fonts": {
     "heading": {
-      "family": "Inter",
+      "family": "Geist",
       "weight": 600
     },
     "body": {
-      "family": "Inter",
+      "family": "Geist",
       "weight": 400
     }
   },
