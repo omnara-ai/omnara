@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"golang.org/x/net/idna"
+	"golang.org/x/text/unicode/norm"
 )
 
 func NormalizeEmail(email string) string {
@@ -23,25 +24,29 @@ func NormalizeEmail(email string) string {
 func normalizedEmailLookupKeys(email string) []string {
 	legacy := legacyNormalizedEmail(email)
 	canonical := NormalizeEmail(email)
-	keys := []string{canonical}
-	if legacy != canonical {
-		keys = append(keys, legacy)
-	}
+	candidates := []string{canonical, legacy}
 	local, domain, ok := splitEmail(canonical)
-	if !ok {
-		return keys
-	}
-	unicodeDomain, err := idna.Lookup.ToUnicode(domain)
-	if err != nil || unicodeDomain == "" {
-		return keys
-	}
-	unicodeKey := local + "@" + strings.ToLower(unicodeDomain)
-	for _, key := range keys {
-		if key == unicodeKey {
-			return keys
+	if ok {
+		unicodeDomain, err := idna.Lookup.ToUnicode(domain)
+		if err == nil && unicodeDomain != "" {
+			unicodeDomain = strings.ToLower(unicodeDomain)
+			candidates = append(
+				candidates,
+				local+"@"+unicodeDomain,
+				local+"@"+norm.NFD.String(unicodeDomain),
+			)
 		}
 	}
-	return append(keys, unicodeKey)
+	keys := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		keys = append(keys, candidate)
+	}
+	return keys
 }
 
 func legacyNormalizedEmail(email string) string {

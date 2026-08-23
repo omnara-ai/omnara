@@ -4970,7 +4970,7 @@ func TestPasswordSignupCanonicalizesInternationalizedDomain(t *testing.T) {
 	const (
 		unicodeEmail   = "User@BÜCHER.example"
 		canonicalEmail = "user@xn--bcher-kva.example"
-		legacyEmail    = "user@bücher.example"
+		legacyEmail    = "user@bu\u0308cher.example"
 		password       = "correct horse battery staple"
 	)
 	start, err := store.Identity().StartPasswordSignup(
@@ -5160,7 +5160,7 @@ func TestPasswordSignupConcurrentVerificationFirstCommitWins(t *testing.T) {
 
 	first, err := store.Identity().StartPasswordSignup(
 		ctx,
-		identitystore.PasswordSignupStartInput{Email: "race-signup@bücher.example"},
+		identitystore.PasswordSignupStartInput{Email: "race-signup@bu\u0308cher.example"},
 	)
 	if err != nil {
 		t.Fatalf("start first signup: %v", err)

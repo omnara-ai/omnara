@@ -38,12 +38,20 @@ func TestNormalizedEmailLookupKeys(t *testing.T) {
 		{
 			name:  "unicode domain",
 			email: "User@BÜCHER.example",
-			want:  []string{"user@xn--bcher-kva.example", "user@bücher.example"},
+			want: []string{
+				"user@xn--bcher-kva.example",
+				"user@bücher.example",
+				"user@bu\u0308cher.example",
+			},
 		},
 		{
 			name:  "ascii idna domain",
 			email: "User@XN--BCHER-KVA.example",
-			want:  []string{"user@xn--bcher-kva.example", "user@bücher.example"},
+			want: []string{
+				"user@xn--bcher-kva.example",
+				"user@bücher.example",
+				"user@bu\u0308cher.example",
+			},
 		},
 		{
 			name:  "legacy decomposed domain",
@@ -52,6 +60,15 @@ func TestNormalizedEmailLookupKeys(t *testing.T) {
 				"user@xn--bcher-kva.example",
 				"user@bu\u0308cher.example",
 				"user@bücher.example",
+			},
+		},
+		{
+			name:  "local part unchanged",
+			email: "Üser@BÜCHER.example",
+			want: []string{
+				"üser@xn--bcher-kva.example",
+				"üser@bücher.example",
+				"üser@bu\u0308cher.example",
 			},
 		},
 	}
