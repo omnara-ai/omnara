@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/omnara-ai/omnara/internal/agentconfignamemigration"
+	schemamigrations "github.com/omnara-ai/omnara/migrations"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 )
@@ -24,8 +24,8 @@ const (
 	defaultStatementTimeout = "15min"
 	migrationUnlockTimeout  = 5 * time.Second
 
-	agentConfigNameMigrationFile    = "000026_migrate_agent_config_names.go"
-	agentConfigNameMigrationVersion = 26
+	agentConfigNameMigrationFile    = schemamigrations.AgentConfigNameMigrationFile
+	agentConfigNameMigrationVersion = schemamigrations.AgentConfigNameMigrationVersion
 	resourceNameMigrationVersion    = 25
 )
 
@@ -113,7 +113,7 @@ func ApplyPostgres(
 	if registerAgentConfigNames {
 		providerOptions = append(
 			providerOptions,
-			goose.WithGoMigrations(agentConfigNameMigration()),
+			goose.WithGoMigrations(schemamigrations.NewAgentConfigNameMigration()),
 		)
 	}
 	provider, err := goose.NewProvider(
@@ -182,16 +182,6 @@ func validateAgentConfigNameMigrationPresence(present bool, current, target int6
 		)
 	}
 	return nil
-}
-
-func agentConfigNameMigration() *goose.Migration {
-	migration := goose.NewGoMigration(
-		agentConfigNameMigrationVersion,
-		&goose.GoFunc{RunTx: agentconfignamemigration.Up},
-		nil,
-	)
-	migration.Source = agentConfigNameMigrationFile
-	return migration
 }
 
 // Goose removes cancellation before SessionUnlock; restore a deadline so cleanup cannot hang.

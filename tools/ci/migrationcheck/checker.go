@@ -79,6 +79,8 @@ func checkSnapshot(source snapshot) error {
 		if len(files) == 0 {
 			return fmt.Errorf("%s contains no migrations", set.directory)
 		}
+		previousFile := ""
+		previousVersion := 0
 		for index, filePath := range files {
 			if err := validateMigrationPath(set, filePath); err != nil {
 				return err
@@ -87,6 +89,14 @@ func checkSnapshot(source snapshot) error {
 			if err != nil {
 				return fmt.Errorf("parse migration version for %s: %w", filePath, err)
 			}
+			if index > 0 && version == previousVersion {
+				return fmt.Errorf(
+					"%s duplicates migration version %06d from %s",
+					filePath,
+					version,
+					previousFile,
+				)
+			}
 			if expected := index + 1; version != expected {
 				return fmt.Errorf(
 					"%s must be migration %06d; run make migration-fix after rebasing",
@@ -94,6 +104,8 @@ func checkSnapshot(source snapshot) error {
 					expected,
 				)
 			}
+			previousFile = filePath
+			previousVersion = version
 		}
 	}
 	return nil
@@ -266,8 +278,7 @@ func (snapshot worktreeSnapshot) listMigrations(directory string) ([]string, err
 	}
 	var files []string
 	for _, entry := range entries {
-		extension := path.Ext(entry.Name())
-		if extension != ".sql" && extension != ".go" {
+		if !isMigrationFile(entry.Name()) {
 			continue
 		}
 		if entry.Type()&fs.ModeSymlink != 0 || !entry.Type().IsRegular() {
@@ -321,13 +332,17 @@ func (snapshot gitSnapshot) listMigrations(directory string) ([]string, error) {
 	var files []string
 	for _, candidate := range bytes.Split(output, []byte{0}) {
 		filePath := string(candidate)
-		extension := path.Ext(filePath)
-		if filePath != "" && path.Dir(filePath) == directory && (extension == ".sql" || extension == ".go") {
+		if filePath != "" && path.Dir(filePath) == directory && isMigrationFile(filePath) {
 			files = append(files, filePath)
 		}
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func isMigrationFile(filePath string) bool {
+	extension := path.Ext(filePath)
+	return extension == ".sql" || extension == ".go" && !strings.HasSuffix(filePath, "_test.go")
 }
 
 func (snapshot gitSnapshot) readFile(filePath string) ([]byte, error) {

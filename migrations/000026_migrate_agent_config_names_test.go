@@ -1,4 +1,4 @@
-package agentconfignamemigration
+package migrations
 
 import (
 	"bytes"
@@ -9,6 +9,16 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 )
+
+func TestAgentConfigNameMigrationMetadata(t *testing.T) {
+	migration := NewAgentConfigNameMigration()
+	if migration.Version != AgentConfigNameMigrationVersion {
+		t.Fatalf("migration version = %d, want %d", migration.Version, AgentConfigNameMigrationVersion)
+	}
+	if migration.Source != AgentConfigNameMigrationFile {
+		t.Fatalf("migration source = %q, want %q", migration.Source, AgentConfigNameMigrationFile)
+	}
+}
 
 func TestMigrateAgentConfigYAMLSourceRemovesOnlyTopLevelName(t *testing.T) {
 	tests := []struct {

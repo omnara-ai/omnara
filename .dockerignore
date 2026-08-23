@@ -21,4 +21,5 @@ frontend/apps/web/playwright-report
 frontend/apps/web/test-results
 frontend/**/*.tsbuildinfo
 internal/blackbox/*.log
+migrations/*_test.go
 blackbox-run.log

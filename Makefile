@@ -175,7 +175,11 @@ migration-fix:
 
 migration-check:
 	@for dir in $(MIGRATION_DIRS); do \
-		$(GOOSE) -env=none -dir "$$dir" validate || exit $$?; \
+		for migration_file in "$$dir"/*.sql "$$dir"/*.go; do \
+			test -e "$$migration_file" || continue; \
+			case "$$migration_file" in *_test.go) continue ;; esac; \
+			$(GOOSE) -env=none -dir "$$migration_file" validate || exit $$?; \
+		done; \
 		if down_annotations="$$(grep -niE '^[[:space:]]*--.*[+]goose.*down.*$$' "$$dir"/*.sql)"; then \
 			printf '%s\n' "$$down_annotations"; \
 			printf '%s contains a Down migration; committed migrations are forward-only\n' "$$dir"; \
