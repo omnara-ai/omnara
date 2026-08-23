@@ -11,6 +11,28 @@ export interface OmnaraClientOptions {
   headers?: Record<string, string>
 }
 
+type Dispatch = (options?: Record<string, unknown>) => unknown
+
+// The generated client leaks per-call options — including the `client`
+// selector — into the Request init, which throws on Deno and Bun (they
+// reserve the `client` init key). Drop the key before dispatch.
+// TODO: remove once hey-api/hey-api#4177 is fixed and regenerated.
+function stripClientSelector(client: OmnaraClient): void {
+  const strip = (dispatch: Dispatch): Dispatch => (options) => {
+    if (options == null || !('client' in options)) return dispatch(options)
+    const { client: _selected, ...rest } = options
+    return dispatch(rest)
+  }
+  const dispatches = client as unknown as Record<string, Dispatch>
+  for (const method of ['connect', 'delete', 'get', 'head', 'options', 'patch', 'post', 'put', 'request', 'trace'] as const) {
+    dispatches[method] = strip(dispatches[method] as Dispatch)
+  }
+  const sse = client.sse as unknown as Record<string, Dispatch>
+  for (const [method, dispatch] of Object.entries(sse)) {
+    sse[method] = strip(dispatch)
+  }
+}
+
 export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraClient {
   const client = createClient(
     createConfig({
@@ -33,5 +55,6 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
     if (!response.ok) throw await ApiError.fromResponse(response)
     return response
   })
+  stripClientSelector(client)
   return client
 }
