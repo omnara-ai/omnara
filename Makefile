@@ -173,6 +173,7 @@ migration-fix:
 		done; \
 	done
 
+# Goose validates individual files, while its directory validator also parses Go test files.
 migration-check:
 	@for dir in $(MIGRATION_DIRS); do \
 		for migration_file in "$$dir"/*.sql "$$dir"/*.go; do \
