@@ -20,12 +20,14 @@ type Dispatch = (options?: Record<string, unknown>) => unknown
 function stripClientSelector(client: OmnaraClient): void {
   const strip = (dispatch: Dispatch): Dispatch => (options) => {
     if (options == null || !('client' in options)) return dispatch(options)
-    const { client: _selected, ...rest } = options
+    const rest = { ...options }
+    delete rest.client
     return dispatch(rest)
   }
-  const dispatches = client as unknown as Record<string, Dispatch>
-  for (const method of ['connect', 'delete', 'get', 'head', 'options', 'patch', 'post', 'put', 'request', 'trace'] as const) {
-    dispatches[method] = strip(dispatches[method] as Dispatch)
+  const methods = ['connect', 'delete', 'get', 'head', 'options', 'patch', 'post', 'put', 'request', 'trace'] as const
+  const dispatches = client as unknown as Record<(typeof methods)[number], Dispatch>
+  for (const method of methods) {
+    dispatches[method] = strip(dispatches[method])
   }
   const sse = client.sse as unknown as Record<string, Dispatch>
   for (const [method, dispatch] of Object.entries(sse)) {
