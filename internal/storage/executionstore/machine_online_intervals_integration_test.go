@@ -5,14 +5,18 @@ package executionstore_test
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
-	"github.com/pressly/goose/v3"
 )
 
 func TestMachineOnlineIntervalTrackingStartsAtMigration(t *testing.T) {
@@ -21,16 +25,7 @@ func TestMachineOnlineIntervalTrackingStartsAtMigration(t *testing.T) {
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDB(*pool.Config().ConnConfig.Copy())
 	t.Cleanup(func() { _ = db.Close() })
-	migrator, err := goose.NewProvider(
-		goose.DialectPostgres,
-		db,
-		os.DirFS("../../../migrations"),
-		goose.WithDisableGlobalRegistry(true),
-	)
-	if err != nil {
-		t.Fatalf("create migration provider: %v", err)
-	}
-	if _, err := migrator.UpTo(ctx, 11); err != nil {
+	if err := dbmigrate.ApplyPostgres(ctx, db, executionMigrationFilesThrough(t, 11)); err != nil {
 		t.Fatalf("migrate through version 11: %v", err)
 	}
 
@@ -88,7 +83,7 @@ INSERT INTO daemon_runtimes(
 	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&trackingStartedAt); err != nil {
 		t.Fatalf("capture tracking start lower bound: %v", err)
 	}
-	if _, err := migrator.UpTo(ctx, 12); err != nil {
+	if err := dbmigrate.ApplyPostgres(ctx, db, executionMigrationFilesThrough(t, 12)); err != nil {
 		t.Fatalf("migrate through version 12: %v", err)
 	}
 	var trackingFinishedAt time.Time
@@ -116,6 +111,38 @@ WHERE interval.org_id = $1 AND interval.machine_id = $2 AND interval.daemon_runt
 	if !confirmedThrough.Equal(startedAt) {
 		t.Fatalf("initial interval confirmed through %s, want tracking start %s", confirmedThrough, startedAt)
 	}
+}
+
+func executionMigrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
+	t.Helper()
+	const migrationsDir = "../../../migrations"
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrations := make(fstest.MapFS)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		prefix, _, ok := strings.Cut(entry.Name(), "_")
+		if !ok {
+			t.Fatalf("migration file lacks version prefix: %s", entry.Name())
+		}
+		version, err := strconv.Atoi(prefix)
+		if err != nil {
+			t.Fatalf("parse migration version %s: %v", entry.Name(), err)
+		}
+		if version > maximum {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(migrationsDir, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		migrations[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	return migrations
 }
 
 func TestDaemonRuntimeTemporalInvariantsRejectImpossibleHistory(t *testing.T) {
