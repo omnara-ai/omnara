@@ -29,14 +29,14 @@ func TestCheckSnapshotRejectsInvalidMigrationTrees(t *testing.T) {
 			mutate: func(source memorySnapshot) {
 				delete(source, "migrations/000001_initial.sql")
 			},
-			want: "migrations contains no SQL migrations",
+			want: "migrations contains no migrations",
 		},
 		{
 			name: "missing daemon migrations",
 			mutate: func(source memorySnapshot) {
 				delete(source, "internal/machinedaemon/statedb/migrations/000001_initial.sql")
 			},
-			want: "internal/machinedaemon/statedb/migrations contains no SQL migrations",
+			want: "internal/machinedaemon/statedb/migrations contains no migrations",
 		},
 		{
 			name: "noncanonical server filename",
@@ -63,6 +63,32 @@ func TestCheckSnapshotRejectsInvalidMigrationTrees(t *testing.T) {
 				t.Fatalf("check error = %v, want substring %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestCheckSnapshotAcceptsServerGoMigration(t *testing.T) {
+	source := validMemorySnapshot()
+	source["migrations/000002_repair.go"] = []byte("go migration")
+	if err := checkSnapshot(source); err != nil {
+		t.Fatalf("check Go migration: %v", err)
+	}
+}
+
+func TestCheckSnapshotRejectsDaemonGoMigration(t *testing.T) {
+	source := validMemorySnapshot()
+	source["internal/machinedaemon/statedb/migrations/000002_repair.go"] = []byte("go migration")
+	err := checkSnapshot(source)
+	if err == nil || !strings.Contains(err.Error(), "outside internal/machinedaemon/statedb/migrations") {
+		t.Fatalf("daemon Go migration error = %v", err)
+	}
+}
+
+func TestCheckSnapshotRejectsMigrationVersionGap(t *testing.T) {
+	source := validMemorySnapshot()
+	source["migrations/000003_late.sql"] = []byte("late")
+	err := checkSnapshot(source)
+	if err == nil || !strings.Contains(err.Error(), "must be migration 000002") {
+		t.Fatalf("migration gap error = %v", err)
 	}
 }
 
@@ -94,6 +120,17 @@ func TestCompareSnapshotsAllowsNewMigrationSuffix(t *testing.T) {
 	}
 	if err := compareSnapshots(base, current); err != nil {
 		t.Fatalf("compare appended migration: %v", err)
+	}
+}
+
+func TestCompareSnapshotsFreezesReleasedGoMigration(t *testing.T) {
+	base := validMemorySnapshot()
+	base["migrations/000002_repair.go"] = []byte("released")
+	current := validMemorySnapshot()
+	current["migrations/000002_repair.go"] = []byte("changed")
+	err := compareSnapshots(base, current)
+	if err == nil || !strings.Contains(err.Error(), "was modified") {
+		t.Fatalf("changed released Go migration error = %v", err)
 	}
 }
 
@@ -267,10 +304,11 @@ func validMemorySnapshot() memorySnapshot {
 	}
 }
 
-func (source memorySnapshot) listSQL(directory string) ([]string, error) {
+func (source memorySnapshot) listMigrations(directory string) ([]string, error) {
 	var files []string
 	for filePath := range source {
-		if path.Dir(filePath) == directory && path.Ext(filePath) == ".sql" {
+		extension := path.Ext(filePath)
+		if path.Dir(filePath) == directory && (extension == ".sql" || extension == ".go") {
 			files = append(files, filePath)
 		}
 	}

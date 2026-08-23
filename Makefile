@@ -166,7 +166,8 @@ state-migration-create:
 migration-fix:
 	@for dir in $(MIGRATION_DIRS); do \
 		$(GOOSE) -env=none -dir "$$dir" fix || exit $$?; \
-		for file in "$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.sql; do \
+		for file in "$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.sql \
+			"$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.go; do \
 			test -e "$$file" || continue; \
 			mv "$$file" "$$dir/0$$(basename "$$file")" || exit $$?; \
 		done; \
@@ -193,16 +194,6 @@ migration-check:
 				test "$$grep_status" -eq 1 || exit "$$grep_status"; \
 			fi; \
 		fi; \
-		expected=1; \
-		for file in "$$dir"/*.sql; do \
-			version="$$(basename "$$file" | sed -nE 's/^([0-9]{6})_.+\.sql$$/\1/p')"; \
-			want="$$(printf '%06d' "$$expected")"; \
-			test "$$version" = "$$want" || { \
-				printf '%s must be migration %s; run make migration-fix after rebasing\n' "$$file" "$$want"; \
-				exit 1; \
-			}; \
-			expected=$$((expected + 1)); \
-		done; \
 	done
 	$(MIGRATION_CHECK) check
 

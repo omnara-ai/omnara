@@ -3,6 +3,7 @@
 package dbmigrate_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -24,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -52,7 +54,7 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	).Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
-	migrationFiles, err := filepath.Glob("../../migrations/*.sql")
+	migrationFiles, err := productionMigrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +109,28 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 	if !agentConfigSourceDefaultDropped {
 		t.Fatal("agent_configs.source retained an invalid empty default")
+	}
+}
+
+func TestPostgresMigrationSetCannotSkipAgentConfigNameMigration(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 24)); err != nil {
+		t.Fatalf("apply migrations before agent config name migration: %v", err)
+	}
+	migrations := migrationFilesThrough(t, 26)
+	delete(migrations, "000026_migrate_agent_config_names.go")
+	err := dbmigrate.ApplyPostgres(ctx, db, migrations)
+	if err == nil || !strings.Contains(err.Error(), "requires missing 000026_migrate_agent_config_names.go") {
+		t.Fatalf("missing Go migration error = %v", err)
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 24 {
+		t.Fatalf("migration version after missing Go migration = %d, want 24", got)
 	}
 }
 
@@ -266,8 +290,8 @@ func TestResourceNameMigrationRequiresUnrepairableExistingRowsToBeValid(t *testi
 			t.Fatalf("resource-name migration error included truncated ID %s: %v", omittedID, err)
 		}
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 25 {
-		t.Fatalf("migration version after rejected resource name = %d, want 25", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 24 {
+		t.Fatalf("migration version after rejected resource name = %d, want 24", got)
 	}
 	for _, orgID := range orgIDs {
 		if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
@@ -363,8 +387,10 @@ model:
   provider_config: Provider
   name: Model
 machine_sources:
-  - machine_pool_name: " Build Pool"
+  - machine_pool_name: "Build Pool"
 `
+	invalidSourceHash := fmt.Sprintf("%x", sha256.Sum256([]byte(invalidSource)))
+	emptyDefinitionHash := fmt.Sprintf("%x", sha256.Sum256([]byte(`{}`)))
 	const insertInvalidSourceConfig = `
 INSERT INTO agent_configs(
     id,
@@ -390,31 +416,32 @@ INSERT INTO agent_configs(
     $3,
     '{}'::jsonb,
     '',
-    $3,
+    $4,
     now()
 )
 `
 	const invalidSourceConfigID = "00000000-0000-0000-0000-000000000001"
-	configIDs := []string{invalidSourceConfigID}
+	invalidConfigIDs := []string{invalidSourceConfigID}
 	if _, err := pool.Exec(
 		ctx,
 		insertInvalidSourceConfig,
 		invalidSourceConfigID,
 		invalidSource,
-		"invalid-resource-name-source",
+		invalidSourceHash,
+		emptyDefinitionHash,
 	); err != nil {
 		t.Fatalf("insert stored agent config with invalid resource reference: %v", err)
 	}
 	const validSource = `
+name: Legacy Agent
 instruction: Test migration preflight.
 model:
-  provider_config: Provider
-  name: Model
+  provider_config: " Provider "
+  name: " Model "
 `
 	const legacyCompiledDefinition = `{"name":"legacy-agent-name"}`
 	legacyDefinitionHash := fmt.Sprintf("%x", sha256.Sum256([]byte(legacyCompiledDefinition)))
 	const legacyCompiledConfigID = "00000000-0000-0000-0000-000000000002"
-	configIDs = append(configIDs, legacyCompiledConfigID)
 	if _, err := pool.Exec(ctx, `
 INSERT INTO agent_configs(
     id,
@@ -437,24 +464,31 @@ INSERT INTO agent_configs(
     '{}'::jsonb,
     $2,
     'yaml',
-    'legacy-compiled-name',
-    $3::jsonb,
+    $3,
+    $4::jsonb,
     '',
-    $4,
+    $5,
     now()
 )
-`, legacyCompiledConfigID, validSource, legacyCompiledDefinition, legacyDefinitionHash); err != nil {
+`,
+		legacyCompiledConfigID,
+		validSource,
+		fmt.Sprintf("%x", sha256.Sum256([]byte(validSource))),
+		legacyCompiledDefinition,
+		legacyDefinitionHash,
+	); err != nil {
 		t.Fatalf("insert stored agent config with legacy compiled name: %v", err)
 	}
-	for index := 3; index <= 22; index++ {
+	for index := 3; index <= 23; index++ {
 		configID := fmt.Sprintf("00000000-0000-0000-0000-%012d", index)
-		configIDs = append(configIDs, configID)
+		invalidConfigIDs = append(invalidConfigIDs, configID)
 		if _, err := pool.Exec(
 			ctx,
 			insertInvalidSourceConfig,
 			configID,
 			invalidSource,
-			fmt.Sprintf("invalid-resource-name-source-%02d", index),
+			invalidSourceHash,
+			emptyDefinitionHash,
 		); err != nil {
 			t.Fatalf("insert extra invalid stored agent config %d: %v", index, err)
 		}
@@ -469,9 +503,7 @@ INSERT INTO agent_configs(
 		"22 agent configs must be migrated",
 		invalidSourceConfigID,
 		"machine_pool_name",
-		legacyCompiledConfigID,
-		`unknown field "name"`,
-		configIDs[19],
+		invalidConfigIDs[19],
 		"and 2 more",
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -481,13 +513,16 @@ INSERT INTO agent_configs(
 	if got := strings.Count(err.Error(), "00000000-0000-0000-0000-"); got != 20 {
 		t.Fatalf("reported agent config IDs = %d, want 20: %v", got, err)
 	}
-	for _, omittedID := range configIDs[20:] {
+	if strings.Contains(err.Error(), legacyCompiledConfigID) {
+		t.Fatalf("repairable legacy config was reported as invalid: %v", err)
+	}
+	for _, omittedID := range invalidConfigIDs[20:] {
 		if strings.Contains(err.Error(), omittedID) {
 			t.Fatalf("agent config migration error included truncated ID %s: %v", omittedID, err)
 		}
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
-		t.Fatalf("migration version after rejected agent config source = %d, want 20", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 25 {
+		t.Fatalf("migration version after rejected agent config source = %d, want 25", got)
 	}
 
 	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER ALL`); err != nil {
@@ -497,8 +532,8 @@ INSERT INTO agent_configs(
 	if _, err := pool.Exec(
 		ctx,
 		`DELETE FROM agent_configs
-		 WHERE source_hash = 'legacy-compiled-name'
-		    OR source_hash LIKE 'invalid-resource-name-source%'`,
+		 WHERE source = $1`,
+		invalidSource,
 	); err != nil {
 		t.Fatalf("remove invalid stored agent configs: %v", err)
 	}
@@ -509,9 +544,160 @@ INSERT INTO agent_configs(
 	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
 		t.Fatalf("apply resource-name migration after agent config repair: %v", err)
 	}
+	var migratedSource, migratedSourceHash, migratedDefinitionHash string
+	var migratedDefinition, migratedCompiledDefinition []byte
+	if err := pool.QueryRow(ctx, `
+		SELECT source, source_hash, definition::text, compiled_definition::text,
+		       effective_definition_hash
+		FROM agent_configs
+		WHERE id = $1::uuid`, legacyCompiledConfigID).Scan(
+		&migratedSource,
+		&migratedSourceHash,
+		&migratedDefinition,
+		&migratedCompiledDefinition,
+		&migratedDefinitionHash,
+	); err != nil {
+		t.Fatalf("load migrated legacy agent config: %v", err)
+	}
+	parsed, err := agentconfig.ParseSource(agentconfig.SourceFormatYAML, []byte(migratedSource))
+	if err != nil {
+		t.Fatalf("parse migrated legacy agent config source: %v", err)
+	}
+	if parsed.Model.ProviderConfig != "Provider" || parsed.Model.Name != "Model" {
+		t.Fatalf("migrated model references = %+v", parsed.Model)
+	}
+	if migratedSourceHash != fmt.Sprintf("%x", sha256.Sum256([]byte(migratedSource))) {
+		t.Fatal("migrated legacy source hash does not match source")
+	}
+	if !bytes.Equal(migratedDefinition, []byte(`{}`)) ||
+		!bytes.Equal(migratedCompiledDefinition, []byte(`{}`)) {
+		t.Fatalf(
+			"migrated legacy definitions = %s and %s, want empty objects",
+			migratedDefinition,
+			migratedCompiledDefinition,
+		)
+	}
+	if migratedDefinitionHash != fmt.Sprintf("%x", sha256.Sum256([]byte(`{}`))) {
+		t.Fatal("migrated legacy definition hash does not match compiled definition")
+	}
 }
 
-func TestResourceNameMigrationPreflightUsesConfiguredSearchPath(t *testing.T) {
+func TestAgentConfigNameMigrationFailsClosedOnDeduplicationCollision(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
+		t.Fatalf("apply migrations before resource-name policy: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("disable agent config triggers: %v", err)
+	}
+	triggersDisabled := true
+	t.Cleanup(func() {
+		if triggersDisabled {
+			_, _ = pool.Exec(context.Background(), `ALTER TABLE agent_configs ENABLE TRIGGER ALL`)
+		}
+	})
+
+	const projectID = "00000000-0000-0000-0000-000000000100"
+	configIDs := []string{
+		"00000000-0000-0000-0000-000000000101",
+		"00000000-0000-0000-0000-000000000102",
+	}
+	for index, configID := range configIDs {
+		name := fmt.Sprintf("legacy-%d", index+1)
+		source := fmt.Sprintf(`name: %s
+instruction: Test collision handling.
+model:
+  provider_config: Provider
+  name: Model
+`, name)
+		definition := fmt.Sprintf(`{"name":%q}`, name)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO agent_configs(
+    id,
+    org_id,
+    project_id,
+    configured_model_id,
+    definition,
+    source,
+    source_format,
+    source_hash,
+    compiled_definition,
+    compiler_version,
+    effective_definition_hash,
+    created_at
+) VALUES (
+    $1::uuid,
+    uuidv7(),
+    $2::uuid,
+    uuidv7(),
+    $3::jsonb,
+    $4,
+    'yaml',
+    $5,
+    $3::jsonb,
+    '',
+    $6,
+    now()
+)
+`,
+			configID,
+			projectID,
+			definition,
+			source,
+			fmt.Sprintf("%x", sha256.Sum256([]byte(source))),
+			fmt.Sprintf("%x", sha256.Sum256([]byte(definition))),
+		); err != nil {
+			t.Fatalf("insert colliding stored agent config %s: %v", configID, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
+		t.Fatalf("enable agent config triggers: %v", err)
+	}
+	triggersDisabled = false
+
+	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
+	for _, want := range []string{
+		"collide after migration",
+		configIDs[0],
+		configIDs[1],
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("agent config collision error = %v, want %q", err, want)
+		}
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 25 {
+		t.Fatalf("migration version after agent config collision = %d, want 25", got)
+	}
+	var legacyNameCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM agent_configs
+		WHERE project_id = $1::uuid
+		  AND source LIKE 'name:%'`, projectID).Scan(&legacyNameCount); err != nil {
+		t.Fatalf("count unchanged colliding configs: %v", err)
+	}
+	if legacyNameCount != 2 {
+		t.Fatalf("unchanged colliding configs = %d, want 2", legacyNameCount)
+	}
+	var sourceConstraintCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM pg_constraint
+		WHERE conname = 'agent_configs_source_required'`).Scan(&sourceConstraintCount); err != nil {
+		t.Fatalf("locate rolled-back agent config source constraint: %v", err)
+	}
+	if sourceConstraintCount != 0 {
+		t.Fatalf("agent config source constraints after rollback = %d, want 0", sourceConstraintCount)
+	}
+}
+
+func TestAgentConfigNameMigrationUsesConfiguredSearchPath(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -548,6 +734,8 @@ func TestResourceNameMigrationPreflightUsesConfiguredSearchPath(t *testing.T) {
 		}
 	})
 	const configID = "00000000-0000-0000-0000-000000000001"
+	emptySourceHash := fmt.Sprintf("%x", sha256.Sum256(nil))
+	emptyDefinitionHash := fmt.Sprintf("%x", sha256.Sum256([]byte(`{}`)))
 	if _, err := productDB.ExecContext(ctx, `
 INSERT INTO agent_configs(
     id,
@@ -570,13 +758,13 @@ INSERT INTO agent_configs(
     '{}'::jsonb,
     '',
     'yaml',
-    'search-path-invalid',
+    $2,
     '{}'::jsonb,
     '',
-    'search-path-invalid',
+    $3,
     now()
 )
-`, configID); err != nil {
+`, configID, emptySourceHash, emptyDefinitionHash); err != nil {
 		t.Fatalf("insert invalid stored agent config: %v", err)
 	}
 	if _, err := productDB.ExecContext(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER ALL`); err != nil {
@@ -594,8 +782,8 @@ INSERT INTO agent_configs(
 			t.Fatalf("resource-name migration error = %v, want %q", err, want)
 		}
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, migrationDB); got != 20 {
-		t.Fatalf("migration version after search-path preflight = %d, want 20", got)
+	if got := currentPostgresMigrationVersion(t, ctx, migrationDB); got != 25 {
+		t.Fatalf("migration version after search-path migration = %d, want 25", got)
 	}
 }
 
@@ -1834,7 +2022,7 @@ func latestPostgresMigrationVersion(t *testing.T) int64 {
 	}
 	var latest int64
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
 			continue
 		}
 		prefix, _, ok := strings.Cut(entry.Name(), "_")
@@ -1861,7 +2049,7 @@ func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
 	}
 	migrations := make(fstest.MapFS)
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
 			continue
 		}
 		prefix, _, ok := strings.Cut(entry.Name(), "_")
@@ -1882,6 +2070,26 @@ func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
 		migrations[entry.Name()] = &fstest.MapFile{Data: data}
 	}
 	return migrations
+}
+
+func productionMigrationFiles() ([]string, error) {
+	entries, err := os.ReadDir("../../migrations")
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
+			continue
+		}
+		files = append(files, filepath.Join("../../migrations", entry.Name()))
+	}
+	return files, nil
+}
+
+func isProductionMigrationFile(name string) bool {
+	extension := filepath.Ext(name)
+	return extension == ".sql" || extension == ".go" && !strings.HasSuffix(name, "_test.go")
 }
 
 func testDatabaseURL(t *testing.T) string {
